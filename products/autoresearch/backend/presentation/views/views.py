@@ -21,12 +21,14 @@ from rest_framework.fields import empty
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 
 from posthog.api.documentation import PostHogAutoSchema
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
+from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 
 from products.autoresearch.backend.facade import api
 from products.autoresearch.backend.facade.access import has_autoresearch_access
@@ -132,11 +134,23 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
     schema = FacadePathParamSchema()
     uuid_path_parameters = {"id": "A UUID string identifying this autoresearch pipeline."}
     scope_object = "autoresearch"
+    # `resolve_template` and `validate_definition` are classified here and also carry their own
+    # `required_scopes` on the action, because both run HogQL over the team's events.
     scope_object_read_actions = ["list", "retrieve", "validate_definition", "list_templates", "resolve_template"]
     scope_object_write_actions = ["create", "update", "partial_update", "destroy"]
     permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchPipelineSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
+
+    # The actions that query ClickHouse on every call. Both run several unsampled scans over a
+    # caller-chosen window, so a personal API key gets the ClickHouse budget rather than the
+    # general endpoint allowance.
+    _QUERY_ACTIONS = ("resolve_template", "validate_definition")
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        if self.action in self._QUERY_ACTIONS:
+            return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
+        return super().get_throttles()
 
     def get_serializer_class(self) -> type[AutoresearchPipelineSerializer | AutoresearchPipelineCreateSerializer]:
         if self.action in ("create", "partial_update", "update"):
@@ -215,7 +229,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
             "resolved pipeline config ready to pass to autoresearch-create."
         ),
     )
-    @action(detail=False, methods=["get"], url_path="templates")
+    @action(detail=False, methods=["get"], url_path="templates", pagination_class=None)
     def list_templates(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return Response(TemplateInfoSerializer(instance=api.list_templates(), many=True).data)
 
@@ -225,7 +239,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
             200: OpenApiResponse(
                 response=ResolvedTemplateSerializer,
                 description=(
-                    "Resolved pipeline config. Pass target_event, horizon_days, "
+                    "Resolved pipeline config. Pass target_event, horizon_days, training_lookback_days, "
                     "training_population, inference_population, and output_person_property directly "
                     "to autoresearch-create. Always run autoresearch-validate-create on the resolved "
                     "config before creating."
@@ -246,7 +260,12 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
             "then autoresearch-create to create the pipeline."
         ),
     )
-    @action(detail=False, methods=["post"], url_path="resolve-template")
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="resolve-template",
+        required_scopes=["autoresearch:read", "query:read"],
+    )
     def resolve_template(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         data = request.validated_data
         try:
@@ -272,12 +291,17 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         summary="Validate a pipeline definition",
         description=(
             "Validate a proposed pipeline's target event and population before creating it. "
-            "Returns volume estimates, base rate, and any warnings. "
-            "Warnings with severity='error' must be resolved before creation can proceed. "
-            "Call this before autoresearch-create."
+            "Returns volume estimates, base rate, and any warnings. The result is advice: a warning "
+            "with severity 'error' means the data is too thin for a reliable model, but creation "
+            "and training do not enforce it. Call this before autoresearch-create."
         ),
     )
-    @action(detail=False, methods=["post"], url_path="validate")
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="validate",
+        required_scopes=["autoresearch:read", "query:read"],
+    )
     def validate_definition(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         data = request.validated_data
         target_event, target_definition = resolve_target(
@@ -291,8 +315,10 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
             target_definition=target_definition,
             horizon_days=data.get("horizon_days", 7),
             training_lookback_days=data.get("training_lookback_days", 180),
-            training_population=data.get("training_population", {}),
-            inference_population=data.get("inference_population", {}),
+            training_population=data["training_population"],
+            # Creation stores the training population when the inference population is omitted
+            # or empty, so the preview has to count the same population.
+            inference_population=data.get("inference_population") or data["training_population"],
             user=cast(User, request.user),
         )
         return Response(ValidatePipelineResponseSerializer(instance=result).data)

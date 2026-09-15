@@ -31,6 +31,8 @@ import re
 import hashlib
 from typing import Any, Optional
 
+from django.db import models
+
 from posthog.schema import HogQLQuery
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -38,7 +40,11 @@ from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.autoresearch.backend.dataset.labeling import _identified_users_and_clause
+from products.autoresearch.backend.dataset.labeling import (
+    LABELER_QUERY_MODIFIERS,
+    _identified_users_and_clause,
+    _own_events_excluded_clause,
+)
 from products.autoresearch.backend.query import run_hogql_rows
 
 # Checked in this order when resolving an activity event for universal templates
@@ -50,6 +56,22 @@ _MAX_ACTIVITY_ALTERNATIVES = 4
 _PIPELINE_FIELD_MAX_LENGTH = 255
 
 _UNSAFE_PROPERTY_CHARS = re.compile(r"[^a-z0-9._-]+")
+
+# Pipeline creation defaults the training lookback to the first value and the API caps it at
+# the second (`AutoresearchPipelineCreateSerializer.training_lookback_days`). A resolved config
+# carries its own lookback so a long horizon is not created against the default.
+_DEFAULT_TRAINING_LOOKBACK_DAYS = 180
+_MAX_TRAINING_LOOKBACK_DAYS = 730
+
+
+# A TextChoices class rather than bare strings: the API declares its template-key fields from
+# these choices, and the OpenAPI enum component takes its name from the class.
+class TemplateKey(models.TextChoices):
+    LIKELY_ACTIVE_SOON = "likely_active_soon"
+    AT_RISK_OF_INACTIVITY = "at_risk_of_inactivity"
+    RETURN_AFTER_FIRST_USE = "return_after_first_use"
+    FEATURE_ADOPTION = "feature_adoption"
+    REPEAT_KEY_BEHAVIOR = "repeat_key_behavior"
 
 
 @frozen
@@ -74,8 +96,8 @@ class AutoresearchTemplate:
 
 
 TEMPLATES: dict[str, AutoresearchTemplate] = {
-    "likely_active_soon": AutoresearchTemplate(
-        key="likely_active_soon",
+    TemplateKey.LIKELY_ACTIVE_SOON: AutoresearchTemplate(
+        key=TemplateKey.LIKELY_ACTIVE_SOON,
         display_name="Likely active soon",
         description_template=(
             "Predict which active users will be active again in the next {horizon_days} days. "
@@ -92,8 +114,8 @@ TEMPLATES: dict[str, AutoresearchTemplate] = {
             "then $autocapture, then the custom event with the most identified users. You can override it."
         ),
     ),
-    "at_risk_of_inactivity": AutoresearchTemplate(
-        key="at_risk_of_inactivity",
+    TemplateKey.AT_RISK_OF_INACTIVITY: AutoresearchTemplate(
+        key=TemplateKey.AT_RISK_OF_INACTIVITY,
         display_name="At risk of inactivity",
         description_template=(
             "Find users who are unlikely to be active in the next {horizon_days} days. "
@@ -110,8 +132,8 @@ TEMPLATES: dict[str, AutoresearchTemplate] = {
             "on the score, for example below 0.2, instead of modeling the absence of an event."
         ),
     ),
-    "return_after_first_use": AutoresearchTemplate(
-        key="return_after_first_use",
+    TemplateKey.RETURN_AFTER_FIRST_USE: AutoresearchTemplate(
+        key=TemplateKey.RETURN_AFTER_FIRST_USE,
         display_name="Likely to return after first use",
         description_template=(
             "Predict which new users will be active again within {horizon_days} days. "
@@ -129,8 +151,8 @@ TEMPLATES: dict[str, AutoresearchTemplate] = {
             "activity later in the same first session."
         ),
     ),
-    "feature_adoption": AutoresearchTemplate(
-        key="feature_adoption",
+    TemplateKey.FEATURE_ADOPTION: AutoresearchTemplate(
+        key=TemplateKey.FEATURE_ADOPTION,
         display_name="Likely to adopt a feature",
         description_template=(
             "Predict which active users will use a selected feature for the first time within {horizon_days} days. "
@@ -147,8 +169,8 @@ TEMPLATES: dict[str, AutoresearchTemplate] = {
             "within the training lookback window. Use before that window does not exclude a user."
         ),
     ),
-    "repeat_key_behavior": AutoresearchTemplate(
-        key="repeat_key_behavior",
+    TemplateKey.REPEAT_KEY_BEHAVIOR: AutoresearchTemplate(
+        key=TemplateKey.REPEAT_KEY_BEHAVIOR,
         display_name="Likely to repeat a key behavior",
         description_template=(
             "Predict which users who have already done a key action will do it again within {horizon_days} days. "
@@ -199,12 +221,13 @@ def resolve_activity_event(team: Team, user: Optional[User] = None) -> tuple[Opt
             SELECT event, uniq(person_id) AS c
             FROM events
             WHERE timestamp >= now() - toIntervalDay(30)
-              AND timestamp < now(){identified_clause}
+              AND timestamp < now(){_own_events_excluded_clause()}{identified_clause}
               AND (event IN ({preferred_literal}) OR event NOT LIKE '$%')
             GROUP BY event
             ORDER BY event IN ({preferred_literal}) DESC, c DESC, event
             LIMIT 100
         """,
+        modifiers=LABELER_QUERY_MODIFIERS,
     )
     tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
     rows = run_hogql_rows(team=team, query=query, user=user)
@@ -240,11 +263,19 @@ class ResolvedTemplate:
     resolved_activity_event: Optional[str]
     activity_event_alternatives: list[str]
     horizon_days: int
+    training_lookback_days: int
     training_population: dict[str, Any]
     inference_population: dict[str, Any]
     output_person_property: str
     suggested_name: str
     notes: str
+
+
+def _training_lookback_days(horizon_days: int) -> int:
+    # The labeler places each anchor before now() - horizon, so the horizon eats the recent end
+    # of the lookback. Twice the horizon keeps at least half the window for anchors; the default
+    # already does that for every template's default horizon.
+    return max(_DEFAULT_TRAINING_LOOKBACK_DAYS, min(_MAX_TRAINING_LOOKBACK_DAYS, 2 * horizon_days))
 
 
 def _target_digest(target_event: str) -> str:
@@ -346,6 +377,7 @@ def resolve_template(
         resolved_activity_event=resolved_activity,
         activity_event_alternatives=alternatives,
         horizon_days=horizon_days,
+        training_lookback_days=_training_lookback_days(horizon_days),
         training_population=training_population,
         inference_population=inference_population,
         output_person_property=_output_person_property(template.output_property_prefix, target_event, horizon_days),

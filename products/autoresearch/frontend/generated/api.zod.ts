@@ -361,16 +361,16 @@ export const AutoresearchResolveTemplateCreateBody = /* @__PURE__ */ zod.object(
             'repeat_key_behavior',
         ])
         .describe(
-            '\* `likely_active_soon` - likely_active_soon\n\* `at_risk_of_inactivity` - at_risk_of_inactivity\n\* `return_after_first_use` - return_after_first_use\n\* `feature_adoption` - feature_adoption\n\* `repeat_key_behavior` - repeat_key_behavior'
+            '\* `likely_active_soon` - Likely Active Soon\n\* `at_risk_of_inactivity` - At Risk Of Inactivity\n\* `return_after_first_use` - Return After First Use\n\* `feature_adoption` - Feature Adoption\n\* `repeat_key_behavior` - Repeat Key Behavior'
         )
         .describe(
-            'Template to resolve. Use autoresearch-templates-list to see all available templates with descriptions. Required.\n\n\* `likely_active_soon` - likely_active_soon\n\* `at_risk_of_inactivity` - at_risk_of_inactivity\n\* `return_after_first_use` - return_after_first_use\n\* `feature_adoption` - feature_adoption\n\* `repeat_key_behavior` - repeat_key_behavior'
+            'Template to resolve. Use autoresearch-templates-list to see all available templates with descriptions. Required.\n\n\* `likely_active_soon` - Likely Active Soon\n\* `at_risk_of_inactivity` - At Risk Of Inactivity\n\* `return_after_first_use` - Return After First Use\n\* `feature_adoption` - Feature Adoption\n\* `repeat_key_behavior` - Repeat Key Behavior'
         ),
     target_event: zod
         .string()
         .optional()
         .describe(
-            "Event or action name to use as the prediction target. Required for 'feature_adoption' and 'repeat_key_behavior'. Optional override for activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use') — omit to use the auto-resolved event."
+            "Event name to use as the prediction target. Required for 'feature_adoption' and 'repeat_key_behavior'. Optional override for activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use'); omit to use the auto-resolved event. To predict an action, create the pipeline with target_definition after resolving."
         ),
     horizon_days: zod
         .number()
@@ -381,7 +381,7 @@ export const AutoresearchResolveTemplateCreateBody = /* @__PURE__ */ zod.object(
 })
 
 /**
- * Validate a proposed pipeline's target event and population before creating it. Returns volume estimates, base rate, and any warnings. Warnings with severity='error' must be resolved before creation can proceed. Call this before autoresearch-create.
+ * Validate a proposed pipeline's target event and population before creating it. Returns volume estimates, base rate, and any warnings. The result is advice: a warning with severity 'error' means the data is too thin for a reliable model, but creation and training do not enforce it. Call this before autoresearch-create.
  * @summary Validate a pipeline definition
  */
 export const autoresearchValidateCreateBodyTargetEventDefault = ``
@@ -400,7 +400,19 @@ export const AutoresearchValidateCreateBody = /* @__PURE__ */ zod.object({
             "Event name to predict, e.g. '$pageview'. Must exist in the team's event schema. Omit when predicting an action target (pass target_definition instead)."
         ),
     target_definition: zod
-        .unknown()
+        .union([
+            zod
+                .object({
+                    type: zod.enum(['event']),
+                })
+                .describe('Predict target_event. The default when target_definition is omitted.'),
+            zod
+                .object({
+                    type: zod.enum(['action']),
+                    action_id: zod.number().min(1).describe('ID of the action to predict.'),
+                })
+                .describe('Predict a PostHog action in this project.'),
+        ])
         .optional()
         .describe(
             'Optional target definition. Pass {\"type\": \"action\", \"action_id\": N} to predict a PostHog action (multi-step \/ property \/ autocapture matcher) instead of a single event.'
@@ -424,5 +436,7 @@ export const AutoresearchValidateCreateBody = /* @__PURE__ */ zod.object({
     inference_population: zod
         .looseObject({})
         .optional()
-        .describe('Population filter for daily scoring. Defaults to training_population if not provided.'),
+        .describe(
+            'Population filter for daily scoring. When omitted or empty, the training population is counted, as creation stores it.'
+        ),
 })
