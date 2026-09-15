@@ -1,6 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import * as scientistPng from '@posthog/brand/hoggies/png/scientist'
 import { IconChevronRight, IconEllipsis } from '@posthog/icons'
 import {
     LemonBanner,
@@ -16,8 +15,6 @@ import {
     Spinner,
 } from '@posthog/lemon-ui'
 
-import { pngHoggie } from 'lib/brand/hoggies'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TZLabel } from 'lib/components/TZLabel'
 
 import { CheckEditorModal } from '../CheckEditorModal'
@@ -32,6 +29,7 @@ import {
 import { CheckStatusCell } from '../CheckStatusCell'
 import { DataQualityCheckEditorLogicProps, dataQualityCheckEditorLogic } from '../dataQualityCheckEditorLogic'
 import type { DataQualityOverviewCheckApi } from '../generated/api.schemas'
+import { DataQualityEmptyState } from './DataQualityEmptyState'
 import { DataQualityGateToggle } from './DataQualityGateToggle'
 import {
     NEW_CHECK_ACTION_ID,
@@ -49,8 +47,6 @@ const STATUS_FILTERS: { value: OverviewStatusFilter; label: string }[] = [
     { value: 'failing', label: 'Failing' },
     { value: 'never_run', label: 'Not run yet' },
 ]
-
-const HedgehogScientist = pngHoggie(scientistPng)
 
 function focusFirstAvailable(elementIds: string[]): void {
     // Runs after the removed row has left the DOM, so the first id that still resolves wins.
@@ -206,7 +202,7 @@ export function DataQualityOverview(): JSX.Element {
                 )}
 
                 {checks.length === 0 ? (
-                    <NoChecksYet onAddCheck={addCheck} />
+                    <DataQualityEmptyState onAddCheck={addCheck} />
                 ) : subjectGroups.length === 0 ? (
                     <div className="flex items-center gap-2">
                         <span className="text-secondary">No checks match these filters.</span>
@@ -226,31 +222,6 @@ export function DataQualityOverview(): JSX.Element {
                 <CheckEditorModal />
             </div>
         </BindLogic>
-    )
-}
-
-function NoChecksYet({ onAddCheck }: { onAddCheck: () => void }): JSX.Element {
-    return (
-        <div data-attr="data-quality-overview-empty-state">
-            <ProductIntroduction
-                titleOverride="No checks yet"
-                thingName="check"
-                description="Create a check to spot issues in your data before they affect your analysis."
-                customHog={HedgehogScientist}
-                hogLayout="responsive"
-                useMainContentContainerQueries
-                actionElementOverride={
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        onClick={onAddCheck}
-                        data-attr="data-quality-overview-first-check"
-                    >
-                        Add your first check
-                    </LemonButton>
-                }
-            />
-        </div>
     )
 }
 
