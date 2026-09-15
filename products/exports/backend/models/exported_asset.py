@@ -266,21 +266,20 @@ class ExportedAsset(models.Model):
         logger.info("deleting_expired_assets", count=expired_assets.count())
 
         # The file goes first: the row is the only pointer to it.
-        stored = expired_assets.exclude(content_location=None).exclude(content_location="")
-        stalled: set = set()
+        stored = expired_assets.exclude(content_location=None).exclude(content_location="").order_by("id")
+        # Keyset: a storage outage fails whole chunks, and an exclusion set would grow the predicate
+        # by a batch on every pass.
+        after_id = None
         while True:
-            chunk = list(
-                stored.exclude(id__in=stalled)
-                .order_by("id")
-                .values_list("id", "content_location")[:_EXPIRY_DELETE_BATCH]
-            )
+            page = stored if after_id is None else stored.filter(id__gt=after_id)
+            chunk = list(page.values_list("id", "content_location")[:_EXPIRY_DELETE_BATCH])
             if not chunk:
                 break
+            after_id = chunk[-1][0]
             failed = set(object_storage.delete_objects([location for _, location in chunk]))
             if failed:
                 logger.warning("deleting_expired_assets_object_failures", count=len(failed))
-            # Skipped, not retried here, so one bad key cannot stall the rest of the sweep.
-            stalled.update(asset_id for asset_id, location in chunk if location in failed)
+            # A row whose object survived waits for the next run rather than stalling this one.
             deletable = [asset_id for asset_id, location in chunk if location not in failed]
             if deletable:
                 ExportedAsset.objects_including_ttl_deleted.filter(id__in=deletable).delete()
