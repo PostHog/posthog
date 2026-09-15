@@ -93,6 +93,26 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
             output_field=IntegerField(),
         )
 
+        # Rank each team's alerts: never checked, aged oldest-first, then fresh cadence-first.
+        team_alert_ordering = [
+            F("_aging_order").asc(),
+            F("_aged_next_check_at").asc(nulls_first=True),
+            F("_interval_order").asc(),
+            F("next_check_at").asc(nulls_first=True),
+            F("id").asc(),
+        ]
+        # Select rank 1 from each team, then rank 2, up to the fair share. Overflow fills the cap last.
+        scheduler_ordering = [
+            F("_fair_share_order").asc(),
+            F("_fair_share_rank").asc(nulls_last=True),
+            F("_aging_order").asc(),
+            F("_aged_next_check_at").asc(nulls_first=True),
+            F("_interval_order").asc(),
+            F("next_check_at").asc(nulls_first=True),
+            F("team_id").asc(),
+            F("id").asc(),
+        ]
+
         due_alerts_query = (
             AlertConfiguration.objects.filter(
                 Q(enabled=True, next_check_at__lte=polled_at) | Q(enabled=True, next_check_at__isnull=True)
@@ -101,8 +121,7 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
             .filter(insight__deleted=False)
         )
         alerts_query = (
-            due_alerts_query
-            .annotate(
+            due_alerts_query.annotate(
                 _interval_order=calculation_interval_order,
                 _aging_order=Case(
                     When(next_check_at__isnull=True, then=Value(0)),
@@ -121,13 +140,7 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
                 _team_rank=Window(
                     expression=RowNumber(),
                     partition_by=[F("team_id")],
-                    order_by=[
-                        F("_aging_order").asc(),
-                        F("_aged_next_check_at").asc(nulls_first=True),
-                        F("_interval_order").asc(),
-                        F("next_check_at").asc(nulls_first=True),
-                        F("id").asc(),
-                    ],
+                    order_by=team_alert_ordering,
                 ),
             )
             .annotate(
@@ -145,16 +158,7 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
                     output_field=IntegerField(),
                 ),
             )
-            .order_by(
-                "_fair_share_order",
-                F("_fair_share_rank").asc(nulls_last=True),
-                "_aging_order",
-                F("_aged_next_check_at").asc(nulls_first=True),
-                "_interval_order",
-                F("next_check_at").asc(nulls_first=True),
-                "team_id",
-                "id",
-            )
+            .order_by(*scheduler_ordering)
             .only("id", "team_id", "calculation_interval", "insight_id")[: inputs.max_alerts_per_run]
         )
 

@@ -1,4 +1,3 @@
-from collections import Counter
 from datetime import UTC, datetime
 
 import pytest
@@ -19,101 +18,90 @@ from posthog.temporal.tests.test_alerts_activities import _create_alert
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_retrieve_due_alerts_fills_unused_capacity_after_each_team_gets_fair_share(ateam: Team) -> None:
-    for _ in range(2):
-        await _create_alert(ateam)
+@pytest.mark.parametrize(
+    ("alerts_per_team", "max_alerts_per_run", "team_fair_share_per_run", "expected_team_order"),
+    [
+        pytest.param([2, 2], 4, 1, [0, 1, 0, 1], id="overflow-fills-unused-capacity"),
+        pytest.param([3, 1], 2, 1, [0, 1], id="fair-share-precedes-overflow"),
+        pytest.param([3, 3, 3], 5, 3, [0, 1, 2, 0, 1], id="truncation-uses-rank-rounds"),
+    ],
+)
+async def test_retrieve_due_alerts_orders_fair_share_before_overflow(
+    ateam: Team,
+    alerts_per_team: list[int],
+    max_alerts_per_run: int,
+    team_fair_share_per_run: int,
+    expected_team_order: list[int],
+) -> None:
+    teams = [ateam]
+    for team_index in range(1, len(alerts_per_team)):
+        teams.append(
+            await sync_to_async(Team.objects.create)(
+                organization_id=ateam.organization_id,
+                project_id=ateam.project_id,
+                name=f"Team {team_index}",
+            )
+        )
 
-    other_team = await sync_to_async(Team.objects.create)(
-        organization_id=ateam.organization_id,
-        project_id=ateam.project_id,
-        name="Other team",
-    )
-    for _ in range(2):
-        await _create_alert(other_team)
-
-    alerts = await ActivityEnvironment().run(
-        retrieve_due_alerts,
-        ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=4, team_fair_share_per_run=1),
-    )
-
-    assert len(alerts) == 4
-    assert {alert.team_id for alert in alerts} == {ateam.id, other_team.id}
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_retrieve_due_alerts_prioritizes_each_team_before_overflow(ateam: Team) -> None:
-    for _ in range(3):
-        await _create_alert(ateam)
-
-    other_team = await sync_to_async(Team.objects.create)(
-        organization_id=ateam.organization_id,
-        project_id=ateam.project_id,
-        name="Other team",
-    )
-    await _create_alert(other_team)
-
-    alerts = await ActivityEnvironment().run(
-        retrieve_due_alerts,
-        ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=2, team_fair_share_per_run=1),
-    )
-
-    assert len(alerts) == 2
-    assert {alert.team_id for alert in alerts} == {ateam.id, other_team.id}
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_retrieve_due_alerts_truncates_in_rank_rounds_across_teams(ateam: Team) -> None:
-    teams = [
-        ateam,
-        await sync_to_async(Team.objects.create)(
-            organization_id=ateam.organization_id,
-            project_id=ateam.project_id,
-            name="Second team",
-        ),
-        await sync_to_async(Team.objects.create)(
-            organization_id=ateam.organization_id,
-            project_id=ateam.project_id,
-            name="Third team",
-        ),
-    ]
-    for team in teams:
-        for _ in range(3):
+    for team, alert_count in zip(teams, alerts_per_team, strict=True):
+        for _ in range(alert_count):
             await _create_alert(team)
 
     alerts = await ActivityEnvironment().run(
         retrieve_due_alerts,
-        ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=5, team_fair_share_per_run=3),
+        ScheduleDueAlertChecksWorkflowInputs(
+            max_alerts_per_run=max_alerts_per_run,
+            team_fair_share_per_run=team_fair_share_per_run,
+        ),
     )
 
-    assert len(alerts) == 5
-    assert sorted(Counter(alert.team_id for alert in alerts).values()) == [1, 2, 2]
+    team_index_by_id = {team.id: index for index, team in enumerate(teams)}
+    assert [team_index_by_id[alert.team_id] for alert in alerts] == expected_team_order
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_retrieve_due_alerts_promotes_aged_alerts_over_fresh_high_frequency_alerts(ateam: Team) -> None:
-    old_daily_alert = await _create_alert(
-        ateam,
-        calculation_interval=AlertCalculationInterval.DAILY.value,
-        next_check_at=datetime(2026, 9, 10, 11, 40, tzinfo=UTC),
-    )
-    for _ in range(2):
-        await _create_alert(
+async def test_retrieve_due_alerts_applies_the_documented_order_within_each_team(ateam: Team) -> None:
+    alert_specs = [
+        ("fresh_daily_tie_lower_id", AlertCalculationInterval.DAILY, datetime(2026, 9, 10, 11, 47, tzinfo=UTC)),
+        ("fresh_hourly", AlertCalculationInterval.HOURLY, datetime(2026, 9, 10, 11, 46, tzinfo=UTC)),
+        ("aged_real_time", AlertCalculationInterval.REAL_TIME, datetime(2026, 9, 10, 11, 40, tzinfo=UTC)),
+        ("fresh_daily_earlier", AlertCalculationInterval.DAILY, datetime(2026, 9, 10, 11, 46, tzinfo=UTC)),
+        ("never_checked", AlertCalculationInterval.DAILY, None),
+        ("fresh_real_time", AlertCalculationInterval.REAL_TIME, datetime(2026, 9, 10, 11, 59, tzinfo=UTC)),
+        ("aged_daily_oldest", AlertCalculationInterval.DAILY, datetime(2026, 9, 10, 11, 30, tzinfo=UTC)),
+        ("fresh_15_minutes", AlertCalculationInterval.EVERY_15_MINUTES, datetime(2026, 9, 10, 11, 58, tzinfo=UTC)),
+        ("fresh_daily_tie_higher_id", AlertCalculationInterval.DAILY, datetime(2026, 9, 10, 11, 47, tzinfo=UTC)),
+    ]
+    alert_label_by_id: dict[str, str] = {}
+    for label, calculation_interval, next_check_at in alert_specs:
+        alert = await _create_alert(
             ateam,
-            calculation_interval=AlertCalculationInterval.REAL_TIME.value,
-            next_check_at=datetime(2026, 9, 10, 11, 59, tzinfo=UTC),
+            calculation_interval=calculation_interval.value,
+            next_check_at=next_check_at,
         )
+        alert_label_by_id[str(alert.id)] = label
 
     with time_machine.travel("2026-09-10T12:00:00Z", tick=False):
         alerts = await ActivityEnvironment().run(
             retrieve_due_alerts,
-            ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=2, team_fair_share_per_run=2),
+            ScheduleDueAlertChecksWorkflowInputs(
+                max_alerts_per_run=len(alert_specs),
+                team_fair_share_per_run=len(alert_specs),
+            ),
         )
 
-    assert len(alerts) == 2
-    assert str(old_daily_alert.id) in {alert.alert_id for alert in alerts}
+    assert [alert_label_by_id[alert.alert_id] for alert in alerts] == [
+        "never_checked",
+        "aged_daily_oldest",
+        "aged_real_time",
+        "fresh_real_time",
+        "fresh_15_minutes",
+        "fresh_hourly",
+        "fresh_daily_earlier",
+        "fresh_daily_tie_lower_id",
+        "fresh_daily_tie_higher_id",
+    ]
 
 
 @pytest.mark.asyncio
@@ -132,9 +120,9 @@ async def test_retrieve_due_alerts_keeps_active_cohort_in_fair_share(ateam: Team
         first_sweep = await ActivityEnvironment().run(retrieve_due_alerts, inputs)
         second_sweep = await ActivityEnvironment().run(retrieve_due_alerts, inputs)
 
-    expected_ids = {str(alert.id) for alert in due_alerts[:2]}
-    assert {alert.alert_id for alert in first_sweep} == expected_ids
-    assert {alert.alert_id for alert in second_sweep} == expected_ids
+    expected_ids = [str(alert.id) for alert in due_alerts[:2]]
+    assert [alert.alert_id for alert in first_sweep] == expected_ids
+    assert [alert.alert_id for alert in second_sweep] == expected_ids
 
 
 @pytest.mark.asyncio

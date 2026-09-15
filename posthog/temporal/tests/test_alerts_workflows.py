@@ -35,6 +35,7 @@ from posthog.temporal.alerts.activities import evaluate_alert, notify_alert, pre
 from posthog.temporal.alerts.retry_policy import ALERT_EVALUATE_RETRY_POLICY
 from posthog.temporal.alerts.schedule import create_schedule_due_alert_checks_schedule
 from posthog.temporal.alerts.types import (
+    DEFAULT_MAX_DUE_ALERTS_PER_SCHEDULE_RUN,
     AlertInfo,
     CheckAlertWorkflowInputs,
     ScheduleDueAlertChecksWorkflowInputs,
@@ -111,7 +112,7 @@ async def test_schedule_due_alert_checks_does_not_apply_priority_on_shared_queue
 
 
 @pytest.mark.asyncio
-async def test_schedule_due_alert_checks_defaults_to_four_hundred_alerts() -> None:
+async def test_schedule_due_alert_checks_uses_default_alert_limit() -> None:
     create_schedule = AsyncMock()
 
     with (
@@ -128,7 +129,9 @@ async def test_schedule_due_alert_checks_defaults_to_four_hundred_alerts() -> No
 
     assert create_schedule.await_args is not None
     schedule = create_schedule.await_args.args[2]
-    assert schedule.action.args == [ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=400)]
+    assert schedule.action.args == [
+        ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=DEFAULT_MAX_DUE_ALERTS_PER_SCHEDULE_RUN)
+    ]
 
 
 @pytest.mark.asyncio
