@@ -5,6 +5,7 @@ export type AgentErrorClassification =
   | "upstream_connection_error"
   | "upstream_timeout"
   | "upstream_provider_failure"
+  | "upstream_capacity"
   | "content_block_rejection"
   | "turn_ended_without_response"
   | "subscription_usage_limit"
@@ -17,6 +18,7 @@ const RETRYABLE_UPSTREAM_ERROR_CLASSIFICATIONS =
     "upstream_connection_error",
     "upstream_timeout",
     "upstream_provider_failure",
+    "upstream_capacity",
   ]);
 
 export function isRetryableUpstreamErrorClassification(
@@ -30,6 +32,11 @@ const UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN = /API Error:\s*(?:429|5\d\d)\b/i;
 // "unexpected status <code> <reason>: <body>" instead of the "API Error:" wording.
 const CODEX_PROVIDER_ERROR_STATUS_PATTERN =
   /unexpected status\s*(?:429|5\d\d)\b/i;
+// A full service-tier queue is refused in prose, with no HTTP status to match
+// on: "Selected model is at capacity. Please try a different model." The model
+// is reachable again once the queue drains. The wording varies by provider, so
+// match the family.
+const UPSTREAM_CAPACITY_PATTERN = /\bmodel is (?:currently )?at capacity\b/i;
 const SANDBOX_TASK_SPEND_LIMIT_PATTERN =
   /This agent run reached its spend limit/i;
 const TURN_ENDED_WITHOUT_RESPONSE_PATTERN =
@@ -42,8 +49,9 @@ const SUBSCRIPTION_USAGE_LIMIT_PATTERN = /usage limit/i;
 
 /**
  * Classify error strings surfaced by agent adapters. Transient upstream
- * failures are retriable when they match exact stream/connection patterns or
- * retryable provider HTTP statuses; most other errors are not.
+ * failures are retriable when they match exact stream/connection patterns,
+ * retryable provider HTTP statuses, or a provider capacity refusal; most other
+ * errors are not.
  */
 export function classifyAgentError(
   result: string | undefined,
@@ -87,6 +95,9 @@ export function classifyAgentError(
   ) {
     return "upstream_provider_failure";
   }
+  if (UPSTREAM_CAPACITY_PATTERN.test(text)) {
+    return "upstream_capacity";
+  }
   if (/API Error:\s*Content block\b/i.test(text)) {
     return "content_block_rejection";
   }
@@ -114,6 +125,7 @@ export function sanitizeAgentErrorCause(
   }
   if (
     classification === "upstream_provider_failure" ||
+    classification === "upstream_capacity" ||
     classification === "upstream_connection_error" ||
     classification === "upstream_stream_terminated" ||
     classification === "upstream_timeout"
