@@ -19,7 +19,12 @@ import {
 } from 'products/posthog_ai/frontend/utils/composerModels'
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { type AIRunPreferenceDraft, taskAgentDefaultsLogic } from './taskAgentDefaultsLogic'
+import {
+    type AIRunPreferenceDraft,
+    decodeModelChoice,
+    encodeModelChoice,
+    taskAgentDefaultsLogic,
+} from './taskAgentDefaultsLogic'
 
 const PI_HARNESS_LABEL = 'Pi'
 
@@ -55,7 +60,7 @@ function PreferenceEditor({
         const adapterGroups = listRuntimeAdapters(catalogue).map((adapter) => ({
             title: getRuntimeAdapterLabel(adapter),
             options: modelsForRuntimeAdapter(catalogue, adapter).map((choice) => ({
-                value: choice.model,
+                value: encodeModelChoice({ model: choice.model, runtime: TaskRuntimeEnumApi.Acp }) as string,
                 label: choice.display_name,
             })),
         }))
@@ -68,7 +73,12 @@ function PreferenceEditor({
         return [
             {
                 title: PI_HARNESS_LABEL,
-                options: [{ value: draft.model, label: getModelLabel(catalogue, draft.model) }],
+                options: [
+                    {
+                        value: encodeModelChoice({ model: draft.model, runtime: TaskRuntimeEnumApi.Pi }) as string,
+                        label: getModelLabel(catalogue, draft.model),
+                    },
+                ],
             },
             ...adapterGroups,
         ]
@@ -80,11 +90,12 @@ function PreferenceEditor({
             <LemonField.Pure label="Model" className="min-w-60">
                 <LemonSelect
                     fullWidth
-                    value={draft.model}
-                    onChange={(model) => {
-                        // Every model in the list other than the stored Pi pick belongs to an ACP
-                        // adapter, so choosing one moves the default off the Pi harness.
-                        const staysOnPi = isPi && model === draft.model
+                    value={encodeModelChoice(draft)}
+                    onChange={(value) => {
+                        // The option says which harness it belongs to, so picking the Codex entry for a
+                        // model Pi also serves moves the default off Pi rather than reading as no change.
+                        const { model, runtime } = decodeModelChoice(value)
+                        const staysOnPi = runtime === TaskRuntimeEnumApi.Pi
                         onChange({
                             model,
                             // A model switch may invalidate the picked effort; drop it rather than store one
@@ -95,7 +106,7 @@ function PreferenceEditor({
                                         ? draft.reasoning_effort
                                         : filterEffortForModel(catalogue, draft.reasoning_effort, model)
                                     : null,
-                            runtime: model ? (staysOnPi ? TaskRuntimeEnumApi.Pi : TaskRuntimeEnumApi.Acp) : null,
+                            runtime,
                         })
                     }}
                     options={[{ options: [{ value: null as string | null, label: inheritLabel }] }, ...modelOptions]}

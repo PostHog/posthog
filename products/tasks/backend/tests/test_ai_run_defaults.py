@@ -240,6 +240,17 @@ class TestModelAccessGating(APIBaseTest):
         assert resolved.source == "team"
         assert (resolved.runtime, resolved.model) == ("acp", "gpt-5.5")
 
+    # The run path evaluates this flag as `user_<id>` when a user carries no distinct_id, which is
+    # nullable. Resolving under a different identity would drop a stored Pi default for a run the
+    # harness gate would have allowed.
+    def test_pi_gate_identifies_a_user_without_a_distinct_id(self):
+        User.objects.filter(id=self.user.id).update(distinct_id=None)
+        self._set_user(PI_PREFS)
+        with pi_harness() as flag:
+            resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
+        assert resolved.source == "user"
+        assert flag.call_args.kwargs["distinct_id"] == f"user_{self.user.id}"
+
     def test_pi_team_default_without_the_harness_flag_resolves_to_none(self):
         self._set_team(PI_PREFS)
         with pi_harness(enabled=False):

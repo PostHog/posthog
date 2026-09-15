@@ -183,8 +183,13 @@ def resolve_ai_run_defaults(
             organization_id = (
                 Team.objects.filter(id=canonical_team_id).values_list("organization_id", flat=True).first()
             )
+            # The same identity the run path evaluates this flag under (`pi_cloud_runtime_enabled`):
+            # `distinct_id` is nullable, and without the fallback a user who has none would lose a
+            # stored Pi default that their runs are entitled to. The model gate below keeps the raw
+            # value on purpose — an unidentifiable caller must not reach a gated model.
+            pi_distinct_id = _distinct_id() or (f"user_{user_id}" if user_id is not None else None)
             if not is_pi_cloud_runtime_enabled(
-                distinct_id=_distinct_id(), organization_id=str(organization_id) if organization_id else None
+                distinct_id=pi_distinct_id, organization_id=str(organization_id) if organization_id else None
             ):
                 return False
         if get_required_model_flag(resolved.model) is None:

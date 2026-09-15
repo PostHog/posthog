@@ -3,7 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { taskAgentDefaultsLogic } from './taskAgentDefaultsLogic'
+import { decodeModelChoice, encodeModelChoice, taskAgentDefaultsLogic } from './taskAgentDefaultsLogic'
 
 describe('taskAgentDefaultsLogic', () => {
     let logic: ReturnType<typeof taskAgentDefaultsLogic.build>
@@ -83,6 +83,26 @@ describe('taskAgentDefaultsLogic', () => {
         // An unsaved pick is resettable too: reset discards it as well as anything stored.
         logic.actions.setMyDraft({ model: 'claude-opus-5' })
         await expectLogic(logic).toMatchValues({ canResetMyPreference: true, myDraftDirty: true })
+    })
+
+    // Pi and the ACP adapters serve some of the same model ids — `gpt-5.6-terra` is both Pi's default
+    // and a Codex model. Keyed on the model alone the two options collide, and picking the Codex one
+    // read as "no change", so a default the person moved off Pi stayed on it.
+    it('keeps the Pi and ACP options distinct when they name the same model', () => {
+        const shared = 'gpt-5.6-terra'
+        const onPi = encodeModelChoice({ model: shared, runtime: 'pi' })
+        const onAcp = encodeModelChoice({ model: shared, runtime: 'acp' })
+
+        expect(onPi).not.toEqual(onAcp)
+        expect(decodeModelChoice(onPi)).toEqual({ model: shared, runtime: 'pi' })
+        expect(decodeModelChoice(onAcp)).toEqual({ model: shared, runtime: 'acp' })
+        // A draft stored before the harness field carries none, and runs on ACP.
+        expect(encodeModelChoice({ model: shared, runtime: null })).toEqual(onAcp)
+    })
+
+    it('reads the inherit option as no stored default', () => {
+        expect(encodeModelChoice({ model: null, runtime: null })).toBeNull()
+        expect(decodeModelChoice(null)).toEqual({ model: null, runtime: null })
     })
 
     // The ACP catalogue owns neither Pi's harness nor its model ids, so deriving an adapter on every
