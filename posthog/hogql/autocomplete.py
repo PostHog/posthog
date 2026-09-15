@@ -37,10 +37,11 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable
+from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES, find_hogql_aggregation, find_hogql_function
 from posthog.hogql.parser import parse_expr, parse_program, parse_select, parse_string_template
-from posthog.hogql.resolver import resolve_types, resolve_types_from_table
+from posthog.hogql.resolver import resolve_types, resolve_types_in_table
 from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.type_system import (
@@ -147,6 +148,24 @@ def _declared_function_return_type(function_name: str) -> ast.ConstantType | Non
         return None
 
 
+class NarrowedTable(Table):
+    """A table reduced to the columns a subquery selects.
+
+    Expression fields can reference columns the subquery leaves out, so they resolve against
+    `source` rather than against the reduced field set.
+    """
+
+    source: Table
+
+    def to_printed_hogql(self) -> str:
+        return self.source.to_printed_hogql()
+
+
+def type_resolution_table(table: Table) -> Table:
+    """The table an expression in `table` resolves against."""
+    return table.source if isinstance(table, NarrowedTable) else table
+
+
 def expected_type_at_position(
     node: Optional[AST], parent_node: Optional[AST], table: Table, context: HogQLContext
 ) -> ast.ConstantType | None:
@@ -161,8 +180,7 @@ def expected_type_at_position(
     if other_side is node:
         return None
     try:
-        table_chain = table.to_printed_hogql().replace("`", "").split(".")
-        resolved = resolve_types_from_table(other_side, table_chain, context, "hogql")
+        resolved = resolve_types_in_table(other_side, type_resolution_table(table), context, "hogql")
         if resolved.type is None:
             return None
         return resolved.type.resolve_constant_type(context)
@@ -290,7 +308,7 @@ def _display_runtime_type(runtime_type: RuntimeType) -> str:
 
 
 def convert_field_or_table_to_type_string(
-    field_or_table: FieldOrTable, parent_table: str, context: HogQLContext
+    field_or_table: FieldOrTable, parent_table: Table, context: HogQLContext
 ) -> str | None:
     """Render the type the resolver would give this field, in ClickHouse spelling.
 
@@ -299,18 +317,26 @@ def convert_field_or_table_to_type_string(
     editor instead of being flattened to a family name.
     """
     if isinstance(field_or_table, ast.ExpressionField):
-        parent_table_chain = parent_table.replace("`", "").split(".")
         try:
-            field_expr = resolve_types_from_table(field_or_table.expr, parent_table_chain, context, "hogql")
+            field_expr = resolve_types_in_table(
+                field_or_table.expr, type_resolution_table(parent_table), context, "hogql"
+            )
             assert field_expr.type is not None
             constant_type = field_expr.type.resolve_constant_type(context)
 
             return _display_runtime_type(runtime_type_from_constant_type(constant_type))
+        except BaseHogQLError:
+            # An expression that does not resolve is expected here, and the user sees the unknown
+            # label. Reporting it costs more than it tells us: this runs once per field per
+            # keystroke, so one editor session sends a burst.
+            return UNKNOWN_TYPE_LABEL
         except Exception as e:
-            tracking_error = Exception("Can't resolve expression field in autocomplete")
-            tracking_error.__cause__ = e
-            capture_exception(tracking_error)
-
+            # Anything else is a bug. Report the cause itself rather than a constant wrapper, so
+            # unrelated causes do not collapse into one issue.
+            capture_exception(
+                e,
+                additional_properties={"table": parent_table.to_printed_hogql(), "field": field_or_table.name},
+            )
             return UNKNOWN_TYPE_LABEL
     if isinstance(field_or_table, ast.Table | ast.LazyJoin):
         return "Table"
@@ -361,17 +387,8 @@ def get_table(context: HogQLContext, join_expr: ast.JoinExpr, ctes: Optional[dic
 
                 new_fields[name] = table.fields[underlying_field_name]
 
-            table_name = table.to_printed_hogql()
-
-            # Return a new table with a reduced field set
-            class AnonTable(Table):
-                fields: dict[str, FieldOrTable] = new_fields
-
-                def to_printed_hogql(self):
-                    # Use the base table name for resolving property definitions later
-                    return table_name
-
-            return AnonTable()
+            # `source` keeps the base table name for resolving property definitions later
+            return NarrowedTable(fields=new_fields, source=table)
         except Exception:
             return None
 
@@ -472,7 +489,7 @@ def append_table_field_to_response(
             continue
 
         keys.append(field_name)
-        details.append(convert_field_or_table_to_type_string(field_or_table, table.to_printed_hogql(), context))
+        details.append(convert_field_or_table_to_type_string(field_or_table, table, context))
 
     extend_responses(
         keys=keys,
@@ -845,9 +862,7 @@ def get_hogql_autocomplete(
                                     keys=[key for key, field in fields],
                                     suggestions=response.suggestions,
                                     details=[
-                                        convert_field_or_table_to_type_string(
-                                            inner_field, field.to_printed_hogql(), context
-                                        )
+                                        convert_field_or_table_to_type_string(inner_field, field, context)
                                         for key, inner_field in fields
                                     ],
                                 )
@@ -859,9 +874,7 @@ def get_hogql_autocomplete(
                                     keys=[key for key, field in fields],
                                     suggestions=response.suggestions,
                                     details=[
-                                        convert_field_or_table_to_type_string(
-                                            inner_field, field_table.to_printed_hogql(), context
-                                        )
+                                        convert_field_or_table_to_type_string(inner_field, field_table, context)
                                         for key, inner_field in fields
                                     ],
                                 )
