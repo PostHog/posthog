@@ -1,5 +1,7 @@
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.schema import CurrencyCode
 
 from posthog.hogql.timings import HogQLTimings
@@ -98,8 +100,17 @@ class TestRevenueAnalyticsViews(BaseTest):
         self.assertEqual(len(mrr_views), 1)
         self.assertEqual(mrr_views[0].name, "stripe.mrr_revenue_view")
 
-    def test_unresolvable_test_account_filter_keeps_source_views(self):
-        self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": 987654321}]
+    @parameterized.expand(
+        [
+            ("unparseable_hogql", {"type": "hogql", "key": "properties.$host ="}),
+            ("deleted_cohort", {"type": "cohort", "key": "id", "value": 987654321}),
+        ]
+    )
+    def test_unresolvable_test_account_filter_only_drops_itself(self, _name, unresolvable_filter):
+        self.team.test_account_filters = [
+            unresolvable_filter,
+            {"type": "event", "key": "$host", "operator": "exact", "value": ["localhost"]},
+        ]
         self.team.save()
         self.team.revenue_analytics_config.filter_test_accounts = True
         self.team.revenue_analytics_config.events = [REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT]
@@ -109,7 +120,11 @@ class TestRevenueAnalyticsViews(BaseTest):
 
         source_views = [v for v in views if v.source_id == str(self.source.id)]
         self.assertEqual(len(source_views), 6)
-        self.assertEqual([v for v in views if v.source_id is None], [])
+
+        events_views = [v for v in views if v.source_id is None]
+        self.assertEqual(len(events_views), 6)
+        revenue_item_view = next(v for v in events_views if isinstance(v, RevenueAnalyticsRevenueItemView))
+        self.assertIn("localhost", revenue_item_view.query)
 
     def test_revenue_view_with_disabled_source(self):
         """Test that the orchestrator returns None for disabled sources"""

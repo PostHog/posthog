@@ -8,6 +8,7 @@ from posthog.schema import CurrencyCode
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
 from posthog.models.team.team import Team
 
@@ -81,12 +82,14 @@ def events_expr_for_team(team: Team) -> ast.Expr:
     from posthog.hogql.property import property_to_expr
 
     exprs = []
-    if (
-        team.revenue_analytics_config.filter_test_accounts
-        and isinstance(team.test_account_filters, list)
-        and len(team.test_account_filters) > 0
-    ):
-        exprs = [property_to_expr(filter, team) for filter in team.test_account_filters]
+    if team.revenue_analytics_config.filter_test_accounts and isinstance(team.test_account_filters, list):
+        for filter in team.test_account_filters:
+            # One saved filter that no longer resolves, such as HogQL that stopped parsing, must cost
+            # only its own narrowing. Resolving the list as a whole drops every events-based view.
+            try:
+                exprs.append(property_to_expr(filter, team))
+            except Exception as e:
+                capture_exception(e, {"team_id": team.pk})
 
     if len(exprs) == 0:
         return ast.Constant(value=True)
