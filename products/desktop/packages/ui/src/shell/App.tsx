@@ -32,6 +32,10 @@ import { UpdateAvailableModal } from "@posthog/ui/features/updates/UpdateAvailab
 import { router } from "@posthog/ui/router/router";
 import { AppLoadingScreen } from "@posthog/ui/shell/AppLoadingScreen";
 import {
+  isBackgroundConsentRecheck,
+  nextLastSatisfiedOrgId,
+} from "@posthog/ui/shell/consentGate";
+import {
   isBackgroundAccessRecheck,
   nextLastAllowedProjectId,
 } from "@posthog/ui/shell/desktopAccessGate";
@@ -120,6 +124,35 @@ function App({ devToolbar }: AppProps) {
     ["blocked", "error"].includes(desktopAccess.status);
   const authenticatedClient = useOptionalAuthenticatedClient();
   const consent = useOrgConsent(isAuthenticated && settledDesktopAccess);
+  const consentSatisfied = consent.status === "resolved" && consent.satisfied;
+  // Same latch as the access branch above, for the same reason: clearing the
+  // auth-scoped queries consent reads sends consent back to "loading" for an
+  // organization the app has already shown. The ref updates in an effect, so
+  // when that revert renders it still holds the organization from the last
+  // settled render.
+  const lastSatisfiedOrgRef = useRef<string | null>(null);
+  useEffect(() => {
+    lastSatisfiedOrgRef.current = nextLastSatisfiedOrgId(
+      lastSatisfiedOrgRef.current,
+      {
+        isAuthenticated,
+        currentOrgId: authState.currentOrgId,
+        consentStatus: consent.status,
+        consentSatisfied,
+      },
+    );
+  }, [
+    isAuthenticated,
+    authState.currentOrgId,
+    consent.status,
+    consentSatisfied,
+  ]);
+  const isRevalidatingConsent = isBackgroundConsentRecheck(
+    lastSatisfiedOrgRef.current,
+    authState.currentOrgId,
+    consent.status,
+  );
+  const settledConsent = consentSatisfied || isRevalidatingConsent;
   const needsConsent =
     isAuthenticated &&
     hasCompletedOnboarding &&
@@ -132,7 +165,9 @@ function App({ devToolbar }: AppProps) {
     (!desktopAccessIsCurrent ||
       (["unchecked", "checking"].includes(desktopAccess.status) &&
         !isRevalidatingAccess) ||
-      (settledDesktopAccess && consent.status === "loading"));
+      (settledDesktopAccess &&
+        consent.status === "loading" &&
+        !isRevalidatingConsent));
   const { isAdmin: isOrgAdmin } = useIsOrgAdmin();
   const isAdmin = isOrgAdmin === true;
   useConsentAnalytics(
@@ -152,8 +187,7 @@ function App({ devToolbar }: AppProps) {
     isAuthenticated &&
     hasCompletedOnboarding &&
     settledDesktopAccess &&
-    consent.status === "resolved" &&
-    consent.satisfied;
+    settledConsent;
   const startupIdentity = getAuthIdentity(authState);
 
   useEffect(() => {
