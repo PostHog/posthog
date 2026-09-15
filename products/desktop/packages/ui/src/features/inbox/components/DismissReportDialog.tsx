@@ -13,9 +13,6 @@ import {
   RadioGroup,
   RadioGroupItem,
   Textarea,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
 } from "@posthog/quill";
 import {
   DISMISSAL_REASON_OPTIONS,
@@ -134,21 +131,20 @@ function DismissReportDialogBody({
                 : pauses
                   ? "Dismiss this report until another matching signal arrives."
                   : "Dismiss this report so matching signals do not surface it again.";
+              const explanationId = `${id}-explanation`;
               return (
-                <div key={option.value} className="flex items-center gap-2">
+                <div key={option.value} className="flex items-start gap-2">
                   <RadioGroupItem
                     value={option.value}
                     id={id}
                     disabled={disabled}
+                    aria-describedby={explanationId}
+                    className="mt-0.5"
                   />
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Label
-                          htmlFor={id}
-                          className="flex cursor-pointer items-center gap-1.5 font-normal"
-                        />
-                      }
+                  <div className="flex flex-col gap-0.5">
+                    <Label
+                      htmlFor={id}
+                      className="flex cursor-pointer items-center gap-1.5 font-normal"
                     >
                       {option.label}
                       {pauses ? (
@@ -156,9 +152,14 @@ function DismissReportDialogBody({
                       ) : (
                         <EyeSlashIcon size={12} className="text-(--gray-9)" />
                       )}
-                    </TooltipTrigger>
-                    <TooltipContent side="right">{explanation}</TooltipContent>
-                  </Tooltip>
+                    </Label>
+                    <span
+                      id={explanationId}
+                      className="text-(--gray-9) text-xs"
+                    >
+                      {explanation}
+                    </span>
+                  </div>
                 </div>
               );
             })}
@@ -167,7 +168,13 @@ function DismissReportDialogBody({
           <Textarea
             autoFocus={initialReason != null}
             value={note}
-            onChange={(event) => setNote(event.target.value)}
+            onChange={(event) => {
+              const value = event.target.value;
+              setNote(value);
+              if (reason === null && value.trim()) {
+                setReason("other");
+              }
+            }}
             placeholder="Optional: add detail"
             rows={3}
             maxLength={4000}

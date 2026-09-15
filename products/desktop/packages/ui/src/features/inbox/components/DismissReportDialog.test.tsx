@@ -34,6 +34,16 @@ describe("DismissReportDialog", () => {
       screen.getByText('Dismiss report "Checkout errors"?'),
     ).toBeInTheDocument();
     expect(screen.getByText(/dismisses the report for everyone/)).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Dismiss this report until another matching signal arrives.",
+      ),
+    ).toBeVisible();
+    expect(
+      screen.getAllByText(
+        "Dismiss this report so matching signals do not surface it again.",
+      ),
+    ).toHaveLength(5);
 
     await user.click(screen.getByRole("radio", { name: "Already fixed" }));
 
@@ -44,6 +54,43 @@ describe("DismissReportDialog", () => {
     expect(
       screen.getByRole("button", { name: "Dismiss report" }),
     ).toBeInTheDocument();
+  });
+
+  it("selects the other reason when the user enters a note first", async () => {
+    const user = userEvent.setup();
+    const onConfirm = vi.fn();
+    render(
+      <DismissReportDialog
+        open
+        onOpenChange={vi.fn()}
+        report={report}
+        isSubmitting={false}
+        snoozeDisabledReason={null}
+        onConfirm={onConfirm}
+      />,
+    );
+
+    const submitButton = screen.getByRole("button", {
+      name: "Dismiss report",
+    });
+    expect(submitButton).toHaveAttribute("aria-disabled", "true");
+
+    await user.type(
+      screen.getByPlaceholderText("Optional: add detail"),
+      "The report needs more context.",
+    );
+
+    expect(
+      screen.getByRole("radio", { name: "Something else…" }),
+    ).toBeChecked();
+    expect(submitButton).toHaveAttribute("aria-disabled", "false");
+
+    await user.click(submitButton);
+
+    expect(onConfirm).toHaveBeenCalledWith({
+      reason: "other",
+      note: "The report needs more context.",
+    });
   });
 
   it("preselects a context-menu reason and focuses the note", () => {
