@@ -1,7 +1,7 @@
 import hmac
 import json
 import hashlib
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import timedelta
 from typing import Any
 
@@ -703,7 +703,31 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
             response = self._post_raw(body, self._sign(body))
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_replayed_completed_event_skips_side_effects(self) -> None:
+    @contextmanager
+    def _read_the_row_before_the_other_delivery_committed(self):
+        # The row as a concurrent delivery saw it: still pending, because the delivery that won
+        # had not committed yet. Every later read in the request sees the real row.
+        stale = LegalDocument.objects.get(id=self.document.id)
+        stale.status = LegalDocument.Status.SUBMITTED_FOR_SIGNATURE
+        original = logic.get_by_pandadoc_document_id
+        pending_reads = [stale]
+
+        def lookup(pandadoc_document_id: str) -> LegalDocument | None:
+            return pending_reads.pop(0) if pending_reads else original(pandadoc_document_id)
+
+        with patch("products.legal_documents.backend.logic.get_by_pandadoc_document_id", side_effect=lookup):
+            yield
+
+    @parameterized.expand(
+        [
+            # The second delivery reads the row after the first one committed.
+            ("a_later_replay", False),
+            # Both deliveries read the row as pending before either wrote. PandaDoc sends no
+            # delivery id, so ingress cannot collapse them and only the conditional update can.
+            ("a_concurrent_delivery_that_read_the_row_as_pending", True),
+        ]
+    )
+    def test_a_second_completed_event_skips_side_effects(self, _name: str, stale_read: bool) -> None:
         @contextmanager
         def fake_stream_cm(*, document_id):  # noqa: ARG001
             yield object()
@@ -723,22 +747,25 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         self.document.refresh_from_db()
         self.assertEqual(self.document.status, "signed")
 
-        # Replay: must not re-stream the PDF, re-upload, or re-fire analytics.
-        # PandaDoc retries / cross-instance fan-out both land here.
+        # Second delivery: must not re-stream the PDF, re-upload, re-fire analytics, or re-apply
+        # the BAA side effects. PandaDoc retries / cross-instance fan-out both land here.
         replay_body = json.dumps(self._completed_payload()).encode("utf-8")
         with (
             self._override(),
+            self._read_the_row_before_the_other_delivery_committed() if stale_read else nullcontext(),
             patch(
                 "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.stream_document"
             ) as stream_spy,
             patch("products.legal_documents.backend.logic.object_storage.write_stream") as write_spy,
             patch("products.legal_documents.backend.logic.fire_legal_document_signed_event") as event_spy,
+            patch("products.legal_documents.backend.logic.apply_baa_signed_side_effects") as baa_spy,
         ):
             response = self._post_raw(replay_body, self._sign(replay_body))
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         stream_spy.assert_not_called()
         write_spy.assert_not_called()
         event_spy.assert_not_called()
+        baa_spy.assert_not_called()
 
     def _swap_to_baa_document(self) -> None:
         """The default fixture is a DPA. For BAA-side-effect tests, retarget it."""

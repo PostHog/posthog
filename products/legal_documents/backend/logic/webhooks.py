@@ -44,21 +44,36 @@ def _mark_signed(*, pandadoc_document_id: str, template_id: str) -> LegalDocumen
     - Looks up the row by the PandaDoc document uuid (no IDOR surface: unknown ids are a no-op).
     - Double-checks the template matches the stored document variant, to guard against
       misconfigured PandaDoc templates flipping the wrong row.
-    - Flips status to signed, fires analytics and BAA side effects, and schedules the
-      signed-PDF archive as a retried background job.
+    - Claims the row with a conditional flip to signed, then fires analytics and BAA side
+      effects and schedules the signed-PDF archive as a retried background job.
 
     The signature is recorded as soon as the delivery lands. It is never gated on the PDF
     archival, which used to leave the row stuck when a download or upload failed. Idempotent:
-    an already-signed row is returned without re-firing side effects.
+    a delivery that does not win the claim returns the row without re-firing side effects.
     """
     document = logic.get_by_pandadoc_document_id(pandadoc_document_id)
     if document is None:
         return None
     if not logic.template_id_matches_document(document, template_id):
         return None
-    if document.status == LegalDocument.Status.SIGNED:
-        return document
-    document = logic.mark_document_signed(document)
+    # PandaDoc sends no delivery id, so ingress cannot dedup. Two `document.completed` deliveries
+    # can both read the row as pending, and only this conditional update decides which one owns
+    # the side effects.
+    if not logic.try_mark_signed_if_pending(document):
+        current = logic.get_by_pandadoc_document_id(pandadoc_document_id)
+        if current is None:
+            return None
+        if current.status == LegalDocument.Status.SIGNED:
+            logger.info("pandadoc_webhook_already_signed", pandadoc_document_id=pandadoc_document_id)
+        else:
+            logger.warning(
+                "pandadoc_webhook_completed_for_unexpected_status",
+                pandadoc_document_id=pandadoc_document_id,
+                status=current.status,
+            )
+        return current
+    # The side effects read the status off the instance the update never touched.
+    document.status = LegalDocument.Status.SIGNED
     logic.apply_baa_signed_side_effects(document)
     logic.fire_legal_document_signed_event(document)
     logic.schedule_pdf_archive(document)

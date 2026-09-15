@@ -161,12 +161,6 @@ def create_document(
     )
 
 
-def mark_document_signed(document: LegalDocument) -> LegalDocument:
-    document.status = LegalDocument.Status.SIGNED
-    document.save(update_fields=["status", "updated_at"])
-    return document
-
-
 def try_mark_signed_if_pending(document: LegalDocument) -> bool:
     """
     Conditional UPDATE that re-asserts the row was still `submitted_for_signature`
@@ -175,6 +169,9 @@ def try_mark_signed_if_pending(document: LegalDocument) -> bool:
     concurrent `document.completed` webhook may have already signed the row.
     Losing that race must skip the caller's side effects (BAA opt-out email)
     rather than re-fire them, so the caller only proceeds when this returns True.
+
+    The inbound webhook takes the same route: PandaDoc sends no delivery id, so
+    ingress cannot dedup and two deliveries reach the handler as equals.
     """
     updated = LegalDocument.objects.filter(id=document.id, status=LegalDocument.Status.SUBMITTED_FOR_SIGNATURE).update(
         status=LegalDocument.Status.SIGNED, updated_at=timezone.now()
