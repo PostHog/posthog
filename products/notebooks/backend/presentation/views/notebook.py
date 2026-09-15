@@ -1,7 +1,6 @@
 import math
 import hashlib
 from collections import Counter
-from datetime import timedelta
 from typing import Any, cast
 
 from django.conf import settings
@@ -535,7 +534,11 @@ class NotebookKernelConfigSerializer(serializers.Serializer):
         required=False, help_text="Memory in GB for the notebook's sandbox kernel; must be a supported option."
     )
     idle_timeout_seconds = serializers.IntegerField(
-        required=False, help_text="Seconds of inactivity before the sandbox kernel shuts down."
+        required=False,
+        help_text=(
+            "Maximum lifetime of the sandbox kernel in seconds. It shuts down this long after it starts, even while "
+            "in use. A running kernel keeps its current lifetime until it restarts."
+        ),
     )
 
     def validate_cpu_cores(self, value: float) -> float:
@@ -550,7 +553,7 @@ class NotebookKernelConfigSerializer(serializers.Serializer):
 
     def validate_idle_timeout_seconds(self, value: int) -> int:
         if value not in ALLOWED_KERNEL_IDLE_TIMEOUT_SECONDS:
-            raise serializers.ValidationError("Idle timeout must be a supported option.")
+            raise serializers.ValidationError("Lifetime must be a supported option.")
         return value
 
     def validate(self, attrs):
@@ -1509,9 +1512,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             if (
                 runtime.backend == KernelRuntime.Backend.MODAL
                 and runtime.status in (KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING)
-                and runtime.last_used_at
-                and sandbox_config.ttl_seconds
-                and now() >= runtime.last_used_at + timedelta(seconds=sandbox_config.ttl_seconds)
+                and runtime.ttl_expires_at is not None
+                and now() >= runtime.ttl_expires_at
             ):
                 status = KernelRuntime.Status.TIMED_OUT
 
