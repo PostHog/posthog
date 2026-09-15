@@ -1037,7 +1037,12 @@ class GitHubIntegrationBase:
         owner, repo, _, number_str = parts[:4]
         if not number_str.isdigit():
             return None
-        return PullRequestRef(owner=owner, repo=repo, number=int(number_str))
+        try:
+            # ``isdigit`` is true for digits ``int`` rejects, such as a superscript.
+            number = int(number_str)
+        except ValueError:
+            return None
+        return PullRequestRef(owner=owner, repo=repo, number=number)
 
     @staticmethod
     def parse_pull_request_url(pr_url: str) -> PullRequestRef | None:
