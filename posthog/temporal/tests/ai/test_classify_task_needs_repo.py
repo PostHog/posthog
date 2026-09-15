@@ -130,6 +130,21 @@ class TestClassifyTaskNeedsRepo:
         assert result is True
         assert rule in self._last_llm_prompt
 
+    def test_prompt_snapshot_matches(self, snapshot):
+        """The prompt is the whole classifier — where it draws the line between work in a
+        team's repo and an analytics ask. Pinning it means a reworded rule shows up as a
+        reviewable diff rather than a silent behaviour change. Update with
+        ``--snapshot-update`` after auditing the diff.
+        """
+        text = "ambiguous ask the heuristic does not catch"
+        self._run_with_llm_content(text, '{"needs_repo": true}', routing_rules=["- billing questions → acme/billing"])
+        assert self._last_llm_prompt == snapshot
+
+        # The rules block carries the paragraph break to the next section, so a team
+        # without rules must get one blank line here rather than two.
+        self._run_with_llm_content(text, '{"needs_repo": true}')
+        assert "not our product.\n\nWhen in doubt" in self._last_llm_prompt
+
     def _run_with_llm_content(
         self,
         text: str,

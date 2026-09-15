@@ -449,7 +449,8 @@ tools:
             the coordinator's next tick. A scout under any other name does not come back on its own: its config stays
             deleted until you re-register it with `scout-config-create`, and its skill still reads as a scout meanwhile.
             To retire a live scout, archive its skill (or set `enabled=false` via `scout-config-update` to make it
-            inert) rather than deleting the config.
+            inert) rather than deleting the config. A scout whose `scout_role` is `operational` cannot be deleted at
+            all: it is part of the self-driving system rather than the project's own fleet.
     scout-config-list:
         operation: signals_scout_config_list
         enabled: true

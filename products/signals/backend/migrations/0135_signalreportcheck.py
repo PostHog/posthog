@@ -11,7 +11,7 @@ import posthog.uuidt
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1352_email_lookup_indexes"),
-        ("signals", "0133_github_issue_writeback"),
+        ("signals", "0134_scout_exemption_role_source"),
         ("tasks", "0123_alter_sandboxsnapshot_integration"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
