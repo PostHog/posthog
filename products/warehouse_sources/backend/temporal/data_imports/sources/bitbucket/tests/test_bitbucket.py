@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit
@@ -14,8 +15,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.
     _as_utc_datetime,
     _build_initial_params,
     _increment_page_url,
+    _iter_fan_out_parents,
     _normalize_activity_row,
     _page_predates_cutoff,
+    _parent_precedes_bookmark,
     bitbucket_source,
     get_rows,
     validate_credentials,
@@ -80,6 +83,12 @@ def _requested_urls(session: mock.Mock) -> list[str]:
         ("projects", True, CUTOFF, "updated_on", 'updated_on > "2024-06-01T00:00:00+00:00"', "updated_on"),
         # PR comments filter server-side on the child request
         ("pull_request_comments", True, CUTOFF, "updated_on", 'updated_on > "2024-06-01T00:00:00+00:00"', "updated_on"),
+        # The step and status child requests take no filter of their own; the watermark bounds
+        # their parent walk instead
+        ("pipeline_steps", True, CUTOFF, "pipeline_created_on", None, None),
+        ("commit_statuses", True, CUTOFF, "commit_date", None, None),
+        # Branches are full refresh, but still sort explicitly so pages can't shift mid-walk
+        ("branches", False, None, None, None, "name"),
         # The activity feed ignores both, so neither param is sent
         ("pull_request_activity", True, CUTOFF, "activity_date", None, None),
         # Environments have no cursor at all
@@ -381,6 +390,9 @@ def test_validate_credentials_status_mapping(status, expected_valid, expected_me
             "activity_date",
         ),
         ("pull_request_comments", ["repository_uuid", "pull_request_id", "id"], "desc", "created_on"),
+        ("pipeline_steps", ["repository_uuid", "pipeline_uuid", "uuid"], "desc", "pipeline_created_on"),
+        ("commit_statuses", ["repository_uuid", "commit_hash", "key"], "desc", "commit_date"),
+        ("branches", ["repository_uuid", "name"], "desc", None),
     ],
 )
 def test_source_response_shape(endpoint, expected_primary_keys, expected_sort_mode, expected_partition_key):
@@ -532,7 +544,10 @@ def test_pull_request_fan_out_bounds_the_parent_walk(should_use_incremental, las
 def test_pull_request_fan_out_resumes_past_already_synced_pull_requests():
     manager = _manager(
         BitbucketResumeConfig(
-            next_url="https://api.bitbucket.org/2.0/comments-page-2", repo_slug="repo-b", pull_request_id=12
+            next_url="https://api.bitbucket.org/2.0/comments-page-2",
+            repo_slug="repo-b",
+            parent_id="12",
+            parent_cursor="12",
         )
     )
     session = _session_returning(
@@ -605,6 +620,155 @@ def test_pull_request_fan_out_skips_repo_when_the_pull_request_listing_404s():
         batches = list(get_rows(BitbucketAuth(), "ws", "pull_request_comments", mock.Mock(), _manager()))
 
     assert [row["id"] for batch in batches for row in batch] == [601]
+
+
+@pytest.mark.parametrize(
+    "order,value,bookmark,expected",
+    [
+        # Pull requests are walked oldest-first by id, so anything below the bookmark is done
+        ("id_asc", 11, "12", True),
+        ("id_asc", 12, "12", False),
+        ("id_asc", 13, "12", False),
+        # Pipelines and commits are walked newest-first, so anything newer is done
+        ("datetime_desc", "2024-07-01T00:00:00+00:00", "2024-06-01T00:00:00+00:00", True),
+        ("datetime_desc", "2024-05-01T00:00:00+00:00", "2024-06-01T00:00:00+00:00", False),
+        # A parent we cannot place must be re-walked, never skipped
+        ("id_asc", None, "12", False),
+        ("datetime_desc", None, "2024-06-01T00:00:00+00:00", False),
+        ("datetime_desc", "not a date", "2024-06-01T00:00:00+00:00", False),
+    ],
+)
+def test_parent_precedes_bookmark(order, value, bookmark, expected):
+    assert _parent_precedes_bookmark(order, value, bookmark) is expected
+
+
+def test_fan_out_parent_walk_stops_at_the_cap_and_warns():
+    # One request per parent, so an uncapped first sync of a long-lived repo would outlast
+    # any rate budget. Truncating silently would be worse than the cost, hence the warning.
+    pipeline_steps_fan_out = BITBUCKET_ENDPOINTS["pipeline_steps"].fan_out
+    assert pipeline_steps_fan_out is not None
+    fan_out = dataclasses.replace(pipeline_steps_fan_out, max_parents_per_repo=2)
+    page = {
+        "values": [{"uuid": "{p1}"}, {"uuid": "{p2}"}, {"uuid": "{p3}"}],
+        "next": "https://api.bitbucket.org/2.0/repositories/ws/repo-a/pipelines/?page=2",
+        "page": 1,
+    }
+    session = _session_returning(_response(page))
+    logger = mock.Mock()
+
+    parents = list(_iter_fan_out_parents(session, fan_out, "ws", "repo-a", logger, None))
+
+    assert [parent["uuid"] for parent in parents] == ["{p1}", "{p2}"]
+    logger.warning.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "endpoint,parent,expected_path,expected_injected",
+    [
+        # Pipeline uuids are braced, which is not path-safe
+        (
+            "pipeline_steps",
+            {"uuid": "{p1}", "created_on": "2024-07-01T00:00:00Z"},
+            "/pipelines/%7Bp1%7D/steps/",
+            {"pipeline_uuid": "{p1}", "pipeline_created_on": "2024-07-01T00:00:00Z"},
+        ),
+        (
+            "commit_statuses",
+            {"hash": "abc123", "date": "2024-07-01T00:00:00+00:00"},
+            "/commit/abc123/statuses",
+            {"commit_hash": "abc123", "commit_date": "2024-07-01T00:00:00+00:00"},
+        ),
+    ],
+)
+def test_second_level_fan_out_injects_the_parent_the_child_row_cannot_name(
+    endpoint, parent, expected_path, expected_injected
+):
+    # Neither a step nor a status carries a reference back to its parent, and both the
+    # primary key and the partition key read only the injected columns
+    session = _session_returning(
+        _response({"values": [REPO_PAGE["values"][0]]}),  # repo enumeration
+        _response({"values": [parent], "page": 1}),
+        _response({"values": [{"uuid": "{s1}", "key": "BB-DEPLOY"}]}),
+    )
+
+    with mock.patch.object(bitbucket, "_make_session", return_value=session):
+        batches = list(get_rows(BitbucketAuth(), "ws", endpoint, mock.Mock(), _manager()))
+
+    assert expected_path in _requested_urls(session)[2]
+    row = batches[0][0]
+    assert {column: row[column] for column in expected_injected} == expected_injected
+    assert row["repository_uuid"] == "{uuid-a}"
+
+
+def test_pipeline_steps_incremental_stops_the_pipeline_walk_at_the_watermark():
+    # Pipelines ignore `q`, so the watermark has to stop the parent walk client-side. Without
+    # it every sync would fetch the steps of every pipeline that ever ran.
+    fresh = {
+        "values": [{"uuid": "{p1}", "created_on": "2024-07-01T00:00:00Z"}],
+        "next": "https://api.bitbucket.org/2.0/repositories/ws/repo-a/pipelines/?page=2",
+        "page": 1,
+    }
+    stale = {"values": [{"uuid": "{p2}", "created_on": "2023-01-01T00:00:00Z"}], "page": 2}
+    session = _session_returning(
+        _response({"values": [REPO_PAGE["values"][0]]}),
+        _response(fresh),
+        _response({"values": [{"uuid": "{s1}"}]}),  # steps of {p1}
+        _response(stale),
+    )
+
+    with mock.patch.object(bitbucket, "_make_session", return_value=session):
+        batches = list(
+            get_rows(
+                BitbucketAuth(),
+                "ws",
+                "pipeline_steps",
+                mock.Mock(),
+                _manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=CUTOFF,
+                incremental_field="pipeline_created_on",
+            )
+        )
+
+    assert [row["pipeline_uuid"] for batch in batches for row in batch] == ["{p1}"]
+    # The stale pipeline page was fetched to discover it was stale, but its steps never were
+    assert len(_requested_urls(session)) == 4
+
+
+def test_second_level_fan_out_resumes_past_already_walked_parents():
+    manager = _manager(
+        BitbucketResumeConfig(
+            next_url="https://api.bitbucket.org/2.0/steps-page-2",
+            repo_slug="repo-b",
+            parent_id="{p2}",
+            parent_cursor="2024-07-02T00:00:00Z",
+        )
+    )
+    session = _session_returning(
+        _response(REPO_PAGE),
+        _response(
+            {
+                "values": [
+                    {"uuid": "{p1}", "created_on": "2024-07-03T00:00:00Z"},
+                    {"uuid": "{p2}", "created_on": "2024-07-02T00:00:00Z"},
+                    {"uuid": "{p3}", "created_on": "2024-07-01T00:00:00Z"},
+                ],
+                "page": 1,
+            }
+        ),
+        _response({"values": [{"uuid": "{s2}"}]}),  # resumed page of {p2}
+        _response({"values": [{"uuid": "{s3}"}]}),
+    )
+
+    with mock.patch.object(bitbucket, "_make_session", return_value=session):
+        batches = list(get_rows(BitbucketAuth(), "ws", "pipeline_steps", mock.Mock(), manager))
+
+    urls = _requested_urls(session)
+    # repo-a is skipped, {p1} is newer than the bookmark, and {p2} restarts at its saved URL
+    assert urls[1].startswith("https://api.bitbucket.org/2.0/repositories/ws/repo-b/pipelines/?")
+    assert urls[2] == "https://api.bitbucket.org/2.0/steps-page-2"
+    assert "/pipelines/%7Bp3%7D/steps/" in urls[3]
+    assert [row["uuid"] for batch in batches for row in batch] == ["{s2}", "{s3}"]
 
 
 def test_session_uses_basic_auth_for_api_token_and_bearer_for_access_token():
