@@ -72,15 +72,24 @@ MAX_WIDTH_PIXELS = 4000  # Max width for wide content like funnels with many ste
 MAX_HEIGHT_PIXELS = 5000  # Prevents Chrome from consuming excessive memory on very tall pages
 CONTENT_PADDING = 80  # Padding for card borders
 
-MEASURE_CONTENT_HEIGHT_JS = """
+REPLAY_WRAPPER_SELECTOR = ".replayer-wrapper"
+
+# The replay player mounts rrweb either in the app document or inside its own same-origin frame
+# document, and a document query never crosses into a frame, so look in both.
+FIND_REPLAY_WRAPPER_JS = f"""(
+    document.querySelector('{REPLAY_WRAPPER_SELECTOR}') ||
+    document.querySelector('iframe.PlayerFrame__document')?.contentDocument?.querySelector('{REPLAY_WRAPPER_SELECTOR}')
+)"""
+
+MEASURE_CONTENT_HEIGHT_JS = f"""
     const element = document.querySelector('.InsightCard__viz') ||
                   document.querySelector('.ExportedInsight__content') ||
-                  document.querySelector('.replayer-wrapper') ||
+                  {FIND_REPLAY_WRAPPER_JS} ||
                   document.querySelector('.heatmap-exporter');
-    if (element) {
+    if (element) {{
         const rect = element.getBoundingClientRect();
         return Math.max(rect.height, document.body.scrollHeight);
-    }
+    }}
     return document.body.scrollHeight;
 """
 
@@ -92,7 +101,7 @@ MEASURE_CONTENT_WIDTH_JS = f"""
             }}
 
             // Check for replay player
-            const replayElement = document.querySelector('.replayer-wrapper');
+            const replayElement = {FIND_REPLAY_WRAPPER_JS};
             if (replayElement) {{
                 return replayElement.offsetWidth;
             }}
@@ -243,7 +252,7 @@ def _export_to_png(
             url_to_render = absolute_uri(
                 f"/exporter?token={access_token}&t={exported_asset.export_context.get('timestamp') or 0}&fullscreen=true"
             )
-            wait_for_css_selector = exported_asset.export_context.get("css_selector", ".replayer-wrapper")
+            wait_for_css_selector = exported_asset.export_context.get("css_selector", REPLAY_WRAPPER_SELECTOR)
             screenshot_width = exported_asset.export_context.get("width", 1400)
             screenshot_height = exported_asset.export_context.get("height", 600)
 
@@ -457,7 +466,12 @@ def _screenshot_asset_browserless(
 
             try:
                 page.goto(url_to_render, wait_until="domcontentloaded", timeout=page_load_timeout * 1000)
-                page.wait_for_selector(wait_for_css_selector, state="attached", timeout=page_load_timeout * 1000)
+                if wait_for_css_selector == REPLAY_WRAPPER_SELECTOR:
+                    page.wait_for_function(
+                        f"() => !!{FIND_REPLAY_WRAPPER_JS}", timeout=page_load_timeout * 1000, polling=100
+                    )
+                else:
+                    page.wait_for_selector(wait_for_css_selector, state="attached", timeout=page_load_timeout * 1000)
             except PlaywrightTimeoutError as e:
                 with posthoganalytics.new_context():
                     posthoganalytics.tag("stage", "image_exporter.page_load_timeout")

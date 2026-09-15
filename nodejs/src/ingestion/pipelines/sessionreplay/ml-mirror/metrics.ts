@@ -264,8 +264,11 @@ export class MlParquetSinkMetrics {
     public static incRowsParsed(count: number): void {
         this.rowsParsed.inc(count)
     }
-    public static incRowsRejected(reason: 'parse_failed' | 'invalid'): void {
-        this.rowsRejected.labels(reason).inc()
+    public static incRowsRejected(
+        reason: 'parse_failed' | 'invalid' | 'invalid_envelope' | 'privacy',
+        count = 1
+    ): void {
+        this.rowsRejected.labels(reason).inc(count)
     }
     public static observeWrite(rows: number, bytes: number): void {
         this.objectsWritten.inc()

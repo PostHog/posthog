@@ -118,6 +118,8 @@ Without organization-level AI data-processing consent, the prompt only prefills 
 Task links in shared AI history open `/ai?task=<task-id>` and render the task runner, regardless of the saved chat view preference.
 The task stays selected on reload and when navigating back or forward.
 Existing `/tasks/<task-id>` links still open the standalone runner.
+Task headers keep horizontal padding around the title and run metadata.
+In the AI chat view, the staff options menu sits beside the task actions, including **Open in PostHog Desktop**.
 
 ## Fine-grained access tokens
 
