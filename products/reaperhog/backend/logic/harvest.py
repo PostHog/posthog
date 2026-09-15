@@ -22,7 +22,7 @@ from products.reaperhog.backend.logic.redaction import (
     sanitize_scout_text,
     sanitize_text,
 )
-from products.reaperhog.backend.logic.verification import ClusterView, cluster_view, protected_paths
+from products.reaperhog.backend.logic.verification import ClusterView, cluster_view, protected_edits, protected_paths
 from products.reaperhog.backend.models import ReaperArtefact, ReaperCluster, ReaperInventory
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -223,7 +223,7 @@ def build_harvest_prompt(candidate: HarvestCandidate) -> HarvestPrompt:
             "",
             f"- Work on a new branch named `{branch_name(view)}` off the default branch.",
             "- Apply exactly the plan above. Delete tests that exist only for this root. Remove imports and exports the deletion orphans.",
-            "- Do not touch migrations, anything under .github/, CODEOWNERS, dependency manifests or lockfiles, generated files, or public API serializers and URL confs, beyond removing a single reference the plan names.",
+            "- Never touch anything under .github/ or a CODEOWNERS file, for any reason. Do not touch migrations, dependency manifests or lockfiles, generated files, or public API serializers and URL confs, beyond removing a single reference the plan names.",
             "- Run the checks for every workspace you touched. Python: `hogli test --changed` and `ruff check`. Main frontend: `pnpm --filter=@posthog/frontend typescript:check` and `pnpm --filter=@posthog/frontend lint`. products/desktop: `pnpm typecheck`, `pnpm test:vitest` and `pnpm lint` from that directory. Nested workspaces: the nearest package.json scripts.",
             "- If a check fails for a reason the plan did not anticipate, revert everything, do not open a pull request, and end with a note that names the failing command and why. Do not fix tests to make the deletion pass.",
             f'- Commit with the subject "Remove {sanitize_text(view.root)}".',
@@ -257,7 +257,7 @@ def load_dead_clusters(*, team_id: int, repository: str, scope: str) -> list[Har
             if not _verdict_is_current(cluster, record, inventory.last_scan_sha):
                 _requeue_stale(cluster, record)
                 continue
-            blocked = protected_paths(record.verdict.files_to_delete)
+            blocked = protected_paths(record.verdict.files_to_delete) + protected_edits(record.verdict.files_to_edit)
             if blocked:
                 _block_protected(cluster, blocked)
                 continue
