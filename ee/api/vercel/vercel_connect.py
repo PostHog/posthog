@@ -85,6 +85,16 @@ def _is_installation_orphaned(integration: OrganizationIntegration) -> bool:
         return False
 
 
+def _delete_orphaned_integration(integration: OrganizationIntegration) -> None:
+    # A resource left behind blocks the next link attempt: `complete` rejects a team that still has one.
+    with transaction.atomic():
+        Integration.objects.filter(
+            team__organization_id=integration.organization_id,
+            kind=Integration.IntegrationKind.VERCEL,
+        ).delete()
+        integration.delete()
+
+
 class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
     """Handles the Vercel connectable account (Link Existing Account) flow.
 
@@ -219,7 +229,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                     organization_id=str(organization_id),
                     integration="vercel",
                 )
-                existing.delete()
+                _delete_orphaned_integration(existing)
             else:
                 raise exceptions.ValidationError(
                     "This organization already has a Vercel integration. "
@@ -408,7 +418,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                     organization_id=str(org_id),
                     integration="vercel",
                 )
-                integration.delete()
+                _delete_orphaned_integration(integration)
                 orphaned_org_ids.add(org_id)
 
         teams_by_org: dict = {}

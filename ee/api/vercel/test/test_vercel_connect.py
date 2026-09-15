@@ -200,6 +200,12 @@ class TestVercelConnectSessionInfo(VercelConnectTestBase):
             config={"credentials": {"access_token": "tok_dead"}},
             created_by=self.user,
         )
+        Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.VERCEL,
+            integration_id=str(self.team.pk),
+            config={"type": "connectable"},
+        )
         session_token = _seed_session()
 
         response = self.client.get(self.url, {"session": session_token})
@@ -207,6 +213,7 @@ class TestVercelConnectSessionInfo(VercelConnectTestBase):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["organizations"][0]["already_linked"] is False
         assert not OrganizationIntegration.objects.filter(integration_id="icfg_orphaned").exists()
+        assert not Integration.objects.filter(team=self.team, kind=Integration.IntegrationKind.VERCEL).exists()
 
     def test_excludes_orgs_where_user_is_member_not_admin(self):
         other_org = Organization.objects.create(name="Other Org")
@@ -475,6 +482,12 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             config={"credentials": {"access_token": "tok_stale"}},
             created_by=self.user,
         )
+        stale_resource = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.VERCEL,
+            integration_id=str(self.team.pk),
+            config={"type": "connectable"},
+        )
         session_token = _seed_session()
 
         response = self.client.post(
@@ -495,6 +508,8 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
         )
         assert new_integration.integration_id == "icfg_connect_test"
+        assert not Integration.objects.filter(pk=stale_resource.pk).exists()
+        assert Integration.objects.filter(team=self.team, kind=Integration.IntegrationKind.VERCEL).exists()
 
     def test_unauthenticated_returns_403(self):
         self.client.logout()
