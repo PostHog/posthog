@@ -16,7 +16,7 @@ import { results as batchGetResults } from '../../__mocks__/stack_frames/batch_g
 import { ExceptionTag } from '../../hooks/use-error-tag-renderer'
 import { StyleVariables } from '../StyleVariables'
 import { ExceptionCard } from './ExceptionCard'
-import { exceptionCardLogic } from './exceptionCardLogic'
+import { ExceptionCardTab, exceptionCardLogic } from './exceptionCardLogic'
 
 const meta: Meta = {
     title: 'ErrorTracking/ExceptionCard',
@@ -51,14 +51,14 @@ export function ExceptionCardBase(): JSX.Element {
     return (
         <div className="w-[1000px] h-[700px]">
             <BindLogic logic={exceptionCardLogic} props={{ issueId: 'issue-id', loading: false }}>
-                <OpenTimelineTab>
+                <OpenTab tab="timeline">
                     <ExceptionCard
                         issueId="issue-id"
                         issueName="Test Issue"
                         loading={false}
                         event={TEST_EVENTS['javascript_resolved'] as any}
                     />
-                </OpenTimelineTab>
+                </OpenTab>
             </BindLogic>
         </div>
     )
@@ -240,9 +240,9 @@ function ExceptionCardSessionTimelineStory({
     return (
         <div className={containerClassName}>
             <BindLogic logic={exceptionCardLogic} props={{ issueId: 'issue-id', loading: false }}>
-                <OpenTimelineTab>
+                <OpenTab tab="timeline">
                     <ExceptionCard issueId="issue-id" issueName="Test Issue" loading={false} event={event} />
-                </OpenTimelineTab>
+                </OpenTab>
             </BindLogic>
         </div>
     )
@@ -553,12 +553,20 @@ function buildSessionTimelineEvent(
     }
 }
 
-function OpenTimelineTab({ children, issueId = 'issue-id' }: { children: JSX.Element; issueId?: string }): JSX.Element {
+function OpenTab({
+    tab,
+    children,
+    issueId = 'issue-id',
+}: {
+    tab: ExceptionCardTab
+    children: JSX.Element
+    issueId?: string
+}): JSX.Element {
     const { setCurrentTab } = useActions(exceptionCardLogic({ issueId, loading: false }))
 
     useEffect(() => {
-        setCurrentTab('timeline')
-    }, [setCurrentTab])
+        setCurrentTab(tab)
+    }, [setCurrentTab, tab])
 
     return children
 }
@@ -652,14 +660,14 @@ export function ExceptionCardHeaderWidthsWithAction(): JSX.Element {
     return (
         <HeaderWidthMatrix widths={HEADER_WIDTHS.filter(({ width }) => width <= 576)}>
             {(width) => (
-                <OpenTimelineTab issueId={`header-action-${width}`}>
+                <OpenTab tab="timeline" issueId={`header-action-${width}`}>
                     <ExceptionCard
                         issueId={`header-action-${width}`}
                         issueName="Test Issue"
                         loading={false}
                         event={event}
                     />
-                </OpenTimelineTab>
+                </OpenTab>
             )}
         </HeaderWidthMatrix>
     )
@@ -756,44 +764,28 @@ function logsTabParameters(event: ErrorEventType): Record<string, unknown> {
     }
 }
 
-function OpenLogsTab({ children, issueId = 'issue-id' }: { children: JSX.Element; issueId?: string }): JSX.Element {
-    const { setCurrentTab } = useActions(exceptionCardLogic({ issueId, loading: false }))
+function logsStory(
+    issueId: string,
+    sessionId: string | null
+): {
+    (): JSX.Element
+    parameters: Record<string, unknown>
+} {
+    const event = buildSessionTimelineEvent(undefined, { sessionId })
 
-    useEffect(() => {
-        setCurrentTab('logs')
-    }, [setCurrentTab])
-
-    return children
-}
-
-export function ExceptionCardLogs(): JSX.Element {
-    const event = buildSessionTimelineEvent(undefined, { sessionId: LOGS_STORY_SESSION_ID })
-
-    return (
+    const story = (): JSX.Element => (
         <div className="w-[1000px] h-[700px]">
-            <OpenLogsTab>
-                <ExceptionCard issueId="issue-id" issueName="Test Issue" loading={false} event={event} />
-            </OpenLogsTab>
+            <OpenTab tab="logs" issueId={issueId}>
+                <ExceptionCard issueId={issueId} issueName="Test Issue" loading={false} event={event} />
+            </OpenTab>
         </div>
     )
+    story.parameters = logsTabParameters(event)
+    return story
 }
-ExceptionCardLogs.parameters = logsTabParameters(
-    buildSessionTimelineEvent(undefined, { sessionId: LOGS_STORY_SESSION_ID })
-)
+
+export const ExceptionCardLogs = logsStory('issue-id', LOGS_STORY_SESSION_ID)
 
 // Server-side exceptions usually have no session id, so the tab falls back to every log in the
 // window and the scope toggle has nothing to switch between.
-export function ExceptionCardLogsWithoutSession(): JSX.Element {
-    const event = buildSessionTimelineEvent(undefined, { sessionId: null })
-
-    return (
-        <div className="w-[1000px] h-[700px]">
-            <OpenLogsTab issueId="issue-no-session">
-                <ExceptionCard issueId="issue-no-session" issueName="Test Issue" loading={false} event={event} />
-            </OpenLogsTab>
-        </div>
-    )
-}
-ExceptionCardLogsWithoutSession.parameters = logsTabParameters(
-    buildSessionTimelineEvent(undefined, { sessionId: null })
-)
+export const ExceptionCardLogsWithoutSession = logsStory('issue-no-session', null)

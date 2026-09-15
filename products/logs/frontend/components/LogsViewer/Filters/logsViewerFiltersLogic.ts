@@ -142,6 +142,7 @@ export interface logsViewerFiltersLogicValues {
     id: string
     openFilterOnInsert: boolean
     personId: string | undefined
+    personIdScope: string
     pinnedFilters: UniversalFiltersGroup | undefined
     queryFilterGroup: UniversalFiltersGroup
     searchTerm: LogsQuery['searchTerm']
@@ -212,6 +213,7 @@ export interface logsViewerFiltersLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         id: (id: string) => string
+        personId: (personIdScope: string) => string | undefined
         sessionId: (sessionIdScope: string) => string | undefined
         filters: (
             dateRange: DateRange,
@@ -341,15 +343,15 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
                 setPinnedFilters: (_, { pinnedFilters }) => pinnedFilters,
             },
         ],
-        personId: [
-            undefined as string | undefined,
+        // Both scopes are clearable: an embedding scene can toggle one off, or move between
+        // subjects. A kea reducer cannot return undefined, so an absent scope is held as an empty
+        // string and read back through the personId and sessionId selectors below.
+        personIdScope: [
+            '',
             {
-                setPersonId: (_, { personId }) => personId,
+                setPersonId: (_, { personId }) => personId ?? '',
             },
         ],
-        // A kea reducer cannot return undefined, and the scope is clearable now that a scene can
-        // toggle it off, so "no session" is held as an empty string and read back through the
-        // sessionId selector below.
         sessionIdScope: [
             '',
             {
@@ -360,6 +362,7 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
 
     selectors({
         id: [(_, p) => [p.id], (id: string) => id],
+        personId: [(s) => [s.personIdScope], (personIdScope: string): string | undefined => personIdScope || undefined],
         sessionId: [
             (s) => [s.sessionIdScope],
             (sessionIdScope: string): string | undefined => sessionIdScope || undefined,

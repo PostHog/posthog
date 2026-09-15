@@ -974,26 +974,36 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         ],
     }),
 
-    subscriptions(({ actions, values }) => ({
-        // Subscribe to the combined query view rather than the user-editable filterGroup
-        // so the query reruns when pinned filters change (e.g. team `logs_distinct_id_attribute_keys`
-        // resolves after mount), not just when the user edits filters.
-        queryFilterGroup: (filterGroup: UniversalFiltersGroup, oldFilterGroup: UniversalFiltersGroup | undefined) => {
-            if (shouldSkipFilterGroupChange(filterGroup, oldFilterGroup)) {
-                return
-            }
-            actions.handleQueryChange('attributes')
-        },
-        // The session scope travels outside the filter group, so an embedding scene that swaps it
-        // while the viewer stays mounted gets no rerun from the subscription above. `hasRunQuery`
-        // skips the call this fires on mount, which the viewer's own first query already covers.
-        sessionId: (sessionId: string | undefined, oldSessionId: string | undefined) => {
-            if (sessionId === oldSessionId || !values.hasRunQuery) {
+    subscriptions(({ actions, values }) => {
+        // The person and session scopes travel outside the filter group, so an embedding scene that
+        // swaps or clears one while the viewer stays mounted gets no rerun from the filter-group
+        // subscription below. This fires on mount too, before the viewer's own first query, so it
+        // skips the case where no query has run and none is in flight; a scope change during the
+        // first query still reruns, because that query is already sending the old scope.
+        const rerunForScopeChange = (): void => {
+            if (!values.hasRunQuery && !values.logsLoading) {
                 return
             }
             actions.runQuery()
-        },
-    })),
+        }
+
+        return {
+            // Subscribe to the combined query view rather than the user-editable filterGroup
+            // so the query reruns when pinned filters change (e.g. team `logs_distinct_id_attribute_keys`
+            // resolves after mount), not just when the user edits filters.
+            queryFilterGroup: (
+                filterGroup: UniversalFiltersGroup,
+                oldFilterGroup: UniversalFiltersGroup | undefined
+            ) => {
+                if (shouldSkipFilterGroupChange(filterGroup, oldFilterGroup)) {
+                    return
+                }
+                actions.handleQueryChange('attributes')
+            },
+            personId: rerunForScopeChange,
+            sessionId: rerunForScopeChange,
+        }
+    }),
 
     listeners(({ actions, values, cache, props }) => ({
         handleQueryChange: ({ filterType, extraProps }) => {
