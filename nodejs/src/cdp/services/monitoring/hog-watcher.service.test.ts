@@ -17,6 +17,7 @@ const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')
 const mockCaptureTeamEvent: jest.Mock = require('~/common/utils/posthog').captureTeamEvent as any
 
 const DEFAULT_WATCHER_CONFIG: HogWatcherConfig = {
+    costError: 100,
     hogCostTimingLowerMs: 50,
     hogCostTimingUpperMs: 550,
     hogCostTiming: 100,
@@ -682,6 +683,29 @@ describe('HogWatcher', () => {
             ])
             expect(watcherConfig.bucketSize - (await watcher.getPersistedState(hogFunctionId)).tokens).toEqual(100)
             expect(watcherConfig.bucketSize - (await watcher.getPersistedState('other-fn')).tokens).toEqual(0)
+        })
+    })
+
+    describe('observeFailures', () => {
+        // costError is 100 with the default config, and 8000 of 10000 tokens is the degraded threshold.
+        it.each([
+            [1, 9900, HogWatcherState.healthy],
+            [20, 8000, HogWatcherState.degraded],
+        ])('leaves a function on %i input failures at %i tokens', async (failures, tokens, expectedState) => {
+            await watcher.observeFailures(Array.from({ length: failures }, () => hogFunction))
+
+            const state = await watcher.getPersistedState(hogFunctionId)
+            expect(state.tokens).toEqual(tokens)
+            expect(state.state).toEqual(expectedState)
+        })
+
+        it('charges each function independently', async () => {
+            const other = createHogFunction({ id: `${hogFunctionId}-other`, team_id: 2 })
+
+            await watcher.observeFailures([hogFunction, hogFunction, other])
+
+            expect((await watcher.getPersistedState(hogFunctionId)).tokens).toEqual(9800)
+            expect((await watcher.getPersistedState(other.id)).tokens).toEqual(9900)
         })
     })
 })
