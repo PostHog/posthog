@@ -111,18 +111,17 @@ type Primitive = number | string | boolean | bigint | symbol | null | undefined
 interface ExceptionHint {
     tags: Record<string, Primitive>
     extra: Record<string, any>
+    // Groups the exception by this key instead of by its stack. Give one when the
+    // stack cannot tell two failures apart, as a database driver's stack cannot.
+    fingerprint: string
 }
 
 export function captureException(exception: any, hint?: Partial<ExceptionHint>): void {
     if (posthog) {
-        let additionalProperties = {}
-        if (hint) {
-            additionalProperties = {
-                ...(hint.tags || {}),
-                ...(hint.extra || {}),
-            }
-        }
-
-        posthog.captureException(exception, undefined, additionalProperties)
+        posthog.captureException(exception, undefined, {
+            ...hint?.tags,
+            ...hint?.extra,
+            ...(hint?.fingerprint && { $exception_fingerprint: hint.fingerprint }),
+        })
     }
 }
