@@ -15,6 +15,7 @@ use tokio_postgres::types::ToSql;
 pub struct PostgresSink {
     pool: Pool,
     retention_days: u32,
+    retention_by_collector: BTreeMap<String, u32>,
     /// table → known columns, so we only hit the catalog when a new column shows up.
     schema_cache: Mutex<BTreeMap<String, HashSet<String>>>,
 }
@@ -77,6 +78,7 @@ impl PostgresSink {
         let sink = Self {
             pool,
             retention_days: cfg.retention_days,
+            retention_by_collector: cfg.retention.clone(),
             schema_cache: Mutex::new(BTreeMap::new()),
         };
         sink.migrate().await?;
@@ -220,6 +222,14 @@ impl PostgresSink {
             self.ensure_partitions(c, table).await?;
         }
         Ok(())
+    }
+
+    fn retention_days_for(&self, table: &str) -> u32 {
+        table
+            .strip_prefix("ts_")
+            .and_then(|name| self.retention_by_collector.get(name))
+            .copied()
+            .unwrap_or(self.retention_days)
     }
 
     async fn ensure_partitions(&self, c: &deadpool_postgres::Client, table: &str) -> Result<()> {
@@ -444,10 +454,11 @@ impl Sink for PostgresSink {
             .into_iter()
             .map(|r| r.get(0))
             .collect();
-        let cutoff = (Utc::now().date_naive() - CDuration::days(self.retention_days as i64))
-            .format("%Y%m%d")
-            .to_string();
+        let today = Utc::now().date_naive();
         for t in &tables {
+            let cutoff = (today - CDuration::days(self.retention_days_for(t) as i64))
+                .format("%Y%m%d")
+                .to_string();
             self.ensure_partitions(&c, t).await?;
             let parts = c
                 .query(
@@ -501,5 +512,28 @@ fn to_sql(v: &Value) -> Box<dyn ToSql + Sync + Send> {
         Value::Text(s) => Box::new(s.clone()),
         Value::Timestamp(t) => Box::new(*t),
         Value::Json(j) => Box::new(j.clone()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retention_override_applies_only_to_its_own_table() {
+        let sink = PostgresSink {
+            pool: Pool::builder(Manager::new(
+                tokio_postgres::Config::new(),
+                tokio_postgres::NoTls,
+            ))
+            .build()
+            .unwrap(),
+            retention_days: 14,
+            retention_by_collector: BTreeMap::from([("query_durations".to_string(), 7)]),
+            schema_cache: Mutex::new(BTreeMap::new()),
+        };
+        assert_eq!(sink.retention_days_for("ts_query_durations"), 7);
+        assert_eq!(sink.retention_days_for("ts_query_stats"), 14);
+        assert_eq!(sink.retention_days_for("ts_query_durations_extra"), 14);
     }
 }

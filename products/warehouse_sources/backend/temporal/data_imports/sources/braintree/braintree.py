@@ -77,10 +77,14 @@ def _format_created_at(value: Any) -> str:
 def _build_query(config: BraintreeEndpointConfig) -> str:
     # Braintree's search fields declare `input` as non-null, even though every
     # field within the input type is optional (an empty object matches everything).
+    input_variable = f"$input: {config.input_type}!, " if config.input_type else ""
+    input_argument = "input: $input, " if config.input_type else ""
+    opening = " ".join(f"{wrapper} {{" for wrapper in config.query_path)
+    closing = " ".join("}" for _ in config.query_path)
     return f"""
-query ($input: {config.input_type}!, $first: Int!, $after: String) {{
-  search {{
-    {config.search_field} (input: $input, first: $first, after: $after) {{
+query ({input_variable}$first: Int!, $after: String) {{
+  {opening}
+    {config.connection_field} ({input_argument}first: $first, after: $after) {{
       pageInfo {{ hasNextPage }}
       edges {{
         cursor
@@ -89,9 +93,30 @@ query ($input: {config.input_type}!, $first: Int!, $after: String) {{
         }}
       }}
     }}
-  }}
+  {closing}
 }}
 """
+
+
+def _normalize_node(node: dict[str, Any], config: BraintreeEndpointConfig) -> dict[str, Any]:
+    """Copy a nested creation timestamp to the node root.
+
+    `RecurringBillingSubscription` exposes its timestamps under `timeline` rather than at
+    the node root, and GraphQL cannot select a nested scalar into the root, so without this
+    the incremental cursor and the partition key have no column to read.
+    """
+    if config.created_at_path == ("createdAt",):
+        return node
+
+    value: Any = node
+    for key in config.created_at_path:
+        if not isinstance(value, dict):
+            return node
+        value = value.get(key)
+
+    if value is None:
+        return node
+    return {**node, "createdAt": value}
 
 
 def _execute(
@@ -181,10 +206,17 @@ def get_rows(
         return _execute(session, url, query, variables, logger)
 
     while True:
-        data = execute({"input": search_input, "first": PAGE_SIZE, "after": after})
-        connection = ((data.get("search") or {}).get(config.search_field)) or {}
+        variables: dict[str, Any] = {"first": PAGE_SIZE, "after": after}
+        if config.input_type:
+            variables["input"] = search_input
+        data = execute(variables)
+
+        container: Any = data
+        for wrapper in config.query_path:
+            container = (container or {}).get(wrapper) or {}
+        connection = container.get(config.connection_field) or {}
         edges = connection.get("edges") or []
-        items = [edge.get("node") for edge in edges if edge.get("node")]
+        items = [_normalize_node(edge["node"], config) for edge in edges if edge.get("node")]
 
         if items:
             yield items
@@ -212,6 +244,18 @@ def braintree_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = BRAINTREE_ENDPOINTS[endpoint]
+    # A lookup stream with no timestamp has nothing to partition on, so it stays unpartitioned.
+    partitioning: dict[str, Any] = (
+        {
+            "partition_count": 1,
+            "partition_size": 1,
+            "partition_mode": "datetime",
+            "partition_format": "month",
+            "partition_keys": [config.partition_key],
+        }
+        if config.partition_key
+        else {}
+    )
 
     return SourceResponse(
         name=endpoint,
@@ -227,12 +271,8 @@ def braintree_source(
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),
         primary_keys=[config.primary_key],
-        partition_count=1,
-        partition_size=1,
-        partition_mode="datetime",
-        partition_format="month",
-        partition_keys=[config.partition_key],
         # Search result ordering is undocumented, so the pipeline defers the
         # watermark commit until a run completes.
         sort_mode="desc",
+        **partitioning,
     )

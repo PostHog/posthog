@@ -45,7 +45,7 @@ class BugsnagResumeConfig:
     parent_id: str | None = None
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class _FanOutParent:
     # Id used to resolve the endpoint path and to bookmark resume position.
     resume_id: str
@@ -54,6 +54,9 @@ class _FanOutParent:
     # Parent identifiers injected into every child row so the composite primary key is unique
     # table-wide and the rows are joinable back to their organization/project.
     inject: dict[str, str]
+    # Query parameters that identify this parent, for endpoints that scope by parameter rather than
+    # by path (release groups take their release stage this way).
+    params: dict[str, str] = dataclasses.field(default_factory=dict)
 
 
 def _get_headers(auth_token: str) -> dict[str, str]:
@@ -92,7 +95,13 @@ def _parse_next_url(link_header: str) -> str | None:
     wait=wait_exponential_jitter(initial=1, max=60),
     reraise=True,
 )
-def _fetch_page(session: requests.Session, page_url: str, headers: dict[str, str], logger: FilteringBoundLogger):
+def _fetch_page(
+    session: requests.Session,
+    page_url: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    tolerated_statuses: tuple[int, ...] = (),
+):
     response = session.get(page_url, headers=headers, timeout=60)
 
     # BugSnag rate limits per 1-minute window and returns 429 on exceed; retry those plus
@@ -100,7 +109,7 @@ def _fetch_page(session: requests.Session, page_url: str, headers: dict[str, str
     if response.status_code == 429 or response.status_code >= 500:
         raise BugsnagRetryableError(f"BugSnag API error (retryable): status={response.status_code}, url={page_url}")
 
-    if not response.ok:
+    if not response.ok and response.status_code not in tolerated_statuses:
         logger.error(f"BugSnag API error: status={response.status_code}, body={response.text}, url={page_url}")
         response.raise_for_status()
 
@@ -142,6 +151,42 @@ def _fetch_list_page_or_stop(
         raise
 
 
+def _endpoint_params(config: BugsnagEndpointConfig, parent: _FanOutParent | None = None) -> dict[str, Any]:
+    params: dict[str, Any] = {}
+    if config.page_size is not None:
+        params["per_page"] = config.page_size
+    params.update(config.params)
+    if parent is not None:
+        params.update(parent.params)
+    return params
+
+
+def _object_rows(
+    session: requests.Session,
+    url: str,
+    headers: dict[str, str],
+    config: BugsnagEndpointConfig,
+    logger: FilteringBoundLogger,
+) -> list[dict[str, Any]]:
+    """Flatten a single-object endpoint into one row per item of its nested array.
+
+    The object's own scalar fields (e.g. the release stage the trend describes) are copied onto
+    every row, so each row stands alone in the warehouse."""
+    row_field = config.object_row_field
+    if row_field is None:
+        return []
+    response = _fetch_page(session, url, headers, logger, tolerated_statuses=config.missing_data_statuses)
+    # 204 is the documented "this parent has no data yet" answer, and carries no body to parse.
+    if response.status_code == 204 or not response.ok or not response.content:
+        return []
+    data = response.json()
+    if not isinstance(data, dict):
+        return []
+    nested = data.get(row_field) or []
+    scalars = {key: value for key, value in data.items() if key != row_field}
+    return [{**scalars, **item} for item in nested if isinstance(item, dict)]
+
+
 def _iter_all_pages(
     session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger
 ) -> Iterator[dict[str, Any]]:
@@ -159,12 +204,20 @@ def _resolve_org_ids(session: requests.Session, headers: dict[str, str], logger:
     return [org["id"] for org in _iter_all_pages(session, url, headers, logger)]
 
 
+def _iter_projects(
+    session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger
+) -> Iterator[tuple[str, dict[str, Any]]]:
+    """Yield (organization_id, project) for every project the token can see."""
+    for org_id in _resolve_org_ids(session, headers, logger):
+        projects_url = _build_url(f"{BUGSNAG_BASE_URL}/organizations/{org_id}/projects", {"per_page": PAGE_SIZE})
+        for project in _iter_all_pages(session, projects_url, headers, logger):
+            yield org_id, project
+
+
 def _resolve_parents(
     session: requests.Session, headers: dict[str, str], config: BugsnagEndpointConfig, logger: FilteringBoundLogger
 ) -> list[_FanOutParent]:
     """Build the ordered list of fan-out parents for a per-org or per-project endpoint."""
-    org_ids = _resolve_org_ids(session, headers, logger)
-
     if config.scope == BugsnagScope.PER_ORG:
         return [
             _FanOutParent(
@@ -172,22 +225,53 @@ def _resolve_parents(
                 path_kwargs={"organization_id": org_id},
                 inject={"organization_id": org_id},
             )
-            for org_id in org_ids
+            for org_id in _resolve_org_ids(session, headers, logger)
         ]
 
-    # PER_PROJECT: walk each organization's projects and flatten to (org_id, project_id) pairs.
     parents: list[_FanOutParent] = []
-    for org_id in org_ids:
-        projects_url = _build_url(f"{BUGSNAG_BASE_URL}/organizations/{org_id}/projects", {"per_page": PAGE_SIZE})
-        for project in _iter_all_pages(session, projects_url, headers, logger):
-            project_id = project["id"]
-            parents.append(
-                _FanOutParent(
-                    resume_id=project_id,
-                    path_kwargs={"project_id": project_id},
-                    inject={"organization_id": org_id, "project_id": project_id},
+    for org_id, project in _iter_projects(session, headers, logger):
+        project_id = project["id"]
+        inject = {"organization_id": org_id, "project_id": project_id}
+
+        if config.scope == BugsnagScope.PER_PROJECT:
+            parents.append(_FanOutParent(resume_id=project_id, path_kwargs={"project_id": project_id}, inject=inject))
+            continue
+
+        project_parents: list[_FanOutParent] = []
+        if config.scope == BugsnagScope.PER_PROJECT_RELEASE_STAGE:
+            # A project reports the stages it has seen events for; one with none has no release
+            # groups to list, and the endpoint rejects a request without a stage.
+            for stage in project.get("release_stages") or []:
+                project_parents.append(
+                    _FanOutParent(
+                        resume_id=f"{project_id}:{stage}",
+                        path_kwargs={"project_id": project_id},
+                        inject=inject,
+                        params={"release_stage_name": stage},
+                    )
                 )
+        elif config.scope == BugsnagScope.PER_PROJECT_PIVOT:
+            pivots_url = _build_url(f"{BUGSNAG_BASE_URL}/projects/{project_id}/pivots", {"per_page": PAGE_SIZE})
+            for pivot in _iter_all_pages(session, pivots_url, headers, logger):
+                display_id = pivot["event_field_display_id"]
+                project_parents.append(
+                    _FanOutParent(
+                        resume_id=f"{project_id}:{display_id}",
+                        path_kwargs={"project_id": project_id, "event_field_display_id": display_id},
+                        inject={**inject, "event_field_display_id": display_id},
+                    )
+                )
+
+        cap = config.max_parents_per_project
+        if cap is not None and len(project_parents) > cap:
+            # Each parent is a paginated collection of its own, so an inflated count turns one
+            # project into an unbounded sync. Take a deterministic prefix and say so.
+            logger.warning(
+                f"BugSnag: project={project_id} offers {len(project_parents)} fan-out parents for "
+                f"{config.name}; syncing the first {cap}"
             )
+            project_parents = project_parents[:cap]
+        parents.extend(project_parents)
     return parents
 
 
@@ -205,7 +289,7 @@ def _iter_top_level(
         url = resume.next_url
         logger.debug(f"BugSnag: resuming {config.name} from URL: {url}")
     else:
-        url = _build_url(f"{BUGSNAG_BASE_URL}{config.path}", {"per_page": config.page_size})
+        url = _build_url(f"{BUGSNAG_BASE_URL}{config.path}", _endpoint_params(config))
 
     first_page = True
     while True:
@@ -257,13 +341,22 @@ def _iter_fan_out(
     for index in range(start_index, len(parents)):
         parent = parents[index]
         path = config.path.format(**parent.path_kwargs)
-        url = resume_url or _build_url(f"{BUGSNAG_BASE_URL}{path}", {"per_page": config.page_size})
+        params = _endpoint_params(config, parent)
+        url = resume_url or _build_url(f"{BUGSNAG_BASE_URL}{path}", params)
         resume_url = None  # only the resumed-into parent uses the saved URL; the rest start fresh
 
-        first_page = True
+        if config.object_row_field is not None:
+            for item in _object_rows(session, url, headers, config, logger):
+                batcher.batch({**item, **parent.inject})
+                if batcher.should_yield():
+                    yield batcher.get_table()
+                    manager.save_state(BugsnagResumeConfig(next_url=None, parent_id=parent.resume_id))
+            continue
+
+        page_count = 0
         while True:
-            items, next_url = _fetch_list_page_or_stop(session, url, headers, logger, is_first_page=first_page)
-            first_page = False
+            items, next_url = _fetch_list_page_or_stop(session, url, headers, logger, is_first_page=page_count == 0)
+            page_count += 1
             # Checkpoint the CURRENT page (and parent), not next_url. The batcher is shared across
             # parents and can yield part-way through this page, so resume must re-fetch this exact
             # page and re-batch every item (merge dedupes the already-yielded ones). Saving next_url
@@ -277,6 +370,12 @@ def _iter_fan_out(
                     yield batcher.get_table()
                     manager.save_state(BugsnagResumeConfig(next_url=checkpoint_url, parent_id=parent.resume_id))
             if not next_url:
+                break
+            if config.max_pages is not None and page_count >= config.max_pages:
+                logger.warning(
+                    f"BugSnag: page cap reached for {config.name} on parent={parent.resume_id}; "
+                    "stopping this collection early"
+                )
                 break
             url = next_url
 

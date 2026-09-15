@@ -19,6 +19,10 @@ interface CardState {
     reportsToday?: number
     /** Personal opt-in to being added as a GitHub assignee on the implementation PR. */
     githubAssign?: boolean
+    /** Whether the project opens self-driving PRs ready for review instead of draft. */
+    projectPrReady?: boolean
+    /** Personal override for that, or null to follow the project ("Default"). */
+    myPrReady?: boolean | null
     /** Connected integrations the issue tracker picker can choose from. */
     integrations?: Record<string, unknown>[]
     /** Integration id the project already tracks issues in, and where inside it they land. */
@@ -35,6 +39,8 @@ function Card({
     dailyLimit = null,
     reportsToday = 0,
     githubAssign = false,
+    projectPrReady = false,
+    myPrReady = null,
     integrations = [],
     issueTrackingIntegration = null,
     issueTrackingConfig = {},
@@ -51,6 +57,7 @@ function Card({
                 max_reports_per_day: dailyLimit,
                 reports_generated_today: reportsToday,
                 daily_report_limit_reached: dailyLimit != null && reportsToday >= dailyLimit,
+                default_open_pull_request_ready: projectPrReady,
             },
             '/api/users/@me/signal_autonomy/': {
                 id: 'auto-1',
@@ -58,6 +65,7 @@ function Card({
                 slack_notification_channel: null,
                 slack_notification_min_priority: null,
                 github_assign_on_pull_request: githubAssign,
+                github_open_pull_request_ready: myPrReady,
             },
             '/api/projects/:team_id/integrations/': { results: integrations },
         },
@@ -108,6 +116,11 @@ export const PersonalDefault: Story = {
 // Personal GitHub assignment opted in: the row's switch reads on.
 export const GitHubAssignmentOn: Story = {
     render: () => <Card githubAssign />,
+}
+
+// A reviewer who opted into the full CI matrix inside a project that still defaults to draft.
+export const PullRequestReadyForReview: Story = {
+    render: () => <Card myPrReady />,
 }
 
 // Master switch off: both thresholds are hidden and only the reassurance copy shows.

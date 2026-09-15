@@ -26,10 +26,7 @@ REAL_DATABRICKS_ENV_VARS = (
     "DATABRICKS_BE_CLIENT_SECRET",
 )
 
-skip_without_real_databricks = pytest.mark.skipif(
-    not all(env_var in os.environ for env_var in REAL_DATABRICKS_ENV_VARS),
-    reason=f"Databricks required env vars are not set: {', '.join(REAL_DATABRICKS_ENV_VARS)}",
-)
+skip_without_real_databricks = pytest.mark.requires_vendor_credentials(*REAL_DATABRICKS_ENV_VARS)
 
 
 @pytest.fixture

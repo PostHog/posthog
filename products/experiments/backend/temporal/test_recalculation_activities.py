@@ -142,6 +142,17 @@ class TestRecalculationActivities(BaseTest):
                 {"m1", "s1"},
                 {"primary", "secondary"},
             ),
+            (
+                "legacy_metric_without_metric_type_skipped",
+                [
+                    {"uuid": "m1", "metric_type": "mean", "kind": "ExperimentMetric"},
+                    {"uuid": "legacy", "kind": "ExperimentTrendsQuery"},
+                ],
+                [],
+                [],
+                {"m1"},
+                {"primary"},
+            ),
         ]
     )
     def test_discover_persists_metric_uuids(self, name: str, primary, secondary, saved, expected_uuids, expected_types):
@@ -650,18 +661,17 @@ class TestCalculateActivity(BaseTest):
         assert "m1" in recalc.metric_errors
 
     def test_bad_metric_type_fails_at_calculation(self):
-        # Legacy metrics never reach this workflow, so there's no discovery-time type guard; an unexpected
-        # metric_type raises while building the metric. The activity records the failure to metric_errors
-        # and re-raises so Temporal's retry policy can handle potentially transient errors.
+        # An unknown metric_type is unschedulable, so the calc lookup fails the metric permanently
+        # instead of raising KeyError while building it.
         exp = self._experiment(
             flag_key="calc-badtype",
             metrics=[{"uuid": "m-bad", "metric_type": "nonsense", "kind": "ExperimentMetric"}],
         )
         recalc = self._recalc(exp, metric_uuids=["m-bad"])
 
-        with pytest.raises(KeyError):
-            _calculate(exp.id, "m-bad", str(recalc.id), _QUERY_TO)
+        result = _calculate(exp.id, "m-bad", str(recalc.id), _QUERY_TO)
 
+        assert result.success is False
         recalc.refresh_from_db()
         assert len(recalc.metric_errors) == 1
         assert "m-bad" in recalc.metric_errors

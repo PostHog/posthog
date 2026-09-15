@@ -17,6 +17,7 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
+from posthog.team_notifications.slack import SlackChannel
 
 from products.stamphog.backend.facade.enums import AudienceReason, ChannelResolutionSource, DigestRunStatus
 from products.stamphog.backend.logic.audiences import REPO_AUDIENCE_PREFIX
@@ -24,7 +25,6 @@ from products.stamphog.backend.logic.channel_resolution import (
     Destination,
     RoutingContext,
     RoutingUnavailable,
-    SlackChannel,
     _candidate_repo_configs,
 )
 from products.stamphog.backend.logic.digest import (

@@ -1004,6 +1004,7 @@ doesn't conflict with concurrent PRs.
 - dwolla
 - e2b
 - ebay
+- electricity_maps
 - eloqua
 - emarsys
 - embrace
@@ -1375,6 +1376,7 @@ doesn't conflict with concurrent PRs.
 - slash
 - sleuth
 - smaily
+- smartlead
 - smartlook
 - smartrecruiters
 - smartwaiver
@@ -1396,6 +1398,7 @@ doesn't conflict with concurrent PRs.
 - strato
 - strava
 - streamlabs
+- substack
 - sumsub
 - superwall
 - surveymonkey

@@ -5667,6 +5667,7 @@ dependencies = [
     { name = "pymongo" },
     { name = "pymssql" },
     { name = "pymysql" },
+    { name = "pynacl" },
     { name = "pyod" },
     { name = "pypdf" },
     { name = "pyroscope-io" },
@@ -5936,7 +5937,7 @@ requires-dist = [
     { name = "polars", specifier = "==1.37.1" },
     { name = "posthog-hogland", specifier = "==0.4.1" },
     { name = "posthog-owners", editable = "tools/owners" },
-    { name = "posthoganalytics", specifier = "==7.51.2" },
+    { name = "posthoganalytics", specifier = "==7.54.0" },
     { name = "protobuf", specifier = "~=5.29.6" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.4" },
     { name = "psycopg2-binary", specifier = "==2.9.10" },
@@ -5948,6 +5949,7 @@ requires-dist = [
     { name = "pymongo", specifier = "==4.13.2" },
     { name = "pymssql", specifier = "==2.3.5" },
     { name = "pymysql", specifier = "==1.1.1" },
+    { name = "pynacl", specifier = "==1.5.0" },
     { name = "pyod", specifier = "==2.0.7" },
     { name = "pypdf", specifier = "==6.10.2" },
     { name = "pyroscope-io", specifier = "~=0.8.8" },
@@ -6114,7 +6116,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "posthoganalytics"
-version = "7.51.2"
+version = "7.54.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -6122,9 +6124,9 @@ dependencies = [
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/3d/28/03df114b66050f20feef6ced44fdb2fadf984758c619f3b5ed8dd5c0bb77/posthoganalytics-7.51.2.tar.gz", hash = "sha256:d04c50617a5cc9085fd3925d3d2990ad575940498735868d2b9b396b16cc0825", size = 543227, upload-time = "2026-09-11T09:15:46.304Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f4/51/4b73739de28ccc09a9d1fff19108a79e1d21f8b19ae167ca3a133dd6f947/posthoganalytics-7.54.0.tar.gz", hash = "sha256:1297f82282e60da234fe3a4a08a69671a64cc91ac97ec14d9d0dfcc956e56382", size = 568032, upload-time = "2026-09-15T08:03:05.412Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5c/85/3639ce730056e8409541aac2f2fc40f8360214c08226ece28dc72dc2e64b/posthoganalytics-7.51.2-py3-none-any.whl", hash = "sha256:167fdb2778c156cc5475c0a90dc5afa6bc6c5113e7090430cdb7b5fc4511c63b", size = 641523, upload-time = "2026-09-11T09:15:44.362Z" },
+    { url = "https://files.pythonhosted.org/packages/58/f3/4c3aef4dea0abb246c3ade1836c2aba89cec669a53f956a0923257597a87/posthoganalytics-7.54.0-py3-none-any.whl", hash = "sha256:c25a10e90fabd1c4de013927b4d462cc7bd39cfe0a558de8a018f2388b021a11", size = 669916, upload-time = "2026-09-15T08:03:03.541Z" },
 ]
 
 [[package]]
