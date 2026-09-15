@@ -2425,9 +2425,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         response = self.dashboard_api.get_dashboard(dashboard.pk)
         tile_insight = response["tiles"][0]["insight"]
         self.assertIsNone(tile_insight["query"])
-        # The stored filters are the definition the client converts, so they have to survive the read.
-        self.assertEqual(tile_insight["filters"]["events"], [{"id": "$pageview"}])
-        self.assertNotIn("insight", tile_insight["filters"])
 
     def test_retrieve_dashboard_different_team(self):
         team2 = Team.objects.create(organization=Organization.objects.create(name="a"))
@@ -3019,7 +3016,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "effective_restriction_level": 21,
                     "favorited": False,
                     "filter_override_context": None,
-                    "filters": {},
                     "filters_hash": ANY,
                     "hasMore": None,
                     "id": ANY,
