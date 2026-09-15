@@ -912,6 +912,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             if (values.fullyLoaded && !values.reportedLoaded) {
                 actions.setRecordingReportedLoaded()
                 actions.reportRecordingLoaded(values.sessionPlayerData, values.sessionPlayerMetaData)
+                // TODO: temporary diagnostic for the cross-browser first-frame investigation.
+                // Remove this block and buildAnchorDiagnostic once the cause is found.
                 try {
                     posthog.capture(
                         'recording anchor diagnostic',
