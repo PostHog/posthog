@@ -473,7 +473,7 @@ class TestHealthIssueAPI(APIBaseTest):
 
     @parameterized.expand([("healthy", False), ("issues", True)])
     def test_checks_reports_what_the_last_run_found(self, expected_status, found_issues):
-        HealthCheckRun.objects.create(team=self.team, kind="reverse_proxy", found_issues=found_issues)
+        HealthCheckRun.objects.unscoped().create(team=self.team, kind="reverse_proxy", found_issues=found_issues)
 
         response = self.client.get(self._url("/checks"))
 
@@ -483,7 +483,7 @@ class TestHealthIssueAPI(APIBaseTest):
         self.assertFalse(state["stale"])
 
     def test_checks_marks_a_check_stale_once_it_misses_its_schedule(self):
-        HealthCheckRun.objects.create(
+        HealthCheckRun.objects.unscoped().create(
             team=self.team,
             kind="reverse_proxy",
             found_issues=True,
@@ -496,7 +496,7 @@ class TestHealthIssueAPI(APIBaseTest):
 
     def test_checks_only_reports_this_teams_runs(self):
         other = Team.objects.create(organization=self.organization, name="Other")
-        HealthCheckRun.objects.create(team=other, kind="reverse_proxy", found_issues=True)
+        HealthCheckRun.objects.unscoped().create(team=other, kind="reverse_proxy", found_issues=True)
 
         response = self.client.get(self._url("/checks"))
 

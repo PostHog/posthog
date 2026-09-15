@@ -92,7 +92,7 @@ export const healthCheckFreshnessLogic = kea<healthCheckFreshnessLogicType>([
             null as HealthChecksResponse | null,
             {
                 loadHealthChecks: async (): Promise<HealthChecksResponse | null> =>
-                    await api.get(`api/environments/${values.currentTeamIdStrict}/health_issues/checks/`),
+                    await api.get(`api/projects/${values.currentTeamIdStrict}/health_issues/checks/`),
             },
         ],
     })),
@@ -105,7 +105,7 @@ export const healthCheckFreshnessLogic = kea<healthCheckFreshnessLogicType>([
     }),
     listeners(({ actions }) => ({
         recheckKinds: async ({ kinds, onComplete }, breakpoint) => {
-            const url = `api/environments/${teamLogic.values.currentTeamIdStrict}/health_issues/refresh/`
+            const url = `api/projects/${teamLogic.values.currentTeamIdStrict}/health_issues/refresh/`
             try {
                 await api.create(url, { kinds })
                 breakpoint()

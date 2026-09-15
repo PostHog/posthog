@@ -100,7 +100,7 @@ export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
             if (selectors.hasReverseProxy(previousState) !== false || teamId === null) {
                 return
             }
-            api.create(`api/environments/${teamId}/health_issues/refresh/`, {
+            api.create(`api/projects/${teamId}/health_issues/refresh/`, {
                 kinds: ['reverse_proxy'],
             }).catch(() => {
                 // Advisory: the scheduled run picks the fix up anyway, and a 429 here is expected

@@ -625,7 +625,7 @@ class HealthIssueViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMi
 
         ensure_registry_loaded()
 
-        runs = {run.kind: run for run in HealthCheckRun.objects.filter(team_id=self.team_id)}
+        runs = {run.kind: run for run in HealthCheckRun.objects.for_team(self.team_id)}
         now = timezone.now()
         results = [
             _check_state(kind, registration.schedule, runs.get(kind), now)
