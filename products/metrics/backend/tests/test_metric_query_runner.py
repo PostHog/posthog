@@ -1175,7 +1175,7 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
                 metric_name="latency",
                 metric_type="histogram",
                 aggregation_temporality=temporality,
-                histogram_bounds=bounds or self.BOUNDS,
+                histogram_bounds=self.BOUNDS if bounds is None else bounds,
                 histogram_counts=counts,
                 points=[(timestamp, 0.0)],
                 **kwargs,
@@ -1378,6 +1378,21 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertAlmostEqual(rows[0]["value"], 3.0)
         point = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
         self.assertEqual(point, self.anchor + dt.timedelta(minutes=1))
+
+    def test_series_without_bounds_cannot_join_a_bucketed_layout(self):
+        # A histogram with no bounds reports one overflow count, which no bucket holds.
+        self._seed_histogram([(self.anchor, [0, 0, 10, 0])], temporality="delta")
+        self._seed_histogram(
+            [(self.anchor + dt.timedelta(seconds=10), [5])],
+            temporality="delta",
+            bounds=[],
+            resource_labels={"k8s.pod.name": "unbucketed"},
+        )
+        with self.assertRaises(ValueError) as caught:
+            self._run(0.5)
+        message = str(caught.exception)
+        self.assertIn("0.1, 0.5, 1", message)
+        self.assertIn("0 boundaries", message)
 
     def test_histogram_quantile_via_api(self):
         self._seed_histogram(

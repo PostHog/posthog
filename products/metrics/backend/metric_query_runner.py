@@ -523,8 +523,9 @@ class MetricQueryRunner:
             time = row[0].isoformat() if isinstance(row[0], dt.datetime) else row[0]
             labels = {group.key: row[1 + index] for index, group in enumerate(self.group_by)}
             # Each point holds one summed distribution, so only a layout change
-            # inside a point makes the counts unusable.
-            layouts = {tuple(variant) for variant in row[1 + group_count] if variant}
+            # inside a point makes the counts unusable. No bounds is a layout too:
+            # an overflow count cannot be added to bucketed counts.
+            layouts = {tuple(variant) for variant in row[1 + group_count]}
             if len(layouts) > 1:
                 raise ValueError(_bounds_mismatch_message(time, labels, layouts))
             bounds = list(next(iter(layouts), ()))
