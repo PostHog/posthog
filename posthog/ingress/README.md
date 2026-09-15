@@ -32,7 +32,6 @@ Adding a provider is another `<provider>/` folder, not a change to the mechanism
 
 The GitHub endpoints and the SES one are declared in `posthog/urls.py`.
 The others are declared by the product that owns them.
-See [`url-routing.md`](../../docs/internal/url-routing.md) for the routing rules those declarations follow, and [`github-webhooks.md`](../../docs/internal/github-webhooks.md) for the GitHub specifics.
 
 The Vapi endpoint sits behind a per-IP throttle the product owns, because ingress has no throttle lane and the endpoint is public.
 
