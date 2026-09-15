@@ -1,5 +1,6 @@
 """Push-notification provider credentials (APNS, Firebase) and device-identity verification config."""
 
+import re
 import time
 from datetime import timedelta
 
@@ -215,6 +216,26 @@ class FirebaseIntegration:
         return self.integration.sensitive_config.get("access_token", "")
 
 
+APNS_ENVIRONMENTS = ("production", "sandbox")
+
+# Apple team ids are alphanumeric, and bundle ids add only hyphens and periods. A colon appears in
+# neither, which is what lets the environment suffix below never collide with a real bundle id.
+# The team id holds no period either, so the first period in an id always ends the team id.
+APNS_TEAM_ID = re.compile(r"^[A-Za-z0-9]+$")
+APNS_BUNDLE_ID = re.compile(r"^[A-Za-z0-9.\-]+$")
+
+
+def apns_integration_id(team_id_apple: str, bundle_id: str, environment: str) -> str:
+    """The row identity of an APNs credential, which the environment is part of.
+
+    A sandbox credential and a production one are separate credentials for the same app, and both
+    have to be connectable at once. Only the sandbox id carries the suffix, so credentials connected
+    before the environment was part of the identity keep the id they already have.
+    """
+    base = f"{team_id_apple}.{bundle_id}"
+    return f"{base}:sandbox" if environment == "sandbox" else base
+
+
 class ApplePushIntegration:
     """
     Integration for Apple Push Notification Service (APNS).
@@ -249,13 +270,32 @@ class ApplePushIntegration:
         push_identity_verification: str | None = None,
         push_identity_public_keys: list[str] | None = None,
     ) -> "model.Integration":
+        # The posted config is untyped JSON, so a field can arrive as any type. Stripping a number
+        # below raises, which the endpoint answers with a server error rather than a validation one.
+        if not all(
+            value is None or isinstance(value, str) for value in (signing_key, key_id, team_id_apple, bundle_id)
+        ):
+            raise ValidationError("All APNS fields must be strings: signing_key, key_id, team_id_apple, bundle_id")
+
+        # A space copied out of the developer portal corrupts the signed JWT and the apns-topic.
+        signing_key = (signing_key or "").strip()
+        key_id = (key_id or "").strip()
+        team_id_apple = (team_id_apple or "").strip()
+        bundle_id = (bundle_id or "").strip()
+
         if not all([signing_key, key_id, team_id_apple, bundle_id]):
             raise ValidationError("All APNS fields are required: signing_key, key_id, team_id_apple, bundle_id")
 
-        if environment not in ("production", "sandbox"):
+        if not APNS_TEAM_ID.match(team_id_apple):
+            raise ValidationError("APNS team_id_apple accepts letters and digits only")
+
+        if not APNS_BUNDLE_ID.match(bundle_id):
+            raise ValidationError("APNS bundle_id accepts letters, digits, hyphens and periods only")
+
+        if environment not in APNS_ENVIRONMENTS:
             raise ValidationError("APNS environment must be 'production' or 'sandbox'")
 
-        integration_id = f"{team_id_apple}.{bundle_id}"
+        integration_id = apns_integration_id(team_id_apple, bundle_id, environment)
         # Atomic so `preserved_push_config`'s row lock is held through the upsert that follows it.
         with transaction.atomic():
             integration, created = model.Integration.objects.update_or_create(
