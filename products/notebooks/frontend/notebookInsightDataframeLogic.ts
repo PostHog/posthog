@@ -180,6 +180,14 @@ export const notebookInsightDataframeLogic = kea<notebookInsightDataframeLogicTy
                 })
                 try {
                     const mounted = insightDataLogic.findMounted(props.insightProps)
+                    const nodeSource = (): string => {
+                        const attributes = collectNotebookDataframeNodes(values.content).find(
+                            (node) => node.nodeId === props.nodeId
+                        )?.node.attrs
+                        return JSON.stringify([attributes?.id, attributes?.query])
+                    }
+                    const originalNodeSource = nodeSource()
+                    const originalMountedQuery = JSON.stringify(mounted?.values.query)
                     let query = (mounted?.values.query ?? props.insightProps.query ?? props.attributes.query) as
                         | QuerySchema
                         | undefined
@@ -247,6 +255,18 @@ export const notebookInsightDataframeLogic = kea<notebookInsightDataframeLogicTy
                         )
                         breakpoint()
                         if (response.status === 'done') {
+                            const savedQuery = shortId
+                                ? (await insightsApi.getByShortId(shortId as InsightShortId))?.query
+                                : query
+                            breakpoint()
+                            if (
+                                nodeSource() !== originalNodeSource ||
+                                JSON.stringify(mounted?.values.query) !== originalMountedQuery ||
+                                JSON.stringify(savedQuery) !== source
+                            ) {
+                                actions.setError('The insight changed while preparing its dataframe. Try again.')
+                                return
+                            }
                             const result = response.result
                             props.updateAttributes({
                                 nodeId: props.nodeId,

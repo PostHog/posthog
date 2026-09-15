@@ -168,6 +168,29 @@ describe('insight dataframes', () => {
         expect(api.notebooks.sqlV2Run).not.toHaveBeenCalled()
     })
 
+    it.each(['edited', 'removed'])(
+        'discards a completed run when its insight was %s during preparation',
+        async (change) => {
+            const completedResult = await api.notebooks.sqlV2RunResult('insight-dataframes', 'insight-run')
+            jest.mocked(api.notebooks.sqlV2RunResult).mockImplementationOnce(async () => {
+                notebook.actions.setLocalContent(
+                    buildMarkdownNotebookContent(
+                        change === 'removed'
+                            ? ''
+                            : '<Query nodeId="source" query={{"kind":"HogQLQuery","query":"SELECT 2"}} />'
+                    )
+                )
+                return completedResult
+            })
+            mountCreator()
+            await creator.asyncActions.syncDataframe()
+            expect(attributes).toEqual({})
+            expect(creator.values.error).toBe('The insight changed while preparing its dataframe. Try again.')
+            expect(creator.values.isPreparing).toBe(false)
+            expect(creator.values.isBusy).toBe(false)
+        }
+    )
+
     it('shares a preparation between simultaneous consumers', async () => {
         mountCreator()
         await Promise.all([creator.asyncActions.syncDataframe(), creator.asyncActions.syncDataframe()])

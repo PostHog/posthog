@@ -742,6 +742,67 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         })
     })
 
+    it('prepares an insight before refreshing widget data and ignores repeated clicks while preparing', async () => {
+        let content: JSONContent = {
+            type: 'doc',
+            content: [{ type: NotebookNodeType.Query, attrs: { nodeId: 'insight', returnVariable: 'insight_df' } }],
+        }
+        let finishPreparation: () => void = () => undefined
+        const preparation = new Promise<void>((resolve) => {
+            finishPreparation = resolve
+        })
+        const prepareInsightDataframes = jest.fn(async () => {
+            await preparation
+            content = {
+                type: 'doc',
+                content: [
+                    {
+                        type: NotebookNodeType.Query,
+                        attrs: { nodeId: 'insight', returnVariable: 'insight_df', dataframeQuery: 'SELECT 1' },
+                    },
+                ],
+            }
+        })
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue(
+            status({ lifecycle_status: 'ready', frame_names: ['insight_df'], has_versions: true })
+        )
+        logic = notebookNodeGeneratedWidgetLogic({ ...props, getContent: () => content, prepareInsightDataframes })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.runDataDependencies()
+        logic.actions.runDataDependencies()
+        expect(logic.values.dataRefreshInFlight).toBe(true)
+        expect(prepareInsightDataframes).toHaveBeenCalledTimes(1)
+        expect(notebooksWidgetStatus).toHaveBeenCalledTimes(1)
+
+        finishPreparation()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(props.persistNotebook).toHaveBeenCalledTimes(1)
+        expect(notebooksWidgetStatus).toHaveBeenCalledTimes(2)
+        expect(logic.values.runtimeError).toBeNull()
+        expect(logic.values.dataRefreshInFlight).toBe(false)
+    })
+
+    it('allows retrying widget data refresh after insight preparation fails', async () => {
+        const prepareInsightDataframes = jest.fn().mockRejectedValue(new Error('Preparation failed. Try again.'))
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue(
+            status({ lifecycle_status: 'ready', frame_names: ['insight_df'], has_versions: true })
+        )
+        logic = notebookNodeGeneratedWidgetLogic({ ...props, prepareInsightDataframes })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const toastError = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+
+        await logic.asyncActions.runDataDependencies()
+        expect(logic.values.runtimeError).toBe('Preparation failed. Try again.')
+        expect(toastError).toHaveBeenCalledWith('Preparation failed. Try again.')
+        expect(logic.values.dataRefreshInFlight).toBe(false)
+        expect(props.persistNotebook).not.toHaveBeenCalled()
+        await logic.asyncActions.runDataDependencies()
+        expect(prepareInsightDataframes).toHaveBeenCalledTimes(2)
+    })
+
     it('does not run a partial data chain when a widget frame has no matching cell', async () => {
         const content: JSONContent = {
             type: 'doc',

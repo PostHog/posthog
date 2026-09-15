@@ -33,9 +33,11 @@ You can rename a dataframe in its result panel.
 The SQL and insight dataframe name rows are visible when either `revamped-py-notebooks` or `notebook-generated-widgets` is enabled.
 The widget flag enables HogQL dataframe preparation. Python, kernel-backed SQL, and direct connections require `revamped-py-notebooks`.
 Insights that expose SQL have the same dataframe name field below their results, starting with `insight_df` (with a numeric suffix when needed).
-An editor prepares the insight's dataframe when a SQL or Python cell first references it, or before generating a widget.
+An editor prepares the insight's dataframe when a SQL or Python cell first references it, before generating a widget, or when rerunning a widget's data dependencies.
+Widgets that use only insight dataframes refresh after preparation without requiring a SQL or Python cell.
 Opening a notebook, renaming a dataframe, or refreshing an insight's display does not prepare dataframes or save preparation metadata.
 Preparation uses the insight query cache and saves the run reference and column metadata only after the SQL run completes.
+If the insight query changes during preparation, the completed result is discarded and the editor can try again.
 Concurrent preparation requests reuse the same matching run; completed runs can be reused across editors for one hour.
 An unchanged insight with a saved completed run reuses that snapshot. **Refresh dataframe** prepares a fresh snapshot; **Try again** retries a failed preparation.
 Viewers and shared notebooks do not show insight dataframe controls or prepare dataframes.
