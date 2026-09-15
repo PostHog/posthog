@@ -179,5 +179,14 @@ describe('Utils', () => {
             expect(sanitizeLogMessage(['🚀🚀🚀🚀🚀'], [], 3)).toMatchInlineSnapshot(`"🚀... (truncated)"`)
             expect(sanitizeLogMessage(['🚀🚀🚀🚀🚀'], [], 4)).toMatchInlineSnapshot(`"🚀🚀... (truncated)"`)
         })
+        it('should not truncate messages shorter than maxLength even if close to limit', () => {
+            const msgNearLimit = 'a'.repeat(9990)
+            const message = sanitizeLogMessage([msgNearLimit])
+            expect(message).toBe(msgNearLimit)
+            expect(message).not.toContain('... (truncated)')
+
+            const shortMsg = 'a'.repeat(18)
+            expect(sanitizeLogMessage([shortMsg], [], 20)).toBe(shortMsg)
+        })
     })
 })
