@@ -80,7 +80,7 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
         inputs = ScheduleDueAlertChecksWorkflowInputs()
 
     @database_sync_to_async(thread_sensitive=False)
-    def get_alerts() -> list[AlertInfo]:
+    def get_alerts() -> tuple[list[AlertInfo], int, datetime | None, datetime]:
         polled_at = datetime.now(UTC)
         aging_cutoff = polled_at - _ALERT_SCHEDULER_AGING_THRESHOLD
 
@@ -176,11 +176,15 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
         due_alert_metrics = due_alerts_query.aggregate(
             due_count=Count("id"), oldest_due_at=Min(Coalesce("next_check_at", "created_at"))
         )
-        record_due_insight_alert_metrics(due_alert_metrics["due_count"], due_alert_metrics["oldest_due_at"], polled_at)
-        return alerts
+        return alerts, due_alert_metrics["due_count"], due_alert_metrics["oldest_due_at"], polled_at
 
     async with Heartbeater():
-        alerts = await get_alerts()
+        alerts, due_count, oldest_due_at, polled_at = await get_alerts()
+
+    try:
+        record_due_insight_alert_metrics(due_count, oldest_due_at, polled_at)
+    except Exception:
+        logger.exception("Failed to record due insight alert metrics")
 
     try:
         meter = get_metric_meter()

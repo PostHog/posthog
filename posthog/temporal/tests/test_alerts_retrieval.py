@@ -140,15 +140,17 @@ async def test_retrieve_due_alerts_records_capacity_and_selected_alert_counters(
     }
     meter.create_counter.side_effect = lambda name, description: counters[name]
     environment = ActivityEnvironment()
+    polled_at = datetime(2026, 9, 10, 12, 0, tzinfo=UTC)
 
-    async def fake_get_alerts() -> list[MagicMock]:
-        return [MagicMock()] * 9
+    async def fake_get_alerts() -> tuple[list[MagicMock], int, datetime | None, datetime]:
+        return [MagicMock()] * 9, 9, None, polled_at
 
     with (
         patch(
             "posthog.temporal.alerts.activities.database_sync_to_async",
             return_value=MagicMock(return_value=fake_get_alerts),
         ),
+        patch("posthog.temporal.alerts.activities.record_due_insight_alert_metrics"),
         patch("posthog.temporal.alerts.activities.get_metric_meter", return_value=meter),
     ):
         for max_alerts_per_run in (11, 10, 9):
@@ -171,22 +173,31 @@ async def test_retrieve_due_alerts_records_capacity_and_selected_alert_counters(
 
 
 @pytest.mark.asyncio
-async def test_retrieve_due_alerts_succeeds_when_metric_recording_fails() -> None:
+@pytest.mark.parametrize("failing_metrics", ["due_alerts", "scheduler_counters"])
+async def test_retrieve_due_alerts_succeeds_when_metric_recording_fails(failing_metrics: str) -> None:
     expected_alerts = [MagicMock()]
+    polled_at = datetime(2026, 9, 10, 12, 0, tzinfo=UTC)
 
-    async def fake_get_alerts() -> list[MagicMock]:
-        return expected_alerts
+    async def fake_get_alerts() -> tuple[list[MagicMock], int, datetime | None, datetime]:
+        return expected_alerts, 1, None, polled_at
+
+    record_due_metrics = MagicMock()
+    get_metric_meter = MagicMock(return_value=MagicMock(spec=MetricMeter))
+    if failing_metrics == "due_alerts":
+        record_due_metrics.side_effect = RuntimeError("due alert metrics backend unavailable")
+    else:
+        get_metric_meter.side_effect = RuntimeError("scheduler metrics backend unavailable")
 
     with (
         patch(
             "posthog.temporal.alerts.activities.database_sync_to_async",
             return_value=MagicMock(return_value=fake_get_alerts),
         ),
-        patch(
-            "posthog.temporal.alerts.activities.get_metric_meter",
-            side_effect=RuntimeError("metrics backend unavailable"),
-        ),
+        patch("posthog.temporal.alerts.activities.record_due_insight_alert_metrics", new=record_due_metrics),
+        patch("posthog.temporal.alerts.activities.get_metric_meter", new=get_metric_meter),
     ):
         alerts = await ActivityEnvironment().run(retrieve_due_alerts)
 
     assert alerts == expected_alerts
+    record_due_metrics.assert_called_once_with(1, None, polled_at)
+    get_metric_meter.assert_called_once_with()
