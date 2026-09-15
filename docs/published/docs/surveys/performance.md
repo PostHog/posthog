@@ -1,4 +1,8 @@
-# Survey performance
+---
+title: Survey performance
+sidebar: Docs
+showTitle: true
+---
 
 The survey details page uses the redesigned sidebar layout for all users. Open a survey's Summary tab to see its performance. The survey status appears beside its title; hover over the status for its start and end dates.
 
