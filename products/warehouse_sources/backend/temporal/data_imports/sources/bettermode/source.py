@@ -50,6 +50,10 @@ _SCHEMA_DESCRIPTIONS: dict[str, str] = {
         "Fetches the post types enabled in every space (one request per space), so syncs scale "
         "with the number of spaces in the community"
     ),
+    "post_reaction_participants": (
+        "Fetches the members who left each reaction on every post that has reactions (one request "
+        "per post and reaction), so syncs scale with the number of reacted posts in the community"
+    ),
 }
 
 
@@ -75,7 +79,7 @@ class BettermodeSource(ResumableSource[BettermodeSourceConfig, BettermodeResumeC
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Bettermode",
             keywords=["tribe", "community"],
-            caption="""Connect your Bettermode (formerly Tribe) community to pull members, spaces, space members, posts, replies, post types, tags, collections, roles, and moderation items into the PostHog Data warehouse.
+            caption="""Connect your Bettermode (formerly Tribe) community to pull members, spaces, space members, posts, replies, post reaction participants, post types, tags, collections, roles, and moderation items into the PostHog Data warehouse.
 
 Create an app in the [Bettermode developer portal](https://developers.bettermode.com/), then copy its client ID and client secret. The app must be **published and installed on your community** before tokens can be issued.
 
