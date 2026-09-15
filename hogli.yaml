@@ -562,15 +562,31 @@ build:
     build:openapi:
         steps:
             - build:openapi-schema
-            - build:widget-types
-            - build:openapi-types
-            - build:openapi-mcp-types
-            - build:openapi-mcp
-            - build:openapi-mcp-tools
+            - cmd: |
+                  (python bin/build-dashboard-widget-types.py && pnpm --filter=@posthog/frontend exec node ../products/dashboards/frontend/bin/generate-widget-config-zod.mjs) &
+                  widget_types_pid=$!
+                  pnpm --filter=@posthog/frontend run openapi:types &
+                  frontend_types_pid=$!
+                  pnpm --filter=@posthog/mcp run generate-mcp-types &
+                  mcp_types_pid=$!
+                  pnpm --filter=@posthog/mcp run generate-orval-schemas &
+                  mcp_schemas_pid=$!
+                  pnpm --filter=@posthog/mcp run generate-tools &
+                  mcp_tools_pid=$!
+                  python products/tasks/scripts/build_model_catalog.py &
+                  task_catalog_pid=$!
+                  pnpm --filter=@posthog/mcp run generate-exec-docs &
+                  exec_docs_pid=$!
+                  pids="$widget_types_pid $frontend_types_pid $mcp_types_pid $mcp_schemas_pid $mcp_tools_pid $task_catalog_pid $exec_docs_pid"
+                  trap 'kill $pids 2>/dev/null || true' INT TERM
+                  generation_status=0
+                  for pid in $pids; do
+                      wait "$pid" || generation_status=1
+                  done
+                  trap - INT TERM
+                  exit "$generation_status"
             - build:openapi-mcp-scopes
-            - build:task-model-catalog
             - build:openapi-cli-agent-scopes
-            - build:openapi-exec-docs
         description: 'Generate OpenAPI schema and TypeScript types from the backend.
             Needs the dev stack running (Postgres and ClickHouse): Django starts
             before the schema is generated. Start it with hogli up -d'

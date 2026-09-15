@@ -1089,6 +1089,11 @@ class DashboardBasicSerializer(
     UserPermissionsSerializerMixin,
     UserAccessControlSerializerMixin,
 ):
+    tags = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Tags for this dashboard. Send an empty list to remove all tags.",
+    )
     created_by = UserBasicSerializer(read_only=True)
     effective_privilege_level = serializers.SerializerMethodField()
     effective_restriction_level = serializers.SerializerMethodField()

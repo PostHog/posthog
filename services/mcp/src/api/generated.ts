@@ -11202,8 +11202,8 @@ export namespace Schemas {
       target_definition: AutoresearchPipelineTargetDefinition;
       /**
          * Prediction horizon in days. The model predicts whether the target event occurs within this window.
-         * @minimum -2147483648
-         * @maximum 2147483647
+         * @minimum 1
+         * @maximum 365
          */
       horizon_days?: number;
       /**
@@ -22158,7 +22158,8 @@ export namespace Schemas {
          * @nullable
          */
       data_color_theme_id?: number | null;
-      tags?: unknown[];
+      /** Tags for this dashboard. Send an empty list to remove all tags. */
+      tags?: string[];
       restriction_level?: RestrictionLevelEnum;
       readonly effective_restriction_level: RestrictionLevelEnum;
       readonly effective_privilege_level: PrivilegeLevelEnum;
@@ -22248,7 +22249,8 @@ export namespace Schemas {
       readonly is_shared: boolean;
       readonly deleted: boolean;
       readonly creation_mode: DashboardCreationModeEnum;
-      tags?: unknown[];
+      /** Tags for this dashboard. Send an empty list to remove all tags. */
+      tags?: string[];
       /** Controls who can edit the dashboard.
        *
        * * `21` - Everyone in the project can edit

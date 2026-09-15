@@ -12,7 +12,7 @@ import { generate } from 'orval'
  * @param {number} [opts.concurrency=10] - max parallel Orval generations
  * @returns {Promise<Array<{status: 'fulfilled', label: string} | {status: 'rejected', label: string, reason: Error}>>}
  */
-export async function runOrvalParallel(jobs, { concurrency = 10 } = {}) {
+export async function runOrvalParallel(jobs, { concurrency = 16 } = {}) {
     if (jobs.length === 0) {
         return []
     }

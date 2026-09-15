@@ -233,8 +233,8 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
         help_text='Resolved target definition: {"type": "event"} or {"type": "action", "action_id": N}.'
     )
     horizon_days = serializers.IntegerField(
-        min_value=-2147483648,
-        max_value=2147483647,
+        min_value=1,
+        max_value=365,
         required=False,
         help_text="Prediction horizon in days. The model predicts whether the target event occurs within this window.",
     )
