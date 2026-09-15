@@ -48,9 +48,8 @@ class TraceSpansImpactQueryRunner(TraceSpansScalarQueryRunnerMixin, AnalyticsQue
 
     @cached_property
     def settings(self) -> HogQLGlobalSettings:
-        # Unlike the bare count, this decompresses the two attribute-map columns over the whole
-        # window and re-runs against a mostly identical window on every filter tweak, so it opts
-        # into the uncompressed block cache.
+        # Unlike the bare count, this decompresses the attribute maps over a mostly identical
+        # window on every filter tweak, so it opts into the uncompressed block cache.
         return fail_fast_scalar_settings(use_uncompressed_cache=True)
 
     def _calculate(self) -> TraceSpansQueryResponse:
@@ -122,8 +121,8 @@ def run_impact_query(
         filterGroup=filter_group,
     )
     runner = TraceSpansImpactQueryRunner(query, team, identity_keys=resolved_tracing_identity_attribute_keys(team))
-    # Cached, unlike the count beside it: this reads the attribute-map columns, and the strip
-    # re-mounts (and reloads) whenever the user leaves the traces view or turns compare on.
+    # Cached, unlike the count beside it: the strip re-mounts and reloads whenever the user
+    # leaves the traces view or turns compare on.
     response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
     assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
     return response

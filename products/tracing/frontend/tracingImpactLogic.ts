@@ -79,11 +79,10 @@ export const tracingImpactLogic = kea<tracingImpactLogicType>([
             null as _TracingImpactResponseApi | null,
             {
                 loadImpact: async (_, breakpoint) => {
-                    // Read up front, so the scope recorded as done is the one the response covers.
+                    // Read up front, so the scope recorded as done is the one the response covers,
+                    // and claimed before the request so a runQuery arriving mid-flight starts no
+                    // second scan. An abort closes the connection; ClickHouse finishes the query.
                     const scopeKey = dataScopeKey(values)
-                    // Claimed before the request so a runQuery arriving mid-flight does not start a
-                    // second identical scan. Aborting the client connection would not stop the
-                    // first query: ClickHouse runs it to completion either way.
                     cache.inFlightScope = scopeKey
                     await breakpoint(300)
                     // The endpoint takes the nested group, which the flat generated type cannot express.
@@ -133,8 +132,8 @@ export const tracingImpactLogic = kea<tracingImpactLogicType>([
             }
             actions.loadImpact(null)
         },
-        // Re-reads the same scope on purpose. It loads here rather than relying on
-        // tracingDataLogic's runQuery, whose listener could reach the guard first.
+        // Loads here rather than relying on tracingDataLogic's runQuery, whose listener could
+        // reach the guard first.
         refreshQuery: () => {
             cache.impactScope = undefined
             cache.inFlightScope = undefined
