@@ -11,6 +11,7 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
 
+from django.db import InterfaceError, OperationalError
 from django.template.loader import get_template
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
@@ -31,6 +32,7 @@ from products.user_interviews.backend.presentation.webhooks import (
     _create_vapi_web_call,
     _resolve_first_message_template,
 )
+from products.user_interviews.backend.tasks.tasks import handle_vapi_webhook
 from products.user_interviews.backend.vapi_events import EMBEDDING_CONTENT_MAX_BYTES
 
 
@@ -729,6 +731,21 @@ class TestVapiWebhook(APIBaseTest):
         self.assertEqual(interview.interviewee_identifier, "alex@example.com")
         self.assertEqual(interview.recording_url, "https://vapi.example/recording.mp3")
         self.assertEqual(interview.transcript, "Hi! ...")
+
+    @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
+    @patch("products.user_interviews.backend.tasks.tasks.handle_vapi_webhook.delay")
+    def test_webhook_hands_the_report_to_a_task(self, mock_delay):
+        share = self._create_share()
+        self.client.logout()
+        payload = self._end_of_call_payload(share.access_token)
+        response = self._signed_post("topsecret", payload)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED, response.content)
+        mock_delay.assert_called_once_with(payload=payload, event_type="end-of-call-report")
+        self.assertEqual(UserInterview.objects.count(), 0)
+
+    def test_report_task_retries_a_transient_database_error(self):
+        # Bare max_retries without autoretry_for is silently inert; assert the wiring is real.
+        self.assertEqual(handle_vapi_webhook.autoretry_for, (OperationalError, InterfaceError))
 
     @override_settings(VAPI_WEBHOOK_SECRET="")
     def test_webhook_fails_closed_when_secret_unset(self):

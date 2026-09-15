@@ -63,7 +63,8 @@ def has_replied(*, team_id: int, topic_id: UUID, interviewee_identifier: str) ->
 
 
 def accept_vapi_event(delivery: WebhookDelivery) -> None:
-    # Deferred: keeps the embedding worker and the analytics client off the facade import path.
-    from products.user_interviews.backend import vapi_events  # noqa: PLC0415
+    # Deferred: keeps the Celery app off the facade import path.
+    from products.user_interviews.backend.tasks.tasks import handle_vapi_webhook  # noqa: PLC0415
 
-    vapi_events.handle_vapi_webhook_delivery(delivery)
+    # Enqueued, not run here, so a failed persist gets retried. The task module says why.
+    handle_vapi_webhook.delay(payload=dict(delivery.payload), event_type=delivery.event_type)

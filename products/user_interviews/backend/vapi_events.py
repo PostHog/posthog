@@ -1,10 +1,11 @@
 """User interviews' handling of the inbound Vapi webhook.
 
-``handle_vapi_webhook_delivery`` is what the ingress vapi consumer dispatches to, reached
-through ``facade.api.accept_vapi_event``. It persists a UserInterview row attributed to the
-topic creator, idempotent on ``call.id``.
+``handle_vapi_webhook_delivery`` runs in the Celery task that the ingress vapi consumer
+enqueues through ``facade.api.accept_vapi_event``. It persists a UserInterview row attributed
+to the topic creator, idempotent on ``call.id``.
 """
 
+from collections.abc import Mapping
 from typing import Any
 
 from django.db import transaction
@@ -16,7 +17,6 @@ from posthog.schema import EmbeddingModelName
 
 from posthog.api.embedding_worker import emit_embedding_request
 from posthog.event_usage import groups
-from posthog.ingress.contracts import WebhookDelivery
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team import Team
 
@@ -181,14 +181,14 @@ def _capture_user_interview_event(
         )
 
 
-def handle_vapi_webhook_delivery(delivery: WebhookDelivery) -> None:
+def handle_vapi_webhook_delivery(payload: Mapping[str, Any], event_type: str) -> None:
     """Act on one verified Vapi delivery: the lifecycle event, and the end-of-call report.
 
     Idempotent on ``call.id`` (stored in ``call_metadata.id``). Vapi repeats that id across the
     status update and the end-of-call report, so ingress cannot dedup on it and this does
-    instead: a repeat delivery of a report already stored creates nothing.
+    instead: a repeat delivery of a report already stored creates nothing. The idempotency also
+    covers the Celery retry that persistence rides on.
     """
-    payload = delivery.payload
     message: dict[str, Any] = payload.get("message", {})
     call: dict[str, Any] = message.get("call", {}) or {}
     # Vapi can surface our `assistant_overrides.metadata` (set in `start_call`) in two
@@ -208,7 +208,7 @@ def handle_vapi_webhook_delivery(delivery: WebhookDelivery) -> None:
     merged_metadata: dict[str, Any] = {**overrides_metadata, **top_metadata}
     call_id = call.get("id")
 
-    if delivery.event_type == "status-update":
+    if event_type == "status-update":
         # Lifecycle ping. We only act on `in-progress` (call started) — the `ended` status
         # is followed by a separate `end-of-call-report` with the full transcript, so we
         # capture the ended event from that branch where we already have the interview row.

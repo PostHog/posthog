@@ -4,8 +4,8 @@ from posthog.ingress.contracts import WebhookConsumer, WebhookDelivery
 from posthog.ingress.vapi.provider import VAPI_EVENT_TYPES
 
 
-def _store_interview(delivery: WebhookDelivery) -> None:
-    from products.user_interviews.backend.facade.api import (  # noqa: PLC0415 - keeps the embedding worker and the analytics client off the registry's import path
+def _queue_interview_storage(delivery: WebhookDelivery) -> None:
+    from products.user_interviews.backend.facade.api import (  # noqa: PLC0415 - keeps the product's models and the Celery app off the registry's import path
         accept_vapi_event,
     )
 
@@ -18,6 +18,6 @@ WEBHOOK_CONSUMERS = (
         provider="vapi",
         app="default",
         event_types=VAPI_EVENT_TYPES,
-        handler=_store_interview,
+        handler=_queue_interview_storage,
     ),
 )
