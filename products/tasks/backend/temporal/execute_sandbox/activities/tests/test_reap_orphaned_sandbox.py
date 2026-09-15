@@ -5,6 +5,7 @@ from unittest.mock import ANY, Mock, patch
 
 from asgiref.sync import async_to_sync
 
+from products.tasks.backend.exceptions import SandboxNotFoundError
 from products.tasks.backend.logic.services.sandbox_usage import SandboxDestroyOutcome
 from products.tasks.backend.temporal.execute_sandbox.activities.reap_orphaned_sandbox import (
     ReapOrphanedSandboxInput,
@@ -113,6 +114,39 @@ class TestReapOrphanedSandbox:
             billed_cpu_usage_usec=15_000_000,
             cpu_usage_measured_at=ANY,
         )
+
+    @pytest.mark.parametrize(
+        "error,expected_outcome",
+        [
+            (RuntimeError("modal down"), SandboxDestroyOutcome.FAILED),
+            (
+                SandboxNotFoundError(
+                    "Sandbox sb-gone not found",
+                    {"sandbox_id": "sb-gone"},
+                    cause=RuntimeError("not found"),
+                ),
+                SandboxDestroyOutcome.SANDBOX_NOT_FOUND,
+            ),
+        ],
+    )
+    def test_reports_destroy_outcome_for_failures(self, activity_environment, test_task_run, error, expected_outcome):
+        test_task_run.state = {SANDBOX_ID_STATE_KEY: "sb-gone"}
+        test_task_run.save(update_fields=["state"])
+
+        with (
+            patch(SANDBOX_IMPORT_PATH) as sandbox_cls,
+            patch(
+                "products.tasks.backend.temporal.execute_sandbox.activities.reap_orphaned_sandbox.close_sandbox_session"
+            ) as close_session,
+        ):
+            sandbox_cls.return_value.get_by_id.side_effect = error
+
+            async_to_sync(activity_environment.run)(
+                reap_orphaned_sandbox,
+                ReapOrphanedSandboxInput(run_id=str(test_task_run.id)),
+            )
+
+        assert close_session.call_args.kwargs["destroy_outcome"] == expected_outcome
 
     def test_clears_state_even_when_modal_destroy_fails(self, activity_environment, test_task_run):
         # If Modal destroy raises (sandbox already gone, transient API failure)
