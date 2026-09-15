@@ -7,6 +7,7 @@ from posthog.api.oauth.dcr import (
     DCRSustainedThrottle,
     DynamicClientRegistrationView,
 )
+from posthog.api.oauth.par import OAuthPushedAuthorizationRequestView
 from posthog.api.oauth.views import (
     OAuthAuthorizationSerializer,
     OAuthAuthorizationServerMetadataView,
@@ -32,6 +33,7 @@ __all__ = [
     "OAuthConnectDiscoveryInfoView",
     "OAuthAuthorizationServerMetadataView",
     "OAuthProtectedResourceMetadataView",
+    "OAuthPushedAuthorizationRequestView",
     "OAuthClientManifestView",
     "OAuthJwksInfoView",
     "OAuthUserInfoView",
