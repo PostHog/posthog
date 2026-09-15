@@ -37,7 +37,6 @@ from posthog.llm.semantic_enrichment import (
     build_enrichment_client,
     capture_enrichment_event,
     collapse_untrusted,
-    enrichment_enabled as _shared_enrichment_enabled,
     extract_json_object,
     generate_json_completion,
     get_team_business_context,
@@ -62,7 +61,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 # global structlog config still merges workflow_id/run_id/attempt/task_queue onto every line.
 logger = get_write_only_logger(__name__)
 
-ENRICHMENT_FEATURE_FLAG = "data-warehouse-semantic-enrichment"
 # The bounding constants and the enrichment model now live in the shared core; re-exported here so
 # importers (and the existing test suite) keep resolving them off this module.
 ENRICHMENT_MODEL = DEFAULT_ENRICHMENT_MODEL
@@ -86,10 +84,6 @@ class EnrichTableSemanticsInputs:
     @property
     def properties_to_log(self) -> dict[str, Any]:
         return {"team_id": self.team_id, "schema_id": str(self.schema_id)}
-
-
-def enrichment_enabled(team: Team) -> bool:
-    return _shared_enrichment_enabled(team, ENRICHMENT_FEATURE_FLAG)
 
 
 def build_enrichment_prompt(
@@ -311,12 +305,8 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
     def emit_completed(status: str, **props: Any) -> None:
         capture_enrichment_event(team, EVENT_COMPLETED, {"status": status, **event_props, **props})
 
-    if not enrichment_enabled(team):
-        log.info("warehouse_enrichment.skipped", reason="flag_disabled")
-        emit_completed("skipped", reason="flag_disabled")
-        return {"status": "skipped", "reason": "flag_disabled"}
     # Respect the org's AI data-processing opt-out: this path ships table/column metadata and core
-    # memory to the LLM gateway, so the feature flag alone is not enough of a gate.
+    # memory to the LLM gateway.
     if team.organization.is_ai_data_processing_approved is not True:
         log.info("warehouse_enrichment.skipped", reason="ai_data_processing_not_approved")
         emit_completed("skipped", reason="ai_data_processing_not_approved")

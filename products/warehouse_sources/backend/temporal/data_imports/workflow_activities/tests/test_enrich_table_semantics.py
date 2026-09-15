@@ -475,24 +475,12 @@ class TestCanonicalDescriptionsResolver:
 
 
 class TestEnrichTableSemanticsSync:
-    def test_skipped_when_flag_disabled(self):
-        team = _team()
-        schema, table = _make_schema(team, columns=[{"name": "amount", "data_type": "Int64", "is_nullable": False}])
-        with patch.object(enrich, "enrichment_enabled", return_value=False):
-            result = enrich_table_semantics_sync(team.pk, schema.id)
-        assert result["status"] == "skipped"
-        assert result["reason"] == "flag_disabled"
-        assert _annotations(team, table) == {}
-
     def test_skipped_when_ai_data_processing_not_approved(self):
         team = _team()
         team.organization.is_ai_data_processing_approved = False
         team.organization.save()
         schema, table = _make_schema(team, columns=[{"name": "amount", "data_type": "Int64", "is_nullable": False}])
-        with (
-            patch.object(enrich, "enrichment_enabled", return_value=True),
-            patch.object(enrich, "_generate_descriptions") as mock_llm,
-        ):
+        with patch.object(enrich, "_generate_descriptions") as mock_llm:
             result = enrich_table_semantics_sync(team.pk, schema.id)
         mock_llm.assert_not_called()
         assert result["status"] == "skipped"
@@ -502,10 +490,7 @@ class TestEnrichTableSemanticsSync:
     def test_skipped_when_table_has_no_columns(self):
         team = _team()
         schema, table = _make_schema(team, columns=[])
-        with (
-            patch.object(enrich, "enrichment_enabled", return_value=True),
-            patch.object(enrich, "_generate_descriptions") as mock_llm,
-        ):
+        with patch.object(enrich, "_generate_descriptions") as mock_llm:
             result = enrich_table_semantics_sync(team.pk, schema.id)
         mock_llm.assert_not_called()
         assert result == {"status": "skipped", "reason": "no_columns"}
@@ -519,7 +504,6 @@ class TestEnrichTableSemanticsSync:
         )
         canonical = {"Charge": {"description": "A charge", "columns": {"amount": "charge amount in cents"}}}
         with (
-            patch.object(enrich, "enrichment_enabled", return_value=True),
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value=canonical),
             patch.object(enrich, "_generate_descriptions") as mock_llm,
         ):
@@ -549,7 +533,6 @@ class TestEnrichTableSemanticsSync:
         canonical = {"Charge": {"columns": {"created": "Unix creation time.", "customer": "Customer ID."}}}
         generated = {"columns": {"payment_method_id": "Payment method used."}}
         with (
-            patch.object(enrich, "enrichment_enabled", return_value=True),
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value=canonical),
             patch.object(enrich, "_get_business_context", return_value=""),
             patch.object(enrich, "_generate_descriptions", return_value=(generated, _USAGE)) as mock_llm,
@@ -579,7 +562,6 @@ class TestEnrichTableSemanticsSync:
         canonical = {"Charge": {"columns": {"amount": "charge amount in cents"}}}
         generated = {"table_description": "Stripe charges", "columns": {"status": "Charge lifecycle status"}}
         with (
-            patch.object(enrich, "enrichment_enabled", return_value=True),
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value=canonical),
             patch.object(enrich, "_get_business_context", return_value=""),
             patch.object(enrich, "_generate_descriptions", return_value=(generated, _USAGE)) as mock_llm,
@@ -612,7 +594,6 @@ class TestEnrichTableSemanticsSync:
         )
         generated = {"table_description": "Subscriptions", "columns": {"id": "Subscription ID", "revenue": "MRR"}}
         with (
-            patch.object(enrich, "enrichment_enabled", return_value=True),
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value={}),
             patch.object(enrich, "_get_business_context", return_value=""),
             patch.object(enrich, "_generate_descriptions", return_value=(generated, _USAGE)) as mock_llm,
@@ -635,7 +616,6 @@ class TestEnrichTableSemanticsSync:
             "Charge": {"description": "A charge transaction", "columns": {"amount": "amount in cents"}},
         }
         with (
-            patch.object(enrich, "enrichment_enabled", return_value=True),
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value=canonical),
             patch.object(enrich, "_generate_descriptions") as mock_llm,
         ):
@@ -656,7 +636,6 @@ class TestEnrichTableSemanticsSync:
         )
         generated = {"table_description": "LLM table description", "columns": {"status": "Charge status"}}
         with (
-            patch.object(enrich, "enrichment_enabled", return_value=True),
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value={}),
             patch.object(enrich, "_get_business_context", return_value=""),
             patch.object(enrich, "_generate_descriptions", return_value=(generated, _USAGE)),
@@ -683,7 +662,6 @@ class TestEnrichTableSemanticsSync:
             is_user_edited=True,
         )
         with (
-            patch.object(enrich, "enrichment_enabled", return_value=True),
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value={}),
             patch.object(enrich, "_generate_descriptions") as mock_llm,
         ):
@@ -707,7 +685,6 @@ class TestEnrichTableSemanticsSync:
         )
         generated = {"table_description": "Stripe charges", "columns": {}}
         with (
-            patch.object(enrich, "enrichment_enabled", return_value=True),
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value={}),
             patch.object(enrich, "_get_business_context", return_value=""),
             patch.object(enrich, "_generate_descriptions", return_value=(generated, _USAGE)) as mock_llm,
@@ -743,7 +720,6 @@ class TestEnrichTableSemanticsSync:
 
         generated = {"columns": {"currency": "ISO currency code"}}
         with (
-            patch.object(enrich, "enrichment_enabled", return_value=True),
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value={}),
             patch.object(enrich, "_get_business_context", return_value=""),
             patch.object(enrich, "_generate_descriptions", return_value=(generated, _USAGE)) as mock_llm,
@@ -763,7 +739,6 @@ class TestEnrichTableSemanticsSync:
         team = _team()
         schema, table = _make_schema(team, columns=[{"name": "amount", "data_type": "Int64", "is_nullable": False}])
         with (
-            patch.object(enrich, "enrichment_enabled", return_value=True),
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value={}),
             patch.object(enrich, "_get_business_context", return_value=""),
             patch.object(enrich, "_generate_descriptions", side_effect=RuntimeError("boom")),
@@ -786,7 +761,6 @@ class TestEnrichTableSemanticsSync:
         canonical = {"Charge": {"columns": {"amount": "charge amount in cents"}}}
         generated = {"table_description": "Stripe charges", "columns": {"status": "Charge status"}}
         with (
-            patch.object(enrich, "enrichment_enabled", return_value=True),
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value=canonical),
             patch.object(enrich, "_get_business_context", return_value=""),
             patch.object(enrich, "_generate_descriptions", return_value=(generated, _USAGE)),
@@ -814,7 +788,6 @@ class TestEnrichTableSemanticsSync:
         team = _team()
         schema, _table = _make_schema(team, columns=[{"name": "amount", "data_type": "Int64", "is_nullable": False}])
         with (
-            patch.object(enrich, "enrichment_enabled", return_value=True),
             patch.object(enrich, "get_canonical_descriptions_for_source", return_value={}),
             patch.object(enrich, "_get_business_context", return_value=""),
             patch.object(enrich, "_generate_descriptions", side_effect=RuntimeError("boom")),
