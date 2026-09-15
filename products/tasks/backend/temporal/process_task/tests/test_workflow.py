@@ -1274,19 +1274,21 @@ async def test_boot_milestone_contains_only_timing_and_runtime_dimensions(monkey
 
 
 @pytest.mark.parametrize(
-    ("origin_product", "team_id"),
+    ("origin_product", "team_id", "unattended"),
     [
-        ("signals_scout", 314),  # platform start the alert must exclude
-        ("user_created", 42),  # customer start the alert must count
+        ("signals_scout", 314, True),  # platform start the alert must exclude
+        ("user_created", 42, False),  # customer start the alert must count
     ],
 )
-async def test_sandbox_started_carries_run_attribution(origin_product, team_id, monkeypatch):
-    # The sandboxes-started alert filters platform work out by origin_product, and
+async def test_sandbox_started_carries_run_attribution(origin_product, team_id, unattended, monkeypatch):
+    # The sandboxes-started alert scopes itself to attended work through `unattended`, and
     # cross-references team_id and task_run_id. Dropping any of them from this payload
-    # blinds the alert to who a sandbox belongs to, so lock the three fields in.
+    # blinds the alert to who a sandbox belongs to, so lock the fields in.
     workflow_instance = ProcessTaskWorkflow()
     workflow_instance._context = dataclasses.replace(
-        _build_context(github_integration_id=123, origin_product=origin_product), team_id=team_id
+        _build_context(github_integration_id=123, origin_product=origin_product),
+        team_id=team_id,
+        unattended=unattended,
     )
 
     monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
@@ -1343,6 +1345,7 @@ async def test_sandbox_started_carries_run_attribution(origin_product, team_id, 
 
     sandbox_started = next(props for event, props in tracked if event == "sandbox_started")
     assert sandbox_started["origin_product"] == origin_product
+    assert sandbox_started["unattended"] is unattended
     assert sandbox_started["team_id"] == team_id
     assert sandbox_started["task_run_id"] == "run-id"
     assert sandbox_started["agent_launcher_to_process_ms"] == 7
