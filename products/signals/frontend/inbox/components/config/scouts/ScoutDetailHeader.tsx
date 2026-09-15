@@ -12,6 +12,7 @@ import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals
 import { captureScoutAction } from '../../../inboxAnalytics'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { scoutDisplayName, ScoutRollup } from '../../../utils/scoutRunsWindow'
+import { ScoutExemptionBadge } from './ScoutBadges'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
 import { ScoutHealthStrip } from './ScoutHealthStrip'
 import { LeaveScoutNoteButton } from './ScoutNotesPanel'
@@ -102,6 +103,8 @@ export function ScoutDetailHeader({
                 <LemonTag size="small" type={config.scout_origin === 'canonical' ? 'muted' : 'highlight'}>
                     {config.scout_origin === 'canonical' ? 'Canonical' : 'Custom'}
                 </LemonTag>
+                {/* The page has no roster group, and the role is not a windowed judgment anyway. */}
+                <ScoutExemptionBadge config={config} group="watching" />
                 <ScoutOwners config={config} />
                 <span className="flex-1" />
                 <Tooltip title="Dispatch a run now, outside the schedule. Counts against the project's daily run budget.">

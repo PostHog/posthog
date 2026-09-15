@@ -13,6 +13,7 @@ const CONFIG: SignalScoutConfigApi = {
     skill_name: 'signals-scout-hygiene',
     description: 'Dashboard hygiene',
     scout_origin: 'custom',
+    scout_role: 'specialist',
     owners: [],
     enabled: true,
     status: 'active',
