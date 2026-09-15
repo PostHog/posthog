@@ -27,14 +27,8 @@ from posthog.scopes import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE, validate_alert_config
+from products.alerts.backend.facade.api import LLMAlertWrite, admit_llm_alert_write, is_llm_detector_config
 from products.alerts.backend.insight_alert_state_machine import apply_disable, apply_enable, apply_threshold_change
-from products.alerts.backend.llm_detector_limits import (
-    is_llm_detector_config,
-    llm_alert_limit_error,
-    llm_detector_access_error,
-    llm_detector_interval_error,
-    lock_llm_alert_limit,
-)
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.product_analytics.backend.facade.api import lock_insight_for_evaluation
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
@@ -348,9 +342,10 @@ class UpsertAlertTool(MaxTool):
         """Write the threshold and the alert together.
 
         Both writes sit in one transaction so a rejected save leaves no half-applied
-        threshold behind. When the save enables an AI alert, the team's cap lock is held
-        across the count and the write. Returns a `_SaveRefusal` instead of saving when the
-        write is refused.
+        threshold behind. The AI detector's rules run through the same admission as the
+        API, under the row lock, so enabling an AI alert here holds the team's cap lock
+        across the count and the write. Returns a `_SaveRefusal` instead of saving when
+        the write is refused.
         """
         with transaction.atomic():
             current_insight_id = AlertConfiguration.objects.get(id=alert.id, team_id=alert.team_id).insight_id
@@ -374,10 +369,9 @@ class UpsertAlertTool(MaxTool):
                 existing=alert,
             ):
                 return _SaveRefusal(message=error, error_code="plan_limit_reached")
-            is_llm_alert = is_llm_detector_config(alert.detector_config)
-            if is_llm_alert and (error := llm_detector_interval_error(new_interval)):
-                return _SaveRefusal(message=error, error_code="validation_failed")
-            if is_llm_alert and new_enabled:
+            if is_llm_detector_config(alert.detector_config) and new_enabled:
+                # The API validates the insight configuration on every write; this tool only
+                # touches it for an enabled AI alert, whose checks would otherwise auto-disable.
                 try:
                     with upgrade_insight(alert.insight):
                         validate_alert_config(
@@ -392,16 +386,21 @@ class UpsertAlertTool(MaxTool):
                         )
                 except ValueError as validation_error:
                     return _SaveRefusal(message=str(validation_error), error_code="validation_failed")
-            if is_llm_alert and new_enabled and not alert.enabled:
-                if error := self._llm_detector_access_error(principal=alert.created_by):
-                    return _SaveRefusal(message=error, error_code="validation_failed")
-                lock_llm_alert_limit(team_id=alert.team_id)
-                if error := llm_alert_limit_error(
+            if refusal := admit_llm_alert_write(
+                LLMAlertWrite(
                     team_id=alert.team_id,
-                    exclude_alert_id=str(alert.id),
-                    organization_id=self._team.organization_id,
-                ):
-                    return _SaveRefusal(message=error, error_code="plan_limit_reached")
+                    organization=self._team.organization,
+                    principal=alert.created_by,
+                    detector_config=alert.detector_config,
+                    enabled=new_enabled,
+                    calculation_interval=new_interval,
+                    existing=alert,
+                )
+            ):
+                return _SaveRefusal(
+                    message=refusal.message,
+                    error_code="plan_limit_reached" if refusal.reason == "cap" else "validation_failed",
+                )
             update_fields: list[str] = []
             conditions_or_threshold_changed = False
             schedule_reset_required = False
@@ -519,20 +518,6 @@ class UpsertAlertTool(MaxTool):
             )
         except Exception:
             return None
-
-    def _llm_detector_access_error(self, *, principal: User | None) -> str | None:
-        """Refuse an AI detector the principal its checks will run as cannot use.
-
-        A scheduled check attributes its model calls to the alert's creator, not to whoever
-        edits the alert. An editor with the rollout could otherwise re-enable a teammate's
-        alert and leave it erroring on every check.
-        """
-        if principal is None:
-            return (
-                "This alert has no creator to attribute AI detector calls to, which happens when that "
-                "person was deleted. Recreate the alert to use the AI detector."
-            )
-        return llm_detector_access_error(distinct_id=str(principal.distinct_id), organization=self._team.organization)
 
     @staticmethod
     def _update_threshold(alert: AlertConfiguration, action: UpdateAlertAction) -> list[str]:

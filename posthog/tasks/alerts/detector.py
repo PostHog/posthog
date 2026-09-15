@@ -6,11 +6,12 @@ import numpy as np
 from posthog.schema import DetectorType, IntervalType, TrendsQuery
 
 from posthog.tasks.alerts.detectors.base import DetectionResult
-from posthog.tasks.alerts.detectors.llm.detector import (
-    DEFAULT_WINDOW as LLM_DEFAULT_WINDOW,
-    MIN_POINTS_TO_JUDGE,
-)
 from posthog.tasks.alerts.trends import TrendResult, _drop_incomplete_current_interval
+
+# The AI judge (products.alerts.backend.judge) is not a registry detector, but its lookback
+# is sized here like every other type, and the judge imports these so the two cannot drift.
+LLM_DETECTOR_DEFAULT_WINDOW = 90
+LLM_DETECTOR_MIN_POINTS = 5
 
 # Minimum samples required for each detector type
 DETECTOR_MIN_SAMPLES: dict[DetectorType, int] = {
@@ -26,7 +27,7 @@ DETECTOR_MIN_SAMPLES: dict[DetectorType, int] = {
     DetectorType.LOF: 20,  # needs n_neighbors samples
     DetectorType.OCSVM: 10,
     DetectorType.PCA: 10,
-    DetectorType.LLM: MIN_POINTS_TO_JUDGE,
+    DetectorType.LLM: LLM_DETECTOR_MIN_POINTS,
 }
 
 # Fallback window size used when no explicit window is set in the detector config
@@ -36,7 +37,7 @@ DETECTOR_DEFAULT_WINDOW = 30
 # Detectors whose own default window differs from the fallback, so a config saved without
 # a window is extracted at the size the detector will judge.
 DETECTOR_DEFAULT_WINDOWS: dict[DetectorType, int] = {
-    DetectorType.LLM: LLM_DEFAULT_WINDOW,
+    DetectorType.LLM: LLM_DETECTOR_DEFAULT_WINDOW,
 }
 
 # Maximum number of breakdown values to evaluate with a detector.

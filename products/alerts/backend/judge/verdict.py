@@ -1,8 +1,6 @@
-from typing import Literal
-
 from pydantic import BaseModel, Field
 
-AnomalyKind = Literal["spike", "drop", "flatline", "trend_break", "level_shift", "pattern_change", "none"]
+from products.alerts.backend.judge.contract import AnomalyKind
 
 
 class LLMDetectionVerdict(BaseModel):

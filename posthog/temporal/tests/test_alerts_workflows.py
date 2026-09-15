@@ -29,7 +29,6 @@ from posthog.schema import (
 from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded
 from posthog.models import User
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
-from posthog.tasks.alerts.detectors.llm.errors import LLMDetectorUnavailableError
 from posthog.tasks.alerts.utils import AlertEvaluationResult
 from posthog.temporal.alerts.activities import evaluate_alert, notify_alert, prepare_alert, record_failed_evaluation
 from posthog.temporal.alerts.retry_policy import ALERT_EVALUATE_RETRY_POLICY
@@ -44,6 +43,7 @@ from posthog.temporal.alerts.workflows import CheckAlertWorkflow, ScheduleDueAle
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.tests.test_alerts_activities import _email_delivery
 
+from products.alerts.backend.facade.api import LLMDetectorUnavailableError
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
 from products.product_analytics.backend.facade.models import Insight
 

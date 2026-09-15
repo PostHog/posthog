@@ -24,8 +24,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.sync import database_sync_to_async
-from posthog.tasks.alerts.detectors.llm.detector import MAX_CONCURRENT_MODEL_CALLS
-from posthog.tasks.alerts.detectors.llm.errors import LLMDetectorMisconfiguredError, LLMDetectorUnavailableError
 from posthog.tasks.alerts.investigation_notifications import run_investigation_notification_safety_net
 from posthog.tasks.alerts.metrics_investigation import run_metrics_alert_investigation, should_investigate_metrics_alert
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked, next_unblocked_utc
@@ -60,7 +58,12 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.validation import validate_alert_config
-from products.alerts.backend.facade.api import is_llm_detector_config
+from products.alerts.backend.facade.api import (
+    MAX_CONCURRENT_MODEL_CALLS,
+    LLMDetectorMisconfiguredError,
+    LLMDetectorUnavailableError,
+    is_llm_detector_config,
+)
 from products.alerts.backend.facade.destinations import count_active_alert_destinations
 from products.alerts.backend.insight_alert_state_machine import apply_unsnooze
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold

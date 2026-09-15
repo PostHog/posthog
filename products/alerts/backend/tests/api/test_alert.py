@@ -23,12 +23,11 @@ from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.tasks.alerts.detectors.llm.errors import LLMDetectorUnavailableError
-from posthog.tasks.alerts.detectors.llm.verdict import LLMDetectionVerdict
 
-from products.alerts.backend.facade.api import INSIGHT_ALERT_EVENT_IDS
+from products.alerts.backend.facade.api import INSIGHT_ALERT_EVENT_IDS, LLMDetectorUnavailableError
 from products.alerts.backend.facade.contracts import AlertDelivery
 from products.alerts.backend.facade.destinations import MAX_DESTINATIONS_PER_ALERT, count_active_alert_destinations
+from products.alerts.backend.judge.verdict import LLMDetectionVerdict
 from products.alerts.backend.logic.insight_alert_destinations import SLACK_TEMPLATE_ID
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.alerts.backend.presentation.views.alert import AlertSerializer
@@ -3000,7 +2999,7 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
             assert saved.state == AlertState.FIRING
             assert saved.next_check_at == scheduled_check
 
-    @mock.patch("posthog.tasks.alerts.detectors.llm.detector.LLMDetector._ask_model")
+    @mock.patch("products.alerts.backend.judge.llm.LLMSeriesJudge._ask_model")
     @mock.patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_simulate_rejects_a_breakdown_insight_before_any_model_call(self, _flag, mock_calculate, mock_ask) -> None:
@@ -3052,7 +3051,7 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
         assert created.status_code == status.HTTP_201_CREATED, created.content
 
         # An edit that cannot add an AI alert must not take the team's cap lock either.
-        with mock.patch("products.alerts.backend.presentation.views.alert.lock_llm_alert_limit") as lock:
+        with mock.patch("products.alerts.backend.llm_detector_limits.lock_llm_alert_limit") as lock:
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/alerts/{created.json()['id']}",
                 {"detector_config": {"type": "llm", "threshold": 0.8, "window": 90}},
@@ -3109,7 +3108,7 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
 
     @parameterized.expand([("normal", False), ("impersonated", True)])
     @mock.patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
-    @mock.patch("posthog.tasks.alerts.detectors.llm.detector.LLMDetector._ask_model")
+    @mock.patch("products.alerts.backend.judge.llm.LLMSeriesJudge._ask_model")
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_preview_preserves_dates_and_impersonation_billing(
         self, _name, impersonated, _flag, ask, calculate
@@ -3140,11 +3139,11 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
                 {"insight": self.insight["id"], "detector_config": {"type": "llm", "window": 5}},
             )
         assert response.status_code == status.HTTP_200_OK, response.content
-        context = ask.call_args.kwargs["context"]
-        assert context.is_agent_billable is (not impersonated)
-        assert "2026-01-01" in context.metric_description
-        assert "2026-01-06" in context.metric_description
-        assert "-1d" not in context.metric_description
+        assert ask.call_args.kwargs["attribution"].is_agent_billable is (not impersonated)
+        series = ask.call_args.kwargs["series"]
+        assert "2026-01-01" in series.metric_description
+        assert "2026-01-06" in series.metric_description
+        assert "-1d" not in series.metric_description
 
     @parameterized.expand(
         [

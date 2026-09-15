@@ -65,7 +65,7 @@ def test_run_detector_simulation_returns_the_alerts_configured_series(mock_calcu
 
 
 @pytest.mark.parametrize("triggered_dates,expected_indices", [(["2026-07-09"], [8]), (["2026-06-01"], [])])
-@patch("posthog.tasks.alerts.detectors.llm.detector.LLMDetector._ask_model")
+@patch("products.alerts.backend.judge.llm.LLMSeriesJudge._ask_model")
 @patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
 def test_run_detector_simulation_never_rescores_an_ai_alert(
     mock_calculate: MagicMock, mock_ask: MagicMock, triggered_dates: list[str], expected_indices: list[int]

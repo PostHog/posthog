@@ -1,16 +1,17 @@
 from datetime import UTC, datetime
 from typing import Any
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.tasks.alerts.detectors.base import BaseDetector, DetectionContext, DetectionResult
 
 from products.alerts.backend.evaluation.contract import ComparableSeries, ExtractionResult, SeriesPoint
 from products.alerts.backend.evaluation.detector import evaluate_with_detector
+from products.alerts.backend.judge import JudgeAttribution, LLMDetectorMisconfiguredError, SeriesContext, SeriesJudgment
 
 TRENDS_QUERY = {
     "kind": "InsightVizNode",
@@ -22,29 +23,37 @@ TRENDS_QUERY = {
 }
 
 
-class _RecordingDetector(BaseDetector):
-    """Captures the context it is handed, and fires so the result shape is observable."""
+class _RecordingJudge:
+    """Captures what it is handed, and fires so the result shape is observable."""
 
-    seen: list[DetectionContext] = []
+    seen: list[tuple[SeriesContext, JudgeAttribution]] = []
 
-    def detect(self, data: np.ndarray) -> DetectionResult:
-        raise AssertionError("evaluate_with_detector must route through the context-aware entry point")
+    def __init__(self, config: dict[str, Any]) -> None:
+        self.config = config
 
-    def detect_batch(self, data: np.ndarray) -> DetectionResult:
-        raise AssertionError("evaluate_with_detector must route through the context-aware entry point")
-
-    def detect_in_context(self, data: np.ndarray, context: DetectionContext) -> DetectionResult:
-        _RecordingDetector.seen.append(context)
-        return DetectionResult(
-            is_anomaly=True,
+    def judge_latest(
+        self, data: np.ndarray, *, series: SeriesContext, attribution: JudgeAttribution
+    ) -> SeriesJudgment | None:
+        _RecordingJudge.seen.append((series, attribution))
+        return SeriesJudgment(
+            fires=True,
+            verdict_is_anomaly=True,
+            confidence=0.88,
+            kind="drop",
+            rationale="Signups fell to 12.",
+            model="claude-sonnet-5",
             score=0.88,
-            triggered_indices=[len(data) - 1],
-            all_scores=[0.88],
-            metadata={"rationale": "Signups fell to 12.", "kind": "drop", "model": "claude-sonnet-5", "mean": 99.0},
+            triggered_indices=(len(data) - 1,),
+            all_scores=(0.88,),
         )
 
+    def judge_every_point(
+        self, data: np.ndarray, *, series: SeriesContext, attribution: JudgeAttribution
+    ) -> SeriesJudgment | None:
+        raise AssertionError("a live check judges the latest point only")
 
-# The detector only reads identity off these, so a mock avoids a Postgres round trip for a
+
+# The judge only reads identity off these, so a mock avoids a Postgres round trip for a
 # test that scores an in-memory series.
 FAKE_TEAM = MagicMock(spec=Team)
 FAKE_USER = MagicMock(spec=User)
@@ -59,7 +68,7 @@ class _FakeInsight:
 class _FakeAlert:
     id = "b8f3a1e0-0000-0000-0000-000000000001"
     config: dict[str, Any] = {"type": "TrendsAlertConfig", "series_index": 0}
-    created_by = FAKE_USER
+    created_by: Any = FAKE_USER
     next_check_at = datetime(2026, 1, 5, tzinfo=UTC)
 
 
@@ -71,41 +80,51 @@ def _extraction() -> ExtractionResult:
     )
 
 
-def _evaluate(detector_config: dict[str, Any]) -> Any:
-    _RecordingDetector.seen = []
-    with patch(
-        "products.alerts.backend.evaluation.detector.get_detector",
-        return_value=_RecordingDetector(detector_config),
-    ):
+def _evaluate(detector_config: dict[str, Any], alert: Any = None) -> Any:
+    _RecordingJudge.seen = []
+    with patch("products.alerts.backend.evaluation.detector.LLMSeriesJudge", _RecordingJudge):
         return evaluate_with_detector(
             _extraction(),
             detector_config,
             insight=_FakeInsight(),  # type: ignore[arg-type]
-            alert=_FakeAlert(),  # type: ignore[arg-type]
+            alert=alert or _FakeAlert(),  # type: ignore[arg-type]
             evaluation_id="workflow-run:activity",
         )
 
 
-class TestDetectionContextPlumbing:
-    def test_detector_receives_the_series_calendar_and_metric_meaning(self) -> None:
+class TestJudgePlumbing:
+    def test_judge_receives_the_series_meaning_and_who_the_call_runs_as(self) -> None:
         _evaluate({"type": "llm", "instructions": "Only care about drops"})
 
-        context = _RecordingDetector.seen[0]
-        assert context.dates == ("2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04", "2026-01-05")
-        assert context.series_label == "signed_up"
-        assert context.insight_name == "Daily signups"
-        assert context.instructions == "Only care about drops"
-        assert "signed_up" in context.metric_description
-        assert context.team is FAKE_TEAM
-        assert context.user is FAKE_USER
-        assert context.evaluation_id == "workflow-run:activity"
+        series, attribution = _RecordingJudge.seen[0]
+        assert series.dates == ("2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04", "2026-01-05")
+        assert series.series_label == "signed_up"
+        assert series.insight_name == "Daily signups"
+        assert series.instructions == "Only care about drops"
+        assert "signed_up" in series.metric_description
+        assert attribution.team is FAKE_TEAM
+        assert attribution.user is FAKE_USER
+        assert attribution.evaluation_id == "workflow-run:activity"
 
-    def test_context_is_built_for_statistical_detectors_too(self) -> None:
-        # One code path for every type: a detector added later reads the context without
-        # anything in the evaluation layer having to opt it in.
-        _evaluate({"type": "zscore", "threshold": 0.95})
+    def test_an_ai_alert_with_no_creator_is_refused_before_any_call(self) -> None:
+        alert = _FakeAlert()
+        alert.created_by = None
 
-        assert _RecordingDetector.seen[0].dates
+        with pytest.raises(LLMDetectorMisconfiguredError, match="person who created it was deleted"):
+            _evaluate({"type": "llm"}, alert=alert)
+
+        assert _RecordingJudge.seen == []
+
+    def test_a_statistical_detector_needs_no_one_to_run_as(self) -> None:
+        # Only a charged call needs attribution, so an alert whose creator is gone must keep
+        # evaluating on a statistical detector instead of failing on a check it never makes.
+        alert = _FakeAlert()
+        alert.created_by = None
+
+        result = _evaluate({"type": "zscore", "threshold": 0.95}, alert=alert)
+
+        assert result.value == 12.0
+        assert _RecordingJudge.seen == []
 
 
 class TestLLMVerdictReachesTheCheck:
@@ -118,7 +137,12 @@ class TestLLMVerdictReachesTheCheck:
         # The model's number is its own stated confidence, so the message must not call it a probability.
         assert "model confidence:" in result.breaches[0]
         assert "probability" not in result.breaches[0]
-        assert result.triggered_metadata == {"rationale": "Signups fell to 12.", "kind": "drop"}
+        assert result.triggered_metadata == {
+            "rationale": "Signups fell to 12.",
+            "kind": "drop",
+            "verdict_is_anomaly": True,
+            "confidence": 0.88,
+        }
 
     def test_statistical_detector_metadata_stays_off_the_check(self) -> None:
         # The statistical detectors' metadata is fit state (means, thresholds); persisting it

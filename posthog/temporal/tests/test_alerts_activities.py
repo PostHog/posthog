@@ -34,7 +34,6 @@ from posthog.exceptions import (
 )
 from posthog.models import Team, User
 from posthog.slo.types import SloOperation, SloOutcome
-from posthog.tasks.alerts.detectors.llm.errors import LLMDetectorMisconfiguredError, LLMDetectorUnavailableError
 from posthog.tasks.alerts.utils import (
     AlertEvaluationResult,
     get_alert_error_notification_recipients,
@@ -63,6 +62,7 @@ from posthog.temporal.alerts.types import (
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
+from products.alerts.backend.facade.api import LLMDetectorMisconfiguredError, LLMDetectorUnavailableError
 from products.alerts.backend.facade.contracts import AlertDelivery
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
 from products.product_analytics.backend.facade.models import Insight

@@ -1,4 +1,4 @@
-"""An anomaly detector that asks a model to judge the series.
+"""A series judge that asks a model instead of fitting a statistical test.
 
 The point is a "just watch this for anything odd" option that needs no statistical
 model and no threshold, and that can honor instructions the statistical detectors
@@ -21,23 +21,32 @@ import numpy as np
 import structlog
 import posthoganalytics
 
-from posthog.schema import DetectorType
+from posthog.tasks.alerts.detector import LLM_DETECTOR_DEFAULT_WINDOW, LLM_DETECTOR_MIN_POINTS
 
-from posthog.tasks.alerts.detectors.base import BaseDetector, DetectionContext, DetectionResult
-from posthog.tasks.alerts.detectors.llm.errors import LLMDetectorMisconfiguredError, LLMDetectorUnavailableError
-from posthog.tasks.alerts.detectors.llm.prompt import PROMPT_REVISION, SYSTEM_PROMPT, build_human_message
-from posthog.tasks.alerts.detectors.llm.verdict import LLMDetectionVerdict
-from posthog.tasks.alerts.detectors.registry import register_detector
-
-from products.alerts.backend.facade.api import llm_detector_access_error
+from products.alerts.backend.judge.contract import (
+    DEFAULT_CONFIDENCE_THRESHOLD,
+    MAX_CONCURRENT_MODEL_CALLS,
+    MAX_PROMPT_POINTS,
+    JudgeAttribution,
+    LLMDetectorMisconfiguredError,
+    LLMDetectorUnavailableError,
+    SeriesContext,
+    SeriesJudgment,
+)
+from products.alerts.backend.judge.prompt import PROMPT_REVISION, SYSTEM_PROMPT, build_human_message
+from products.alerts.backend.judge.verdict import LLMDetectionVerdict
+from products.alerts.backend.llm_detector_limits import llm_detector_access_error
 
 logger = structlog.get_logger(__name__)
+
+DEFAULT_WINDOW = LLM_DETECTOR_DEFAULT_WINDOW
+MIN_POINTS_TO_JUDGE = LLM_DETECTOR_MIN_POINTS
 
 # One constant, matching the anomaly investigation agent. Not exposed per alert: a
 # per-alert model field is a cost lever we don't want in the alert editor yet.
 LLM_DETECTOR_MODEL = "claude-sonnet-5"
 
-# Own product key in LLM analytics, so this detector's spend is separable from the
+# Own product key in LLM analytics, so this judge's spend is separable from the
 # investigation agent's.
 LLM_DETECTOR_AI_PRODUCT = "alert_llm_detector"
 
@@ -48,26 +57,15 @@ MAX_OUTPUT_TOKENS = 1024
 # which would kill the check before the Temporal retry gets a real attempt.
 REQUEST_TIMEOUT_SECONDS = 60.0
 
-DEFAULT_CONFIDENCE_THRESHOLD = 0.7
-DEFAULT_WINDOW = 90
-
-# Enough history for the model to see a weekly shape at any cadence, while bounding
-# what one check can send. Caps the configured window.
-MAX_PROMPT_POINTS = 400
-
-MIN_POINTS_TO_JUDGE = 5
-
 # The rationale is appended to the breach text that every destination renders. Discord
 # rejects a message over 2,000 characters, and the breach prefix and the other breaches in
 # the same message need room too.
 MAX_RATIONALE_CHARS = 600
 
-# Bound on model calls in flight per process. The evaluate activity runs AI checks on a
-# dedicated executor of this size (see posthog/temporal/alerts/activities.py), so a check
-# there never waits here; the wait covers the API's simulate path, whose request threads
-# are its own pool. The wait is short so a full pool fails a request fast instead of
-# holding its thread.
-MAX_CONCURRENT_MODEL_CALLS = 8
+# The evaluate activity runs AI checks on a dedicated executor of MAX_CONCURRENT_MODEL_CALLS
+# threads (see posthog/temporal/alerts/activities.py), so a check there never waits here;
+# the wait covers the API's simulate path, whose request threads are its own pool. The wait
+# is short so a full pool fails a request fast instead of holding its thread.
 MODEL_CALL_SLOT_WAIT_SECONDS = 5.0
 _model_call_slots = threading.BoundedSemaphore(MAX_CONCURRENT_MODEL_CALLS)
 
@@ -78,26 +76,26 @@ VERDICT_MEMO_TTL_SECONDS = 20 * 60
 
 
 def _verdict_memo_key(
-    context: DetectionContext, *, data: np.ndarray, window: int, judge_every_point: bool
+    series: SeriesContext, attribution: JudgeAttribution, *, data: np.ndarray, window: int, judge_every_point: bool
 ) -> str | None:
     """The memo key for one check's verdict, or None when there is nothing to memoize.
 
     The key covers the series as well as the check, so a retry that re-queries and gets different
     numbers asks the model again. A simulation carries no check and is never memoized.
     """
-    if not context.evaluation_id:
+    if not attribution.evaluation_id:
         return None
     fingerprint = hashlib.sha256(np.ascontiguousarray(data, dtype=np.float64).tobytes())
     fingerprint.update(
         json.dumps(
             [
-                context.evaluation_id,
-                context.insight_name,
-                context.series_label,
-                context.interval,
-                context.dates,
-                context.metric_description,
-                context.instructions,
+                attribution.evaluation_id,
+                series.insight_name,
+                series.series_label,
+                series.interval,
+                series.dates,
+                series.metric_description,
+                series.instructions,
                 window,
                 judge_every_point,
                 LLM_DETECTOR_MODEL,
@@ -119,12 +117,11 @@ def _memoized_verdict(memo_key: str | None) -> LLMDetectionVerdict | None:
         # A cache that cannot be read costs a repeated call, never the check.
         logger.warning("alerts.llm_detector.memo_read_failed", exc_info=True)
         return None
-    if not stored:
+    if not isinstance(stored, str):
         return None
     try:
         return LLMDetectionVerdict.model_validate_json(stored)
-    except Exception:
-        logger.warning("alerts.llm_detector.memo_unreadable", exc_info=True)
+    except ValueError:
         return None
 
 
@@ -137,60 +134,52 @@ def _memoize_verdict(memo_key: str | None, verdict: LLMDetectionVerdict) -> None
         logger.warning("alerts.llm_detector.memo_write_failed", exc_info=True)
 
 
-@register_detector(DetectorType.LLM)
-class LLMDetector(BaseDetector):
+class LLMSeriesJudge:
     """Config:
     instructions: str - the author's description of what counts as unusual (optional)
     threshold: float - minimum reported confidence before the alert fires (default: 0.7)
     window: int - how many recent points the model is shown (default: 90)
     """
 
-    def detect(self, data: np.ndarray) -> DetectionResult:
-        raise LLMDetectorMisconfiguredError(
-            "The AI detector needs the series context (dates, metric definition, project) and so is "
-            "only reachable through detect_in_context."
-        )
+    def __init__(self, config: dict[str, Any]) -> None:
+        self.config = config
 
-    def detect_batch(self, data: np.ndarray) -> DetectionResult:
-        raise LLMDetectorMisconfiguredError(
-            "The AI detector needs the series context (dates, metric definition, project) and so is "
-            "only reachable through detect_batch_in_context."
-        )
+    def judge_latest(
+        self, data: np.ndarray, *, series: SeriesContext, attribution: JudgeAttribution
+    ) -> SeriesJudgment | None:
+        return self._judge(data, series=series, attribution=attribution, judge_every_point=False)
 
-    def detect_in_context(self, data: np.ndarray, context: DetectionContext) -> DetectionResult:
-        return self._judge(data, context, judge_every_point=False)
+    def judge_every_point(
+        self, data: np.ndarray, *, series: SeriesContext, attribution: JudgeAttribution
+    ) -> SeriesJudgment | None:
+        return self._judge(data, series=series, attribution=attribution, judge_every_point=True)
 
-    def detect_batch_in_context(self, data: np.ndarray, context: DetectionContext) -> DetectionResult:
-        return self._judge(data, context, judge_every_point=True)
-
-    def _judge(self, data: np.ndarray, context: DetectionContext, *, judge_every_point: bool) -> DetectionResult:
-        if not self._validate_data(data, min_length=MIN_POINTS_TO_JUDGE):
-            return DetectionResult(is_anomaly=False)
+    def _judge(
+        self, data: np.ndarray, *, series: SeriesContext, attribution: JudgeAttribution, judge_every_point: bool
+    ) -> SeriesJudgment | None:
+        if len(data) < MIN_POINTS_TO_JUDGE:
+            return None
 
         window = min(int(self.config.get("window") or DEFAULT_WINDOW), MAX_PROMPT_POINTS)
-        verdict = self._ask_model(data=data, context=context, window=window, judge_every_point=judge_every_point)
-        return self._to_result(verdict, data=data, window=window, judge_every_point=judge_every_point)
+        verdict = self._ask_model(
+            data=data, series=series, attribution=attribution, window=window, judge_every_point=judge_every_point
+        )
+        return self._judgment(verdict, data=data, window=window, judge_every_point=judge_every_point)
 
     def _ask_model(
         self,
         *,
         data: np.ndarray,
-        context: DetectionContext,
+        series: SeriesContext,
+        attribution: JudgeAttribution,
         window: int,
         judge_every_point: bool,
     ) -> LLMDetectionVerdict:
-        if context.team is None or context.user is None:
-            raise LLMDetectorMisconfiguredError(
-                "The AI detector needs a project and a user to attribute its model calls to. This "
-                "alert has neither, which happens when the person who created it was deleted. "
-                "Recreate the alert to fix it."
-            )
-
         # An alert created while the organization was in the rollout and had consent on keeps
         # being checked after either is withdrawn. Refusing here covers every path to the
         # model, scheduled or previewed, so the flag is a real stop on spend.
         access_error = llm_detector_access_error(
-            distinct_id=str(context.user.distinct_id), organization=context.team.organization
+            distinct_id=str(attribution.user.distinct_id), organization=attribution.team.organization
         )
         if access_error:
             raise LLMDetectorMisconfiguredError(
@@ -198,13 +187,13 @@ class LLMDetector(BaseDetector):
                 "detector to keep it running."
             )
 
-        memo_key = _verdict_memo_key(context, data=data, window=window, judge_every_point=judge_every_point)
+        memo_key = _verdict_memo_key(series, attribution, data=data, window=window, judge_every_point=judge_every_point)
         memoized = _memoized_verdict(memo_key)
         if memoized is not None:
             logger.info("alerts.llm_detector.verdict_reused", is_anomaly=memoized.is_anomaly)
             return memoized
 
-        # Deferred so importing the detector registry does not pull langchain into every
+        # Deferred so importing the evaluation package does not pull langchain into every
         # process that touches an alert.
         from langchain_core.callbacks import BaseCallbackHandler  # noqa: PLC0415
         from langchain_core.messages import HumanMessage, SystemMessage  # noqa: PLC0415
@@ -215,12 +204,12 @@ class LLMDetector(BaseDetector):
         from ee.hogai.utils.exceptions import LLM_API_EXCEPTIONS  # noqa: PLC0415
         from ee.hogai.utils.feature_flags import is_privacy_mode_enabled  # noqa: PLC0415
 
-        instructions_present = bool(context.instructions)
+        instructions_present = bool(series.instructions)
         # No temperature: Sonnet 5 rejects non-default sampling params with a 400.
         model = MaxChatAnthropic(
             model=LLM_DETECTOR_MODEL,
-            team=context.team,
-            user=context.user,
+            team=attribution.team,
+            user=attribution.user,
             billable=True,
             # The series, its definition, and the author's notes are the whole context; the
             # project/org preamble would only dilute a single-judgment prompt.
@@ -241,7 +230,7 @@ class LLMDetector(BaseDetector):
             SystemMessage(content=SYSTEM_PROMPT),
             HumanMessage(
                 content=build_human_message(
-                    data=data, context=context, window=window, judge_every_point=judge_every_point
+                    data=data, context=series, window=window, judge_every_point=judge_every_point
                 )
             ),
         ]
@@ -251,10 +240,10 @@ class LLMDetector(BaseDetector):
             callbacks.append(
                 CallbackHandler(
                     posthoganalytics.default_client,
-                    distinct_id=str(context.team.id),
+                    distinct_id=str(attribution.team.id),
                     trace_id=f"alert-llm-detector-{uuid.uuid4()}",
-                    properties={"ai_product": LLM_DETECTOR_AI_PRODUCT, "team_id": context.team.id},
-                    privacy_mode=is_privacy_mode_enabled(context.team),
+                    properties={"ai_product": LLM_DETECTOR_AI_PRODUCT, "team_id": attribution.team.id},
+                    privacy_mode=is_privacy_mode_enabled(attribution.team),
                 )
             )
 
@@ -266,7 +255,7 @@ class LLMDetector(BaseDetector):
             verdict = model.invoke(
                 messages,
                 config=RunnableConfig(
-                    callbacks=callbacks, configurable={"is_agent_billable": context.is_agent_billable}
+                    callbacks=callbacks, configurable={"is_agent_billable": attribution.is_agent_billable}
                 ),
             )
         except LLM_API_EXCEPTIONS as error:
@@ -295,13 +284,13 @@ class LLMDetector(BaseDetector):
         _memoize_verdict(memo_key, verdict)
         return verdict
 
-    def _to_result(
+    def _judgment(
         self, verdict: LLMDetectionVerdict, *, data: np.ndarray, window: int, judge_every_point: bool
-    ) -> DetectionResult:
+    ) -> SeriesJudgment:
         configured_threshold = self.config.get("threshold")
         threshold = float(configured_threshold if configured_threshold is not None else DEFAULT_CONFIDENCE_THRESHOLD)
         confident = verdict.confidence >= threshold
-        is_anomaly = verdict.is_anomaly and confident
+        fires = verdict.is_anomaly and confident
 
         index_offset = max(0, len(data) - window)
         reported_indices = [index + index_offset for index in verdict.triggered_indices]
@@ -312,42 +301,31 @@ class LLMDetector(BaseDetector):
             # A live check judges one point. The prompt asks the model to list the final index
             # when, and only when, that point is the anomaly, so a verdict that flags only
             # history (or nothing) must not page anyone about a normal current value.
-            is_anomaly = is_anomaly and latest_point_flagged
-            indices = [len(data) - 1] if is_anomaly else []
-        elif not is_anomaly:
+            fires = fires and latest_point_flagged
+            indices = [len(data) - 1] if fires else []
+        elif not fires:
             indices = []
 
-        metadata: dict[str, Any] = {
-            "rationale": verdict.rationale[:MAX_RATIONALE_CHARS],
-            "kind": verdict.kind,
-            "model": LLM_DETECTOR_MODEL,
-            # The score folds the verdict and its confidence into one number, which is not
-            # reversible: readers that need to know whether the model said "anomaly" get it here.
-            "verdict_is_anomaly": verdict.is_anomaly,
-            "confidence": verdict.confidence,
-        }
-        if verdict.is_anomaly and not confident:
-            # Worth seeing in the check history: the model did flag something, the
-            # confidence gate is what stopped the alert.
-            metadata["below_threshold"] = True
-        if verdict.is_anomaly and not judge_every_point and not latest_point_flagged:
-            metadata["latest_point_not_flagged"] = True
-
         anomaly_score = self._anomaly_score(verdict)
-        return DetectionResult(
-            is_anomaly=is_anomaly,
+        return SeriesJudgment(
+            fires=fires,
+            verdict_is_anomaly=verdict.is_anomaly,
+            confidence=verdict.confidence,
+            kind=verdict.kind,
+            rationale=verdict.rationale[:MAX_RATIONALE_CHARS],
+            model=LLM_DETECTOR_MODEL,
             score=anomaly_score,
-            triggered_indices=indices,
+            triggered_indices=tuple(indices),
             all_scores=self._scores(anomaly_score, indices=score_indices, length=len(data))
             if judge_every_point
-            else [anomaly_score],
-            metadata=metadata,
+            else (anomaly_score,),
+            below_threshold=verdict.is_anomaly and not confident,
+            latest_point_not_flagged=verdict.is_anomaly and not judge_every_point and not latest_point_flagged,
         )
 
     @staticmethod
     def _anomaly_score(verdict: LLMDetectionVerdict) -> float:
-        """The verdict as a probability of anomaly, which is the scale the threshold and the
-        check history chart read scores on.
+        """The verdict on the scale the threshold gate and the check history chart read scores on.
 
         The model reports confidence in its verdict, whichever way it went. A confident "no
         anomaly" is a low anomaly score; stored raw, it would plot above the threshold as a
@@ -361,20 +339,12 @@ class LLMDetector(BaseDetector):
         return sorted({index for index in indices if 0 <= index < length})
 
     @staticmethod
-    def _scores(confidence: float, *, indices: list[int], length: int) -> list[float | None]:
+    def _scores(confidence: float, *, indices: list[int], length: int) -> tuple[float | None, ...]:
         """One score per point for the simulation chart.
 
         The model reports a single confidence for the whole judgment rather than a score
-        per point, so only the points it flagged carry one — the rest are left unscored
+        per point, so only the points it flagged carry one. The rest are left unscored
         instead of being given a made-up number.
         """
         flagged = set(indices)
-        return [confidence if index in flagged else None for index in range(length)]
-
-    @classmethod
-    def get_default_config(cls) -> dict:
-        return {
-            "type": DetectorType.LLM.value,
-            "threshold": DEFAULT_CONFIDENCE_THRESHOLD,
-            "window": DEFAULT_WINDOW,
-        }
+        return tuple(confidence if index in flagged else None for index in range(length))

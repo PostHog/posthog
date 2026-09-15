@@ -98,7 +98,6 @@ class TestDetectorRegistry:
             "ecod",
             "hbos",
             "isolation_forest",
-            "llm",
             "knn",
             "lof",
             "ocsvm",

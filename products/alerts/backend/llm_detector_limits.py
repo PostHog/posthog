@@ -1,13 +1,16 @@
-"""Per-team cap on how many enabled AI-detector alerts a team can have.
+"""The rules for putting an alert on the AI detector, and the per-team cap behind them.
 
 Every check of an AI-detector alert costs a model call, so the cap is the cost
 control for the type. It lives in the `alerts-llm-detector` flag payload rather than
 in code so the launch posture is tunable without a deploy, the same way the Signals
 scout budgets work (`products/signals/backend/scout_harness/team_limits.py`).
+
+``admit_llm_alert_write`` is the one operation every writer of alerts calls: the rules,
+their order, and the lock they need live there, so the API and the Max tool cannot drift.
 """
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from django.db import connection
 
@@ -15,7 +18,16 @@ import posthoganalytics
 
 from posthog.schema import AlertCalculationInterval, DetectorType
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+
+from products.alerts.backend.judge.contract import LLMDetectorUnavailableError
+
+if TYPE_CHECKING:
+    from posthog.models.organization import Organization
+    from posthog.models.user import User
+
+    from products.alerts.backend.models.alert import AlertConfiguration
 
 LLM_DETECTOR_FLAG = "alerts-llm-detector"
 
@@ -42,6 +54,95 @@ LLM_DETECTOR_CONSENT_MESSAGE = (
 
 LLM_DETECTOR_ROLLOUT_MESSAGE = "The AI detector is not enabled for your account."
 
+LLM_DETECTOR_NO_CREATOR_MESSAGE = (
+    "This alert has no creator to attribute AI detector calls to, which happens when that person was "
+    "deleted. Recreate the alert to use the AI detector."
+)
+
+
+@frozen
+class LLMAlertWrite:
+    """The state one write leaves an alert in, as far as the AI detector rules read it.
+
+    ``existing`` is the row before the write, already locked by the writer; None for a create.
+    ``principal`` is who the scheduled checks run as, which is the alert's creator and not
+    always the person saving.
+    """
+
+    team_id: int
+    organization: "Organization"
+    principal: "User | None"
+    detector_config: dict[str, Any] | None
+    enabled: bool
+    calculation_interval: str | AlertCalculationInterval | None
+    existing: "AlertConfiguration | None" = None
+
+    @property
+    def is_llm(self) -> bool:
+        return is_llm_detector_config(self.detector_config)
+
+    @property
+    def adds_llm_alert(self) -> bool:
+        """Whether the write adds an AI alert the team did not have before it.
+
+        A new alert, a switch of an existing one to the AI detector, and an enable of a
+        disabled AI alert all count. Editing an alert that is already AI-judged does not.
+        """
+        if not self.is_llm:
+            return False
+        if self.existing is None or not is_llm_detector_config(self.existing.detector_config):
+            return True
+        return not self.existing.enabled and self.enabled
+
+    @property
+    def adds_enabled_llm_alert(self) -> bool:
+        """Whether the write ends with one more enabled AI alert than the team had before it."""
+        return self.enabled and self.adds_llm_alert
+
+
+@frozen
+class LLMAlertRefusal:
+    """Why a write cannot go ahead, for the writer to render in its own error shape."""
+
+    message: str
+    reason: Literal["cadence", "access", "cap"]
+    # The request field the refusal belongs to; None for an error about the whole write.
+    field: Literal["detector_config", "calculation_interval"] | None = None
+
+
+def admit_llm_alert_write(write: LLMAlertWrite) -> LLMAlertRefusal | None:
+    """Every rule for a write that can put an alert on the AI detector, in one place and one order.
+
+    Call it inside the transaction that will save, after the writer holds the alert's row
+    lock: when the write adds an enabled AI alert it takes the team's cap lock and counts
+    under it, and it must not queue behind that lock otherwise. A write that leaves the
+    alert on a statistical detector passes without a check.
+    """
+    if not write.is_llm:
+        return None
+    if error := llm_detector_interval_error(write.calculation_interval):
+        return LLMAlertRefusal(message=error, reason="cadence", field="calculation_interval")
+    if not write.adds_llm_alert:
+        return None
+    # The judge refuses the call too, but an alert that errors on every check is a worse
+    # way to learn this than a message at save time.
+    if write.principal is None:
+        return LLMAlertRefusal(message=LLM_DETECTOR_NO_CREATOR_MESSAGE, reason="access")
+    if error := llm_detector_access_error(
+        distinct_id=str(write.principal.distinct_id), organization=write.organization
+    ):
+        return LLMAlertRefusal(message=error, reason="access")
+    if not write.adds_enabled_llm_alert:
+        return None
+    lock_llm_alert_limit(team_id=write.team_id)
+    if error := llm_alert_limit_error(
+        team_id=write.team_id,
+        exclude_alert_id=str(write.existing.id) if write.existing is not None else None,
+        organization_id=write.organization.id,
+    ):
+        return LLMAlertRefusal(message=error, reason="cap", field="detector_config")
+    return None
+
 
 def is_llm_detector_rolled_out(*, distinct_id: str, organization_id: Any) -> bool:
     """Whether the rollout flag is on for this person in this organization.
@@ -55,9 +156,6 @@ def is_llm_detector_rolled_out(*, distinct_id: str, organization_id: Any) -> boo
         groups={"organization": str(organization_id)},
     )
     if enabled is None:
-        # The detector imports this module through the alert facade.
-        from posthog.tasks.alerts.detectors.llm.errors import LLMDetectorUnavailableError
-
         raise LLMDetectorUnavailableError("The AI detector could not check rollout access. Try again later.")
     return enabled
 

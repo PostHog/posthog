@@ -90,8 +90,15 @@ The next scheduler tick handles an edited alert at its current due time.
 ## Gating
 
 One function, `llm_detector_access_error`, tests the rollout flag and AI data processing consent.
-It runs in the API and the Max writer when either adds an enabled AI alert, in the simulate
-endpoint, and inside the detector on every scheduled check.
+It runs in the simulate endpoint, inside the judge on every scheduled check, and through
+`admit_llm_alert_write` in every writer of alerts.
+
+`admit_llm_alert_write` is the single operation the API and the Max tool call for a write that
+can put an alert on the AI detector.
+It applies the cadence rule, the access check for the alert's creator, and the per-project cap, in
+that order, and takes the cap lock only when the write adds an enabled AI alert.
+Each writer calls it inside its own transaction after locking the alert row, and renders the typed
+refusal in its own error shape.
 
 The last of those is what makes the flag a real stop on spend.
 When access is removed, the next check records the cause, disables the alert, and notifies its subscribers.
@@ -133,13 +140,20 @@ The preview labels AI scores as model confidence. Null scores can be valid unsco
 
 ## Where the code lives
 
+The AI judge is not a `BaseDetector`.
+The statistical detectors in `posthog/tasks/alerts/detectors/` score a bare array of values.
+The judge reads what the series means and who its charged call runs as, so it has its own contract
+in the product: a `SeriesJudge` takes a `SeriesContext` and a `JudgeAttribution` and returns a typed
+`SeriesJudgment`, which the evaluation layer reduces to the shared detection result.
+
 | Piece                                    | Path                                                                          |
 | ---------------------------------------- | ----------------------------------------------------------------------------- |
-| Detector, prompt, verdict, errors        | `posthog/tasks/alerts/detectors/llm/`                                         |
-| Detection context                        | `posthog/tasks/alerts/detectors/base.py`                                      |
+| Judge contract, errors, judgment         | `products/alerts/backend/judge/contract.py`                                   |
+| Judge, prompt, model verdict             | `products/alerts/backend/judge/`                                              |
+| Lookback sizing for the judge            | `posthog/tasks/alerts/detector.py`                                            |
 | Chart rendering and metric description   | `posthog/tasks/alerts/charts.py`, `posthog/tasks/alerts/metric_definition.py` |
 | Evaluation wiring, breach text, simulate | `products/alerts/backend/evaluation/detector.py`                              |
-| Cap, cadence rule, access check          | `products/alerts/backend/llm_detector_limits.py`                              |
+| Write admission, cap, cadence, access    | `products/alerts/backend/llm_detector_limits.py`                              |
 | API                                      | `products/alerts/backend/presentation/views/alert.py`                         |
 | Max tool writer                          | `products/alerts/backend/max_tools.py`                                        |
 | Editor and history UI                    | `products/alerts/frontend/views/`                                             |
