@@ -33,6 +33,15 @@ class TestVercelAPIClient:
             mock_response.json.side_effect = json.JSONDecodeError("Invalid JSON", "", 0)
             return mock_response
 
+    @staticmethod
+    def real_response(status_code: int, text: str) -> requests.Response:
+        response = requests.Response()
+        response.status_code = status_code
+        response.reason = text
+        response._content = text.encode()
+        response.url = "https://api.vercel.com/v1/test"
+        return response
+
     @pytest.fixture
     def client(self):
         return VercelAPIClient("test_token")
@@ -148,6 +157,24 @@ class TestVercelAPIClient:
         assert not result.success
         assert result.error == "HTTP error"
         assert result.status_code == 400
+
+    @patch("ee.vercel.client.requests.Session.request")
+    def test_http_error_status_code_survives_falsy_response(self, mock_request, client, test_ids):
+        mock_request.return_value = self.real_response(403, "Forbidden")
+
+        result = client.update_resource_secrets(
+            test_ids["integration_config_id"], test_ids["resource_id"], [{"name": "A", "value": "b"}]
+        )
+
+        assert not result.success
+        assert result.status_code == 403
+        assert result.error_detail == "Forbidden"
+
+    @patch("ee.vercel.client.requests.Session.request")
+    def test_check_installation_active_false_on_real_404(self, mock_request, client):
+        mock_request.return_value = self.real_response(404, "Not Found")
+
+        assert client.check_installation_active("icfg_x") is False
 
     @pytest.mark.parametrize(
         "method_name,args_func,error_setup,expected_error,expected_status",

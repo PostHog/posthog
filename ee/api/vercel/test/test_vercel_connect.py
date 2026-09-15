@@ -13,7 +13,12 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.team import Team
 
-from ee.api.vercel.vercel_connect import _load_connect_session, _sign_connect_session, _validate_next_url
+from ee.api.vercel.vercel_connect import (
+    _delete_orphaned_integration,
+    _load_connect_session,
+    _sign_connect_session,
+    _validate_next_url,
+)
 from ee.vercel.client import OAuthTokenResponse, OperationResult
 
 # Hardcoded independently of ee.vercel.integration.CLIENT_ENV_PREFIXES so a dropped prefix fails these tests.
@@ -200,6 +205,12 @@ class TestVercelConnectSessionInfo(VercelConnectTestBase):
             config={"credentials": {"access_token": "tok_dead"}},
             created_by=self.user,
         )
+        Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.VERCEL,
+            integration_id=str(self.team.pk),
+            config={"type": "connectable"},
+        )
         session_token = _seed_session()
 
         response = self.client.get(self.url, {"session": session_token})
@@ -207,6 +218,7 @@ class TestVercelConnectSessionInfo(VercelConnectTestBase):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["organizations"][0]["already_linked"] is False
         assert not OrganizationIntegration.objects.filter(integration_id="icfg_orphaned").exists()
+        assert not Integration.objects.filter(team=self.team, kind=Integration.IntegrationKind.VERCEL).exists()
 
     def test_excludes_orgs_where_user_is_member_not_admin(self):
         other_org = Organization.objects.create(name="Other Org")
@@ -475,6 +487,12 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             config={"credentials": {"access_token": "tok_stale"}},
             created_by=self.user,
         )
+        stale_resource = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.VERCEL,
+            integration_id=str(self.team.pk),
+            config={"type": "connectable"},
+        )
         session_token = _seed_session()
 
         response = self.client.post(
@@ -495,6 +513,8 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
         )
         assert new_integration.integration_id == "icfg_connect_test"
+        assert not Integration.objects.filter(pk=stale_resource.pk).exists()
+        assert Integration.objects.filter(team=self.team, kind=Integration.IntegrationKind.VERCEL).exists()
 
     def test_unauthenticated_returns_403(self):
         self.client.logout()
@@ -586,6 +606,69 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             team=self.team,
             kind=Integration.IntegrationKind.VERCEL,
         ).exists()
+
+    @patch("ee.vercel.integration.VercelIntegration")
+    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
+    def test_failed_import_rolls_back_and_returns_400(self, mock_client_class, mock_vercel_integration):
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        mock_client.import_resource.return_value = OperationResult(
+            success=False, error="HTTP error", status_code=403, error_detail="Forbidden"
+        )
+        session_token = _seed_session()
+
+        response = self.client.post(
+            self.url,
+            {
+                "session": session_token,
+                "organization_id": str(self.organization.id),
+                "environment_mapping": {"production": self.team.pk},
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "403" in response.json()["detail"]
+        assert not OrganizationIntegration.objects.filter(
+            organization=self.organization,
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+        ).exists()
+        assert not Integration.objects.filter(
+            team=self.team,
+            kind=Integration.IntegrationKind.VERCEL,
+        ).exists()
+        mock_vercel_integration.bulk_sync_feature_flags_to_vercel.assert_not_called()
+
+    @patch("ee.vercel.integration.VercelIntegration")
+    @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
+    def test_failed_import_without_status_returns_400(self, mock_client_class, mock_vercel_integration):
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        mock_client.import_resource.return_value = OperationResult(
+            success=False, error="Network error", status_code=None, error_detail="boom"
+        )
+        session_token = _seed_session()
+
+        response = self.client.post(
+            self.url,
+            {
+                "session": session_token,
+                "organization_id": str(self.organization.id),
+                "environment_mapping": {"production": self.team.pk},
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not OrganizationIntegration.objects.filter(
+            organization=self.organization,
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+        ).exists()
+        assert not Integration.objects.filter(
+            team=self.team,
+            kind=Integration.IntegrationKind.VERCEL,
+        ).exists()
+        mock_vercel_integration.bulk_sync_feature_flags_to_vercel.assert_not_called()
 
 
 @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
@@ -814,6 +897,42 @@ class TestBackfillVercelConnectableResources(VercelConnectTestBase):
 
         mock_client.import_resource.assert_not_called()
         mock_vercel_integration.bulk_sync_feature_flags_to_vercel.assert_not_called()
+
+
+class TestDeleteOrphanedIntegration(VercelConnectTestBase):
+    def test_keeps_resources_belonging_to_another_installation(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        orphaned = OrganizationIntegration.objects.create(
+            organization=self.organization,
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+            integration_id="icfg_orphaned",
+            config={"type": "connectable", "environment_mapping": {"production": self.team.pk}},
+        )
+        OrganizationIntegration.objects.create(
+            organization=self.organization,
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+            integration_id="icfg_live",
+            config={"type": "connectable", "environment_mapping": {"production": other_team.pk}},
+        )
+        orphaned_resource = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.VERCEL,
+            integration_id=str(self.team.pk),
+            config={"type": "connectable"},
+        )
+        live_resource = Integration.objects.create(
+            team=other_team,
+            kind=Integration.IntegrationKind.VERCEL,
+            integration_id=str(other_team.pk),
+            config={"type": "connectable"},
+        )
+
+        _delete_orphaned_integration(orphaned)
+
+        assert not OrganizationIntegration.objects.filter(pk=orphaned.pk).exists()
+        assert not Integration.objects.filter(pk=orphaned_resource.pk).exists()
+        assert OrganizationIntegration.objects.filter(integration_id="icfg_live").exists()
+        assert Integration.objects.filter(pk=live_resource.pk).exists()
 
 
 class TestValidateNextUrl(TestCase):
