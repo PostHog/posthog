@@ -67,6 +67,10 @@ def _ensure_registered() -> None:
 
     from posthog.tasks.alerts.detectors import ensemble, threshold  # noqa: F401
 
+    # The detector module itself is import-light; its model client is imported lazily
+    # inside the call, so registering it here does not pull langchain in.
+    from posthog.tasks.alerts.detectors.llm import detector as llm_detector  # noqa: F401
+
     # PyOD detectors (require pyod package, already a core dependency)
     from posthog.tasks.alerts.detectors.pyod_detectors import (  # noqa: F401
         copod,

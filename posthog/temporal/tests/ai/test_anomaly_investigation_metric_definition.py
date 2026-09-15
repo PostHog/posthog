@@ -1,6 +1,6 @@
 from parameterized import parameterized
 
-from posthog.temporal.ai.anomaly_investigation.metric_definition import UNAVAILABLE, describe_metric_definition
+from posthog.tasks.alerts.metric_definition import UNAVAILABLE, describe_metric_definition
 from posthog.temporal.ai.anomaly_investigation.prompts import build_anomaly_context
 
 # A $pageview DAU series filtered to the app's error tracking pages — an insight whose

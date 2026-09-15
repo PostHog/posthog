@@ -1,10 +1,15 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from posthog.dataclasses import frozen
 from posthog.tasks.alerts.detectors.preprocessing import preprocess_data
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+    from posthog.models.user import User
 
 
 @dataclass
@@ -16,6 +21,31 @@ class DetectionResult:
     triggered_indices: list[int] = field(default_factory=list)
     all_scores: list[float | None] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@frozen
+class DetectionContext:
+    """Everything about the scored series that the values array itself cannot carry.
+
+    Statistical detectors read only the values, so they ignore this. Detectors that
+    reason about *what* the series measures, such as the LLM detector today and a seasonal
+    forecast detector next, need the calendar and the metric's meaning, and there is no way
+    to recover either from a numpy array. ``team`` and ``user`` are here for the same
+    reason: a detector that calls an external service on the team's behalf has to attribute
+    and bill that call, and they are the only identity the detector ever sees.
+    """
+
+    # Aligned index-for-index with the values array; None for a non-time-series point.
+    dates: tuple[str | None, ...] = ()
+    interval: str | None = None
+    series_label: str = ""
+    # From describe_metric_definition; "" when the caller could not read the query.
+    metric_description: str = ""
+    insight_name: str = ""
+    # The alert author's free text describing what counts as unusual. Untrusted input.
+    instructions: str = ""
+    team: "Team | None" = None
+    user: "User | None" = None
 
 
 class BaseDetector(ABC):
@@ -59,6 +89,18 @@ class BaseDetector(ABC):
             DetectionResult with triggered_indices for all anomalous points
         """
         pass
+
+    def detect_in_context(self, data: np.ndarray, context: DetectionContext) -> DetectionResult:
+        """Score the latest point with the series context available.
+
+        Defaults to the value-only ``detect`` so a detector opts in by overriding this
+        rather than by every existing detector growing a parameter it does not read.
+        """
+        return self.detect(data)
+
+    def detect_batch_in_context(self, data: np.ndarray, context: DetectionContext) -> DetectionResult:
+        """Score every point with the series context available. See ``detect_in_context``."""
+        return self.detect_batch(data)
 
     def train_test_split(self, data: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Split data into training (historical) and test (recent) portions.

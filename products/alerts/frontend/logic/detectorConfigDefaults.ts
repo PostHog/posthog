@@ -29,6 +29,17 @@ export function getDefaultZScoreDetectorConfig(window: number): SingleDetectorCo
     }
 }
 
+/** The model reports its own confidence, so this is the confidence the alert requires before firing. */
+export const DEFAULT_LLM_DETECTION_CONFIDENCE = 0.7
+
+export function getDefaultLLMDetectorConfig(window: number): SingleDetectorConfig {
+    return {
+        type: 'llm',
+        threshold: DEFAULT_LLM_DETECTION_CONFIDENCE,
+        window,
+    }
+}
+
 export function getDefaultAnomalyDetectorConfig(interval?: AlertCalculationInterval): SingleDetectorConfig {
     return getDefaultZScoreDetectorConfig(getDefaultWindow(interval))
 }
