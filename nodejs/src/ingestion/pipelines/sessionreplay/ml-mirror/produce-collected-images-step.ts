@@ -9,7 +9,7 @@ import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-de
 import { MlMirrorMetrics } from './metrics'
 import { CollectedImage } from './parse-and-anonymize-step'
 import { MlPrivacyBatchController } from './privacy/batch-controller'
-import { encryptedKafkaValue, validateImageOwner } from './privacy/transport'
+import { encryptedKafkaValue, mlWireVersion, validateImageOwner } from './privacy/transport'
 import { usesRawSessionIdentifiers } from './session-identifier-format'
 
 /**
@@ -67,6 +67,7 @@ export function createProduceCollectedImagesStep<
             bytes += image.bytes.length
         }
         MlMirrorMetrics.incrementMlImagesCollected('queued', fresh.length)
+        MlMirrorMetrics.incrementMlProducedVersion('image', mlWireVersion(key), fresh.length)
         const captureTimestampMs = input.message.timestamp
         const headers =
             captureTimestampMs !== undefined && Number.isSafeInteger(captureTimestampMs) && captureTimestampMs > 0

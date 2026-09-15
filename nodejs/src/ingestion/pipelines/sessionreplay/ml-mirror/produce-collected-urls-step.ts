@@ -13,7 +13,7 @@ import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-de
 import { MlMirrorMetrics } from './metrics'
 import { CollectedUrl } from './parse-and-anonymize-step'
 import { MlPrivacyBatchController } from './privacy/batch-controller'
-import { encryptedKafkaValue, validateImageOwner } from './privacy/transport'
+import { encryptedKafkaValue, mlWireVersion, validateImageOwner } from './privacy/transport'
 import { usesRawSessionIdentifiers } from './session-identifier-format'
 
 /**
@@ -269,6 +269,7 @@ export function createProduceCollectedUrlsStep<
             }
         }
         MlMirrorMetrics.incrementMlUrlsCollected('queued', publishable.length)
+        MlMirrorMetrics.incrementMlProducedVersion('url', mlWireVersion(key), publishable.length)
 
         const messages = [...byDomain].flatMap(([domain, jobs]) =>
             packByBytes(jobs, MAX_RECORD_BYTES).map((slice) => {
