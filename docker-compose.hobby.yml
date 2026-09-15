@@ -122,6 +122,11 @@ services:
             # AI provider keys for PostHog's AI features. Blank unless set in .env.
             ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
             OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+            # REDBEAT_LOCK_KEY uses the `-` form, not `:-`, so that an explicit empty
+            # value survives and runs beat without the distributed lock.
+            REDBEAT_LOCK_KEY: '${REDBEAT_LOCK_KEY-redbeat::lock}'
+            REDBEAT_LOCK_TIMEOUT: ${REDBEAT_LOCK_TIMEOUT:-45}
+            CELERY_BEAT_MAX_LOOP_INTERVAL: ${CELERY_BEAT_MAX_LOOP_INTERVAL:-30}
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
         depends_on:
             db:
