@@ -1,5 +1,6 @@
 import { Component, type ReactNode } from 'react'
 
+import { captureAppReload } from 'lib/utils/captureAppReload'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 
 const RELOAD_GUARD_KEY = 'posthog-chunk-reload-at'
@@ -46,6 +47,7 @@ export class ChunkLoadErrorBoundary extends Component<ChunkLoadErrorBoundaryProp
             return
         }
         console.warn('[ChunkLoadErrorBoundary] Chunk-load failure (likely stale deploy); reloading.')
+        captureAppReload('chunk_load_error_boundary', error)
         try {
             window.localStorage.setItem(RELOAD_GUARD_KEY, String(Date.now()))
         } catch {
