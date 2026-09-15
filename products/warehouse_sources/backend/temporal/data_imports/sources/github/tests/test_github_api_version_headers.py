@@ -34,11 +34,7 @@ def _run(surface: Callable[[GithubSource, str | None], object], api_version: str
         headers.append(kwargs["headers"])
         return _response()
 
-    session = mock.Mock()
-    session.get.side_effect = record
-    session.post.side_effect = record
-    session.delete.side_effect = record
-    with mock.patch.object(github, "make_tracked_session", return_value=session):
+    with mock.patch.object(github, "make_tracked_session", return_value=mock.Mock()):
         with mock.patch.object(github, "github_request", side_effect=record):
             surface(GithubSource(), api_version)
     assert headers, "surface made no GitHub request"
