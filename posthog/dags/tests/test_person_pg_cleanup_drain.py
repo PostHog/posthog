@@ -538,20 +538,26 @@ def test_a_fatal_rpc_code_fails_immediately_without_retrying_or_writing(
 
 
 @pytest.mark.django_db
-def test_max_runtime_stops_between_pages_and_reports_it(cluster: ClickhouseCluster, persons_database, monkeypatch):
+@pytest.mark.parametrize(
+    "overrides,expected_deleted,stopped_reason",
+    [({}, 1, "max_runtime"), ({"max_runtime_seconds": 0}, 3, "drained")],
+)
+def test_max_runtime_stops_between_pages_unless_disabled(
+    cluster: ClickhouseCluster, persons_database, monkeypatch, overrides, expected_deleted, stopped_reason
+):
     fake = get_active_fake()
     uuids = [seed_tombstoned(fake, TEAM_A, person_id) for person_id in range(1, 4)]
     queue(persons_database, [(TEAM_A, uuid, SWEEP_1) for uuid in uuids])
     # The deadline is read once at start and checked before each page and each request. The clock
-    # stands still through the first request and jumps past the deadline afterwards.
+    # stands still through the first request and jumps past any finite deadline afterwards.
     clock = itertools.chain([0.0] * 3, itertools.repeat(10**9))
     monkeypatch.setattr(drain, "_now_monotonic", lambda: next(clock))
 
-    result = run_job(cluster, page_size=1)
+    result = run_job(cluster, page_size=1, **overrides)
 
     totals = totals_of(result)
-    assert (totals.stopped_reason, totals.persons_deleted) == ("max_runtime", 1)
-    assert len(queued(persons_database)) == 2
+    assert (totals.stopped_reason, totals.persons_deleted) == (stopped_reason, expected_deleted)
+    assert len(queued(persons_database)) == 3 - expected_deleted
 
 
 @pytest.mark.django_db
@@ -703,7 +709,8 @@ def test_pauses_after_every_request_by_pause_ms_plus_latency(cluster: Clickhouse
     "overrides,message",
     [
         ({"rpc_timeout_seconds": 0}, "must be positive"),
-        ({"max_runtime_seconds": 0}, "must be positive"),
+        ({"max_runtime_seconds": -1}, "must not be negative"),
+        ({"blocked_retry_hours": -1}, "must not be negative"),
         ({"rpc_batch_size": drain.RPC_MAX_UUIDS + 1}, "rpc_batch_size must be between"),
         ({"page_size": 0}, "page_size must be between"),
         ({"max_rows_per_request": drain.STEP_FLOOR_ROWS - 1}, "max_rows_per_request must be between"),
