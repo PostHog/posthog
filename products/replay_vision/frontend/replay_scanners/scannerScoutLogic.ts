@@ -134,6 +134,7 @@ export interface scannerScoutLogicValues {
     scoutReports: ScoutReportApi[]
     scoutReportsFailed: boolean
     scoutReportsLoading: boolean
+    settingsFormId: number
     settingsSaving: boolean
     settingsSkillName: string | null
     skillPrompt: ScoutPrompt | null
@@ -572,6 +573,16 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                 closeScoutSettings: () => null,
             },
         ],
+        // Identifies the settings form on screen. The scout name cannot, because the user can
+        // close the form and open the same scout again while a save is still in flight. Both the
+        // open and the close move the count on, so no later form can carry an earlier form's id.
+        settingsFormId: [
+            0,
+            {
+                openScoutSettings: (state) => state + 1,
+                closeScoutSettings: (state) => state + 1,
+            },
+        ],
         settingsSaving: [
             false,
             {
@@ -898,6 +909,7 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                 // modal that started it, and the user can open another scout meanwhile, so a later
                 // read would return that scout's instructions and version instead of this one's.
                 const prompt = values.skillPrompt
+                const formId = values.settingsFormId
                 if (!teamId || !projectId || !config || !form.body.trim()) {
                     actions.saveScoutSettingsFinished()
                     return
@@ -947,9 +959,10 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                             base_version: prompt.latestVersion,
                         })
                         // A second save from the same open modal must not send the version this one
-                        // already replaced. Only while the modal is still on this scout: a save that
-                        // outlives its own modal would leave one scout's body under another's form.
-                        if (values.settingsSkillName === config.skill_name) {
+                        // already replaced. Only while that same form is on screen: a save that
+                        // outlives its own modal would leave this body under whatever form is open
+                        // now, which can be another scout or the same scout opened again.
+                        if (values.settingsFormId === formId) {
                             actions.loadSkillPromptSuccess({
                                 skillName: config.skill_name,
                                 body: published.body,
@@ -959,8 +972,8 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                     }
                     lemonToast.success('Scout updated. Changes take effect on its next run.')
                     // Same reason: closing whatever is open now would discard a draft the user
-                    // started on another scout after abandoning this save.
-                    if (values.settingsSkillName === config.skill_name) {
+                    // started after abandoning this save.
+                    if (values.settingsFormId === formId) {
                         actions.closeScoutSettings()
                     }
                 } catch (error: any) {

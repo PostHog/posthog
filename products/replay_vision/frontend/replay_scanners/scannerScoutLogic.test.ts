@@ -256,64 +256,76 @@ describe('scannerScoutLogic', () => {
         expect(logic.values.scoutDelivery).toBeNull()
     })
 
-    it('publishes against the scout it started on when another is opened mid-save', async () => {
-        // Every request in the save can outlive its own modal, and nothing stops the user opening
-        // another scout meanwhile. Reading the prompt after those requests anchors the publish to
-        // the newly opened scout's version and files this scout's body under that scout's name.
-        await mountWithReports([])
-        const config = makeConfig({ output_destinations: { webhook: null } })
-        const other = makeConfig({
-            id: 'config-2',
-            skill_name: 'signals-scout-trend-watch',
-            output_destinations: { webhook: null },
-        })
-        scoutFleetLogic.findMounted()!.actions.loadScoutConfigsSuccess([config, other])
-        logic.actions.openScoutSettings(SKILL_NAME)
-        await expectLogic(logic).toFinishAllListeners()
-        logic.actions.loadSkillPromptSuccess({ skillName: SKILL_NAME, body: 'Watch this scanner.', latestVersion: 3 })
+    it.each<[string, string, string, number]>([
+        ['another scout', 'signals-scout-trend-watch', 'Watch trends.', 9],
+        ['the same scout', SKILL_NAME, 'Watch this scanner.', 3],
+    ])(
+        'publishes against the scout it started on and leaves %s alone when it is opened mid-save',
+        async (_case, reopenedSkillName, reopenedBody, reopenedVersion) => {
+            // Every request in the save can outlive its own modal, and nothing stops the user
+            // opening a scout meanwhile. Reading the prompt after those requests anchors the publish
+            // to the newly opened form's version and files this scout's body under it. Closing on
+            // the way out throws away the draft that form holds. The scout name does not separate
+            // the two forms, because the user can reopen the scout the save started on.
+            await mountWithReports([])
+            const config = makeConfig({ output_destinations: { webhook: null } })
+            const other = makeConfig({
+                id: 'config-2',
+                skill_name: 'signals-scout-trend-watch',
+                output_destinations: { webhook: null },
+            })
+            scoutFleetLogic.findMounted()!.actions.loadScoutConfigsSuccess([config, other])
+            logic.actions.openScoutSettings(SKILL_NAME)
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.loadSkillPromptSuccess({
+                skillName: SKILL_NAME,
+                body: 'Watch this scanner.',
+                latestVersion: 3,
+            })
 
-        let releaseRename: () => void = () => {}
-        jest.mocked(signalsScoutConfigUpdate).mockReturnValue(
-            new Promise((resolve) => (releaseRename = () => resolve({ ...config, display_name: 'Renamed' })))
-        )
-        jest.mocked(llmSkillsNamePartialUpdate).mockResolvedValue({ body: 'Watch checkout.', version: 4 } as any)
-        mockSkillRetrieve.mockResolvedValue({
-            body: 'Watch trends.',
-            body_total_length: 'Watch trends.'.length,
-            body_next_offset: null,
-            version: 9,
-            latest_version: 9,
-        } as any)
+            let releaseRename: () => void = () => {}
+            jest.mocked(signalsScoutConfigUpdate).mockReturnValue(
+                new Promise((resolve) => (releaseRename = () => resolve({ ...config, display_name: 'Renamed' })))
+            )
+            jest.mocked(llmSkillsNamePartialUpdate).mockResolvedValue({ body: 'Watch checkout.', version: 4 } as any)
+            mockSkillRetrieve.mockResolvedValue({
+                body: reopenedBody,
+                body_total_length: reopenedBody.length,
+                body_next_offset: null,
+                version: reopenedVersion,
+                latest_version: reopenedVersion,
+            } as any)
 
-        logic.actions.saveScoutSettings({
-            name: 'Renamed',
-            body: 'Watch checkout.',
-            cron: config.run_cron_schedule!,
-            outputDestinations: { webhook: null },
-            webhookUrl: '',
-        })
-        // The rename is still in flight when the user gives up on it and opens the other scout.
-        logic.actions.closeScoutSettings()
-        logic.actions.openScoutSettings(other.skill_name)
-        logic.actions.loadSkillPromptSuccess({
-            skillName: other.skill_name,
-            body: 'Watch trends.',
-            latestVersion: 9,
-        })
-        releaseRename()
-        await expectLogic(logic).toFinishAllListeners()
+            logic.actions.saveScoutSettings({
+                name: 'Renamed',
+                body: 'Watch checkout.',
+                cron: config.run_cron_schedule!,
+                outputDestinations: { webhook: null },
+                webhookUrl: '',
+            })
+            // The rename is still in flight when the user gives up on it and opens a scout again.
+            logic.actions.closeScoutSettings()
+            logic.actions.openScoutSettings(reopenedSkillName)
+            logic.actions.loadSkillPromptSuccess({
+                skillName: reopenedSkillName,
+                body: reopenedBody,
+                latestVersion: reopenedVersion,
+            })
+            releaseRename()
+            await expectLogic(logic).toFinishAllListeners()
 
-        expect(llmSkillsNamePartialUpdate).toHaveBeenCalledWith(expect.any(String), SKILL_NAME, {
-            body: 'Watch checkout.',
-            base_version: 3,
-        })
-        expect(logic.values.skillPrompt).toEqual({
-            skillName: other.skill_name,
-            body: 'Watch trends.',
-            latestVersion: 9,
-        })
-        expect(logic.values.settingsSkillName).toBe(other.skill_name)
-    })
+            expect(llmSkillsNamePartialUpdate).toHaveBeenCalledWith(expect.any(String), SKILL_NAME, {
+                body: 'Watch checkout.',
+                base_version: 3,
+            })
+            expect(logic.values.skillPrompt).toEqual({
+                skillName: reopenedSkillName,
+                body: reopenedBody,
+                latestVersion: reopenedVersion,
+            })
+            expect(logic.values.settingsSkillName).toBe(reopenedSkillName)
+        }
+    )
 
     it('publishes the whole body when the instructions arrive over more than one page', async () => {
         await mountWithReports([])
