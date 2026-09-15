@@ -1,5 +1,5 @@
 import { PencilSimpleIcon, PlusIcon, SparkleIcon } from "@phosphor-icons/react";
-import { Button, cn, Text } from "@posthog/quill";
+import { Button, Text } from "@posthog/quill";
 import { CodeMirrorEditor } from "@posthog/ui/features/code-editor/components/CodeMirrorEditor";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
@@ -106,7 +106,7 @@ export function KnowledgeBriefing({
     <section className="group/briefing flex min-w-0 flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
         <Text size="xs" weight="medium" variant="muted">
-          {title && !editing ? title : "About this space"}
+          {title && !editing ? title : "About"}
         </Text>
         <div className="flex items-center gap-1">
           {editing ? (
@@ -178,52 +178,24 @@ export function KnowledgeBriefing({
           ) : null}
         </div>
       ) : hasKnowledge ? (
-        <div className={cn("max-w-[72ch] text-xs leading-relaxed")}>
+        <div className="max-w-[68ch] text-xs leading-relaxed">
           <MarkdownRenderer
             content={body}
             componentsOverride={BRIEFING_COMPONENTS}
           />
-          {missing.length > 0 ? (
-            <div className="mt-4 flex flex-wrap items-center gap-1.5 opacity-0 transition-opacity group-hover/briefing:opacity-100">
-              <Text size="xxs" variant="muted" className="mr-1">
-                Not covered yet
-              </Text>
-              {missing.map((section) => (
-                <Button
-                  key={section.title}
-                  variant="outline"
-                  size="xs"
-                  title={section.hint}
-                  onClick={() => appendSection(section.title)}
-                >
-                  <PlusIcon size={11} />
-                  {section.title}
-                </Button>
-              ))}
-            </div>
-          ) : null}
         </div>
       ) : (
         <button
           type="button"
           onClick={() => setDraft(TEMPLATE)}
-          className="flex flex-col gap-2 rounded-lg border border-border border-dashed px-4 py-5 text-left transition-colors hover:bg-fill-hover"
+          className="flex items-baseline gap-2 border-border border-y py-4 text-left transition-colors hover:bg-fill-hover"
         >
-          <Text size="xs" weight="medium">
-            Nothing written yet
+          <Text size="sm" weight="medium">
+            Nothing written yet.
           </Text>
-          <div className="flex flex-wrap gap-1.5">
-            {SECTIONS.map((section) => (
-              <span
-                key={section.title}
-                className="rounded-md border border-border px-2 py-0.5 text-muted-foreground text-xxs"
-              >
-                {section.title}
-              </span>
-            ))}
-          </div>
-          <Text size="xxs" variant="muted">
-            Click to start from these four sections, or update with an agent.
+          <Text size="xs" variant="muted">
+            Start from {SECTIONS.map((s) => s.title.toLowerCase()).join(", ")},
+            or update with an agent.
           </Text>
         </button>
       )}

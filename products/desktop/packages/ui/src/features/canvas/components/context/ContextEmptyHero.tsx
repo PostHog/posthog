@@ -14,12 +14,12 @@ export function ContextEmptyHero({
   onWrite,
 }: ContextEmptyHeroProps) {
   return (
-    <div className="flex flex-col items-start gap-4 rounded-lg border border-border bg-card px-6 py-8">
+    <div className="flex max-w-[560px] flex-col items-start gap-5 py-6">
       <div className="flex flex-col gap-1">
-        <Text size="base" weight="semibold">
+        <Text size="lg" weight="semibold">
           Tell agents what {channelName} is about
         </Text>
-        <Text size="xs" variant="muted" className="max-w-[520px]">
+        <Text size="sm" variant="muted">
           An agent reads the repository and this project, then drafts the
           briefing, links the dashboards, flags, and experiments it finds, and
           proposes goals. You keep what fits.

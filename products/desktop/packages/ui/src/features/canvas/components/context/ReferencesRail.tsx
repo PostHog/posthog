@@ -94,7 +94,7 @@ export function ReferencesRail({
     onObjectsChange(objects.filter((_, i) => i !== index));
 
   return (
-    <aside className="flex min-w-0 flex-col gap-6">
+    <div className="flex min-w-0 flex-col gap-6">
       <RailGroup
         title="Reading"
         hint="docs, files"
@@ -122,7 +122,7 @@ export function ReferencesRail({
               }
               title={link.title}
               detail={link.note || (external ? hostOf(link.target) : null)}
-              mono={!external}
+              mono={!external && !link.note}
               onOpen={external ? () => openExternalUrl(link.target) : null}
               onRemove={() =>
                 onLinksChange(links.filter((_, i) => i !== index))
@@ -171,19 +171,20 @@ export function ReferencesRail({
           onCancel={() => setLinking(false)}
         />
       ) : (
-        <button
-          type="button"
-          onClick={() => setLinking(true)}
+        <Button
+          variant="link-muted"
+          size="xs"
+          className="self-start"
           disabled={isSaving}
-          className="flex items-center gap-1.5 rounded-md border border-border border-dashed px-3 py-2 text-left text-muted-foreground text-xxs transition-colors hover:bg-fill-hover hover:text-foreground"
+          onClick={() => setLinking(true)}
         >
-          <PlusIcon size={12} className="shrink-0" />
+          <PlusIcon size={12} />
           {objects.length === 0
-            ? "Link the dashboards, flags, experiments, and error issues that belong here"
+            ? "Link what this space owns"
             : "Link a dashboard, flag, experiment, or error issue"}
-        </button>
+        </Button>
       )}
-    </aside>
+    </div>
   );
 }
 
@@ -197,11 +198,8 @@ function GroupHeading({
   count: number;
 }) {
   return (
-    <Text size="xs" weight="medium" variant="muted">
+    <Text size="xs" weight="medium" variant="muted" title={hint}>
       {title}
-      <span className="ml-1.5 font-normal text-muted-foreground/70">
-        {hint}
-      </span>
       {count > 0 ? (
         <span className="ml-1.5 font-normal tabular-nums">{count}</span>
       ) : null}
@@ -229,32 +227,28 @@ function RailGroup({
   const [adding, setAdding] = useState(false);
   return (
     <section className="flex flex-col gap-1.5">
-      <div className="flex items-center justify-between gap-2">
-        <GroupHeading title={title} hint={hint} count={count} />
-        {!adding ? (
-          <Button
-            variant="default"
-            size="icon-xs"
-            aria-label={`Add to ${title.toLowerCase()}`}
-            disabled={isSaving}
-            onClick={() => setAdding(true)}
-          >
-            <PlusIcon size={13} />
-          </Button>
-        ) : null}
-      </div>
+      <GroupHeading title={title} hint={hint} count={count} />
       {count > 0 ? (
         <ul className="-mx-2 flex flex-col">{children}</ul>
       ) : !adding ? (
-        <button
-          type="button"
-          onClick={() => setAdding(true)}
-          className="rounded-md border border-border border-dashed px-3 py-2.5 text-left text-muted-foreground text-xxs transition-colors hover:bg-fill-hover hover:text-foreground"
-        >
+        <Text size="xxs" variant="muted">
           {emptyHint}
-        </button>
+        </Text>
       ) : null}
-      {adding ? renderForm(() => setAdding(false)) : null}
+      {adding ? (
+        renderForm(() => setAdding(false))
+      ) : (
+        <Button
+          variant="link-muted"
+          size="xs"
+          className="self-start"
+          disabled={isSaving}
+          onClick={() => setAdding(true)}
+        >
+          <PlusIcon size={12} />
+          Add a doc or file
+        </Button>
+      )}
     </section>
   );
 }

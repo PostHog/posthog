@@ -31,11 +31,11 @@ import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { navigateToChannelTask } from "@posthog/ui/router/navigationBridge";
 import { useMemo, useState } from "react";
 import { ContextEmptyHero } from "./ContextEmptyHero";
-import { GoalsScoreboard } from "./GoalsScoreboard";
+import { GoalsList } from "./GoalsList";
 import { KnowledgeBriefing } from "./KnowledgeBriefing";
 import { RawContextEditor } from "./RawContextEditor";
 import { ReferencesRail } from "./ReferencesRail";
-import { SpaceSignals } from "./SpaceSignals";
+import { SignalsMargin } from "./SignalsMargin";
 
 type View = "overview" | "source";
 
@@ -48,9 +48,10 @@ interface SpaceContextPageProps {
 }
 
 /**
- * The Context tab of a space. One CONTEXT.md underneath, read as a briefing:
- * the goals on top, the knowledge as the body, references beside it, and
- * what agents found below.
+ * The Context tab of a space: a document with a live margin. The document is
+ * what people author, goals first and the briefing under them. The margin is
+ * what is observed: the objects the space owns with their live state, and the
+ * signals about them. One CONTEXT.md underneath.
  */
 export function SpaceContextPage({
   channelId,
@@ -182,43 +183,47 @@ export function SpaceContextPage({
         </div>
       ) : (
         <div className="@container min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto flex w-full max-w-[960px] flex-col gap-8 px-6 pt-6 pb-16">
+          <div className="mx-auto flex w-full max-w-[1040px] flex-col gap-6 px-8 pt-8 pb-20">
             {store.saveError ? (
-              <SaveErrorBanner
+              <Notice
+                tone="warning"
                 message={
                   store.isConflict
                     ? "Someone else saved a newer version while you were editing. Reload to see it, then make your change again."
                     : `Could not save: ${store.saveError.message}`
                 }
-                onReload={store.refetch}
+                action={
+                  <Button variant="outline" size="sm" onClick={store.refetch}>
+                    Reload
+                  </Button>
+                }
               />
             ) : null}
 
             {measureTask ? (
-              <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-2.5">
-                <Text size="xs">
-                  An agent is writing the measure for "{measureTask.goal}". The
-                  number appears here when it publishes.
-                </Text>
-                <div className="flex shrink-0 items-center gap-1">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      navigateToChannelTask(channelId, measureTask.task.id)
-                    }
-                  >
-                    Open task
-                  </Button>
-                  <Button
-                    variant="default"
-                    size="sm"
-                    onClick={() => setMeasureTask(null)}
-                  >
-                    Dismiss
-                  </Button>
-                </div>
-              </div>
+              <Notice
+                message={`An agent is writing the measure for "${measureTask.goal}". The number appears here when it publishes.`}
+                action={
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        navigateToChannelTask(channelId, measureTask.task.id)
+                      }
+                    >
+                      Open task
+                    </Button>
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={() => setMeasureTask(null)}
+                    >
+                      Dismiss
+                    </Button>
+                  </>
+                }
+              />
             ) : null}
 
             {view === "source" ? (
@@ -228,24 +233,20 @@ export function SpaceContextPage({
                 isSaving={store.isSaving}
               />
             ) : isBlank && !writing ? (
-              <>
-                <ContextEmptyHero
-                  channelName={channelName}
-                  onAskAgent={() => setAgentOpen(true)}
-                  onWrite={() => setWriting(true)}
-                />
-                <SpaceSignals channelId={channelId} />
-              </>
+              <ContextEmptyHero
+                channelName={channelName}
+                onAskAgent={() => setAgentOpen(true)}
+                onWrite={() => setWriting(true)}
+              />
             ) : (
-              <>
-                <GoalsScoreboard
-                  goals={doc.goals}
-                  onChange={(goals) => saveDoc({ ...doc, goals })}
-                  onAskAgentForMeasure={askAgentForMeasure}
-                  isSaving={store.isSaving}
-                />
-                <SpaceSignals channelId={channelId} />
-                <div className="grid @3xl:grid-cols-[minmax(0,1fr)_260px] gap-8">
+              <div className="grid @3xl:grid-cols-[minmax(0,1fr)_288px] gap-x-16 gap-y-10">
+                <div className="flex min-w-0 flex-col gap-10">
+                  <GoalsList
+                    goals={doc.goals}
+                    onChange={(goals) => saveDoc({ ...doc, goals })}
+                    onAskAgentForMeasure={askAgentForMeasure}
+                    isSaving={store.isSaving}
+                  />
                   <KnowledgeBriefing
                     knowledge={doc.knowledge}
                     onSave={(knowledge) => saveDoc({ ...doc, knowledge })}
@@ -253,6 +254,8 @@ export function SpaceContextPage({
                     isSaving={store.isSaving}
                     startEditing={writing && isBlank}
                   />
+                </div>
+                <aside className="@3xl:sticky @3xl:top-0 flex min-w-0 flex-col gap-8 @3xl:self-start">
                   <ReferencesRail
                     links={doc.links}
                     objects={doc.objects}
@@ -260,8 +263,9 @@ export function SpaceContextPage({
                     onObjectsChange={(objects) => saveDoc({ ...doc, objects })}
                     isSaving={store.isSaving}
                   />
-                </div>
-              </>
+                  <SignalsMargin objects={doc.objects} />
+                </aside>
+              </div>
             )}
           </div>
         </div>
@@ -280,21 +284,24 @@ function countLabel(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
-function SaveErrorBanner({
+function Notice({
   message,
-  onReload,
+  action,
+  tone = "default",
 }: {
   message: string;
-  onReload: () => void;
+  action: React.ReactNode;
+  tone?: "default" | "warning";
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border border-warning bg-card px-4 py-2.5">
-      <Text size="xs" className="text-warning-foreground">
+    <div className="flex items-center justify-between gap-3 border-border border-y py-2.5">
+      <Text
+        size="xs"
+        className={tone === "warning" ? "text-warning-foreground" : undefined}
+      >
         {message}
       </Text>
-      <Button variant="outline" size="sm" onClick={onReload}>
-        Reload
-      </Button>
+      <div className="flex shrink-0 items-center gap-1">{action}</div>
     </div>
   );
 }
