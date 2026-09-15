@@ -3,6 +3,7 @@ from zoneinfo import ZoneInfo
 from posthog.test.base import APIBaseTest
 
 from dateutil import parser
+from parameterized import parameterized
 
 from posthog.schema import DateRange, IntervalType
 
@@ -47,7 +48,14 @@ class TestQueryCompareToDateRange(APIBaseTest):
         self.assertEqual(query_date_range.date_to(), parser.isoparse("2021-03-02T23:59:59.999999Z"))
 
     # Same as above but with human friendly comparison periods, should use week instead of month/year
-    def test_minus_one_month_human_friendly(self):
+    @parameterized.expand(
+        [
+            (1, "2021-07-26T00:00:00Z", "2021-07-28T23:59:59.999999Z"),
+            (3, "2021-05-31T00:00:00Z", "2021-06-02T23:59:59.999999Z"),
+            (6, "2021-03-08T00:00:00Z", "2021-03-10T23:59:59.999999Z"),
+        ]
+    )
+    def test_minus_months_human_friendly(self, months: int, expected_from: str, expected_to: str) -> None:
         self.team.human_friendly_comparison_periods = True
 
         now = parser.isoparse("2021-08-25T00:00:00.000Z")
@@ -57,10 +65,10 @@ class TestQueryCompareToDateRange(APIBaseTest):
             date_range=date_range,
             interval=IntervalType.DAY,
             now=now,
-            compare_to="-1m",
+            compare_to=f"-{months}m",
         )
-        self.assertEqual(query_date_range.date_from(), parser.isoparse("2021-07-26T00:00:00Z"))
-        self.assertEqual(query_date_range.date_to(), parser.isoparse("2021-07-28T23:59:59.999999Z"))
+        self.assertEqual(query_date_range.date_from(), parser.isoparse(expected_from))
+        self.assertEqual(query_date_range.date_to(), parser.isoparse(expected_to))
 
         # Human friendly comparison periods guarantee that the end of the week is same day
         self.assertEqual(query_date_range.date_to().isoweekday(), now.isoweekday())
@@ -111,7 +119,13 @@ class TestQueryCompareToDateRange(APIBaseTest):
         self.assertEqual(with_override.date_from_str, utc_baseline.date_from_str)
         self.assertEqual(with_override.date_to_str, utc_baseline.date_to_str)
 
-    def test_minus_one_year_human_friendly(self):
+    @parameterized.expand(
+        [
+            (1, "2020-08-24T00:00:00Z", "2020-08-26T23:59:59.999999Z"),
+            (2, "2019-08-26T00:00:00Z", "2019-08-28T23:59:59.999999Z"),
+        ]
+    )
+    def test_minus_years_human_friendly(self, years: int, expected_from: str, expected_to: str) -> None:
         self.team.human_friendly_comparison_periods = True
 
         now = parser.isoparse("2021-08-25T00:00:00.000Z")
@@ -121,10 +135,10 @@ class TestQueryCompareToDateRange(APIBaseTest):
             date_range=date_range,
             interval=IntervalType.DAY,
             now=now,
-            compare_to="-1y",
+            compare_to=f"-{years}y",
         )
-        self.assertEqual(query_date_range.date_from(), parser.isoparse("2020-08-24T00:00:00Z"))
-        self.assertEqual(query_date_range.date_to(), parser.isoparse("2020-08-26T23:59:59.999999Z"))
+        self.assertEqual(query_date_range.date_from(), parser.isoparse(expected_from))
+        self.assertEqual(query_date_range.date_to(), parser.isoparse(expected_to))
 
         # Human friendly comparison periods guarantee that the end of the week is same day
         self.assertEqual(query_date_range.date_to().isoweekday(), now.isoweekday())
