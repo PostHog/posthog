@@ -15,9 +15,9 @@ person that still owns a live distinct id, or a person whose requests kept faili
 
 One run pod, sequential requests, every statement and RPC bounded, and a pause after each RPC so
 the persons writer never sees a burst. A request that fails is split in half and retried, so one
-slow or broken person costs its own row, not the run. Run time is the variable that gives: a
-person of any size is deleted in steps that each fit the deadline, and the run keeps going until
-the queue is drained or max_runtime_seconds passes.
+slow or broken person costs its own row, not the run. Run time is the variable that gives: every
+step fits the deadline whatever the person's size, and the run continues until the queue is
+drained or max_runtime_seconds passes.
 """
 
 import time
@@ -56,9 +56,8 @@ PG_APPLICATION_NAME = "person_pg_cleanup_drain"
 # Server-side cap on DeleteTombstonedPersonsRequest.person_uuids.
 RPC_MAX_UUIDS = 1000
 
-# personhog-router gives every backend call this long (BACKEND_TIMEOUT_MS) and takes the shorter
-# of it and the client deadline. The replica deletes a request in chunks of REPLICA_CHUNK_SIZE
-# uuids (the production BULK_CHUNK_SIZE), one transaction each.
+# personhog-router caps every backend call at BACKEND_TIMEOUT_MS whatever the client deadline. The
+# replica works a request in chunks of REPLICA_CHUNK_SIZE uuids, the production BULK_CHUNK_SIZE.
 ROUTER_BACKEND_TIMEOUT_SECONDS = 5.0
 REPLICA_CHUNK_SIZE = 100
 
@@ -586,9 +585,8 @@ class _Drain:
         oversized = sorted(response.oversized_person_uuids)
         unresolved = set(blocked) | set(oversized)
         resolved = [uuid for uuid in chunk.person_uuids if uuid not in unresolved]
-        # Skipped-live rows go too. Postgres sees that person alive, so the queue row is stale;
-        # if the person is tombstoned again the sweep queues it again. Left in place, live rows
-        # would accumulate and eat every run's budget.
+        # Skipped-live rows go too: the queue row is stale, and the sweep queues the person again
+        # if it is ever tombstoned again.
         self.totals.persons_deleted += response.deleted_count
         self.totals.persons_skipped_live += response.skipped_live_count
         self.totals.persons_not_found += len(resolved) - response.deleted_count - response.skipped_live_count
@@ -603,8 +601,8 @@ class _Drain:
             if trim_oversized:
                 self.trim_then_delete(chunk, uuid)
             else:
-                # A person that is still over the cap right after trimming under it has grown
-                # again, which no tombstoned person does. Park it where operators can see it.
+                # Over the cap again right after trimming under it: no tombstoned person grows, so
+                # park it where operators can see it.
                 self.stamp_blocked(chunk, "oversized", [uuid])
 
     def trim_then_delete(self, chunk: Chunk, uuid: str) -> None:
@@ -623,8 +621,6 @@ class _Drain:
                 attempts += 1
                 if attempts >= self.config.max_attempts_per_person:
                     self.give_up(single, failed.code)
-                return_reason = "gave_up" if attempts >= self.config.max_attempts_per_person else None
-                if return_reason:
                     return
                 continue
             attempts = 0
@@ -796,9 +792,8 @@ def drain_person_pg_cleanup_queue(
 @dagster.job(
     tags={
         "owner": JobOwners.TEAM_INGESTION.value,
-        # The sweep's run-queue tag, limited to one run at a time in charts
-        # (argocd/dagster/deployment_settings). Sharing it keeps a drain from running alongside a
-        # sweep or another drain: both write the queue and both load the persons writer.
+        # The sweep's run-queue tag (limit 1 in charts argocd/dagster/deployment_settings), so a
+        # drain never runs alongside a sweep or another drain.
         "clickhouse_deletion_sweep_concurrency": "v1",
     },
     executor_def=dagster.in_process_executor,
