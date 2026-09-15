@@ -96,8 +96,9 @@ class DataWarehouseSavedQuerySerializer(
     )
     latest_history_id = serializers.SerializerMethodField(
         read_only=True,
-        help_text="Activity log ID of the most recent edit to this view. Send it back as edited_history_id "
-        "on the next write, so conflict detection can tell whether someone else edited in the meantime.",
+        help_text="Activity log ID of the most recent query edit to this view. Send it back as "
+        "edited_history_id on the next query write, so conflict detection can tell whether someone else "
+        "changed the query in the meantime. Edits that leave the query alone do not advance it.",
     )
     last_run_at = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
