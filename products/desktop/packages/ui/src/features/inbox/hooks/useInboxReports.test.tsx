@@ -1,3 +1,4 @@
+import { applyRenameToSummaries } from "@posthog/core/tasks/taskRename";
 import type {
   SignalReportArtefactsResponse,
   SuggestedReviewer,
@@ -34,7 +35,10 @@ vi.mock("@posthog/ui/primitives/toast", () => ({
 import { taskKeys } from "../../tasks/taskKeys";
 import { inboxStoryReport } from "../components/inboxStoryFixtures";
 import { reportKeys, useUpdateSuggestedReviewers } from "./useInboxReports";
-import { useReportImplementationStates } from "./useReportImplementationStates";
+import {
+  reportImplementationStatesQueryRoot,
+  useReportImplementationStates,
+} from "./useReportImplementationStates";
 
 const REPORT_ID = "report-1";
 const ARTEFACT_ID = "art-1";
@@ -216,7 +220,7 @@ describe("Inbox report queries", () => {
     ]);
     await act(async () => {
       await client.invalidateQueries({
-        queryKey: taskKeys.allSummaries(),
+        queryKey: reportImplementationStatesQueryRoot,
       });
     });
     await waitFor(() =>
@@ -226,7 +230,9 @@ describe("Inbox report queries", () => {
       new Error("Status unavailable"),
     );
     await act(async () => {
-      await client.invalidateQueries({ queryKey: taskKeys.allSummaries() });
+      await client.invalidateQueries({
+        queryKey: reportImplementationStatesQueryRoot,
+      });
     });
     await waitFor(() =>
       expect(reloaded.result.current.states.get(report.id)).toBe("unknown"),
@@ -262,7 +268,7 @@ describe("Inbox report queries", () => {
 
     const cached = client
       .getQueryCache()
-      .findAll({ queryKey: taskKeys.allSummaries() });
+      .findAll({ queryKey: reportImplementationStatesQueryRoot });
     expect(cached).toHaveLength(1);
     expect(cached[0].meta).toEqual({ authScoped: true });
 
@@ -270,7 +276,44 @@ describe("Inbox report queries", () => {
       predicate: (query) => query.meta?.authScoped === true,
     });
     expect(
-      client.getQueryCache().findAll({ queryKey: taskKeys.allSummaries() }),
+      client
+        .getQueryCache()
+        .findAll({ queryKey: reportImplementationStatesQueryRoot }),
     ).toHaveLength(0);
+  });
+  it("keeps the state map out of reach of task-summary writers", async () => {
+    const report = inboxStoryReport({
+      assignee: { kind: "task", task_id: "implementation-3" },
+      work_state: "working",
+    });
+    mockClient.getTaskSummaries.mockResolvedValue([
+      {
+        id: "implementation-3",
+        latest_run: { status: "in_progress" },
+      },
+    ]);
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const { result, unmount } = renderHook(
+      () => useReportImplementationStates([report]),
+      { wrapper },
+    );
+    await waitFor(() =>
+      expect(result.current.states.get(report.id)).toBe("working"),
+    );
+
+    // The rename flow renames a task inside every cached TaskSummaryDTO[].
+    expect(() =>
+      client.setQueriesData<{ id: string; title: string }[]>(
+        { queryKey: taskKeys.allSummaries() },
+        (old) => applyRenameToSummaries(old, "implementation-3", "Renamed"),
+      ),
+    ).not.toThrow();
+    expect(result.current.states.get(report.id)).toBe("working");
+    unmount();
   });
 });

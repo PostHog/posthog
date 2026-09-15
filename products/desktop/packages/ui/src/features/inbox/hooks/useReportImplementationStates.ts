@@ -11,8 +11,17 @@ import type { SignalReport } from "@posthog/shared/types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
 import { DESKTOP_INBOX_REFETCH_INTERVAL_MS } from "@posthog/ui/features/inbox/hooks/inboxPolling";
-import { taskKeys } from "@posthog/ui/features/tasks/taskKeys";
 import { useQuery } from "@tanstack/react-query";
+
+/**
+ * This cache holds a report-to-state map, not a `TaskSummaryDTO[]`, so it owns
+ * a root of its own. Under the task-summaries prefix the rename and auto-title
+ * writers would map over it as an array and throw. Task changes that must
+ * refresh these states invalidate this root beside that prefix.
+ */
+export const reportImplementationStatesQueryRoot = [
+  "report-implementation-states",
+] as const;
 
 export function useReportImplementationStates(reports: SignalReport[]): {
   states: Map<string, ReportImplementationState | null>;
@@ -25,8 +34,7 @@ export function useReportImplementationStates(reports: SignalReport[]): {
   const assignedReports = reports.filter(reportImplementationTaskId);
   const query = useQuery({
     queryKey: [
-      ...taskKeys.allSummaries(),
-      "inbox",
+      ...reportImplementationStatesQueryRoot,
       assignedReports
         .map((report) => [
           report.id,
