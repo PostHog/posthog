@@ -1,16 +1,21 @@
 # Alerts noop workers
 
-The Alerts product registers two queues through `products/alerts/backend/facade/temporal.py` and the shared `start_temporal_worker` command:
+The Alerts product registers three queues through `products/alerts/backend/facade/temporal.py` and the shared `start_temporal_worker` command:
 
-| Setting in `posthog/settings/temporal.py` | Queue                                  | Workflow                   |
-| ----------------------------------------- | -------------------------------------- | -------------------------- |
-| `ALERTS_PRODUCT_EVALUATION_TASK_QUEUE`    | `alerts-product-evaluation-task-queue` | `alerts-product-check-due` |
-| `ALERTS_PRODUCT_DELIVERY_TASK_QUEUE`      | `alerts-product-delivery-task-queue`   | `alerts-product-deliver`   |
+| Setting in `posthog/settings/temporal.py`        | Queue                                            | Workflow                   |
+| ------------------------------------------------ | ------------------------------------------------ | -------------------------- |
+| `ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE` | `alerts-product-shared-orchestration-task-queue` | `alerts-product-check-due` |
+| `ALERTS_PRODUCT_EVALUATION_TASK_QUEUE`           | `alerts-product-evaluation-task-queue`           | `alerts-product-check-due` |
+| `ALERTS_PRODUCT_DELIVERY_TASK_QUEUE`             | `alerts-product-delivery-task-queue`             | `alerts-product-deliver`   |
 
 These queue names are hardcoded and stay separate even with `DEBUG=True`.
+Shared orchestration registers only the tick workflow, with no activities.
+The evaluation worker retains the tick registration for queued or running work and routing rollback.
+Probe activities always use the evaluation queue; the delivery workflow and its activity stay on the delivery queue.
 Start one worker for each queue:
 
 ```bash
+python manage.py start_temporal_worker --task-queue alerts-product-shared-orchestration-task-queue --metrics-port 8104
 python manage.py start_temporal_worker --task-queue alerts-product-evaluation-task-queue --metrics-port 8102
 python manage.py start_temporal_worker --task-queue alerts-product-delivery-task-queue --metrics-port 8103
 ```
@@ -27,7 +32,10 @@ only when `CLOUD_DEPLOYMENT=DEV`. The normal deployment migration step runs this
 Registration does nothing in production, local development, or other environments, even with `DEBUG=True`.
 It does not delete schedules created manually in those environments.
 
-The schedule starts `alerts-product-check-due` with `{}` on the evaluation queue every minute (UTC).
+The schedule starts `alerts-product-check-due` with `{}` every minute (UTC).
+It uses the evaluation queue by default.
+`ALERTS_PRODUCT_SHARED_ORCHESTRATION_ENABLED=true` switches the dev schedule action to the shared orchestration queue during reconciliation.
+The flag defaults to false and does not enable production schedules or change activity routing.
 It uses SKIP overlap, a one-minute catchup window, a 50-second workflow execution timeout,
 and one workflow attempt. Creation does not trigger an immediate run; the next minute starts it.
 Delivery has no schedule: evaluation starts its delivery child.
@@ -38,6 +46,29 @@ Disabling registration alone does not remove an existing Temporal schedule.
 Verify the Postgres activity result and the delivery child's completion separately.
 Parent completion does not prove either succeeded. Schedule creation also does not prove worker availability.
 Enable production only in a separate rollout after dev verification.
+
+### Shared orchestration rollout and rollback
+
+The deployment identity is `temporal-worker-alerts-product-shared-orchestration`.
+It uses the shared `posthog-cloud` image built by `container-images-cd.yml`, not a separate image build or repository.
+Deployment configuration is a separate change. Verify that the deployed image contains the new worker registration before enabling routing.
+
+1. Keep `ALERTS_PRODUCT_SHARED_ORCHESTRATION_ENABLED` unset or false while releasing the code and promoting the dev orchestration worker.
+   Verify the worker is healthy and polling `alerts-product-shared-orchestration-task-queue`, and that evaluation and delivery workers remain available.
+2. Only after worker readiness is verified, set the flag to true on the dev process that runs `python manage.py schedule_temporal_workflows`.
+   The normal owner is `bin/migrate` in its `temporal-schedules` scope, not the worker deployment.
+   Keep that setting consistent for subsequent reconciliations; setting it only on a worker has no effect.
+3. Reconcile the schedule in a separately approved operation and verify its task queue and existing pause state.
+   A paused schedule stays paused; resuming it requires a separate operator action.
+   For an unpaused schedule, verify the tick runs on orchestration, the probe runs on evaluation, and the child and its activity run on delivery.
+
+To roll back future starts, set the flag to false on the same schedule-management process and reconcile again.
+Verify the action uses the evaluation queue and retains its pause state.
+Keep both workflow registrations and all three workers available until outstanding work on the orchestration queue drains.
+Changing the schedule queue does not move queued or running workflows, and pausing does not stop them.
+Do not roll back the code or remove the orchestration worker before that drain completes.
+
+### Manual local runs
 
 For local development, start an evaluation run by hand.
 The `execute_temporal_workflow` and `start_temporal_workflow` commands do not know these workflows and reject the name, so use the Temporal CLI in the dev stack:
@@ -134,7 +165,7 @@ Missing finish events are not evidence of success.
 
 ## Tracing and deployment verification
 
-Both deployments must set `TEMPORAL_OTEL_PLUGIN_ENABLED=true`, a nonempty `OTEL_SERVICE_NAME`, and the appropriate OTLP gRPC exporter configuration.
+All three deployments must set `TEMPORAL_OTEL_PLUGIN_ENABLED=true`, a nonempty `OTEL_SERVICE_NAME`, and the appropriate OTLP gRPC exporter configuration.
 For example, configure `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` for the collector and any required credentials or TLS settings.
 The shared startup command initializes Temporal's replay-safe provider, and the client registers `OpenTelemetryPlugin(add_temporal_spans=True)`.
 Do not add the legacy tracing interceptor or another provider.
@@ -144,6 +175,6 @@ Evaluation, child delivery, and their activity spans retain their trace relation
 Retries have separate activity attempt spans.
 
 Tests verify local logging, queue-labelled SDK metrics, and trace relationships without an application database or an external collector.
-Charts rollout must separately configure both deployments and verify Prometheus scraping and delivery to the tracing collector.
+Charts rollout must separately configure all three deployments and verify Prometheus scraping and delivery to the tracing collector.
 This change does not configure deployments, dashboards, alert rules, or SLO emission.
 The `alerts-product` SLO area remains reserved without changes to shared SLO handling or workflow inputs.
