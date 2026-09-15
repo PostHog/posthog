@@ -33,6 +33,7 @@ from products.engineering_analytics.backend.logic.merge_queue import GATE_RUN_LO
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     DECISIVE_FAILURE_CONCLUSIONS_SQL,
+    UNPAGED_SCAN_LIMIT,
     run_started_floor_constant,
 )
 from products.engineering_analytics.backend.logic.queries.dora import DeployedPR, query_deployed_prs
@@ -42,8 +43,6 @@ from products.engineering_analytics.backend.logic.views.reviews import APPROVED_
 # How far before the window a merged PR's CI is still counted. A PR merged in the window usually
 # ran its CI days before; older runs are left out so the runs and jobs scans stay bounded.
 CI_LOOKBACK = timedelta(days=30)
-
-_ROW_LIMIT = 100000
 
 _MERGED_SELECT = f"""
     SELECT
@@ -56,7 +55,7 @@ _MERGED_SELECT = f"""
     __READY_JOIN__
     WHERE pr.merged_at IS NOT NULL AND pr.merged_at >= {{date_from}} __DATE_TO__
         AND NOT pr.is_bot AND NOT pr.is_draft
-    LIMIT {_ROW_LIMIT}
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
 # Open and draft counts are current state, so they ignore the window.
@@ -74,7 +73,7 @@ _APPROVALS_SELECT = f"""
     FROM __REVIEWS_SOURCE__ AS rv
     WHERE state = '{APPROVED_STATE}' AND pr_number IN {{pr_numbers}}
     GROUP BY pr_number
-    LIMIT {_ROW_LIMIT}
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
 # A push is a distinct head commit that triggered CI; gate runs are the queue's rebases, not pushes.
@@ -88,7 +87,7 @@ _PUSHES_SELECT = f"""
         GROUP BY pr_number, head_sha
     )
     GROUP BY pr_number
-    LIMIT {_ROW_LIMIT}
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
 _GATE_ATTEMPTS_SELECT = f"""
@@ -100,7 +99,7 @@ _GATE_ATTEMPTS_SELECT = f"""
     FROM __RUNS_SOURCE__ AS r
     WHERE r.is_merge_queue AND r.pr_number IN {{pr_numbers}} AND r.run_started_at >= {{gate_from}}
     GROUP BY pr_number, attempt
-    LIMIT 1000000
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
 

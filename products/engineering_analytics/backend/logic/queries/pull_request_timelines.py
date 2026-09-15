@@ -39,6 +39,7 @@ from products.engineering_analytics.backend.logic.queries._curated import Curate
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     DECISIVE_FAILURE_CONCLUSIONS,
     DECISIVE_FAILURE_CONCLUSIONS_SQL,
+    UNPAGED_SCAN_LIMIT,
     run_started_floor_constant,
     run_windowed_job_created_floor_constant,
 )
@@ -66,43 +67,43 @@ _PRS_SELECT = f"""
     LIMIT {_LIMIT + 1}
 """
 
-_TRANSITIONS_SELECT = """
+_TRANSITIONS_SELECT = f"""
     SELECT pr_number, event, created_at
     FROM __EVENTS_SOURCE__ AS se
-    WHERE pr_number IN {pr_numbers}
+    WHERE pr_number IN {{pr_numbers}}
     ORDER BY created_at ASC, id ASC
-    LIMIT 100000
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
-_REVIEWS_SELECT = """
+_REVIEWS_SELECT = f"""
     SELECT pr_number, reviewer_login, state, submitted_at
     FROM __REVIEWS_SOURCE__ AS rv
-    WHERE pr_number IN {pr_numbers}
-    LIMIT 100000
+    WHERE pr_number IN {{pr_numbers}}
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
-# A skipped run never executes, so it adds no red or running time. HogQL caps a result at 50k rows,
-# and skipped and merge-queue runs are a third of a busy team's runs, so both stay out of this list.
-_RUNS_SELECT = """
+# A skipped run never executes, so it adds no red or running time. Skipped and merge-queue runs are a
+# third of a busy team's runs, so both stay out of this list to keep it under UNPAGED_SCAN_LIMIT.
+_RUNS_SELECT = f"""
     SELECT
         id, pr_number, workflow_name, head_sha, status, conclusion, run_started_at, updated_at, run_attempt, created_at
     FROM __RUNS_SOURCE__ AS r
-    WHERE pr_number IN {pr_numbers} AND run_started_at >= {run_from}
+    WHERE pr_number IN {{pr_numbers}} AND run_started_at >= {{run_from}}
         AND NOT is_merge_queue AND ifNull(conclusion, '') != 'skipped'
-    LIMIT 1000000
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
 # One row per merge-queue attempt: the queue runs several workflows for each attempt.
-_GATE_ATTEMPTS_SELECT = """
+_GATE_ATTEMPTS_SELECT = f"""
     SELECT
         pr_number,
         min(run_started_at) AS started_at,
         max(updated_at) AS completed_at,
         countIf(status != 'completed' OR updated_at IS NULL) AS unfinished
     FROM __RUNS_SOURCE__ AS r
-    WHERE pr_number IN {pr_numbers} AND run_started_at >= {run_from} AND is_merge_queue
+    WHERE pr_number IN {{pr_numbers}} AND run_started_at >= {{run_from}} AND is_merge_queue
     GROUP BY pr_number, __GATE_ATTEMPT__
-    LIMIT 1000000
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
 # One row per run attempt. Re-run copies are GitHub's re-listing of jobs that never ran again, so
@@ -119,7 +120,7 @@ _JOB_ATTEMPTS_SELECT = f"""
     FROM __JOBS_SOURCE__ AS j
     WHERE run_id IN {{run_ids}} AND NOT is_rerun_copy
     GROUP BY run_id, run_attempt
-    LIMIT 1000000
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
 _MASTER_FAILURES_SELECT = f"""
@@ -132,7 +133,7 @@ _MASTER_FAILURES_SELECT = f"""
         AND j.conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})
         AND j.completed_at IS NOT NULL
         AND j.workflow_name IN {{workflow_names}}
-    LIMIT 200000
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
 _TRUNK_STATE_SELECT = """
