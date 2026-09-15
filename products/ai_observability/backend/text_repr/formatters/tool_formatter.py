@@ -88,7 +88,11 @@ def _format_signature(name: str, schema: Any) -> str:
     if not isinstance(schema, dict) or not isinstance(schema.get("properties"), dict):
         return f"{name}()"
 
+    # SDKs record a `required` that holds no members, which crashes the `in` test below.
     required = schema.get("required", [])
+    if not isinstance(required, list | tuple | set):
+        required = []
+
     params: list[str] = []
     for param_name, param_info in schema["properties"].items():
         if not isinstance(param_info, dict):

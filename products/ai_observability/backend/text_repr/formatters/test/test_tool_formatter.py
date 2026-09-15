@@ -349,3 +349,23 @@ class TestEdgeCases:
         result = "\n".join(format_tools(tools))
 
         assert expected_signature in result
+
+    @parameterized.expand(
+        [
+            ("null", None),
+            ("a number", 3),
+            ("a boolean", True),
+        ]
+    )
+    def test_unusable_required_list_marks_every_parameter_optional(self, _name, required):
+        tools = [
+            {
+                "name": "search",
+                "description": "Search things.",
+                "input_schema": {"properties": {"query": {"type": "string"}}, "required": required},
+            }
+        ]
+
+        result = "\n".join(format_tools(tools))
+
+        assert "search(query?: string)" in result
