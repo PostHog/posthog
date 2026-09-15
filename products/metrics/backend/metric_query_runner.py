@@ -144,6 +144,30 @@ def _histogram_quantile(quantile: float, bounds: list[float], counts: list[float
     return bounds[-1]
 
 
+# Show enough of a layout to tell two apart without printing every bound.
+_MAX_SHOWN_BOUNDS = 6
+
+
+def _render_bounds(bounds: Sequence[float]) -> str:
+    shown = ", ".join(f"{bound:g}" for bound in bounds[:_MAX_SHOWN_BOUNDS])
+    if len(bounds) > _MAX_SHOWN_BOUNDS:
+        shown += ", ..."
+    return f"[{shown}] ({len(bounds)} buckets)"
+
+
+def _bounds_mismatch_message(time: Any, labels: dict[str, str], layouts: set[tuple[float, ...]]) -> str:
+    """Explain which point mixes bucket layouts, and how to separate them."""
+    when = time.isoformat() if isinstance(time, dt.datetime) else time
+    where = f" for {', '.join(f'{key}={value}' for key, value in labels.items())}" if labels else ""
+    rendered = "; ".join(sorted(_render_bounds(layout) for layout in layouts))
+    return (
+        f"the series reporting this histogram at {when}{where} use {len(layouts)} different bucket layouts, "
+        f"so their counts cannot be added together: {rendered}. "
+        "Group by the attribute that separates them (service_name is a good first try) "
+        "to get one quantile per layout, or filter down to a single layout."
+    )
+
+
 # Target about 60 chart buckets.
 _TARGET_BUCKET_COUNT = 60
 
@@ -473,13 +497,6 @@ class MetricQueryRunner:
         self._raise_on_truncation(response.results)
 
         group_count = len(self.group_by)
-        distinct_bounds = {tuple(variant) for row in response.results for variant in row[2 + group_count] if variant}
-        if len(distinct_bounds) > 1:
-            raise ValueError(
-                "histogram bounds differ across the selected series/time range; "
-                "narrow the query with filters so all series share one bucket layout"
-            )
-
         rows: list[dict[str, Any]] = []
         for row in response.results:
             bounds = list(row[1 + group_count])
@@ -487,11 +504,17 @@ class MetricQueryRunner:
             if sum(counts) <= 0:
                 # The bucket has no computable increase. Return a gap, not zero.
                 continue
+            labels = {group.key: row[1 + index] for index, group in enumerate(self.group_by)}
+            # Each point holds one summed distribution, so only a layout change
+            # inside a point makes the counts unusable.
+            layouts = {tuple(variant) for variant in row[2 + group_count] if variant}
+            if len(layouts) > 1:
+                raise ValueError(_bounds_mismatch_message(row[0], labels, layouts))
             rows.append(
                 {
                     "time": row[0].isoformat() if isinstance(row[0], dt.datetime) else row[0],
                     "value": _finite_or_none(_histogram_quantile(self.quantile, bounds, counts)),
-                    "labels": {group.key: row[1 + index] for index, group in enumerate(self.group_by)},
+                    "labels": labels,
                 }
             )
         return rows
@@ -648,8 +671,8 @@ class MetricQueryRunner:
             """
                 SELECT
                     toStartOfInterval(sample_timestamp, {interval}) AS time,
-                    any(histogram_bounds) AS bounds,
-                    groupUniqArray(histogram_bounds) AS bounds_variants,
+                    anyIf(histogram_bounds, arrayExists(c -> c > 0, contribution_counts)) AS bounds,
+                    groupUniqArrayIf(histogram_bounds, arrayExists(c -> c > 0, contribution_counts)) AS bounds_variants,
                     sumForEach(contribution_counts) AS counts
                 FROM (
                     SELECT
