@@ -28,7 +28,7 @@ from posthog.tasks.alerts.detectors.llm.prompt import SYSTEM_PROMPT, build_human
 from posthog.tasks.alerts.detectors.llm.verdict import LLMDetectionVerdict
 from posthog.tasks.alerts.detectors.registry import register_detector
 
-from products.alerts.backend.llm_detector_limits import llm_detector_access_error
+from products.alerts.backend.facade.api import llm_detector_access_error
 
 logger = structlog.get_logger(__name__)
 

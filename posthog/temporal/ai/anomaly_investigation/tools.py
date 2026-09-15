@@ -110,7 +110,7 @@ def _run_detector_simulation(
     # Imported lazily because the workflow module can't pull in heavy query machinery
     # at Temporal workflow-definition time — only activities can.
     from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
-    from products.alerts.backend.llm_detector_limits import is_llm_detector_config
+    from products.alerts.backend.facade.api import is_llm_detector_config
 
     try:
         return simulate_detector_on_insight(
