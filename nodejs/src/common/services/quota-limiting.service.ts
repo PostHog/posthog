@@ -14,7 +14,6 @@ export type QuotaResource =
     | 'logs_mb_ingested'
     | 'metrics_mb_ingested'
     | 'traces_mb_ingested'
-    | 'logs_and_traces_bytes_ingested'
 
 export const QUOTA_LIMITER_CACHE_KEY = '@posthog/quota-limits/'
 
