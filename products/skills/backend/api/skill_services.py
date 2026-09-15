@@ -1,15 +1,16 @@
 import re
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, TypeVar
 
 from django.db import IntegrityError, transaction
-from django.db.models import QuerySet
+from django.db.models import Max, QuerySet
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
-from ..marketplace.packaging import CODEX_METADATA_PATH, SPEC_DESCRIPTION_MAX_LENGTH
+from ..marketplace.packaging import CODEX_METADATA_PATH, SPEC_DESCRIPTION_MAX_LENGTH, compute_plugin_version
 from ..models.skills import (
     CATEGORY_BY_NAME_PREFIX,
     LLMSkill,
@@ -338,6 +339,20 @@ def get_active_skill_queryset(team: Team) -> QuerySet[LLMSkill]:
 
 def get_latest_skills_queryset(team: Team) -> QuerySet[LLMSkill]:
     return get_active_skill_queryset(team).filter(is_latest=True)
+
+
+def team_skills_version(team: Team) -> str:
+    """Keep archived rows in the version so an archive does not expose an older timestamp.
+
+    This is a marketplace version, not a validator for the access-filtered list.
+    In-place writers must update updated_at because QuerySet.update() skips auto_now.
+    """
+    latest = LLMSkill.objects.filter(team=team).aggregate(latest=Max("updated_at"))["latest"]
+    if latest is None:
+        return "1.0.0"
+    elapsed = latest - datetime(1970, 1, 1, tzinfo=UTC)
+    epoch_microseconds = (elapsed.days * 86400 + elapsed.seconds) * 1_000_000 + elapsed.microseconds
+    return compute_plugin_version(epoch_microseconds)
 
 
 def get_skill_by_name_from_db(

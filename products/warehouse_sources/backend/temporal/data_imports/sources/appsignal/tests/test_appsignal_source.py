@@ -55,11 +55,16 @@ class TestAppsignalSource:
         # and app lists have none, and neither does the metric-name catalog.
         assert incremental == {
             "deploy_markers",
+            "deploy_stats",
             "error_samples",
             "performance_samples",
             "log_lines",
             "metric_timeseries",
+            "performance_actions",
             "performance_traces",
+            "service_edges",
+            "slow_events",
+            "slow_event_actions",
             "trace_spans",
         }
 
@@ -71,6 +76,9 @@ class TestAppsignalSource:
         # Deploy markers mutate after creation (exception counts accumulate) — merge only.
         assert schemas["deploy_markers"].supports_append is False
         assert schemas["exception_incidents"].supports_append is False
+        # The newest bucket of an aggregate is still filling when it syncs, so it must merge.
+        assert schemas["performance_actions"].supports_append is False
+        assert schemas["slow_events"].supports_append is False
 
     def test_incremental_schemas_advertise_their_fields(self):
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
