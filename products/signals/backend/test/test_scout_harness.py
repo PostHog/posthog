@@ -63,10 +63,13 @@ from products.signals.backend.scout_harness.prompt import (
     build_run_prompt,
 )
 from products.signals.backend.scout_harness.runner import (
+    MAX_BLOCKED_ON_TOOLS,
     SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME,
     SIGNALS_SCOUT_SANDBOX_ENV_NAME,
+    TOOLS_UNAVAILABLE_ERROR_CATEGORY,
     RunResult,
     _ai_stage,
+    _blocked_on_tools,
     _create_run_row,
     _failure_streak_runs_in_window,
     arun_signals_scout,
@@ -1356,6 +1359,7 @@ def _make_fake_session(team: Team, summary_text: str = "ok") -> tuple[MagicMock,
     session.end = AsyncMock()
     result = MagicMock()
     result.summary = summary_text
+    result.blocked_on = []
     return session, result
 
 
@@ -2110,6 +2114,80 @@ async def test_failed_run_returns_failed_outcome_and_skips_bridge_insert(ateam, 
     # No bridge row persisted on the failure path (TaskRun was never created).
     has_runs = await database_sync_to_async(SignalScoutRun.objects.filter(team=ateam).exists)()
     assert not has_runs
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_run_blocked_on_a_missing_tool_fails_and_names_the_tool(ateam, aerrors_skill):
+    TaskRun = apps.get_model("tasks", "TaskRun")
+    # The regression: a scout that could not call the tools it needed used to close out as a
+    # COMPLETED run with an empty emit tally — the same shape as a run that looked and found
+    # nothing. Nothing outside the agent's own prose said the run was crippled, so the failure rate
+    # never saw it and the breaker never counted it.
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(
+        ateam, "Could not read my skill: the exec interface exposed no scout tools."
+    )
+    result.blocked_on = ["skill-get", "scout-project-profile-get"]
+
+    with (
+        patch(
+            "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
+            new=_fake_start_invoking_hook(session, result),
+        ),
+        _stubbed_spawn_dependencies(),
+        patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
+    ):
+        run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    assert run_result.status == TaskRun.Status.FAILED.value
+
+    props = capture.call_args.kwargs["properties"]
+    assert props["status"] == TaskRun.Status.FAILED.value
+    assert props["error_type"] == "ScoutToolsUnavailable"
+    assert "skill-get" in props["error_message"]
+    assert props["error_category"] == TOOLS_UNAVAILABLE_ERROR_CATEGORY
+    assert props["blocked_on"] == ["skill-get", "scout-project-profile-get"]
+
+    # The close-out still lands on the row: it is the only record of what the run could not
+    # reach, and the failure path never finalizes.
+    bridge = await database_sync_to_async(SignalScoutRun.objects.get)(team=ateam)
+    assert "no scout tools" in bridge.summary
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_quiet_run_still_completes(ateam, aerrors_skill):
+    TaskRun = apps.get_model("tasks", "TaskRun")
+    # The other half of the contract: an empty run is a real outcome, so a close-out that names no
+    # blocked tool must stay a clean completion.
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(
+        ateam, "Looked, found nothing meaningful."
+    )
+
+    with (
+        patch(
+            "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
+            new=_fake_start_invoking_hook(session, result),
+        ),
+        _stubbed_spawn_dependencies(),
+    ):
+        run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    assert run_result.status == TaskRun.Status.COMPLETED.value
+
+
+@parameterized.expand([("empty", []), ("blank_entries", ["  ", "\t\n"])])
+def test_blocked_on_tools_drops_entries_that_name_nothing(_name: str, raw: list[str]) -> None:
+    # A close-out naming nothing usable must let the run finish as it would have, rather than book a
+    # failure whose message names no tool.
+    assert _blocked_on_tools(raw) == []
+
+
+def test_blocked_on_tools_caps_a_runaway_list() -> None:
+    # The list reaches an analytics property, so an unbounded one would push the run-finished event
+    # over its property budget.
+    tools = [f"tool-{index}" for index in range(MAX_BLOCKED_ON_TOOLS + 5)]
+    assert _blocked_on_tools(tools) == tools[:MAX_BLOCKED_ON_TOOLS]
 
 
 @pytest.mark.asyncio

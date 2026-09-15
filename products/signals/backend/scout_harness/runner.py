@@ -118,6 +118,43 @@ _CRON_WINDOW_DST_SLACK_MINUTES = 120
 # runner, prompt builder, and viewset all resolve the same opt-in set.
 
 
+# `blocked_on` reaches an exception message and an analytics property, so the model's list is
+# bounded here rather than trusted — an unbounded one would push the run-finished event over its
+# property budget.
+MAX_BLOCKED_ON_TOOLS = 10
+MAX_BLOCKED_ON_TOOL_LENGTH = 80
+
+# The stable `error_category` a tools-unavailable run is booked under. Named apart from the agent's
+# own categories (`_failure_properties`) because no agent turn failed: the turn succeeded and the
+# scout reported that it held none of the tools it needed.
+TOOLS_UNAVAILABLE_ERROR_CATEGORY = "tools_unavailable"
+
+
+class ScoutToolsUnavailable(Exception):
+    """The run closed out early because tools it needed were not callable.
+
+    Raised after the close-out is persisted, so the run is booked `failed` with the missing tools
+    named instead of `completed` with nothing to show. Without it a crippled run is indistinguishable
+    from a quiet one — same status, same empty emit tally — and the only trace of the cause is the
+    agent's own prose on the run row. That leaves the fault invisible to the fleet's failure rate and
+    to the breaker, so a lane whose tools are broken keeps taking a full sandbox lease every tick.
+    """
+
+    def __init__(self, tools: list[str]) -> None:
+        self.tools = tools
+        super().__init__(f"Scout closed out without the tools it needed: {', '.join(tools)}")
+
+
+def _blocked_on_tools(raw: list[str]) -> list[str]:
+    """The tools a close-out reported it could not call, trimmed of the shapes a model produces.
+
+    A blank or whitespace-only entry resolves away rather than booking a failure whose message names
+    nothing, so a close-out that carries only those finishes the run as it would have.
+    """
+    tools = [tool.strip()[:MAX_BLOCKED_ON_TOOL_LENGTH] for tool in raw if tool.strip()]
+    return tools[:MAX_BLOCKED_ON_TOOLS]
+
+
 @dataclass(frozen=True)
 class RunResult:
     """Outcome of a run-trigger.
@@ -905,6 +942,12 @@ async def _spawn_and_run(
             team_id=team.parent_team_id or team.id,
             summary=result.summary,
         )
+        # Ordered after the finalize on purpose: the close-out is the only record of what the run
+        # could not reach, so it has to be on the row before the failure path (which never
+        # finalizes) takes over.
+        blocked_on = _blocked_on_tools(result.blocked_on)
+        if blocked_on:
+            raise ScoutToolsUnavailable(blocked_on)
         return result.summary, str(session.task_run.id)
     finally:
         await session.end()
@@ -1281,11 +1324,16 @@ def _failure_properties(exc: BaseException) -> dict[str, Any] | None:
     A run the agent itself failed gets the agent's own classification, because `error_type` is
     `AgentTurnFailed` for all of them. A provider outage, a spend limit and a broken scout body
     raise the same exception, so only `error_category` separates the upstream failures worth
-    retrying from the defects that must keep feeding the failure breaker."""
+    retrying from the defects that must keep feeding the failure breaker.
+
+    A run blocked on missing tools gets its own category and the tools it named, so the class is
+    countable fleet-wide instead of hiding inside one team's run history."""
     if isinstance(exc, TurnPollTimeout):
         return exc.diagnostics()
     if isinstance(exc, AgentTurnFailed) and exc.category is not None:
         return {"error_category": exc.category}
+    if isinstance(exc, ScoutToolsUnavailable):
+        return {"error_category": TOOLS_UNAVAILABLE_ERROR_CATEGORY, "blocked_on": exc.tools}
     return None
 
 
