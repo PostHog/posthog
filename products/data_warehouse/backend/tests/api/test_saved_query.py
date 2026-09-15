@@ -591,6 +591,9 @@ class TestSavedQuery(APIBaseTest):
         second_view = DataWarehouseSavedQuery.objects.create(team=self.team, name="deprecated_b", folder=folder)
         DataWarehouseSavedQuery.objects.filter(id__in=[first_view.id, second_view.id]).update(deleted=initial_deleted)
 
+        listing = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_query_folders/")
+        self.assertEqual(listing.json()[0]["view_count"], 2)
+
         response = self.client.delete(f"/api/environments/{self.team.id}/warehouse_saved_query_folders/{folder.id}/")
 
         self.assertEqual(response.status_code, 204, response.content)

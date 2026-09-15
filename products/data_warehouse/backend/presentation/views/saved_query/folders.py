@@ -67,7 +67,8 @@ class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControl
             .annotate(
                 view_count=Coalesce(
                     Subquery(
-                        DataWarehouseSavedQuery.objects.filter(folder=OuterRef("pk"), deleted=False)
+                        DataWarehouseSavedQuery.objects.filter(folder=OuterRef("pk"))
+                        .exclude(deleted=True)
                         .order_by()
                         .values("folder")
                         .annotate(c=Count("id"))
