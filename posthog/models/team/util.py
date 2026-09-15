@@ -39,10 +39,7 @@ TEAM_DELETE_BATCH_SIZE = 2000
 # activity bound.
 TEAM_DELETE_RPC_TIMEOUT_SECONDS = 30 * 60
 
-# The retired session-summary table. It has no foreign keys after replay/0004, so a leftover row
-# cannot block a team delete, but nothing else clears these rows either: replay/0002 took the model
-# out of Django state, so the cascade cannot see the table, and nodejs deletes only per recording.
-# This sweep stops a deleted team's summaries from outliving the team. Delete it with the table.
+# Out of Django state since replay/0002, so the Team cascade cannot reach it. Delete with the table.
 RETIRED_SESSION_SUMMARY_TABLES = ("ee_single_session_summary",)
 
 actions_that_require_current_team = [
