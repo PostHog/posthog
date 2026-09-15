@@ -21,7 +21,7 @@ from posthog.schema import ProductIntentContext, ProductKey
 from posthog.api.tagged_item import set_tags_on_object
 from posthog.event_usage import EventSource
 from posthog.models import Organization, PersonalAPIKey, Team, User
-from posthog.models.activity_logging.activity_log import ActivityLog, replay_scanner_machine_fields
+from posthog.models.activity_logging.activity_log import ActivityLog, changes_between, replay_scanner_machine_fields
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.tagged_item import TaggedItem
@@ -4965,7 +4965,7 @@ class TestScannerActivityLogging(_VisionAPITestCase):
 
         self.assertEqual(self._logs(str(scanner.id)), [])
 
-    def test_editing_a_scanner_does_not_read_its_observations(self) -> None:
+    def test_the_audit_diff_does_not_read_a_scanner_s_observations(self) -> None:
         # changes_between walks reverse relations and reads each one in full, so an unexcluded
         # `observations` would scan the whole table on every edit, under the save's row lock.
         scanner = self._create_scanner()
@@ -4977,14 +4977,14 @@ class TestScannerActivityLogging(_VisionAPITestCase):
             completed_at=timezone.now(),
             triggered_by=ObservationTrigger.SCHEDULE,
         )
+        previous = ReplayScanner.objects.get(pk=scanner.pk)
+        current = ReplayScanner.objects.get(pk=scanner.pk)
+        current.scanner_config = {"prompt": "did the user abandon the cart?"}
 
         with CaptureQueriesContext(connection) as queries:
-            self.client.patch(
-                f"{self.scanners_url}{scanner.id}/",
-                data={"scanner_config": {"prompt": "did the user abandon the cart?"}},
-                format="json",
-            )
+            changes = changes_between("ReplayScanner", previous=previous, current=current)
 
+        self.assertEqual({change.field for change in changes}, {"scanner_config"})
         observation_reads = [q for q in queries.captured_queries if "replay_vision_replayobservation" in q["sql"]]
         self.assertEqual(observation_reads, [])
 
