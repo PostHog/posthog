@@ -810,13 +810,27 @@ class TestScannerScoutCallerRules(_VisionAPITestCase):
         self.assertEqual(resp.json()["attr"], "credit_limit")
         self.assertFalse(ReplayScanner.objects.filter(team=self.team, name="uncapped").exists())
 
-    def test_scout_create_with_a_credit_limit_succeeds(self) -> None:
+    @parameterized.expand(
+        [
+            ("within_quota", 1000, 500, 201),
+            ("above_quota", 1000, 2147483647, 400),
+            ("without_quota", None, 500, 400),
+            ("zero_quota", 0, 500, 400),
+        ]
+    )
+    def test_scout_create_respects_the_organization_quota(
+        self, _name: str, organization_limit: int | None, credit_limit: int, expected_status: int
+    ) -> None:
+        self.organization.usage = {"replay_vision_credits": {"limit": organization_limit}}
+        self.organization.save(update_fields=["usage"])
         self._authenticate_as_scout()
 
-        resp = self.client.post(self.scanners_url, data=self._payload("capped", credit_limit=500), format="json")
+        resp = self.client.post(
+            self.scanners_url, data=self._payload("capped", credit_limit=credit_limit), format="json"
+        )
 
-        self.assertEqual(resp.status_code, 201, resp.json())
-        self.assertEqual(resp.json()["credit_limit"], 500)
+        self.assertEqual(resp.status_code, expected_status, resp.json())
+        self.assertEqual(ReplayScanner.objects.filter(team=self.team, name="capped").exists(), expected_status == 201)
 
     def test_scout_cannot_clear_a_credit_limit(self) -> None:
         scanner = self._create_scanner(name="capped", credit_limit=500)
@@ -871,17 +885,26 @@ class TestScannerScoutCallerRules(_VisionAPITestCase):
         observation.refresh_from_db()
         self.assertEqual(observation.status, ObservationStatus.FAILED)
 
-    @parameterized.expand([("uncapped", None, 400), ("capped", 500, 201)])
+    @parameterized.expand(
+        [
+            ("uncapped", None, 400, 1000),
+            ("capped", 500, 201, 1000),
+            ("above_quota", 1001, 400, 1000),
+            ("without_quota", 500, 400, None),
+        ]
+    )
     def test_scout_duplicate_requires_a_credit_limit(
-        self, _name: str, credit_limit: int | None, expected_status: int
+        self, _name: str, credit_limit: int | None, expected_status: int, organization_limit: int | None
     ) -> None:
+        self.organization.usage = {"replay_vision_credits": {"limit": organization_limit}}
+        self.organization.save(update_fields=["usage"])
         scanner = self._create_scanner(name="source", credit_limit=credit_limit)
         self._authenticate_as_scout()
 
         resp = self.client.post(f"{self.scanners_url}{scanner.id}/duplicate/")
 
         self.assertEqual(resp.status_code, expected_status, resp.content)
-        self.assertEqual(ReplayScanner.objects.filter(team=self.team).count(), 1 if credit_limit is None else 2)
+        self.assertEqual(ReplayScanner.objects.filter(team=self.team).count(), 2 if expected_status == 201 else 1)
 
     def test_scout_cannot_widen_an_enabled_scanner_without_a_credit_limit(self) -> None:
         scanner = self._create_scanner(name="uncapped", enabled=True, credit_limit=None, sampling_rate=0.1)

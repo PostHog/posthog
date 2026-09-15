@@ -78,6 +78,27 @@ class TestScoutScannerCreditLimit(SimpleTestCase):
                 True,
             ),
             ("create_with_a_limit", None, {"credit_limit": 500}, True),
+            ("create_above_the_quota", None, {"credit_limit": 2147483647}, False),
+            ("create_without_an_org_quota", None, {"credit_limit": 500}, False, None),
+            ("create_at_the_org_quota", None, {"credit_limit": 1000}, True),
+            ("raise_above_the_quota", {"credit_limit": 500}, {"credit_limit": 1001}, False),
+            ("raise_without_an_org_quota", {"credit_limit": 500}, {"credit_limit": 900}, False, None),
+            ("reduce_without_an_org_quota", {"credit_limit": 500}, {"credit_limit": 250}, True, None),
+            ("disable_without_an_org_quota", {"credit_limit": 500}, {"enabled": False}, True, None),
+            (
+                "enable_without_an_org_quota",
+                {"credit_limit": 500, "enabled": False},
+                {"enabled": True},
+                False,
+                None,
+            ),
+            (
+                "change_sampling_without_an_org_quota",
+                {"credit_limit": 500, "sampling_rate": 0.1},
+                {"sampling_rate": 1.0},
+                False,
+                None,
+            ),
             ("create_without_a_limit", None, {"name": "watcher"}, False),
             ("create_with_a_null_limit", None, {"credit_limit": None}, False),
             ("update_leaving_the_limit_alone", {"credit_limit": 500}, {"scanner_config": {"prompt": "p"}}, True),
@@ -103,14 +124,19 @@ class TestScoutScannerCreditLimit(SimpleTestCase):
         ]
     )
     def test_scout_writes(
-        self, _name: str, instance_fields: dict[str, Any] | None, attrs: dict[str, Any], allowed: bool
+        self,
+        _name: str,
+        instance_fields: dict[str, Any] | None,
+        attrs: dict[str, Any],
+        allowed: bool,
+        max_credit_limit: int | None = 1000,
     ) -> None:
         instance = None if instance_fields is None else ReplayScanner(**instance_fields)
         if allowed:
-            check_scout_scanner_credit_limit(True, instance=instance, attrs=attrs)
+            check_scout_scanner_credit_limit(True, instance=instance, attrs=attrs, max_credit_limit=max_credit_limit)
             return
         with self.assertRaises(ValidationError) as caught:
-            check_scout_scanner_credit_limit(True, instance=instance, attrs=attrs)
+            check_scout_scanner_credit_limit(True, instance=instance, attrs=attrs, max_credit_limit=max_credit_limit)
         self.assertIn("credit_limit", caught.exception.detail)
 
     @parameterized.expand(

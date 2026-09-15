@@ -127,6 +127,7 @@ from products.replay_vision.backend.quota import (
     compute_scanner_budgets,
     credits_used_by_scanner,
     current_period_bounds,
+    quota_state,
     spend_projection,
 )
 from products.replay_vision.backend.scanner_access import (
@@ -742,8 +743,14 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         self._validate_scanner_config(attrs)
         self._validate_and_strip_query(attrs)
         self._drop_redacted_targeting_clear(attrs)
+        scout_caller = bool(self.context.get("scout_sandbox_caller"))
         check_scout_scanner_credit_limit(
-            bool(self.context.get("scout_sandbox_caller")), instance=self.instance, attrs=attrs
+            scout_caller,
+            instance=self.instance,
+            attrs=attrs,
+            max_credit_limit=quota_state(self.context["get_team"]().organization_id).credit_limit
+            if scout_caller
+            else None,
         )
         return attrs
 
@@ -1968,8 +1975,12 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         if not self.user_access_control.check_access_level_for_resource("replay_scanner", required_level="editor"):
             raise PermissionDenied("Duplicating a scanner requires editor access to Replay Vision scanners.")
         source = self.get_object()
+        scout_caller = is_scout_sandbox_request(request)
         check_scout_scanner_credit_limit(
-            is_scout_sandbox_request(request), instance=None, attrs={"credit_limit": source.credit_limit}
+            scout_caller,
+            instance=None,
+            attrs={"credit_limit": source.credit_limit},
+            max_credit_limit=quota_state(self.team.organization_id).credit_limit if scout_caller else None,
         )
         if not self.team.organization.is_ai_data_processing_approved:
             raise serializers.ValidationError(

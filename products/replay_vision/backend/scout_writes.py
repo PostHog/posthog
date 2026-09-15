@@ -51,11 +51,27 @@ def refuse_scout_scanner_delete(is_scout_caller: bool) -> None:
         raise PermissionDenied(DELETE_REFUSED)
 
 
+def _check_credit_ceiling(credit_limit: int, max_credit_limit: int | None) -> None:
+    if max_credit_limit is None:
+        raise ValidationError(
+            {
+                "credit_limit": "Set a finite organization Replay vision credit quota before a scout increases scanner spend."
+            }
+        )
+    if credit_limit > max_credit_limit:
+        raise ValidationError(
+            {
+                "credit_limit": "A scout's scanner credit limit cannot exceed the organization's Replay vision credit quota."
+            }
+        )
+
+
 def check_scout_scanner_credit_limit(
     is_scout_caller: bool,
     *,
     instance: ReplayScanner | None,
     attrs: Mapping[str, Any],
+    max_credit_limit: int | None = None,
 ) -> None:
     """Refuse a scout write that would leave a scanner able to scan with no cap on its spend.
 
@@ -73,25 +89,25 @@ def check_scout_scanner_credit_limit(
     if instance is None:
         if attrs.get("credit_limit") is None:
             raise ValidationError({"credit_limit": CREDIT_LIMIT_REQUIRED})
+        _check_credit_ceiling(attrs["credit_limit"], max_credit_limit)
         return
     if "credit_limit" in attrs and attrs["credit_limit"] is None:
         raise ValidationError({"credit_limit": CREDIT_LIMIT_NOT_CLEARABLE})
     turning_on = attrs.get("enabled") and not instance.enabled
-    if attrs.get("credit_limit", instance.credit_limit) is None:
+    cost_fields = {"query", "sampling_rate", "sampling_mode", "provider", "model", "experiment_targeting"}
+    changes_cost = any(field in attrs and attrs[field] != getattr(instance, field) for field in cost_fields)
+    changes_enabled_cost = attrs.get("enabled", instance.enabled) and changes_cost
+    credit_limit = attrs.get("credit_limit", instance.credit_limit)
+    if credit_limit is None:
         if turning_on:
             raise ValidationError({"credit_limit": CREDIT_LIMIT_REQUIRED_TO_ENABLE})
-        cost_fields = {
-            "query",
-            "sampling_rate",
-            "sampling_mode",
-            "provider",
-            "model",
-            "experiment_targeting",
-        }
-        changes_cost = any(field in attrs and attrs[field] != getattr(instance, field) for field in cost_fields)
-        if attrs.get("enabled", instance.enabled) and changes_cost:
+        if changes_enabled_cost:
             raise ValidationError(
                 {
                     "credit_limit": "Set a credit limit before you change the targeting, sampling, or model of an enabled scanner."
                 }
             )
+        return
+    raises_limit = "credit_limit" in attrs and (instance.credit_limit is None or credit_limit > instance.credit_limit)
+    if turning_on or changes_enabled_cost or raises_limit:
+        _check_credit_ceiling(credit_limit, max_credit_limit)

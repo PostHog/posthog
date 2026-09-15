@@ -11,6 +11,9 @@ Scout sandbox tokens have these API restrictions:
 
 - A scanner must have a credit limit when the scout creates, copies, or enables it.
 - A scout cannot remove a credit limit.
+- New or increased scanner credit limits cannot exceed the organization's Replay vision credit quota.
+- A finite organization quota is required for creation, copies, enabling, limit increases, and changes that can increase spend.
+- Reducing a limit and disabling a scanner remain available without a finite organization quota.
 - An enabled scanner must have a limit before the scout changes targeting, sampling, or the model.
 - Prompt fixes and disabling remain available for existing scanners without a limit.
 - Scouts cannot start inline scans, manual scans, prompt tests, retries, or historical backfills.
