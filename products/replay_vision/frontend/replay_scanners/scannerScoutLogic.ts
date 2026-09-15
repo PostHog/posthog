@@ -406,13 +406,17 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
         skillPrompt: [
             null as ScoutPrompt | null,
             {
-                loadSkillPrompt: async () => {
+                loadSkillPrompt: async (_: any, breakpoint: () => void) => {
                     const projectId = teamLogic.values.currentProjectId
                     const skillName = values.settingsSkillName
                     if (!projectId || !skillName) {
                         return null
                     }
                     const skill = await llmSkillsNameRetrieve(String(projectId), skillName)
+                    // Drop a read the user has already moved on from. Without this a slow read for
+                    // one scout can land after a fast read for the next and leave that scout's body
+                    // and version under the open form.
+                    breakpoint()
                     // A fetch that sends no paging params caps the body at one page and reports the
                     // rest through body_next_offset. The form seeds from this value and a save
                     // replaces the whole body, so seeding a capped read would publish over every
@@ -427,6 +431,7 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                                   body_length: skill.body_total_length,
                                   version: skill.version,
                               })
+                    breakpoint()
                     const body = full.body ?? ''
                     if (body.length < full.body_total_length) {
                         // Fail the load instead of handing the form a short body. The modal blocks
@@ -896,6 +901,16 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                     actions.saveScoutSettingsFinished()
                     return
                 }
+                // Without this scout's own instructions there is no version to publish against, and
+                // no way to tell an edited body from an unchanged one. Saving the rest would drop
+                // the instruction edit and still report the whole save as done.
+                if (!prompt || prompt.skillName !== config.skill_name) {
+                    lemonToast.error(
+                        "Couldn't read this scout's current instructions. Close the settings and open them again."
+                    )
+                    actions.saveScoutSettingsFinished()
+                    return
+                }
                 try {
                     const configUpdates: Record<string, unknown> = {}
                     if (form.name.trim() !== scoutDisplayName(config)) {
@@ -925,7 +940,7 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                     // version the form was read at. It runs last because it is the only call here a
                     // concurrent edit can reject, and the rename, the schedule and the delivery must
                     // not go down with it.
-                    if (prompt?.skillName === config.skill_name && form.body !== prompt.body) {
+                    if (form.body !== prompt.body) {
                         const published = await llmSkillsNamePartialUpdate(String(projectId), config.skill_name, {
                             body: form.body,
                             base_version: prompt.latestVersion,

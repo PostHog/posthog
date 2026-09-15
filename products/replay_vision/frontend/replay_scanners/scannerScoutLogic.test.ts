@@ -182,6 +182,64 @@ describe('scannerScoutLogic', () => {
         expect(logic.values.settingsSkillName).toBe(SKILL_NAME)
     })
 
+    it('refuses the save when the loaded instructions belong to another scout', async () => {
+        // Nothing here can tell an edited body from an unchanged one without this scout's own
+        // prompt. Saving the rest anyway drops the instruction edit and still reports success.
+        await mountWithReports([])
+        const config = makeConfig({ output_destinations: {} })
+        scoutFleetLogic.findMounted()!.actions.loadScoutConfigsSuccess([config])
+        logic.actions.openScoutSettings(SKILL_NAME)
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadSkillPromptSuccess({
+            skillName: 'signals-scout-weekly-digest',
+            body: 'Watch another scanner.',
+            latestVersion: 7,
+        })
+
+        logic.actions.saveScoutSettings({
+            name: 'Checkout / daily digest',
+            body: 'Watch checkout.',
+            cron: config.run_cron_schedule!,
+            outputDestinations: {},
+            webhookUrl: '',
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(signalsScoutConfigUpdate).not.toHaveBeenCalled()
+        expect(llmSkillsNamePartialUpdate).not.toHaveBeenCalled()
+        expect(logic.values.settingsSkillName).toBe(SKILL_NAME)
+    })
+
+    it('drops a slow read the user has already moved on from', async () => {
+        // Two opens in a row leave two reads in flight. Without a breakpoint the slower one lands
+        // last and puts the scout the user left behind under the form they are now looking at.
+        await mountWithReports([])
+        scoutFleetLogic.findMounted()!.actions.loadScoutConfigsSuccess([makeConfig()])
+        let resolveFirst: (skill: unknown) => void = () => {}
+        mockSkillRetrieve
+            .mockReturnValueOnce(new Promise((resolve) => (resolveFirst = resolve)) as any)
+            .mockResolvedValueOnce({
+                body: 'Watch the other scanner.',
+                body_total_length: 24,
+                body_next_offset: null,
+                version: 9,
+                latest_version: 9,
+            } as any)
+
+        logic.actions.openScoutSettings(SKILL_NAME)
+        logic.actions.openScoutSettings('signals-scout-weekly-digest')
+        resolveFirst({
+            body: 'Watch this scanner.',
+            body_total_length: 19,
+            body_next_offset: null,
+            version: 3,
+            latest_version: 3,
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.skillPrompt?.skillName).toBe('signals-scout-weekly-digest')
+    })
+
     it('waits for a fresh read instead of reseeding the instructions a previous open left behind', async () => {
         // The form seeds from whatever the loader holds for this scout. Reopening after a conflict
         // with the stale body still in place seeds the losing text and the version it was read at,
