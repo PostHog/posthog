@@ -98,6 +98,7 @@ describe('ImageBatcher', () => {
                         read: jest.fn().mockResolvedValue(new Map()),
                     } as unknown as MlKeyReader),
                 } as MlPrivacyRuntime
+                const incrementVersion = jest.spyOn(ImageScrubConsumerMetrics, 'incrementVersion')
                 const batcher = new ImageBatcher(
                     store as unknown as ImageShardStore,
                     offsets,
@@ -114,6 +115,11 @@ describe('ImageBatcher', () => {
                 await jest.advanceTimersByTimeAsync(0)
                 expect(park).toHaveBeenCalledTimes(1)
                 expect(offsets.received).toEqual([])
+                // Neither bucket moves: a decryption outage must not read as a rollback to version 1.
+                expect(incrementVersion.mock.calls).toEqual([
+                    ['2', 0],
+                    ['1', 0],
+                ])
                 if (stop) {
                     batcher.stop()
                 } else {
@@ -191,6 +197,24 @@ describe('ImageBatcher', () => {
 
         expect(store.writes).toHaveLength(1)
         expect(store.writes[0][0].hash).toBe(ref.split(':')[2])
+    })
+
+    it('counts a cleartext image as version 1', async () => {
+        const incrementVersion = jest.spyOn(ImageScrubConsumerMetrics, 'incrementVersion')
+        const batcher = new ImageBatcher(
+            new FakeStore() as unknown as ImageShardStore,
+            new FakeOffsets(),
+            scrubClient,
+            options,
+            0
+        )
+
+        await batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'))], 1)
+
+        expect(incrementVersion.mock.calls).toEqual([
+            ['2', 0],
+            ['1', 1],
+        ])
     })
 
     it('decodes and validates a URL image from its Kafka transport headers before scrubbing it', async () => {

@@ -322,6 +322,13 @@ infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", 
 # v0.11.0-posthog.N tag, and bump this pin.
 pytest-split = { git = "https://github.com/PostHog/pytest-split", tag = "v0.11.0-posthog.6" }
 
+# xgboost's Linux wheel declares nvidia-nccl-cu12 (322 MB) for multi-GPU training. We use xgboost on
+# CPU, so drop it to keep the wheel out of the image.
+[[tool.uv.dependency-metadata]]
+name = "xgboost"
+version = "3.2.0"
+requires-dist = ["numpy", "scipy"]
+
 
 [tool.isort]
 profile = "black"

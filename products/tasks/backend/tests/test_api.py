@@ -5626,6 +5626,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
     def test_patch_cannot_mutate_protected_credential_state_keys(self, _mock_publish):
         credential_target = self.create_organization_user("credential-target")
         task = self.create_task()
+        system_prompt = {"type": "preset", "preset": "claude_code", "append": "Server-owned instructions"}
         pending_external_followups = [
             {
                 "message": "server queued message",
@@ -5644,6 +5645,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             status=TaskRun.Status.IN_PROGRESS,
             state={
                 "github_credential_source": "caller_token",
+                "systemPrompt": system_prompt,
                 "claude_model_access": "own-subscription",
                 "claude_subscription_user_id": self.user.id,
                 "pr_authorship_mode": "user",
@@ -5703,6 +5705,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             {
                 "state": {
                     "github_credential_source": "server_integration",
+                    "systemPrompt": "Caller-controlled instructions",
                     "claude_model_access": "posthog-gateway",
                     "claude_subscription_user_id": self.user.id + 1,
                     "pr_authorship_mode": "bot",
@@ -5814,6 +5817,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["analysis_target_custom_image_id"] == "img-real"
         assert run.state["analysis_target_custom_image_name"] == "real-image"
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
+        assert run.state["systemPrompt"] == system_prompt
 
         # Nor can a caller remove a protected key to force a fallback or unguarded path.
         response = self.client.patch(
@@ -5821,6 +5825,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             {
                 "state": {},
                 "state_remove_keys": [
+                    "systemPrompt",
                     "claude_model_access",
                     "claude_subscription_user_id",
                     "github_credential_source",
@@ -5897,6 +5902,17 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["analysis_target_custom_image_id"] == "img-real"
         assert run.state["analysis_target_custom_image_name"] == "real-image"
         assert "scratch" not in run.state  # non-protected key removed
+        assert run.state["systemPrompt"] == system_prompt
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"state_append": {"systemPrompt": "Caller-controlled instructions", "scratch": "ok"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        assert run.state["systemPrompt"] == system_prompt
+        assert run.state["scratch"] == ["ok"]
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
     def test_update_run_status_to_completed_signals_workflow(self, mock_signal):

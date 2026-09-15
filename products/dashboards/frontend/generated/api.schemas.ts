@@ -1353,12 +1353,53 @@ export interface CompareFilterApi {
     compare_to?: string | null
 }
 
+export interface EventPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator?: PropertyOperatorApi | null
+    /** Event properties */
+    type?: 'event'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface PersonPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Person properties */
+    type?: 'person'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface SessionPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'session'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface CohortPropertyFilterApi {
+    cohort_name?: string | null
+    key?: 'id'
+    label?: string | null
+    operator?: PropertyOperatorApi | null
+    type?: 'cohort'
+    value: number
+}
+
 export interface ActionConversionGoalApi {
     actionId: number
+    properties?:
+        | (EventPropertyFilterApi | PersonPropertyFilterApi | SessionPropertyFilterApi | CohortPropertyFilterApi)[]
+        | null
 }
 
 export interface CustomEventConversionGoalApi {
     customEventName: string
+    properties?:
+        | (EventPropertyFilterApi | PersonPropertyFilterApi | SessionPropertyFilterApi | CohortPropertyFilterApi)[]
+        | null
 }
 
 export type DaysOfWeekEnumApi = (typeof DaysOfWeekEnumApi)[keyof typeof DaysOfWeekEnumApi]
@@ -1648,24 +1689,6 @@ export interface HogQLQueryModifiersApi {
     webAnalyticsFirstPageviewFilters?: boolean | null
 }
 
-export interface EventPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator?: PropertyOperatorApi | null
-    /** Event properties */
-    type?: 'event'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface PersonPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    /** Person properties */
-    type?: 'person'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
 export interface PersonMetadataPropertyFilterApi {
     key: string
     label?: string | null
@@ -1698,23 +1721,6 @@ export interface EventMetadataPropertyFilterApi {
     operator: PropertyOperatorApi
     type?: 'event_metadata'
     value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface SessionPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    type?: 'session'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface CohortPropertyFilterApi {
-    cohort_name?: string | null
-    key?: 'id'
-    label?: string | null
-    operator?: PropertyOperatorApi | null
-    type?: 'cohort'
-    value: number
 }
 
 export type DurationTypeApi = (typeof DurationTypeApi)[keyof typeof DurationTypeApi]
@@ -4480,6 +4486,7 @@ export interface WebStatsTableQueryApi {
     includeHost?: boolean | null
     includeRevenue?: boolean | null
     includeScrollDepth?: boolean | null
+    includeTrafficMetrics?: boolean | null
     /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
     interval?: IntervalTypeApi | null
     kind?: 'WebStatsTableQuery'
