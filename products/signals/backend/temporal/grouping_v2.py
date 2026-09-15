@@ -17,10 +17,14 @@ from posthog.storage import object_storage
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.scoped import scoped_temporal
 
+from products.signals.backend.temporal import metrics
+from products.signals.backend.temporal.drop_telemetry import summarize_drop_error
 from products.signals.backend.temporal.grouping import (
     TYPE_EXAMPLES_CACHE_TTL,
     FetchSignalTypeExamplesOutput,
+    SignalBatchPrepError,
     _process_signal_batch,
+    capture_batch_dropped,
 )
 from products.signals.backend.temporal.types import (
     EmitSignalInputs,
@@ -36,6 +40,16 @@ PAUSE_MAX_RUN_DURATION = timedelta(minutes=30)
 BATCH_COLLECT_MAX_SIGNALS = 20
 BATCH_COLLECT_TIMEOUT = timedelta(seconds=30)
 RETRY_BACKOFF = timedelta(seconds=10)
+# Attempts a batch whose preparation keeps failing gets before its signals are given up on.
+# The backoff doubles from RETRY_BACKOFF up to the cap, so the attempts hold a batch for tens
+# of minutes of waiting, plus the time each attempt spends on its own activity retries. The
+# batch stays at the head of the queue while it waits, so the team's later batches wait too.
+MAX_PREP_ATTEMPTS = 12
+MAX_PREP_BACKOFF = timedelta(minutes=5)
+
+# Patch ID for holding a batch whose preparation failed instead of reporting its signals
+# dropped. In-flight workflows recorded the drop telemetry before the backoff timer.
+_PATCH_PREP_DEFER = "defer-batch-on-prep-failure-v1"
 
 # Patch ID for the multi-batch collection change. Once all in-flight workflows
 # that recorded history under the old single-batch code have drained (they
@@ -81,6 +95,7 @@ class TeamSignalGroupingV2Workflow:
         self._cached_type_examples: Optional[FetchSignalTypeExamplesOutput] = None
         self._type_examples_fetched_at: Optional[datetime] = None
         self._paused_until: Optional[datetime] = None
+        self._prep_failures: int = 0
         self._batch_buffer_size_gauge: Optional[MetricGauge] = None
         self._signals_processed_counter: Optional[MetricCounter] = None
         self._signals_dropped_counter: Optional[MetricCounter] = None
@@ -120,6 +135,7 @@ class TeamSignalGroupingV2Workflow:
                 team_id=input.team_id,
                 pending_batch_keys=list(self._batch_key_buffer),
                 paused_until=self._paused_until,
+                prep_failures=self._prep_failures,
             )
         )
 
@@ -192,6 +208,11 @@ class TeamSignalGroupingV2Workflow:
                 self._signals_processed_counter.add(len(signals))
             if self._signals_dropped_counter is not None and dropped > 0:
                 self._signals_dropped_counter.add(dropped)
+        except SignalBatchPrepError as e:
+            # This path discards the key it popped, so a batch it cannot prepare is lost.
+            if self._signals_dropped_counter is not None:
+                self._signals_dropped_counter.add(len(signals))
+            await capture_batch_dropped(signals, e)
         except Exception:
             logger.exception(
                 "Failed to process signal batch",
@@ -203,6 +224,51 @@ class TeamSignalGroupingV2Workflow:
         # continue_as_new after each batch to keep history bounded.
         # Carry over any pending keys that arrived while we were processing.
         self._continue_as_new(input)
+
+    def _requeue_batch_keys(self, collected: CollectedBatch) -> None:
+        """Put the keys of an unprocessed batch back at the head of the queue."""
+        self._batch_key_buffer = collected.object_keys + self._batch_key_buffer
+        if self._batch_buffer_size_gauge is not None:
+            self._batch_buffer_size_gauge.set(len(self._batch_key_buffer))
+
+    async def _requeue_and_back_off(self, collected: CollectedBatch, backoff: timedelta) -> None:
+        """Requeue an unprocessed batch and wait, so a failure cannot hot-loop."""
+        self._requeue_batch_keys(collected)
+        await workflow.sleep(backoff)
+
+    async def _hold_batch_after_prep_failure(
+        self,
+        input: TeamSignalGroupingV2Input,
+        collected: CollectedBatch,
+        error: SignalBatchPrepError,
+    ) -> None:
+        """Hold a batch whose preparation failed, and give up on it once it has waited long enough.
+
+        Preparation changes no state the batch depends on, so a batch held through a dependency
+        outage groups in full once the dependency recovers. Reporting a drop on each attempt
+        would count that delay as a loss, once per attempt.
+        """
+        self._prep_failures += 1
+
+        if self._prep_failures >= MAX_PREP_ATTEMPTS:
+            logger.error(
+                "Giving up on a signal batch that could not be prepared",
+                team_id=input.team_id,
+                batch_size=len(collected.signals),
+                batch_keys=collected.object_keys,
+                attempts=self._prep_failures,
+                exc_info=error,
+            )
+            self._prep_failures = 0
+            if self._signals_dropped_counter is not None:
+                self._signals_dropped_counter.add(len(collected.signals))
+            await capture_batch_dropped(collected.signals, error)
+            return
+
+        reason, _message = summarize_drop_error(error.cause)
+        metrics.increment_batch_deferred(reason=reason)
+        backoff = min(RETRY_BACKOFF * 2 ** (self._prep_failures - 1), MAX_PREP_BACKOFF)
+        await self._requeue_and_back_off(collected, backoff)
 
     async def _run_new_collect_batch_path(self, input: TeamSignalGroupingV2Input) -> None:
         """New multi-batch collection path."""
@@ -216,17 +282,22 @@ class TeamSignalGroupingV2Workflow:
 
         if self._is_paused():
             # Paused while collecting; stash collected keys back and loop
-            self._batch_key_buffer = collected.object_keys + self._batch_key_buffer
-            if self._batch_buffer_size_gauge is not None:
-                self._batch_buffer_size_gauge.set(len(self._batch_key_buffer))
+            self._requeue_batch_keys(collected)
             return
 
         try:
             dropped, _type_examples = await _process_signal_batch(collected.signals)
+            self._prep_failures = 0
             if self._signals_processed_counter is not None:
                 self._signals_processed_counter.add(len(collected.signals))
             if self._signals_dropped_counter is not None and dropped > 0:
                 self._signals_dropped_counter.add(dropped)
+        except SignalBatchPrepError as e:
+            if workflow.patched(_PATCH_PREP_DEFER):
+                await self._hold_batch_after_prep_failure(input, collected, e)
+            else:
+                await capture_batch_dropped(collected.signals, e)
+                await self._requeue_and_back_off(collected, RETRY_BACKOFF)
         except Exception:
             logger.exception(
                 "Failed to process signal batch",
@@ -235,11 +306,7 @@ class TeamSignalGroupingV2Workflow:
                 batch_keys=collected.object_keys,
             )
             # Stash keys back so they're retried after continue_as_new.
-            # Sleep first to avoid hot-looping on deterministic failures.
-            self._batch_key_buffer = collected.object_keys + self._batch_key_buffer
-            if self._batch_buffer_size_gauge is not None:
-                self._batch_buffer_size_gauge.set(len(self._batch_key_buffer))
-            await workflow.sleep(RETRY_BACKOFF)
+            await self._requeue_and_back_off(collected, RETRY_BACKOFF)
 
         # continue_as_new after each processing round to keep history bounded.
         # Carry over any pending keys that arrived while we were processing.
@@ -256,6 +323,7 @@ class TeamSignalGroupingV2Workflow:
         # Restore state carried over from continue_as_new
         self._batch_key_buffer.extend(input.pending_batch_keys)
         self._paused_until = input.paused_until
+        self._prep_failures = input.prep_failures
         start_time = workflow.now()
 
         meter = workflow.metric_meter().with_additional_attributes({"team_id": str(input.team_id)})
