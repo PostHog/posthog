@@ -110,7 +110,7 @@ describe('experiment-get-by-flag-key', () => {
 
         const result = await tool.handler(createMockContext(request), { feature_flag_key: 'new-checkout' })
 
-        expect(result).toMatchObject({ found: false, feature_flag_key: 'new-checkout' })
+        expect(result).toMatchObject({ found: false, reason: 'no_flag', feature_flag_key: 'new-checkout' })
         expect((result as { message: string }).message).toContain('new-checkout')
         expect(request).toHaveBeenCalledTimes(2)
         expect(request).toHaveBeenNthCalledWith(2, FLAG_LIST_ARCHIVED)
@@ -121,7 +121,7 @@ describe('experiment-get-by-flag-key', () => {
 
         const result = await tool.handler(createMockContext(request), { feature_flag_key: 'new-checkout' })
 
-        expect(result).toMatchObject({ found: false, feature_flag_key: 'new-checkout' })
+        expect(result).toMatchObject({ found: false, reason: 'no_experiment', feature_flag_key: 'new-checkout' })
         expect((result as { message: string }).message).toContain('ID 7')
         expect(request).toHaveBeenCalledTimes(1)
     })
@@ -170,7 +170,7 @@ describe('experiment-get-by-flag-key', () => {
             const result = await tool.handler(createMockContext(request), { feature_flag_key: 'new-checkout' })
 
             expect(request).toHaveBeenCalledTimes(3)
-            expect(result).toMatchObject({ found: false, feature_flag_key: 'new-checkout' })
+            expect(result).toMatchObject({ found: false, reason: 'ambiguous', feature_flag_key: 'new-checkout' })
             expect((result as { candidates: unknown[] }).candidates).toEqual([
                 expect.objectContaining({
                     id: 12,

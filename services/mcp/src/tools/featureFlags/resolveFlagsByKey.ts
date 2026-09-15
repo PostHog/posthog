@@ -19,7 +19,7 @@ export async function resolveFlagsByKey(
         const page = await context.api.request<Schemas.PaginatedFeatureFlagList>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(projectId)}/feature_flags/`,
-            query: archived ? { key, archived: true, limit: 20 } : { key, limit: 20 },
+            query: { key, limit: 20, ...(archived && { archived: true }) },
         })
         return page.results ?? []
     }

@@ -1523,6 +1523,7 @@ describe('Experiments', { concurrent: false }, () => {
             const result = parseToolResponse(await getByFlagKeyTool.handler(context, { feature_flag_key: missingKey }))
 
             expect(result.found).toBe(false)
+            expect(result.reason).toBe('no_flag')
             expect(result.feature_flag_key).toBe(missingKey)
             expect(result.message).toContain(missingKey)
         })
@@ -1568,9 +1569,15 @@ describe('Experiments', { concurrent: false }, () => {
                 await getByFlagKeyTool.handler(context, { feature_flag_key: created.feature_flag_key })
             )
             expect(ambiguous.found).toBe(false)
+            expect(ambiguous.reason).toBe('ambiguous')
             expect(ambiguous.candidates.map((candidate: { id: number }) => candidate.id).sort()).toEqual(
                 [created.id, duplicate.id].sort()
             )
+            for (const candidate of ambiguous.candidates) {
+                expect(candidate).toMatchObject({ status: 'draft', archived: false })
+                expect(candidate.name).toBeTruthy()
+                expect(candidate.created_at).toBeTruthy()
+            }
 
             await launchAndArchive(duplicate.id)
 

@@ -41,23 +41,53 @@ interface ExperimentCandidate {
 
 interface ExperimentLookupMiss {
     found: false
+    /** `no_flag` and `no_experiment` mean the key is free to create on; `ambiguous` means it is not. */
+    reason: 'no_flag' | 'no_experiment' | 'ambiguous'
     feature_flag_key: string
     message: string
-    /** Set when several experiments share the flag and none stands out as the live one. */
+    /** Set for `ambiguous`: the experiments sharing the flag, none of which stands out as the live one. */
     candidates?: ExperimentCandidate[]
 }
 
 type Result = (WithPostHogUrl<Schemas.Experiment> & { found: true }) | ExperimentLookupMiss
 
+type LinkedPick = { experimentId: number } | { candidates: ExperimentCandidate[] }
+
 const toCandidate = (experiment: Schemas.ExperimentBasic, archived: boolean): ExperimentCandidate => ({
     id: experiment.id,
     name: experiment.name,
-    status: (experiment as { status?: string | null }).status ?? null,
+    status: experiment.status ?? null,
     archived,
     start_date: experiment.start_date ?? null,
     end_date: experiment.end_date ?? null,
-    created_at: (experiment as { created_at?: string | null }).created_at ?? null,
+    created_at: experiment.created_at ?? null,
 })
+
+/** Among several experiments on one flag, the single live one wins, then the single archived one. */
+const pickLinkedExperiment = async (context: Context, projectId: string, flagId: number): Promise<LinkedPick> => {
+    const listLinked = async (archivedOnly: boolean): Promise<Schemas.ExperimentBasic[]> => {
+        const page = await context.api.request<Schemas.PaginatedExperimentBasicList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(projectId)}/experiments/`,
+            query: { feature_flag_id: flagId, limit: 50, ...(archivedOnly && { archived: true }) },
+        })
+        return page.results ?? []
+    }
+    const live = await listLinked(false)
+    if (live.length === 1) {
+        return { experimentId: live[0]!.id }
+    }
+    const archived = await listLinked(true)
+    if (live.length === 0 && archived.length === 1) {
+        return { experimentId: archived[0]!.id }
+    }
+    return {
+        candidates: [
+            ...live.map((experiment) => toCandidate(experiment, false)),
+            ...archived.map((experiment) => toCandidate(experiment, true)),
+        ],
+    }
+}
 
 const experimentGetByFlagKey = (): ToolBase<typeof schema, Result> => ({
     name: 'experiment-get-by-flag-key',
@@ -74,6 +104,7 @@ const experimentGetByFlagKey = (): ToolBase<typeof schema, Result> => ({
         if (flagMatches.length === 0) {
             return {
                 found: false,
+                reason: 'no_flag',
                 feature_flag_key: key,
                 message:
                     `No feature flag with key "${key}" exists in this project, so no experiment is linked to it. ` +
@@ -93,6 +124,7 @@ const experimentGetByFlagKey = (): ToolBase<typeof schema, Result> => ({
         if (experimentIds.length === 0) {
             return {
                 found: false,
+                reason: 'no_experiment',
                 feature_flag_key: key,
                 message:
                     `Feature flag "${key}" (ID ${flag.id}) exists but no experiment is linked to it. ` +
@@ -102,39 +134,22 @@ const experimentGetByFlagKey = (): ToolBase<typeof schema, Result> => ({
 
         let experimentId = experimentIds[0]!
         if (experimentIds.length > 1) {
-            const listPath = `/api/projects/${encodeURIComponent(projectId)}/experiments/`
-            const listLinked = async (archived: boolean): Promise<Schemas.ExperimentBasic[]> => {
-                const page = await context.api.request<Schemas.PaginatedExperimentBasicList>({
-                    method: 'GET',
-                    path: listPath,
-                    query: archived
-                        ? { feature_flag_id: flag.id, archived: true, limit: 50 }
-                        : { feature_flag_id: flag.id, limit: 50 },
-                })
-                return page.results ?? []
-            }
-            const live = await listLinked(false)
-            if (live.length === 1) {
-                experimentId = live[0]!.id
-            } else {
-                const archived = await listLinked(true)
-                if (live.length === 0 && archived.length === 1) {
-                    experimentId = archived[0]!.id
-                } else {
-                    const candidates = [
-                        ...live.map((experiment) => toCandidate(experiment, false)),
-                        ...archived.map((experiment) => toCandidate(experiment, true)),
-                    ]
-                    return {
-                        found: false,
-                        feature_flag_key: key,
-                        candidates,
-                        message:
-                            `${candidates.length} experiments are linked to feature flag "${key}" (ID ${flag.id}) and ` +
-                            'none stands out as the live one. Pick from `candidates` and pass its `id` to `experiment-get`.',
-                    }
+            const pick = await pickLinkedExperiment(context, projectId, flag.id)
+            if ('candidates' in pick) {
+                return {
+                    found: false,
+                    reason: 'ambiguous',
+                    feature_flag_key: key,
+                    candidates: pick.candidates,
+                    message:
+                        pick.candidates.length > 0
+                            ? `${pick.candidates.length} experiments are linked to feature flag "${key}" (ID ${flag.id}) and ` +
+                              'none stands out as the live one. Pick from `candidates` and pass its `id` to `experiment-get`.'
+                            : `Feature flag "${key}" (ID ${flag.id}) lists experiments ${experimentIds.join(', ')}, but none ` +
+                              'came back from the experiments list. Try `experiment-get` with one of those ids.',
                 }
             }
+            experimentId = pick.experimentId
         }
 
         const experiment = await context.api.request<Schemas.Experiment>({

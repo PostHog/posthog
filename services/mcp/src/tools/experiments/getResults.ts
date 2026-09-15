@@ -1,6 +1,6 @@
 import type { z } from 'zod'
 
-import { findRecoverableApiError, PostHogApiError, wrapError } from '@/lib/errors'
+import { findRecoverableApiError, PostHogApiError, PostHogValidationError, wrapError } from '@/lib/errors'
 import { withUiApp } from '@/resources/ui-apps'
 import type { ExperimentResultsSummary } from '@/schema/experiments'
 import { transformExperimentResults } from '@/schema/experiments'
@@ -31,14 +31,15 @@ export const getResultsHandler: ToolBase<typeof schema, Result>['handler'] = asy
 
     if (!result.success) {
         const message = `Failed to get experiment results: ${result.error.message}`
-        // Only a not-found is an agent-recoverable id mistake, so only that keeps the typed
-        // error reachable as `cause`. A 400 from /query/ means the exposure query was built
-        // wrong on this side, and hiding it from exception capture would bury the bug.
+        // A 400 from /query/ means the exposure query was built wrong on this side. Dropping
+        // the typed cause keeps it out of handleToolError's 4xx short-circuit so it is still
+        // captured as an exception. Every other failure keeps its cause: a 404, 403 or 429
+        // is the agent's or the caller's to recover from.
         const apiError = findRecoverableApiError(result.error)
-        if (apiError instanceof PostHogApiError && apiError.status === 404) {
-            throw wrapError(message, result.error)
-        }
-        throw new Error(message)
+        const isOwnQueryBug =
+            apiError instanceof PostHogValidationError ||
+            (apiError instanceof PostHogApiError && apiError.status === 400)
+        throw isOwnQueryBug ? new Error(message) : wrapError(message, result.error)
     }
 
     const {

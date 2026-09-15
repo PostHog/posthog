@@ -62,8 +62,6 @@ const featureFlagGetDefinitionByKey = (): ToolBase<typeof schema, Result> => ({
 
         const projectId = await context.stateManager.getProjectId()
 
-        // The search result already has the full flag, so it's wrapped directly instead of
-        // triggering a redundant fetch-by-id round trip.
         const matches = await resolveFlagsByKey(context, projectId, key)
 
         if (matches.length === 0) {
@@ -85,6 +83,8 @@ const featureFlagGetDefinitionByKey = (): ToolBase<typeof schema, Result> => ({
             )
         }
         const flag = matches[0]!
+        // The list row is already the full flag, so it's wrapped directly instead of
+        // triggering a redundant fetch-by-id round trip.
         const flagWithUrl = await withPostHogUrl(context, flag, `/feature_flags/${flag.id}`)
         return { ...flagWithUrl, found: true }
     },

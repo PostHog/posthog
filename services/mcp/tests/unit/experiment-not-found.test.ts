@@ -1,7 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiClient } from '@/api/client'
-import { findRecoverableApiError, handleToolError, PostHogApiError, PostHogValidationError } from '@/lib/errors'
+import {
+    findRecoverableApiError,
+    handleToolError,
+    PostHogApiError,
+    PostHogPermissionError,
+    PostHogRateLimitError,
+    PostHogValidationError,
+} from '@/lib/errors'
 import { getResultsHandler } from '@/tools/experiments/getResults'
 import type { Context } from '@/tools/types'
 
@@ -52,6 +59,21 @@ describe('experiment not-found rewrite', () => {
         expect((result.error as PostHogApiError).status).toBe(404)
         expect(result.error.message).toContain('Experiment 999 not found in this project')
         expect(result.error.message).toContain('experiment-list')
+    })
+
+    it('rewrites a lifecycle action 404 that carries only the generic detail, since that means the experiment is missing', async () => {
+        stubNotFound()
+
+        const result = await buildClient()
+            .request({ method: 'POST', path: '/api/projects/42/experiments/999/launch/' })
+            .then(
+                () => undefined,
+                (error: unknown) => error
+            )
+
+        expect(result).toBeInstanceOf(PostHogApiError)
+        expect((result as PostHogApiError).status).toBe(404)
+        expect((result as PostHogApiError).message).toContain('Experiment 999 not found in this project')
     })
 
     it('passes a sub-resource 404 through with the backend detail instead of claiming the experiment is missing', async () => {
@@ -177,6 +199,71 @@ describe('experiment not-found rewrite', () => {
         const handled = handleToolError(thrown, 'experiment-results-get')
         expect(handled.isError).toBe(true)
         expect(handled.content[0]).toMatchObject({ text: expect.stringContaining('unknown key(s): properties') })
+        expect(captureException).toHaveBeenCalledTimes(1)
+    })
+
+    const resultsContextFailingWith = (error: Error): Context =>
+        ({
+            api: {
+                experiments: () => ({
+                    getMetricResults: vi.fn().mockResolvedValue({ success: false, error }),
+                }),
+            },
+            stateManager: { getProjectId: vi.fn().mockResolvedValue('42') },
+        }) as unknown as Context
+
+    const throwFromResults = (error: Error): Promise<unknown> =>
+        getResultsHandler(resultsContextFailingWith(error), { id: 999, refresh: false }).then(
+            () => undefined,
+            (thrown: unknown) => thrown
+        )
+
+    it('keeps a rate limit on the results tool agent-recoverable instead of capturing it', async () => {
+        const throttled = new PostHogRateLimitError({
+            body: '{"detail":"Request was throttled."}',
+            url: 'https://us.posthog.com/api/environments/42/query/',
+            method: 'POST',
+            retryAfterSeconds: 5,
+        })
+
+        const thrown = await throwFromResults(throttled)
+
+        expect(findRecoverableApiError(thrown)).toBe(throttled)
+        const handled = handleToolError(thrown, 'experiment-results-get')
+        expect(handled.content[0]).toMatchObject({ text: expect.stringContaining('rate limit') })
+        expect(captureException).not.toHaveBeenCalled()
+    })
+
+    it('keeps a permission denial on the results tool on the permission path with its guidance', async () => {
+        const denied = new PostHogPermissionError({
+            detail: 'You do not have access to this project.',
+            url: 'https://us.posthog.com/api/environments/42/query/',
+            method: 'POST',
+        })
+
+        const thrown = await throwFromResults(denied)
+
+        const handled = handleToolError(thrown, 'experiment-results-get')
+        expect(handled.content[0]).toMatchObject({ text: expect.stringContaining('do not have access') })
+        expect(captureException).toHaveBeenCalledWith(
+            expect.anything(),
+            undefined,
+            expect.objectContaining({ is_permission_error: true })
+        )
+    })
+
+    it('still captures a 5xx from the results tool as an exception', async () => {
+        const serverError = new PostHogApiError({
+            status: 500,
+            statusText: 'Internal Server Error',
+            body: '{"detail":"query failed"}',
+            url: 'https://us.posthog.com/api/environments/42/query/',
+            method: 'POST',
+        })
+
+        const thrown = await throwFromResults(serverError)
+
+        expect(handleToolError(thrown, 'experiment-results-get').isError).toBe(true)
         expect(captureException).toHaveBeenCalledTimes(1)
     })
 })
