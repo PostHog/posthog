@@ -96,7 +96,7 @@ export function GithubConnectionRequiredDialog({
                 ? "text-(--gray-11) text-sm"
                 : connectionReady
                   ? "text-(--green-11) text-sm"
-                : "text-(--red-11) text-sm"
+                  : "text-(--red-11) text-sm"
             }
           >
             {connectionMessage}

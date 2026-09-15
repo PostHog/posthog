@@ -55,7 +55,9 @@ function getRecoveryPrompt(task: Task): string {
 
 function getRestartErrorMessage(error: unknown): string {
   const message =
-    error instanceof Error ? error.message : "The task could not restart. Try again.";
+    error instanceof Error
+      ? error.message
+      : "The task could not restart. Try again.";
   return isGithubConnectionRequiredError(message)
     ? "GitHub is connected, but it cannot access this repository. Update GitHub repository access, then try again."
     : message;
@@ -135,21 +137,20 @@ export function GithubConnectionRequiredRecovery({
     isPending,
     connect,
     reset,
-  } =
-    useGithubConnect({
-      projectId,
-      // Unknown until the list lands: an empty list reads as "no team
-      // integration", which would send an admin through an org install they
-      // do not need.
-      projectHasTeamIntegration: isLoadingIntegrations
-        ? null
-        : hasGithubIntegration,
-      onConnected: () => {
-        if (!connectStartedRef.current) return;
-        connectStartedRef.current = false;
-        setConnectionReady(true);
-      },
-    });
+  } = useGithubConnect({
+    projectId,
+    // Unknown until the list lands: an empty list reads as "no team
+    // integration", which would send an admin through an org install they
+    // do not need.
+    projectHasTeamIntegration: isLoadingIntegrations
+      ? null
+      : hasGithubIntegration,
+    onConnected: () => {
+      if (!connectStartedRef.current) return;
+      connectStartedRef.current = false;
+      setConnectionReady(true);
+    },
+  });
 
   useEffect(() => {
     if (hasError || isTimedOut) connectStartedRef.current = false;
@@ -200,12 +201,12 @@ export function GithubConnectionRequiredRecovery({
     (connectionReady
       ? "GitHub is connected. Retry the task to continue."
       : hasError
-      ? describeGithubConnectError(error)
-      : isTimedOut
-        ? GITHUB_CONNECT_TIMEOUT_MESSAGE
-        : isPending
-          ? GITHUB_INSTALL_PENDING_MESSAGE
-          : undefined);
+        ? describeGithubConnectError(error)
+        : isTimedOut
+          ? GITHUB_CONNECT_TIMEOUT_MESSAGE
+          : isPending
+            ? GITHUB_INSTALL_PENDING_MESSAGE
+            : undefined);
   // Connecting and restarting both drive the dialog's primary button.
   const primaryActionBusy = isConnecting || isRestarting;
 
@@ -243,7 +244,9 @@ export function GithubConnectionRequiredRecovery({
       onOpenChange={onOpenChange}
       onConnect={startConnect}
       onRetryTask={
-        restartError || connectionReady ? () => void retryInvestigation() : undefined
+        restartError || connectionReady
+          ? () => void retryInvestigation()
+          : undefined
       }
       onRunLocally={runLocally}
     />

@@ -20,6 +20,7 @@ import { useBranchMismatchDialog } from "../../workspace/useBranchMismatchDialog
 import { useWorkspaceLoaded } from "../../workspace/useWorkspace";
 import { useCreateWorkspace } from "../../workspace/useWorkspaceMutations";
 import { BranchMismatchDialog } from "../BranchMismatchDialog";
+import { canControlTask } from "./taskControl";
 import { WorkspaceSetupPrompt } from "./WorkspaceSetupPrompt";
 
 interface TaskLogsPanelProps {
@@ -97,8 +98,7 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
     typeof task.latest_run?.state?.slack_thread_url === "string"
       ? task.latest_run.state.slack_thread_url
       : undefined;
-  const canRecoverGithubTask =
-    session?.isTaskAuthor !== false || !task.channel;
+  const canRecoverGithubTask = canControlTask(task, session?.isTaskAuthor);
   const githubRecoveryAvailable =
     githubConnectionRequired && canRecoverGithubTask;
   const [githubRecoveryOpen, setGithubRecoveryOpen] = useState(
