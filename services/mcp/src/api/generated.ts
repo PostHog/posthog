@@ -54303,6 +54303,71 @@ export namespace Schemas {
       enabled: boolean;
     }
 
+    /**
+     * A resolved access level with the rule that supplied it — the wire form of `ResolvedAccess`.
+     */
+    export interface ProjectAccessSource {
+      /** The access level that applies. */
+      access_level: string;
+      /** How the level was derived: a rule on the object, its parent object, the resource, the parent resource, the PostHog default, an organization admin's or a creator's full access, or organization membership when the object is the organization itself.
+       *
+       * * `object` - object
+       * * `parent_object` - parent_object
+       * * `resource` - resource
+       * * `parent_resource` - parent_resource
+       * * `system_default` - system_default
+       * * `org_admin` - org_admin
+       * * `creator` - creator
+       * * `org_membership` - org_membership */
+      source: ResolvedAccessSourceEnum;
+      /** Whose rule decided: a member's own, a role's, or the default for everyone in the project. Null when no rule did.
+       *
+       * * `member` - member
+       * * `role` - role
+       * * `default` - default */
+      source_subject: ResolvedAccessSourceSubjectEnum | null;
+      /** The resource the deciding rule belongs to. */
+      source_resource: string;
+      /**
+         * The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).
+         * @nullable
+         */
+      source_resource_id: string | null;
+      /**
+         * The name of the role or member whose rule decided. Null when the default or a bypass decided.
+         * @nullable
+         */
+      subject_name: string | null;
+    }
+
+    export interface MemberProjectAccessEntry {
+      /** The project's id. */
+      team_id: number;
+      /** The project's name. */
+      team_name: string;
+      /** The member's enforced access to the project: none, member or admin. */
+      access_level: string;
+      /** The rule that supplies the level. Read `source` and `source_subject` to tell an organization admin's bypass from a member rule, a role rule or the project default. */
+      resolved: ProjectAccessSource | null;
+      /**
+         * The id of the role or organization membership whose rule decided. Null when the default or a bypass decided.
+         * @nullable
+         */
+      subject_id: string | null;
+    }
+
+    export interface MemberProjectAccess {
+      /** The organization membership id. */
+      organization_membership_id: string;
+      /** One entry per project the caller can access, including projects the member cannot. */
+      projects: MemberProjectAccessEntry[];
+    }
+
+    export interface MemberProjectAccessResponse {
+      /** One entry per visible organization member. */
+      results: MemberProjectAccess[];
+    }
+
     export type MessageContextualTools = { [key: string]: unknown };
 
     /**
@@ -96136,6 +96201,13 @@ export namespace Schemas {
      * Match against member `first_name`, `last_name`, and `email`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters.
      */
     search?: string;
+    };
+
+    export type MembersProjectAccessRetrieveParams = {
+    /**
+     * Narrow the list to one organization membership id.
+     */
+    member_id?: string;
     };
 
     export type OauthApplicationsListParams = {

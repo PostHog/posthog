@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonBanner, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -14,6 +14,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import {
@@ -30,6 +31,10 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, OrganizationMemberType } from '~/types'
+
+import { accessibleProjects } from './memberProjectAccess'
+import { memberProjectAccessLogic } from './memberProjectAccessLogic'
+import { MemberProjectAccessModal } from './MemberProjectAccessModal'
 
 function RemoveMemberModal({ member }: { member: OrganizationMemberType }): JSX.Element {
     const { user } = useValues(userLogic)
@@ -76,6 +81,7 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { removeMember, changeMemberAccessLevel, loadMemberScopedApiKeys } = useActions(membersLogic)
+    const { openProjectAccessModal } = useActions(memberProjectAccessLogic)
 
     if (!user) {
         return null
@@ -97,14 +103,17 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
     )
     const disallowedReason = getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, allowedLevels)
 
-    if (disallowedReason && !allowDeletion) {
-        return null
-    }
-
     return (
         <More
             overlay={
                 <>
+                    <LemonButton
+                        fullWidth
+                        onClick={() => openProjectAccessModal(member)}
+                        data-attr="org-member-manage-project-access"
+                    >
+                        Manage project access
+                    </LemonButton>
                     {!disallowedReason &&
                         allowedLevels.map((listLevel) => (
                             <LemonButton
@@ -184,8 +193,52 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
     )
 }
 
+const PROJECT_TAGS_SHOWN = 3
+
+function ProjectAccessCell({ member }: { member: OrganizationMemberType }): JSX.Element {
+    const { projectAccess, projectAccessLoading } = useValues(memberProjectAccessLogic)
+    const { openProjectAccessModal } = useActions(memberProjectAccessLogic)
+
+    if (projectAccessLoading) {
+        return <LemonSkeleton className="h-5 w-32" />
+    }
+
+    const projects = accessibleProjects(projectAccess?.[member.id] ?? [])
+    if (projects.length === 0) {
+        return <span className="text-muted">No projects</span>
+    }
+
+    const visibleProjects = projects.slice(0, PROJECT_TAGS_SHOWN)
+    const hiddenCount = projects.length - visibleProjects.length
+
+    return (
+        <div className="flex flex-wrap gap-1 items-center">
+            {visibleProjects.map((project) => (
+                <LemonTag
+                    key={project.team_id}
+                    type="default"
+                    className="max-w-40 truncate"
+                    onClick={() => openProjectAccessModal(member)}
+                >
+                    {project.team_name}
+                </LemonTag>
+            ))}
+            {hiddenCount > 0 && (
+                <Link
+                    className="text-warning text-xs"
+                    onClick={() => openProjectAccessModal(member)}
+                    data-attr="org-member-project-access-more"
+                >
+                    {`+${hiddenCount} more`}
+                </Link>
+            )}
+        </div>
+    )
+}
+
 export function Members(): JSX.Element | null {
     const { filteredMembers, members, membersLoading, search } = useValues(membersLogic)
+    const { projectAccess } = useValues(memberProjectAccessLogic)
     const { downloadMembersListDisabledReason } = useValues(membersExportLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
@@ -214,36 +267,28 @@ export function Members(): JSX.Element | null {
             width: 32,
         },
         {
-            title: 'Name',
+            title: 'Member',
             key: 'user_name',
             render: (_, member) => (
-                <span className="ph-no-capture">
-                    {member.user.uuid == user.uuid ? `${fullName(member.user)} (you)` : fullName(member.user)}
-                </span>
+                <div className="flex flex-col py-1">
+                    <span className="ph-no-capture font-medium">
+                        {member.user.uuid == user.uuid ? `${fullName(member.user)} (you)` : fullName(member.user)}
+                    </span>
+                    <span className="ph-no-capture text-secondary text-xs">{member.user.email}</span>
+                    {!member.user.is_email_verified &&
+                        !member.has_social_auth &&
+                        preflight?.email_service_available && (
+                            <LemonTag
+                                type="highlight"
+                                className="self-start mt-1"
+                                data-attr="pending-email-verification"
+                            >
+                                pending email verification
+                            </LemonTag>
+                        )}
+                </div>
             ),
             sorter: (a, b) => fullName(a.user).localeCompare(fullName(b.user)),
-        },
-        {
-            title: 'Email',
-            key: 'user_email',
-            render: (_, member) => {
-                return (
-                    <>
-                        <span className="ph-no-capture">{member.user.email}</span>
-                        {!member.user.is_email_verified &&
-                            !member.has_social_auth &&
-                            preflight?.email_service_available && (
-                                <>
-                                    {' '}
-                                    <LemonTag type="highlight" data-attr="pending-email-verification">
-                                        pending email verification
-                                    </LemonTag>
-                                </>
-                            )}
-                    </>
-                )
-            },
-            sorter: (a, b) => a.user.email.localeCompare(b.user.email),
         },
         {
             title: 'Level',
@@ -257,6 +302,14 @@ export function Members(): JSX.Element | null {
                 )
             },
             sorter: (a, b) => a.level - b.level,
+        },
+        {
+            title: 'Project access',
+            key: 'project_access',
+            render: (_, member) => <ProjectAccessCell member={member} />,
+            sorter: (a, b) =>
+                accessibleProjects(projectAccess?.[a.id] ?? []).length -
+                accessibleProjects(projectAccess?.[b.id] ?? []).length,
         },
         {
             title: '2FA',
@@ -344,6 +397,7 @@ export function Members(): JSX.Element | null {
                 )}
             </div>
 
+            <MemberProjectAccessModal />
             <LemonTable
                 dataSource={filteredMembers ?? []}
                 columns={columns}
