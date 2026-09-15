@@ -27,6 +27,9 @@ interface GithubConnectionRequiredDialogProps {
   canRunLocally: boolean;
   onOpenChange: (open: boolean) => void;
   onConnect: () => void;
+  /** Set once a restart has failed: GitHub is connected, so the task itself is
+   *  the action to repeat, not the connection. */
+  onRetryTask?: () => void;
   onRunLocally: () => void;
 }
 
@@ -40,6 +43,7 @@ export function GithubConnectionRequiredDialog({
   canRunLocally,
   onOpenChange,
   onConnect,
+  onRetryTask,
   onRunLocally,
 }: GithubConnectionRequiredDialogProps): ReactElement {
   const [showWhy, setShowWhy] = useState(false);
@@ -134,16 +138,29 @@ export function GithubConnectionRequiredDialog({
           >
             Why do I need this?
           </Button>
-          <Button
-            type="button"
-            variant="primary"
-            loading={isConnecting}
-            disabled={isConnecting || !canConnect}
-            data-attr="connect-github-for-code-context"
-            onClick={onConnect}
-          >
-            Connect GitHub
-          </Button>
+          {onRetryTask ? (
+            <Button
+              type="button"
+              variant="primary"
+              loading={isConnecting}
+              disabled={isConnecting}
+              data-attr="retry-github-blocked-task"
+              onClick={onRetryTask}
+            >
+              Try again
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              variant="primary"
+              loading={isConnecting}
+              disabled={isConnecting || !canConnect}
+              data-attr="connect-github-for-code-context"
+              onClick={onConnect}
+            >
+              Connect GitHub
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -1,11 +1,11 @@
 import type { Task } from "@posthog/shared/domain-types";
-import { fireEvent, render } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GithubConnectionRequiredRecovery } from "./GithubConnectionRequiredRecovery";
 
 const sessionService = vi.hoisted(() => ({
-  retryGithubRequiredCloudRun: vi.fn().mockResolvedValue(undefined),
+  retryGithubRequiredCloudRun: vi.fn(),
 }));
 
 const connectState = vi.hoisted(() => ({
@@ -40,6 +40,9 @@ vi.mock("@posthog/ui/shell/useHostCapabilities", () => ({
 vi.mock("@posthog/ui/router/useOpenTask", () => ({ openTaskInput: vi.fn() }));
 vi.mock("@posthog/ui/primitives/toast", () => ({
   toast: { error: vi.fn() },
+}));
+vi.mock("@posthog/ui/shell/logger", () => ({
+  logger: { scope: () => ({ error: vi.fn(), info: vi.fn(), warn: vi.fn() }) },
 }));
 vi.mock("@posthog/ui/features/integrations/useGithubUserConnect", () => ({
   useGithubConnect: ({
@@ -78,6 +81,7 @@ function makeTask(id: string): Task {
 describe("GithubConnectionRequiredRecovery", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sessionService.retryGithubRequiredCloudRun.mockResolvedValue(undefined);
     connectState.onConnected = [];
     connectState.projectHasTeamIntegration = undefined;
     integrationState.hasGithubIntegration = false;
@@ -123,6 +127,52 @@ describe("GithubConnectionRequiredRecovery", () => {
       );
     },
   );
+
+  it("offers a direct retry after a restart fails", async () => {
+    sessionService.retryGithubRequiredCloudRun
+      .mockRejectedValueOnce(
+        new Error(
+          "Only the person who created this task can send it messages.",
+        ),
+      )
+      .mockResolvedValueOnce(undefined);
+    const onOpenChange = vi.fn();
+
+    render(
+      <GithubConnectionRequiredRecovery
+        task={makeTask("task-1")}
+        open
+        onOpenChange={onOpenChange}
+      />,
+    );
+
+    fireEvent.click(
+      document.querySelector(
+        '[data-attr="connect-github-for-code-context"]',
+      ) as HTMLButtonElement,
+    );
+    await act(async () => {
+      for (const onConnected of connectState.onConnected) onConnected();
+    });
+
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(
+        "Only the person who created this task can send it messages.",
+      ),
+    ).toBeInTheDocument();
+
+    const retryButton = document.querySelector<HTMLButtonElement>(
+      '[data-attr="retry-github-blocked-task"]',
+    );
+    expect(retryButton).not.toBeNull();
+    await act(async () => {
+      fireEvent.click(retryButton as HTMLButtonElement);
+    });
+
+    expect(sessionService.retryGithubRequiredCloudRun).toHaveBeenCalledTimes(2);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
 
   it("retries only the task whose dialog started the connection", async () => {
     render(

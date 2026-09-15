@@ -22,6 +22,7 @@ import { useGithubConnect } from "@posthog/ui/features/integrations/useGithubUse
 import { useRepositoryIntegration } from "@posthog/ui/features/integrations/useIntegrations";
 import { toast } from "@posthog/ui/primitives/toast";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
+import { logger } from "@posthog/ui/shell/logger";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import {
   type ReactElement,
@@ -29,6 +30,7 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useState,
 } from "react";
 import { GithubConnectionRequiredDialog } from "./GithubConnectionRequiredDialog";
 
@@ -37,6 +39,8 @@ interface GithubConnectionRequiredRecoveryProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
+
+const log = logger.scope("github-connection-recovery");
 
 function getRecoveryPrompt(task: Task): string {
   return (
@@ -72,17 +76,33 @@ export function GithubConnectionRequiredRecovery({
     [folders, repository],
   );
 
+  const [restartError, setRestartError] = useState<string | null>(null);
+  const [isRestarting, setIsRestarting] = useState(false);
+
   const retryInvestigation = useCallback(async () => {
+    setIsRestarting(true);
+    setRestartError(null);
     try {
       await sessionService.retryGithubRequiredCloudRun(
         task.id,
         getRecoveryPrompt(task),
       );
       onOpenChange(false);
-    } catch {
-      toast.error("GitHub connected, but the task could not restart", {
-        description: "Open the task again and retry.",
+    } catch (error) {
+      // The service explains a refused resume, so keep its wording instead of
+      // advice that cannot help, and leave the reason in the logs.
+      const message =
+        error instanceof Error
+          ? error.message
+          : "The task could not restart. Try again.";
+      log.error("Failed to restart a GitHub-blocked task", {
+        taskId: task.id,
+        error,
       });
+      setRestartError(message);
+      toast.error("The task could not restart", { description: message });
+    } finally {
+      setIsRestarting(false);
     }
   }, [onOpenChange, sessionService, task]);
 
@@ -137,18 +157,22 @@ export function GithubConnectionRequiredRecovery({
     });
   }, [localFolder, omittedRepositories, onOpenChange, repository, task]);
 
-  const connectionMessage = hasError
-    ? describeGithubConnectError(error)
-    : isTimedOut
-      ? GITHUB_CONNECT_TIMEOUT_MESSAGE
-      : isPending
-        ? GITHUB_INSTALL_PENDING_MESSAGE
-        : undefined;
+  const connectionMessage =
+    restartError ??
+    (hasError
+      ? describeGithubConnectError(error)
+      : isTimedOut
+        ? GITHUB_CONNECT_TIMEOUT_MESSAGE
+        : isPending
+          ? GITHUB_INSTALL_PENDING_MESSAGE
+          : undefined);
+  // Connecting and restarting both drive the dialog's primary button.
+  const primaryActionBusy = isConnecting || isRestarting;
 
   return (
     <GithubConnectionRequiredDialog
       open={open}
-      isConnecting={isConnecting}
+      isConnecting={primaryActionBusy}
       connectionMessage={connectionMessage}
       requirementMessage={
         task.signal_report
@@ -164,6 +188,7 @@ export function GithubConnectionRequiredRecovery({
         connectStartedRef.current = true;
         void connect();
       }}
+      onRetryTask={restartError ? () => void retryInvestigation() : undefined}
       onRunLocally={runLocally}
     />
   );
