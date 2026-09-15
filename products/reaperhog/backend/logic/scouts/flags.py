@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from datetime import datetime
 
 from products.feature_flags.backend.facade.api import FlagSummary, list_flag_summaries
@@ -23,7 +24,7 @@ class FlagsScout:
         return scope in (SCOPE_FLAGS, SCOPE_ALL) or scope not in NAMED_SCOPES
 
     def run(self, context: ScoutContext) -> list[Hit]:
-        summaries = {summary.key: summary for summary in list_flag_summaries(context.team_id)}
+        summaries = preferred_summaries(list_flag_summaries(context.team_id))
         constant_by_key = {key: constant for constant, key in context.repo.frontend_flag_keys().items()}
         keys = sorted(set(summaries) | set(constant_by_key))
         references = context.repo.references_many({key: flag_patterns(key, constant_by_key.get(key)) for key in keys})
@@ -37,6 +38,26 @@ class FlagsScout:
             if hit is not None:
                 hits.append(hit)
         return hits
+
+
+def preferred_summaries(summaries: Iterable[FlagSummary]) -> dict[str, FlagSummary]:
+    """One summary per key, keyed by the key the source code refers to.
+
+    Soft-deleting a flag renames its row and frees the original key for a new flag, and a
+    summary reports the key without the tombstone, so a reused key arrives twice. The live
+    flag is the one the code evaluates, so it wins. Between two tombstones, the row changed
+    most recently is the closest match to the code.
+    """
+    chosen: dict[str, FlagSummary] = {}
+    for summary in summaries:
+        current = chosen.get(summary.key)
+        if current is None or _precedence(summary) > _precedence(current):
+            chosen[summary.key] = summary
+    return chosen
+
+
+def _precedence(summary: FlagSummary) -> tuple[bool, datetime]:
+    return (not summary.deleted, summary.updated_at or summary.created_at)
 
 
 def classify_flag(

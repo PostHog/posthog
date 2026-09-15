@@ -10,7 +10,7 @@ from products.reaperhog.backend.logic.enrollment import FlagEnrollment
 from products.reaperhog.backend.logic.repo import CommitStamp, ReferenceCount
 from products.reaperhog.backend.logic.scouts.archaeology import classify_directory
 from products.reaperhog.backend.logic.scouts.experiments import classify_experiment
-from products.reaperhog.backend.logic.scouts.flags import classify_flag
+from products.reaperhog.backend.logic.scouts.flags import classify_flag, preferred_summaries
 
 NOW = datetime(2026, 8, 30, tzinfo=UTC)
 REFERENCE = ReferenceCount(files=("a.py", "b.tsx", "test_a.py"), total=4)
@@ -40,6 +40,27 @@ def _summary(**overrides: object) -> FlagSummary:
     }
     values.update(overrides)
     return FlagSummary(**values)  # type: ignore[arg-type]
+
+
+_LIVE = _summary(id=2, key="checkout", updated_at=_days_ago(10))
+_OLD_TOMBSTONE = _summary(id=1, key="checkout", deleted=True, updated_at=_days_ago(30))
+_NEW_TOMBSTONE = _summary(id=3, key="checkout", deleted=True, updated_at=_days_ago(5))
+
+
+@pytest.mark.parametrize(
+    "rows,expected",
+    [
+        ([_LIVE, _NEW_TOMBSTONE], _LIVE),
+        ([_NEW_TOMBSTONE, _LIVE], _LIVE),
+        ([_OLD_TOMBSTONE, _NEW_TOMBSTONE], _NEW_TOMBSTONE),
+        ([_NEW_TOMBSTONE, _OLD_TOMBSTONE], _NEW_TOMBSTONE),
+    ],
+)
+def test_preferred_summaries_picks_the_row_the_code_refers_to(rows: list[FlagSummary], expected: FlagSummary) -> None:
+    chosen = preferred_summaries(rows)
+
+    assert list(chosen) == ["checkout"]
+    assert chosen["checkout"] is expected
 
 
 @pytest.mark.parametrize(
