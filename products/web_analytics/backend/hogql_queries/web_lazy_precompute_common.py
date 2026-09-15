@@ -295,11 +295,15 @@ STICKY_SHAPE_MAX_AGE_SECONDS = 24 * 3600
 # are a few bytes and age out on the warmer's hourly prune. When full, new
 # shapes simply are not recorded — they keep self-healing via check-miss builds.
 STICKY_SHAPE_MAX_ENTRIES = 20_000
+# Per-entry byte ceiling on the stored query. A legitimate filter set serializes to
+# ~1-2 KB; this only rejects an abusively large filter value that would otherwise sit
+# in shared Redis for the entry's lifetime. The shape still self-heals via check-miss.
+STICKY_SHAPE_MAX_QUERY_BYTES = 50_000
 
 WEB_ANALYTICS_STICKY_WARM_RECORDED = Counter(
     "web_analytics_sticky_warm_shapes_recorded_total",
     "Check-missed shapes recorded into (or refused by) the sticky warm set.",
-    labelnames=["outcome"],  # marked | recorded | full | error
+    labelnames=["outcome"],  # marked | recorded | full | oversized | error
 )
 
 
@@ -337,6 +341,11 @@ def record_sticky_warm_shape(*, team: Team, runner: Any) -> None:
                     "query": runner.query.model_dump(mode="json", exclude_none=True),
                 }
             )
+            if len(payload) > STICKY_SHAPE_MAX_QUERY_BYTES:
+                # Leave the marker rather than retain an oversized query: the warmer
+                # skips a shape it has no query for, and the shape still self-heals.
+                WEB_ANALYTICS_STICKY_WARM_RECORDED.labels(outcome="oversized").inc()
+                return
             outcome = "recorded"
         pipe = client.pipeline()
         pipe.hset(STICKY_WARM_SHAPES_KEY, field, payload)

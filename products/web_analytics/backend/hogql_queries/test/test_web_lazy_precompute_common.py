@@ -841,6 +841,16 @@ class TestStickyWarmShapes(BaseTest):
         record_sticky_warm_shape(team=self.team, runner=self._runner(_overview(date_from="-7d")))
         assert len(get_sticky_warm_shapes()) == 1
 
+    def test_oversized_query_stays_a_marker(self):
+        # A multi-megabyte filter value must not be retained in shared Redis for the
+        # entry's lifetime. The second miss would upgrade the marker to a full entry,
+        # but the oversized payload keeps it a marker instead.
+        huge = _overview(properties=[EventPropertyFilter(key="$host", value="x" * 60_000, operator="exact")])
+        record_sticky_warm_shape(team=self.team, runner=self._runner(huge))
+        record_sticky_warm_shape(team=self.team, runner=self._runner(huge))
+        assert get_sticky_warm_shapes() == []
+        assert redis.get_client().hlen(STICKY_WARM_SHAPES_KEY) == 1  # marker only, never upgraded
+
     @mock.patch(f"{_COMMON}.STICKY_SHAPE_MAX_ENTRIES", 1)
     def test_full_set_refuses_new_shapes_but_upgrades_existing_markers(self):
         record_sticky_warm_shape(team=self.team, runner=self._runner())  # marker fills the cap

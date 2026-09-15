@@ -649,12 +649,21 @@ def get_warmable_queries_op(context: dagster.OpExecutionContext) -> list[dict]:
     # changed under the raw-replay demand bar, so stickiness can never mint raw
     # background scans.
     sticky = get_sticky_warm_shapes()
+    # Cap sticky contributions per team, matching the demand selection's
+    # `LIMIT ... BY team_id`, so one tenant filling the shared sticky set can't
+    # crowd the fleet-wide warm pass with its own shapes.
+    sticky_per_team: dict[int, int] = {}
+    sticky_added = 0
     for entry in sticky:
+        team_id = entry["team_id"]
+        if sticky_per_team.get(team_id, 0) >= MAX_SHAPES_PER_TEAM:
+            continue
+        sticky_per_team[team_id] = sticky_per_team.get(team_id, 0) + 1
         query_json = entry.get("query") or {}
         date_from = (query_json.get("dateRange") or {}).get("date_from")
         queries.append(
             {
-                "team_id": entry["team_id"],
+                "team_id": team_id,
                 "query_json": query_json,
                 "query_count": 1,
                 "representative_query_count": 1,
@@ -664,8 +673,9 @@ def get_warmable_queries_op(context: dagster.OpExecutionContext) -> list[dict]:
                 "observed_date_froms": [date_from] if date_from else [],
             }
         )
-    if sticky:
-        context.log.info(f"Unioned {len(sticky)} sticky check-miss shapes into the warm pass")
+        sticky_added += 1
+    if sticky_added:
+        context.log.info(f"Unioned {sticky_added} sticky check-miss shapes into the warm pass")
 
     team_count = len({q["team_id"] for q in queries})
 
