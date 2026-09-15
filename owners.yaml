@@ -61,7 +61,7 @@ rules:
     - match: '/bin/inject_mcp_intents.py'
       owners: mcp-analytics
     - match: '/.agents/skills/manage-dashboard-widgets/'
-      owners: team-analytics-platform
+      owners: team-product-analytics
     - match: '/.claude/'
       owners: team-devex
     - match: '/.claude/agents/ingestion/'
