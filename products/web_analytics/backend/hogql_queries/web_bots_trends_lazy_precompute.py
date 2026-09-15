@@ -254,6 +254,7 @@ def _scoped_properties(query: TrendsQuery) -> list[Any]:
     return kept
 
 
+# nosemgrep: tuple-return-prefer-dataclass -- opaque set-membership key, only ever compared whole
 def _filter_identity(prop: EventPropertyFilter) -> tuple[str, Any, str]:
     return (prop.key, prop.operator, repr(prop.value))
 
@@ -489,6 +490,7 @@ def _build_results(
 
     # Same final order as the live trends outer query: real values by descending total, then
     # the null bucket, then "Other"; ties break on the value itself.
+    # nosemgrep: tuple-return-prefer-dataclass -- opaque sort key, only ever compared whole
     def sort_key(breakdown_value: Any) -> tuple[int, float, str]:
         if breakdown_value == BREAKDOWN_OTHER_STRING_LABEL:
             ordering = 2
