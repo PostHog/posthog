@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator, model_v
 from products.signals.backend.artefact_schemas import (
     ActionabilityAssessment,
     ActionabilityChoice,
+    NoteArtefact,
     Priority,
     PriorityAssessment,
     SignalFinding,
@@ -48,12 +49,14 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "ActionabilityAssessment",
     "ActionabilityChoice",
+    "FixVerificationOutput",
     "Priority",
     "PriorityAssessment",
     "ReportPresentationOutput",
     "ReportResearchOutput",
     "ResearchArtefactContent",
     "SignalFinding",
+    "build_fix_verification_prompt",
     "run_multi_turn_research",
 ]
 
@@ -159,6 +162,40 @@ Hard rules:
         return v
 
 
+class FixVerificationOutput(BaseModel):
+    """Session output for the final, actionable-only fix verification turn."""
+
+    current_state: str = Field(
+        description=(
+            "Free-form guidance to confirm whether the reported issue still occurs. State the evidence to collect, "
+            "the result that supports a conclusion, and the result that is inconclusive."
+        ),
+    )
+    outcome: str = Field(
+        description=(
+            "Free-form guidance to confirm the intended outcome after the chosen resolution. State the evidence to "
+            "collect, the result that supports a conclusion, and the result that is inconclusive."
+        ),
+    )
+
+    @field_validator("current_state", "outcome")
+    @classmethod
+    def sections_must_not_be_empty(cls, section: str) -> str:
+        section = section.strip()
+        if not section:
+            raise ValueError("Verification plan sections must not be empty")
+        return section
+
+    def to_note(self) -> NoteArtefact:
+        return NoteArtefact(
+            note=(
+                f"## Verification plan\n\n"
+                f"### Confirm the current state\n\n{self.current_state}\n\n"
+                f"### Confirm the outcome\n\n{self.outcome}"
+            )
+        )
+
+
 # The report artefacts a research run produces: one finding per signal plus the two assessments.
 ResearchArtefactContent = SignalFinding | ActionabilityAssessment | PriorityAssessment
 
@@ -182,6 +219,13 @@ class ReportResearchOutput(BaseModel):
         default=None,
         description="UUID of the sandbox task that performed the research; artefacts persisted from "
         "this output are attributed to it. None for saved fixtures / pre-existing outputs.",
+    )
+    verification_note: NoteArtefact | None = Field(
+        default=None,
+        description=(
+            "An optional final note with checks to reproduce the issue and verify a hypothetical fix after deployment. "
+            "Present only when the report is actionable."
+        ),
     )
     # The run's findings and assessments split by whether they changed: `old_artefacts` were
     # confirmed unchanged (already persisted — a re-research reusing them writes nothing) and
@@ -785,6 +829,39 @@ Respond with a JSON object matching this schema:
 </jsonschema>"""
 
 
+def build_fix_verification_prompt() -> str:
+    """Build the final follow-up for actionable reports after all research and presentation work."""
+    schema = json.dumps(FixVerificationOutput.model_json_schema(), indent=2)
+    return f"""As the final step, write the **verification plan** for this actionable report.
+
+Base the plan only on the evidence and successful checks from this research session. Do not do more research in this turn. Do not prescribe a resolution or claim that one exists.
+
+Return two self-contained, free-form sections. Do not add headings because the pipeline adds them:
+
+- In `current_state`, explain how to confirm whether the reported issue still occurs.
+- In `outcome`, explain how to confirm the intended outcome after the chosen resolution.
+
+Each section must state:
+
+- What evidence to collect.
+- What result supports the conclusion.
+- What result is inconclusive.
+
+Choose the most direct method supported by the research. It can be a query, test, log search, replay, code review, or manual check. Include the details needed to perform the check, such as known commands, inputs, IDs, filters, or time bounds. Do not force a product metric when another method gives better evidence.
+
+State the observed baseline and comparison criterion when the research established them. Missing data, insufficient traffic, and failed checks are inconclusive. They do not show that the issue is resolved.
+
+- Do not invent tool arguments, IDs, events, baselines, or numerical thresholds. If a required input or success criterion is unknown, name it and say what must be established before drawing a conclusion.
+
+Do not include implementation instructions.
+
+Respond with a JSON object matching this schema. The pipeline will format it as a note with the heading `Verification plan`:
+
+<jsonschema>
+{schema}
+</jsonschema>"""
+
+
 def _enforce_signal_id(finding: SignalFinding, expected_id: str) -> SignalFinding:
     """Correct the finding's signal_id if the model returned a wrong one."""
     if finding.signal_id != expected_id:
@@ -1030,6 +1107,30 @@ async def run_multi_turn_research(
         if output_fn:
             output_fn(f"Report title: {presentation_result.title}")
 
+        # Final turn, and only for reports with a path to code work: turn the evidence already
+        # gathered into a short operational check that the downstream implementation can run.
+        verification_note: NoteArtefact | None = None
+        if actionability_result.actionability != ActionabilityChoice.NOT_ACTIONABLE:
+            if output_fn:
+                output_fn("Generating fix verification steps...")
+            verification_prompt = build_fix_verification_prompt()
+            try:
+                verification_result = await session.send_followup(
+                    verification_prompt,
+                    FixVerificationOutput,
+                    label="fix_verification",
+                )
+                verification_note = verification_result.to_note()
+            except Exception:
+                logger.exception(
+                    "multi_turn_research: failed to generate fix verification note",
+                    extra={
+                        "research_task_id": str(session.task.id),
+                        "team_id": context.team_id,
+                        "report_id": signal_report_id,
+                    },
+                )
+
         await session.end()
     except (Exception, asyncio.CancelledError) as e:
         # Shield so the session ending cannot itself be canceled - must complete
@@ -1050,6 +1151,7 @@ async def run_multi_turn_research(
         charts=presentation_result.charts if charts_enabled else [],
         metrics=presentation_result.metrics if metrics_enabled else [],
         research_task_id=str(session.task.id),
+        verification_note=verification_note,
         old_artefacts=old_artefacts,
         new_artefacts=new_artefacts,
     )
