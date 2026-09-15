@@ -45,6 +45,16 @@ class TraceSpansImpactQueryRunner(TraceSpansScalarQueryRunnerMixin, AnalyticsQue
         super().__init__(query, *args, **kwargs)
         self._identity_keys = identity_keys
 
+    def get_cache_payload(self) -> dict:
+        # The counts are resolved through the team's configured identity keys, which live in
+        # Postgres rather than in the query. Without them in the payload, editing the tracing
+        # config would keep serving counts computed under the superseded keys.
+        return {
+            **super().get_cache_payload(),
+            "tracing_session_keys": self._identity_keys.session,
+            "tracing_distinct_id_keys": self._identity_keys.distinct_id,
+        }
+
     @cached_property
     def settings(self) -> HogQLGlobalSettings:
         # Unlike the bare count, this decompresses the attribute maps over a mostly identical

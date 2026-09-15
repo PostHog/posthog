@@ -1,12 +1,12 @@
 import datetime as dt
 
-from posthog.schema import DateRange
+from posthog.schema import DateRange, TraceSpansQuery
 
 from posthog.clickhouse.client import sync_execute
 
-from products.tracing.backend.impact_query_runner import run_impact_query
+from products.tracing.backend.impact_query_runner import TraceSpansImpactQueryRunner, run_impact_query
 from products.tracing.backend.logic import run_aggregation_query
-from products.tracing.backend.models import TeamTracingConfig
+from products.tracing.backend.models import TeamTracingConfig, TracingIdentityAttributeKeys
 from products.tracing.backend.tests.test_keyset_pagination import DATE_FROM, DATE_TO, _b64, _TraceSpansTestBase
 
 # (service, span attributes, resource attributes). Span-attribute keys carry the ingestion MV's
@@ -102,6 +102,19 @@ class TestTraceSpansImpact(_ImpactTestBase):
 
     def test_unconfigured_key_reads_as_no_identity(self):
         self.assertNotIn("sess-custom", {entry["value"] for entry in self._impact()["topSessions"]})
+
+    def test_cache_key_covers_the_configured_identity_keys(self):
+        # The keys come from Postgres, not the query, so nothing else in the cache payload moves
+        # when a team edits them. Without them a config change keeps serving the old counts.
+        def cache_key(session_keys: list[str]) -> str:
+            runner = TraceSpansImpactQueryRunner(
+                TraceSpansQuery(dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO)),
+                self.team,
+                identity_keys=TracingIdentityAttributeKeys(session=session_keys, distinct_id=["posthogDistinctId"]),
+            )
+            return runner.get_cache_key()
+
+        self.assertNotEqual(cache_key(["sessionId"]), cache_key(["my.session.key"]))
 
     def test_configured_keys_are_read(self):
         TeamTracingConfig.objects.update_or_create(
