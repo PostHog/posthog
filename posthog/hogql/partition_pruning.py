@@ -313,56 +313,71 @@ def _is_events_table(table: ast.Field, shadowed: frozenset[str]) -> bool:
 
 
 def _query_bounds_timestamp(query: ast.SelectQuery) -> bool:
-    if _bounds_timestamp(query.where) or _bounds_timestamp(query.prewhere):
+    aliases = _select_aliases(query)
+    if _bounds_timestamp(query.where, aliases) or _bounds_timestamp(query.prewhere, aliases):
         return True
     # A join later in the chain still bounds a scan earlier in it, so every constraint counts.
     join = query.select_from
     while join is not None:
-        if join.constraint is not None and _bounds_timestamp(join.constraint.expr):
+        if join.constraint is not None and _bounds_timestamp(join.constraint.expr, aliases):
             return True
         join = join.next_join
     return False
 
 
-def _bounds_timestamp(expr: ast.Expr | None) -> bool:
+def _select_aliases(query: ast.SelectQuery) -> dict[str, ast.Expr]:
+    """What a bare name in a WHERE clause stands for when the select list aliases it.
+
+    The resolver binds a name to a select alias before it binds it to a table column, so
+    `SELECT toStartOfDay(timestamp) AS day ... WHERE day > x` bounds the scan and
+    `SELECT now() AS timestamp ... WHERE timestamp > x` does not.
+    """
+    return {expr.alias: expr.expr for expr in query.select if isinstance(expr, ast.Alias)}
+
+
+def _bounds_timestamp(expr: ast.Expr | None, aliases: dict[str, ast.Expr]) -> bool:
     """True when `expr` confines `timestamp` to a range on every path that can match a row."""
     if expr is None:
         return False
     if isinstance(expr, ast.And):
-        return any(_bounds_timestamp(child) for child in expr.exprs)
+        return any(_bounds_timestamp(child, aliases) for child in expr.exprs)
     if isinstance(expr, ast.Or):
         # A branch with no bound matches rows in any partition, so every branch has to bound.
-        return bool(expr.exprs) and all(_bounds_timestamp(child) for child in expr.exprs)
+        return bool(expr.exprs) and all(_bounds_timestamp(child, aliases) for child in expr.exprs)
     if isinstance(expr, ast.CompareOperation):
         if expr.op not in _BOUNDING_COMPARE_OPS:
             return False
-        return (_is_timestamp_expression(expr.left) and _is_time_constant(expr.right)) or (
-            _is_timestamp_expression(expr.right) and _is_time_constant(expr.left)
+        return (_is_timestamp_expression(expr.left, aliases) and _is_time_constant(expr.right)) or (
+            _is_timestamp_expression(expr.right, aliases) and _is_time_constant(expr.left)
         )
     if isinstance(expr, ast.BetweenExpr):
         return (
             not expr.negated
-            and _is_timestamp_expression(expr.expr)
+            and _is_timestamp_expression(expr.expr, aliases)
             and _is_time_constant(expr.low)
             and _is_time_constant(expr.high)
         )
     return False
 
 
-def _is_timestamp_expression(expr: ast.Expr) -> bool:
+def _is_timestamp_expression(expr: ast.Expr, aliases: dict[str, ast.Expr]) -> bool:
     if isinstance(expr, ast.Alias | ast.TypeCast | ast.TryCast):
-        return _is_timestamp_expression(expr.expr)
+        return _is_timestamp_expression(expr.expr, aliases)
     if isinstance(expr, ast.ArithmeticOperation):
         if expr.op not in _BOUND_PRESERVING_ARITHMETIC_OPS:
             return False
-        return (_is_timestamp_expression(expr.left) and _is_time_constant(expr.right)) or (
-            _is_timestamp_expression(expr.right) and _is_time_constant(expr.left)
+        return (_is_timestamp_expression(expr.left, aliases) and _is_time_constant(expr.right)) or (
+            _is_timestamp_expression(expr.right, aliases) and _is_time_constant(expr.left)
         )
     if isinstance(expr, ast.Call):
         if expr.name in _ORDER_PRESERVING_TIMESTAMP_FUNCTIONS and expr.args:
-            return _is_timestamp_expression(expr.args[0])
+            return _is_timestamp_expression(expr.args[0], aliases)
         return False
     if isinstance(expr, ast.Field):
+        if len(expr.chain) == 1 and expr.chain[0] in aliases:
+            # The aliased expression is read with no aliases in scope, because an alias cannot refer
+            # to another alias and `timestamp AS timestamp` must not recurse.
+            return _is_timestamp_expression(aliases[expr.chain[0]], {})
         return bool(expr.chain) and expr.chain[-1] == "timestamp"
     return False
 

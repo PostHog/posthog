@@ -42,6 +42,16 @@ class TestFindUnprunedEventsScans(SimpleTestCase):
                 0,
             ),
             ("group by reads every row", "SELECT event, count() FROM events GROUP BY event", 1),
+            (
+                "a select alias bounds the column it wraps",
+                "SELECT toStartOfDay(timestamp) AS day, count() FROM events WHERE day >= '2024-01-01' GROUP BY day",
+                0,
+            ),
+            (
+                "a select alias named timestamp shadows the column",
+                "SELECT now() AS timestamp, count() FROM events WHERE timestamp > '2024-01-01'",
+                1,
+            ),
             ("group by all reads every row", "SELECT event FROM events GROUP BY ALL LIMIT 1", 1),
             ("implicit top level limit", "SELECT * FROM events", 0),
             ("ordering cannot stop at the limit", "SELECT * FROM events ORDER BY timestamp DESC", 1),
