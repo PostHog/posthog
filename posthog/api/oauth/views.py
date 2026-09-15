@@ -63,6 +63,7 @@ from posthog.api.oauth.client_assertion import (
 from posthog.api.oauth.client_auth import verify_client_secret
 from posthog.api.oauth.mcp_resource_scopes import build_oauth_mcp_consent_context
 from posthog.api.oauth.metadata import (
+    Document,
     authorization_server_metadata,
     client_manifest_scopes,
     openid_provider_metadata,
@@ -2431,7 +2432,7 @@ class _PublicMetadataView(APIView):
     def base_url(self) -> str:
         return absolute_uri().rstrip("/")
 
-    def document(self, metadata: dict) -> JsonResponse:
+    def document(self, metadata: Document) -> JsonResponse:
         response = JsonResponse(metadata)
         response["Access-Control-Allow-Origin"] = "*"
         return response

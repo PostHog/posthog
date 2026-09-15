@@ -4,18 +4,13 @@ Both documents describe one server, and a client reads whichever one its stack s
 so they are built here rather than separately.
 """
 
-from collections.abc import Mapping, Sequence
-
 from posthog.api import id_jag
 from posthog.api.oauth.claims import OIDC_CLAIMS
 from posthog.dataclasses import frozen
 from posthog.models.oauth import TokenEndpointAuthMethod
 from posthog.scopes import get_oauth_scopes_supported, get_scope_descriptions
 
-# What a discovery document holds: JSON, nested to whatever depth the field needs. The containers
-# are covariant so a field can hold a concrete `list[str]`.
-type JsonValue = str | bool | int | None | Sequence["JsonValue"] | Mapping[str, "JsonValue"]
-type Document = dict[str, JsonValue]
+type Document = dict[str, object]
 
 SUPPORTED_GRANT_TYPES = [
     "authorization_code",
