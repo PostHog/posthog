@@ -5,6 +5,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { makeQuota } from '../utils/quotaTestUtils'
 import { scannerRunTabLogic } from './scannerRunTabLogic'
 
 describe('scannerRunTabLogic', () => {
@@ -237,5 +239,35 @@ describe('scannerRunTabLogic', () => {
         } finally {
             jest.useRealTimers()
         }
+    })
+
+    it('refreshes the credit total after a bulk run starts scans', async () => {
+        let quotaLoads = 0
+        useMocks({
+            get: {
+                '/api/projects/:team/vision/quota/': () => {
+                    quotaLoads += 1
+                    return [200, makeQuota()]
+                },
+            },
+            post: {
+                '/api/projects/:team/vision/scanners/:id/bulk_observe/': () => [
+                    202,
+                    { started: 1, results: [{ session_id: 's1', scan_outcome: 'started' }] },
+                ],
+            },
+        })
+        const quotaLogic = visionQuotaLogic()
+        quotaLogic.mount()
+        await expectLogic(quotaLogic).toFinishAllListeners()
+        const loadsOnMount = quotaLoads
+
+        await expectLogic(logic, () => logic.actions.startBulkScan(['s1'])).toFinishAllListeners()
+        await expectLogic(quotaLogic).toFinishAllListeners()
+
+        // Every started scan reserves credits at once, so without this the credit banner on the scanner
+        // page keeps showing pre-scan usage until the scene remounts.
+        expect(quotaLoads).toBe(loadsOnMount + 1)
+        quotaLogic.unmount()
     })
 })

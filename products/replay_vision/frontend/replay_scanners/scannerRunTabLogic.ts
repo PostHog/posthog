@@ -20,6 +20,7 @@ import { visionScannersBulkObserveCreate, visionScannersObservationsList } from 
 import type { ReplayObservationApi } from '../generated/api.schemas'
 import { visionScannersBulkObserveCreateBodySessionIdsMax } from '../generated/api.zod'
 import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations } from '../logics/observationPolling'
+import { refreshVisionQuota } from '../logics/visionQuotaLogic'
 import { replayScannerLogic } from './replayScannerLogic'
 
 export interface RowObservation {
@@ -343,6 +344,11 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
                     // Started scans create pending observations server-side — refetch to reflect them.
                     // Also on failure: an earlier batch can have started scans before a later one failed.
                     actions.loadObservations()
+                    if (started > 0 || skipCounts.skipped_quota > 0) {
+                        // A started scan reserves credits at once, and a quota skip means the cached
+                        // number is already behind the server, so the banner needs the new one.
+                        refreshVisionQuota()
+                    }
                 }
             },
 
