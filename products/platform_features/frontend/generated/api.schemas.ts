@@ -794,7 +794,7 @@ export interface ActivityLogApi {
     /** @nullable */
     is_system?: boolean | null
     /**
-     * @maxLength 32
+     * @maxLength 100
      * @nullable
      */
     client?: string | null
@@ -842,7 +842,7 @@ export interface StaticFiltersApi {
     scopes: StaticFiltersApiScopesItem[]
     /** Available activity types. */
     activities: StaticFiltersApiActivitiesItem[]
-    /** API clients that have generated activity (from x-posthog-client header). */
+    /** API clients that have generated activity (the x-posthog-client header, or a resolved `scout:<skill_name>`). */
     clients: StaticFiltersApiClientsItem[]
 }
 
@@ -1677,7 +1677,7 @@ export type AdvancedActivityLogsListParams = {
      */
     activities?: string[]
     /**
-     * Filter by API clients that generated the activity (from x-posthog-client header).
+     * Filter by the API clients that generated the activity (the x-posthog-client header, or a resolved `scout:<skill_name>`).
      */
     clients?: string[]
     /**

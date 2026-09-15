@@ -201,7 +201,9 @@ export const AdvancedActivityLogsListQueryParams = () => zod.object({
     clients: zod
         .array(zod.string())
         .default(advancedActivityLogsListQueryClientsDefault)
-        .describe('Filter by API clients that generated the activity (from x-posthog-client header).'),
+        .describe(
+            'Filter by the API clients that generated the activity (the x-posthog-client header, or a resolved `scout:<skill_name>`).'
+        ),
     detail_filters: zod
         .string()
         .optional()

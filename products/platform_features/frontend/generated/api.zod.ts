@@ -274,7 +274,7 @@ export const advancedActivityLogsExportCreateBodyUserEmailMax = 254
 export const advancedActivityLogsExportCreateBodyTeamIdMin = 0
 export const advancedActivityLogsExportCreateBodyTeamIdMax = 2147483647
 
-export const advancedActivityLogsExportCreateBodyClientMax = 32
+export const advancedActivityLogsExportCreateBodyClientMax = 100
 
 export const advancedActivityLogsExportCreateBodyActivityMax = 79
 

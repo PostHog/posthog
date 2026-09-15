@@ -3485,7 +3485,7 @@ export namespace Schemas {
       /** @nullable */
       is_system?: boolean | null;
       /**
-         * @maxLength 32
+         * @maxLength 100
          * @nullable
          */
       client?: string | null;
@@ -3553,7 +3553,7 @@ export namespace Schemas {
       /** Whether the acting user was being impersonated by PostHog staff. */
       readonly was_impersonated: boolean;
       /**
-         * API client that triggered the activity, from the x-posthog-client request header (e.g. 'mcp'). Null for requests that did not send the header.
+         * API client that triggered the activity, from the x-posthog-client request header (e.g. 'mcp'), or 'scout:<skill_name>' when PostHog resolved a scout from the request's token. Null for requests that did not send the header.
          * @nullable
          */
       readonly client: string | null;
@@ -11156,7 +11156,7 @@ export namespace Schemas {
       scopes: StaticFiltersScopesItem[];
       /** Available activity types. */
       activities: StaticFiltersActivitiesItem[];
-      /** API clients that have generated activity (from x-posthog-client header). */
+      /** API clients that have generated activity (the x-posthog-client header, or a resolved `scout:<skill_name>`). */
       clients: StaticFiltersClientsItem[];
     }
 
@@ -94622,7 +94622,7 @@ export namespace Schemas {
      */
     activities?: string[];
     /**
-     * Filter by API clients that generated the activity (from x-posthog-client header).
+     * Filter by the API clients that generated the activity (the x-posthog-client header, or a resolved `scout:<skill_name>`).
      */
     clients?: string[];
     /**
@@ -95837,7 +95837,7 @@ export namespace Schemas {
      */
     activities?: string[];
     /**
-     * Filter by API clients that generated the activity (from x-posthog-client header).
+     * Filter by the API clients that generated the activity (the x-posthog-client header, or a resolved `scout:<skill_name>`).
      */
     clients?: string[];
     /**

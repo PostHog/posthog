@@ -15,7 +15,9 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 ACTIVITY_LOG_CLIENT_HEADER = "x-posthog-client"
-ACTIVITY_LOG_CLIENT_MAX_LENGTH = 32
+# Wide enough for a derived tag, not only the short self-reported client names: a
+# `scout:<skill_name>` tag spends 6 characters before the scout's own name.
+ACTIVITY_LOG_CLIENT_MAX_LENGTH = 100
 
 
 @frozen
@@ -67,8 +69,10 @@ class ActivityLoggingStorage:
         if hasattr(self._local, "was_impersonated"):
             delattr(self._local, "was_impersonated")
 
+    # Truncates here so every writer is safe against the column width, not only the
+    # middleware that reads the request header.
     def set_client(self, client: Optional[str]) -> None:
-        self._local.client = client
+        self._local.client = client[:ACTIVITY_LOG_CLIENT_MAX_LENGTH] if client else client
 
     def get_client(self) -> Optional[str]:
         return getattr(self._local, "client", None)

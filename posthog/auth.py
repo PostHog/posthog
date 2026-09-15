@@ -61,6 +61,7 @@ from posthog.synthetic_user import SyntheticUser
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.exports.backend.facade.auth import get_export_renderer_asset_context
+from products.signals.backend.facade.activity_client import resolve_scout_activity_client
 
 
 class WebAuthnAuthenticationResponse(TypedDict):
@@ -936,6 +937,7 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
                     # marker in the audit trail.
                     if access_token.impersonated_by_id is not None:
                         activity_storage.set_was_impersonated(True)
+                    self._tag_scout_activity_client(access_token)
 
                 return access_token.user, None
 
@@ -943,6 +945,24 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
                 raise
             except Exception:
                 raise AuthenticationFailed(detail="Invalid access token.")
+
+    def _tag_scout_activity_client(self, access_token: OAuthAccessToken) -> None:
+        """Name the scout behind the request, overriding the self-reported client header.
+
+        A scout acts as the person who owns it, so nothing else on the row separates its
+        writes from that person's own edits over MCP.
+        """
+        if access_token.sandbox_task_id is None:
+            return
+        # The caller wraps every other error in this class as a failed authentication, and a
+        # request must not lose its token because attribution could not be resolved.
+        try:
+            scout_client = resolve_scout_activity_client(access_token.sandbox_task_id)
+        except Exception:
+            structlog_logger.exception("scout_activity_client_lookup_failed", token_id=access_token.pk)
+            return
+        if scout_client:
+            activity_storage.set_client(scout_client)
 
     def _extract_token(self, request: Union[HttpRequest, Request]) -> Optional[str]:
         if "authorization" in request.headers:
