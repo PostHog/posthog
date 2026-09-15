@@ -5142,7 +5142,8 @@ ${commonInstructions}
       aiStage,
       posthogHost: apiUrl,
     });
-    if (target.isAiGateway && !gatewayToken) {
+    const gatewayFallback = target.isAiGateway && !gatewayToken;
+    if (gatewayFallback) {
       this.logger.warn(
         `AI_GATEWAY_TOKEN missing for routed product ${target.aiProduct}; falling back to the Python gateway`,
       );
@@ -5188,6 +5189,12 @@ ${commonInstructions}
       task_snapshot_kind: snapshotKind,
       task_prewarmed: prewarmed,
       task_execution_environment: executionEnvironment ?? "cloud",
+      // The Python gateway derives `ai_product` from its URL slug and re-asserts it,
+      // so a run it serves lands in the coarse legacy bucket whatever we send. These
+      // two carry the finer product on every path, and say when a routed run lost
+      // its gateway, so the fallback rate is a ratio over the generations themselves.
+      ai_product_resolved: aiProduct,
+      ai_gateway_fallback: gatewayFallback,
     };
     // The Claude path appends the project scope in buildEnvironment from
     // POSTHOG_PROJECT_ID; the codex path has no such hook, so its record below

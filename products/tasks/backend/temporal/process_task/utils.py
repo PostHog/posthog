@@ -1345,14 +1345,16 @@ def ai_gateway_env_vars(
     settings or nothing: a URL with no product allowlist would route every
     sandbox caller, and a product list with no URL has nowhere to go.
 
-    When the run's product is on the allowlist and a mint credential is
+    When the run's product is on the allowlist, its product and stage are injected
+    as ``AI_GATEWAY_PRODUCT`` / ``AI_GATEWAY_AI_STAGE`` and the agent prefers them
+    over what it derives from its own task-run fetch. If a mint credential is also
     configured, a per-run `phe_` scoped token is minted and injected as
-    ``AI_GATEWAY_TOKEN``, with the product it is pinned to and the run's stage as
-    ``AI_GATEWAY_PRODUCT`` / ``AI_GATEWAY_AI_STAGE``; the agent routes on those and
-    treats its own task-run fetch as the fallback. The agent server routes to the
-    Go gateway only when the token is present, so a missing token (mint failure,
-    or a caller that cannot supply run context) degrades the run to the Python
-    gateway.
+    ``AI_GATEWAY_TOKEN``.
+
+    The label does not depend on the mint. The agent server routes to the Go gateway
+    only when the token is present, so a missing token (mint failure, or a caller
+    that cannot supply run context) degrades the run to the Python gateway while its
+    generations keep the product they belong to.
     """
     if not (settings.SANDBOX_AI_GATEWAY_URL and settings.SANDBOX_AI_GATEWAY_PRODUCTS):
         return {}
@@ -1365,12 +1367,12 @@ def ai_gateway_env_vars(
         if ai_product in MINTABLE_PRODUCTS and sandbox_product_routed(
             ai_product, ai_stage, settings.SANDBOX_AI_GATEWAY_PRODUCTS
         ):
+            env_vars["AI_GATEWAY_PRODUCT"] = ai_product
+            if ai_stage:
+                env_vars["AI_GATEWAY_AI_STAGE"] = ai_stage
             token = mint_scoped_token(ai_product=ai_product, team_id=team_id, user=distinct_id)
             if token:
                 env_vars["AI_GATEWAY_TOKEN"] = token
-                env_vars["AI_GATEWAY_PRODUCT"] = ai_product
-                if ai_stage:
-                    env_vars["AI_GATEWAY_AI_STAGE"] = ai_stage
     return env_vars
 
 
