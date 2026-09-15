@@ -1355,13 +1355,33 @@ class TestLocalEvaluationBatch(BaseTest):
             ],
         }
         unsupported = FeatureFlag.objects.create(team=team, key="unsupported-format", filters=unsupported_filters)
+        FeatureFlag.objects.create(
+            team=team,
+            key="depends-on-unsupported",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": str(unsupported.pk), "type": "flag", "value": True, "operator": "flag_evaluates_to"}
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
         dropped_before = FLAG_PROCESSING_ERROR_COUNTER._value.get()
 
         results = _get_flags_response_for_local_evaluation_batch([team])
 
-        assert [f["key"] for f in results[team.id]["flags"]] == ["v1-sibling"]
+        flags_by_key = {f["key"]: f for f in results[team.id]["flags"]}
+        assert set(flags_by_key) == {"v1-sibling", "depends-on-unsupported"}
         assert set(results[team.id]["cohorts"]) == {str(cohort.pk)}
         assert FLAG_PROCESSING_ERROR_COUNTER._value.get() == dropped_before + 1
+        # The dropped flag never reaches flag_id_to_key, so its dependent publishes the same
+        # shape as a reference to a flag that never existed (see test_missing_dependency).
+        flag_property = flags_by_key["depends-on-unsupported"]["filters"]["groups"][0]["properties"][0]
+        assert flag_property["key"] == str(unsupported.pk)
+        assert flag_property["dependency_chain"] == []
         unsupported.refresh_from_db()
         assert unsupported.filters == unsupported_filters
 

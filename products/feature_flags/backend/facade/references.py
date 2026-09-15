@@ -12,13 +12,13 @@ unsupported document into a feed built for v1 readers.
 Consumers keep their own meaning of a reference: the definitions payload rewrites flag
 references from ids to keys and annotates them with a dependency chain, the service
 cache parses them as integer ids, and the model resolves cohort ids against the
-database. ``flag_dependency_properties`` therefore yields the caller's own property
+database. ``flag_dependency_properties`` therefore returns the caller's own property
 dicts so those in-place rewrites keep working.
 
 Deliberately free of Django/DRF imports (same reason as ``facade.filters``).
 """
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Mapping
 from typing import Any
 
 from products.feature_flags.backend.facade.config import ConfigFormatError, detect_config_format
@@ -44,28 +44,27 @@ def referenced_cohort_ids(filters: Mapping[str, Any] | None) -> set[int]:
     return cohort_ids
 
 
-def flag_dependency_properties(filters: Mapping[str, Any] | None) -> Iterator[FlagProperty]:
+def flag_dependency_properties(filters: Mapping[str, Any] | None) -> list[FlagProperty]:
     """The ``type == "flag"`` properties in the release conditions of a v1 document.
 
-    Raises ``ConfigFormatError`` for any other config format. The yielded dicts are the
+    Raises ``ConfigFormatError`` for any other config format. The returned dicts are the
     caller's own objects, so a consumer can rewrite them in place. ``key`` holds the
     referenced flag's id or key; the consumer decides which it accepts.
     """
     return _v1_properties(filters, PropertyFilterType.FLAG)
 
 
-def _v1_properties(filters: Mapping[str, Any] | None, property_type: PropertyFilterType) -> Iterator[FlagProperty]:
-    # Not a generator itself, so the format check runs when the consumer calls, not when it
-    # first iterates.
+def _v1_properties(filters: Mapping[str, Any] | None, property_type: PropertyFilterType) -> list[FlagProperty]:
     config_format = detect_config_format(filters)
     if config_format.kind != "v1":
         raise ConfigFormatError(config_format)
-    return _properties_of_type(filters or {}, property_type)
-
-
-def _properties_of_type(filters: Mapping[str, Any], property_type: PropertyFilterType) -> Iterator[FlagProperty]:
-    # Explicit nulls occur in stored v1 data (see FeatureFlag.conditions); read them as empty.
-    for group in filters.get("groups") or []:
-        for prop in group.get("properties") or []:
-            if prop.get("type") == property_type:
-                yield prop
+    # Only ``groups`` can hold cohort or flag properties: ``feature_enrollment`` is a
+    # boolean gate evaluated against ``$feature_enrollment/*`` person properties, and
+    # ``holdout`` carries no property filters. Explicit nulls occur in stored v1 data
+    # (see FeatureFlag.conditions); read them as empty.
+    return [
+        prop
+        for group in (filters or {}).get("groups") or []
+        for prop in group.get("properties") or []
+        if prop.get("type") == property_type
+    ]

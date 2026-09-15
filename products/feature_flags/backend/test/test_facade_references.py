@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -89,14 +90,14 @@ class TestFlagDependencyProperties:
             ("explicit_version_1", {"version": 1, "groups": V1_GROUPS}),
         ]
     )
-    def test_yields_the_callers_own_flag_properties(self, _name: str, filters: dict) -> None:
+    def test_returns_the_callers_own_flag_properties(self, _name: str, filters: dict) -> None:
         flag_property = filters["groups"][0]["properties"][1]
 
-        yielded = list(flag_dependency_properties(filters))
+        returned = flag_dependency_properties(filters)
 
-        assert len(yielded) == 1
+        assert len(returned) == 1
         # Consumers annotate the property in place, so identity matters, not equality.
-        assert yielded[0] is flag_property
+        assert returned[0] is flag_property
 
     @parameterized.expand(
         [
@@ -107,25 +108,22 @@ class TestFlagDependencyProperties:
         ]
     )
     def test_reads_empty_v1_documents(self, _name: str, filters: dict | None) -> None:
-        assert list(flag_dependency_properties(filters)) == []
+        assert flag_dependency_properties(filters) == []
 
 
 class TestUnsupportedFormatRejection:
-    @parameterized.expand(UNSUPPORTED_DOCUMENTS)
-    def test_cohort_read_rejects_before_reading_v1_keys(self, _name: str, filters: dict) -> None:
+    @parameterized.expand(
+        [
+            (f"{read.__name__}_{name}", read, filters)
+            for read in (referenced_cohort_ids, flag_dependency_properties)
+            for name, filters in UNSUPPORTED_DOCUMENTS
+        ]
+    )
+    def test_rejects_before_reading_v1_keys(self, _name: str, read: Callable[[dict], Any], filters: dict) -> None:
         with pytest.raises(ConfigFormatError) as exc_info:
-            referenced_cohort_ids(filters)
+            read(filters)
 
         kind = exc_info.value.config_format.kind
         assert kind != "v1"
         # The message names the kind only, so a log line never carries the stored discriminator.
         assert str(exc_info.value) == f"config format {kind!r} is not handled here"
-
-    @parameterized.expand(UNSUPPORTED_DOCUMENTS)
-    def test_dependency_read_rejects_at_call_time(self, _name: str, filters: dict) -> None:
-        # Raising on the call, not on the first iteration, keeps the rejection inside the
-        # producer's per-flag error handling instead of a later loop with no such boundary.
-        with pytest.raises(ConfigFormatError) as exc_info:
-            flag_dependency_properties(filters)
-
-        assert exc_info.value.config_format.kind != "v1"

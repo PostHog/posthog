@@ -98,9 +98,11 @@ def _extract_direct_dependency_ids(flag_data: dict[str, Any]) -> set[int]:
     """
     Extract direct flag dependency IDs from a serialized flag's filters.
 
-    Scans filters.groups[*].properties for type=="flag" properties and parses
-    their key as an integer flag ID. Inactive/deleted flags return empty deps
-    to match Rust's extract_dependencies behavior.
+    Parses the ``key`` of each flag-reference property as an integer flag ID.
+    Inactive/deleted flags return empty deps before their filters are read, to
+    match Rust's extract_dependencies behavior. Any other flag stored in a config
+    format other than version 1 raises ``ConfigFormatError``, which fails the whole
+    team's rebuild; ``HyperCache.update_cache`` then keeps the previous entry and ETag.
     """
     if _is_unevaluable(flag_data):
         return set()
@@ -145,12 +147,9 @@ _COHORT_RECALCULATION_FIELDS = frozenset(
 def _extract_cohort_ids_from_flag_filters(flags_data: list[dict[str, Any]]) -> set[int]:
     """Extract cohort IDs directly referenced in active flag filters.
 
-    Only scans ``groups`` — the other filter sections cannot contain cohort
-    properties:
-    - ``feature_enrollment`` is a boolean gate for early-access features,
-      evaluated against person properties (``$feature_enrollment/*``).
-    - ``holdout`` uses a different schema for configuring experiment holdouts
-      with no property filters at all.
+    Inactive/deleted flags are skipped before their filters are read. Any other flag
+    stored in a config format other than version 1 raises ``ConfigFormatError``,
+    which fails the whole team's rebuild.
     """
     cohort_ids: set[int] = set()
     for flag in flags_data:

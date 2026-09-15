@@ -3479,6 +3479,11 @@ class TestExtractDirectDependencyIds:
             ("inactive_flag_returns_empty", _make_flag(1, "flag_a", deps=[2], active=False), set()),
             ("deleted_flag_returns_empty", _make_flag(1, "flag_a", deps=[2], deleted=True), set()),
             (
+                "inactive_unsupported_format_returns_empty",
+                {**_make_flag(1, "flag_a", active=False), "filters": {"version": 2, **_dependency_filters(2)}},
+                set(),
+            ),
+            (
                 "non_flag_properties_ignored",
                 {
                     "id": 1,
@@ -3961,15 +3966,17 @@ class TestExtractCohortIdsFromFlagFilters(BaseTest):
 
     @parameterized.expand(
         [
-            ("inactive", {"active": False}),
-            ("deleted", {"active": True, "deleted": True}),
+            ("inactive", {"active": False}, {}),
+            ("deleted", {"active": True, "deleted": True}, {}),
+            ("inactive_unsupported_format", {"active": False}, {"version": 2}),
         ]
     )
-    def test_skips_excluded_flag(self, _name, flag_overrides):
+    def test_skips_excluded_flag(self, _name, flag_overrides, filters_overrides):
         flags_data = [
             {
                 **flag_overrides,
                 "filters": {
+                    **filters_overrides,
                     "groups": [{"properties": [{"type": "cohort", "value": 42}]}],
                 },
             }
