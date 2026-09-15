@@ -300,6 +300,11 @@ CANCELLED_RUN_MESSAGE = (
     "it or the source is paused. It will run again on its next schedule."
 )
 
+WORKER_RESTART_ERROR_MESSAGE = (
+    "This sync run was interrupted too many times by restarts on PostHog's side, so it did not finish. "
+    "It will run again automatically. No action is needed."
+)
+
 TRANSIENT_SOURCE_ERROR_MESSAGE = (
     "The source's API kept returning temporary errors, such as rate limits or server errors, so this "
     "sync run did not finish. This is usually a short problem on the source's side. The sync will run "
@@ -1157,6 +1162,14 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
         except exceptions.ActivityError as e:
             if isinstance(e.cause, exceptions.ApplicationError) and e.cause.type == "WorkerShuttingDownError":
+                if is_v3:
+                    # No final batch reached the queue, so the loader can never complete this job.
+                    # A COMPLETED write would release the pipeline lock and let the buffered run
+                    # extract the same table again on top of this run's still-queued batches.
+                    # Set before the buffer-one activity so a failure there cannot skip it.
+                    update_inputs.status = ExternalDataJob.Status.FAILED
+                    update_inputs.internal_error = str(e.cause)
+                    update_inputs.latest_error = WORKER_RESTART_ERROR_MESSAGE
                 # Check if this is a WorkerShuttingDownError - implement Buffer One retry
                 schedule_id = str(inputs.external_data_schema_id)
                 await workflow.execute_activity(
