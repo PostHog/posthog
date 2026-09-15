@@ -1419,6 +1419,9 @@ describe('survey filters', () => {
             .toDispatchActions(['loadSurveySuccess', 'setPropertyFilters'])
             .toMatchValues({
                 propertyFilters: propertyFilters,
+                responsesExportQuery: partial({
+                    source: partial({ filters: { properties: propertyFilters } }),
+                }),
                 dataTableQuery: partial({
                     source: partial({
                         filters: partial({
@@ -1447,6 +1450,10 @@ describe('survey filters', () => {
         expect(query).toContain("'survey dismissed', 'survey abandoned'")
         expect(query).toContain('argMaxIf(')
         expect(query).not.toContain('HAVING countIf(is_completed_event) > 0')
+        const exportSource = logic.values.responsesExportQuery?.source
+        expect(exportSource).toMatchObject({ kind: NodeKind.HogQLQuery })
+        expect((exportSource as { query: string }).query).toContain('GROUP BY submission_key')
+        expect((exportSource as { query: string }).query).not.toContain('AS response,')
     })
 
     it('keeps question text out of the generated HogQL', async () => {
@@ -1823,11 +1830,14 @@ describe('surveyLogic filters for surveys responses', () => {
     })
     it('reloads survey results when answer filters change', async () => {
         await expectLogic(logic, () => {
-            logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
+            logic.actions.loadSurveySuccess({
+                ...MULTIPLE_CHOICE_SURVEY,
+                questions: [{ ...MULTIPLE_CHOICE_SURVEY.questions[0], id: 'answer-filter-question' }],
+            })
         }).toDispatchActions(['loadSurveySuccess'])
 
         const answerFilter: EventPropertyFilter = {
-            key: SurveyEventProperties.SURVEY_RESPONSE,
+            key: `${SurveyEventProperties.SURVEY_RESPONSE}_answer-filter-question`,
             value: 'test response',
             operator: PropertyOperator.IContains,
             type: PropertyFilterType.Event,
@@ -1836,6 +1846,9 @@ describe('surveyLogic filters for surveys responses', () => {
         await expectLogic(logic, () => {
             logic.actions.setAnswerFilters([answerFilter])
         }).toDispatchActions(['setAnswerFilters', 'loadSurveyBaseStats', 'loadSurveyDismissedAndSentCount'])
+        const exportSql = (logic.values.responsesExportQuery?.source as { query: string }).query
+        expect(exportSql).toContain('HAVING')
+        expect(exportSql).toContain('test response')
     })
 
     it.each<[EventPropertyFilter['value'], number]>([
