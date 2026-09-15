@@ -47,28 +47,6 @@ class GaussianPrior:
         """
         return self.proper
 
-    def make_informative(self, mean: float, variance: float) -> "GaussianPrior":
-        """
-        Create a new informative prior with specified parameters.
-
-        Args:
-            mean: Prior mean for effect size
-            variance: Prior variance (uncertainty)
-
-        Returns:
-            New GaussianPrior instance with proper=True
-        """
-        return GaussianPrior(mean=mean, variance=variance, proper=True)
-
-    def make_noninformative(self) -> "GaussianPrior":
-        """
-        Create a new non-informative prior.
-
-        Returns:
-            New GaussianPrior instance with proper=False
-        """
-        return GaussianPrior(mean=0.0, variance=1.0, proper=False)
-
     def __str__(self) -> str:
         """String representation of the prior."""
         if not self.is_proper():
