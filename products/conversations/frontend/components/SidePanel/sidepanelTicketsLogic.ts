@@ -40,9 +40,27 @@ import type {
     ConversationMessage,
     ConversationTicket,
     RestoreFlowState,
+    SidePanelTicketFilter,
     SidePanelViewState,
-    TicketStatus,
 } from '../../types'
+
+function ticketMatchesFilter(ticket: ConversationTicket, filter: SidePanelTicketFilter): boolean {
+    switch (filter) {
+        case 'all':
+            return true
+        case 'unread':
+            return (ticket.unread_count ?? 0) > 0
+        case 'active':
+            return ticket.status !== 'resolved'
+        default:
+            return ticket.status === filter
+    }
+}
+
+/** Most recent activity on a ticket, for ordering. Falls back to creation when nothing was said yet. */
+function ticketActivityTime(ticket: ConversationTicket): number {
+    return new Date(ticket.last_message_at ?? ticket.created_at).getTime() || 0
+}
 
 // Poll cadence scales with how actively the user is looking at support, so an open thread stays
 // fresh without every idle tab hammering the widget once a minute.
@@ -100,6 +118,7 @@ export interface sidepanelTicketsLogicValues {
     supportResponseTime: string | null // supportLogic
     canCreateTicket: boolean
     currentTicket: ConversationTicket | null
+    effectiveStatusFilter: SidePanelTicketFilter
     filteredTickets: ConversationTicket[]
     hasMoreMessages: boolean
     hasSupportExemption: boolean
@@ -112,7 +131,8 @@ export interface sidepanelTicketsLogicValues {
     pendingTicketId: string | null
     restoreError: string | null
     restoreState: RestoreFlowState
-    statusFilter: TicketStatus | 'all'
+    statusFilter: SidePanelTicketFilter | null
+    ticketFilterCounts: Record<SidePanelTicketFilter, number>
     tickets: ConversationTicket[]
     ticketsLoading: boolean
     totalUnreadCount: number
@@ -200,8 +220,8 @@ export interface sidepanelTicketsLogicActions {
     setRestoreState: (state: RestoreFlowState) => {
         state: RestoreFlowState
     }
-    setStatusFilter: (status: TicketStatus | 'all') => {
-        status: TicketStatus | 'all'
+    setStatusFilter: (status: SidePanelTicketFilter) => {
+        status: SidePanelTicketFilter
     }
     setTickets: (tickets: ConversationTicket[]) => {
         tickets: ConversationTicket[]
@@ -227,7 +247,17 @@ export interface sidepanelTicketsLogicActions {
 export interface sidepanelTicketsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         totalUnreadCount: (tickets: ConversationTicket[]) => number
-        filteredTickets: (tickets: ConversationTicket[], statusFilter: TicketStatus | 'all') => ConversationTicket[]
+        effectiveStatusFilter: (
+            statusFilter: SidePanelTicketFilter | null,
+            totalUnreadCount: number
+        ) => SidePanelTicketFilter
+        ticketFilterCounts: (tickets: ConversationTicket[]) => Record<SidePanelTicketFilter, number>
+        filteredTickets: (
+            tickets: ConversationTicket[],
+            effectiveStatusFilter: SidePanelTicketFilter,
+            currentTicket: ConversationTicket | null,
+            view: SidePanelViewState
+        ) => ConversationTicket[]
         canCreateTicket: (
             billing: BillingType | null,
             isCurrentOrganizationNew: boolean,
@@ -301,7 +331,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         restoreFromUrlToken: (token: string) => ({ token }),
         setRestoreState: (state: RestoreFlowState) => ({ state }),
         setRestoreError: (error: string | null) => ({ error }),
-        setStatusFilter: (status: TicketStatus | 'all') => ({ status }),
+        setStatusFilter: (status: SidePanelTicketFilter) => ({ status }),
     }),
     reducers({
         view: [
@@ -390,8 +420,10 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 setRestoreState: () => null,
             },
         ],
+        // `null` means "not chosen yet": the list then defaults to unread tickets when there are
+        // any, otherwise to active ones, so a long history never buries what needs attention.
         statusFilter: [
-            'all' as TicketStatus | 'all',
+            null as SidePanelTicketFilter | null,
             {
                 setStatusFilter: (_, { status }) => status,
             },
@@ -412,10 +444,57 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             (s) => [s.tickets],
             (tickets: ConversationTicket[]) => tickets.reduce((sum, t) => sum + (t.unread_count ?? 0), 0),
         ],
+        effectiveStatusFilter: [
+            (s) => [s.statusFilter, s.totalUnreadCount],
+            (statusFilter: SidePanelTicketFilter | null, totalUnreadCount: number): SidePanelTicketFilter =>
+                statusFilter ?? (totalUnreadCount > 0 ? 'unread' : 'active'),
+        ],
+        ticketFilterCounts: [
+            (s) => [s.tickets],
+            (tickets: ConversationTicket[]): Record<SidePanelTicketFilter, number> => {
+                const counts: Record<SidePanelTicketFilter, number> = {
+                    unread: 0,
+                    active: 0,
+                    all: tickets.length,
+                    new: 0,
+                    open: 0,
+                    pending: 0,
+                    on_hold: 0,
+                    resolved: 0,
+                }
+                for (const ticket of tickets) {
+                    counts[ticket.status] += 1
+                    if (ticket.status !== 'resolved') {
+                        counts.active += 1
+                    }
+                    if ((ticket.unread_count ?? 0) > 0) {
+                        counts.unread += 1
+                    }
+                }
+                return counts
+            },
+        ],
+        // Unread threads float to the top, then most recent activity. The open thread counts as
+        // unread while it is being read: opening it marks it read, and the full-screen scene keeps
+        // the list beside the thread, so without the pin the row would drop or vanish on click.
         filteredTickets: [
-            (s) => [s.tickets, s.statusFilter],
-            (tickets: ConversationTicket[], statusFilter: TicketStatus | 'all'): ConversationTicket[] =>
-                statusFilter === 'all' ? tickets : tickets.filter((t) => t.status === statusFilter),
+            (s) => [s.tickets, s.effectiveStatusFilter, s.currentTicket, s.view],
+            (
+                tickets: ConversationTicket[],
+                effectiveStatusFilter: SidePanelTicketFilter,
+                currentTicket: ConversationTicket | null,
+                view: SidePanelViewState
+            ): ConversationTicket[] => {
+                const pinnedId = view === 'ticket' ? (currentTicket?.id ?? null) : null
+                const surfaces = (ticket: ConversationTicket): boolean =>
+                    ticket.id === pinnedId || (ticket.unread_count ?? 0) > 0
+                return tickets
+                    .filter((ticket) => ticket.id === pinnedId || ticketMatchesFilter(ticket, effectiveStatusFilter))
+                    .sort((a, b) => {
+                        const surfaceDelta = Number(surfaces(b)) - Number(surfaces(a))
+                        return surfaceDelta !== 0 ? surfaceDelta : ticketActivityTime(b) - ticketActivityTime(a)
+                    })
+            },
         ],
         // Opening a ticket is the paid part of support. Reading and replying to tickets already in
         // the account isn't — free plans can end up with tickets via billing questions or PostHog AI
