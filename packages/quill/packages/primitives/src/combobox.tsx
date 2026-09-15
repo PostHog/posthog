@@ -165,7 +165,7 @@ function ComboboxItem({
             // The default render is a real <button>; only declare nativeButton when the
             // caller hasn't overridden render (their element may not be a button).
             nativeButton={!('render' in props)}
-            render={<Button left className="min-w-0 text-xs/relaxed aria-selected:bg-fill-selected" />}
+            render={<Button size="row" left className="min-w-0 aria-selected:bg-fill-selected" />}
             {...props}
         >
             <span className="flex items-center gap-1.5 min-w-0 truncate">{children}</span>
@@ -197,13 +197,14 @@ function ComboboxCollection({ ...props }: ComboboxPrimitive.Collection.Props): R
     return <ComboboxPrimitive.Collection data-slot="combobox-collection" {...props} />
 }
 
-function ComboboxEmpty({ className, children, ...props }: ComboboxPrimitive.Empty.Props): React.ReactElement {
+function ComboboxEmpty({ className, ...props }: ComboboxPrimitive.Empty.Props): React.ReactElement {
+    // Base UI renders the children only when nothing matches, so `empty:hidden` is the whole visibility rule.
     return (
         <ComboboxPrimitive.Empty
             data-slot="combobox-empty"
-            className={cn('hidden group-data-empty/combobox-content:flex', className)}
+            className={cn('empty:hidden', className)}
+            render={<MenuEmpty />}
             {...props}
-            render={<MenuEmpty>{children}</MenuEmpty>}
         />
     )
 }

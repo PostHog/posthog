@@ -22,6 +22,12 @@
         width: fit-content;
     }
 
+    /* The attribute outranks Button's size class, so the trigger keeps list-sized
+       type whatever order the stylesheets load in. */
+    .quill-select__trigger[data-size] {
+        font-size: var(--text-xs, 0.75rem);
+    }
+
     .quill-select__trigger[data-size='default'] {
         height: 1.75rem;
     }

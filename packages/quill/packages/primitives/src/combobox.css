@@ -119,8 +119,6 @@
         /* The check indicator is absolutely positioned (start-2) and must anchor
            to the item, not the scrolling popup. */
         position: relative;
-        width: 100%;
-        font-weight: 400;
     }
 
     /*

@@ -39,7 +39,7 @@ function SelectTrigger({
             data-slot="select-trigger"
             data-size={size}
             className={cn(
-                'quill-select__trigger group/select-trigger flex items-center justify-between gap-3 text-xs/relaxed whitespace-nowrap outline-none',
+                'quill-select__trigger group/select-trigger flex items-center justify-between gap-3 whitespace-nowrap outline-none',
                 className
             )}
             render={<Button variant="outline" left />}

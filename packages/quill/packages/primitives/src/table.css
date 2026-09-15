@@ -9,6 +9,7 @@
         /* Edge-shadow colour. Black-on-near-black is invisible, so dark mode
            needs a much stronger alpha. */
         --tbl-edge-shadow: rgb(0 0 0 / 12%);
+        --tbl-row-hover: color-mix(in oklab, var(--muted) 40%, var(--background));
 
         /* Generic viewport-edge shadows, toggled per edge below. */
         --tbl-shadow-top: 0 0 0 0 transparent;
@@ -27,6 +28,9 @@
 
     .dark .quill-table__root {
         --tbl-edge-shadow: rgb(0 0 0 / 55%);
+
+        /* Dark `--muted` sits too close to `--background` to read as a hover. */
+        --tbl-row-hover: color-mix(in oklab, var(--foreground) 6%, var(--background));
     }
 
     /* Viewport — owns the scroll; fills the root. `max-height: inherit` passes a
@@ -181,13 +185,7 @@
     }
 
     .quill-table__row:hover .quill-table__cell {
-        background-color: color-mix(in oklab, var(--muted) 40%, var(--background));
-    }
-
-    /* Dark `--muted` sits too close to `--background` to read as a hover, so tint
-       toward the foreground instead. Skips selected rows so their color still wins. */
-    .dark .quill-table__row:not([data-state='selected']):hover .quill-table__cell {
-        background-color: color-mix(in oklab, var(--foreground) 6%, var(--background));
+        background-color: var(--tbl-row-hover);
     }
 
     .quill-table__row[data-state='selected'] .quill-table__cell {

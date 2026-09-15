@@ -87,7 +87,7 @@ function MenubarItem({
             data-inset={inset}
             variant={variant}
             className={cn(
-                'group/menubar-item min-h-7 gap-2 rounded-sm px-2 py-1 text-xs/relaxed data-disabled:opacity-50',
+                'group/menubar-item min-h-7 gap-2 rounded-sm px-2 py-1 data-disabled:opacity-50',
                 className
             )}
             {...props}
