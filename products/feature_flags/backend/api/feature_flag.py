@@ -4957,6 +4957,10 @@ class FeatureFlagViewSet(
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
 
+            # Ask for "all" runtimes (as the flags list and evaluation_reasons do): this
+            # call carries a python-requests User-Agent, which the flags service reads as a
+            # server runtime and would otherwise use to drop a client-only flag, reporting
+            # it here as false for a person the flag does match.
             rust_response = get_flags_from_service(
                 token=team_token,
                 distinct_id=evaluation_distinct_id,
@@ -4965,6 +4969,7 @@ class FeatureFlagViewSet(
                 person_properties=person_properties,
                 only_use_override_person_properties=timestamp is not None,
                 flag_keys=[feature_flag.key],
+                evaluation_runtime="all",
                 internal_request_token=internal_token,
                 override_flags_definitions=override_definitions,
             )

@@ -241,7 +241,7 @@ Defined in `rust/feature-flags/src/properties/property_matching.rs`. The service
 | ------------ | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Existence    | `is_set`, `is_not_set`                                                          | Key presence check in property map                                                                                                                                                                                                                                                                   |
 | Equality     | `exact`, `is_not`                                                               | Case-insensitive comparison. Arrays checked with contains. Boolean normalization for `"true"`/`"false"` strings.                                                                                                                                                                                     |
-| String       | `icontains`, `not_icontains`                                                    | ASCII-case-insensitive substring match                                                                                                                                                                                                                                                               |
+| String       | `icontains`, `not_icontains`, `starts_with`, `not_starts_with`, `ends_with`, `not_ends_with` | ASCII-case-insensitive substring, prefix, and suffix match. A list-shaped filter value matches when any of its values matches, the same as `icontains_multi` and as `multiSearchAnyCaseInsensitive` in cohort recalculation. |
 | Regex        | `regex`, `not_regex`                                                            | `fancy_regex` with 10,000 step backtrack limit (ReDoS protection). Patterns are pre-compiled once per request via `prepare_regexes()`. Three-state dispatch in `match_property()`: pre-compiled fast path → `InvalidPattern` short-circuit to `Ok(false)` → fallback on-the-fly compilation.         |
 | Numeric      | `gt`, `gte`, `lt`, `lte`                                                        | Parse both sides as `f64`                                                                                                                                                                                                                                                                            |
 | Range        | `between`, `not_between`                                                        | Inclusive on both ends, parsed as `f64`. A value that is missing, JSON null, or not a number is out of range (`between` false, `not_between` true), mirroring HogQL where it reads as NULL. NaN is a non-match for both. Malformed bounds are a `ValidationError` even when the property is missing. |
@@ -398,6 +398,13 @@ Dynamic cohorts define membership via property filters. The service resolves the
 1. Fetching cohort definitions (from moka in-memory cache, backed by PostgreSQL)
 2. Building a dependency graph for nested cohorts (cohorts can reference other cohorts)
 3. Evaluating cohort property filters against person/group properties
+
+A cohort that defines its audience only in the deprecated `groups` field, which predates
+`filters`, is converted to the `filters` shape first (`cohorts/legacy_groups.rs`). This is
+the Rust half of `Cohort.properties` in `products/cohorts/backend/models/cohort.py`, which
+is what cohort recalculation and the cohort page read. Groups combine with OR, the
+properties inside one group combine with AND, and a group that counts an action or event
+becomes an unsupported leaf, since the service has no event history.
 
 ### Static cohorts
 
