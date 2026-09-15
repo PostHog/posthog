@@ -1044,14 +1044,15 @@ class LLMSkillViewSet(
 
         # SKILL.md never carries the bundled files, so don't load them just to render it.
         export = skill.to_export()
-        return Response(
-            {
+        payload = LLMSkillMarkdownSerializer(
+            instance={
                 "name": skill.name,
                 "version": skill.version,
                 "content": render_skill_md(export),
                 "frontmatter": frontmatter_document(export),
             }
         )
+        return Response(payload.data)
 
     @extend_schema(
         parameters=[LLMSkillFetchQuerySerializer, _FORMAT_QUERY_PARAM_EXCLUDED],
