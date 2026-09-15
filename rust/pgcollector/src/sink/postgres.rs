@@ -52,8 +52,13 @@ fn datname_for(snap: &Snapshot, row: &crate::collector::Row) -> Option<String> {
         })
 }
 
-const MIGRATIONS: &[(&str, &str)] =
-    &[("0001_base", include_str!("../../migrations/0001_base.sql"))];
+const MIGRATIONS: &[(&str, &str)] = &[
+    ("0001_base", include_str!("../../migrations/0001_base.sql")),
+    (
+        "0002_query_texts",
+        include_str!("../../migrations/0002_query_texts.sql"),
+    ),
+];
 
 impl PostgresSink {
     pub async fn connect(cfg: &SinkConfig) -> Result<Self> {
@@ -536,6 +541,14 @@ impl Sink for PostgresSink {
                 }
             }
         }
+        // Shared statement text has no partitions: expire rows unseen for longer than
+        // the duration rows that reference them are kept.
+        let text_days = self.retention_days_for("ts_query_durations") as i32;
+        c.execute(
+            "DELETE FROM cur_query_texts WHERE last_seen < now() - make_interval(days => $1)",
+            &[&text_days],
+        )
+        .await?;
         // Parent indexes still invalid: a backfill that a restart or an error cut short.
         let unfinished = c
             .query(

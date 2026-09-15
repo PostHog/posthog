@@ -24,7 +24,12 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
-import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/kea-router'
+import {
+    addProjectIdIfMissing,
+    getProjectIdentifierInPath,
+    removeProjectIdIfPresent,
+    stripTrailingSlash,
+} from 'lib/utils/kea-router'
 import { retryImport } from 'lib/utils/retryImport'
 import { identifierToHuman } from 'lib/utils/strings'
 import { getRelativeNextPath } from 'lib/utils/url'
@@ -340,7 +345,15 @@ export interface sceneLogicProps {
 export interface sceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         sceneConfig: (sceneId: string | null) => SceneConfig | null
-        activeSceneId: (sceneId: string | null, isCurrentTeamUnavailable: boolean) => string | null
+        activeSceneId: (
+            sceneId: string | null,
+            isCurrentTeamUnavailable: boolean,
+            location: {
+                hash: string
+                pathname: string
+                search: string
+            }
+        ) => string | null
         activeExportedScene: (
             activeSceneId: string | null,
             exportedScenes: Record<string, SceneExport<SceneProps>>
@@ -509,9 +522,22 @@ export const sceneLogic = kea<sceneLogicType>([
             { resultEqualityCheck: equal },
         ],
         activeSceneId: [
-            (s) => [s.sceneId, teamLogic.selectors.isCurrentTeamUnavailable],
-            (sceneId: string | null, isCurrentTeamUnavailable: boolean) => {
-                const effectiveResourceAccessControl = getAppContext()?.effective_resource_access_control
+            (s) => [s.sceneId, teamLogic.selectors.isCurrentTeamUnavailable, router.selectors.location],
+            (sceneId: string | null, isCurrentTeamUnavailable: boolean, location: { pathname: string }) => {
+                const appContext = getAppContext()
+                const effectiveResourceAccessControl = appContext?.effective_resource_access_control
+
+                // The server refused the project this address names and served the user's own one,
+                // so the page cannot load. Once the address bar names a project we do serve, the
+                // scene loads as usual.
+                if (
+                    appContext?.project_access_denied &&
+                    sceneId &&
+                    sceneConfigurations[sceneId]?.projectBased &&
+                    getProjectIdentifierInPath(location.pathname) === appContext.project_access_denied
+                ) {
+                    return Scene.ErrorProjectAccessDenied
+                }
 
                 // Get the access control resource type for the current scene
                 const sceneAccessControlResource = sceneId ? sceneToAccessControlResourceType[sceneId as Scene] : null

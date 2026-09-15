@@ -2589,14 +2589,14 @@
         },
         "AssistantDateRange": {
             "additionalProperties": false,
-            "description": "This filter only works with absolute dates.",
+            "description": "This filter only works with absolute dates. A bound without a UTC offset is read in the project timezone.",
             "properties": {
                 "date_from": {
                     "description": "ISO8601 date string.",
                     "type": "string"
                 },
                 "date_to": {
-                    "description": "ISO8601 date string.",
+                    "description": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
                     "type": ["string", "null"]
                 }
             },
@@ -20653,7 +20653,7 @@
                     "type": ["string", "null"]
                 },
                 "date_to": {
-                    "description": "End of the date range. Same format as date_from. Omit or null for \"now\".",
+                    "description": "End of the date range. Same format as date_from. Omit or null for \"now\". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set.",
                     "type": ["string", "null"]
                 },
                 "daysOfWeek": {
@@ -27333,7 +27333,8 @@
                 "Skio",
                 "Smartlead",
                 "Substack",
-                "ElectricityMaps"
+                "ElectricityMaps",
+                "Amplemarket"
             ],
             "type": "string"
         },
@@ -37972,14 +37973,43 @@
                     },
                     "type": "array"
                 },
+                "legendCalcs": {
+                    "description": "Time-series panels only: which reducers the legend table shows. Empty means no legend calcs.",
+                    "items": {
+                        "$ref": "#/definitions/MetricsReducer"
+                    },
+                    "type": "array"
+                },
+                "nullMode": {
+                    "$ref": "#/definitions/MetricsNullMode",
+                    "default": "gap",
+                    "description": "How a null bucket renders on a time-series chart."
+                },
+                "reduce": {
+                    "$ref": "#/definitions/MetricsReducer",
+                    "default": "last",
+                    "description": "How scalar panels and legend calcs collapse a series to one number."
+                },
                 "statSummary": {
                     "$ref": "#/definitions/MetricsStatSummary",
                     "default": "latest",
+                    "deprecated": "Use `reduce`.",
                     "description": "`stat` display only: which summary the headline value shows."
+                },
+                "thresholds": {
+                    "description": "Color bands for the scalar panels. Sorted by `value` at read time, so entry order does not matter.",
+                    "items": {
+                        "$ref": "#/definitions/MetricsThreshold"
+                    },
+                    "type": "array"
                 },
                 "type": {
                     "$ref": "#/definitions/MetricsDisplayType",
                     "default": "line"
+                },
+                "unit": {
+                    "description": "UCUM unit string as OTel writes it, e.g. \"By\", \"ms\", \"%\". Defaults from the response unit.",
+                    "type": "string"
                 },
                 "yAxis": {
                     "$ref": "#/definitions/MetricsYAxisSettings"
@@ -37989,11 +38019,16 @@
         },
         "MetricsDisplayType": {
             "description": "How a metrics result is charted. `stat` is a single headline value plus sparkline, not a time series.",
-            "enum": ["line", "area", "bar", "stat"],
+            "enum": ["line", "area", "bar", "stat", "gauge", "bargauge", "table", "heatmap"],
             "type": "string"
         },
         "MetricsFilterOp": {
             "enum": ["eq", "neq", "regex", "not_regex"],
+            "type": "string"
+        },
+        "MetricsNullMode": {
+            "description": "How a null bucket renders on a time-series chart.",
+            "enum": ["gap", "zero", "connect"],
             "type": "string"
         },
         "MetricsOtelType": {
@@ -38125,7 +38160,8 @@
                     "type": "string"
                 },
                 "value": {
-                    "type": "number"
+                    "description": "The bucket's aggregate; null when it isn't representable (a gap).",
+                    "type": ["number", "null"]
                 }
             },
             "required": ["time", "value"],
@@ -38218,15 +38254,41 @@
                         "$ref": "#/definitions/MetricsQueryPoint"
                     },
                     "type": "array"
+                },
+                "unit": {
+                    "description": "UCUM unit of the metric as ingested, e.g. \"By\", \"ms\", \"1\". Empty when the SDK did not set one.",
+                    "type": "string"
                 }
             },
             "required": ["labels", "points"],
             "type": "object"
         },
+        "MetricsReducer": {
+            "description": "How a series collapses to one number for the scalar panels and legend calcs.",
+            "enum": ["last", "mean", "min", "max", "sum", "delta"],
+            "type": "string"
+        },
         "MetricsStatSummary": {
+            "deprecated": "Use `MetricsDisplaySettings.reduce`. Kept so saved insights keep working.",
             "description": "Which summary the `stat` display's headline value shows.",
             "enum": ["latest", "average", "total"],
             "type": "string"
+        },
+        "MetricsThreshold": {
+            "additionalProperties": false,
+            "description": "A threshold band: `color` applies from `value` up to the next step.",
+            "properties": {
+                "color": {
+                    "description": "A named color token (e.g. \"green\", \"red\"), never raw hex, so light and dark themes both work.",
+                    "type": "string"
+                },
+                "value": {
+                    "description": "Lower bound of this band. The lowest step is the base color below every other step.",
+                    "type": "number"
+                }
+            },
+            "required": ["value", "color"],
+            "type": "object"
         },
         "MetricsYAxisSettings": {
             "additionalProperties": false,

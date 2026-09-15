@@ -160,8 +160,8 @@ class BaseScanner(BaseModel, frozen=True):
     """Common shape for every concrete scanner; subclasses bind `scanner_type`, `core_step_template`, and `llm_response_schema`.
 
     A scan is a multi-turn conversation over the cached video: a shared `preamble` (sent/cached once) followed by
-    the ordered `mission_steps` — one structured turn each. Every scanner type has a single `core` step (the summarizer
-    names it `summary`); the signals side mission, when enabled, is always the final turn.
+    the ordered `mission_steps` — one structured turn each. Every scanner type has a single `core` step; the signals
+    side mission, when enabled, is always the final turn.
     """
 
     prompt: str
@@ -169,7 +169,7 @@ class BaseScanner(BaseModel, frozen=True):
 
     # Shared opening turn (footer, events tool, calibration, session metadata), rendered once and cached with the video.
     preamble_template: ClassVar[str] = "preamble.jinja"
-    # Per-scanner-type instruction for the `core` step. Subclasses set this (the summarizer overrides `core_steps`).
+    # Per-scanner-type instruction for the `core` step. Subclasses set this.
     core_step_template: ClassVar[str] = ""
     # Names of free-text output fields that may contain `(t <sec>)` citations.
     citation_fields: ClassVar[tuple[str, ...]] = ()
