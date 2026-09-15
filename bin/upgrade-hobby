@@ -164,65 +164,56 @@ if [ -t 0 ] && ! grep -qE "^OPENAI_API_KEY=.+" .env; then
     fi
 fi
 
-# Check if session recording storage migration marker exists
-if ! grep -q "SESSION_RECORDING_STORAGE_MIGRATED_TO_SEAWEEDFS" .env; then
+# MinIO is no longer in the stack. This asks for a decision while the old stack still
+# runs, because the objects cannot be moved after the swap without a temporary MinIO
+# container. The marker also covers the older SESSION_RECORDING_STORAGE_MIGRATED_TO_SEAWEEDFS
+# prompt, whose migration script read the same MinIO service.
+if ! grep -q "OBJECT_STORAGE_MINIO_REMOVED" .env; then
   echo ""
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📦 SESSION RECORDING STORAGE UPDATE"
+  echo "📦 OBJECT STORAGE UPDATE: MinIO is removed"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
-  echo "PostHog now uses SeaweedFS for session recording storage."
-  echo "Your existing session recordings are stored in MinIO."
+  echo "MinIO stopped publishing Docker images, so this version replaces it with"
+  echo "SeaweedFS. SeaweedFS starts on a new volume and cannot read the MinIO format."
   echo ""
-  echo "You have TWO options:"
+  echo "Your objects stay on disk in the 'objectstorage' volume, but the stack stops"
+  echo "reading them. Until you copy them across, these are unavailable:"
   echo ""
-  echo "1. 🔄 MIGRATE your existing session recordings to SeaweedFS"
-  echo "   - Keeps all your existing recordings accessible"
-  echo "   - Run migration script after upgrade"
-  echo "   - New recordings will be stored in SeaweedFS"
-  echo "   - Migration is best-effort for hobby deployments; support is limited"
+  echo "  - exported assets (CSV, PNG, PDF, video)"
+  echo "  - uploaded media, such as images in notebooks"
+  echo "  - error tracking symbol sets"
+  echo "  - session recordings that are still in MinIO"
   echo ""
-  echo "2. ⚠️  ACCEPT DATA LOSS of existing session recordings"
-  echo "   - Existing recordings will become inaccessible"
-  echo "   - Only new recordings will be available"
-  echo "   - Faster upgrade, no migration needed"
+  echo "Postgres and ClickHouse are untouched, so events, persons, insights, dashboards,"
+  echo "feature flags and experiments all survive the upgrade."
+  echo ""
+  echo "You have two options:"
+  echo ""
+  echo "1. ⏸  Stop here and stay on your current version."
+  echo "   Copy the objects out of MinIO yourself, then run this upgrade again."
+  echo ""
+  echo "2. ▶️  Continue the upgrade."
+  echo "   The old volume is kept. Copy the objects into SeaweedFS afterwards with:"
+  echo ""
+  echo "     ./bin/migrate-storage-hobby"
+  echo ""
+  echo "   That script reads the old volume through a temporary MinIO container, so it"
+  echo "   pulls the MinIO image once. Run it before you delete the volume."
+  echo ""
+  echo "Both options are described in detail here:"
+  echo "https://github.com/PostHog/posthog/blob/master/docs/internal/hobby-minio-removal.md"
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
-  read -r -p "Do you want to MIGRATE existing session recordings? [y/N] " response
-  if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
+  read -r -p "Continue the upgrade? [y/N] " response
+  if [[ ! "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
   then
-    echo ""
-    echo "✅ You chose to MIGRATE existing recordings."
-    echo ""
-    echo "After the upgrade completes, run this command to migrate:"
-    echo ""
-    echo "  ./bin/migrate-session-recordings-hobby"
-    echo ""
-    echo "Options:"
-    echo "  --dry-run          Preview what would be migrated"
-    echo "  --resume           Resume from last checkpoint if interrupted"
-    echo "  --force            Overwrite existing objects in destination"
-    echo "  --workers <n>      Number of concurrent workers (default: 5)"
-    echo ""
-    read -r -p "Press ENTER to acknowledge and continue..."
-    echo "SESSION_RECORDING_STORAGE_MIGRATED_TO_SEAWEEDFS=pending_migration" >> .env
-  else
-    echo ""
-    echo "⚠️  You chose to ACCEPT DATA LOSS."
-    echo "Existing session recordings will not be accessible after upgrade."
-    echo ""
-    read -r -p "Are you sure? This cannot be undone. [y/N] " confirm
-    if [[ "$confirm" =~ ^([yY][eE][sS]|[yY])+$ ]]
-    then
-      echo "SESSION_RECORDING_STORAGE_MIGRATED_TO_SEAWEEDFS=data_loss_accepted" >> .env
-      echo "✅ Proceeding without migration."
-    else
-      echo "Upgrade cancelled. No changes made."
-      exit 1
-    fi
+    echo "Upgrade cancelled. No changes made."
+    exit 1
   fi
+  echo "OBJECT_STORAGE_MINIO_REMOVED=acknowledged" >> .env
   source .env
 fi
 
