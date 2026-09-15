@@ -6,6 +6,7 @@ import { expectLogic, partial, truth } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { APP_RELOAD_EVENT } from 'lib/utils/captureAppReload'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -52,6 +53,29 @@ describe('sceneLogic', () => {
         logic = sceneLogic.build({ scenes: testScenes })
         logic.mount()
         await expectLogic(logic).delay(1)
+    })
+
+    it('captures an event when a failed scene import reloads the browser', async () => {
+        const capture = jest.fn()
+        const reload = jest.fn()
+        window.posthog = { capture } as any
+        const priorLocation = window.location
+        Object.defineProperty(window, 'location', { value: { ...priorLocation, reload }, writable: true })
+
+        try {
+            logic.actions.reloadBrowserDueToImportError(new TypeError('Failed to fetch dynamically imported module'))
+            await expectLogic(logic).delay(1)
+
+            expect(reload).toHaveBeenCalledTimes(1)
+            expect(capture).toHaveBeenCalledWith(
+                APP_RELOAD_EVENT,
+                expect.objectContaining({ reason: 'scene_import_error' }),
+                expect.anything()
+            )
+        } finally {
+            Object.defineProperty(window, 'location', { value: priorLocation, writable: true })
+            delete window.posthog
+        }
     })
 
     it('has preloaded some scenes', async () => {

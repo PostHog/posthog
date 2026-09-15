@@ -3,6 +3,8 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import { Component, type ReactNode } from 'react'
 
+import { APP_RELOAD_EVENT } from 'lib/utils/captureAppReload'
+
 import { ChunkLoadErrorBoundary } from './ChunkLoadErrorBoundary'
 
 const RELOAD_GUARD_KEY = 'posthog-chunk-reload-at'
@@ -49,6 +51,7 @@ describe('ChunkLoadErrorBoundary', () => {
     afterEach(() => {
         consoleErrorSpy.mockRestore()
         consoleWarnSpy.mockRestore()
+        delete window.posthog
         cleanup()
     })
 
@@ -66,6 +69,25 @@ describe('ChunkLoadErrorBoundary', () => {
         expect(reload).toHaveBeenCalledTimes(1)
         expect(screen.queryByText('Failed to fetch dynamically imported module')).not.toBeInTheDocument()
         expect(Number(window.localStorage.getItem(RELOAD_GUARD_KEY))).toBeGreaterThan(0)
+    })
+
+    it('captures an event for the reload, so the recovery is visible outside session recordings', () => {
+        const capture = jest.fn()
+        window.posthog = { capture } as any
+
+        render(
+            <TestErrorBoundary>
+                <ChunkLoadErrorBoundary reload={jest.fn()}>
+                    <ThrowChunkError />
+                </ChunkLoadErrorBoundary>
+            </TestErrorBoundary>
+        )
+
+        expect(capture).toHaveBeenCalledWith(
+            APP_RELOAD_EVENT,
+            expect.objectContaining({ reason: 'chunk_load_error_boundary' }),
+            expect.anything()
+        )
     })
 
     it('surfaces repeated chunk errors instead of reloading in a loop', () => {
