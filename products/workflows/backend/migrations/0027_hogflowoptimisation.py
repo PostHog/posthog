@@ -34,14 +34,6 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
-                    "last_run_at",
-                    models.DateTimeField(
-                        blank=True,
-                        help_text="When a producer last read this workflow's metrics.",
-                        null=True,
-                    ),
-                ),
-                (
                     "hog_flow",
                     models.OneToOneField(
                         on_delete=django.db.models.deletion.CASCADE,
