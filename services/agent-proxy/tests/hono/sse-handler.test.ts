@@ -658,11 +658,41 @@ describe('sse-handler', () => {
             xaddComplete(redis, streamKey)
 
             const body = await collect(
-                streamTaskRunEvents(streamKey, redis as unknown as Redis, { lastEventId: firstId })
+                streamTaskRunEvents(streamKey, redis as unknown as Redis, { lastEventId: firstId, resyncCapable: true })
             )
 
             expect(body).toContain('"second"')
             expect(body).not.toContain('"first"')
+            expect(body).toContain(SSE_EVENT_STREAM_END)
+        })
+
+        it('tells a resync-capable client its cursor was trimmed instead of skipping ahead', async () => {
+            const runId = uniqueRunId()
+            const streamKey = makeStreamKey(runId)
+
+            xaddData(redis, streamKey, { type: 'notification', msg: 'survivor' })
+            xaddComplete(redis, streamKey)
+
+            const body = await collect(
+                streamTaskRunEvents(streamKey, redis as unknown as Redis, { lastEventId: '1-0', resyncCapable: true })
+            )
+
+            expect(body).toBe(`event: ${SSE_EVENT_END}\ndata: {"type":"resync","reason":"trimmed"}\n\n`)
+        })
+
+        it('keeps reading from the oldest surviving entry for a client that cannot resync', async () => {
+            const runId = uniqueRunId()
+            const streamKey = makeStreamKey(runId)
+
+            xaddData(redis, streamKey, { type: 'notification', msg: 'survivor' })
+            xaddComplete(redis, streamKey)
+
+            const body = await collect(
+                streamTaskRunEvents(streamKey, redis as unknown as Redis, { lastEventId: '1-0' })
+            )
+
+            expect(body).toContain('"survivor"')
+            expect(body).not.toContain('"resync"')
             expect(body).toContain(SSE_EVENT_STREAM_END)
         })
 
