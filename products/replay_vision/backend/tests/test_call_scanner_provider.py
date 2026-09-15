@@ -86,6 +86,7 @@ async def _run(
     dispatch: Any = lambda c: {},
     cache_name=None,
     model: str = "models/gemini-3-flash-preview",
+    lookups_by_step: dict[str, int] | None = None,
 ):
     return await _run_steps(
         client=client,
@@ -98,6 +99,7 @@ async def _run(
         team_id=1,
         metric_labels=_LABELS,
         trace_id="trace-1",
+        lookups_by_step=lookups_by_step,
     )
 
 
@@ -187,6 +189,57 @@ async def test_step_runs_a_tool_call_then_answers() -> None:
     out = await _run(client, steps, dispatch=dispatch)
     assert out["core"].verdict == "yes"
     assert [fc.args for fc in dispatched] == [{"rec_t": 5}]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "responses,expected_calls,expected_lookups",
+    [
+        pytest.param(
+            [
+                _Resp(text='{"verdict":"yes"}'),
+                _Resp(function_call=_fc("get_events_around", {"rec_t": 5})),
+                _Resp(text='{"verdict":"yes"}'),
+            ],
+            3,
+            1,
+            id="flagged_answer_without_a_lookup_is_re_prompted",
+        ),
+        pytest.param(
+            [
+                _Resp(function_call=_fc("get_events_around", {"rec_t": "bad"})),
+                _Resp(text='{"verdict":"yes"}'),
+                _Resp(function_call=_fc("get_events_around", {"rec_t": 5})),
+                _Resp(text='{"verdict":"yes"}'),
+            ],
+            4,
+            1,
+            id="errored_call_is_not_a_lookup",
+        ),
+        pytest.param([_Resp(text='{"verdict":"no"}')], 1, 0, id="unflagged_answer_needs_no_lookup"),
+    ],
+)
+async def test_requires_lookup_gates_a_flagged_answer(
+    responses: list[_Resp], expected_calls: int, expected_lookups: int
+) -> None:
+    steps = [
+        MissionStep(
+            name="core",
+            instruction="c",
+            response_model=_Core,
+            requires_lookup=lambda parsed: cast(_Core, parsed).verdict == "yes",
+        )
+    ]
+    client = _FakeClient(responses)
+    lookups_by_step: dict[str, int] = {}
+
+    def dispatch(fc: Any) -> dict[str, Any]:
+        return {"error": "bad rec_t"} if fc.args["rec_t"] == "bad" else {"events": []}
+
+    await _run(client, steps, dispatch=dispatch, lookups_by_step=lookups_by_step)
+    assert len(client.models.calls) == expected_calls
+    # Only recorded on success, so this also proves the re-prompted answer was accepted.
+    assert lookups_by_step == {"core": expected_lookups}
 
 
 @pytest.mark.asyncio
@@ -305,7 +358,8 @@ async def test_signal_timestamps_use_recording_duration(
         description="A blank dialog covers the editor and prevents input.",
         confidence=0.9,
     )
-    core = MonitorLlmResponse(verdict="yes", reasoning="The dialog blocked input.", confidence=0.9)
+    # A `no` keeps the core step out of the lookup requirement; this test is about the signals step only.
+    core = MonitorLlmResponse(verdict="no", reasoning="The dialog did not block input.", confidence=0.9)
     client = _FakeClient(
         [_Resp(text=core.model_dump_json())]
         + [
@@ -333,7 +387,7 @@ async def test_signal_timestamps_use_recording_duration(
             llm_inputs=MagicMock(metadata=MagicMock(duration_seconds=duration_seconds)),
             trace_id="trace-1",
         )
-    assert cast(MonitorOutput, outcome.finalized).verdict == "yes"
+    assert cast(MonitorOutput, outcome.finalized).verdict == "no"
     assert outcome.signals == ([] if expected_end is None else [signal.model_copy(update={"end_time": expected_end})])
     assert len(client.models.calls) == 1 + len(end_times)
 

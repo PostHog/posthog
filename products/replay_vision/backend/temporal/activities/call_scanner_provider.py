@@ -112,6 +112,7 @@ class _StepResult:
 
     output: BaseModel | None
     provider_refused: bool = False
+    lookups: int = 0
 
 
 @frozen
@@ -121,6 +122,7 @@ class _MissionOutcome:
     finalized: BaseScannerOutput
     signals: list[SignalFinding]
     verification: VerificationRecord | None = None
+    event_lookups: int = 0
 
 
 @activity.defn
@@ -225,7 +227,12 @@ async def run_scan(
     )
     duration_ms = int(llm_inputs.metadata.duration_seconds * 1000)
     finalized = _resolve_citations(outcome.finalized, scanner, duration_ms)
-    return ScannerCallOutput(model_output=finalized, signals=outcome.signals, verification=outcome.verification)
+    return ScannerCallOutput(
+        model_output=finalized,
+        signals=outcome.signals,
+        verification=outcome.verification,
+        event_lookups=outcome.event_lookups,
+    )
 
 
 def _scan_trace_id(inputs: CallScannerProviderInputs) -> str:
@@ -437,6 +444,8 @@ async def _run_mission(
         else step
         for step in scanner.mission_steps()
     ]
+    # Each `_run_steps` pass overwrites this, so a mission re-ask replaces the failed pass's counts.
+    lookups_by_step: dict[str, int] = {}
     run = functools.partial(
         _run_steps,
         client=client,
@@ -448,6 +457,7 @@ async def _run_mission(
         team_id=team_id,
         metric_labels=metric_labels,
         trace_id=trace_id,
+        lookups_by_step=lookups_by_step,
     )
     verification: VerificationRecord | None = None
     try:
@@ -475,7 +485,12 @@ async def _run_mission(
             await _delete_video_cache(cache_client, cache.name)
 
     finalized, signals = scanner.assemble(step_outputs)
-    return _MissionOutcome(finalized=finalized, signals=signals, verification=verification)
+    return _MissionOutcome(
+        finalized=finalized,
+        signals=signals,
+        verification=verification,
+        event_lookups=lookups_by_step.get(STEP_CORE, 0),
+    )
 
 
 async def _verify_positive_verdict(
@@ -629,6 +644,7 @@ async def _run_steps(
     team_id: int,
     metric_labels: dict[str, str],
     trace_id: str,
+    lookups_by_step: dict[str, int] | None = None,
 ) -> dict[str, BaseModel]:
     """Run the ordered steps over one growing conversation; return the validated output keyed by step name."""
     # The video + preamble lead the conversation inline unless they're already cached as the prefix.
@@ -658,6 +674,8 @@ async def _run_steps(
                 raise _exhausted_step_error(step, result)
             continue
         step_outputs[step.name] = result.output
+        if lookups_by_step is not None:
+            lookups_by_step[step.name] = result.lookups
     return step_outputs
 
 
@@ -712,6 +730,17 @@ async def _run_step(
             posthog_groups={"project": str(team_id)},
         )
 
+    # Counted in the forced final round-trip too, not just the tool loop. A malformed call gets an error
+    # response back and is not a lookup.
+    lookups = 0
+
+    def counting_dispatch(call: Any) -> dict[str, Any]:
+        nonlocal lookups
+        response = dispatch(call)
+        if "events" in response:
+            lookups += 1
+        return response
+
     last_error: str | None = None
     # Whether the final attempt came back with no candidate at all, which reads as a provider refusal rather
     # than a schema problem. Tracked on the last attempt only: that is the state we ended up reporting.
@@ -720,7 +749,7 @@ async def _run_step(
         started = time.monotonic()
         try:
             response = await run_tool_loop(
-                generate=_generate, convo=convo, dispatch=dispatch, max_tool_iterations=_tool_budget(model)
+                generate=_generate, convo=convo, dispatch=counting_dispatch, max_tool_iterations=_tool_budget(model)
             )
             if function_calls(response):
                 # Tool budget spent and the model still wants a lookup. Rather than hard-fail, complete the
@@ -736,7 +765,7 @@ async def _run_step(
                     generate=lambda c: _generate(forced_prefix + c, forced_config),
                     convo=convo,
                     exhausted=response,
-                    dispatch=dispatch,
+                    dispatch=counting_dispatch,
                 )
         except Exception:
             record_provider_call(**metric_labels, outcome="provider_error", seconds=time.monotonic() - started)
@@ -752,7 +781,7 @@ async def _run_step(
         last_was_empty = False
 
         text = (response.text or "").strip()
-        parsed, error = _parse_and_validate(step, text)
+        parsed, error = _parse_and_validate(step, text, lookups=lookups)
         record_provider_call(
             **metric_labels,
             outcome="ok" if error is None else "validation_failed",
@@ -761,7 +790,7 @@ async def _run_step(
 
         if error is None:
             convo.append(response.candidates[0].content)  # carry the answer into the next turn
-            return _StepResult(output=parsed)
+            return _StepResult(output=parsed, lookups=lookups)
 
         last_error = error
         logger.warning(
@@ -792,7 +821,7 @@ async def _run_step(
         error=last_error,
         provider_refused=last_was_empty,
     )
-    return _StepResult(output=None, provider_refused=last_was_empty)
+    return _StepResult(output=None, provider_refused=last_was_empty, lookups=lookups)
 
 
 _OUT_OF_LOOKUPS_NUDGE = (
@@ -846,7 +875,13 @@ def _step_config(step: MissionStep, cache_name: str | None, *, allow_tools: bool
     return types.GenerateContentConfig(**kwargs)
 
 
-def _parse_and_validate(step: MissionStep, text: str) -> tuple[BaseModel | None, str | None]:
+_NO_LOOKUP_ERROR = (
+    "You answered without checking any moment with `get_events_around`. Look up the moments your reasoning "
+    "cites, then answer from what the events show."
+)
+
+
+def _parse_and_validate(step: MissionStep, text: str, *, lookups: int = 0) -> tuple[BaseModel | None, str | None]:
     """Parse `text` against the step schema and run its semantic check; return (parsed, None) or (None, error)."""
     if not text:
         return None, "Empty response from model"
@@ -858,6 +893,8 @@ def _parse_and_validate(step: MissionStep, text: str) -> tuple[BaseModel | None,
         semantic_error = step.validate(parsed)
         if semantic_error is not None:
             return None, f"Semantic validation failed: {semantic_error}"
+    if lookups == 0 and step.requires_lookup is not None and step.requires_lookup(parsed):
+        return None, _NO_LOOKUP_ERROR
     return parsed, None
 
 

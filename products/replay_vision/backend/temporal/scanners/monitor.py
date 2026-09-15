@@ -53,6 +53,10 @@ class MonitorScanner(BaseScanner, frozen=True):
     def prompt_context(self) -> dict[str, Any]:
         return {"allow_inconclusive": self.allow_inconclusive}
 
+    def answer_requires_lookup(self, parsed: BaseModel) -> bool:
+        # A `yes` that never called the tool is a visual impression presented as verified evidence.
+        return isinstance(parsed, MonitorLlmResponse) and parsed.verdict == "yes"
+
     def validate_semantics(self, output: BaseScannerOutput) -> str | None:
         if isinstance(output, MonitorOutput) and output.verdict == "inconclusive" and not self.allow_inconclusive:
             return (
