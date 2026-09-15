@@ -462,15 +462,7 @@ export const VariableComponent = ({
                         {showEditingUI && (
                             <LemonButton
                                 icon={<IconCopy />}
-                                onClick={() => {
-                                    navigator.clipboard.writeText(variableAsHogQL)
-                                    lemonToast.success(
-                                        <span>
-                                            <code className="text-sm">{variableAsHogQL}</code> copied to clipboard. Use
-                                            it anywhere in HogQL.
-                                        </span>
-                                    )
-                                }}
+                                onClick={() => void copyToClipboard(variableAsHogQL, 'variable SQL')}
                                 type="secondary"
                                 tooltip="Copy variable code name"
                                 noPadding
