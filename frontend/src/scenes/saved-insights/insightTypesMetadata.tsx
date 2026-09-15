@@ -508,6 +508,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconLive,
         inMenu: false,
     },
+    [NodeKind.MetricsHistogramQuery]: {
+        name: 'Metrics heatmap',
+        description: 'Chart a histogram metric as a latency-over-time heatmap',
+        icon: IconLive,
+        inMenu: false,
+    },
     [NodeKind.TraceSpansQuery]: {
         name: 'Trace Spans',
         icon: IconLive,
