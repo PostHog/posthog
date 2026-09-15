@@ -7,7 +7,7 @@ import hashlib
 import dataclasses
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, cast
 from urllib import parse
 
 from django.conf import settings
@@ -35,7 +35,7 @@ from posthog.admin.inlines.team_experiments_config_inline import TeamExperiments
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
 from posthog.helpers.impersonation import is_impersonated
 from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, add_credit, get_wallet
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, ActivityLog, Detail, log_activity
 from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.models.remote_config import RemoteConfig
@@ -790,7 +790,9 @@ class TeamAdmin(admin.ModelAdmin):
 
         # The facade row-locks the config while checking + flipping, so concurrent submits can't
         # both dispatch the customer email + notification. Side effects stay outside that lock.
-        change = suspend_email_sending(team.pk, reason)
+        change = suspend_email_sending(
+            team.pk, reason, user_id=cast(User, request.user).pk, was_impersonated=is_impersonated(request)
+        )
         already_suspended_at = change.previously_suspended_at
         suspended_at = change.changed_at
 
@@ -987,7 +989,13 @@ class TeamAdmin(admin.ModelAdmin):
             return redirect(team_url)
         pinned = request.POST.get("pinned") == "on"
 
-        previous_tier = set_email_sending_tier(team.pk, tier=tier, pinned=pinned)
+        previous_tier = set_email_sending_tier(
+            team.pk,
+            tier=tier,
+            pinned=pinned,
+            user_id=cast(User, request.user).pk,
+            was_impersonated=is_impersonated(request),
+        )
 
         logger.info(
             "admin_set_email_sending_tier",
@@ -1021,7 +1029,9 @@ class TeamAdmin(admin.ModelAdmin):
         # suspend and set-tier actions.
         ensure_workflows_config(team.pk)
         try:
-            decision = recompute_email_sending_tier(team.id)
+            decision = recompute_email_sending_tier(
+                team.id, user_id=cast(User, request.user).pk, was_impersonated=is_impersonated(request)
+            )
         except Exception:
             logger.exception("admin_recompute_email_sending_tier_failed", team_id=team.id)
             self.message_user(request, "Could not recompute the tier. Check the logs.", level=messages.ERROR)
