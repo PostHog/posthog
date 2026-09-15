@@ -101,6 +101,21 @@ You can generate a personal auth token in the **My Account** section of your [Bu
                 return "One row per captured event. Can be very large — full refresh only, off by default."
             if endpoint == "pivot_values":
                 return "One row per value of each pivot. As wide as the underlying event field — off by default."
+            if endpoint == "error_trend":
+                return (
+                    "Event counts over time for each error, in 12-hour buckets. Covers each project's 25 most "
+                    "recently seen errors. Off by default because it makes one request per error."
+                )
+            if endpoint == "error_pivot_values":
+                return (
+                    "One row per pivot value for each error. Covers each project's 10 most recently seen "
+                    "errors. Off by default because it makes one request for every error and pivot."
+                )
+            if endpoint == "span_group_spans":
+                return (
+                    "Individual spans under each span group. BugSnag serves only the most recent page per "
+                    "group, so this is a sample of recent spans rather than the full history. Off by default."
+                )
             return None
 
         def _build_schema(endpoint: str) -> SourceSchema:
