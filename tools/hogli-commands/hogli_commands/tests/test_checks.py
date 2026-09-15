@@ -327,6 +327,22 @@ _NARROWED_TURBO_WITH_ROUTES = {
     },
 }
 
+_NARROWED_TURBO_WITH_CONSUMERS = {
+    "extends": ["//"],
+    "tasks": {
+        "backend:contract-check": {
+            "inputs": [
+                "backend/facade/**",
+                "backend/presentation/**",
+                "backend/webhook_consumers.py",
+                "backend/migrations/**",
+            ],
+            "outputs": [],
+            "cache": True,
+        }
+    },
+}
+
 chain_check = IsolationChainCheck()
 
 
@@ -440,6 +456,41 @@ class TestIsolationChainRoutes:
         (ctx.backend_dir / "routes.py").write_text("")
         result = chain_check.run(ctx)
         assert not any("routes.py" in i for i in result.issues)
+
+
+class TestIsolationChainWebhookConsumers:
+    @pytest.mark.parametrize(
+        "turbo, reported",
+        [
+            pytest.param(_NARROWED_TURBO, True, id="narrowed_without_the_consumer_input"),
+            pytest.param(_NARROWED_TURBO_WITH_CONSUMERS, False, id="narrowed_with_the_consumer_input"),
+            pytest.param(None, False, id="unnarrowed_still_watches_all_of_backend"),
+        ],
+    )
+    def test_unwatched_consumer_module_is_reported_when_not_eligible(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, turbo: dict | None, reported: bool
+    ) -> None:
+        # No tach interface, so the product is not externally sealed and not eligible for isolated
+        # tests — needs_turn_on stays silent. An unwatched consumer module is also what makes
+        # has_narrowed False, so every other turbo-omission issue is silent too. The consumer
+        # omission must still be reported, or the narrowing that skips the Django suite on a
+        # consumer change goes unmentioned by the whole check.
+        import hogli_commands.product.isolation as isolation_module
+
+        monkeypatch.setattr(isolation_module, "has_tach_interface", lambda *_a, **_k: False)
+        monkeypatch.setattr(isolation_module, "has_legacy_interface_leaks", lambda *_a, **_k: False)
+        monkeypatch.setattr(isolation_module, "presentation_bypass_entries", lambda *_a, **_k: [])
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        (ctx.backend_dir / "webhook_consumers.py").write_text("")
+        if turbo is not None:
+            (ctx.product_dir / "turbo.json").write_text(json.dumps(turbo))
+
+        result = chain_check.run(ctx)
+
+        assert any("webhook_consumers.py" in i for i in result.issues) is reported
+        assert not any("inert" in i for i in result.issues)
+        if reported:
+            assert result.file == "products/my_product/turbo.json"
 
 
 class TestNarrowedTurboDetection:
@@ -1047,7 +1098,7 @@ def _make_backend(tmp_path: Path, files: list[str]) -> CheckContext:
 
 
 class TestImportSurfaceCheck:
-    """The AST twin of the two import-linter contracts. Its reason to exist is the namespace
+    """The AST twin of the three import-linter contracts. Its reason to exist is the namespace
     package: grimp cannot see a module under a directory without __init__.py, so a routed
     view there passes the contract vacuously. None of the fixtures below carry a marker."""
 
@@ -1097,6 +1148,27 @@ class TestImportSurfaceCheck:
                 {"presentation/views.py": "from products.other.backend.models import M\n"},
                 0,
                 id="cross_product_is_tachs_job",
+            ),
+            pytest.param(
+                {"webhook_consumers.py": "from products.p.backend.facade.api import f\n", "facade/api.py": ""},
+                0,
+                id="webhook_consumers_from_facade",
+            ),
+            pytest.param(
+                {
+                    "webhook_consumers.py": "from products.p.backend.services.handlers import h\n",
+                    "services/handlers.py": "",
+                },
+                1,
+                id="webhook_consumers_from_unmarked_package",
+            ),
+            pytest.param(
+                {
+                    "webhook_consumers.py": "from products.p.backend.facade_legacy.handlers import h\n",
+                    "facade_legacy/handlers.py": "",
+                },
+                1,
+                id="webhook_consumers_from_facade_lookalike",
             ),
         ],
     )
@@ -1917,6 +1989,20 @@ class TestNarrowedTurboWiringSurface:
         product_dir, _ = _write_facade_product(tmp_path, turbo_inputs=inputs)
         assert has_narrowed_turbo_inputs(product_dir) is expected
 
+    @pytest.mark.parametrize(
+        "inputs, expected",
+        [
+            (["backend/facade/**", "backend/webhook_consumers.py"], True),
+            # present but unlisted: a consumer change would run no Django suite, so it isn't narrowed
+            (["backend/facade/**"], False),
+        ],
+    )
+    def test_present_webhook_consumers_must_stay_watched(
+        self, tmp_path: Path, inputs: list[str], expected: bool
+    ) -> None:
+        product_dir, _ = _write_facade_product(tmp_path, sources={"webhook_consumers.py": ""}, turbo_inputs=inputs)
+        assert has_narrowed_turbo_inputs(product_dir) is expected
+
     def test_carveout_module_is_accepted_surface_only_when_declared(self, tmp_path: Path) -> None:
         # a carve-out defining module is an odd input (not facade/garage): it only counts as
         # narrowing when the caller passes it as a known carve-out module.
@@ -1929,6 +2015,9 @@ class TestNarrowedTurboWiringSurface:
         [
             (["backend/facade/**", "backend/models/tcac.py"], set()),  # covered
             (["backend/facade/**", "backend/models/**"], set()),  # a dir glob covers the file inside it
+            (["backend/facade/**", "backend/models/**/*.py"], set()),  # the file-set form turbo inputs use
+            (["backend/facade/**", "backend/models/*.py"], set()),  # single-level file set
+            (["backend/facade/**", "backend/models/**/*.ts"], {"backend/models/tcac.py"}),  # other extension
             (["backend/facade/**", "backend/models_extra/**"], {"backend/models/tcac.py"}),  # sibling dir doesn't
             (["backend/facade/**"], {"backend/models/tcac.py"}),  # missing -> uncovered
         ],

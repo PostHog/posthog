@@ -859,7 +859,7 @@ export namespace Schemas {
          * @nullable
          */
       title?: string | null;
-      /** Notebook content as a ProseMirror JSON document structure. */
+      /** Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook. */
       content?: unknown;
       /**
          * Plain text representation of the notebook content for search.
@@ -9475,6 +9475,8 @@ export namespace Schemas {
     export interface AddSnapshotsInput {
       snapshots: SnapshotManifestItem[];
       baseline_hashes?: AddSnapshotsInputBaselineHashes;
+      /** SHA-256 of the story-to-file map the CLI built from the Storybook index.json of this run's build. Every shard of a run sends the same value. Empty when the run sends no map. */
+      story_index_hash?: string;
     }
 
     export type UploadTargetFields = {[key: string]: string};
@@ -9486,6 +9488,8 @@ export namespace Schemas {
     }
 
     export interface AddSnapshotsResult {
+      /** Where to upload the story-to-file map, as a presigned POST with a JSON body. Null when the request sent no map, or the store already holds a map with that hash. */
+      story_index_upload?: UploadTarget | null;
       added: number;
       uploads: UploadTarget[];
     }
@@ -17835,6 +17839,36 @@ export namespace Schemas {
       RecentSignals: 'recent_signals',
     } as const;
 
+    export type CheckComparisonOperatorEnum = typeof CheckComparisonOperatorEnum[keyof typeof CheckComparisonOperatorEnum];
+
+
+    export const CheckComparisonOperatorEnum = {
+      Lte: 'lte',
+      Gte: 'gte',
+      Between: 'between',
+    } as const;
+
+    export interface CheckThresholdBounds {
+      lower: number;
+      upper: number;
+    }
+
+    /**
+     * What the measured value must satisfy for the check to pass.
+     *
+     * The operators are the ones the shared alerts comparator expresses exactly. Strict `lt` / `gt`
+     * would need a second comparison engine for a distinction a soak window does not make, so they are
+     * not offered: "stays at or below 10 a day" is the same expectation.
+     */
+    export interface CheckComparison {
+      /** `lte`, `gte`, or `between`. */
+      operator: CheckComparisonOperatorEnum;
+      /** The bound for `lte` and `gte`; unused by `between`. */
+      value?: number | null;
+      /** The inclusive range for `between`; unused by `lte` and `gte`. */
+      bounds?: CheckThresholdBounds | null;
+    }
+
     export interface CheckDatabaseNameResponse {
       name: string;
       available: boolean;
@@ -19290,7 +19324,7 @@ export namespace Schemas {
       name: string;
       /** Server-assigned version identity, e.g. v3. */
       version: string;
-      /** System prompt; {email} is replaced with the signup email domain at runtime. At most 20000 characters. */
+      /** System prompt; {email} is replaced with the signup email domain at runtime. When the prompt asks for it, the model may call web_search and fetch_page (run through Firecrawl) to look things up; each call costs Firecrawl credits. At most 20000 characters. */
       prompt_text: string;
       /** Gateway model id this version was authored against. */
       model: string;
@@ -22475,6 +22509,13 @@ export namespace Schemas {
       compiled_query: string | null;
       /** Async query status, when the run is not blocking. */
       query_status: unknown;
+      /** True when the query hit its row limit and more rows exist. Narrow the window or the interval and run the metric again. A HogQLQuery metric fixes its window in SQL and rejects those overrides, so report the window the definition itself covers, or ask for a parameterized metric. Either way, do not re-derive the series by hand. False whenever row_limit is null, because no row cap was reported for that run. */
+      has_more: boolean;
+      /**
+         * Row limit applied to this run. Null when no row cap was reported: a markdown metric, an insight or trends query, or a HogQL metric that sets its own LIMIT or uses a UNION. This field cannot verify the completeness of those runs.
+         * @nullable
+         */
+      row_limit: number | null;
       /**
          * Deep link to open the query in the app (SQL editor or insight).
          * @nullable
@@ -22977,6 +23018,30 @@ export namespace Schemas {
     export interface DataQualityGateConfig {
       /** When true, a materialization whose error-severity checks fail is not published; the previous version keeps serving and downstream models are skipped. */
       gate_materialization_on_checks: boolean;
+    }
+
+    export interface DataQualityMetricSubject {
+      /** Metric identifier used by the nested check endpoints. */
+      id: string;
+      /** Queryable metric name. */
+      name: string;
+      /** Metric label shown in the data catalog. */
+      display_name: string;
+    }
+
+    export interface DataQualityOutputColumn {
+      /** Output column name available through the {metric} relation. */
+      name: string;
+      /**
+         * ClickHouse type, or null when it could not be inferred.
+         * @nullable
+         */
+      type: string | null;
+    }
+
+    export interface DataQualityOutputSchema {
+      /** Columns returned by the saved metric query. */
+      columns: DataQualityOutputColumn[];
     }
 
     /**
@@ -25447,6 +25512,7 @@ export namespace Schemas {
      * * `Skio` - Skio
      * * `Smartlead` - Smartlead
      * * `Substack` - Substack
+     * * `ElectricityMaps` - ElectricityMaps
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -26790,6 +26856,7 @@ export namespace Schemas {
       Skio: 'Skio',
       Smartlead: 'Smartlead',
       Substack: 'Substack',
+      ElectricityMaps: 'ElectricityMaps',
     } as const;
 
     /**
@@ -28146,7 +28213,8 @@ export namespace Schemas {
        * * `Sequenzy` - Sequenzy
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
-       * * `Substack` - Substack */
+       * * `Substack` - Substack
+       * * `ElectricityMaps` - ElectricityMaps */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -30194,7 +30262,8 @@ export namespace Schemas {
        * * `Sequenzy` - Sequenzy
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
-       * * `Substack` - Substack */
+       * * `Substack` - Substack
+       * * `ElectricityMaps` - ElectricityMaps */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -37840,6 +37909,11 @@ export namespace Schemas {
       apply_sync_defaults?: boolean;
     }
 
+    export interface ExternalDataSourceBulkUpdateSchemas {
+      /** Schema updates to apply in a single batch. */
+      schemas: ExternalDataSourceBulkUpdateSchema[];
+    }
+
     export interface ExternalDataSourceConnectionOption {
       readonly id: string;
       /** @nullable */
@@ -39194,7 +39268,8 @@ export namespace Schemas {
        * * `Sequenzy` - Sequenzy
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
-       * * `Substack` - Substack */
+       * * `Substack` - Substack
+       * * `ElectricityMaps` - ElectricityMaps */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -40571,7 +40646,8 @@ export namespace Schemas {
        * * `Sequenzy` - Sequenzy
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
-       * * `Substack` - Substack */
+       * * `Substack` - Substack
+       * * `ElectricityMaps` - ElectricityMaps */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -42073,9 +42149,9 @@ export namespace Schemas {
     export interface FinalizeRunRequestInput {
       /** Approve every still-pending changed and new snapshot before finalizing (tolerated snapshots are left untouched). Leave false to finalize a run you've already reviewed — finalizing fails if any changed/new snapshot is still unreviewed. */
       approve_all?: boolean;
-      /** Whether the server commits the approved baseline to the PR branch and greens the gate (the normal path — leave true). Set false only for tooling that commits the baseline itself: the server skips the commit and returns the signed YAML in `baseline_content` instead. With false, the gate is NOT greened and `metadata.baseline_commit_sha` is absent. */
+      /** Whether the server commits the approved baseline to the PR branch and greens the gate (the normal path — leave true). Set false only for tooling that commits the baseline itself: the server skips the commit and returns the signed YAML in `baseline_content` instead. With false, the gate is NOT greened, `metadata.baseline_commit_sha` is absent, and no post-approval PR comment is posted. */
       commit_to_github?: boolean;
-      /** Whether to embed the before/after snapshot images in the post-approval PR comment. The comment itself is always posted (when the run was initiated from a GitHub review prompt and the repo has PR comments enabled); this flag only controls the images. Defaults false — the comment stays a text summary unless the reviewer opts in to attach the snapshots. */
+      /** Whether to embed the before/after snapshot images in the post-approval PR comment. The comment itself is posted when the repo has PR comments enabled and `commit_to_github` is true: it updates the run's review prompt when the run has one, and posts a new comment when it does not. This flag only controls the images. Defaults false — the comment stays a text summary unless the reviewer opts in to attach the snapshots. */
       add_images_to_comment_on_pr?: boolean;
     }
 
@@ -42191,6 +42267,11 @@ export namespace Schemas {
       needs_decision: boolean;
       /** Active quarantine details when `is_quarantined` is true. Null otherwise. */
       quarantine?: BaselineQuarantineSummary | null;
+      /**
+         * Slug of the team that owns the file this snapshot's story lives in, from the repository's ownership files. `unowned` when no entry covers the file. Null when ownership is unknown: the snapshot is not a Storybook snapshot, the newest default-branch run sent no story index, the story is not in it, or the ownership files could not be read.
+         * @nullable
+         */
+      owner_team?: string | null;
       identifier: string;
       run_type: string;
       /** @nullable */
@@ -43814,7 +43895,14 @@ export namespace Schemas {
       /** Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}]. */
       events?: HogFlowConversionEvent[];
       /**
-         * Conversion window in minutes after a person enters the workflow. null = no explicit window.
+         * How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Maximum '365d'. Omit it to use the default window. Set this or 'window_minutes', not both.
+         * @maxLength 32
+         * @nullable
+         * @pattern ^(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)[dhms]$
+         */
+      window?: string | null;
+      /**
+         * DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default window. Set this or 'window', not both.
          * @nullable
          */
       window_minutes?: number | null;
@@ -44054,7 +44142,7 @@ export namespace Schemas {
       readonly trigger: unknown;
       /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
       trigger_masking?: HogFlowMasking | null;
-      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
+      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
       conversion?: HogFlowConversion | null;
       /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
        *
@@ -44520,7 +44608,7 @@ export namespace Schemas {
       readonly trigger: unknown;
       /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
       trigger_masking?: HogFlowMasking | null;
-      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
+      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
       conversion?: HogFlowConversion | null;
       /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
        *
@@ -49332,6 +49420,18 @@ export namespace Schemas {
       text: string;
     }
 
+    export interface LLMSkillSpecProblem {
+      /** Stable machine-readable code for the problem, e.g. description_too_long or file_path_collides. */
+      code: string;
+      /** What is wrong and what to change, written for the skill's author. */
+      message: string;
+      /**
+         * The bundled file the problem is about. Null when it is about the skill itself.
+         * @nullable
+         */
+      file_path: string | null;
+    }
+
     export interface LLMSkill {
       readonly id: string;
       /**
@@ -49375,6 +49475,8 @@ export namespace Schemas {
       readonly files: readonly LLMSkillFileManifest[];
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
       readonly outline: readonly LLMSkillOutlineEntry[];
+      /** Why this skill is left out of the skills bundle and the plugin marketplace, as stable codes with author-facing messages. Empty when the skill packages cleanly. */
+      readonly spec_problems: readonly LLMSkillSpecProblem[];
       readonly version: number;
       /**
          * Optional note describing what changed in this version. Set when the version is published.
@@ -49460,6 +49562,8 @@ export namespace Schemas {
       files?: LLMSkillFileInput[];
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
       readonly outline: readonly LLMSkillOutlineEntry[];
+      /** Why this skill is left out of the skills bundle and the plugin marketplace, as stable codes with author-facing messages. Empty when the skill packages cleanly. */
+      readonly spec_problems: readonly LLMSkillSpecProblem[];
       readonly version: number;
       /**
          * Optional note describing what changed in this version. Set when the version is published.
@@ -49592,6 +49696,8 @@ export namespace Schemas {
       readonly owners: readonly UserBasic[];
       /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
       readonly outline: readonly LLMSkillOutlineEntry[];
+      /** Why this skill is left out of the skills bundle and the plugin marketplace, as stable codes with author-facing messages. Empty when the skill packages cleanly. */
+      readonly spec_problems: readonly LLMSkillSpecProblem[];
       readonly version: number;
       /**
          * Optional note describing what changed in this version. Set when the version is published.
@@ -49606,6 +49712,31 @@ export namespace Schemas {
       readonly latest_version: number;
       readonly version_count: number;
       readonly first_version_created_at: string;
+    }
+
+    export type LLMSkillMarkdownFrontmatterMetadata = {[key: string]: string};
+
+    /**
+     * The frontmatter block of content as a JSON object. Equal to yaml.safe_load of that block, so a listing can carry the same fields the file carries.
+     */
+    export type LLMSkillMarkdownFrontmatter = {
+      name: string;
+      description: string;
+      license?: string;
+      compatibility?: string;
+      metadata: LLMSkillMarkdownFrontmatterMetadata;
+      'allowed-tools'?: string;
+    };
+
+    export interface LLMSkillMarkdown {
+      /** Name of the skill, which is also its directory name. */
+      name: string;
+      /** Version of the skill that this SKILL.md was rendered from. */
+      version: number;
+      /** The complete SKILL.md file: the YAML frontmatter block, a blank line, then the skill body. Serve these bytes as the file; a digest must be taken over this exact string. */
+      content: string;
+      /** The frontmatter block of content as a JSON object. Equal to yaml.safe_load of that block, so a listing can carry the same fields the file carries. */
+      frontmatter: LLMSkillMarkdownFrontmatter;
     }
 
     /**
@@ -49683,7 +49814,19 @@ export namespace Schemas {
       rotate?: boolean;
     }
 
+    export interface LLMSkillPublishConflict {
+      /** Reason that the reviewed skill version can no longer be published. */
+      detail: string;
+    }
+
     export interface LLMSkillPublishToCommunity {
+      /** Immutable ID of the skill version that the publisher reviewed. */
+      expected_skill_id: string;
+      /**
+         * Skill version that the publisher reviewed. The request returns 409 if the latest version changed.
+         * @minimum 1
+         */
+      expected_version: number;
       /** Human-friendly display name for the community listing. Defaults to a title-cased skill slug. Must be a single line: it is used as the pull request title and commit message. */
       display_name?: string;
       /**
@@ -54024,6 +54167,36 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created.
+     */
+    export type MetricThresholdConfigQuery = { [key: string]: unknown } | null;
+
+    /**
+     * A deterministic check: measure one number, compare it, record the verdict.
+     *
+     * The number comes either from a metric the report already shows (``metric_id``) or from a query
+     * the author supplies. Both end up in the same runner, so a supplied query must satisfy the live
+     * metric contract — the node allowlist, the bounded window, and the single-output-series rule.
+     *
+     * A caller names one source. When it names a metric, the create path copies that metric's query
+     * into ``query`` before the row is stored, so the check keeps measuring what its author saw even if
+     * the report's metric is later rewritten under the same id; ``metric_id`` stays as provenance.
+     *
+     * Unknown keys are refused rather than ignored, so a misspelled field name is reported instead of
+     * being dropped in silence and stored as it arrived.
+     */
+    export interface MetricThresholdConfig {
+      /** Identifier of a metric on the report whose query this check measures. The metric's query is copied into `query` when the check is created. */
+      metric_id?: string | null;
+      /** Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. */
+      query?: MetricThresholdConfigQuery;
+      /** What the measured value must satisfy to pass. */
+      comparison: CheckComparison;
+      /** The value observed when the check was written, recorded on each result for context. */
+      baseline_value?: number | null;
+    }
+
+    /**
      * * `funnel` - funnel
      * * `mean_count` - mean_count
      * * `mean_sum_or_avg` - mean_sum_or_avg
@@ -54226,7 +54399,7 @@ export namespace Schemas {
          * @nullable
          */
       title?: string | null;
-      /** Notebook content as a ProseMirror JSON document structure. */
+      /** Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook: one ph-markdown-notebook node that holds the converted markdown. */
       content?: unknown;
       /**
          * Plain text representation of the notebook content for search.
@@ -58109,6 +58282,7 @@ export namespace Schemas {
       /** @nullable */
       readonly last_fired_at: string | null;
       readonly status: ReminderStatusEnum;
+      deleted?: boolean;
       readonly created_by: UserBasic;
       readonly created_at: string;
       /** @nullable */
@@ -59165,6 +59339,7 @@ export namespace Schemas {
      * * `work_claim` - Work Claim
      * * `work_release` - Work Release
      * * `pull_request` - Pull Request
+     * * `check_result` - Check Result
      */
     export type SignalReportArtefactArtefactTypeEnum = typeof SignalReportArtefactArtefactTypeEnum[keyof typeof SignalReportArtefactArtefactTypeEnum];
 
@@ -59190,6 +59365,7 @@ export namespace Schemas {
       WorkClaim: 'work_claim',
       WorkRelease: 'work_release',
       PullRequest: 'pull_request',
+      CheckResult: 'check_result',
     } as const;
 
     export type SignalActorKindEnum = typeof SignalActorKindEnum[keyof typeof SignalActorKindEnum];
@@ -59252,6 +59428,110 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: SignalReportArtefact[];
+    }
+
+    /**
+     * * `metric_threshold` - Metric Threshold
+     */
+    export type SignalReportCheckKindEnum = typeof SignalReportCheckKindEnum[keyof typeof SignalReportCheckKindEnum];
+
+
+    export const SignalReportCheckKindEnum = {
+      MetricThreshold: 'metric_threshold',
+    } as const;
+
+    /**
+     * * `active` - Active
+     * * `passed` - Passed
+     * * `failed` - Failed
+     * * `errored` - Errored
+     * * `expired` - Expired
+     * * `cancelled` - Cancelled
+     */
+    export type SignalReportCheckStatusEnum = typeof SignalReportCheckStatusEnum[keyof typeof SignalReportCheckStatusEnum];
+
+
+    export const SignalReportCheckStatusEnum = {
+      Active: 'active',
+      Passed: 'passed',
+      Failed: 'failed',
+      Errored: 'errored',
+      Expired: 'expired',
+      Cancelled: 'cancelled',
+    } as const;
+
+    export type SignalReportCheckConfig = MetricThresholdConfig;
+
+    /**
+     * * `passed` - Passed
+     * * `failed` - Failed
+     * * `errored` - Errored
+     */
+    export type SignalReportCheckOutcomeEnum = typeof SignalReportCheckOutcomeEnum[keyof typeof SignalReportCheckOutcomeEnum];
+
+
+    export const SignalReportCheckOutcomeEnum = {
+      Passed: 'passed',
+      Failed: 'failed',
+      Errored: 'errored',
+    } as const;
+
+    export interface SignalReportCheck {
+      readonly id: string;
+      /** Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`. */
+      readonly title: string;
+      /** Why the author set the check. */
+      readonly rationale: string;
+      /** How the check is evaluated.
+       *
+       * * `metric_threshold` - Metric Threshold */
+      readonly kind: SignalReportCheckKindEnum;
+      /** `active` while the check still runs; every other value is terminal.
+       *
+       * * `active` - Active
+       * * `passed` - Passed
+       * * `failed` - Failed
+       * * `errored` - Errored
+       * * `expired` - Expired
+       * * `cancelled` - Cancelled */
+      readonly status: SignalReportCheckStatusEnum;
+      /** What the check measures and what the result must satisfy; the shape depends on `kind`. `query` and `baseline_value` are null when you cannot read the data they describe. */
+      config: SignalReportCheckConfig;
+      /** When the coordinator next evaluates the check. */
+      readonly next_run_at: string;
+      /**
+         * Gap between runs for a recurring check; null for a one-shot.
+         * @nullable
+         */
+      readonly run_interval_minutes: number | null;
+      /** Evaluations still owed before the check retires as passed. */
+      readonly runs_remaining: number;
+      /** Horizon after which the check retires without running again. */
+      readonly expires_at: string;
+      /**
+         * When the check last ran; null before its first run.
+         * @nullable
+         */
+      readonly last_run_at: string | null;
+      /** Verdict of the most recent run.
+       *
+       * * `passed` - Passed
+       * * `failed` - Failed
+       * * `errored` - Errored */
+      readonly last_outcome: SignalReportCheckOutcomeEnum | null;
+      /** Runs that could not be measured since the last clean one. */
+      readonly consecutive_errors: number;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface PaginatedSignalReportCheckList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SignalReportCheck[];
     }
 
     /**
@@ -60142,6 +60422,24 @@ export namespace Schemas {
       AiPrompt: 'ai_prompt',
     } as const;
 
+    export interface SubscriptionDashboardContext {
+      /** Dashboard ID used to open the context dashboard. */
+      dashboard_id: number;
+      /** Current display name of the context dashboard. */
+      dashboard_name: string;
+    }
+
+    export interface SubscriptionInsightContext {
+      /** Database ID of the context insight. */
+      insight_id: number;
+      /** Stable insight identifier used to open the context insight. */
+      insight_short_id: string;
+      /** Current display name of the context insight. */
+      insight_name: string;
+    }
+
+    export type SubscriptionContext = SubscriptionDashboardContext | SubscriptionInsightContext;
+
     /**
      * * `email` - Email
      * * `slack` - Slack
@@ -60212,6 +60510,8 @@ export namespace Schemas {
       prompt?: string | null;
       /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
       ai_prompt_config?: AIPromptConfig;
+      /** Dashboards and insights that ground this AI report. Deleted resources are omitted. */
+      readonly contexts: readonly SubscriptionContext[];
       /** Query plan reuse state for AI prompt subscriptions: frozen, not_frozen, or planner_updated. Null for other subscription types. */
       readonly ai_query_plan_status: AIQueryPlanStatusEnum | null;
       /** Delivery channel: email, slack, or teams.
@@ -65748,11 +66048,6 @@ export namespace Schemas {
       readonly user_access_level?: string | null;
     }
 
-    export interface PatchedExternalDataSourceBulkUpdateSchemas {
-      /** Schema updates to apply in a single batch. */
-      schemas?: ExternalDataSourceBulkUpdateSchema[];
-    }
-
     export type PatchedExternalDataSourceSerializersSchemasItem = { [key: string]: unknown };
 
     /**
@@ -66313,7 +66608,7 @@ export namespace Schemas {
       readonly trigger?: unknown;
       /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
       trigger_masking?: HogFlowMasking | null;
-      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
+      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
       conversion?: HogFlowConversion | null;
       /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
        *
@@ -67401,7 +67696,7 @@ export namespace Schemas {
          * @nullable
          */
       title?: string | null;
-      /** Notebook content as a ProseMirror JSON document structure. */
+      /** Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook: one ph-markdown-notebook node that holds the converted markdown. */
       content?: unknown;
       /**
          * Plain text representation of the notebook content for search.
@@ -68756,10 +69051,6 @@ export namespace Schemas {
       onboarding_tasks?: unknown;
       /** @nullable */
       web_analytics_pre_aggregated_tables_enabled?: boolean | null;
-      /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog support can change it unless your organization is on the enterprise plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
-      readonly event_retention_months?: number;
-      /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: neither you nor PostHog support can turn enforcement off, and the retention window itself only changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
-      readonly events_retention_enforced?: boolean;
     }
 
     export interface PatchedProjectSecretAPIKey {
@@ -68880,6 +69171,7 @@ export namespace Schemas {
       /** @nullable */
       readonly last_fired_at?: string | null;
       readonly status?: ReminderStatusEnum;
+      deleted?: boolean;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
       /** @nullable */
@@ -69558,8 +69850,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-         * @maxItems 7
+         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+         * @maxItems 8
          */
       write_scopes?: string[];
     }
@@ -69615,6 +69907,14 @@ export namespace Schemas {
       trigger_label?: string;
     }
 
+    export type PatchedSubscriptionWriteContextsItem = {
+      /** @minimum 1 */
+      dashboard_id: number;
+    } | {
+      /** @minimum 1 */
+      insight_id: number;
+    };
+
     /**
      * * `monday` - Monday
      * * `tuesday` - Tuesday
@@ -69624,10 +69924,10 @@ export namespace Schemas {
      * * `saturday` - Saturday
      * * `sunday` - Sunday
      */
-    export type PatchedSubscriptionByweekdayItem = typeof PatchedSubscriptionByweekdayItem[keyof typeof PatchedSubscriptionByweekdayItem];
+    export type PatchedSubscriptionWriteByweekdayItem = typeof PatchedSubscriptionWriteByweekdayItem[keyof typeof PatchedSubscriptionWriteByweekdayItem];
 
 
-    export const PatchedSubscriptionByweekdayItem = {
+    export const PatchedSubscriptionWriteByweekdayItem = {
       Monday: 'monday',
       Tuesday: 'tuesday',
       Wednesday: 'wednesday',
@@ -69640,7 +69940,7 @@ export namespace Schemas {
     /**
      * Standard Subscription serializer.
      */
-    export interface PatchedSubscription {
+    export interface PatchedSubscriptionWrite {
       readonly id?: number;
       /** What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), or 'ai_prompt' (LLM-generated report). Read-only — derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt).
        *
@@ -69671,6 +69971,11 @@ export namespace Schemas {
       prompt?: string | null;
       /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
       ai_prompt_config?: AIPromptConfig;
+      /**
+         * Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.
+         * @maxItems 3
+         */
+      contexts?: PatchedSubscriptionWriteContextsItem[];
       /** Query plan reuse state for AI prompt subscriptions: frozen, not_frozen, or planner_updated. Null for other subscription types. */
       readonly ai_query_plan_status?: AIQueryPlanStatusEnum | null;
       /** Delivery channel: email, slack, or teams.
@@ -69698,7 +70003,7 @@ export namespace Schemas {
          * Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
          * @nullable
          */
-      byweekday?: PatchedSubscriptionByweekdayItem[] | null;
+      byweekday?: PatchedSubscriptionWriteByweekdayItem[] | null;
       /**
          * Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).
          * @minimum -2147483648
@@ -73107,10 +73412,6 @@ export namespace Schemas {
       onboarding_tasks?: unknown;
       /** @nullable */
       web_analytics_pre_aggregated_tables_enabled?: boolean | null;
-      /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog support can change it unless your organization is on the enterprise plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
-      readonly event_retention_months: number;
-      /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: neither you nor PostHog support can turn enforcement off, and the retention window itself only changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
-      readonly events_retention_enforced: boolean;
     }
 
     /**
@@ -79065,7 +79366,7 @@ export namespace Schemas {
          */
       label: string;
       /**
-         * System prompt; {email} is replaced with the signup email domain at runtime. At most 20000 characters.
+         * System prompt; {email} is replaced with the signup email domain at runtime. When the prompt asks for it, the model may call web_search and fetch_page (run through Firecrawl) to look things up; each call costs Firecrawl credits. At most 20000 characters.
          * @maxLength 20000
          */
       prompt_text: string;
@@ -79410,7 +79711,7 @@ export namespace Schemas {
          */
       version?: string;
       /**
-         * System prompt; {email} is replaced with the signup email domain at runtime. At most 20000 characters.
+         * System prompt; {email} is replaced with the signup email domain at runtime. When the prompt asks for it, the model may call web_search and fetch_page (run through Firecrawl) to look things up; each call costs Firecrawl credits. At most 20000 characters.
          * @maxLength 20000
          */
       prompt_text: string;
@@ -79659,8 +79960,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-         * @maxItems 7
+         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+         * @maxItems 8
          */
       write_scopes?: string[];
       /** Whether this scout runs on its schedule. Defaults to true. */
@@ -79726,6 +80027,14 @@ export namespace Schemas {
       Custom: 'custom',
     } as const;
 
+    export type ScoutRoleEnum = typeof ScoutRoleEnum[keyof typeof ScoutRoleEnum];
+
+
+    export const ScoutRoleEnum = {
+      Specialist: 'specialist',
+      Operational: 'operational',
+    } as const;
+
     /**
      * * `active` - Active
      * * `pending_pause` - Pending pause
@@ -79781,6 +80090,8 @@ export namespace Schemas {
       display_name?: string;
       /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
       readonly scout_origin: ScoutOriginEnum;
+      /** What this scout is to the harness: `specialist` for one that watches a product surface, or `operational` for one PostHog ships to watch the self-driving system itself. An operational scout is exempt from the inactivity sweep and from the enabled-scout cap, and is not a scout a project should delete. Always `specialist` for a custom scout. */
+      readonly scout_role: ScoutRoleEnum;
       /** Who answers for this scout, seed-creator first. Ownership is recorded on the scout's skill rather than on this config, so editing the skill or toggling the scout leaves it unchanged. Reports the scout files suggest these people as reviewers. Prefer this over `created_by`-style fields, which only say who last flipped a switch. Empty when nobody owns the scout, when the owners are no longer members with access to the project, or when the caller is a scout sandbox token: owners are member PII, and a scout reads them through the skill API instead. */
       readonly owners: readonly UserBasic[];
       /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Derived from `status`: true for `active` and `pending_pause`, false for the paused statuses. */
@@ -79840,8 +80151,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-         * @maxItems 7
+         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+         * @maxItems 8
          */
       readonly write_scopes: readonly string[];
       /**
@@ -80881,6 +81192,48 @@ export namespace Schemas {
       not_found_count: number;
     }
 
+    /**
+     * Request body for creating a check on a report.
+     *
+     * The schedule is the check's own: `next_run_at` says when to look, rather than the system
+     * deriving a soak window from a merged pull request that many fixes never have.
+     */
+    export interface SignalReportCheckWrite {
+      /**
+         * Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`.
+         * @maxLength 200
+         */
+      title: string;
+      /**
+         * Why the check is worth running.
+         * @maxLength 2000
+         */
+      rationale?: string;
+      /** How the check is evaluated.
+       *
+       * * `metric_threshold` - Metric Threshold */
+      kind: SignalReportCheckKindEnum;
+      /** What the check measures and what the result must satisfy; the shape depends on `kind`. */
+      config: SignalReportCheckConfig;
+      /** When to first evaluate the check. Must be in the future and within 90 days. Defaults to 7 days from now. */
+      next_run_at?: string;
+      /**
+         * Gap between runs for a recurring check, between 360 and 129600 minutes. Omit for a one-shot check.
+         * @minimum 360
+         * @maximum 129600
+         * @nullable
+         */
+      run_interval_minutes?: number | null;
+      /**
+         * How many times to evaluate the check, at most 10. Defaults to 1.
+         * @minimum 1
+         * @maximum 10
+         */
+      runs_remaining?: number;
+      /** Horizon after which the check retires unrun. Defaults to 30 days after the last scheduled run, or the 90-day horizon if that comes first. */
+      expires_at?: string;
+    }
+
     export interface SignalReportClaim {
       /** Active claim ID returned by an earlier call. Stale claims are rejected. */
       claim_id?: string;
@@ -81078,8 +81431,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-         * @maxItems 7
+         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+         * @maxItems 8
          */
       write_scopes?: string[];
       /** Whether this scout runs on its schedule. Defaults to true. */
@@ -83092,7 +83445,8 @@ export namespace Schemas {
        * * `Sequenzy` - Sequenzy
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
-       * * `Substack` - Substack */
+       * * `Substack` - Substack
+       * * `ElectricityMaps` - ElectricityMaps */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -84485,7 +84839,8 @@ export namespace Schemas {
        * * `Sequenzy` - Sequenzy
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
-       * * `Substack` - Substack */
+       * * `Substack` - Substack
+       * * `ElectricityMaps` - ElectricityMaps */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -85860,7 +86215,8 @@ export namespace Schemas {
        * * `Sequenzy` - Sequenzy
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
-       * * `Substack` - Substack */
+       * * `Substack` - Substack
+       * * `ElectricityMaps` - ElectricityMaps */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -86300,9 +86656,9 @@ export namespace Schemas {
     export interface StamphogInstallInfo {
       /** URL-friendly slug of the dedicated Stamphog GitHub App, or blank if unconfigured. */
       readonly app_slug: string;
-      /** GitHub install URL (github.com/apps/<slug>/installations/new) the user opens to install the App, or blank if the App slug is unconfigured. Used for the genuinely-not-installed case; the primary 'Connect' button uses authorize_url instead. */
+      /** GitHub install URL (github.com/apps/<slug>/installations/new) the 'Connect' button opens. The user picks a GitHub account there and chooses which repositories the App can reach, including an account where the App is already installed. Blank if the App slug is unconfigured. */
       readonly install_url: string;
-      /** GitHub authorize URL (github.com/login/oauth/authorize) the 'Connect' button opens. Authorize-first: an already-installed user is redirected straight back with an OAuth code (no installation_id), and sync_installation then discovers their installations server-side. Blank if the App client id is unconfigured. */
+      /** GitHub authorize URL (github.com/login/oauth/authorize). GitHub's redirect after configuring an existing installation carries no OAuth code, so the client passes through this URL once: an installed App redirects straight back with a code, which sync_installation uses to prove ownership. Blank if the App client id is unconfigured. */
       readonly authorize_url: string;
     }
 
@@ -86431,6 +86787,163 @@ export namespace Schemas {
       summary_bullets: SummaryBullet[];
       /** Interesting notes (0-2 for minimal, more for detailed) */
       interesting_notes: InterestingNote[];
+    }
+
+    export type SubscriptionWriteContextsItem = {
+      /** @minimum 1 */
+      dashboard_id: number;
+    } | {
+      /** @minimum 1 */
+      insight_id: number;
+    };
+
+    /**
+     * * `monday` - Monday
+     * * `tuesday` - Tuesday
+     * * `wednesday` - Wednesday
+     * * `thursday` - Thursday
+     * * `friday` - Friday
+     * * `saturday` - Saturday
+     * * `sunday` - Sunday
+     */
+    export type SubscriptionWriteByweekdayItem = typeof SubscriptionWriteByweekdayItem[keyof typeof SubscriptionWriteByweekdayItem];
+
+
+    export const SubscriptionWriteByweekdayItem = {
+      Monday: 'monday',
+      Tuesday: 'tuesday',
+      Wednesday: 'wednesday',
+      Thursday: 'thursday',
+      Friday: 'friday',
+      Saturday: 'saturday',
+      Sunday: 'sunday',
+    } as const;
+
+    /**
+     * Standard Subscription serializer.
+     */
+    export interface SubscriptionWrite {
+      readonly id: number;
+      /** What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), or 'ai_prompt' (LLM-generated report). Read-only — derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt).
+       *
+       * * `insight` - Insight
+       * * `dashboard` - Dashboard
+       * * `ai_prompt` - AI prompt */
+      readonly resource_type: SubscriptionResourceTypeEnum;
+      /**
+         * Dashboard ID to subscribe to (mutually exclusive with insight on create).
+         * @nullable
+         */
+      dashboard?: number | null;
+      /**
+         * Insight ID to subscribe to (mutually exclusive with dashboard on create).
+         * @nullable
+         */
+      insight?: number | null;
+      /** @nullable */
+      readonly insight_short_id: string | null;
+      /** @nullable */
+      readonly resource_name: string | null;
+      /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10. */
+      dashboard_export_insights?: number[];
+      /**
+         * Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters.
+         * @nullable
+         */
+      prompt?: string | null;
+      /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
+      ai_prompt_config?: AIPromptConfig;
+      /**
+         * Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.
+         * @maxItems 3
+         */
+      contexts?: SubscriptionWriteContextsItem[];
+      /** Query plan reuse state for AI prompt subscriptions: frozen, not_frozen, or planner_updated. Null for other subscription types. */
+      readonly ai_query_plan_status: AIQueryPlanStatusEnum | null;
+      /** Delivery channel: email, slack, or teams.
+       *
+       * * `email` - Email
+       * * `slack` - Slack
+       * * `teams` - Microsoft Teams */
+      target_type: SubscriptionTargetEnum;
+      /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. On update, omit the field to keep the stored URL, or send a full URL to replace it. */
+      target_value: string;
+      /** How often to deliver: daily, weekly, monthly, or yearly.
+       *
+       * * `daily` - Daily
+       * * `weekly` - Weekly
+       * * `monthly` - Monthly
+       * * `yearly` - Yearly */
+      frequency: RecurrenceIntervalEnum;
+      /**
+         * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
+         * @minimum 1
+         * @maximum 2147483647
+         */
+      interval: number;
+      /**
+         * Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
+         * @nullable
+         */
+      byweekday?: SubscriptionWriteByweekdayItem[] | null;
+      /**
+         * Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      bysetpos?: number | null;
+      /**
+         * Total number of deliveries before the subscription stops. Null for unlimited.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      count?: number | null;
+      /** When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute. */
+      start_date: string;
+      /**
+         * When to stop delivering (ISO 8601 datetime). Null for indefinite.
+         * @nullable
+         */
+      until_date?: string | null;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      /** Set to true to soft-delete. Subscriptions cannot be hard-deleted. */
+      deleted?: boolean;
+      /** Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid. */
+      enabled?: boolean;
+      /**
+         * Human-readable name for this subscription.
+         * @maxLength 100
+         * @nullable
+         */
+      title?: string | null;
+      /** Human-readable schedule summary, e.g. 'sent daily'. */
+      readonly summary: string;
+      /** @nullable */
+      readonly next_delivery_date: string | null;
+      /**
+         * ID of a connected Slack integration. Required when target_type is slack.
+         * @nullable
+         */
+      integration_id?: number | null;
+      /**
+         * Optional message included in the invitation email when adding new recipients.
+         * @nullable
+         */
+      invite_message?: string | null;
+      /** Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create. When omitted on update, a delivery is sent only if the edit changed what gets delivered (recipient, channel, source) or re-enabled the subscription. The recurring schedule is unaffected. */
+      send_test_now?: boolean;
+      /** Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated. */
+      summary_enabled?: boolean;
+      /**
+         * Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.
+         * @maxLength 500
+         */
+      summary_prompt_guide?: string;
+      /** Per-delivery rendering options. Each option documents which delivery targets it applies to. */
+      delivery_config?: DeliveryConfig;
     }
 
     /**
@@ -90746,6 +91259,103 @@ export namespace Schemas {
       task_id: string;
       /** ID of the idling successor run that submit will activate. */
       run_id: string;
+    }
+
+    /**
+     * * `signal_emitted` - Signal Emitted
+     * * `unusual_verdict` - Unusual Verdict
+     * * `verdict_yes` - Verdict Yes
+     * * `outlier_score` - Outlier Score
+     * * `rare_tag` - Rare Tag
+     * * `novel_summary` - Novel Summary
+     * * `friction` - Friction
+     * * `unviewed_recent` - Unviewed Recent
+     * * `recent` - Recent
+     */
+    export type WatchFeedReasonEnum = typeof WatchFeedReasonEnum[keyof typeof WatchFeedReasonEnum];
+
+
+    export const WatchFeedReasonEnum = {
+      SignalEmitted: 'signal_emitted',
+      UnusualVerdict: 'unusual_verdict',
+      VerdictYes: 'verdict_yes',
+      OutlierScore: 'outlier_score',
+      RareTag: 'rare_tag',
+      NovelSummary: 'novel_summary',
+      Friction: 'friction',
+      UnviewedRecent: 'unviewed_recent',
+      Recent: 'recent',
+    } as const;
+
+    /**
+     * Machine-readable reason an observation made the feed; the frontend renders the copy.
+     */
+    export interface WatchFeedReason {
+      /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `friction` (the scan describes errors, retries, or dead ends), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
+       *
+       * * `signal_emitted` - Signal Emitted
+       * * `unusual_verdict` - Unusual Verdict
+       * * `verdict_yes` - Verdict Yes
+       * * `outlier_score` - Outlier Score
+       * * `rare_tag` - Rare Tag
+       * * `novel_summary` - Novel Summary
+       * * `friction` - Friction
+       * * `unviewed_recent` - Unviewed Recent
+       * * `recent` - Recent */
+      kind: WatchFeedReasonEnum;
+      /**
+         * Signals this observation emitted, for `signal_emitted`.
+         * @nullable
+         */
+      signals_count?: number | null;
+      /**
+         * The monitor's answer, for `unusual_verdict`.
+         * @nullable
+         */
+      verdict?: string | null;
+      /**
+         * Share (0-1) of the scanner's window observations with this answer, for `unusual_verdict`.
+         * @nullable
+         */
+      verdict_share?: number | null;
+      /**
+         * The observation's score, for `outlier_score`.
+         * @nullable
+         */
+      score?: number | null;
+      /**
+         * The scanner's mean score in the window, for `outlier_score`.
+         * @nullable
+         */
+      window_mean?: number | null;
+      /**
+         * The rare tag that ranked the observation, for `rare_tag`.
+         * @nullable
+         */
+      tag?: string | null;
+      /**
+         * Share (0-1) of the scanner's window observations carrying `tag`, for `rare_tag`.
+         * @nullable
+         */
+      tag_share?: number | null;
+    }
+
+    /**
+     * One feed entry: the observation plus why it ranked.
+     */
+    export interface WatchFeedItem {
+      /** The observation, in the standard shape. */
+      observation: ReplayObservation;
+      /** Why this observation made the feed. */
+      reason: WatchFeedReason;
+    }
+
+    /**
+     * Response of GET /vision/scanners/watch_feed/.
+     */
+    export interface WatchFeedResponse {
+      /** Succeeded observations in the window worth watching, most interesting first: signal emitters, then type-specific hits, then unviewed before viewed, then newest. */
+      results: WatchFeedItem[];
     }
 
     export interface WebAnalyticsBotCondition {
@@ -95837,7 +96447,24 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Case-insensitive substring match against the source name and URL.
+     */
+    search?: string;
+    /**
+     * Filter to a single source type (text, url, or file).
+     */
+    source_type?: BusinessKnowledgeSourcesListSourceType;
     };
+
+    export type BusinessKnowledgeSourcesListSourceType = typeof BusinessKnowledgeSourcesListSourceType[keyof typeof BusinessKnowledgeSourcesListSourceType];
+
+
+    export const BusinessKnowledgeSourcesListSourceType = {
+      File: 'file',
+      Text: 'text',
+      Url: 'url',
+    } as const;
 
     export type BusinessKnowledgeSourcesTextRetrieve200 = {
       text?: string;
@@ -98767,21 +99394,6 @@ export namespace Schemas {
     search?: string;
     };
 
-    export type ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
     export type ExternalDataSourcesRepairCdcCreate200 = {
       success?: boolean;
       schemas_reset?: number;
@@ -101468,6 +102080,14 @@ export namespace Schemas {
     base_version?: number;
     };
 
+    export type LlmSkillsNameSkillMdRetrieveParams = {
+    /**
+     * Specific skill version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number;
+    };
+
     export type LlmSkillsResolveNameRetrieveParams = {
     /**
      * Return versions older than this version number. Mutually exclusive with offset.
@@ -103410,6 +104030,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type SignalsReportChecksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type SignalsReportsPrCiStatusesParams = {
     /**
      * Comma-separated report UUIDs to resolve CI state for, at most 100 per request.
@@ -105106,6 +105737,50 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type VisionScannersWatchFeedRetrieveParams = {
+    /**
+     * Only observations created at or after this time. Accepts ISO 8601, a relative date like `-7d`, or `now`; values without an explicit offset are interpreted in the project's timezone. The window between `date_from` and `date_to` may span at most 90 days.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * Only observations created at or before this time. Same formats as `date_from`; omit it to query through the current time.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * Feed items to return, at most 50. The feed is bounded, not paginated.
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number;
+    /**
+     * Comma-separated scanner UUIDs to restrict the feed to. Defaults to every scanner you can read.
+     * @minLength 1
+     */
+    scanner_ids?: string;
+    /**
+     * Restrict the feed to observations from scanners of this type.
+     *
+     * * `monitor` - Monitor
+     * * `classifier` - Classifier
+     * * `scorer` - Scorer
+     * * `summarizer` - Summarizer
+     * @minLength 1
+     */
+    scanner_type?: VisionScannersWatchFeedRetrieveScannerType;
+    };
+
+    export type VisionScannersWatchFeedRetrieveScannerType = typeof VisionScannersWatchFeedRetrieveScannerType[keyof typeof VisionScannersWatchFeedRetrieveScannerType];
+
+
+    export const VisionScannersWatchFeedRetrieveScannerType = {
+      Monitor: 'monitor',
+      Classifier: 'classifier',
+      Scorer: 'scorer',
+      Summarizer: 'summarizer',
+    } as const;
 
     export type VisualReviewReposListParams = {
     /**

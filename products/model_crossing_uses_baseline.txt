@@ -192,10 +192,8 @@ django.Exists products.dashboards.backend.facade.api.insight_has_listed_tile fac
 django.HttpRequest products.demo.backend.facade.api.demo_route facade-accepts(request) 1
 django.HttpRequest products.notebooks.backend.facade.sql_v2.notebook_sql_v2_data_plane facade-accepts(request) 1
 django.HttpRequest products.notebooks.backend.facade.sql_v2.notebook_sql_v2_data_plane_status facade-accepts(request) 1
-django.HttpRequest products.stamphog.backend.facade.webhooks.stamphog_github_webhook facade-accepts(request) 1
 django.HttpResponse products.notebooks.backend.facade.sql_v2.notebook_sql_v2_data_plane facade-returns 1
 django.HttpResponse products.notebooks.backend.facade.sql_v2.notebook_sql_v2_data_plane_status facade-returns 1
-django.HttpResponse products.stamphog.backend.facade.webhooks.stamphog_github_webhook facade-returns 1
 django.HttpResponse products.tasks.backend.facade.webhooks.handle_pull_request_event facade-returns 1
 django.HttpResponse products.tasks.backend.facade.webhooks.handle_pull_request_review_event facade-returns 1
 django.HttpResponseBase products.exports.backend.facade.api.get_export_asset_content_response facade-returns 1

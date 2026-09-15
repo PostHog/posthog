@@ -189,6 +189,11 @@
         "params": [],
         "scope": "project"
     },
+    "aiTask": {
+        "template": "/ai",
+        "params": [],
+        "scope": "project"
+    },
     "alert": {
         "template": "/alerts",
         "params": [],
@@ -1422,6 +1427,11 @@
     "sharedDashboard": {
         "template": "/shared_dashboard/{shareToken}",
         "params": ["shareToken"],
+        "scope": "project"
+    },
+    "shipIt": {
+        "template": "/games/shipit",
+        "params": [],
         "scope": "project"
     },
     "signup": {

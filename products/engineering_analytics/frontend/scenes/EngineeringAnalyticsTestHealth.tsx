@@ -29,6 +29,8 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
     const ttlDays = trunkQuarantine?.ttlDays ?? 15
     const overdueCount = trunkQuarantine ? trunkQuarantine.teams.reduce((n, t) => n + t.overdueCount, 0) : null
     const oldestAgeDays = trunkQuarantine?.tests.length ? trunkQuarantine.tests[0].ageDays : null
+    const formatCappedCount = (count: number): string =>
+        `${humanFriendlyNumber(count)}${trunkQuarantine?.truncated ? '+' : ''}`
 
     const teamColumns: LemonTableColumns<TrunkQuarantineTeamRow> = [
         {
@@ -97,23 +99,19 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
             <div className="grid grid-cols-1 gap-3 @2xl/main-content:grid-cols-2 @5xl/main-content:grid-cols-4">
                 <StatCard
                     label="Quarantined tests"
-                    value={
-                        trunkQuarantine
-                            ? `${humanFriendlyNumber(trunkQuarantine.tests.length)}${trunkQuarantine.truncated ? '+' : ''}`
-                            : '—'
-                    }
+                    value={trunkQuarantine ? formatCappedCount(trunkQuarantine.tests.length) : '—'}
                     caption="currently masked in CI"
                     loading={trunkQuarantineLoading}
                 />
                 <StatCard
                     label="Overdue"
-                    value={overdueCount !== null ? humanFriendlyNumber(overdueCount) : '—'}
+                    value={overdueCount !== null ? formatCappedCount(overdueCount) : '—'}
                     caption={`quarantined over ${ttlDays} days`}
                     loading={trunkQuarantineLoading}
                 />
                 <StatCard
                     label="Teams affected"
-                    value={trunkQuarantine ? humanFriendlyNumber(trunkQuarantine.teams.length) : '—'}
+                    value={trunkQuarantine ? formatCappedCount(trunkQuarantine.teams.length) : '—'}
                     caption="own at least one quarantined test"
                     loading={trunkQuarantineLoading}
                 />

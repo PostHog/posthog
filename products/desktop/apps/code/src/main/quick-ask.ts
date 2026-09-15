@@ -48,6 +48,7 @@ import {
   setupQuickAskCapture,
   teardownQuickAskCapture,
 } from "./quick-ask-capture";
+import { QUICK_ASK_TRPC_ROUTES } from "./quick-ask-trpc";
 import { logger } from "./utils/logger";
 import { quickAskStore } from "./utils/store";
 import { attachWindowToTrpc, focusMainWindow } from "./window";
@@ -219,19 +220,10 @@ let quickAskWindow: BrowserWindow | null = null;
 
 /**
  * The only host tRPC routes the panel renderer may call: auth state and
- * tokens for its PostHog API client, and opening vetted external links.
+ * tokens for its PostHog API client, vetted external links, and app navigation.
  * Everything else on the router (shell, fs, secureStore, git…) stays
  * unreachable from this window even if its renderer is compromised.
  */
-const QUICK_ASK_TRPC_ROUTES = new Set([
-  "auth.getState",
-  "auth.onStateChanged",
-  "auth.getValidAccessToken",
-  "auth.refreshAccessToken",
-  "os.openExternal",
-  "customCloud.get",
-]);
-
 function createQuickAskWindow(): BrowserWindow {
   const window = new BrowserWindow({
     width: PANEL_INITIAL_WIDTH,
@@ -265,7 +257,7 @@ function createQuickAskWindow(): BrowserWindow {
   });
 
   // Answer rendering fetches live data over the host tRPC bridge, narrowed
-  // to the auth-token and external-link routes the panel actually uses.
+  // to the auth-token, external-link, and app-navigation routes it uses.
   attachWindowToTrpc(window, (path) => QUICK_ASK_TRPC_ROUTES.has(path));
 
   // The panel shares the app session and its privileged preload bridges, so
