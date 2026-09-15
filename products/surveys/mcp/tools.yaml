@@ -24,6 +24,9 @@ ui_apps:
         data_type: SurveyStatsData
         view_component: SurveyStatsView
 tools:
+    desktop-feedback-create:
+        operation: desktop_feedback_create
+        enabled: false
     survey-create:
         operation: surveys_create
         enabled: true
