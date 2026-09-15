@@ -19,7 +19,7 @@ _UPDATED_ON_CREATED_ON: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=True)
 class BitbucketEndpointConfig:
     name: str
     path: str  # Path template with {workspace} and, for fan-out endpoints, {repo_slug}
@@ -33,6 +33,9 @@ class BitbucketEndpointConfig:
     # Fan-out: fetched once per repository in the workspace, with {repo_slug}
     # substituted into the path and repository context injected into each row.
     fan_out_over_repos: bool = False
+    # Two-level fan-out: for every repository, walk its pull requests and fetch this
+    # path once per pull request, with {pull_request_id} substituted into the path.
+    fan_out_over_pull_requests: bool = False
     # BBQL field for a server-side incremental filter (`q=<field> > "<ts>"`), verified
     # to actually filter (a future-date probe returns 0 rows). None = the endpoint
     # silently ignores `q` (commits, pipelines); incremental sync instead scrolls
@@ -135,6 +138,65 @@ BITBUCKET_ENDPOINTS: dict[str, BitbucketEndpointConfig] = {
         # refresh only (volume is bounded by actual deploy count per repo).
         incremental_fields=[],
         fan_out_over_repos=True,
+        primary_keys=["uuid"],
+    ),
+    "pull_request_activity": BitbucketEndpointConfig(
+        name="pull_request_activity",
+        # The repo-level feed carries the activity of every pull request in the repo, so
+        # one walk per repo replaces a walk per pull request.
+        path="/repositories/{workspace}/{repo_slug}/pullrequests/activity",
+        partition_key="activity_date",
+        # Entries are polymorphic (comment / update / approval / changes_requested), each
+        # carrying its own timestamp, so the transport lifts one to `activity_date`. The
+        # endpoint ignores both `q` and `sort` but returns newest-first, so incremental
+        # sync scrolls from the newest entry and stops once a whole page predates the
+        # watermark, like commits and pipelines.
+        incremental_fields=[
+            {
+                "label": "activity_date",
+                "type": IncrementalFieldType.DateTime,
+                "field": "activity_date",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        default_incremental_field="activity_date",
+        page_size=50,  # the activity feed rejects pagelen > 50
+        fan_out_over_repos=True,
+        # Activity entries have no id of their own. A pull request cannot record two
+        # entries of the same kind at the same microsecond, so the kind and timestamp
+        # complete the key.
+        primary_keys=["repository_uuid", "pull_request_id", "activity_type", "activity_date"],
+    ),
+    "pull_request_comments": BitbucketEndpointConfig(
+        name="pull_request_comments",
+        path="/repositories/{workspace}/{repo_slug}/pullrequests/{pull_request_id}/comments",
+        partition_key="created_on",
+        incremental_fields=_UPDATED_ON_CREATED_ON,
+        default_incremental_field="updated_on",
+        server_filter_field="updated_on",
+        sort_param="updated_on",
+        fan_out_over_pull_requests=True,
+        # Comment ids look globally sequential, but the docs only scope them to their
+        # pull request, so the parents complete the key.
+        primary_keys=["repository_uuid", "pull_request_id", "id"],
+    ),
+    "environments": BitbucketEndpointConfig(
+        name="environments",
+        path="/repositories/{workspace}/{repo_slug}/environments",
+        # Environments carry no timestamps; full refresh only (a handful per repo).
+        incremental_fields=[],
+        fan_out_over_repos=True,
+        # Environment uuids are real UUIDs, unique across repositories.
+        primary_keys=["uuid"],
+    ),
+    "projects": BitbucketEndpointConfig(
+        name="projects",
+        path="/workspaces/{workspace}/projects",
+        partition_key="created_on",
+        incremental_fields=_UPDATED_ON_CREATED_ON,
+        default_incremental_field="updated_on",
+        server_filter_field="updated_on",
+        sort_param="updated_on",
         primary_keys=["uuid"],
     ),
     "workspace_members": BitbucketEndpointConfig(

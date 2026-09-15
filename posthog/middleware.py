@@ -47,7 +47,7 @@ from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.helpers.sso import sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
-from posthog.models import Team, User
+from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_HEADER,
     ACTIVITY_LOG_CLIENT_MAX_LENGTH,
@@ -1310,10 +1310,16 @@ class CSPMiddleware:
             return response
         else:
             resource_url = "https://*.posthog.com"
+            # Enforced for every viewer, flag or not, because this directive is what admits these
+            # origins: a frame-ancestors directive makes browsers ignore X-Frame-Options, which
+            # names only our own origin.
+            frame_ancestors = "frame-ancestors https://posthog.com https://preview.posthog.com"
             if settings.DEBUG or settings.TEST:
                 resource_url = "http://localhost:8234"
             elif settings.SITE_URL.endswith(".dev.posthog.dev"):
                 resource_url = "https://*.dev.posthog.dev"
+                # The posthog.com dev server frames the dev app.
+                frame_ancestors += " http://localhost:8001"
 
             connect_debug_url = "ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
             csp_parts = [
@@ -1325,8 +1331,21 @@ class CSPMiddleware:
                 # nothing to an attacker who cannot already run script, and nothing further to one who
                 # can. Session replay decompresses snapshots with snappy-wasm and the HogQL editor
                 # parses with a WebAssembly build, so both break without it.
-                f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval' {resource_url} https://*.i.posthog.com",
-                f"font-src 'self' {resource_url} https://app-static.eu.posthog.com https://app-static-prod.posthog.com https://fonts.gstatic.com https://cdn.jsdelivr.net",
+                #
+                # Stripe and Turnstile are the two scripts we cannot serve ourselves: both vendors
+                # require the file to load from their own origin, so the flag-font trick of shipping
+                # a copy does not apply. `loadStripe` injects js.stripe.com for the payment entry
+                # modal, and the signup captcha loads the Turnstile API. `frame-src 'self' https:`
+                # already admits the iframes each one opens, and neither produced a connect-src
+                # violation while this policy was report-only, so their API calls run inside those
+                # frames rather than from our page.
+                f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval' {resource_url} https://*.i.posthog.com https://js.stripe.com https://challenges.cloudflare.com",
+                # A data: font cannot execute script, and this directive governs font loading only,
+                # so the token widens nothing else. It also carries nothing out: a data: URL makes
+                # no request, which is what the CSS-injection attacks on this directive need. The
+                # `data:` refusal in the worker-src note below is a different case, because a
+                # worker body is code.
+                f"font-src 'self' data: {resource_url} https://app-static.eu.posthog.com https://app-static-prod.posthog.com https://fonts.gstatic.com",
                 # `blob:` grants nothing to an attacker who cannot already run script, because only
                 # script can mint a blob URL, and a worker started from one inherits this policy
                 # rather than escaping it. The ServiceWorker spec rejects `blob:` on its own, so
@@ -1344,7 +1363,11 @@ class CSPMiddleware:
                 "worker-src 'self' blob:",
                 "child-src 'none'",
                 "object-src 'none'",
-                "media-src https://res.cloudinary.com",
+                # `'self'` carries the PostHog AI onboarding videos under /static/. Max hands-free
+                # needs the other two: it primes playback with a silent `data:` clip, then plays
+                # the TTS response from a blob URL. None of the three can execute, because
+                # media-src governs <audio> and <video> only.
+                "media-src 'self' data: blob: https://res.cloudinary.com",
                 # `https:` is here for the OAuth authorize page, which renders an application's icon
                 # from a URL its registrant supplied. There is no allowlist that covers those, so
                 # until we serve them ourselves the directive has to accept any host.
@@ -1357,7 +1380,7 @@ class CSPMiddleware:
                 # exfiltration channel: an attacker who injects markup but cannot run script still
                 # gets a beacon out through an image URL.
                 f"img-src 'self' data: https: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
-                "frame-ancestors https://posthog.com https://preview.posthog.com https://vercel.com",
+                frame_ancestors,
                 f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com https://api.github.com",
                 # https: lets heatmaps frame a customer's site. 'self' is for the replay player
                 # frame, whose document is same-origin: an http origin does not match https:.
@@ -1382,7 +1405,12 @@ class CSPMiddleware:
                 # Browsers only deliver crash reports to the endpoint named `default`; the CSP
                 # `report-to posthog` directive keeps routing violations to `posthog`.
                 response.headers["Reporting-Endpoints"] = f'posthog="{report_endpoint}", default="{report_endpoint}"'
-            response.headers[app_csp_header_name(request)] = "; ".join(csp_parts)
+            header_name = app_csp_header_name(request)
+            response.headers[header_name] = "; ".join(csp_parts)
+            if header_name == "Content-Security-Policy-Report-Only" and not is_embeddable_document(request.path):
+                # Django owns this header. A responseHeadersPolicy on the Contour ingress replaces
+                # it, and with it the enforced app policy above, so the ingress must not set one.
+                response.headers["Content-Security-Policy"] = frame_ancestors
 
         return response
 
@@ -1445,9 +1473,43 @@ class SocialAuthExceptionMiddleware:
         return error_detail
 
 
-class ActiveOrganizationMiddleware:
+# Page prefixes kept per block, keyed by the page that explains it. An invite targets the inviting
+# organization, which this check never judges. Settling the balance is how a member lifts a
+# deactivation; no payment restores a pending deletion. `organizationLogic` holds the same table.
+ALLOWED_WHILE_BLOCKED: dict[str, tuple[str, ...]] = {
+    "/organization-pending-deletion": ("/organization-pending-deletion", "/signup/"),
+    "/organization-deactivated": (
+        "/organization-deactivated",
+        "/signup/",
+        "/organization/billing",
+        "/billing/authorization_status",
+    ),
+}
+
+
+def organization_block_page(organization: Organization) -> Optional[str]:
+    """The page explaining why this organization is closed to its members, or None when it is open.
+
+    Only an explicit `False` deactivates. `is_active` is nullable, but the migration that added it
+    backfilled every row to `True` and operators write `False` explicitly, so a null means "never
+    deactivated".
     """
-    Middleware to verify that the current authenticated session is attached to an active organization (is_active = None or True)
+    if organization.is_pending_deletion:
+        return "/organization-pending-deletion"
+    if organization.is_active is False:
+        return "/organization-deactivated"
+    return None
+
+
+class ActiveOrganizationMiddleware:
+    """Keep members out of an organization that is deactivated or pending deletion.
+
+    Runs after `AutoProjectMiddleware`, which switches the user into the organization a
+    `/project/<id>` URL names, so this middleware needs no path parsing of its own.
+    `test_middleware.py` pins the order.
+
+    This is UX, not enforcement: every `/api` path is skipped, and `ActiveOrganizationPermission`
+    is what holds the API.
     """
 
     _IGNORED_PATHS = ("/logout", "/api", "/admin")
@@ -1464,26 +1526,21 @@ class ActiveOrganizationMiddleware:
             return self.get_response(request)
 
         user = cast(User, request.user)
+        organization = user.current_organization
 
-        if user.current_organization is None:
+        if organization is None:
             return self.get_response(request)
 
-        # Check pending deletion first — takes priority over is_active
-        if user.current_organization.is_pending_deletion:
-            return (
-                self.get_response(request)
-                if request.path == "/organization-pending-deletion"
-                else redirect("/organization-pending-deletion")
-            )
+        block_page = organization_block_page(organization)
 
-        if user.current_organization.is_active is not False:
-            return redirect("/") if request.path == "/organization-deactivated" else self.get_response(request)
+        if block_page is None:
+            # A member sitting on a block page has been let back in.
+            return redirect("/") if request.path in ALLOWED_WHILE_BLOCKED else self.get_response(request)
 
-        return (
-            self.get_response(request)
-            if request.path == "/organization-deactivated"
-            else redirect("/organization-deactivated")
-        )
+        if any(request.path.startswith(allowed) for allowed in ALLOWED_WHILE_BLOCKED[block_page]):
+            return self.get_response(request)
+
+        return redirect(block_page)
 
 
 # Session key used to mark an impersonation session as read-only

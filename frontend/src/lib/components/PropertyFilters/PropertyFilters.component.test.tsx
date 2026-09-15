@@ -4,9 +4,6 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -16,6 +13,7 @@ import { mockActionDefinition, mockGetEventDefinitions, mockGetPropertyDefinitio
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { recentTaxonomicFiltersLogic } from '../TaxonomicFilter/recentTaxonomicFiltersLogic'
+import { taxonomicFilterCategoryLayoutLogic } from '../TaxonomicFilter/taxonomicFilterCategoryLayoutLogic'
 import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 import { PropertyFilters } from './PropertyFilters'
 
@@ -27,6 +25,8 @@ jest.mock('lib/components/AutoSizer', () => ({
 describe('PropertyFilters recent selections', () => {
     beforeEach(() => {
         initKeaTests()
+        taxonomicFilterCategoryLayoutLogic.mount()
+        taxonomicFilterCategoryLayoutLogic.actions.setCategoryRailPinned(true)
         actionsModel.mount()
         groupsModel.mount()
         propertyDefinitionsModel.mount()
@@ -473,23 +473,12 @@ describe('PropertyFilters recent selections', () => {
     })
 
     describe('category dropdown inside property modal', () => {
-        let unmountFeatureFlagLogic: (() => void) | null = null
-
         beforeEach(() => {
-            unmountFeatureFlagLogic = featureFlagLogic.mount()
+            taxonomicFilterCategoryLayoutLogic.actions.setCategoryRailPinned(false)
         })
 
-        afterEach(() => {
-            featureFlagLogic.actions.setFeatureFlags([], {})
-            unmountFeatureFlagLogic?.()
-            unmountFeatureFlagLogic = null
-        })
-
-        it('pill variant: clicking the inline category trigger does not close the property modal', async () => {
+        it('clicking the inline category trigger does not close the property modal', async () => {
             useSetupMocks()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN], {
-                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill',
-            })
 
             renderFilters({
                 taxonomicGroupTypes: [
@@ -506,11 +495,8 @@ describe('PropertyFilters recent selections', () => {
             expect(screen.getByTestId('taxonomic-filter-searchfield')).toBeInTheDocument()
         })
 
-        it('pill variant: picking a category in the inline dropdown does not close the property modal', async () => {
+        it('picking a category in the inline dropdown does not close the property modal', async () => {
             useSetupMocks()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN], {
-                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill',
-            })
 
             renderFilters({
                 taxonomicGroupTypes: [

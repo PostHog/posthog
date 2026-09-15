@@ -213,11 +213,6 @@ devbox:
     devbox:sync:
         click: hogli_commands.devbox.sync:cmd_sync
         description: Mirror your local PostHog checkout to a devbox
-    devbox:task:
-        click: hogli_commands.devbox.cli:devbox_task
-        description: Run a background agent task on a fresh devbox
-        # exec-replaces the process (os.execvp): completed events can't fire
-        untracked: true
     devbox:secret:list:
         click: hogli_commands.devbox.cli:devbox_secret_list
         description: List your Coder user secrets
@@ -827,8 +822,8 @@ quality:
             --no-error-on-unmatched-pattern "$@"
         description: Format JavaScript/TypeScript files (frontend)
     format:nodejs:
-        cmd: pnpm --dir nodejs exec eslint --fix "$@" && pnpm --dir nodejs exec prettier
-            --write "$@"
+        cmd: pnpm --dir nodejs exec eslint --fix "$@" && pnpm --dir nodejs exec oxlint -c .oxlintrc.nodejs.json
+            --fix --no-error-on-unmatched-pattern "$@" && pnpm --dir nodejs exec prettier --write "$@"
         description: Format nodejs JavaScript files
     format:rust:
         cmd: rustfmt
@@ -861,6 +856,9 @@ quality:
     lint:feature-flags:fix:
         cmd: node bin/lint-feature-flag-sorting.mjs --fix
         description: Auto-sort FEATURE_FLAGS in constants.tsx alphabetically
+    lint:duplication:
+        cmd: python3 bin/lint_duplication.py
+        description: Gate the branch on new Python and TypeScript code duplication via jscpd (test files get a relaxed limit)
     lint:complexity:
         click: hogli_commands.complexity_lint:cmd_lint_complexity
         description: Check cyclomatic complexity of changed Python/TypeScript files (warn-only; test files get a relaxed limit)
@@ -1250,4 +1248,8 @@ environment:
     profile_migrations:
         bin_script: profile_migrations
         description: 'Profile Django migrations on fresh DBs and render a per-op timing report'
+        hidden: true
+    docker:worker:ai:training:privacy:
+        bin_script: docker-worker-ai-training-privacy
+        description: 'Start the dedicated AI training privacy worker'
         hidden: true

@@ -80,6 +80,7 @@ from products.ai_observability.backend.models.evaluation_configs import (
 )
 from products.ai_observability.backend.text_repr.formatters import (
     FormatterOptions,
+    RenderBudgetExceeded,
     format_trace_text_repr,
     llm_trace_to_formatter_format,
 )
@@ -472,21 +473,28 @@ def build_trace_system_prompt(prompt: str, allows_na: bool) -> str:
 def format_trace_for_judge(trace: LLMTrace) -> str:
     """Serialize a trace into the canonical text representation for the LLM judge.
 
-    Delegates to the shared `text_repr` formatter — the same plain-text rendering the trace
-    view shows users and the trace-summarization workflow feeds its own LLM. Using it here
-    means the judge grades exactly what a user sees when they open the trace to debug a
-    verdict, and there's one trace serializer to maintain across the product, not a private
-    fork. `include_markers=False` drops the frontend expand/collapse markers; the output is
-    uniformly sampled down to `JUDGE_TRACE_MAX_CHARS` to bound judge cost and context.
+    Preserve message content when the full transcript fits so the judge does not lose evidence
+    unnecessarily. Oversized transcripts use the shared formatter's truncation and sampling
+    to bound judge cost and context.
     """
     trace_dict, hierarchy = llm_trace_to_formatter_format(trace)
     options: FormatterOptions = {
         "include_markers": False,
         "collapsed": False,
-        "truncated": True,
+        "truncated": False,
         "include_line_numbers": True,
-        "max_length": JUDGE_TRACE_MAX_CHARS,
+        "max_length": None,
+        "max_render_length": JUDGE_TRACE_MAX_CHARS,
     }
+    try:
+        text, _ = format_trace_text_repr(trace_dict, hierarchy, options)
+        return text
+    except RenderBudgetExceeded:
+        pass
+
+    del options["max_render_length"]
+    options["truncated"] = True
+    options["max_length"] = JUDGE_TRACE_MAX_CHARS
     text, _ = format_trace_text_repr(trace_dict, hierarchy, options)
     return text
 

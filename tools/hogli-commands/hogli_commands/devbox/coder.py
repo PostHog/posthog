@@ -101,10 +101,9 @@ _RESERVED_LABEL_SUFFIXES: tuple[str, ...] = tuple(s for s in REGION_NAME_SUFFIXE
 
 # Per-user Coder secret holding the SSH public key used to sign commits inside
 # workspaces. Injected as the POSTHOG_GIT_SIGNING_KEY env var on every workspace
-# start (including coder task runs); the workspace template reads it to populate
-# user.signingkey. The matching private key never leaves 1Password. The `GIT_`
-# prefix is reserved by Coder, so the workspace-side env name cannot start with
-# it.
+# start; the workspace template reads it to populate user.signingkey. The
+# matching private key never leaves 1Password. The `GIT_` prefix is reserved by
+# Coder, so the workspace-side env name cannot start with it.
 GIT_SIGNING_KEY_SECRET = "POSTHOG_GIT_SIGNING_KEY"
 
 
@@ -1639,32 +1638,6 @@ def logs_replace(name: str, follow: bool) -> None:
     if follow:
         args.append("--follow")
 
-    _run_or_exit(args)
-
-
-def create_task(
-    prompt: str | None,
-    *,
-    task_name: str | None = None,
-    quiet: bool = False,
-    template: str = DEFAULT_TEMPLATE,
-) -> None:
-    """Create a Coder task on the given workspace template.
-
-    When ``prompt`` is None, ``--stdin`` is passed so coder reads the prompt
-    from the parent process's stdin; otherwise it is forwarded as the
-    positional input argument. Execs into the coder CLI so stdin, stdout,
-    and the exit code flow through unchanged.
-    """
-    args = ["coder", "task", "create", "--template", template]
-    if task_name:
-        args += ["--name", task_name]
-    if quiet:
-        args.append("--quiet")
-    if prompt is None:
-        args.append("--stdin")
-    else:
-        args.append(prompt)
     _run_or_exit(args)
 
 

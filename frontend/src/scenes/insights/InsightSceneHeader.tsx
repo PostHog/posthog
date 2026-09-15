@@ -36,7 +36,10 @@ export function InsightSceneHeader({ insightLogicProps }: InsightSceneHeaderProp
                             Discard the filters to edit the saved insight.
                         </span>
 
-                        <LemonButton type="secondary" to={urls.insightView(insightId as InsightShortId)}>
+                        <LemonButton
+                            type="secondary"
+                            to={urls.insightView(insightId as InsightShortId, insightLogicProps.dashboardId)}
+                        >
                             Discard overrides
                         </LemonButton>
                     </div>

@@ -63,10 +63,10 @@ A scout is a skill that holds a `SignalScoutConfig`. The harness globs `signals-
 There is no sampling. Each scout has its own `SignalScoutConfig` row (one per `(team, skill_name)`) carrying a `run_interval_minutes` schedule (default 1440 = every 24 hours) and a `last_run_at` stamp. Every tick the coordinator:
 
 1. Bounds candidates to the teams enrolled via the `signals-scout` feature flag's JSON payload allowlist (`guaranteed_team_ids` minus `skip_team_ids`, `_participating_teams` → `_enrolled_team_ids`). Editing the payload in the flag UI enrolls or drains a team next tick — no manual seed.
-2. Auto-registers a config for any `signals-scout-*` skill missing one (`scout_harness/config_registry.register_missing_configs`) — on an enrolled team, authoring a skill is enough to get a scout. For custom scouts, `scout-create-prepare` validates and signs the skill and config, then `scout-create-execute` creates them after the user confirms; `scout-config-create` remains the lower-level way to register a config for an existing skill.
+2. Auto-registers a config for any `signals-scout-*` skill missing one (`scout_harness/config_registry.register_missing_configs`) — on an enrolled team, authoring a skill is enough to get a scout. For custom scouts, `scout-create` validates and creates the skill and config in one call; `scout-config-create` remains the lower-level way to register a config for an existing skill.
 3. Dispatches every enabled scout whose schedule is due (`last_run_at is None`, or `now - last_run_at >= run_interval_minutes`), most-overdue first, capped at `MAX_RUNS_PER_TICK` per tick. Each due scout becomes one `RunSignalsScoutWorkflow` child run; `last_run_at` is advanced for everything dispatched.
 
-Pausing a scout is `enabled=False` on its config; slowing it is a larger `run_interval_minutes`. Both are tunable via the `scout-config-update` MCP tool, and settable for a new custom scout via the nested `config` object on `scout-create-prepare`. See `scout_coordinator._collect_planned_runs` for the exact due-check.
+Pausing a scout is `enabled=False` on its config; slowing it is a larger `run_interval_minutes`. Both are tunable via the `scout-config-update` MCP tool, and settable for a new custom scout via the nested `config` object on `scout-create`. See `scout_coordinator._collect_planned_runs` for the exact due-check.
 
 ### Authoring a new scout
 
@@ -87,6 +87,11 @@ Frontmatter also carries the optional **`scout-tags`** list — the config tags 
 It is how a canonical scout claims a product surface: AI observability's self-driving tab lists the scouts tagged `ai-observability`, so that tab needs no hardcoded skill name and a scout can change surfaces by editing its frontmatter.
 Tags are seeded at creation only — a person who removes one keeps it removed — so adding the key to a scout teams already run leaves their existing configs untagged until someone tags them through the config API.
 They sit outside the canonical content hash, since they belong to the config rather than the skill row.
+
+Frontmatter also carries the optional **`scout-role`** value, which is `specialist` unless a scout says otherwise.
+A scout that watches the self-driving system rather than a product surface declares `scout-role: operational`, and the harness stops treating its quiet as waste: the config seeds enabled and exempt from the inactivity sweep, skips the launch allowlist and the per-team enabled-scout cap, and cannot be deleted through the config API.
+Unlike tags, the role is reconciled onto rows seeded earlier on every coordinator tick, because a silenced operational scout is the failure the role exists to prevent — though a pause a person made is still left standing, and `withheld_skills` still gates the scout.
+Use it only for a scout whose subject is the fleet itself: `signals-scout-inbox-validation`, which re-measures whether merged fixes held, is the one that ships with it.
 
 The generalist (`signals-scout-general`) is **report-only** — it authors `SignalReport`s directly and does not `emit_signal`. The **report-channel contract** (when to author a fresh report vs. edit an existing one, the field schema, the safety × actionability status mapping, reviewer routing via `scout-members-list`, and the non-idempotency + pipeline-rewrite caveats) lives in the **harness prompt** (`scout_harness/prompt.py`), which forks on the scout's channel and injects it into every report-channel scout — so it is **not** duplicated as a per-scout reference. The generalist keeps one bundled reference:
 

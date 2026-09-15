@@ -161,12 +161,36 @@ class TestPagination:
 
         assert rows == [{"teamId": "T1"}]
 
+    @pytest.mark.parametrize(
+        "endpoint, param, expected",
+        [
+            ("templates", "TemplateType", "all"),
+            ("contacts", "ContactType", "AllContacts"),
+            ("contact_groups", "ContactType", "AllContacts"),
+            # PageType has no documented server-side default, so it must be sent explicitly.
+            ("behalf_documents", "PageType", "BehalfOfOthers"),
+        ],
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_templates_send_template_type_param(self, MockSession) -> None:
+    def test_endpoints_send_their_widening_params(self, MockSession, endpoint, param, expected) -> None:
         session = MockSession.return_value
-        _, params, _ = _run("templates", [_response([{"documentId": "T1"}])], session)
+        _, params, _ = _run(endpoint, [_response([{"documentId": "X1"}])], session)
 
-        assert params[0]["TemplateType"] == "all"
+        assert params[0][param] == expected
+
+    @pytest.mark.parametrize("endpoint", ["team_documents", "behalf_documents"])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_document_variants_switch_to_cursor_past_record_threshold(self, MockSession, endpoint) -> None:
+        session = MockSession.return_value
+        threshold_pages = boldsign.RECORD_CURSOR_THRESHOLD // PAGE_SIZE
+        full_pages = [
+            _response([{"documentId": f"D{p}-{i}", "cursor": p * PAGE_SIZE + i} for i in range(PAGE_SIZE)])
+            for p in range(threshold_pages)
+        ]
+        _, params, _ = _run(endpoint, [*full_pages, _response([{"documentId": "after-cursor"}])], session)
+
+        assert params[-1]["NextCursor"] == boldsign.RECORD_CURSOR_THRESHOLD - 1
+        assert params[-1]["Page"] == 1
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_api_key_supplied_via_framework_auth(self, MockSession) -> None:
@@ -276,8 +300,12 @@ class TestSourceResponse:
             ("users", ["userId"]),
             ("teams", ["teamId"]),
             ("contacts", ["id"]),
+            ("contact_groups", ["groupId"]),
             ("sender_identities", ["id"]),
             ("brands", ["brandId"]),
+            ("team_documents", ["documentId"]),
+            ("behalf_documents", ["documentId"]),
+            ("custom_fields", ["brandId", "customFieldId"]),
         ],
     )
     def test_primary_keys_per_endpoint(self, endpoint: str, expected_pk: list[str]) -> None:
@@ -294,6 +322,75 @@ class TestSourceResponse:
         # Full refresh: BoldSign timestamps are epoch ints, so no datetime partitioning.
         assert response.partition_mode is None
         assert response.primary_keys == BOLDSIGN_ENDPOINTS[endpoint].primary_keys
+
+
+class TestCustomFieldsFanout:
+    """`customField/list` needs a brandId, so it fans out over the brands endpoint."""
+
+    @staticmethod
+    def _wire_urls(session: mock.MagicMock, responses: list[Response]) -> list[str]:
+        session.headers = {}
+        urls: list[str] = []
+
+        def _prepare(request: Any) -> mock.MagicMock:
+            urls.append(request.url)
+            return mock.MagicMock()
+
+        session.prepare_request.side_effect = _prepare
+        session.send.side_effect = responses
+        return urls
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fans_out_over_every_brand(self, MockSession) -> None:
+        session = MockSession.return_value
+        urls = self._wire_urls(
+            session,
+            [
+                _response([{"brandId": "B1"}, {"brandId": "B2"}]),
+                _response([{"customFieldId": "F1", "brandId": "B1"}]),
+                # The response's own brandId is nullable, so the parent's value must fill it in.
+                _response([{"customFieldId": "F2", "brandId": None}]),
+            ],
+        )
+
+        rows = _rows(
+            boldsign_source(
+                region="us",
+                api_key="key",
+                endpoint="custom_fields",
+                team_id=1,
+                job_id="j",
+                resumable_source_manager=_make_manager(),
+            )
+        )
+
+        assert [url for url in urls if "customField" in url] == [
+            "https://api.boldsign.com/v1/customField/list?brandId=B1",
+            "https://api.boldsign.com/v1/customField/list?brandId=B2",
+        ]
+        assert rows == [
+            {"customFieldId": "F1", "brandId": "B1"},
+            {"customFieldId": "F2", "brandId": "B2"},
+        ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_no_brands_makes_no_child_requests(self, MockSession) -> None:
+        session = MockSession.return_value
+        self._wire_urls(session, [_response([])])
+
+        rows = _rows(
+            boldsign_source(
+                region="us",
+                api_key="key",
+                endpoint="custom_fields",
+                team_id=1,
+                job_id="j",
+                resumable_source_manager=_make_manager(),
+            )
+        )
+
+        assert rows == []
+        assert session.send.call_count == 1
 
 
 class TestValidateCredentials:

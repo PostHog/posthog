@@ -7,14 +7,15 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 # Azure DevOps mixes pagination styles per endpoint, dispatched by name in
 # azure_devops.py:
 # - projects/builds: continuationToken via the x-ms-continuationtoken header
-# - pull_requests: $top/$skip offset paging
+# - pull_requests/commits/teams/team_members: $top/$skip offset paging
 # - work_item_revisions: body continuationToken + isLastBatch (reporting endpoint)
-# - repositories: single per-project response
-@dataclass
+# - repositories/pull request threads/reviewers: single response per parent
+@dataclass(frozen=True)
 class AzureDevOpsEndpointConfig:
     name: str
-    # Path template under https://dev.azure.com/{organization}; `{project}` is
-    # substituted during the per-project fan-out.
+    # Path template under https://dev.azure.com/{organization}. `{project}`,
+    # `{repositoryId}`, `{pullRequestId}` and `{teamId}` are substituted during
+    # the fan-out that reaches the endpoint.
     path: str
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     incremental_fields: list[IncrementalField] = field(default_factory=list)
@@ -67,6 +68,62 @@ AZURE_DEVOPS_ENDPOINTS: dict[str, AzureDevOpsEndpointConfig] = {
                 "field_type": IncrementalFieldType.DateTime,
             },
         ],
+    ),
+    "commits": AzureDevOpsEndpointConfig(
+        name="commits",
+        path="/{project}/_apis/git/repositories/{repositoryId}/commits",
+        # A commit SHA is unique within a repository, but the same commit can be
+        # reachable from several repositories in one organization (forks, imports).
+        primary_keys=["repository_id", "commitId"],
+        partition_key="committer_date",
+        incremental_param="searchCriteria.fromDate",
+        # Pages arrive oldest-first within a repository, but the fan-out visits
+        # repositories one after another, so the stream as a whole is not ascending.
+        # `desc` makes the pipeline finalize the watermark only after a fully
+        # successful sync, so a partial run can't advance it past a repository it
+        # never reached.
+        sort_mode="desc",
+        incremental_fields=[
+            {
+                "label": "committer_date",
+                "type": IncrementalFieldType.DateTime,
+                "field": "committer_date",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    "pull_request_threads": AzureDevOpsEndpointConfig(
+        name="pull_request_threads",
+        path="/{project}/_apis/git/repositories/{repositoryId}/pullRequests/{pullRequestId}/threads",
+        # Thread IDs restart per pull request.
+        primary_keys=["repository_id", "pull_request_id", "id"],
+        partition_key="publishedDate",
+    ),
+    "pull_request_thread_comments": AzureDevOpsEndpointConfig(
+        name="pull_request_thread_comments",
+        # Comments arrive nested in the threads response; they get their own table
+        # rather than a second request.
+        path="/{project}/_apis/git/repositories/{repositoryId}/pullRequests/{pullRequestId}/threads",
+        primary_keys=["repository_id", "pull_request_id", "thread_id", "id"],
+        partition_key="publishedDate",
+    ),
+    "pull_request_reviewers": AzureDevOpsEndpointConfig(
+        name="pull_request_reviewers",
+        path="/{project}/_apis/git/repositories/{repositoryId}/pullRequests/{pullRequestId}/reviewers",
+        primary_keys=["repository_id", "pull_request_id", "id"],
+    ),
+    "teams": AzureDevOpsEndpointConfig(
+        name="teams",
+        # The organization-wide GET /_apis/teams is preview-only, so teams are read
+        # per project through the generally available Core endpoint.
+        path="/_apis/projects/{project}/teams",
+    ),
+    "team_members": AzureDevOpsEndpointConfig(
+        name="team_members",
+        path="/_apis/projects/{project}/teams/{teamId}/members",
+        # Members carry no identifier of their own; the identity ID is lifted to the
+        # row root during the fan-out.
+        primary_keys=["team_id", "identity_id"],
     ),
     "work_item_revisions": AzureDevOpsEndpointConfig(
         name="work_item_revisions",
