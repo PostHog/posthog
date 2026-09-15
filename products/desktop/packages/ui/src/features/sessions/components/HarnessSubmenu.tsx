@@ -5,15 +5,17 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
 } from "@posthog/quill";
-import { HARNESS_DISPLAY_NAMES } from "@posthog/shared";
+import { RUNTIME_OPTIONS } from "@posthog/shared/model-catalog";
 import type { AgentAdapter } from "@posthog/ui/features/settings/settingsStore";
 
 export type AgentHarness = AgentAdapter | "pi";
 
-const harnessLabels: Record<AgentHarness, string> = {
-  ...HARNESS_DISPLAY_NAMES,
-  pi: "Pi",
-};
+// One entry per catalog runtime option. ACP's two adapters are separate picks, so the adapter
+// names the entry where there is one; Pi has no adapter, so its runtime names it.
+const harnessOptions = RUNTIME_OPTIONS.map((option) => ({
+  value: (option.runtimeAdapter ?? option.runtime) as AgentHarness,
+  label: option.label,
+}));
 
 interface HarnessSubmenuProps {
   value: AgentHarness;
@@ -28,38 +30,39 @@ export function HarnessSubmenu({
   closeOnChange = true,
   onChange,
 }: HarnessSubmenuProps): React.JSX.Element {
+  const options = includePi
+    ? harnessOptions
+    : harnessOptions.filter((option) => option.value !== "pi");
+
   return (
     <DropdownMenuSub>
       <DropdownMenuSubTrigger>
         <span>Harness</span>
         <span className="flex-1 text-right text-muted-foreground">
-          {harnessLabels[value]}
+          {harnessOptions.find((option) => option.value === value)?.label}
         </span>
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent>
         <DropdownMenuRadioGroup
           value={value}
           onValueChange={(nextHarness) => {
-            if (
-              nextHarness === "claude" ||
-              nextHarness === "codex" ||
-              (includePi && nextHarness === "pi")
-            ) {
-              onChange(nextHarness);
+            const picked = options.find(
+              (option) => option.value === nextHarness,
+            );
+            if (picked) {
+              onChange(picked.value);
             }
           }}
         >
-          <DropdownMenuRadioItem value="claude" closeOnClick={closeOnChange}>
-            Claude Code
-          </DropdownMenuRadioItem>
-          <DropdownMenuRadioItem value="codex" closeOnClick={closeOnChange}>
-            Codex
-          </DropdownMenuRadioItem>
-          {includePi && (
-            <DropdownMenuRadioItem value="pi" closeOnClick={closeOnChange}>
-              Pi
+          {options.map((option) => (
+            <DropdownMenuRadioItem
+              key={option.value}
+              value={option.value}
+              closeOnClick={closeOnChange}
+            >
+              {option.label}
             </DropdownMenuRadioItem>
-          )}
+          ))}
         </DropdownMenuRadioGroup>
       </DropdownMenuSubContent>
     </DropdownMenuSub>

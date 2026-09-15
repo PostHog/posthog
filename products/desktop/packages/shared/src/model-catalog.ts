@@ -11,11 +11,16 @@ export {
   type CatalogModel,
   DEFAULT_MODEL_BY_RUNTIME_ADAPTER,
   MODELS,
+  PI_REASONING_EFFORTS,
   PROVIDER_BY_RUNTIME_ADAPTER,
   REASONING_EFFORTS,
   type ReasoningEffort,
   RUNTIME_ADAPTERS,
+  RUNTIME_OPTIONS,
+  RUNTIMES,
+  type Runtime,
   type RuntimeAdapter,
+  type RuntimeOption,
 } from "./model-catalog.generated";
 
 /**

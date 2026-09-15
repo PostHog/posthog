@@ -6,6 +6,7 @@ import type {
   RpcExtensionUIResponse,
   RpcSessionState,
 } from "@earendil-works/pi-coding-agent";
+import { PI_REASONING_EFFORTS } from "@posthog/shared/model-catalog";
 import { z } from "zod";
 
 export type {
@@ -26,15 +27,11 @@ function exhaustiveRecord<T extends PropertyKey>() {
 
 export type PiThinkingLevel = ThinkingLevel;
 
-export const PI_THINKING_LEVELS = exhaustiveValues<PiThinkingLevel>()([
-  "off",
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-]);
+// The catalog distributes the value domain and the Pi SDK stays the referee: exhaustiveValues
+// is an exact cover, so a level the SDK adds or drops fails this build until the catalog
+// matches it. The backend validates Pi runs against the same generated tuple.
+export const PI_THINKING_LEVELS =
+  exhaustiveValues<PiThinkingLevel>()(PI_REASONING_EFFORTS);
 
 export type PiNativeModelInfo = Awaited<
   ReturnType<RpcClient["getAvailableModels"]>
