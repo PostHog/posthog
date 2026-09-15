@@ -174,3 +174,13 @@ export const GrowthAiEnrichmentSaveCreateBody = /* @__PURE__ */ zod.object({
             "Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]\*$, be unique, and not be 'meta' or 'inputs'. At most 20 fields."
         ),
 })
+
+/**
+ * Called by a PostHog realtime destination, not by API clients. Requires the X-PostHog-Webhook-Secret header to match the GROWTH_RESCORE_WEBHOOK_SECRET instance setting.
+ * @summary Re-score an organization's ICP fit after its wizard AI-SDK stamp lands.
+ */
+export const GrowthEnrichmentRescoreCreateBody = /* @__PURE__ */ zod.object({
+    organization_id: zod
+        .uuid()
+        .describe("Organization to re-score, from the $group_key of the wizard's $groupidentify event."),
+})
