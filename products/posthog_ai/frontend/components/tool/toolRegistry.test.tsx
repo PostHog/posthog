@@ -53,6 +53,10 @@ describe('toolRegistry', () => {
             'mcp__user-installed__something'
         )
         expect(lookupToolRenderer('experiment-create', false).displayName).toEqual('experiment-create')
+        const insightUpdate = lookupToolRenderer('insight-update', true)
+        expect(insightUpdate.displayName).toEqual('insight-update')
+        expect(insightUpdate.Renderer).toBe(lookupToolRenderer('__unknown__', true).Renderer)
+        expect(insightUpdate.keepVisible).toBeFalsy()
         // Never-registered keys (not built-ins, not any product data-tool) resolve to the fallback.
         expect(toolRegistry.lookup('read_insight')).toBeNull()
         expect(toolRegistry.lookup('query-llm-trace')).toBeNull()
