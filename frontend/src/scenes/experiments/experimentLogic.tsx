@@ -133,6 +133,7 @@ import {
     conflictPreservedFields,
     isExperimentConflictError,
     isLegacyExperiment,
+    storedDateMatches,
     toConcurrencyPayload,
     toFlagVariantsInput,
 } from './utils'
@@ -2406,15 +2407,31 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         changeExperimentStartDate: async ({ startDate }) => {
+            // Read the experiment before the update. The loader replaces `experiment` with the
+            // server response, so a read after the update reports the new date as the old one.
+            const experimentBeforeChange = values.experiment
             await asyncActions.updateExperiment({ start_date: startDate, update_feature_flag_params: false })
+            // kea-loaders catches the loader error and does not raise it again, so a rejected save
+            // also arrives here. The stored date is the proof that the change landed. A rejected
+            // save already showed a toast, and it did not move the window, so there is nothing to
+            // report and nothing to recalculate.
+            if (!storedDateMatches(values.experiment?.start_date, startDate)) {
+                return
+            }
             // eslint-disable-next-line no-unused-expressions
-            values.experiment && eventUsageLogic.actions.reportExperimentStartDateChange(values.experiment, startDate)
+            experimentBeforeChange &&
+                eventUsageLogic.actions.reportExperimentStartDateChange(experimentBeforeChange, startDate)
             actions.refreshExperimentResults(true, 'experiment_config_change')
         },
         changeExperimentEndDate: async ({ endDate }) => {
+            const experimentBeforeChange = values.experiment
             await asyncActions.updateExperiment({ end_date: endDate, update_feature_flag_params: false })
+            if (!storedDateMatches(values.experiment?.end_date, endDate)) {
+                return
+            }
             // eslint-disable-next-line no-unused-expressions
-            values.experiment && eventUsageLogic.actions.reportExperimentEndDateChange(values.experiment, endDate)
+            experimentBeforeChange &&
+                eventUsageLogic.actions.reportExperimentEndDateChange(experimentBeforeChange, endDate)
             actions.refreshExperimentResults(true, 'experiment_config_change')
         },
         endExperiment: async ({ openCleanupPr, repository, setRepositoryAsTeamDefault }) => {
