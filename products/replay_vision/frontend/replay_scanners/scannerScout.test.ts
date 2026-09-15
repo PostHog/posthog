@@ -37,8 +37,9 @@ describe('scannerScout', () => {
     it('keeps the template key whole when the scanner name would overrun the cap', () => {
         // Only the scanner gives way to the cap, and only inside the id. A scanner named past the
         // cap must still leave a valid skill name that says which template the scout came from —
-        // cut mid-word, a slug ends in a hyphen, which fails skill name validation.
-        for (const key of ['daily-digest', 'trend-watch', 'new-issues', 'scratch'] as const) {
+        // cut mid-word, a slug ends in a hyphen, which fails skill name validation. The keys come
+        // from the templates themselves, so a new template joins the invariant without a change here.
+        for (const { key } of scannerScoutTemplates(scannerId, 'monitor', '')) {
             const name = scoutSkillName('x'.repeat(SCOUT_DISPLAY_NAME_MAX_LENGTH), key, [])
             expect(name.length).toBeLessThanOrEqual(64)
             expect(validateSkillName(name)).toBeUndefined()
@@ -63,6 +64,11 @@ describe('scannerScout', () => {
         expect(scannerScoutTemplates(scannerId, 'monitor', '!!!')[0].defaultName).toBe('Daily digest')
         expect(scannerScoutTemplates(scannerId, 'monitor', '!!! 42')[0].defaultName).toBe('!!! 42 daily digest')
         expect(scannerScoutTemplates(scannerId, 'monitor', '日本語')[0].defaultName).toBe('日本語 daily digest')
+        // The scanner's name field allows 255, the display name only 200, so the default is clamped
+        // rather than sent oversized and rejected.
+        expect(scannerScoutTemplates(scannerId, 'monitor', 'x'.repeat(255))[0].defaultName.length).toBe(
+            SCOUT_DISPLAY_NAME_MAX_LENGTH
+        )
     })
 
     it('claims only the scouts recorded as belonging to this scanner', () => {

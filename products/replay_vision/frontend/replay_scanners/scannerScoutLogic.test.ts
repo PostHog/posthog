@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
 import { initKeaTests } from '~/test/init'
 
 import { hogFunctionsPartialUpdate, hogFunctionsRetrieve } from 'products/cdp/frontend/generated/api'
@@ -237,13 +239,15 @@ describe('scannerScoutLogic', () => {
     })
 
     it('creates the scout even when its display name cannot be recorded', async () => {
-        // The scout is already created by then, so a failed rename must not read as a failed create.
+        // The scout is already created by then, so a failed rename must not read as a failed create
+        // — but the toast must not claim an unqualified success either.
         await mountWithReports([])
         mockScoutsCreate.mockResolvedValueOnce({
             created: true,
             config: makeConfig({ output_destinations: {} }),
         } as any)
         jest.mocked(signalsScoutConfigUpdate).mockRejectedValue(new Error('boom'))
+        const success = jest.spyOn(lemonToast, 'success')
 
         logic.actions.openCreateModal('daily-digest')
         logic.actions.createScout({
@@ -256,6 +260,7 @@ describe('scannerScoutLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(mockScoutsCreate).toHaveBeenCalledTimes(1)
+        expect(success).toHaveBeenCalledWith(expect.stringContaining("its name wasn't saved"))
     })
 
     it('renames and retries when another tab already took the name', async () => {

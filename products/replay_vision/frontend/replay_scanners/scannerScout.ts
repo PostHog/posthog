@@ -57,7 +57,13 @@ export function scoutSkillName(
 ): string {
     const room = SKILL_NAME_MAX_LENGTH - SKILL_NAME_PREFIX.length - COLLISION_SUFFIX_LENGTH - templateKey.length - 1
     const scannerSlug = slugify(scannerName).slice(0, Math.max(0, room)).replace(/-$/, '')
-    const base = `${SKILL_NAME_PREFIX}${[scannerSlug, templateKey].filter(Boolean).join('-')}`
+    // The cap must hold whatever the key's length does, so the assembled base is clamped too rather
+    // than trusted to the `room` arithmetic above.
+    const base = `${SKILL_NAME_PREFIX}${[scannerSlug, templateKey]
+        .filter(Boolean)
+        .join('-')
+        .slice(0, SKILL_NAME_MAX_LENGTH - COLLISION_SUFFIX_LENGTH)
+        .replace(/-$/, '')}`
     const taken = new Set(takenNames)
     if (!taken.has(base)) {
         return base
@@ -247,7 +253,11 @@ const TREND_LENSES: Record<ScannerTypeEnumApi, TrendLens> = {
  * name is the person's own, the default is where the scanner belongs. Editable like any other. */
 function scoutDefaultName(scannerName: string, phrase: string): string {
     const scanner = scannerName.trim()
-    return scanner && /[\p{L}\p{N}]/u.test(scanner) ? `${scanner} ${phrase}` : capitalizeFirstLetter(phrase)
+    const named = scanner && /[\p{L}\p{N}]/u.test(scanner)
+    const name = named ? `${scanner} ${phrase}` : capitalizeFirstLetter(phrase)
+    // The scanner's name field allows 255; the display name only 200. A default seeded past the
+    // bound would be rejected on save, so it is clamped here.
+    return name.slice(0, SCOUT_DISPLAY_NAME_MAX_LENGTH)
 }
 
 export function scannerScoutTemplates(

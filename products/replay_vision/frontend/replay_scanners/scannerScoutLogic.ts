@@ -712,18 +712,19 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
         /** Records the name the person typed. Nothing else keeps it — the skill name is derived from
          * the scanner and the template — so this runs for every scout rather than only the ones with
          * a name too long to slug. Best-effort: the scout is already created by this point, so a
-         * failure here leaves it named after its skill rather than unsaved. */
-        const applyDisplayName = async (config: SignalScoutConfigApi, name: string): Promise<void> => {
+         * failure here leaves it named after its skill rather than unsaved. Returns whether the name
+         * was recorded, so the create toast can say when it was not. */
+        const applyDisplayName = async (config: SignalScoutConfigApi, name: string): Promise<boolean> => {
             const teamId = teamLogic.values.currentTeamId
             const displayName = name.trim()
             if (!teamId || !displayName) {
-                return
+                return true
             }
             try {
                 await signalsScoutConfigUpdate(String(teamId), config.id, { display_name: displayName })
+                return true
             } catch {
-                // Nothing to tell the user: the scout exists and reads as its skill name, which the
-                // settings form can rename.
+                return false
             }
         }
 
@@ -816,12 +817,12 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                         }
                     }
                     const created = { config: config! }
-                    await applyDisplayName(created.config, form.name)
+                    const named = await applyDisplayName(created.config, form.name)
                     const delivered = await reconcileDelivery(created.config, form)
                     lemonToast.success(
-                        delivered
+                        delivered && named
                             ? 'Scout created. Its first report arrives after the next scheduled run.'
-                            : "Scout created, but its delivery wasn't set up. Open its settings to try again."
+                            : `Scout created, but ${!named ? "its name wasn't saved" : "its delivery wasn't set up"}. Open its settings to try again.`
                     )
                     actions.loadScoutConfigs()
                 } catch (error: any) {
