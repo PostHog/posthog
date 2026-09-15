@@ -33,6 +33,16 @@ def normalize_apns_integrations(apps, schema_editor):
             continue
 
         update_fields = []
+
+        # A leading space breaks ES256 signing outright, so a credential stored with one has never
+        # been able to send. Trailing whitespace is tolerated by the signer but is stripped with it.
+        sensitive_config = dict(integration.sensitive_config or {})
+        signing_key = sensitive_config.get("signing_key")
+        if isinstance(signing_key, str) and signing_key != signing_key.strip():
+            sensitive_config["signing_key"] = signing_key.strip()
+            integration.sensitive_config = sensitive_config
+            update_fields.append("sensitive_config")
+
         if (config.get("team_id"), config.get("bundle_id"), config.get("key_id")) != (
             team_id_apple,
             bundle_id,

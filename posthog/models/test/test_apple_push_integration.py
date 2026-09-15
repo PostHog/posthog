@@ -73,6 +73,16 @@ class TestApplePushIntegration(BaseTest):
         with self.assertRaises(ValidationError):
             self._create_apple_push_integration(**{field: value})
 
+    def test_strips_whitespace_around_the_signing_key(self):
+        # A leading space makes the key unusable for ES256, so the credential could never send.
+        integration = self._create_apple_push_integration(
+            signing_key="  -----BEGIN PRIVATE KEY-----\nfake-key\n-----END PRIVATE KEY-----  "
+        )
+
+        assert integration.sensitive_config["signing_key"] == (
+            "-----BEGIN PRIVATE KEY-----\nfake-key\n-----END PRIVATE KEY-----"
+        )
+
     def test_strips_whitespace_around_the_identifiers(self):
         integration = self._create_apple_push_integration()
         spaced = self._create_apple_push_integration(
