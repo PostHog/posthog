@@ -153,8 +153,8 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 const kind =
                     resolveByRepointedPerson || !hogFlowInvocationState.event.distinct_id ? 'person_id' : 'distinct_id'
 
-                // A push cannot be recalled, and the cached person can predate an opt-out that landed
-                // since the last read, so a flow that sends push bypasses the cache here.
+                // A push cannot be recalled, and the cached person can predate a device that
+                // unregistered since the last read, so a flow that sends push bypasses the cache here.
                 const [person, groups] = await Promise.all([
                     personIdOrDistinctId
                         ? this.personsManager.getCyclotronPerson(hogFlow.team_id, personIdOrDistinctId, kind, {
