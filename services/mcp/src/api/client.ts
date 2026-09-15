@@ -62,6 +62,16 @@ function clampActorsLimit(value: unknown): number {
     return Math.min(Math.max(Math.trunc(value), 1), ACTORS_MAX_LIMIT)
 }
 
+/** The `detail` string from a drf-exceptions-hog error body, when the body carries one. */
+function parseErrorDetail(errorText: string): string | undefined {
+    try {
+        const detail = JSON.parse(errorText)?.detail
+        return typeof detail === 'string' && detail ? detail : undefined
+    } catch {
+        return undefined
+    }
+}
+
 function clampActorsOffset(value: unknown): number {
     if (typeof value !== 'number' || !Number.isFinite(value)) {
         return 0
@@ -433,6 +443,29 @@ export class ApiClient {
         })
     }
 
+    /**
+     * PostHog also answers 401 when the token is valid but the account state is not, so the
+     * bare sentinel told those callers to reconnect a credential that was never the problem.
+     * It stays at the front of the message because the re-auth path matches on it, and the
+     * server's reason and the status now ride along.
+     */
+    private buildUnauthorizedError(
+        response: Response,
+        errorText: string,
+        url: string,
+        method: string
+    ): PostHogApiError {
+        const detail = parseErrorDetail(errorText)
+        return new PostHogApiError({
+            status: response.status,
+            statusText: response.statusText,
+            body: errorText,
+            url,
+            method,
+            message: detail ? `${ErrorCode.INVALID_API_KEY}: ${detail}` : ErrorCode.INVALID_API_KEY,
+        })
+    }
+
     private buildApiError(response: Response, errorText: string, url: string, method: string): Error {
         if (response.status === 404) {
             const experimentNotFound = this.buildExperimentNotFoundError(response, errorText, url, method)
@@ -442,7 +475,7 @@ export class ApiClient {
         }
 
         if (response.status === 401) {
-            return new Error(ErrorCode.INVALID_API_KEY)
+            return this.buildUnauthorizedError(response, errorText, url, method)
         }
 
         if (response.status === 429) {
