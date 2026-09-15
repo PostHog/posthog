@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRIC_SERIES3_TABLE_NAME}
 (
     `team_id` Int32,
     `metric_name` LowCardinality(String),
-    `series_fingerprint` UInt64 CODEC(Delta, Default),
+    `series_fingerprint` UInt64 CODEC(Delta(8), Default),
     `metric_type` LowCardinality(String),
     `unit` LowCardinality(String),
     `aggregation_temporality` LowCardinality(String),
