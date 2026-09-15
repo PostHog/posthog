@@ -33,9 +33,10 @@ A project can hold hundreds of experiments, and one response holds one page of 1
   Order by another allowlisted field when the reference needs it — for example `order: "-start_date"` for "the last one I launched".
   A descending date order lists the rows that carry no date first, so `-start_date` leads with drafts and `-end_date` with experiments still running.
   Take the first result that carries the date, and page on if a whole page carries none.
-- **By creator**: `experiment-list {created_by_id: <user id>}`.
+- **By creator**: `experiment-list {created_by_id: "<user id>"}`.
   "The one I created yesterday" needs this filter, because the default list holds every creator and the response carries no `created_by` field to check after the fact.
-  Call `user-get {uuid: "@me"}` for the user's `id`, and ask which experiment they mean when you cannot resolve it.
+  Call `user-get {uuid: "@me"}` for the user's `id`, then quote it: `user-get` returns a number, and this parameter takes text so that it can also carry a comma-separated list of IDs.
+  Ask which experiment they mean when you cannot resolve it.
   When the reference also carries a date, compare `created_at` on each result instead of taking a sole match on trust — one creator's only match can still be from months before the date the user gave.
 - **By flag**: `experiment-list {feature_flag_id: <id>}` when you already have the flag ID.
   Otherwise match the `feature_flag_key` field of the results.
