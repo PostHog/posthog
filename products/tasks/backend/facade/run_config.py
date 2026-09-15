@@ -11,6 +11,7 @@ absorbed into the run-lifecycle facade functions in ``api.py``.
 """
 
 from products.tasks.backend.constants import (
+    ACP_REASONING_EFFORTS,
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
     INITIAL_PERMISSION_MODE_CHOICES,
@@ -28,7 +29,6 @@ from products.tasks.backend.models import (
 )
 from products.tasks.backend.temporal.process_task.utils import (
     CONTEXT_WINDOW_CHOICES,
-    PUBLIC_REASONING_EFFORTS,
     GitHubCredentialSource,
     LLMProvider,
     PrAuthorshipMode,
@@ -68,7 +68,7 @@ __all__ = [
     "PI_REASONING_EFFORTS",
     "WARMABLE_ORIGIN_PRODUCTS",
     "InitialPermissionMode",
-    "PUBLIC_REASONING_EFFORTS",
+    "ACP_REASONING_EFFORTS",
     "GitHubCredentialSource",
     "LLMProvider",
     "PrAuthorshipMode",

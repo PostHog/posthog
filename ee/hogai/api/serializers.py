@@ -14,7 +14,7 @@ from posthog.exceptions_capture import capture_exception
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskDetailDTO, TaskRunDetailDTO, TaskUserBasicInfo
-from products.tasks.backend.facade.run_config import PUBLIC_REASONING_EFFORTS, LLMProvider, RuntimeAdapter
+from products.tasks.backend.facade.run_config import ACP_REASONING_EFFORTS, LLMProvider, RuntimeAdapter
 
 from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.chat_agent import AssistantGraph
@@ -161,7 +161,7 @@ class TaskRunDetailSerializer(DataclassSerializer):
         allow_null=True, required=False, help_text="Configured LLM model identifier for this run."
     )
     reasoning_effort = serializers.ChoiceField(
-        choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS],
+        choices=list(ACP_REASONING_EFFORTS),
         allow_null=True,
         required=False,
         help_text="Configured reasoning effort for this run when the selected model supports it.",

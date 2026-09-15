@@ -24,7 +24,7 @@ from posthog.models.integration import Integration
 
 from products.tasks.backend.facade import loops as loops_facade
 from products.tasks.backend.facade.run_config import (
-    PUBLIC_REASONING_EFFORTS,
+    ACP_REASONING_EFFORTS,
     RuntimeAdapter,
     get_default_model_for_runtime_adapter,
     get_model_access_error,
@@ -451,7 +451,7 @@ class LoopWriteSerializer(serializers.Serializer):
         ),
     )
     reasoning_effort = serializers.ChoiceField(
-        choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS],
+        choices=list(ACP_REASONING_EFFORTS),
         required=False,
         allow_null=True,
         help_text="Reasoning effort, validated against `runtime_adapter`/`model`'s supported set.",

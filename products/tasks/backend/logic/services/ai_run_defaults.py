@@ -41,7 +41,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.tasks.backend.constants import PI_REASONING_EFFORTS
+from products.tasks.backend.constants import ACP_REASONING_EFFORTS, PI_REASONING_EFFORTS
 from products.tasks.backend.feature_flags import (
     get_model_access_error,
     get_required_model_flag,
@@ -49,11 +49,7 @@ from products.tasks.backend.feature_flags import (
 )
 from products.tasks.backend.logic.services.model_catalogue import filter_unsupported_effort
 from products.tasks.backend.models import Task, TeamTasksConfig, UserTasksConfig
-from products.tasks.backend.temporal.process_task.utils import (
-    PUBLIC_REASONING_EFFORTS,
-    RuntimeAdapter,
-    validate_model_selection,
-)
+from products.tasks.backend.temporal.process_task.utils import RuntimeAdapter, validate_model_selection
 
 ACP = Task.Runtime.ACP.value
 PI = Task.Runtime.PI.value
@@ -299,7 +295,7 @@ def validate_ai_run_preferences(
     # The catalogue only judges an effort against a model, so an effort stored without a
     # pair — legal, and inherited by whatever model resolves later — still needs a check.
     if reasoning_effort is not None:
-        valid_efforts = {e.value for e in PUBLIC_REASONING_EFFORTS}
+        valid_efforts = set(ACP_REASONING_EFFORTS)
         if reasoning_effort not in valid_efforts:
             raise ValidationError(
                 f"Unknown reasoning_effort '{reasoning_effort}'. Valid: {', '.join(sorted(valid_efforts))}."

@@ -31,9 +31,11 @@ MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG = "tasks-modal-network-allowlist"
 HOGLAND_SANDBOX_FEATURE_FLAG = "tasks-hogland-sandbox"
 AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG = "tasks-agent-run-otel-telemetry"
 PI_CLOUD_RUNTIME_FEATURE_FLAG = "pi-harness"
-# The values a Pi run accepts for `reasoning_effort`. Pi has its own vocabulary, not the ACP
-# reasoning efforts: it adds `off` and `minimal`, and has no `ultracode`. The catalog holds it
-# so the desktop agent validates against the same tuple this serializer does.
+# What each runtime accepts for `reasoning_effort`. One wire field carries both, and the two
+# vocabularies differ in both directions: Pi adds `off` and `minimal`, ACP adds `ultracode`.
+# Neither contains the other, so a run validates against its own runtime's tuple rather than
+# against the `ReasoningEffort` enum, which spans both and would accept the other's values.
+ACP_REASONING_EFFORTS = model_catalog.REASONING_EFFORTS
 PI_REASONING_EFFORTS = model_catalog.PI_REASONING_EFFORTS
 # Gates agent-to-agent peer messaging between cloud runs. v1 additionally requires the Pi
 # runtime, so the effective audience is teams with both this flag and

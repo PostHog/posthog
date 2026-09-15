@@ -151,7 +151,7 @@ def _stub_picker_facade():
         ("codex", "gpt-5"): ("low", "medium", "high"),
         ("codex", "gpt-5.5"): ("low", "medium", "high", "xhigh"),
     }
-    public_efforts = tuple(_Effort(v) for v in ("low", "medium", "high", "xhigh", "max"))
+    public_efforts = ("low", "medium", "high", "xhigh", "max")
 
     def fake_get_supported(adapter, model):
         adapter_value = adapter.value if hasattr(adapter, "value") else adapter
@@ -209,7 +209,7 @@ def _stub_picker_facade():
     fake.get_provider_for_runtime_adapter = fake_get_provider
     fake.get_models_for_runtime_adapter = fake_get_models
     fake.validate_model_selection = fake_validate_selection
-    fake.PUBLIC_REASONING_EFFORTS = public_efforts
+    fake.ACP_REASONING_EFFORTS = public_efforts
 
     @dataclass(frozen=True)
     class _GatewayModel:
