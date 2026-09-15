@@ -1,8 +1,14 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import { AUTORESEARCH_MAX_ITERATIONS_LIMIT } from "@posthog/core/autoresearch/schemas";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@posthog/quill";
 import { isDefaultSelectOption, selectOptionDocsUrl } from "@posthog/shared";
 import { ReasoningLevelDropdown } from "@posthog/ui/features/sessions/components/ReasoningLevelDropdown";
-import { Select } from "@radix-ui/themes";
 import { flattenSelectOptions } from "../sessions/sessionStore";
 
 /** A session model choice offered for a stage: value plus a display label. */
@@ -14,10 +20,9 @@ export interface AutoresearchModelOption {
 }
 
 /**
- * Sentinel for "no stage model" because Radix `Select.Item` cannot have an empty
- * value, so the "leave the session model alone" choice needs a placeholder.
- * Shared so the composer strip and the dashboard dialog can't drift onto
- * different sentinels.
+ * Sentinel for "no stage model", so the "leave the session model alone" choice
+ * is a selectable item like any other. Shared so the composer strip and the
+ * effort dropdown can't drift onto different sentinels.
  */
 const NO_STAGE_MODEL = "__no_stage_model__";
 
@@ -103,9 +108,8 @@ export function clampMaxIterations(value: number): number {
 }
 
 /**
- * The stage-model dropdown shared by the composer strip and the config
- * dialog: a sentinel-safe Radix select whose "none" option and chrome the
- * caller styles via props.
+ * The stage-model dropdown for the composer strip: a sentinel-safe select
+ * whose "none" option label the caller supplies.
  */
 export function StageModelSelect({
   value,
@@ -115,7 +119,6 @@ export function StageModelSelect({
   ariaLabel,
   id,
   size,
-  variant,
   className,
   disabled,
 }: {
@@ -125,32 +128,39 @@ export function StageModelSelect({
   noneLabel: string;
   ariaLabel?: string;
   id?: string;
-  size?: "1" | "2" | "3";
-  variant?: "surface" | "soft";
+  size?: "sm" | "default";
   className?: string;
   disabled?: boolean;
 }) {
+  const items = [
+    { value: NO_STAGE_MODEL, label: noneLabel },
+    ...options.map((option) => ({ value: option.value, label: option.label })),
+  ];
+
   return (
-    <Select.Root
-      size={size}
+    <Select
       value={selectValueFromStageModel(value)}
-      onValueChange={(next) => onChange(stageModelFromSelectValue(next))}
+      onValueChange={(next: string | null) => {
+        if (next !== null) onChange(stageModelFromSelectValue(next));
+      }}
       disabled={disabled}
+      items={items}
     >
-      <Select.Trigger
+      <SelectTrigger
         id={id}
-        variant={variant}
+        size={size}
         className={className}
         aria-label={ariaLabel}
-      />
-      <Select.Content>
-        <Select.Item value={NO_STAGE_MODEL}>{noneLabel}</Select.Item>
-        {options.map((option) => (
-          <Select.Item key={option.value} value={option.value}>
-            {option.label}
-          </Select.Item>
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {items.map((item) => (
+          <SelectItem key={item.value} value={item.value}>
+            {item.label}
+          </SelectItem>
         ))}
-      </Select.Content>
-    </Select.Root>
+      </SelectContent>
+    </Select>
   );
 }

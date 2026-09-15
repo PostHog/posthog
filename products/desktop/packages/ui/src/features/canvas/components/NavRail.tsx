@@ -1,4 +1,9 @@
-import { BellIcon, GearSix, MagnifyingGlass } from "@phosphor-icons/react";
+import {
+  BellIcon,
+  GearSix,
+  MagnifyingGlass,
+  Question,
+} from "@phosphor-icons/react";
 import {
   Button,
   cn,
@@ -38,6 +43,7 @@ import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useConte
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
 import { useInboxDecisionCount } from "@posthog/ui/features/inbox/hooks/useInboxDecisionCount";
+import { useOpenOnboardingTab } from "@posthog/ui/features/onboarding/hooks/useOpenOnboardingTab";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
 import { NAV_RAIL_WIDTH } from "@posthog/ui/features/sidebar/constants";
@@ -228,6 +234,7 @@ function NavRailImpl() {
   // light a destination the screen isn't on.
   const railPane = useRailPane();
   const toggleCommandMenu = useCommandMenuStore((s) => s.toggle);
+  const openOnboarding = useOpenOnboardingTab();
 
   const pick =
     (destination: RailDestination): MouseEventHandler<HTMLButtonElement> =>
@@ -312,6 +319,19 @@ function NavRailImpl() {
         {topDestinations.map(renderDestination)}
         <div className="mt-auto flex flex-col items-center gap-1.5">
           {bottomDestinations.map(renderDestination)}
+          <NavIcon
+            icon={<Question size={16} />}
+            label="Onboarding"
+            isActive={railPane === "onboarding"}
+            onClick={() => {
+              track(ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED, {
+                item: "onboarding",
+                in_more: false,
+                layout: "channels",
+              });
+              openOnboarding();
+            }}
+          />
           <NavIcon
             icon={<MagnifyingGlass size={16} />}
             label="Search"

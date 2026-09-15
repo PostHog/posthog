@@ -152,7 +152,7 @@ function sameViewState(
 }
 
 /**
- * Open a location in a new tab and focus it.
+ * Open a location in a new tab. The caller can keep the current tab active.
  *
  * No dedup: navigating to something another tab already shows must never move
  * you to that tab (see {@link decideTabNavigation}), and an explicit open makes
@@ -166,6 +166,7 @@ export function openTab(
       channelId: string | null;
       channelSection?: string | null;
       appView?: string | null;
+      activate?: boolean;
       makeId: IdFactory;
       now: Clock;
     },
@@ -191,7 +192,10 @@ export function openTab(
   };
   const withTab: TabsSnapshot = { ...snapshot, tabs: [...snapshot.tabs, tab] };
   return {
-    snapshot: setActiveTab(withTab, windowId, tab.id),
+    snapshot:
+      input.activate === false
+        ? withTab
+        : setActiveTab(withTab, windowId, tab.id),
     tabId: tab.id,
   };
 }

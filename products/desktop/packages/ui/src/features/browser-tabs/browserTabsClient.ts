@@ -24,6 +24,7 @@ export interface BrowserTabsClient {
       windowId: string;
       /** Renderer-minted id for the tab this call creates (local-first sync). */
       tabId?: string;
+      activate?: boolean;
     },
   ): Promise<TabsSnapshot>;
   setTabTarget(

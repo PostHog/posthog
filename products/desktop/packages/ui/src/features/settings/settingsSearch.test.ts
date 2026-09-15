@@ -18,6 +18,11 @@ describe("searchSettings", () => {
       "STE100",
       "Simplified Technical English (ASD-STE100)",
     ],
+    [
+      "finds the onboarding tab by its guide keyword",
+      "onboarding guide",
+      "Onboarding tab",
+    ],
   ])("%s", (_name, query, expectedFirstLabel) => {
     const results = searchSettings(query, NO_HIDDEN);
     expect(results[0]?.label).toBe(expectedFirstLabel);

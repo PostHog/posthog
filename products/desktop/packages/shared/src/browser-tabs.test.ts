@@ -132,6 +132,28 @@ describe("openTab", () => {
 
   // No dedup anywhere: navigation must never move you to another tab, and an
   // explicit open makes the same promise.
+  it("opens a background tab without changing the active tab", () => {
+    const first = openAt(snapshot(), "w1", "/activity");
+    const second = openTab(first.snapshot, {
+      windowId: "w1",
+      href: "/onboarding-landing",
+      viewState: { title: "Onboarding" },
+      ...NO_IDENTITY,
+      appView: "onboarding",
+      activate: false,
+      makeId,
+      now,
+    });
+
+    expect(second.snapshot.tabs).toHaveLength(2);
+    expect(second.snapshot.windows[0].activeTabId).toBe(first.tabId);
+    expect(second.snapshot.tabs[1]).toMatchObject({
+      id: second.tabId,
+      href: "/onboarding-landing",
+      position: POSITION_GAP * 2,
+    });
+  });
+
   it("opens a second tab on a page that is already open", () => {
     const first = open(snapshot(), "w1", "dash-a");
     const second = open(first.snapshot, "w1", "dash-a");

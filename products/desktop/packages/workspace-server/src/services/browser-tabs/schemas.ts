@@ -26,6 +26,7 @@ export const openTabInput = z.object({
   // apply and the persisted state agree on the id (local-first tab sync), and
   // a replayed call is idempotent.
   tabId: z.string().optional(),
+  activate: z.boolean().optional(),
 });
 
 export const setTabTargetInput = z.object({

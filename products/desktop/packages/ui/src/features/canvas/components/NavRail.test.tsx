@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   navigateToInbox: vi.fn(),
   openSettings: vi.fn(),
   openBrowserTab: vi.fn(),
+  openOnboardingTab: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-router", () => ({
@@ -71,6 +72,9 @@ vi.mock("@posthog/ui/features/sidebar/components/ProjectSwitcher", () => ({
 }));
 vi.mock("@posthog/ui/features/browser-tabs/useOpenBrowserTab", () => ({
   useOpenBrowserTab: () => mocks.openBrowserTab,
+}));
+vi.mock("@posthog/ui/features/onboarding/hooks/useOpenOnboardingTab", () => ({
+  useOpenOnboardingTab: () => mocks.openOnboardingTab,
 }));
 vi.mock("@posthog/ui/features/settings/hooks/useOpenSettings", () => ({
   openSettings: mocks.openSettings,
@@ -165,18 +169,27 @@ describe("NavRail", () => {
     expect(screen.queryByLabelText("Home")).not.toBeInTheDocument();
   });
 
-  it("keeps Search directly above Settings at the bottom of the rail", () => {
+  it("keeps Onboarding and Search directly above Settings at the bottom of the rail", () => {
     render(<NavRail />);
 
     const buttonLabels = screen
       .getAllByRole("button")
       .map((button) => button.getAttribute("aria-label"));
 
-    expect(buttonLabels.slice(-3)).toEqual([
+    expect(buttonLabels.slice(-4)).toEqual([
+      "Onboarding",
       "Search",
       "Settings",
       "Project switcher",
     ]);
+  });
+
+  it("opens the onboarding tab from the rail", async () => {
+    render(<NavRail />);
+
+    await userEvent.click(screen.getByLabelText("Onboarding"));
+
+    expect(mocks.openOnboardingTab).toHaveBeenCalledTimes(1);
   });
 
   it("puts numberless notification dots on the Activity and Self-driving buttons", () => {

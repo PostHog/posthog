@@ -34,6 +34,7 @@ export interface IBrowserTabsService {
         channelSection?: string | null;
         appView?: string | null;
         tabId?: string;
+        activate?: boolean;
       },
   ): TabsSnapshot;
   setTabTarget(
@@ -147,6 +148,7 @@ export class BrowserTabsService
         channelSection?: string | null;
         appView?: string | null;
         tabId?: string;
+        activate?: boolean;
       },
   ): TabsSnapshot {
     const providedId = input.tabId;

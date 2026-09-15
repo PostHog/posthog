@@ -35,6 +35,11 @@ const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   },
   {
     category: "general",
+    label: "Onboarding tab",
+    keywords: ["setup", "guide", "add tab"],
+  },
+  {
+    category: "general",
     label: "Start in",
     keywords: ["plan mode", "initial task mode", "new tasks"],
   },

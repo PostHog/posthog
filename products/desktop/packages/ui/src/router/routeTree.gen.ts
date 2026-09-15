@@ -36,6 +36,7 @@ import { Route as FoldersFolderIdRouteImport } from './routes/folders/$folderId'
 import { Route as CodeSplatRouteImport } from './routes/code.$'
 import { Route as AgentsSplatRouteImport } from './routes/agents.$'
 import { Route as ShellSkillsRouteImport } from './routes/_shell/skills'
+import { Route as ShellOnboardingLandingRouteImport } from './routes/_shell/onboarding-landing'
 import { Route as ShellNewRouteImport } from './routes/_shell/new'
 import { Route as ShellMcpServersRouteImport } from './routes/_shell/mcp-servers'
 import { Route as ShellCommandCenterRouteImport } from './routes/_shell/command-center'
@@ -201,6 +202,11 @@ const AgentsSplatRoute = AgentsSplatRouteImport.update({
 const ShellSkillsRoute = ShellSkillsRouteImport.update({
   id: '/skills',
   path: '/skills',
+  getParentRoute: () => ShellRoute,
+} as any)
+const ShellOnboardingLandingRoute = ShellOnboardingLandingRouteImport.update({
+  id: '/onboarding-landing',
+  path: '/onboarding-landing',
   getParentRoute: () => ShellRoute,
 } as any)
 const ShellNewRoute = ShellNewRouteImport.update({
@@ -386,6 +392,7 @@ export interface FileRoutesByFullPath {
   '/command-center': typeof ShellCommandCenterRoute
   '/mcp-servers': typeof ShellMcpServersRoute
   '/new': typeof ShellNewRoute
+  '/onboarding-landing': typeof ShellOnboardingLandingRoute
   '/skills': typeof ShellSkillsRoute
   '/agents/$': typeof AgentsSplatRoute
   '/code/$': typeof CodeSplatRoute
@@ -444,6 +451,7 @@ export interface FileRoutesByTo {
   '/command-center': typeof ShellCommandCenterRoute
   '/mcp-servers': typeof ShellMcpServersRoute
   '/new': typeof ShellNewRoute
+  '/onboarding-landing': typeof ShellOnboardingLandingRoute
   '/skills': typeof ShellSkillsRoute
   '/agents/$': typeof AgentsSplatRoute
   '/code/$': typeof CodeSplatRoute
@@ -501,6 +509,7 @@ export interface FileRoutesById {
   '/_shell/command-center': typeof ShellCommandCenterRoute
   '/_shell/mcp-servers': typeof ShellMcpServersRoute
   '/_shell/new': typeof ShellNewRoute
+  '/_shell/onboarding-landing': typeof ShellOnboardingLandingRoute
   '/_shell/skills': typeof ShellSkillsRoute
   '/agents/$': typeof AgentsSplatRoute
   '/code/$': typeof CodeSplatRoute
@@ -564,6 +573,7 @@ export interface FileRouteTypes {
     | '/command-center'
     | '/mcp-servers'
     | '/new'
+    | '/onboarding-landing'
     | '/skills'
     | '/agents/$'
     | '/code/$'
@@ -622,6 +632,7 @@ export interface FileRouteTypes {
     | '/command-center'
     | '/mcp-servers'
     | '/new'
+    | '/onboarding-landing'
     | '/skills'
     | '/agents/$'
     | '/code/$'
@@ -678,6 +689,7 @@ export interface FileRouteTypes {
     | '/_shell/command-center'
     | '/_shell/mcp-servers'
     | '/_shell/new'
+    | '/_shell/onboarding-landing'
     | '/_shell/skills'
     | '/agents/$'
     | '/code/$'
@@ -940,6 +952,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellSkillsRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/onboarding-landing': {
+      id: '/_shell/onboarding-landing'
+      path: '/onboarding-landing'
+      fullPath: '/onboarding-landing'
+      preLoaderRoute: typeof ShellOnboardingLandingRouteImport
+      parentRoute: typeof ShellRoute
+    }
     '/_shell/new': {
       id: '/_shell/new'
       path: '/new'
@@ -1173,6 +1192,7 @@ interface ShellRouteChildren {
   ShellCommandCenterRoute: typeof ShellCommandCenterRoute
   ShellMcpServersRoute: typeof ShellMcpServersRoute
   ShellNewRoute: typeof ShellNewRoute
+  ShellOnboardingLandingRoute: typeof ShellOnboardingLandingRoute
   ShellSkillsRoute: typeof ShellSkillsRoute
   ShellIndexRoute: typeof ShellIndexRoute
   ShellFeedsFeedIdRoute: typeof ShellFeedsFeedIdRoute
@@ -1200,6 +1220,7 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellCommandCenterRoute: ShellCommandCenterRoute,
   ShellMcpServersRoute: ShellMcpServersRoute,
   ShellNewRoute: ShellNewRoute,
+  ShellOnboardingLandingRoute: ShellOnboardingLandingRoute,
   ShellSkillsRoute: ShellSkillsRoute,
   ShellIndexRoute: ShellIndexRoute,
   ShellFeedsFeedIdRoute: ShellFeedsFeedIdRoute,

@@ -454,6 +454,7 @@ const browserTabsRouter = router({
         windowId: z.string(),
         ...tabLocationFields,
         tabId: z.string().optional(),
+        activate: z.boolean().optional(),
       }),
     )
     .output(tabsSnapshotSchema)

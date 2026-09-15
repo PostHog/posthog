@@ -1,16 +1,20 @@
+import { getAuthIdentity } from "@posthog/core/auth/authIdentity";
 import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
-import { Switch } from "@posthog/quill";
+import { Button, Switch } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import {
   EFFORT_LEVEL_DOCS_URLS,
   EFFORT_LEVEL_LABELS,
   EFFORT_LEVELS,
 } from "@posthog/shared/domain-types";
+import { useAuthStateValue } from "@posthog/ui/features/auth/store";
+import { useTabsSnapshot } from "@posthog/ui/features/browser-tabs/useBrowserTabs";
 import {
   MISSION_CONTROL_CLIENT,
   type MissionControlClient,
 } from "@posthog/ui/features/mission-control/identifiers";
+import { useOpenOnboardingTab } from "@posthog/ui/features/onboarding/hooks/useOpenOnboardingTab";
 import {
   ReasoningLevelDropdown,
   type ReasoningLevelOption,
@@ -35,6 +39,7 @@ import {
   useSettingsStore,
 } from "@posthog/ui/features/settings/settingsStore";
 import { track } from "@posthog/ui/shell/analytics";
+import { isOnboardingTab } from "@posthog/ui/shell/onboardingTab";
 import type { ThemePreference } from "@posthog/ui/shell/themeStore";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
@@ -57,6 +62,10 @@ const MESSAGING_MODE_OPTIONS = [
 
 export function GeneralSettings() {
   const hostTRPC = useHostTRPC();
+  const authIdentity = useAuthStateValue(getAuthIdentity);
+  const tabsSnapshot = useTabsSnapshot();
+  const openOnboardingTab = useOpenOnboardingTab();
+  const onboardingTabIsOpen = tabsSnapshot.tabs.some(isOnboardingTab);
 
   const theme = useThemeStore((state) => state.theme);
   const setTheme = useThemeStore((state) => state.setTheme);
@@ -267,6 +276,29 @@ export function GeneralSettings() {
             </SettingsCardRow>
           </SettingsCard>
         )}
+      </SettingsSection>
+
+      <SettingsSection
+        label="Onboarding"
+        description="Return to the onboarding guide"
+      >
+        <SettingsCard>
+          <SettingsCardRow
+            label="Onboarding tab"
+            description="Add the onboarding guide to your tabs"
+          >
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              data-attr="settings-add-onboarding-tab"
+              disabled={!authIdentity || onboardingTabIsOpen}
+              onClick={openOnboardingTab}
+            >
+              {onboardingTabIsOpen ? "Added" : "Add tab"}
+            </Button>
+          </SettingsCardRow>
+        </SettingsCard>
       </SettingsSection>
 
       <SettingsSection
