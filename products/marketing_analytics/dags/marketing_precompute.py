@@ -257,16 +257,22 @@ def _ensure_chunks(
 
 
 def _ensure_touchpoints_for_team(
-    context: dagster.OpExecutionContext, team: Team, start: datetime, end: datetime, chunk_days: int
+    context: dagster.OpExecutionContext,
+    team: Team,
+    filter_test_accounts: bool,
+    start: datetime,
+    end: datetime,
+    chunk_days: int,
 ) -> int:
     """Warm the goal-agnostic touchpoints table over [start, end] (start already reaches back past the
     attribution window). One warmed window serves every conversion goal / attribution mode.
 
     Test-account filtering is the one thing that splits it: the filter is baked into the insert query,
     which the framework hashes for the job key, so warming the wrong variant leaves every read to
-    materialize inline. The team's own setting is what the dashboard sends, so warm that one.
+    materialize inline. The team's own setting is what the dashboard sends, so warm that one. It is read
+    by `_plan_team` on the main thread, because reading the team extension here would query Postgres from
+    a worker thread.
     """
-    filter_test_accounts = team.marketing_analytics_config.filter_test_accounts
     return _ensure_chunks(
         context,
         team,
@@ -284,6 +290,7 @@ def _ensure_conversions_for_team(
     team: Team,
     config: MarketingAnalyticsConfig,
     goals: list,
+    filter_test_accounts: bool,
     start: datetime,
     end: datetime,
     chunk_days: int,
@@ -302,7 +309,7 @@ def _ensure_conversions_for_team(
             team=team,
             config=config,
             user=None,
-            filter_test_accounts=team.marketing_analytics_config.filter_test_accounts,
+            filter_test_accounts=filter_test_accounts,
         )
         if not processor.is_goal_precomputable():
             continue
@@ -392,6 +399,7 @@ class _TeamWarmPlan(NamedTuple):
     config: MarketingAnalyticsConfig
     conversion_goals: list
     attribution_window_days: int
+    filter_test_accounts: bool
     warm_costs: bool
 
     @property
@@ -433,6 +441,7 @@ def _plan_team(team: Team) -> _TeamWarmPlan | None:
             config=config,
             conversion_goals=conversion_goals,
             attribution_window_days=ma_config.attribution_window_days or DEFAULT_ATTRIBUTION_WINDOW_DAYS,
+            filter_test_accounts=bool(ma_config.filter_test_accounts),
             warm_costs=bool(config.costs_precomputation_enabled and _team_has_cost_sources(team)),
         )
     except Exception:
@@ -464,13 +473,22 @@ def _warm_team(context: dagster.OpExecutionContext, plan: _TeamWarmPlan, end: da
                 # Reach back far enough that a read with up to PRECOMPUTE_WINDOW_DAYS of lookback is fully
                 # covered including its touchpoints attribution backfill ([date_from - attribution_window, date_to]).
                 tp_start = end - timedelta(days=PRECOMPUTE_WINDOW_DAYS + plan.attribution_window_days)
-                failures += _ensure_touchpoints_for_team(context, team, tp_start, end, PRECOMPUTE_CHUNK_DAYS)
+                failures += _ensure_touchpoints_for_team(
+                    context, team, plan.filter_test_accounts, tp_start, end, PRECOMPUTE_CHUNK_DAYS
+                )
                 # Conversions need no attribution backfill — the conversion event must fall in the query range.
                 # Goals that aren't precomputable (non-Events/Actions, schema remaps, person/cohort filters) are
                 # skipped inside; a team can warm touchpoints but no conversions if no goal qualifies.
                 conv_start = end - timedelta(days=PRECOMPUTE_WINDOW_DAYS)
                 _goals_warmed, conv_failures = _ensure_conversions_for_team(
-                    context, team, plan.config, plan.conversion_goals, conv_start, end, PRECOMPUTE_CHUNK_DAYS
+                    context,
+                    team,
+                    plan.config,
+                    plan.conversion_goals,
+                    plan.filter_test_accounts,
+                    conv_start,
+                    end,
+                    PRECOMPUTE_CHUNK_DAYS,
                 )
                 failures += conv_failures
                 conversion_teams += 1
