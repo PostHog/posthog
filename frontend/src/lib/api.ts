@@ -93,7 +93,6 @@ import {
     DashboardTemplateType,
     DashboardType,
     DataColorThemeModel,
-    DataModelingDAG,
     DataModelingEdge,
     DataModelingJob,
     DataModelingNode,
@@ -1500,15 +1499,6 @@ export class ApiRequest {
 
     public dataModelingJobsRecent(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('data_modeling_jobs').addPathComponent('recent')
-    }
-
-    // # Data Modeling DAGs
-    public dataModelingDags(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('data_modeling_dags')
-    }
-
-    public dataModelingDag(id: DataModelingDAG['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.dataModelingDags(teamId).addPathComponent(id)
     }
 
     // # Data Modeling Nodes
@@ -5749,19 +5739,9 @@ const api = {
         },
     },
 
-    dataModelingDags: {
-        async list(): Promise<PaginatedResponse<DataModelingDAG>> {
-            return await new ApiRequest().dataModelingDags().get()
-        },
-    },
-
     dataModelingNodes: {
-        async list(dagId?: string): Promise<PaginatedResponse<DataModelingNode>> {
-            const req = new ApiRequest().dataModelingNodes()
-            if (dagId) {
-                return await req.withQueryString({ dag: dagId }).get()
-            }
-            return await req.get()
+        async list(): Promise<PaginatedResponse<DataModelingNode>> {
+            return await new ApiRequest().dataModelingNodes().get()
         },
         async get(nodeId: DataModelingNode['id']): Promise<DataModelingNode> {
             return await new ApiRequest().dataModelingNode(nodeId).get()
@@ -5780,11 +5760,6 @@ const api = {
         },
         async materialize(nodeId: DataModelingNode['id']): Promise<void> {
             await new ApiRequest().dataModelingNode(nodeId).withAction('materialize').create()
-        },
-        async dagIds(): Promise<{
-            dag_ids: Array<{ id: string; name: string }>
-        }> {
-            return await new ApiRequest().dataModelingNodes().withAction('dag_ids').get()
         },
         async lineage({
             nodeId,
@@ -5805,12 +5780,8 @@ const api = {
     },
 
     dataModelingEdges: {
-        async list(dagId?: string): Promise<PaginatedResponse<DataModelingEdge>> {
-            const req = new ApiRequest().dataModelingEdges()
-            if (dagId) {
-                return await req.withQueryString({ dag: dagId }).get()
-            }
-            return await req.get()
+        async list(): Promise<PaginatedResponse<DataModelingEdge>> {
+            return await new ApiRequest().dataModelingEdges().get()
         },
     },
 
