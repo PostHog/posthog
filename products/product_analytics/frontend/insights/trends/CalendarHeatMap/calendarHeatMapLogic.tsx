@@ -1,11 +1,10 @@
 import { MakeLogicType, actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 
+import type { DataColorTheme } from 'lib/colors'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { InsightLogicProps, TrendResult } from '~/types'
-
-import type { DataColorTheme } from '../../../../lib/colors'
 import type {
     AnyDataWarehouseNode,
     AnyEntityNode,
@@ -21,9 +20,10 @@ import type {
     TrendsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
-} from '../../../../queries/schema/schema-general'
-import type { PathsV2Query } from '../../../../queries/schema/schema-general'
-import { keyForInsightLogicProps } from '../../sharedUtils'
+} from '~/queries/schema/schema-general'
+import type { PathsV2Query } from '~/queries/schema/schema-general'
+import { InsightLogicProps, TrendResult } from '~/types'
+
 import { DaysAbbreviated, HoursAbbreviated } from './utils'
 
 export interface CalendarHeatMapProcessedData {
