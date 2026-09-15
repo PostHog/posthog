@@ -477,61 +477,38 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     shouldShowBilling
                 )
                 // Collapse functionally-identical steps (e.g. multiple posthog-js install
-                // steps when the user picks several products that share the SDK). The
-                // highest `dedupPriority` wins, and among equals the first occurrence, so
-                // by default the primary product's install step — which carries the most
-                // configuration — survives. When a descriptor is dropped, we accumulate
-                // its `setupTaskId` and `productKey` for the survivor so:
+                // steps when the user picks several products that share the SDK). First
+                // occurrence wins so the primary product's install step — which carries
+                // the most configuration — survives. When a descriptor is dropped, we
+                // accumulate its `setupTaskId` and `productKey` for the survivor so:
                 //   (1) advancing past the kept step still ticks every dropped product's
                 //       setup-checklist task, and
                 //   (2) `completeOnboarding` can credit the dropped products' visit even
                 //       though no surviving descriptor carries their productKey.
-                // Two-pass build: first group by key and build each frozen survivor, then
-                // emit it at the group's first position. Avoids mutating descriptors after
-                // they've been pushed to the result array (selector purity).
-                const groups = new Map<string, OnboardingStepDescriptor[]>()
+                // Two-pass build: first accumulate into per-survivor scratch records, then
+                // emit fully-frozen descriptors. Avoids mutating descriptors after they've
+                // been pushed to the result array (selector purity).
+                interface AccumulatedExtras {
+                    setupTaskIds: SetupTaskId[]
+                    productKeys: ProductKey[]
+                }
+                const extras = new Map<string, AccumulatedExtras>()
                 for (const step of allSteps) {
                     if (!step.dedupKey) {
                         continue
                     }
-                    const group = groups.get(step.dedupKey)
-                    if (group) {
-                        group.push(step)
-                    } else {
-                        groups.set(step.dedupKey, [step])
-                    }
-                }
-                const survivors = new Map<string, OnboardingStepDescriptor>()
-                for (const [dedupKey, group] of groups) {
-                    const survivor = group.reduce((best, step) =>
-                        (step.dedupPriority ?? 0) > (best.dedupPriority ?? 0) ? step : best
-                    )
-                    const dropped = group.filter((step) => step !== survivor)
-                    if (dropped.length === 0) {
-                        survivors.set(dedupKey, survivor)
+                    let entry = extras.get(step.dedupKey)
+                    if (!entry) {
+                        entry = { setupTaskIds: [], productKeys: [step.productKey] }
+                        extras.set(step.dedupKey, entry)
                         continue
                     }
-                    const setupTaskIds: SetupTaskId[] = []
-                    const productKeys: ProductKey[] = [survivor.productKey]
-                    for (const step of dropped) {
-                        if (step.setupTaskId && !setupTaskIds.includes(step.setupTaskId)) {
-                            setupTaskIds.push(step.setupTaskId)
-                        }
-                        if (!productKeys.includes(step.productKey)) {
-                            productKeys.push(step.productKey)
-                        }
+                    if (step.setupTaskId && !entry.setupTaskIds.includes(step.setupTaskId)) {
+                        entry.setupTaskIds.push(step.setupTaskId)
                     }
-                    survivors.set(
-                        dedupKey,
-                        Object.freeze({
-                            ...survivor,
-                            // The survivor stands in for the primary's install step too, so it
-                            // keeps that step's place at the front of the flow.
-                            role: dropped.some((step) => step.role === 'primary') ? 'primary' : survivor.role,
-                            additionalSetupTaskIds: setupTaskIds,
-                            additionalProductKeys: productKeys,
-                        })
-                    )
+                    if (!entry.productKeys.includes(step.productKey)) {
+                        entry.productKeys.push(step.productKey)
+                    }
                 }
                 const emittedDedup = new Set<string>()
                 const result: OnboardingStepDescriptor[] = []
@@ -544,10 +521,18 @@ export const onboardingLogic = kea<onboardingLogicType>([
                         continue
                     }
                     emittedDedup.add(step.dedupKey)
-                    const survivor = survivors.get(step.dedupKey)
-                    if (survivor) {
-                        result.push(survivor)
+                    const entry = extras.get(step.dedupKey)
+                    if (!entry || (entry.setupTaskIds.length === 0 && entry.productKeys.length <= 1)) {
+                        result.push(step)
+                        continue
                     }
+                    result.push(
+                        Object.freeze({
+                            ...step,
+                            additionalSetupTaskIds: entry.setupTaskIds.slice(),
+                            additionalProductKeys: entry.productKeys.slice(),
+                        })
+                    )
                 }
                 // Reorder: all install steps to the front, with the primary product's
                 // install first among them — so the "Start with" choice (which product is

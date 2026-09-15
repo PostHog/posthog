@@ -29,20 +29,12 @@ export interface OnboardingStepDescriptor {
     setupTaskId?: SetupTaskId
     /**
      * Optional flow-level dedup key. When two descriptors in the same flow share a
-     * `dedupKey`, only one is kept: the highest `dedupPriority`, and among equals the
-     * first occurrence. Use it to collapse install steps that are functionally identical
-     * — e.g. every posthog-js-based product's install step uses
-     * `dedupKey: "install:posthog-js"`, so picking Product Analytics + Web Analytics +
-     * Session Replay shows one Install step, not three.
+     * `dedupKey`, only the first occurrence is kept. Use it to collapse install steps
+     * that are functionally identical — e.g. every posthog-js-based product's install
+     * step uses `dedupKey: "install:posthog-js"`, so picking Product Analytics + Web
+     * Analytics + Session Replay shows one Install step, not three.
      */
     dedupKey?: string
-    /**
-     * Which descriptor survives a `dedupKey` collision. Defaults to 0, so the primary
-     * product's install step wins. Raise it when this step covers everything the shared
-     * step does and more, e.g. a dedicated wizard command that also installs the SDK;
-     * the survivor must still make sense for every product it stands in for.
-     */
-    dedupPriority?: number
     /**
      * Auto-populated by the flow selector during the dedup pass: setup task ids from
      * descriptors that were dropped because they shared a `dedupKey` with this one.

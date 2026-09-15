@@ -34,7 +34,6 @@ import { JS_WEB_SNIPPETS as BASE_JS_WEB_SNIPPETS } from 'scenes/onboarding/share
 import { SDKDocsLinkOverrides, SDKInstructionsMap, SDKKey } from '~/types'
 
 import { withOnboardingDocsWrapper } from '../shared/onboardingWrappers'
-import { ErrorTrackingWizardBanner } from './ErrorTrackingWizardBanner'
 
 const JS_WEB_SNIPPETS = {
     ...BASE_JS_WEB_SNIPPETS,
@@ -52,81 +51,67 @@ const ErrorTrackingAngularInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: AngularInstallation,
     snippets: JS_WEB_SNIPPETS,
     wizardIntegrationName: 'Angular',
-    WizardBanner: ErrorTrackingWizardBanner,
 })
 const ErrorTrackingWebInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: WebInstallation,
     snippets: JS_WEB_SNIPPETS,
     wizardIntegrationName: 'JavaScript Web',
-    WizardBanner: ErrorTrackingWizardBanner,
 })
 const ErrorTrackingNextJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: NextJSInstallation,
     snippets: JS_WEB_SNIPPETS,
     wizardIntegrationName: 'Next.js',
-    WizardBanner: ErrorTrackingWizardBanner,
 })
 const ErrorTrackingNodeInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: NodeJSInstallation,
     wizardIntegrationName: 'Node.js',
-    WizardBanner: ErrorTrackingWizardBanner,
 })
 const ErrorTrackingNuxt37InstructionsWrapper = withOnboardingDocsWrapper({
     Installation: Nuxt37Installation,
     snippets: JS_WEB_SNIPPETS,
     wizardIntegrationName: 'Nuxt 3.7+',
-    WizardBanner: ErrorTrackingWizardBanner,
 })
 const ErrorTrackingNuxt36InstructionsWrapper = withOnboardingDocsWrapper({
     Installation: Nuxt36Installation,
     snippets: JS_WEB_SNIPPETS,
     wizardIntegrationName: 'Nuxt 3.6 and below',
-    WizardBanner: ErrorTrackingWizardBanner,
 })
 const ErrorTrackingPythonInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: PythonInstallation,
     snippets: PYTHON_SNIPPETS,
     wizardIntegrationName: 'Python',
-    WizardBanner: ErrorTrackingWizardBanner,
 })
 const ErrorTrackingReactInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: ReactInstallation,
     snippets: JS_WEB_SNIPPETS,
     wizardIntegrationName: 'React',
-    WizardBanner: ErrorTrackingWizardBanner,
 })
 const ErrorTrackingSvelteInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: SvelteInstallation,
     snippets: JS_WEB_SNIPPETS,
     wizardIntegrationName: 'Svelte',
-    WizardBanner: ErrorTrackingWizardBanner,
 })
 
 const ErrorTrackingRubyInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RubyInstallation,
     wizardIntegrationName: 'Ruby',
-    WizardBanner: ErrorTrackingWizardBanner,
 })
 const ErrorTrackingRubyOnRailsInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RubyOnRailsInstallation,
     wizardIntegrationName: 'Ruby on Rails',
-    WizardBanner: ErrorTrackingWizardBanner,
 })
 
 const ErrorTrackingHonoInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: HonoInstallation,
     wizardIntegrationName: 'Hono',
-    WizardBanner: ErrorTrackingWizardBanner,
 })
 const ErrorTrackingAndroidInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: AndroidInstallation,
     wizardIntegrationName: 'Android',
-    WizardBanner: ErrorTrackingWizardBanner,
 })
 const ErrorTrackingIOSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: IOSInstallation,
     wizardIntegrationName: 'Swift',
-    WizardBanner: ErrorTrackingWizardBanner,
 })
 const ErrorTrackingFlutterInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: FlutterInstallation,
@@ -146,7 +131,6 @@ const ErrorTrackingDotNetInstructionsWrapper = withOnboardingDocsWrapper({
 const ErrorTrackingReactNativeInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: ReactNativeInstallation,
     wizardIntegrationName: 'React Native',
-    WizardBanner: ErrorTrackingWizardBanner,
 })
 const ErrorTrackingAPIInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: APIInstallation,
