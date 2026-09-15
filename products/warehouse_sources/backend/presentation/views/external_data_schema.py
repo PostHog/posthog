@@ -383,8 +383,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         read_only=True,
         allow_null=True,
         help_text=(
-            "Why the last sync run could not merge rows for this table, or `null` if it merged. The "
-            "table is disabled either way, and the resolution differs by reason. "
+            "Why the last sync run could not merge rows for this table, or `null` when no such failure "
+            "is current, which includes a run that failed for another reason. A blocked table is "
+            "disabled, and the resolution differs by reason. "
             "`missing_primary_key`: no key to merge on, so set `primary_key_columns` to a unique "
             "key, which is accepted because none was set before. `duplicate_primary_key`: the key "
             "in use does not identify one row, and that key cannot be swapped once data has synced, "

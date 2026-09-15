@@ -6676,8 +6676,8 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     primary_key_columns: string[] | null
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
     /**
-     * Set when a sync run proved this table's incremental sync can never succeed, `null` otherwise.
-     * Cleared when the sync type or primary key changes, or when a sync succeeds.
+     * Why the last sync run could not merge rows on this table's primary key, or `null` when no such
+     * failure is current. A later run that succeeds, or fails for another reason, clears it.
      */
     incremental_sync_blocked?: IncrementalSyncBlockedReason | null
     /**

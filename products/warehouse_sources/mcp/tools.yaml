@@ -209,10 +209,10 @@ tools:
             last_synced_at, and latest error. Use this to see which tables are actively syncing and their health. To
             check one table's freshness, pass `search` with the table/schema name to narrow to that schema. Column
             definitions are omitted here — use external-data-schemas-retrieve for a single schema's columns. When a
-            table stopped syncing, check `incremental_sync_blocked`: it is set when a run proved the table's incremental
-            sync can never succeed, and such a table stays disabled and fails the same way on every retry until its sync
-            configuration changes or the table is fixed at the source. That field's description lists the resolutions,
-            which are applied with 'external-data-schemas-partial-update'.
+            table stopped syncing, check `incremental_sync_blocked`: it names why the last run could not merge on the
+            table's primary key, and the table is disabled until that is resolved. A retry with nothing changed fails
+            the same way; a later run that succeeds, or fails for another reason, clears it. That field's description
+            lists the resolutions, which are applied with 'external-data-schemas-partial-update'.
         response:
             exclude:
                 - table.columns
@@ -281,8 +281,8 @@ tools:
         description: >
             Get a single table schema by ID. Returns full details including sync status, sync frequency, incremental
             field, primary key columns, latest error, `incremental_sync_blocked`, and the associated source and table
-            metadata. Read `incremental_sync_blocked` before diagnosing a table that stopped syncing: it names a sync
-            configuration that a run proved unusable, and its description lists the resolutions.
+            metadata. Read `incremental_sync_blocked` before diagnosing a table that stopped syncing: it names why the
+            last run could not merge on the primary key, and its description lists the resolutions.
     external-data-schemas-update:
         operation: external_data_schemas_update
         enabled: false
