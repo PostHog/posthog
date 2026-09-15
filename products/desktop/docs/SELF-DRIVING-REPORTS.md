@@ -36,3 +36,12 @@ To filter reports for a user, open Filter reports, then hover over Scope.
 Hover opens the user list without moving keyboard focus. Click the search field to type, or use the keyboard to open Scope and focus the search field.
 The search starts empty and shows up to 20 options, including For you and Entire project.
 Search by name or email across all users. The search field stays visible above the results.
+
+## Storybook previews
+
+The `Inbox/Reports` stories cover the sidebar, report list, report detail, and triage mode.
+They use local report and task fixtures, including active work, failed tasks, and requests for input.
+PR stories include draft and failed-check states and a rendered code diff.
+Interactive stories cover user search, read state, summary navigation, and sidebar restoration.
+The `inbox` story tag selects these previews for visual checks in both themes.
+Cloud task startup, refunds, and GitHub writes are not connected to live services in these previews.

@@ -1,10 +1,16 @@
-import type { ReportImplementationState } from "@posthog/core/inbox/reportImplementation";
+import {
+  deriveReportImplementationState,
+  needsImplementationDecision,
+} from "@posthog/core/inbox/reportImplementation";
 import type { SignalReport } from "@posthog/shared/types";
 import { InboxReportContextMenu } from "@posthog/ui/features/inbox/components/InboxReportContextMenu";
 import { InboxReportFilters } from "@posthog/ui/features/inbox/components/InboxReportFilters";
 import { InboxReportRowView } from "@posthog/ui/features/inbox/components/InboxReportRowView";
 import { InboxScopeSelect } from "@posthog/ui/features/inbox/components/InboxScopeSelect";
-import { inboxStoryReport } from "@posthog/ui/features/inbox/components/inboxStoryFixtures";
+import {
+  inboxStoryImplementations,
+  inboxStoryReport,
+} from "@posthog/ui/features/inbox/components/inboxStoryFixtures";
 import { ReportsInboxViewPresentation } from "@posthog/ui/features/inbox/components/ReportsInboxViewPresentation";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
@@ -82,6 +88,7 @@ function reportRow(report: SignalReport): React.JSX.Element {
 const meta: Meta<typeof ReportsInboxViewPresentation> = {
   title: "Inbox/Reports/List view",
   component: ReportsInboxViewPresentation,
+  tags: ["inbox"],
   parameters: { layout: "fullscreen" },
   decorators: [
     (Story) => (
@@ -92,7 +99,7 @@ const meta: Meta<typeof ReportsInboxViewPresentation> = {
   ],
   args: {
     reports,
-    triageReportCount: reviewAndMerge.length + needsPr.length,
+    triageReportCount: needsPr.length,
     isLoading: false,
     isFetchingNextPage: false,
     hasNextPage: false,
@@ -144,6 +151,7 @@ export const FilteredEmpty: Story = {
 };
 
 export const Loading: Story = {
+  parameters: { testOptions: { waitForLoadersToDisappear: false } },
   args: {
     reports: [],
     triageReportCount: 0,
@@ -160,28 +168,41 @@ export const LoadError: Story = {
   },
 };
 
-const implementationStates: ReportImplementationState[] = [
-  "working",
-  "failed",
-  "needs_input",
-  "no_pr",
-];
+const implementationReports = inboxStoryImplementations.map(
+  (entry) => entry.report,
+);
+const implementationStates = new Map(
+  inboxStoryImplementations.map(({ report, task }) => [
+    report.id,
+    deriveReportImplementationState(report, task),
+  ]),
+);
 
 export const ImplementationProgress: Story = {
   args: {
-    reports: needsPr.slice(0, 4),
-    triageReportCount: 3,
+    reports: [reviewAndMerge[0], ...implementationReports],
+    triageReportCount: implementationReports.filter((report) =>
+      needsImplementationDecision(implementationStates.get(report.id) ?? null),
+    ).length,
     renderReport: (report) => (
       <InboxReportRowView
+        key={report.id}
         report={report}
-        implementationState={
-          implementationStates[
-            needsPr.findIndex((item) => item.id === report.id)
-          ]
-        }
+        implementationState={implementationStates.get(report.id)}
         onOpen={() => {}}
         onOpenPr={() => {}}
       />
     ),
   },
+};
+
+export const Narrow: Story = {
+  ...ImplementationProgress,
+  decorators: [
+    (Story) => (
+      <div className="w-full max-w-[520px]">
+        <Story />
+      </div>
+    ),
+  ],
 };
