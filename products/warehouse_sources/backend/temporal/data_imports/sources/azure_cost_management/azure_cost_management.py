@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.azure_cost
     AzureCostManagementEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -48,6 +49,19 @@ RETRY_AFTER_HEADERS = (
 )
 # Sent so Azure buckets our throttling separately from other clients on the same subscription.
 COMMAND_NAME = "PostHogDataWarehouse"
+
+# Retry policy for the client-credentials token exchange. The exchange is a POST, so the shared
+# default policy skips it (idempotent verbs only), and `Retry(total=0)` also removes urllib3's
+# connection retries. A handshake that the egress path drops mid-exchange then failed the whole
+# sync with nothing retried in process. A second mint returns another token, so POST is opted in
+# here. `raise_on_status=False` keeps a rejected credential as a response, which `mint_token` reads
+# the error body from, instead of a `MaxRetryError` that loses Azure AD's reason.
+AUTH_RETRY = BoundedRetry(
+    total=3,
+    backoff_factor=0.5,
+    allowed_methods=frozenset(["POST"]),
+    raise_on_status=False,
+)
 
 
 class AzureCostManagementRetryableError(Exception):
@@ -292,10 +306,11 @@ def build_query_body(config: AzureCostManagementEndpointConfig, window_start: da
 class AzureCostManagementClient:
     """Minted-token ARM client for the Cost Management POST query API.
 
-    The tracked session's retries are disabled (`Retry(total=0)`) because they never cover this
+    The query session's retries are disabled (`Retry(total=0)`) because they never cover this
     source: the query API is a POST (excluded from the default retry's allowed methods) and Azure
     reports its throttle wait in vendor headers the transport can't read. Backoff is therefore
-    handled once, here, rather than layered on top of the transport's.
+    handled once, here, rather than layered on top of the transport's. Nothing here retries the
+    token exchange, so the auth session keeps its own connection retries (see `AUTH_RETRY`).
     """
 
     def __init__(
@@ -315,7 +330,7 @@ class AzureCostManagementClient:
         redact = tuple(value for value in (client_secret,) if value)
         # The token exchange body carries the client secret and returns a bearer token, neither of
         # which the name-based scrubbers recognise — keep it out of sample capture entirely.
-        self._auth_session = make_tracked_session(retry=Retry(total=0), redact_values=redact, capture=False)
+        self._auth_session = make_tracked_session(retry=AUTH_RETRY, redact_values=redact, capture=False)
         self._api_session = make_tracked_session(retry=Retry(total=0), redact_values=redact)
 
     def mint_token(self) -> str:
