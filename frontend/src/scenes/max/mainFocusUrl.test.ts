@@ -9,12 +9,12 @@ describe('mainFocusUrl', () => {
                 activeCreation: { streamKey: 'run-1', taskId: 'task-1', runId: 'run-1' },
                 conversationId: null,
             },
-            '/tasks/task-1?runId=run-1',
+            '/ai?task=task-1&runId=run-1',
         ],
         [
             'new view with a run that never started',
             { isNewView: true, activeCreation: { streamKey: 'run-1', taskId: 'task-1' }, conversationId: null },
-            '/tasks/task-1',
+            '/ai?task=task-1',
         ],
         [
             'new view with a task still being created',

@@ -454,14 +454,16 @@ Note: PostHog exposes three aggregate Pull API v5 reports (daily, geo, partners)
 
 ## Appsignal — gaps
 
-Today (5): `deploy_markers`, `error_samples`, `exception_incidents`, `performance_incidents`, `performance_samples`
+Today (11): `apps`, `deploy_markers`, `error_samples`, `exception_incidents`, `log_lines`, `metric_names`, `metric_timeseries`, `performance_incidents`, `performance_samples`, `performance_traces`, `trace_spans`
 
 Diffed against: <https://docs.appsignal.com/api/v2/overview>
 
-- [ ] `organization { apps } (GraphQL app/site list)` — lookup resolving the app_id / site_id every other table is keyed by (high)
-- [ ] `POST /api/v2/logs/lines` — log lines are only available here — GraphQL exposes no log field at all (high)
-- [ ] `POST /api/v2/metrics/timeseries, /api/v2/metrics/list, /api/v2/metrics/names` — all custom and platform metric data plus the metric-name lookup; the GraphQL metrics API is deprecated (high)
-- [ ] `POST /api/v2/tracing/traces and /api/v2/tracing/trace (spans)` — distributed trace and span data underlying the samples we already sync (high)
+- [x] `organization { apps } (GraphQL app/site list)` — lookup resolving the app_id / site_id every other table is keyed by (high)
+- [x] `POST /api/v2/logs/lines` — log lines are only available here — GraphQL exposes no log field at all (high)
+- [x] `POST /api/v2/metrics/timeseries, GET /api/v2/metrics/names, GET /api/v2/metrics/type_and_tags` — all custom and platform metric data plus the metric-name lookup; the GraphQL metrics API is deprecated (high)
+- [ ] `POST /api/v2/metrics/list` — the same metric data aggregated into rows by a caller-chosen `group_by`; derivable in SQL from `metric_timeseries`, so it was skipped (low)
+- [x] `POST /api/v2/tracing/traces/performance and /api/v2/tracing/trace (spans)` — distributed trace and span data underlying the samples we already sync (high)
+- [ ] `POST /api/v2/tracing/traces/errors` — error traces, keyed by incident digest; no digest-listing endpoint appears on the published V2 reference (medium)
 - [ ] `AnomalyIncident (GraphQL)` — anomaly/trigger incidents are a first-class incident type alongside exception and performance incidents we sync (high)
 - [ ] `LogIncident (GraphQL)` — log-based incidents, the fourth incident type, otherwise invisible (medium)
 - [ ] `POST /api/v2/deploys/stats` — throughput, mean and error_rate per revision — joins directly onto deploy_markers (medium)
@@ -470,7 +472,7 @@ Diffed against: <https://docs.appsignal.com/api/v2/overview>
 - [ ] `uptime monitors (GraphQL)` — uptime check results, a separate monitoring signal from incidents (medium)
 - [ ] `check-ins / cron (GraphQL)` — scheduled-job execution history — misses and late runs (medium)
 
-Note: AppSignal split its API in two: GraphQL for models (apps, incidents, markers, dashboards, alerts, uptime monitors, check-ins) and a REST Public API V2 for bulk data (metrics, logs, traces, Kubernetes, deploy stats). PostHog currently uses only the legacy /api/{app_id}/\*.json endpoints plus GraphQL incidents, so the entire V2 surface is unmapped. Anomaly and log incident types confirmed from the GraphQL mutations page; V2 routes confirmed from the per-page docs.
+Note: AppSignal split its API in two: GraphQL for models (apps, incidents, markers, dashboards, alerts, uptime monitors, check-ins) and a REST Public API V2 for bulk data (metrics, logs, traces, Kubernetes, deploy stats). PostHog reads the legacy /api/{app_id}/\*.json endpoints, GraphQL incidents and the app list, plus the V2 logs, metrics and tracing endpoints; Kubernetes, deploy stats and check-ins are still unmapped. Anomaly and log incident types confirmed from the GraphQL mutations page; V2 routes confirmed from the per-page docs.
 
 ## Appstack — adequate
 
@@ -644,14 +646,14 @@ Note: Aviator also ships a GraphQL API for pull request data at https://app.avia
 
 ## Awin — gaps
 
-Today (4): `accounts`, `programmes`, `reports_advertiser`, `transactions`
+Today (8): `accounts`, `advertiser_publishers`, `commission_groups`, `programme_details`, `programmes`, `reports_advertiser`, `reports_publisher`, `transactions`
 
 Diffed against: <https://help.awin.com/llms.txt>
 
-- [ ] `GET publisher performance report (advertiser)` — per-publisher clicks/sales/commission breakdown - the headline advertiser metric and the counterpart to the advertiser report we already sync (high)
-- [ ] `GET publishers information for advertiser` — lookup table resolving the publisherId on every transaction and performance row (high)
-- [ ] `GET commission groups for an advertiser` — lookup resolving the commissionGroupId carried on transactions (high)
-- [ ] `GET programme details for publisher` — commission ranges, currency and terms per programme; programmes table only carries the summary (high)
+- [x] `GET publisher performance report (advertiser)` — per-publisher clicks/sales/commission breakdown - the headline advertiser metric and the counterpart to the advertiser report we already sync (high)
+- [x] `GET publishers information for advertiser` — lookup table resolving the publisherId on every transaction and performance row (high)
+- [x] `GET commission groups for an advertiser` — lookup resolving the commissionGroupId carried on transactions (high)
+- [x] `GET programme details for publisher` — commission ranges, currency and terms per programme; programmes table only carries the summary (high)
 - [ ] `GET campaign performance report (publisher and advertiser)` — revenue and clicks broken down by campaign - a core reporting dimension we do not expose (medium)
 - [ ] `GET creative performance report (publisher and advertiser)` — performance by creative/banner, the other main report dimension (medium)
 - [ ] `GET transaction queries for a publisher` — dispute/query state on transactions - transition history for revenue we already sync (medium)
@@ -684,14 +686,14 @@ Note: Azure DevOps is one of the largest APIs in this batch (47 spec areas in th
 
 ## Babelforce — gaps
 
-Today (8): `agent_groups`, `agents`, `calls`, `conversations`, `numbers`, `queues`, `recordings`, `sms`
+Today (14): `agent_groups`, `agents`, `calls`, `conversation_events`, `conversations`, `event_definitions`, `numbers`, `outbound_campaign_statistics`, `outbound_campaigns`, `outbound_leads`, `outbound_lists`, `queues`, `recordings`, `sms`
 
 Diffed against: <https://apps.babelforce.com/developer-hub/manager/>
 
-- [ ] `GET /api/v2/conversations/{conversationId}/events` — per-conversation event timeline - the transition history behind the conversations we already sync (high)
-- [ ] `GET /api/v2/events` — workspace-wide event stream; the core analytical fact table for a contact-center source (high)
-- [ ] `GET /api/v2/outbound/campaigns and /{id}/statistics` — outbound dialer campaigns plus their performance stats - a whole product area with no coverage (high)
-- [ ] `GET /api/v2/outbound/lists and /{id}/leads` — dialer lists and the leads dialed, joinable to calls (medium)
+- [x] `GET /api/v2/conversations/{conversationId}/events` — per-conversation event timeline - the transition history behind the conversations we already sync (high)
+- [x] `GET /api/v2/events` — workspace-wide event stream; the core analytical fact table for a contact-center source (high)
+- [x] `GET /api/v2/outbound/campaigns and /{id}/statistics` — outbound dialer campaigns plus their performance stats - a whole product area with no coverage (high)
+- [x] `GET /api/v2/outbound/lists and /{id}/leads` — dialer lists and the leads dialed, joinable to calls (medium)
 - [ ] `GET /api/v2/calls/reporting/simple/{reportType}` — pre-aggregated call report dimensions the vendor exposes alongside the raw reporting feed (medium)
 - [ ] `GET /api/v2/queues/{queueId}/selections` — queue-to-agent/group/tag routing membership - resolves which agents serve which queue (medium)
 - [ ] `GET /api/v2/users and /api/v2/users/roles` — user and role lookup distinct from agents, resolving actor IDs on events and audit rows (medium)
@@ -701,7 +703,7 @@ Diffed against: <https://apps.babelforce.com/developer-hub/manager/>
 - [ ] `GET /api/v2/audit/request` — API audit trail of who changed what (low)
 - [ ] `GET /api/v2/logs` — platform logs for call-flow debugging (low)
 
-Note: The developer hub serves a Swagger UI whose visible initializer points at the petstore default; the real spec (babelforce API 0.7.0, ~110 paths) is embedded in https://apps.babelforce.com/developer-hub/manager/swagger-ui-init.js. Excluded config surfaces: applications, routings, triggers, business-hours, calendars, prompts, integrations, settings, babeldesk dashboards/widgets, sessions.
+Note: The developer hub serves a Swagger UI whose visible initializer points at the petstore default; the real spec (babelforce API 0.7.0, ~110 paths) is embedded in https://apps.babelforce.com/developer-hub/manager/swagger-ui-init.js. Excluded config surfaces: applications, routings, triggers, business-hours, calendars, prompts, integrations, settings, babeldesk dashboards/widgets, sessions. `GET /api/v2/events` turned out to be the catalog of event types available for automations (id, type, name, code, label), not a stream of events that happened, so it landed as the `event_definitions` lookup table; the per-conversation timeline in `conversation_events` is the fact table the note was reaching for.
 
 ## BambooHR — **thin**
 
@@ -873,15 +875,15 @@ Diffed against: <https://docs.bland.ai/llms.txt>
 
 Note: Source directory has no dynamic table discovery — bland_ai.py exposes a static table catalog only. Bland's API is very large (200+ documented operations), so the remaining gaps above are still a sizeable fraction.
 
-## Blogger — gaps
+## Blogger — adequate
 
 Today (4): `blogs`, `comments`, `pages`, `posts`
 
 Diffed against: <https://blogger.googleapis.com/$discovery/rest?version=v3>
 
-- [ ] `pageViews (v3/blogs/{blogId}/pageviews)` — blog page view counts — the only traffic metric the API exposes and the headline number for a blog (high)
+- ~~`pageViews (v3/blogs/{blogId}/pageviews)`~~ — not reachable: `pageViews.get` is the only read method in the discovery doc that accepts the full `https://www.googleapis.com/auth/blogger` scope alone, without `blogger.readonly`, and its reference page carries the "Requires authorization" banner that the API-key-readable methods do not. View stats are owner-only, so the API key this source collects can never read them and a pageviews table would return 403 for every user.
 
-Note: Discovery doc lists only 8 resources; blogs, posts, pages and comments are all covered. The remaining resources (postUserInfos, blogUserInfos, users) are per-user permission views rather than analytical collections, so coverage is essentially complete.
+Note: Discovery doc lists only 8 resources; blogs, posts, pages and comments are all covered. The remaining resources (postUserInfos, blogUserInfos, users) are per-user permission views rather than analytical collections, and pageViews needs an OAuth credential this source does not collect, so coverage is complete for what an API key can reach.
 
 ## Bluetally — gaps
 
@@ -959,14 +961,14 @@ Note: BreezoMeter is now Google Maps Platform: the connector calls airquality.go
 
 ## Brex — gaps
 
-Today (8): `budgets`, `card_transactions`, `cash_transactions`, `departments`, `expenses`, `locations`, `users`, `vendors`
+Today (13): `budgets`, `card_accounts`, `card_transactions`, `cards`, `cash_accounts`, `cash_transactions`, `departments`, `expenses`, `locations`, `spend_limits`, `transfers`, `users`, `vendors`
 
 Diffed against: <https://developer.brex.com/llms.txt>
 
-- [ ] `GET /v2/cards (Team API)` — lookup resolving the card id carried on card transactions and expenses (high)
-- [ ] `GET /v2/accounts/card and GET /v2/accounts/cash (Transactions API)` — lookup resolving the account ids on both transaction tables; cash accounts are already fetched internally but not exposed (high)
-- [ ] `GET /v1/transfers (Payments API)` — outbound bill-pay/ACH/wire transactions, entirely absent from card and cash transactions (high)
-- [ ] `GET /v2/spend_limits (Budgets API v2)` — the limit objects budgets and cards are governed by; budgets alone do not show spend controls (high)
+- [x] `GET /v2/cards (Team API)` — lookup resolving the card id carried on card transactions and expenses (high)
+- [x] `GET /v2/accounts/card and GET /v2/accounts/cash (Transactions API)` — lookup resolving the account ids on both transaction tables; cash accounts are already fetched internally but not exposed (high)
+- [x] `GET /v1/transfers (Payments API)` — outbound bill-pay/ACH/wire transactions, entirely absent from card and cash transactions (high)
+- [x] `GET /v2/spend_limits (Budgets API v2)` — the limit objects budgets and cards are governed by; budgets alone do not show spend controls (high)
 - [ ] `GET /v3/accounting/records (Accounting API)` — the accounting ledger export — how finance teams reconcile Brex spend to the GL (high)
 - [ ] `GET /v1/fields and GET /v1/fields/{field_id}/values (Fields API)` — lookup resolving the custom field ids/values tagged on expenses and transactions (medium)
 - [ ] `GET /v2/titles (Team API)` — lookup resolving the title id on users, alongside the departments and locations already synced (medium)
@@ -976,7 +978,7 @@ Diffed against: <https://developer.brex.com/llms.txt>
 - [ ] `GET /v1/linked_accounts (Payments API)` — lookup resolving the external bank accounts transfers move money to and from (medium)
 - [ ] `GET /v2/legal_entities (Team API)` — lookup for multi-entity companies, needed to split spend by entity (low)
 
-Note: developer.brex.com serves an SPA (the openapi.json URLs return HTML), but the llms.txt index plus the per-API markdown mirrors (e.g. https://developer.brex.com/openapi/team\_api.md) list every operation with its literal path. Brex ships nine APIs — Accounting, Budgets, Expenses, Fields, Onboarding, Payments, Team, Transactions, Travel — and the connector covers pieces of only four. Note the connector already calls /v2/accounts/cash internally to fan out cash transactions but never exposes it as a table.
+Note: developer.brex.com serves an SPA (the openapi.json URLs return HTML), but the llms.txt index plus the per-API markdown mirrors (e.g. https://developer.brex.com/openapi/team\_api.md) list every operation with its literal path. Brex ships nine APIs — Accounting, Budgets, Expenses, Fields, Onboarding, Payments, Team, Transactions, Travel — and the connector covers pieces of only four. The connector now also exposes /v2/accounts/cash as its own table, alongside the fan-out it already drove.
 
 ## Browserbase — **thin**
 
@@ -1088,14 +1090,14 @@ Note: Buildkite publishes a complete machine-readable docs index at /docs/llms.t
 
 ## Bunny — gaps
 
-Today (4): `dns_zones`, `pull_zones`, `storage_zones`, `video_libraries`
+Today (9): `dns_zones`, `pull_zones`, `statistics`, `storage_zone_egress`, `storage_zone_statistics`, `storage_zones`, `video_libraries`, `video_library_statistics`, `videos`
 
 Diffed against: <https://core-api-public-docs.b-cdn.net/docs/v3/public.json>
 
-- [ ] `GET /statistics` — account-wide bandwidth, requests, and cache hit rate over time — Bunny's headline metric and entirely absent today (high)
-- [ ] `GET /storagezone/{id}/statistics and /statistics/egress` — storage usage and egress per zone; the cost driver for the storage_zones we already sync (high)
-- [ ] `GET /library/{libraryId}/videos (Stream API)` — child table of video_libraries we already sync — the individual videos, with status, size, and view counts (high)
-- [ ] `GET /library/{libraryId}/statistics (Stream API)` — views, watch time, and bandwidth per video library — the core Stream analytics object (high)
+- [x] `GET /statistics` — account-wide bandwidth, requests, and cache hit rate over time — Bunny's headline metric and entirely absent today (high)
+- [x] `GET /storagezone/{id}/statistics and /statistics/egress` — storage usage and egress per zone; the cost driver for the storage_zones we already sync (high)
+- [x] `GET /library/{libraryId}/videos (Stream API)` — child table of video_libraries we already sync — the individual videos, with status, size, and view counts (high)
+- [x] `GET /library/{libraryId}/statistics (Stream API)` — views, watch time, and bandwidth per video library — the core Stream analytics object (high)
 - [ ] `GET /dnszone/{zoneId}/records` — lookup/child table resolving the DNS zones we already sync into individual records (high)
 - [ ] `GET /dnszone/{id}/statistics` — DNS query volume per zone, the only usage metric for the DNS product (medium)
 - [ ] `GET /library/{libraryId}/collections (Stream API)` — lookup resolving the collection IDs carried on videos (medium)
