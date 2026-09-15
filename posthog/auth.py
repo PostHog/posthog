@@ -894,6 +894,17 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
             return None
 
 
+def _record_agent_task(access_token: OAuthAccessToken) -> None:
+    """Name the sandbox task an agent runs under, so its writes say which run to open.
+
+    The sandbox provisioning binds the task to the token it mints, so this is attribution the
+    caller cannot choose. A token minted for a person carries no task and leaves the audit trail
+    unchanged.
+    """
+    if access_token.sandbox_task_id is not None:
+        activity_storage.set_agent_task_id(str(access_token.sandbox_task_id))
+
+
 class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
     """
     OAuth 2.0 Bearer token authentication using access tokens
@@ -936,6 +947,7 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
                     # marker in the audit trail.
                     if access_token.impersonated_by_id is not None:
                         activity_storage.set_was_impersonated(True)
+                    _record_agent_task(access_token)
 
                 return access_token.user, None
 
@@ -1082,6 +1094,7 @@ class DelegatedOAuthAccessTokenAuthentication(OAuthAccessTokenAuthentication):
             activity_storage.set_user(access_token.user)
             if access_token.impersonated_by_id is not None:
                 activity_storage.set_was_impersonated(True)
+            _record_agent_task(access_token)
         return access_token.user, None
 
 

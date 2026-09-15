@@ -27,6 +27,7 @@ from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParamete
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.middleware import CSPMiddleware, app_csp_header_name, per_request_logging_context_middleware
+from posthog.models.activity_logging.utils import ACTIVITY_LOG_INTENT_MAX_LENGTH
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -1835,6 +1836,7 @@ class TestActivityLoggingMiddleware(APIBaseTest):
             self.captured["client"] = activity_storage.get_client()
             self.captured["user"] = activity_storage.get_user()
             self.captured["ip_address"] = activity_storage.get_ip_address()
+            self.captured["agent_intent"] = activity_storage.get_agent_intent()
             from django.http import HttpResponse
 
             return HttpResponse()
@@ -1863,6 +1865,20 @@ class TestActivityLoggingMiddleware(APIBaseTest):
         request.user = self.user
         self.middleware(request)
         self.assertEqual(self.captured["client"], "x" * ACTIVITY_LOG_CLIENT_MAX_LENGTH)
+
+    @parameterized.expand(
+        [
+            ("  Repairing a tile that hit the query row limit  ", "Repairing a tile that hit the query row limit"),
+            ("x" * (ACTIVITY_LOG_INTENT_MAX_LENGTH * 4), "x" * ACTIVITY_LOG_INTENT_MAX_LENGTH),
+            ("   ", None),
+        ]
+    )
+    def test_captures_agent_intent(self, raw, expected):
+        request = self.factory.get("/", HTTP_X_POSTHOG_INTENT=raw)
+        request.user = self.user
+        self.middleware(request)
+        self.assertEqual(self.captured["agent_intent"], expected)
+        self.assertIsNone(self.activity_storage.get_agent_intent())
 
     def test_captures_ip_address_from_remote_addr(self):
         request = self.factory.get("/", REMOTE_ADDR="203.0.113.42")

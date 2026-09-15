@@ -43,7 +43,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
             getEffectiveSessionUuid: vi.fn().mockResolvedValue(undefined),
         } as any,
         context: {
-            api: {},
+            api: { config: {} },
             cache: {},
             env: {},
             stateManager: {},

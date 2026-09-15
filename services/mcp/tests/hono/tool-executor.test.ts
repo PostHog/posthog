@@ -41,7 +41,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
             getEffectiveSessionUuid: vi.fn().mockResolvedValue(undefined),
         } as any,
         context: {
-            api: {},
+            api: { config: {} },
             cache: {},
             env: {},
             stateManager: {},
@@ -168,6 +168,7 @@ describe('ToolExecutor', () => {
         function skillMissContext(skillName: string, body: string): ResolvedState['context'] {
             return {
                 api: {
+                    config: {},
                     request: vi.fn().mockRejectedValue(
                         new PostHogApiError({
                             status: 404,
@@ -449,7 +450,7 @@ describe('ToolExecutor', () => {
                 toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true },
                 apiKeyScopes: ['llm_skill:read'],
                 context: {
-                    api: { request: apiRequest },
+                    api: { config: {}, request: apiRequest },
                     stateManager: { getProjectId: vi.fn().mockResolvedValue(12) },
                 } as any,
             })

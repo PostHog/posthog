@@ -72,7 +72,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
             getEffectiveSessionUuid: vi.fn().mockResolvedValue(undefined),
         } as any,
         context: {
-            api: {},
+            api: { config: {} },
             cache: {},
             env: {},
             stateManager: {},
@@ -617,7 +617,7 @@ describe('ToolExecutor metrics', () => {
             /** A context whose skill fetch resolves, so the success path runs. */
             function contextThatServes(): any {
                 return {
-                    api: { request: vi.fn().mockResolvedValue({ name: 'conductor', body: 'skill body' }) },
+                    api: { config: {}, request: vi.fn().mockResolvedValue({ name: 'conductor', body: 'skill body' }) },
                     cache: {},
                     env: {},
                     stateManager: { getProjectId: vi.fn().mockResolvedValue('2') },
@@ -632,6 +632,7 @@ describe('ToolExecutor metrics', () => {
                 return {
                     ...contextThatServes(),
                     api: {
+                        config: {},
                         request: vi.fn().mockRejectedValue(
                             new PostHogApiError({
                                 status: 404,
@@ -651,6 +652,7 @@ describe('ToolExecutor metrics', () => {
                 return {
                     ...contextThatServes(),
                     api: {
+                        config: {},
                         request: vi.fn().mockRejectedValue(
                             new PostHogApiError({
                                 status: 404,

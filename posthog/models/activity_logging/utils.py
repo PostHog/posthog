@@ -16,6 +16,10 @@ logger = structlog.get_logger(__name__)
 
 ACTIVITY_LOG_CLIENT_HEADER = "x-posthog-client"
 ACTIVITY_LOG_CLIENT_MAX_LENGTH = 32
+# What an agent says it is doing. The MCP server forwards the intent it already sends to analytics
+# as `$mcp_intent`. The value is the caller's own claim, so every surface that shows it says so.
+ACTIVITY_LOG_INTENT_HEADER = "x-posthog-intent"
+ACTIVITY_LOG_INTENT_MAX_LENGTH = 500
 
 
 @frozen
@@ -77,6 +81,29 @@ class ActivityLoggingStorage:
         if hasattr(self._local, "client"):
             delattr(self._local, "client")
 
+    def set_agent_intent(self, intent: Optional[str]) -> None:
+        self._local.agent_intent = intent
+
+    def get_agent_intent(self) -> Optional[str]:
+        return getattr(self._local, "agent_intent", None)
+
+    def clear_agent_intent(self) -> None:
+        if hasattr(self._local, "agent_intent"):
+            delattr(self._local, "agent_intent")
+
+    # The sandbox task the agent runs under, read from the OAuth token rather than a request
+    # header. The token binding is minted by the sandbox provisioning, so the audit trail cannot
+    # be made to name a task the caller did not actually run under.
+    def set_agent_task_id(self, task_id: Optional[str]) -> None:
+        self._local.agent_task_id = task_id
+
+    def get_agent_task_id(self) -> Optional[str]:
+        return getattr(self._local, "agent_task_id", None)
+
+    def clear_agent_task_id(self) -> None:
+        if hasattr(self._local, "agent_task_id"):
+            delattr(self._local, "agent_task_id")
+
     def set_ip_address(self, ip_address: Optional[str]) -> None:
         self._local.ip_address = ip_address
 
@@ -102,6 +129,8 @@ class ActivityLoggingStorage:
         self.clear_user()
         self.clear_was_impersonated()
         self.clear_client()
+        self.clear_agent_intent()
+        self.clear_agent_task_id()
         self.clear_ip_address()
         self.clear_trigger()
 
