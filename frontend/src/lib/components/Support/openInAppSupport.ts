@@ -10,13 +10,14 @@ import { SidePanelTab } from '~/types'
  * In-app support means the side panel, which is the surface that reads the billing plan: it offers a
  * ticket only to plans entitled to one. Self-hosted has no Support tab, and a scene without a panel
  * (onboarding, login) would fall through to the support modal, which asks for a message from every
- * plan. Those cases link out to the support options docs instead.
+ * plan. Those cases link out to the support options docs instead, tagged with `utmCampaign` so the
+ * docs page still reports which surface sent the person.
  */
-export function openInAppSupport(): void {
+export function openInAppSupport(utmCampaign?: string): void {
     const isCloudOrDev = preflightLogic.findMounted()?.values.isCloudOrDev
     const sidePanelAvailable = sidePanelStateLogic.findMounted()?.values.sidePanelAvailable
     if (!isCloudOrDev || !sidePanelAvailable) {
-        openSupportOptions()
+        openSupportOptions(utmCampaign)
         return
     }
 
