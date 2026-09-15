@@ -66,15 +66,15 @@ const SURFACE_ICON_CLASS = 'text-[64px]'
 // One entry per pushable product (see BLESSED_PRODUCT_ORDER / FALLBACK_PRODUCT_ORDER in
 // products/growth/backend/product_push/selection.py). Products missing here fall back to
 // DEFAULT_PRODUCT_PUSH_DISPLAY, so TAM-scheduled pushes of unlisted products still render.
-// Each Hoggie matches the one in that product's own empty state, so the card a user clicks
-// and the screen it takes them to show the same hedgehog. Web analytics and error tracking
-// have no empty-state hoggie to follow, and the toolbar has no empty state at all.
+// Each Hoggie matches the one in that product's own empty state, so the card and the screen it
+// opens show the same hedgehog. Web analytics, error tracking and toolbar have none to follow.
 export const PRODUCT_PUSH_DISPLAY: Partial<Record<ProductKey, ProductPushDisplay>> = {
     [ProductKey.PRODUCT_ANALYTICS]: {
         Hoggie: HedgehogChart,
         accentColor: 'var(--color-product-product-analytics-light)',
         tagline:
             'Insights, funnels, trends, and retention - understand exactly what users do in your product, with the events you already send.',
+        hoggieOffset: { x: 42 },
     },
     [ProductKey.WEB_ANALYTICS]: {
         Hoggie: HedgehogCursor,
@@ -121,17 +121,20 @@ export const PRODUCT_PUSH_DISPLAY: Partial<Record<ProductKey, ProductPushDisplay
         accentColor: 'var(--color-product-data-warehouse-light)',
         tagline:
             'Query everything with SQL - your product events plus warehouse sources like Stripe, HubSpot, and Postgres.',
+        hoggieOffset: { x: 60, y: 18 },
     },
     [ProductKey.AI_OBSERVABILITY]: {
         Hoggie: HedgehogMagnifyingGlass,
         accentColor: 'var(--color-product-llm-analytics-light)',
         tagline:
             "Traces, costs, and latency for every LLM call - know what your AI is doing, and what it's costing you.",
+        hoggieOffset: { x: 35, y: 18 },
     },
     [ProductKey.LLM_CLUSTERS]: {
         Hoggie: HedgehogScientist,
         accentColor: 'var(--color-product-llm-clusters-light)',
         tagline: 'Thousands of AI conversations, automatically grouped into patterns you can actually act on.',
+        hoggieOffset: { x: 52, y: 14 },
     },
     [ProductKey.LLM_EVALUATIONS]: {
         Hoggie: HedgehogJudge,
@@ -143,42 +146,50 @@ export const PRODUCT_PUSH_DISPLAY: Partial<Record<ProductKey, ProductPushDisplay
         Hoggie: HedgehogDeskWizard,
         accentColor: 'var(--color-product-llm-analytics-light)',
         tagline: 'Version, test, and ship prompt changes without redeploying your app. A little magic, fully tracked.',
+        hoggieOffset: { x: 55, y: 10 },
     },
     [ProductKey.LOGS]: {
         Hoggie: HedgehogGreek,
         accentColor: 'var(--color-product-logs-light)',
         tagline: 'Search every log line alongside your product data - no mystery goes unsolved.',
+        hoggieOffset: { x: 42, y: 22 },
     },
     [ProductKey.SURVEYS]: {
         Hoggie: HedgehogReporter,
         accentColor: 'var(--color-product-surveys-light)',
         tagline:
             'Ask users what they think inside your product, and read the answers next to the sessions behind them.',
+        hoggieOffset: { x: 72, y: 26 },
     },
     [ProductKey.REPLAY_VISION]: {
         Hoggie: HedgehogXRay,
         accentColor: 'var(--color-product-session-replay-light)',
         tagline: 'AI watches your recordings and turns what happens in them into data you can query.',
+        hoggieOffset: { x: 45, y: 12 },
     },
     [ProductKey.NOTEBOOKS]: {
         Hoggie: HedgehogReading,
         accentColor: 'var(--color-product-notebooks-light)',
         tagline: 'Collect insights, replays, and notes on one page, so an investigation still reads well next month.',
+        hoggieOffset: { x: 28, y: 20 },
     },
     [ProductKey.ENDPOINTS]: {
         Hoggie: HedgehogCodeBubble,
         accentColor: 'var(--color-product-endpoints-light)',
         tagline: 'Turn a saved query into an API your app can call, with caching and no infrastructure to run.',
+        hoggieOffset: { x: 70, y: 16 },
     },
     [ProductKey.TOOLBAR]: {
         Hoggie: HedgehogTransformer,
         accentColor: 'var(--color-accent)',
         tagline: 'Click any element on your own site to see how it performs, then turn it into an action.',
+        hoggieOffset: { x: 65, y: 20 },
     },
     [ProductKey.MCP_ANALYTICS]: {
         Hoggie: HedgehogRobot,
         accentColor: 'var(--color-product-mcp-analytics-light)',
         tagline: 'See which of your MCP tools agents reach for, how long each call takes, and where they fail.',
+        hoggieOffset: { x: 54 },
     },
     [ProductKey.MARKETING_ANALYTICS]: {
         Hoggie: HedgehogMegaphone,

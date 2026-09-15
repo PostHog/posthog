@@ -25,7 +25,6 @@ CANDIDATES = [ProductKey.ENDPOINTS, ProductKey.MARKETING_ANALYTICS, ProductKey.L
 class TestWeightsForRoles(SimpleTestCase):
     @parameterized.expand(
         [
-            # Nobody stated a role we map, so every candidate stays equally likely.
             ("no stated roles", Counter(), [BASE_WEIGHT, BASE_WEIGHT, BASE_WEIGHT]),
             ("no role we map", Counter({"student": 3}), [BASE_WEIGHT, BASE_WEIGHT, BASE_WEIGHT]),
             (
@@ -38,7 +37,6 @@ class TestWeightsForRoles(SimpleTestCase):
                 Counter({"data": 3, "marketing": 1}),
                 [BASE_WEIGHT + MAX_ROLE_BOOST * 0.75, BASE_WEIGHT + MAX_ROLE_BOOST * 0.25, BASE_WEIGHT],
             ),
-            # 'student' has no affinity entry, so it neither boosts nor dilutes the data person.
             (
                 "unmapped roles stay out of the denominator",
                 Counter({"data": 1, "student": 9}),

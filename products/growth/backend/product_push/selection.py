@@ -44,16 +44,11 @@ BLESSED_PRODUCT_ORDER: list[ProductKey] = [
     ProductKey.ERROR_TRACKING,
 ]
 
-# Unordered pool for orgs that exhausted the blessed order; picked at random,
-# weighted by the roles the org's members stated at signup (see role_affinity.py).
-# A feature-flag-gated product may sit here: the card checks the flag and renders
-# nothing without it, so the push only shows where the product is available, and
-# an org without the flag spends the campaign window on a hidden card.
-# Nothing unreleased in the catalog belongs here, and a product needs a
-# ProductIntent registered somewhere in the app, or its campaign can never close
-# as adopted and every push counts as skipped. That rules out Data catalog, Early
-# access features, Heatmaps, Skills and Web scripts, which are released but never
-# record an intent.
+# Unordered pool for orgs that exhausted the blessed order, weighted by the roles
+# the org's members stated at signup (see role_affinity.py). A feature-flag-gated
+# product may sit here, because the card checks the flag and renders nothing
+# without it. A product with no ProductIntent registered anywhere in the app may
+# not: its campaign can never close as adopted.
 FALLBACK_PRODUCT_ORDER: list[ProductKey] = [
     ProductKey.CONVERSATIONS,
     ProductKey.DATA_WAREHOUSE,

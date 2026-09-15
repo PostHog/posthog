@@ -17,12 +17,9 @@ from random import choices
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.schema_enums import ProductKey
 
-# Products each signup role is expected to want, keyed by the values in
-# `posthog.models.user.ROLE_CHOICES`. Roles with no clear product opinion (founder,
-# leadership, student, other) are left out on purpose: they neither boost a product
-# nor dilute the members who did state a usable role.
-# Every product in FALLBACK_PRODUCT_ORDER appears at least once, so no candidate is
-# permanently stuck at the base weight.
+# Keyed by the values in `posthog.models.user.ROLE_CHOICES`. Roles with no clear
+# product opinion (founder, leadership, student, other) are left out on purpose, so
+# that they neither boost a product nor dilute the members who did state one.
 ROLE_PRODUCT_AFFINITIES: dict[str, frozenset[ProductKey]] = {
     "engineering": frozenset(
         {
@@ -77,9 +74,9 @@ ROLE_PRODUCT_AFFINITIES: dict[str, frozenset[ProductKey]] = {
 # Weight of a product no stated role favors. Keeps every candidate reachable.
 BASE_WEIGHT = 1.0
 
-# Added on top of BASE_WEIGHT when every member with a stated role favors the product,
-# scaled down by the share that actually does. Four means a product the whole org's
-# roles point at is picked five times as often as one none of them do.
+# Added on top of BASE_WEIGHT, scaled by the share of members whose role favors the
+# product. Four means a product every stated role points at is picked five times as
+# often as one no role does.
 MAX_ROLE_BOOST = 4.0
 
 

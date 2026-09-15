@@ -200,8 +200,6 @@ class TestPushProductConfig(SimpleTestCase):
             assert catalog[path] != ProductItemCategory.UNRELEASED, f"{product_key} maps to unreleased {path!r}"
 
     def test_role_affinities_name_real_roles_and_pushable_products(self) -> None:
-        # A role key outside ROLE_CHOICES, or a product that left the fallback pool, would never
-        # match anything, so the weighting would quietly degrade back to a uniform pick.
         roles = dict(ROLE_CHOICES)
         pool = set(FALLBACK_PRODUCT_ORDER)
         for role, product_keys in ROLE_PRODUCT_AFFINITIES.items():
@@ -210,12 +208,10 @@ class TestPushProductConfig(SimpleTestCase):
                 assert product_key in pool, f"{role!r} favors {product_key}, which is not in FALLBACK_PRODUCT_ORDER"
 
     def test_a_product_sits_in_one_pool_only(self) -> None:
-        # The blessed walk runs first and excludes what it picked, so a product listed in both
-        # pools is unreachable in the fallback one. Self-driving and Inbox are the same surface.
+        # Self-driving and Inbox are one surface, and the blessed walk excludes what it picks.
         assert set(BLESSED_PRODUCT_ORDER).isdisjoint(FALLBACK_PRODUCT_ORDER)
 
     def test_every_fallback_product_is_favored_by_some_role(self) -> None:
-        # A product no role favors can only ever be picked at the base weight, so it loses the
-        # rotation to every boosted product in an org whose members stated their roles.
+        # A product no role favors is stuck at the base weight, losing every weighted rotation.
         favored = {product_key for product_keys in ROLE_PRODUCT_AFFINITIES.values() for product_key in product_keys}
         assert set(FALLBACK_PRODUCT_ORDER) == favored
