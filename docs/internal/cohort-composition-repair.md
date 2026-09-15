@@ -17,6 +17,8 @@ Kind hashes keep their existing format and meaning so running seeders can contin
 Before stamping readiness, the finalizer locks the cohort row and checks whether the pinned definition predates a composition repair of that kind.
 This prevents an older run from restoring readiness between an edit's commit and its deferred supersession callback.
 An edit confined to the other leaf kind can still leave a run valid.
+If the current or pinned definition cannot be fingerprinted, the finalizer refuses readiness and supersedes the participation.
+For a cohort-scoped run, it also marks the run superseded so malformed filters cannot leave it retrying indefinitely.
 
 ## Stored hashes and save cost
 

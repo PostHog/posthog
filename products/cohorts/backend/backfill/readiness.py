@@ -145,9 +145,19 @@ def _stamp_readiness(run: CohortBackfillRun, cohort_id: int, spec: _ReadinessSpe
     )
     composition_stale = False
     if cohort is not None:
-        current_shape = FilterShapeHashes.from_filters(cohort.filters)
-        pinned_shape = FilterShapeHashes.from_filters(participation.pinned_filters)
-        composition_stale = current_shape.composition_repair_kind(pinned_shape, cohort.filters) == run.backfill_kind
+        try:
+            current_shape = FilterShapeHashes.from_filters(cohort.filters)
+            pinned_shape = FilterShapeHashes.from_filters(participation.pinned_filters)
+            composition_stale = current_shape.composition_repair_kind(pinned_shape, cohort.filters) == run.backfill_kind
+        except Exception:
+            # An unreadable definition cannot prove readiness and must not trap the finalizer in retries.
+            composition_stale = True
+            logger.exception(
+                "cohort_backfill_readiness_definition_invalid",
+                run_id=str(run.id),
+                cohort_id=cohort_id,
+                readiness=spec.readiness,
+            )
 
     pinned = getattr(participation, spec.hash_field)
     # Reused by the rollback below, so both writes fence on the same pinned fingerprint.
