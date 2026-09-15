@@ -573,6 +573,7 @@ class LazyComputationQuery:
     breakdown_fields: list[str] = field(default_factory=list)
 
 
+# nosemgrep: prefer-frozen-dataclasses  # pre-existing dataclass (grandfathered); this change only adds a field
 @dataclass
 class LazyComputationResult:
     """Result of executing lazy computation jobs."""
