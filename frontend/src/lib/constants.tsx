@@ -292,7 +292,6 @@ export const FEATURE_FLAGS = {
     DASHBOARD_TEMPLATE_METRIC_CARD: 'dashboard-template-metric-card', // owner: #team-product-analytics multivariate=control,test
     DASHBOARD_WIDGETS: 'dashboard-widgets', // owner: @mattp #team-analytics-platform
     DATA_MODELING_INCREMENTAL_VIEWS: 'data-modeling-incremental-views', // owner: #team-data-modeling
-    DATA_MODELING_SUSPEND_FAILING_NODES: 'data-modeling-suspend-failing-nodes', // owner: #team-data-modeling
     DATA_QUALITY_CHECKS: 'data-quality-checks', // owner: #team-data-modeling
     DATA_WAREHOUSE_COLUMN_STATISTICS: 'data-warehouse-column-statistics', // owner: #team-warehouse-sources
     DATA_WAREHOUSE_CUSTOM_SOURCE_AI_BUILDER: 'dwh-custom-source-ai-builder', // owner: #team-warehouse-sources
@@ -312,6 +311,7 @@ export const FEATURE_FLAGS = {
     ERROR_TRACKING_ISSUE_CORRELATION: 'error-tracking-issue-correlation', // owner: @david #team-error-tracking
     ERROR_TRACKING_ISSUE_RELEASES: 'error-tracking-issue-releases', // owner: #team-error-tracking
     ERROR_TRACKING_ISSUE_SPLITTING: 'error-tracking-issue-splitting', // owner: @david #team-error-tracking
+    ERROR_TRACKING_NEW_WIZARD: 'error-tracking-new-wizard', // owner: @ablaszkiewicz #team-error-tracking
     ERROR_TRACKING_RATE_LIMITING: 'error-tracking-rate-limiting', // owner: @ablaszkiewicz #team-error-tracking
     ERROR_TRACKING_RATE_LIMITING_BYPASS: 'error-tracking-rate-limiting-bypass', // owner: @ablaszkiewicz #team-error-tracking
     ERROR_TRACKING_RATE_LIMITING_PER_ISSUE: 'error-tracking-rate-limiting-per-issue', // owner: @ablaszkiewicz #team-error-tracking
@@ -482,6 +482,7 @@ export const FEATURE_FLAGS = {
     REPLAY_VISION_CALIBRATION_ENTRY_POINT: 'replay-vision-calibration-entry-point', // owner: #team-replay multivariate=control,test, links from a rated observation into the scanner's Calibration tab
     REPLAY_VISION_CALIBRATION_FEEDBACK_PROMPT: 'replay-vision-calibration-feedback-prompt', // owner: #team-replay multivariate=control,test, asks what the scanner should have concluded on a thumbs down
     REPLAY_VISION_CALIBRATION_TEST_NUDGE: 'replay-vision-calibration-test-nudge', // owner: #team-replay multivariate=control,test, prompts the user to test a recommendation before applying it
+    REPLAY_VISION_HOME_REDESIGN_EXPERIMENT: 'replay-vision-home-redesign-experiment', // owner: #team-replay multivariate=control,test — gate on === 'test'; a truthy check turns on for control too
     REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT: 'replay-vision-model-tier-naming-experiment', // owner: #team-replay multivariate=control,test,lite-standard-pro
     REVAMPED_PY_NOTEBOOKS: 'revamped-py-notebooks', // owner: #team-data-tools
     REVENUE_FIELDS_IN_POWER_USERS_TABLE: 'revenue-fields-in-power-users-table', // owner: @arthurdedeus #team-customer-analytics

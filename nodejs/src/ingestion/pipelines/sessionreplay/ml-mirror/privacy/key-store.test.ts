@@ -1,4 +1,9 @@
-import { BatchGetItemCommand, DynamoDBClient, TransactWriteItemsCommand } from '@aws-sdk/client-dynamodb'
+import {
+    BatchGetItemCommand,
+    DynamoDBClient,
+    TransactWriteItemsCommand,
+    TransactionCanceledException,
+} from '@aws-sdk/client-dynamodb'
 import { GenerateDataKeyCommand, KMSClient } from '@aws-sdk/client-kms'
 import { S3Client } from '@aws-sdk/client-s3'
 import { Message } from 'node-rdkafka'
@@ -153,6 +158,66 @@ describe('ML session key batches', () => {
         expect(boundary.transactionConflicts).toBe(0)
     })
 
+    it.each([
+        ['survives', 7, true],
+        ['gives up after', 10, false],
+    ])('%s %i consecutive transaction conflicts on commit', async (_label, conflicts, succeeds) => {
+        const send = boundary.send.bind(boundary)
+        let remaining = conflicts
+        jest.spyOn(boundary, 'send').mockImplementation((command) => {
+            if (command instanceof TransactWriteItemsCommand && remaining > 0) {
+                remaining -= 1
+                return Promise.reject(
+                    new TransactionCanceledException({
+                        $metadata: {},
+                        message: 'Transaction cancelled',
+                        CancellationReasons: [{ Code: 'TransactionConflict' }],
+                    })
+                )
+            }
+            return send(command)
+        })
+        const batch = await store.prepare([session])
+        jest.useFakeTimers()
+        const settled = batch.commit().then(
+            () => 'committed',
+            () => 'failed'
+        )
+        await jest.runAllTimersAsync()
+        expect(await settled).toBe(succeeds ? 'committed' : 'failed')
+        expect(boundary.items.has(tableKeyString(sessionKeyId(session.teamId, session.sessionId)))).toBe(succeeds)
+    })
+
+    it('gives up when the commit budget is spent before the attempts are', async () => {
+        const send = boundary.send.bind(boundary)
+        let remaining = 7
+        let slowReads = false
+        jest.spyOn(boundary, 'send').mockImplementation(async (command) => {
+            if (command instanceof TransactWriteItemsCommand && remaining > 0) {
+                remaining -= 1
+                throw new TransactionCanceledException({
+                    $metadata: {},
+                    message: 'Transaction cancelled',
+                    CancellationReasons: [{ Code: 'TransactionConflict' }],
+                })
+            }
+            if (command instanceof BatchGetItemCommand && slowReads) {
+                await new Promise((resolve) => setTimeout(resolve, 20_000))
+            }
+            return send(command)
+        })
+        const batch = await store.prepare([session])
+        slowReads = true
+        jest.useFakeTimers()
+        const settled = batch.commit().then(
+            () => 'committed',
+            () => 'failed'
+        )
+        await jest.runAllTimersAsync()
+        expect(await settled).toBe('failed')
+        expect(remaining).toBeGreaterThan(0)
+    })
+
     it('indexes monthly keys atomically and blocks a month during a competing batch', async () => {
         const october = { ...session, sessionId: '0199a13b-c000-7000-8000-000000000007' }
         const first = await store.prepare([session, october])
@@ -230,7 +295,7 @@ describe('ML session key batches', () => {
     })
 
     it('publishes a bounded concurrent batch only after privacy writes commit', async () => {
-        const identity = { ...session, sessionId: '01a0a482-5500-7000-8000-000000000001' }
+        const identity = { ...session, sessionId: '01a0a4f0-3200-7000-8000-000000000001' }
         const controller = new MlPrivacyBatchController(store, encryption)
         await controller.prepare([identity])
         let release!: () => void
