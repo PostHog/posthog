@@ -71,6 +71,7 @@ class _WarehouseSubjectResolver(RecipientsResolver):
         referenced_names: list[str] | None = None,
         executed_references: Sequence[dict[str, str]] = (),
         references_unknown: bool = False,
+        access_cache: dict[int, UserAccessControl] | None = None,
     ) -> None:
         self._team = team
         self._subject_type = subject_type
@@ -81,7 +82,7 @@ class _WarehouseSubjectResolver(RecipientsResolver):
         # One access-control object per member, reused across both gates below (and the warehouse
         # database build the referenced-subject gate runs) so a single failing check doesn't rebuild
         # it -- and its membership, role, and access-control lookups -- once per pass.
-        self._access: dict[int, UserAccessControl] = {}
+        self._access: dict[int, UserAccessControl] = access_cache if access_cache is not None else {}
         self._gates: dict[DenialContextKey, ReferenceGate] = {}
         self._subject_metadata: SubjectMetadata | None = None
 
@@ -158,19 +159,24 @@ class _WarehouseSubjectResolver(RecipientsResolver):
 
 
 def notify_check_started_failing(
-    check: DataQualityCheck, failed_row_count: int | None, *, executed_references: Sequence[dict[str, str]] | None = ()
-) -> None:
-    """Best-effort: a notification failure must never take down the run that produced it."""
+    check: DataQualityCheck,
+    failed_row_count: int | None,
+    *,
+    executed_references: Sequence[dict[str, str]] | None = (),
+    idempotency_key: str | None = None,
+    access_cache: dict[int, UserAccessControl] | None = None,
+) -> int:
+    """How many members were told. Best-effort: a failure here must never fail the run behind it."""
     try:
         if not is_data_quality_checks_enabled_for_team_id(check.team_id) or check.subject_uuid is None:
-            return
+            return 0
         team = Team.objects.get(id=check.team_id)
         subject = resolve_subject(team.id, check.subject_type, check.subject_uuid)
         if not subject.exists:
-            return
+            return 0
         is_metric = check.subject_type == SubjectType.METRIC
         subject_name = subject.name if is_metric else check.subject_name
-        create_notification(
+        event = create_notification(
             NotificationData(
                 team_id=check.team_id,
                 notification_type=NotificationType.DATA_QUALITY_CHECK_FAILURE,
@@ -187,6 +193,7 @@ def notify_check_started_failing(
                 source_url=f"/project/{team.id}/data-catalog/metrics/{quote(subject_name, safe='')}?tab=tests"
                 if is_metric
                 else "",
+                idempotency_key=idempotency_key,
                 resolver=_WarehouseSubjectResolver(
                     team,
                     check.subject_type,
@@ -194,11 +201,14 @@ def notify_check_started_failing(
                     referenced_names=referenced_subject_names(team.id, check.check_type, check.config, subject=subject),
                     executed_references=executed_references or (),
                     references_unknown=executed_references is None,
+                    access_cache=access_cache,
                 ),
             )
         )
+        return len(event.resolved_user_ids) if event is not None else 0
     except Exception:
         LOGGER.exception("Could not send a data quality failure notification", check_id=str(check.id))
+        return 0
 
 
 def notify_materialization_blocked(
