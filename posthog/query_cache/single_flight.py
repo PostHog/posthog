@@ -2,11 +2,9 @@ import json
 import time
 import uuid
 import threading
-from dataclasses import asdict
+from dataclasses import asdict, fields
 from datetime import datetime
-from typing import Literal, Optional
-
-from django.conf import settings
+from typing import Any, Literal, Optional
 
 import structlog
 from prometheus_client import Counter, Histogram
@@ -28,21 +26,26 @@ QUERY_SINGLE_FLIGHT_COUNTER = Counter(
 QUERY_SINGLE_FLIGHT_WAIT_SECONDS = Histogram(
     "posthog_query_single_flight_wait_seconds",
     "Time a follower spent waiting for the leader of an identical blocking query",
-    buckets=[0.1, 0.5, 1, 2, 5, 10, 20, 30, 60, 120, 300, 600],
+    buckets=[0.1, 0.5, 1, 2, 5, 10, 20, 30, 60, 120, 300, 600, 1800, 3600],
 )
 
 # The leader extends the lock on every heartbeat, so the lock lives for as long as the leader
 # does, and a leader that dies without releasing is noticed within three missed heartbeats.
 FLIGHT_HEARTBEAT_INTERVAL = 5.0
 FLIGHT_LOCK_TTL = 3 * FLIGHT_HEARTBEAT_INTERVAL
-# A follower waits a few seconds past the ClickHouse execution time its budget allows the leader.
-FLIGHT_WAIT_SECONDS: dict[Budget, float] = {
-    BUDGET_INTERACTIVE: 65.0,
-    BUDGET_EXTENDED: settings.HOGQL_INCREASED_MAX_EXECUTION_TIME + 5.0,
+# The longest a leader holds its lock. Past it the heartbeat stops and the lock expires, so a leader
+# stuck in its query cannot hold a cache key for as long as its process lives. Followers wait while
+# the lock exists, so this also bounds their wait. It covers limiter queueing and runners that send
+# several queries, not only one ClickHouse execution.
+FLIGHT_MAX_LEADER_SECONDS: dict[Budget, float] = {
+    BUDGET_INTERACTIVE: 300.0,
+    BUDGET_EXTENDED: 3600.0,
 }
+# Followers poll quickly at first and then back off, so a follower of a long leader costs little.
 FLIGHT_POLL_INTERVAL = 0.25
-# Followers poll every FLIGHT_POLL_INTERVAL, so the published result only has to outlive a few polls.
-FLIGHT_RESULT_TTL = 5
+FLIGHT_MAX_POLL_INTERVAL = 1.0
+# Acquiring the lock drops the previous result, so the result can safely outlive a stalled follower.
+FLIGHT_RESULT_TTL = 60
 
 # Acquiring the lock also drops the result the previous leader published, so a result can only ever
 # belong to the flight that is currently in progress or just ended.
@@ -54,8 +57,8 @@ end
 return 0
 """
 
-# Every other script acts only while this leader still owns the lock, so a leader that lost the
-# lock cannot extend, release, or publish over the leader that replaced it.
+# Every other leader script acts only while this leader still owns the lock, so a leader that lost
+# the lock cannot extend, release, or publish over the leader that replaced it.
 _EXTEND_OWN_LOCK_SCRIPT = """
 if redis.call("get", KEYS[1]) == ARGV[1] then
     return redis.call("pexpire", KEYS[1], ARGV[2])
@@ -78,7 +81,15 @@ end
 return 0
 """
 
-FlightOutcome = Literal["done", "failed", "released", "timeout"]
+# Reads the lock and the result in one step, so a new leader cannot drop the result between two reads.
+_POLL_SCRIPT = """
+if redis.call("exists", KEYS[1]) == 1 then
+    return {1}
+end
+return {0, redis.call("get", KEYS[2]) or ""}
+"""
+
+FlightOutcome = Literal["done", "failed", "released", "timeout", "unavailable"]
 
 
 @frozen
@@ -100,6 +111,7 @@ class SharedFailure:
 
 @frozen
 class FlightWait:
+    # "unavailable" means the flight could not be read: storage failed, or the publication was unreadable.
     outcome: FlightOutcome
     # last_refresh of the entry the leader wrote, present only when the outcome is "done".
     last_refresh: Optional[datetime] = None
@@ -108,19 +120,23 @@ class FlightWait:
 
 
 class QuerySingleFlight:
-    """Collapses concurrent blocking executions of one cache key and budget onto one leader.
+    """Collapses concurrent blocking executions of one cache key onto one leader.
 
-    Followers wait for the leader, then serve the entry it published or fail the way it published.
-    A follower never runs the query. Storage errors fail open to independent execution, never to
-    a query failure.
+    Followers wait while the leader holds the lock, then serve the entry it published or fail the
+    way it published. A follower runs the query only when the flight itself is unavailable: storage
+    errors and unreadable publications fail open to independent execution, never to a query failure.
     """
 
-    def __init__(self, cache_key: str, budget: Budget) -> None:
-        # The hash tag keeps both keys in one Redis Cluster slot so one script can touch both.
-        # Runs of different budgets get different ClickHouse execution time, so they never pair.
-        self.lock_key = f"query_flight:{{{cache_key}}}:{budget}"
-        self.result_key = f"query_flight_result:{{{cache_key}}}:{budget}"
+    def __init__(self, cache_key: str, budget: Budget, variant: str = "") -> None:
+        # The hash tag keeps both keys in one Redis Cluster slot so one script can touch both. Runs
+        # pair only within one budget and variant, which carry what changes a run's limits or
+        # results without reaching the cache key.
+        partition = f"{budget}:{variant}" if variant else budget
+        self.lock_key = f"query_flight:{{{cache_key}}}:{partition}"
+        self.result_key = f"query_flight_result:{{{cache_key}}}:{partition}"
+        self._budget = budget
         self._token = uuid.uuid4().hex
+        self._held = False
         self._heartbeat: Optional[_Heartbeat] = None
 
     def acquire(self) -> bool:
@@ -135,7 +151,8 @@ class QuerySingleFlight:
             return True
         if not acquired:
             return False
-        self._heartbeat = _Heartbeat(self)
+        self._held = True
+        self._heartbeat = _Heartbeat(self, max_seconds=FLIGHT_MAX_LEADER_SECONDS[self._budget])
         return True
 
     def extend(self) -> Optional[bool]:
@@ -151,20 +168,22 @@ class QuerySingleFlight:
             self._storage_failed("extend")
             return None
 
-    def succeed(self, last_refresh: Optional[datetime]) -> None:
-        """Release the lock, telling followers which entry to serve. A result without a
-        last_refresh cannot be found again, so it is released without a publication."""
-        self._release(None if last_refresh is None else {"last_refresh": last_refresh.isoformat()})
+    def succeed(self, last_refresh: datetime) -> None:
+        """Release the lock, telling followers which entry to serve."""
+        self._release({"last_refresh": last_refresh.isoformat()})
 
     def fail(self, failure: Optional[SharedFailure]) -> None:
         """Release the lock, telling followers the leader failed, with the failure when it can be shared."""
         self._release({"failure": None if failure is None else asdict(failure)})
 
     def release(self) -> None:
-        """Release the lock without a publication, as if this leader had never run."""
+        """Release the lock without a publication. Does nothing once the lock is released."""
         self._release(None)
 
     def _release(self, published: Optional[dict]) -> None:
+        if not self._held:
+            return
+        self._held = False
         if self._heartbeat is not None:
             self._heartbeat.stop()
             self._heartbeat = None
@@ -180,42 +199,52 @@ class QuerySingleFlight:
         except Exception:
             self._storage_failed("release")
 
-    def wait(self, timeout_seconds: float) -> FlightWait:
-        """Poll until the leader releases the lock, the lock expires, or the timeout elapses."""
+    def wait(self, timeout_seconds: Optional[float] = None) -> FlightWait:
+        """Poll until the leader releases the lock, the lock expires, or the timeout elapses. The
+        default timeout outlasts the longest a leader can hold the lock."""
+        if timeout_seconds is None:
+            timeout_seconds = FLIGHT_MAX_LEADER_SECONDS[self._budget] + FLIGHT_LOCK_TTL
         start = time.monotonic()
         deadline = start + timeout_seconds
-        result = FlightWait(outcome="timeout")
+        interval = FLIGHT_POLL_INTERVAL
         while True:
-            if not self._in_flight():
-                result = self._published_result()
+            result = self._poll()
+            if result is not None:
                 break
             remaining = deadline - time.monotonic()
             if remaining <= 0:
+                result = FlightWait(outcome="timeout")
                 break
-            time.sleep(min(FLIGHT_POLL_INTERVAL, remaining))
+            time.sleep(min(interval, remaining))
+            interval = min(interval * 2, FLIGHT_MAX_POLL_INTERVAL)
         QUERY_SINGLE_FLIGHT_WAIT_SECONDS.observe(time.monotonic() - start)
         return result
 
-    def _in_flight(self) -> bool:
+    def _poll(self) -> Optional[FlightWait]:
+        """None while the leader holds the lock, otherwise what it published."""
         try:
-            return bool(storage.query_cache_raw_client().exists(self.lock_key))
+            client = storage.query_cache_raw_client()
+            reply = client.register_script(_POLL_SCRIPT)(keys=[self.lock_key, self.result_key])  # type: ignore[union-attr]
         except Exception:
             self._storage_failed("poll")
-            return False
+            return FlightWait(outcome="unavailable")
+        if reply[0]:
+            return None
+        return self._read_publication(reply[1])
 
-    def _published_result(self) -> FlightWait:
+    def _read_publication(self, value: Any) -> FlightWait:
+        if not value:
+            return FlightWait(outcome="released")
         try:
-            value = storage.query_cache_raw_client().get(self.result_key)
-            if value is None:
-                return FlightWait(outcome="released")
             published = json.loads(value)
             if "failure" in published:
-                failure = published["failure"]
-                return FlightWait(outcome="failed", failure=None if failure is None else SharedFailure(**failure))
+                return FlightWait(outcome="failed", failure=_shared_failure_from(published["failure"]))
             return FlightWait(outcome="done", last_refresh=datetime.fromisoformat(published["last_refresh"]))
         except Exception:
-            self._storage_failed("published_result")
-            return FlightWait(outcome="released")
+            # A publication this version cannot read, such as one a newer deploy wrote.
+            logger.warning("query_single_flight_unreadable_publication", key=self.result_key)
+            QUERY_SINGLE_FLIGHT_COUNTER.labels(action="unreadable_publication").inc()
+            return FlightWait(outcome="unavailable")
 
     def _storage_failed(self, operation: str) -> None:
         # A warning without a traceback: a Redis outage would otherwise log one per blocking query.
@@ -223,27 +252,38 @@ class QuerySingleFlight:
         QUERY_SINGLE_FLIGHT_COUNTER.labels(action="storage_error").inc()
 
 
-class _Heartbeat:
-    """Extends the leader's lock every FLIGHT_HEARTBEAT_INTERVAL until stopped or until the lock
-    is no longer the leader's. A daemon thread, so a dying process takes it down and the lock
-    expires on its own."""
+def _shared_failure_from(published: Optional[dict[str, Any]]) -> Optional[SharedFailure]:
+    if published is None:
+        return None
+    # Fields a newer deploy added are dropped, so the failure still rebuilds on this version.
+    known = {field.name for field in fields(SharedFailure)}
+    return SharedFailure(**{name: value for name, value in published.items() if name in known})
 
-    def __init__(self, flight: QuerySingleFlight) -> None:
+
+class _Heartbeat:
+    """Extends the leader's lock every FLIGHT_HEARTBEAT_INTERVAL until stopped, until the lock is no
+    longer the leader's, or until max_seconds have passed. A daemon thread, so a dying process takes
+    it down and the lock expires on its own."""
+
+    def __init__(self, flight: QuerySingleFlight, *, max_seconds: float) -> None:
         self._flight = flight
+        self._deadline = time.monotonic() + max_seconds
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name="query-single-flight-heartbeat", daemon=True)
         self._thread.start()
 
     def _run(self) -> None:
         while not self._stop.wait(FLIGHT_HEARTBEAT_INTERVAL):
+            if time.monotonic() >= self._deadline:
+                break
             # Keep beating through a storage error: the lock is still ours until it expires, and
             # stopping here would hand the flight to a follower while this leader still runs.
             if self._flight.extend() is False:
                 break
 
     def stop(self) -> None:
+        # No join: an extend still in flight checks ownership, so it cannot outlive the release.
         self._stop.set()
-        self._thread.join(timeout=FLIGHT_HEARTBEAT_INTERVAL)
 
 
 def _millis(seconds: float) -> int:

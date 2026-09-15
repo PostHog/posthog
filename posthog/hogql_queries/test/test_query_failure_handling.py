@@ -74,13 +74,11 @@ class TestSharedFailures(SimpleTestCase):
             ("clickhouse_server_error", lambda: _clickhouse_error("Cannot compare", 386)),
             ("clickhouse_error_without_a_dedicated_class", lambda: _clickhouse_error("Division by zero", 153)),
             ("timeout", lambda: _clickhouse_error("Timeout exceeded", 159)),
-            ("at_capacity", lambda: _clickhouse_error("Too many simultaneous queries", 202)),
             ("too_slow", lambda: _clickhouse_error("Estimated query execution time (300 seconds) is too long.", 160)),
             (
                 "per_query_memory_limit",
                 lambda: _clickhouse_error("Memory limit (for query) exceeded: would use 30.1 GiB", 241),
             ),
-            ("cluster_memory_limit", lambda: _clickhouse_error("Memory limit (total) exceeded", 241)),
             ("hogql_query_error", lambda: QueryError("Unknown field: nope", start=7, end=11)),
             ("hogql_syntax_error", lambda: HogQLSyntaxError("Unexpected token", start=0, end=3, fix="select")),
         ]
@@ -100,21 +98,25 @@ class TestSharedFailures(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("at_capacity", lambda: _clickhouse_error("Too many simultaneous queries", 202)),
+            ("cluster_memory_limit", lambda: _clickhouse_error("Memory limit (total) exceeded", 241)),
+            ("query_cancelled", lambda: _clickhouse_error("Query was cancelled", 394)),
+            ("concurrency_limit", lambda: ConcurrencyLimitExceeded("busy")),
             ("app_raised_timeout", lambda: ClickHouseQueryTimeOut()),
             ("wrapped_by_the_app", _wrapped_by_the_app),
             ("table_access", lambda: TableAccessDeniedError("events")),
             ("validation", lambda: ValidationError("bad")),
-            ("concurrency_limit", lambda: ConcurrencyLimitExceeded("busy")),
             ("plain", lambda: RuntimeError("boom")),
         ]
     )
-    def test_failures_without_a_faithful_rebuild_are_not_shared(self, _name, make_error):
+    def test_failures_that_may_pass_on_retry_or_do_not_rebuild_faithfully_are_not_shared(self, _name, make_error):
         assert shareable_failure(make_error()) is None
 
     @parameterized.expand(
         [
             ("unknown_class", SharedFailure(message="x", class_name="RenamedInANewerDeploy")),
             ("not_an_exposed_hogql_error", SharedFailure(message="x", class_name="ResolutionError")),
+            ("table_access_depends_on_the_user", SharedFailure(message="x", class_name="TableAccessDeniedError")),
         ]
     )
     def test_published_class_this_version_cannot_rebuild_is_not_rebuilt(self, _name, failure):

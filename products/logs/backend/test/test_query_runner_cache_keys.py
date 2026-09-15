@@ -6,7 +6,17 @@ from posthog.schema import DateRange, FilterLogicalOperator, LogsQuery, Property
 
 from products.logs.backend.count_ranges_query_runner import CountRangesQueryRunner
 from products.logs.backend.log_facet_values_query_runner import LogFacetValuesQueryRunner
+from products.logs.backend.patterns_query_runner import PatternsQueryRunner
 from products.logs.backend.services_query_runner import ServicesQueryRunner
+
+
+def _logs_query() -> LogsQuery:
+    return LogsQuery(
+        dateRange=DateRange(date_from="-1h"),
+        serviceNames=[],
+        severityLevels=[],
+        filterGroup=PropertyGroupFilter(type=FilterLogicalOperator.AND_, values=[]),
+    )
 
 
 class TestRunnerArgumentsReachTheCacheKey(BaseTest):
@@ -35,12 +45,12 @@ class TestRunnerArgumentsReachTheCacheKey(BaseTest):
         ]
     )
     def test_different_runner_arguments_give_different_cache_keys(self, _name, runner_class, first, second):
-        query = LogsQuery(
-            dateRange=DateRange(date_from="-1h"),
-            serviceNames=[],
-            severityLevels=[],
-            filterGroup=PropertyGroupFilter(type=FilterLogicalOperator.AND_, values=[]),
-        )
-        first_key = runner_class(query=query, team=self.team, **first).get_cache_key()
-        second_key = runner_class(query=query, team=self.team, **second).get_cache_key()
+        first_key = runner_class(query=_logs_query(), team=self.team, **first).get_cache_key()
+        second_key = runner_class(query=_logs_query(), team=self.team, **second).get_cache_key()
         assert first_key != second_key
+
+    def test_live_mined_patterns_do_not_share_a_cache_key_with_stored_patterns(self):
+        stored = PatternsQueryRunner(query=_logs_query(), team=self.team)
+        live = PatternsQueryRunner(query=_logs_query(), team=self.team)
+        live.use_stored_patterns = False
+        assert live.get_cache_key() != stored.get_cache_key()
