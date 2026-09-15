@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { MAX_STALE_EVENT_DAYS, MIN_STALE_EVENT_DAYS, STALE_EVENT_DAYS, TeamMembershipLevel } from 'lib/constants'
@@ -17,6 +17,10 @@ export function StaleEventThreshold(): JSX.Element {
 
     const savedDays = currentTeam?.data_management_config?.stale_event_days ?? STALE_EVENT_DAYS
     const [days, setDays] = useState<number>(savedDays)
+    // The team can arrive after the first render, so the initializer alone leaves the input on the default.
+    useEffect(() => {
+        setDays(savedDays)
+    }, [savedDays])
 
     const outOfRange = days < MIN_STALE_EVENT_DAYS || days > MAX_STALE_EVENT_DAYS
 
