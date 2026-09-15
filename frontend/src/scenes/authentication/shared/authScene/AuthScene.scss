@@ -17,8 +17,12 @@
     background-size: auto;
 
     // The cream OS-window card the new website (and the self-driving onboarding) uses.
-    .AuthScene__card {
+    .AuthScene__card,
+    .AuthScene__cardSurface {
         background: #f6f5f0;
+    }
+
+    .AuthScene__card {
         border-color: #e3e0d4;
         border-radius: 1rem;
         box-shadow: 0 16px 40px rgb(30 50 10 / 25%);
@@ -28,6 +32,12 @@
     .AuthScene__notes div {
         color: rgb(45 74 22 / 65%);
     }
+}
+
+// A band that sits flush inside a card, such as a sticky section header. It repeats the card's
+// own background so it does not read as a second sheet stacked on the first.
+.AuthScene__cardSurface {
+    background: #fff;
 }
 
 // Paper sheet resting on the desk — the login card and the dev login panel share it.
