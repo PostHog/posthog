@@ -26,6 +26,7 @@ from .skill_services import (
     RESERVED_SKILL_NAMES,
     SKILL_NAME_PATTERN,
     LLMSkillOwnerNotFoundError,
+    bundled_skill_name_error,
     check_allowed_tool_name,
     compute_spec_problems,
     normalize_skill_file_path,
@@ -81,6 +82,18 @@ def validate_skill_name_value(value: str) -> str:
             "Consecutive hyphens are not allowed.",
             code="invalid_name",
         )
+    return value
+
+
+def validate_new_skill_name_value(value: str) -> str:
+    """Validate a name a team is claiming for a skill: create, rename, duplicate, install, import.
+
+    Adds the bundled-name rule to `validate_skill_name_value`, which stays the looser contract for
+    a name that points at a skill the project already holds (see `bundled_skill_name_error`).
+    """
+    value = validate_skill_name_value(value)
+    if error := bundled_skill_name_error(value):
+        raise serializers.ValidationError(error, code="bundled_skill_name")
     return value
 
 
@@ -606,7 +619,8 @@ class LLMSkillSerializer(serializers.ModelSerializer):
         ]
         extra_kwargs = {
             "name": {
-                "help_text": "Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters."
+                "help_text": "Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters. "
+                "Cannot be the name of a skill PostHog ships."
             },
             # No max_length here: this base serves read responses, and legacy rows can hold up to the
             # 4096 column limit, above the 1024 spec cap. Deriving max_length from the model keeps the
@@ -721,7 +735,7 @@ class LLMSkillSerializer(serializers.ModelSerializer):
         return data
 
     def validate_name(self, value: str) -> str:
-        return validate_skill_name_value(value)
+        return validate_new_skill_name_value(value)
 
     def validate_body(self, value: str) -> str:
         return validate_skill_body_size(value)
@@ -854,22 +868,22 @@ class LLMSkillImportSerializer(serializers.Serializer):
 class LLMSkillDuplicateSerializer(serializers.Serializer):
     new_name = serializers.CharField(
         max_length=64,
-        help_text="Name for the duplicated skill. Must be unique.",
+        help_text="Name for the duplicated skill. Must be unique, and cannot be the name of a skill PostHog ships.",
     )
 
     def validate_new_name(self, value: str) -> str:
-        return validate_skill_name_value(value)
+        return validate_new_skill_name_value(value)
 
 
 class LLMSkillRenameSerializer(serializers.Serializer):
     new_name = serializers.CharField(
         max_length=MAX_SKILL_NAME_LENGTH,
-        help_text="New name for the skill. Must be unique in the project, and must not start with "
-        "'signals-scout-' or 'review-hog-'.",
+        help_text="New name for the skill. Must be unique in the project, cannot be the name of a skill "
+        "PostHog ships, and must not start with 'signals-scout-' or 'review-hog-'.",
     )
 
     def validate_new_name(self, value: str) -> str:
-        return validate_skill_name_value(value)
+        return validate_new_skill_name_value(value)
 
 
 class LLMSkillResolveResponseSerializer(serializers.Serializer):

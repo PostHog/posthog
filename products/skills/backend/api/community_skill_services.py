@@ -10,7 +10,7 @@ from posthog.models import Team, User
 from ..marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 from ..models.community_skills import CommunitySkill, CommunitySkillVote
 from ..models.skills import LLMSkill
-from .skill_serializers import validate_allowed_tool, validate_skill_file_path, validate_skill_name_value
+from .skill_serializers import validate_allowed_tool, validate_new_skill_name_value, validate_skill_file_path
 from .skill_services import MAX_SKILL_FILE_BYTES, create_skill
 from .skill_template_services import parse_template_variables, render_template_skill
 
@@ -103,7 +103,7 @@ def install_community_skill(
         raise CommunitySkillNotFoundError()
 
     try:
-        target_name = validate_skill_name_value(new_name or community_skill.slug)
+        target_name = validate_new_skill_name_value(new_name or community_skill.slug)
     except DRFValidationError as err:
         raise CommunitySkillInvalidPayloadError(_first_error_detail(err)) from err
 
