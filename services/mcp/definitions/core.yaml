@@ -295,6 +295,9 @@ tools:
     oauth-applications-list:
         operation: oauth_applications_list
         enabled: false
+    organizations-projects-cancel-deletion-create:
+        operation: organizations_projects_cancel_deletion_create
+        enabled: false
     organizations-projects-default-evaluation-contexts-create:
         operation: organizations_projects_default_evaluation_contexts_create
         enabled: false
