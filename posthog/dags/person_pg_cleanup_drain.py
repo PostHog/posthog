@@ -22,6 +22,7 @@ id: personhog reports it as blocked, and its row is stamped blocked_at and skipp
 interval, because ingestion can still reach that person and no delete may resolve it.
 """
 
+import math
 import time
 import statistics
 from collections import defaultdict
@@ -122,9 +123,9 @@ class DrainConfig(dagster.Config):
         "a timed-out call, so a longer deadline only lets one slow step run several times.",
     )
     max_runtime_seconds: int = pydantic.Field(
-        default=12 * 3600,
-        description="Stop taking new pages and requests after this many seconds, then finish cleanly. Rows left "
-        "over wait for the next run; rows already deleted stay deleted.",
+        default=24 * 3600,
+        description="Stop taking new pages and requests after this many seconds, then finish cleanly; 0 means no "
+        "cap. Rows left over wait for the next run; rows already deleted stay deleted.",
     )
     retry_backoff_seconds: float = pydantic.Field(
         default=2.0,
@@ -132,12 +133,13 @@ class DrainConfig(dagster.Config):
         "at 60 s.",
     )
     rpc_retry_window_seconds: float = pydantic.Field(
-        default=900.0,
+        default=3600.0,
         description="Keep retrying one failing personhog request for this long before the run fails. Long enough "
-        "to ride out a replica restart or a failover; a run that fails here found personhog down.",
+        "to ride out a replica rollout, a database failover or a cold buffer cache; a run that fails here found "
+        "personhog down.",
     )
     pg_retry_window_seconds: float = pydantic.Field(
-        default=600.0,
+        default=1800.0,
         description="Keep retrying one failing queue statement for this long, reconnecting after a lost connection, "
         "before the run fails.",
     )
@@ -158,10 +160,12 @@ class DrainConfig(dagster.Config):
             raise ValueError(f"rpc_batch_size must be between 1 and {RPC_MAX_UUIDS}")
         if not STEP_FLOOR_ROWS <= self.max_rows_per_request <= REPLICA_MAX_ROWS:
             raise ValueError(f"max_rows_per_request must be between {STEP_FLOOR_ROWS} and {REPLICA_MAX_ROWS}")
-        if self.rpc_timeout_seconds <= 0 or self.max_runtime_seconds <= 0:
-            raise ValueError("rpc_timeout_seconds and max_runtime_seconds must be positive")
-        if min(self.max_persons, self.pause_ms, self.latency_multiplier, self.blocked_retry_hours) < 0:
-            raise ValueError("max_persons, pause_ms, latency_multiplier and blocked_retry_hours must not be negative")
+        if self.rpc_timeout_seconds <= 0:
+            raise ValueError("rpc_timeout_seconds must be positive")
+        if min(self.max_persons, self.max_runtime_seconds, self.pause_ms, self.latency_multiplier) < 0:
+            raise ValueError("max_persons, max_runtime_seconds, pause_ms and latency_multiplier must not be negative")
+        if self.blocked_retry_hours < 0:
+            raise ValueError("blocked_retry_hours must not be negative")
         if (
             min(
                 self.retry_backoff_seconds,
@@ -451,7 +455,7 @@ class _Drain:
         self.step_rows = min(STEP_START_ROWS, config.max_rows_per_request)
         self.totals.step_rows_min = self.totals.step_rows_max = self.step_rows
         self.successes_at_step = 0
-        self.deadline = _now_monotonic() + config.max_runtime_seconds
+        self.deadline = math.inf if config.max_runtime_seconds == 0 else _now_monotonic() + config.max_runtime_seconds
         self.blocked_before = datetime.now(UTC) - timedelta(hours=config.blocked_retry_hours)
 
     def out_of_time(self) -> bool:
