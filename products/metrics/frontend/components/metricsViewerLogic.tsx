@@ -62,8 +62,27 @@ import type { MetricsChartSeries } from './metricsSeries'
 // A derived type ((typeof METRIC_AGGREGATIONS)[number]) would keep these in sync, but
 // kea-typegen inlines derived unions into every consumer's generated block — keep the
 // named alias so those blocks stay stable.
-export type MetricAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max' | 'p95' | 'rate' | 'increase'
-export const METRIC_AGGREGATIONS: MetricAggregation[] = ['sum', 'avg', 'count', 'min', 'max', 'p95', 'rate', 'increase']
+export type MetricAggregation =
+    | 'sum'
+    | 'avg'
+    | 'count'
+    | 'min'
+    | 'max'
+    | 'p95'
+    | 'rate'
+    | 'increase'
+    | 'histogram_quantile'
+export const METRIC_AGGREGATIONS: MetricAggregation[] = [
+    'sum',
+    'avg',
+    'count',
+    'min',
+    'max',
+    'p95',
+    'rate',
+    'increase',
+    'histogram_quantile',
+]
 
 /** Narrows an untrusted value (a URL param, a saved link) to an aggregation the backend accepts. */
 export const isMetricAggregation = (value: unknown): value is MetricAggregation =>
@@ -157,13 +176,16 @@ export const DEFAULT_AGGREGATION: MetricAggregation = 'sum'
 // Cumulative counters (OTel type 'sum') summed raw give meaningless ever-growing
 // totals — 'increase' is the honest default and is temporality-aware server-side
 // (delta samples are summed as-is), so it's correct for delta producers too.
+// Histograms keep their distribution in histogram_bounds/histogram_counts; the
+// scalar value column holds the cumulative observation sum, so only
+// 'histogram_quantile' charts the actual distribution (e.g. request latency).
 export const RECOMMENDED_AGGREGATION_BY_TYPE: Record<string, MetricAggregation> = {
     gauge: 'avg',
     sum: 'increase',
     counter: 'increase',
-    histogram: 'p95',
+    histogram: 'histogram_quantile',
     summary: 'p95',
-    exponential_histogram: 'p95',
+    exponential_histogram: 'histogram_quantile',
 }
 export const DEFAULT_DATE_FROM = '-1h'
 // Kept off the persisted node: a saved query with no `display` renders as a line chart anyway.
@@ -261,11 +283,19 @@ export const toKnownMetricType = (metricType: string | undefined): OtelMetricTyp
     return metricType && known.includes(metricType) ? (metricType as OtelMetricTypeEnumApi) : null
 }
 
-/** The REST viewer's 'p95' shorthand maps to the schema node's quantile aggregation. */
+/** The REST viewer's 'p95' shorthand maps to the schema node's quantile aggregation;
+ * 'histogram_quantile' keeps its name and carries the viewer's fixed 0.95 quantile. */
 export const nodeAggregationFields = (
     aggregation: MetricAggregation
-): Pick<MetricsQueryClause, 'aggregation' | 'quantile'> =>
-    aggregation === 'p95' ? { aggregation: 'quantile', quantile: 0.95 } : { aggregation }
+): Pick<MetricsQueryClause, 'aggregation' | 'quantile'> => {
+    if (aggregation === 'p95') {
+        return { aggregation: 'quantile', quantile: 0.95 }
+    }
+    if (aggregation === 'histogram_quantile') {
+        return { aggregation: 'histogram_quantile', quantile: 0.95 }
+    }
+    return { aggregation }
+}
 
 /** Inverse of `nodeAggregationFields`, for reading a saved node back in viewer vocabulary. */
 export const viewerAggregationFromNode = (aggregation: MetricsQueryClause['aggregation'] | undefined): string | null =>
@@ -277,6 +307,8 @@ const clauseToApiClause = (clause: MetricsViewerClause): _MetricClauseApi => {
         name: clause.name,
         metricName: clause.metricName.trim(),
         aggregation: clause.aggregation,
+        // The backend requires a quantile for histogram_quantile; the viewer fixes it at 0.95.
+        ...(clause.aggregation === 'histogram_quantile' ? { quantile: 0.95 } : {}),
         // Pins the OTel type so a name that exists as several types (e.g. a counter
         // and a gauge) charts only the picked one instead of blending them.
         ...(clause.selectedMetricType ? { metricType: clause.selectedMetricType } : {}),

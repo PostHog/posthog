@@ -416,6 +416,10 @@ class MetricQueryRunner:
         if aggregation == "histogram_quantile":
             if quantile is None or not 0.0 < quantile < 1.0:
                 raise ValueError("histogram_quantile requires a quantile in (0, 1)")
+            # A summary stores quantile->value pairs in histogram_bounds/histogram_counts,
+            # not bucket counts. Treating them as a distribution returns garbage.
+            if metric_type == MetricType.SUMMARY.value:
+                raise ValueError("histogram_quantile is not supported for summary metrics; use p95")
 
         self.team = team
         self.metric_name = metric_name
