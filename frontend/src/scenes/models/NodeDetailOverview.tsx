@@ -65,7 +65,7 @@ export function NodeDetailOverview({ id, metadata }: { id: string; metadata?: Re
     }
     // Only ClickHouse serves queries, so a marker on a shadow engine means the comparison
     // run stopped, not that this model stopped refreshing.
-    const suspension = savedQuery?.suspended?.[SERVING_ENGINE]
+    const suspension = (savedQuery?.suspended ?? node.suspended)?.[SERVING_ENGINE]
     const suspended = !!featureFlags[FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES] && !!suspension
     const cadence = savedQuery?.sync_frequency
     const schedule = suspended
