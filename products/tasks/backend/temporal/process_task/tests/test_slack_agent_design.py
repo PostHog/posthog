@@ -1,21 +1,25 @@
 from typing import ClassVar
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
 
+from posthog.helpers.slack_object_tags import split_incomplete_tag_suffix
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
-from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
+from products.slack_app.backend.slack_thread import SlackThreadHandler
 from products.tasks.backend.temporal.process_task.activities.slack_agent_design import (
+    AppendSlackAgentDesignStepsInput,
     StopSlackAgentDesignStreamInput,
+    append_slack_agent_design_steps,
     stop_slack_agent_design_stream,
 )
-from products.tasks.backend.temporal.slack_relay.object_tags import split_incomplete_tag_suffix
+
+PROJECT_URL = "https://us.posthog.com/project/7"
 
 
 class TestBufferedSlackAgentDesignStream(SimpleTestCase):
@@ -27,14 +31,16 @@ class TestBufferedSlackAgentDesignStream(SimpleTestCase):
             ("open_fence", "```", False),
         ]
     )
+    @patch.object(SlackThreadHandler, "project_url", new_callable=PropertyMock, return_value=PROJECT_URL)
     @patch.object(SlackThreadHandler, "_get_client")
     def test_buffered_code_elements_reach_slack_intact(
-        self, _name: str, fence: str, closed: bool, mock_get_client: MagicMock
+        self, _name: str, fence: str, closed: bool, mock_get_client: MagicMock, _project_url: PropertyMock
     ) -> None:
-        # A tag cut by a flush boundary is held back and sent whole in the next one, so a fenced
-        # example arrives as the agent typed it: nothing dropped, nothing sent twice.
+        # Goes through the activities, so the rewriter runs on every flush. A tag cut by a flush
+        # boundary is held back and sent whole in the next one, and a tag inside a fence stays
+        # literal, so the example arrives as the agent typed it.
         client = mock_get_client.return_value
-        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
+        context = {"integration_id": 1, "channel": "C001", "thread_ts": "1234.5678"}
         updates = [f"Before\n\n{fence}xml\n", '<insight id="1">', "Example</insight>\n"]
         if closed:
             updates.append(f"{fence}\n\nAfter\n")
@@ -43,13 +49,19 @@ class TestBufferedSlackAgentDesignStream(SimpleTestCase):
             split = split_incomplete_tag_suffix(pending + update)
             pending = split.held
             if split.sendable:
-                SlackThreadHandler(context).append_status_chunks(
-                    ts="1234.9999",
-                    markdown_text=split.sendable,
+                append_slack_agent_design_steps(
+                    AppendSlackAgentDesignStepsInput(
+                        slack_thread_context=context,
+                        ts="1234.9999",
+                        markdown_text=split.sendable,
+                    )
                 )
-        SlackThreadHandler(context).stop_status_stream(
-            ts="1234.9999",
-            final_markdown=pending,
+        stop_slack_agent_design_stream(
+            StopSlackAgentDesignStreamInput(
+                slack_thread_context=context,
+                ts="1234.9999",
+                final_markdown=pending,
+            )
         )
         streamed = "".join(
             chunk.get("text", "") for call in client.chat_appendStream.call_args_list for chunk in call.kwargs["chunks"]

@@ -5,6 +5,7 @@ from temporalio import activity
 
 from posthog.dataclasses import frozen
 from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, opens_with_line_anchored_markdown
+from posthog.helpers.slack_object_tags import rewrite_object_tags_for_slack
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 
@@ -13,8 +14,6 @@ from products.tasks.backend.logic.services.living_artifacts import (
     has_pending_slack_file_artifacts,
     has_pending_slack_image_artifacts,
 )
-
-from .object_tags import rewrite_object_tags_for_slack
 
 logger = get_logger(__name__)
 

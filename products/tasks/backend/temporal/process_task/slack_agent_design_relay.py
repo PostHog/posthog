@@ -25,7 +25,7 @@ from temporalio.common import RetryPolicy
 from posthog.temporal.common.base import PostHogWorkflow
 
 with workflow.unsafe.imports_passed_through():
-    from products.tasks.backend.temporal.slack_relay.object_tags import split_incomplete_tag_suffix
+    from posthog.helpers.slack_object_tags import split_incomplete_tag_suffix
 
     from .activities.slack_agent_design import (
         AppendSlackAgentDesignStepsInput,

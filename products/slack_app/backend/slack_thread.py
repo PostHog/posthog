@@ -20,6 +20,7 @@ from products.slack_app.backend.services.slack_messages import (
     normalize_labeled_mentions_to_bare,
     personal_integrations_url,
     post_slack_thread_reply,
+    project_web_url,
     reply_footer_block,
     slack_message_exists,
     turn_feedback_block,
@@ -180,13 +181,13 @@ class SlackThreadHandler:
         return self._integration
 
     @property
-    def team_id(self) -> int:
-        """Project whose objects this thread's replies cite, for building links into the app.
+    def project_url(self) -> str:
+        """Base for links to the objects this thread's replies cite.
 
         Reuses the memoized integration, so asking for it costs nothing beyond the lookup
         posting already does.
         """
-        return self._get_integration().team_id
+        return project_web_url(self._get_integration().team_id)
 
     def _get_client(self) -> WebClient:
         if self._client is None:

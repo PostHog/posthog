@@ -74,6 +74,7 @@ _OBJECT_KINDS: dict[str, _ObjectKind] = {
     "experiment": _ObjectKind(label="Experiment", web_path=_plain_path("/experiments")),
     "survey": _ObjectKind(label="Survey", web_path=_plain_path("/surveys")),
     "ticket": _ObjectKind(label="Support ticket", web_path=_plain_path("/support/tickets")),
+    "report": _ObjectKind(label="Inbox report", web_path=_plain_path("/inbox")),
     "trace": _ObjectKind(label="LLM trace", web_path=_plain_path("/ai-observability/traces")),
     "eval": _ObjectKind(label="Evaluation", web_path=_plain_path("/ai-evals/evaluations")),
     "event": _ObjectKind(label="Event", web_path=_event_path),
@@ -226,13 +227,23 @@ def _scan_tags(text: str, skip_spans: list[_Span]) -> list[_Tag]:
     return tags
 
 
+def _escape_angles(text: str) -> str:
+    """Entity-encode angle brackets so agent-written text cannot post a Slack broadcast.
+
+    Slack reads ``<!channel>`` and ``<!here>`` as live mentions. An agent composes this text,
+    and an agent summarizes data it was asked to analyze, so the brackets never reach Slack
+    as typed.
+    """
+    return "".join(_LABEL_ANGLE_ENTITIES.get(char, char) for char in text)
+
+
 def _safe_label(label: str) -> str:
     # The label ends up inside a Slack ``<url|label>`` link, where ``|`` and ``>`` end the link
     # early, and inside a markdown ``[label](url)`` on the way there, where brackets do. Angle
     # brackets are common in titles (``Error rate > 1%``), so they become the entities Slack
     # renders back as the characters.
     collapsed = " ".join(_RE_LABEL_UNSAFE.sub(" ", label).split())
-    return "".join(_LABEL_ANGLE_ENTITIES.get(char, char) for char in collapsed)
+    return _escape_angles(collapsed)
 
 
 def _link(label: str, url: str | None) -> str:
@@ -264,7 +275,7 @@ def _render_hogql(tag: _Tag, project_url: str) -> str | None:
     title = _safe_label(tag.attrs.get("title") or "") or _HOGQL_KIND.label
     # No language hint on the fence: Slack shows one as literal text inside the block.
     lines = [f"**{_link(title, url)}**", "```", sql, "```"]
-    caption = " ".join((tag.attrs.get("caption") or "").split())
+    caption = _escape_angles(" ".join((tag.attrs.get("caption") or "").split()))
     if caption:
         lines.append(f"_{caption}_")
     return "\n".join(lines)

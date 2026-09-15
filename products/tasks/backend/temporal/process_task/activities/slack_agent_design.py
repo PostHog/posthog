@@ -7,13 +7,17 @@ task failure.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from temporalio import activity
 
 from posthog.dataclasses import frozen
+from posthog.helpers.slack_object_tags import rewrite_object_tags_for_slack
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
+
+if TYPE_CHECKING:
+    from products.slack_app.backend.slack_thread import SlackThreadHandler
 
 logger = get_logger(__name__)
 
@@ -63,22 +67,17 @@ class StopSlackAgentDesignStreamInput:
     trace_id: Optional[str] = None
 
 
-def _rewrite_object_tags(text: Optional[str], handler: Any) -> Optional[str]:
+def _rewrite_object_tags(text: Optional[str], handler: "SlackThreadHandler") -> Optional[str]:
     """Turn the agent's object tags into the markdown links Slack can render.
 
     Slack renders none of the tags itself, so they have to become markdown before the text is
     posted. Rewriting rather than dropping them keeps the label the agent wrote, so a bullet
-    whose only content is a citation still carries text. The project the links hang off comes
-    from the thread's own integration, so it is looked up only for text that has something to
-    rewrite.
+    whose only content is a citation still carries text. The handler resolves the project the
+    links hang off, so an empty chunk costs no lookup.
     """
     if not text:
         return text
-
-    from products.slack_app.backend.services.slack_messages import project_web_url
-    from products.tasks.backend.temporal.slack_relay.object_tags import rewrite_object_tags_for_slack
-
-    return rewrite_object_tags_for_slack(text, project_url=project_web_url(handler.team_id))
+    return rewrite_object_tags_for_slack(text, project_url=handler.project_url)
 
 
 @activity.defn
