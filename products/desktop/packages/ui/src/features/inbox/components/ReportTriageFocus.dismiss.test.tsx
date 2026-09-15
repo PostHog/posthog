@@ -124,7 +124,7 @@ describe("ReportTriageFocus dismiss", () => {
     );
 
     await user.keyboard("a");
-    await screen.findByPlaceholderText("Optional: add detail");
+    await screen.findByLabelText("Details (optional)");
     await user.click(
       screen.getByRole("radio", { name: /Agent's analysis is wrong/ }),
     );
@@ -132,7 +132,7 @@ describe("ReportTriageFocus dismiss", () => {
 
     await waitFor(() => expect(mocks.updateState).toHaveBeenCalled());
     expect(
-      screen.queryByPlaceholderText("Optional: add detail"),
+      screen.queryByLabelText("Details (optional)"),
     ).not.toBeInTheDocument();
 
     await act(async () => {
