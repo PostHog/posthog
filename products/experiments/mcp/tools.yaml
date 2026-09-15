@@ -30,12 +30,11 @@ tools:
             idempotent: true
         title: Get experiment change history
         description: >
-            Get the audit trail for a specific experiment by ID. Returns a paginated list of changes to the experiment
-            and its holdouts and shared metrics: who made each change, what was changed (field-level before/after
-            values), and when, newest first. Lifecycle actions (launch, end, ship variant, etc.) appear as updates to
-            the underlying fields (start_date, end_date, conclusion, ...). Use limit and page query params for
-            pagination. Note: changes to the experiment's linked feature flag (rollout, targeting) are logged on the
-            flag itself — use feature-flags-activity-retrieve with the flag's ID for those.
+            Get the audit trail for a specific experiment by ID. Returns a paginated list of changes to the experiment,
+            its holdouts and shared metrics, and its linked feature flag (rollout, targeting): who made each change,
+            what was changed (field-level before/after values), and when, newest first. Lifecycle actions (launch, end,
+            ship variant, etc.) appear as updates to the underlying fields (start_date, end_date, conclusion, ...). Use
+            limit and page query params for pagination.
         param_overrides:
             id:
                 cast: string-int
