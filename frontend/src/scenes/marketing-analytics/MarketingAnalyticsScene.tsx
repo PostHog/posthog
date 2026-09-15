@@ -24,6 +24,7 @@ import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollec
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
+import { NewMarketingAnalyticsDashboard } from 'products/marketing_analytics/frontend/dashboard/NewMarketingAnalyticsDashboard'
 import { marketingAnalyticsEmptyState } from 'products/marketing_analytics/frontend/emptyState/marketingAnalyticsEmptyState'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
@@ -42,7 +43,6 @@ import {
     marketingAnalyticsTilesLogic,
 } from '../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 import { setupPlanLogic } from '../web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
-import { NewMarketingAnalyticsDashboard } from './NewMarketingAnalyticsDashboard'
 import { marketingOnboardingLogic } from './Onboarding/marketingOnboardingLogic'
 import { Onboarding } from './Onboarding/Onboarding'
 import { SetupTab } from './Setup/SetupTab'

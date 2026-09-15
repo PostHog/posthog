@@ -164,6 +164,12 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         self.update_hogql_modifiers()
         self.series = self.setup_series()
 
+    def single_flight_variant(self) -> str:
+        # A caller can pass its own execution time, which does not reach the cache key.
+        if self.hogql_settings is None:
+            return super().single_flight_variant()
+        return f"{super().single_flight_variant()}:max_execution_time={self.hogql_settings.max_execution_time}"
+
     def validators(self) -> Sequence[QueryValidationRule[TrendsQuery]]:
         return (
             RequireAtLeastOneSeries(),

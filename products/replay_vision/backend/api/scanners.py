@@ -1388,6 +1388,7 @@ WATCH_FEED_PER_SCANNER_CAP = 100
 class WatchFeedReason(models.TextChoices):
     SIGNAL_EMITTED = "signal_emitted"
     UNUSUAL_VERDICT = "unusual_verdict"
+    NOTABLE = "notable"
     VERDICT_YES = "verdict_yes"
     OUTLIER_SCORE = "outlier_score"
     RARE_TAG = "rare_tag"
@@ -1454,9 +1455,9 @@ class WatchFeedReasonSerializer(serializers.Serializer):
             "`verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), "
             "`outlier_score` (far from the scanner's window average), "
             "`rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that "
-            "reads unlike the scanner's other sessions this window), `friction` (the scan describes "
-            "errors, retries, or dead ends), `unviewed_recent` (new to you), "
-            "`recent` (nothing special, newest available)."
+            "reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the "
+            "session worth watching), `friction` (the scan describes errors, retries, or dead ends), "
+            "`unviewed_recent` (new to you), `recent` (nothing special, newest available)."
         ),
     )
     signals_count = serializers.IntegerField(
@@ -1469,6 +1470,20 @@ class WatchFeedReasonSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="Share (0-1) of the scanner's window observations with this answer, for `unusual_verdict`.",
+    )
+    notability = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="The scan's own 0-1 judgment of how much a team would benefit from watching, for `notable`.",
+    )
+    notability_reason = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The scan's own sentence naming why the session is worth watching. Present only on the `notable` "
+            "reason kind, and preferred over copy derived from the reason kind. Absent on observations "
+            "scanned before notability shipped."
+        ),
     )
     score = serializers.FloatField(
         required=False, allow_null=True, help_text="The observation's score, for `outlier_score`."
@@ -1500,7 +1515,8 @@ class WatchFeedResponseSerializer(serializers.Serializer):
         many=True,
         help_text=(
             "Succeeded observations in the window worth watching, most interesting first: signal emitters, "
-            "then type-specific hits, then unviewed before viewed, then newest."
+            "then type-specific hits, then unviewed before viewed, then the scan's own notability judgment, "
+            "then prose that reads as friction, then newest."
         ),
     )
 

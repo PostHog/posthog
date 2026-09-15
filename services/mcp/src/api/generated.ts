@@ -23889,8 +23889,11 @@ export namespace Schemas {
          * @nullable
          */
       edited_history_id?: string | null;
-      /** @nullable */
-      readonly latest_history_id: number | null;
+      /**
+         * Activity log ID of the most recent query edit to this view. Send it back as edited_history_id on the next query write, so conflict detection can tell whether someone else changed the query in the meantime. Edits that leave the query alone do not advance it.
+         * @nullable
+         */
+      readonly latest_history_id: string | null;
       /**
          * If true, skip column inference and validation. For saving drafts.
          * @nullable
@@ -62016,6 +62019,24 @@ export namespace Schemas {
       Cloud: 'cloud',
     } as const;
 
+    /**
+     * * `open` - open
+     * * `draft` - draft
+     * * `merged` - merged
+     * * `closed` - closed
+     * * `unknown` - unknown
+     */
+    export type PrStateEnum = typeof PrStateEnum[keyof typeof PrStateEnum];
+
+
+    export const PrStateEnum = {
+      Open: 'open',
+      Draft: 'draft',
+      Merged: 'merged',
+      Closed: 'closed',
+      Unknown: 'unknown',
+    } as const;
+
     export interface TaskRunSummary {
       /** ID of the latest run. */
       id: string;
@@ -62026,6 +62047,19 @@ export namespace Schemas {
        * * `interactive` - interactive
        * * `background` - background */
       mode: TaskExecutionModeEnum;
+      /**
+         * URL of the pull request the latest run opened, or null when it opened none.
+         * @nullable
+         */
+      pr_url: string | null;
+      /** State of that pull request: open, draft, merged, closed, or unknown. Null when the latest run opened no pull request.
+       *
+       * * `open` - open
+       * * `draft` - draft
+       * * `merged` - merged
+       * * `closed` - closed
+       * * `unknown` - unknown */
+      pr_state: PrStateEnum | null;
     }
 
     /**
@@ -65383,8 +65417,11 @@ export namespace Schemas {
          * @nullable
          */
       edited_history_id?: string | null;
-      /** @nullable */
-      readonly latest_history_id?: number | null;
+      /**
+         * Activity log ID of the most recent query edit to this view. Send it back as edited_history_id on the next query write, so conflict detection can tell whether someone else changed the query in the meantime. Edits that leave the query alone do not advance it.
+         * @nullable
+         */
+      readonly latest_history_id?: string | null;
       /**
          * If true, skip column inference and validation. For saving drafts.
          * @nullable
@@ -92252,6 +92289,7 @@ export namespace Schemas {
     /**
      * * `signal_emitted` - Signal Emitted
      * * `unusual_verdict` - Unusual Verdict
+     * * `notable` - Notable
      * * `verdict_yes` - Verdict Yes
      * * `outlier_score` - Outlier Score
      * * `rare_tag` - Rare Tag
@@ -92266,6 +92304,7 @@ export namespace Schemas {
     export const WatchFeedReasonEnum = {
       SignalEmitted: 'signal_emitted',
       UnusualVerdict: 'unusual_verdict',
+      Notable: 'notable',
       VerdictYes: 'verdict_yes',
       OutlierScore: 'outlier_score',
       RareTag: 'rare_tag',
@@ -92279,10 +92318,11 @@ export namespace Schemas {
      * Machine-readable reason an observation made the feed; the frontend renders the copy.
      */
     export interface WatchFeedReason {
-      /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `friction` (the scan describes errors, retries, or dead ends), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
+      /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the session worth watching), `friction` (the scan describes errors, retries, or dead ends), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
        *
        * * `signal_emitted` - Signal Emitted
        * * `unusual_verdict` - Unusual Verdict
+       * * `notable` - Notable
        * * `verdict_yes` - Verdict Yes
        * * `outlier_score` - Outlier Score
        * * `rare_tag` - Rare Tag
@@ -92306,6 +92346,16 @@ export namespace Schemas {
          * @nullable
          */
       verdict_share?: number | null;
+      /**
+         * The scan's own 0-1 judgment of how much a team would benefit from watching, for `notable`.
+         * @nullable
+         */
+      notability?: number | null;
+      /**
+         * The scan's own sentence naming why the session is worth watching. Present only on the `notable` reason kind, and preferred over copy derived from the reason kind. Absent on observations scanned before notability shipped.
+         * @nullable
+         */
+      notability_reason?: string | null;
       /**
          * The observation's score, for `outlier_score`.
          * @nullable
@@ -92342,7 +92392,7 @@ export namespace Schemas {
      * Response of GET /vision/scanners/watch_feed/.
      */
     export interface WatchFeedResponse {
-      /** Succeeded observations in the window worth watching, most interesting first: signal emitters, then type-specific hits, then unviewed before viewed, then newest. */
+      /** Succeeded observations in the window worth watching, most interesting first: signal emitters, then type-specific hits, then unviewed before viewed, then the scan's own notability judgment, then prose that reads as friction, then newest. */
       results: WatchFeedItem[];
     }
 

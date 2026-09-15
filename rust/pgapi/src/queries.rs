@@ -145,6 +145,12 @@ pub async fn query_detail(
     bucket: &str,
 ) -> Result<Value> {
     let interval = bucket_interval(bucket);
+    // Latency histograms are per minute, so the finest latency bucket is a minute.
+    let latency_interval = if interval == "10 seconds" {
+        "1 minute"
+    } else {
+        interval
+    };
     let texts = opt(db, "SELECT datname, query, fingerprint, truncated, first_seen, last_seen FROM cur_queries WHERE server_id = $1 AND queryid = $2", &[&server, &queryid]).await?;
     let fingerprint: Option<i64> = texts.first().and_then(|t| json_i64(&t["fingerprint"]));
     let series = opt(db, &format!("SELECT {b} AS bucket, instance, datname,
@@ -154,67 +160,55 @@ pub async fn query_detail(
          FROM ts_query_stats WHERE server_id = $1 AND queryid = $2 AND collected_at >= $3 AND collected_at < $4
          GROUP BY 1, 2, 3 ORDER BY 1", b = bucket_expr("collected_at", interval)), &[&server, &queryid, &from, &to]).await?;
     let sampling = log_sampling_settings(db, server).await?;
-    // With sampling off, the only logged durations are the always-logged slow tail,
-    // which says nothing about the distribution; skip the quantiles entirely.
-    let quantiles_available = sampling.enabled;
-    // A statement over log_min_duration_statement is always logged, a sampled one
-    // stands for 1/rate statements. Weighting by that makes the quantiles unbiased
-    // above the sample floor; the log line itself does not say which case it was.
-    // Extended-protocol statements log parse and bind durations as separate lines;
-    // only the execute line is comparable to pg_stat_statements execution time.
-    // `sampled` counts the rows the sampler chose; a bucket holding only the
-    // always-logged tail must not pass the UI's per-quantile sample floor.
-    let weight =
-        "CASE WHEN $6::float8 > 0 AND duration_ms >= $6::float8 THEN 1.0 ELSE 1.0 / $7::float8 END";
-    let quantile_params: [&(dyn tokio_postgres::types::ToSql + Sync); 7] = [
-        &server,
-        &queryid,
-        &from,
-        &to,
-        &fingerprint,
-        &sampling.hard_threshold_ms,
-        &sampling.rate,
-    ];
-    // One scan serves both the per-bucket series and the whole-range row (bucket NULL):
-    // the cumulative weights are windowed twice, once per bucket and once overall.
+    // Each histogram row carries the sample rate it was collected under: a sampled
+    // count stands for 1/rate statements, an always-logged one for itself. Edges
+    // mirror pgcollector's histogram module (array ordinal i starts at
+    // 10^((i-1)/20 - 2) ms); a quantile reports its bucket's upper edge, capped at the
+    // largest duration seen. One pass serves the per-bucket series and the
+    // whole-range row (bucket NULL).
     let quantile_sql = format!(
-        "WITH d AS (
-           SELECT {bucket} AS bucket, duration_ms, {weight} AS w
-           FROM ts_query_durations WHERE server_id = $1 AND collected_at >= $3 AND collected_at < $4
-             AND (query_id = $2 OR fingerprint = $5) AND kind NOT IN ('parse', 'bind')),
+        "WITH l AS (
+           SELECT {bucket} AS bucket, max_ms, sampled_counts, logged_counts, sample_rate
+           FROM ts_query_latency WHERE server_id = $1 AND collected_at >= $3 AND collected_at < $4
+             AND (query_id = $2 OR fingerprint = $5)),
+         h AS (
+           SELECT bucket, u.i, sum(u.sc)::float8 AS sc, sum(u.lc)::float8 AS lc,
+                  sum(CASE WHEN l.sample_rate > 0 THEN u.sc / l.sample_rate ELSE 0 END + u.lc)::float8 AS wc
+           FROM l, unnest(l.sampled_counts, l.logged_counts) WITH ORDINALITY AS u(sc, lc, i)
+           WHERE u.sc > 0 OR u.lc > 0 GROUP BY 1, 2),
          r AS (
-           SELECT bucket, duration_ms,
-                  sum(w) OVER (PARTITION BY bucket ORDER BY duration_ms) AS cw, sum(w) OVER (PARTITION BY bucket) AS tw,
-                  sum(w) OVER (ORDER BY duration_ms) AS cw_all, sum(w) OVER () AS tw_all
-           FROM d)
-         SELECT bucket, count(*)::bigint AS samples,
-                count(*) FILTER (WHERE duration_ms < $6::float8 OR $6::float8 <= 0)::bigint AS sampled,
-                min(duration_ms) FILTER (WHERE cw >= 0.5 * tw)::float8 AS p50,
-                min(duration_ms) FILTER (WHERE cw >= 0.9 * tw)::float8 AS p90,
-                min(duration_ms) FILTER (WHERE cw >= 0.95 * tw)::float8 AS p95,
-                min(duration_ms) FILTER (WHERE cw >= 0.99 * tw)::float8 AS p99,
-                max(duration_ms)::float8 AS max_ms
-         FROM r GROUP BY bucket
-         UNION ALL
-         SELECT NULL, count(*)::bigint,
-                count(*) FILTER (WHERE duration_ms < $6::float8 OR $6::float8 <= 0)::bigint,
-                min(duration_ms) FILTER (WHERE cw_all >= 0.5 * tw_all)::float8,
-                min(duration_ms) FILTER (WHERE cw_all >= 0.9 * tw_all)::float8,
-                min(duration_ms) FILTER (WHERE cw_all >= 0.95 * tw_all)::float8,
-                min(duration_ms) FILTER (WHERE cw_all >= 0.99 * tw_all)::float8,
-                max(duration_ms)::float8
-         FROM r
-         ORDER BY bucket NULLS FIRST",
-        bucket = bucket_expr("log_time", interval)
+           SELECT bucket, i, sc, lc, power(10, i / 20.0 - 2) AS hi,
+                  sum(wc) OVER (PARTITION BY bucket ORDER BY i) AS cw, sum(wc) OVER (PARTITION BY bucket) AS tw,
+                  sum(wc) OVER (ORDER BY i) AS cw_all, sum(wc) OVER () AS tw_all
+           FROM h),
+         q AS (
+           SELECT bucket, sum(sc + lc)::bigint AS samples, sum(sc)::bigint AS sampled,
+                  min(hi) FILTER (WHERE cw >= 0.5 * tw) AS p50, min(hi) FILTER (WHERE cw >= 0.9 * tw) AS p90,
+                  min(hi) FILTER (WHERE cw >= 0.95 * tw) AS p95, min(hi) FILTER (WHERE cw >= 0.99 * tw) AS p99
+           FROM r GROUP BY bucket
+           UNION ALL
+           SELECT NULL, sum(sc + lc)::bigint, sum(sc)::bigint,
+                  min(hi) FILTER (WHERE cw_all >= 0.5 * tw_all), min(hi) FILTER (WHERE cw_all >= 0.9 * tw_all),
+                  min(hi) FILTER (WHERE cw_all >= 0.95 * tw_all), min(hi) FILTER (WHERE cw_all >= 0.99 * tw_all)
+           FROM r),
+         m AS (SELECT bucket, max(max_ms) AS max_ms FROM l GROUP BY GROUPING SETS ((bucket), ()))
+         SELECT q.bucket, q.samples, q.sampled,
+                least(q.p50, m.max_ms)::float8 AS p50, least(q.p90, m.max_ms)::float8 AS p90,
+                least(q.p95, m.max_ms)::float8 AS p95, least(q.p99, m.max_ms)::float8 AS p99,
+                m.max_ms::float8 AS max_ms
+         FROM q JOIN m ON m.bucket IS NOT DISTINCT FROM q.bucket
+         WHERE q.samples > 0
+         ORDER BY q.bucket NULLS FIRST",
+        bucket = bucket_expr("minute", latency_interval)
     );
-    let (quantiles, latency_series): (Vec<Value>, Vec<Value>) = if quantiles_available {
-        opt(db, &quantile_sql, &quantile_params)
-            .await?
-            .into_iter()
-            .partition(|r| r["bucket"].is_null())
-    } else {
-        (vec![], vec![])
-    };
+    let (quantiles, latency_series): (Vec<Value>, Vec<Value>) = opt(
+        db,
+        &quantile_sql,
+        &[&server, &queryid, &from, &to, &fingerprint],
+    )
+    .await?
+    .into_iter()
+    .partition(|r| r["bucket"].is_null());
     let slow_samples = opt(
         db,
         "SELECT d.log_time, d.log_stream, d.datname, d.usename, d.duration_ms, left(t.query, 500) AS query
@@ -235,8 +229,9 @@ pub async fn query_detail(
     let waits = opt(db, "SELECT wait_event_type, wait_event, sum(backends)::bigint AS samples FROM ts_activity_samples
          WHERE server_id = $1 AND query_id = $2 AND collected_at >= $3 AND collected_at < $4 GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 10", &[&server, &queryid, &from, &to]).await?;
     Ok(
-        json!({ "queryid": queryid, "bucket": interval, "texts": texts, "series": series, "latency_series": latency_series,
-               "latency_from_logs": quantiles.into_iter().next().filter(|q| json_i64(&q["samples"]).unwrap_or(0) > 0),
+        json!({ "queryid": queryid, "bucket": interval, "latency_bucket": latency_interval, "texts": texts, "series": series, "latency_series": latency_series,
+               // Always-logged slow statements alone are a tail, not a distribution.
+               "latency_from_logs": quantiles.into_iter().next().filter(|q| json_i64(&q["sampled"]).unwrap_or(0) > 0),
                "log_sampling": sampling, "slowest_samples": slow_samples,
                "plans": aurora_plans, "logged_plans": logged_plans, "wait_events": waits }),
     )

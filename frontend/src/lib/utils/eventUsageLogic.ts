@@ -138,6 +138,10 @@ export interface ExperimentRecordingsTabContext {
     in_session_available: boolean | null
     in_session_unavailable_reason: string | null
     in_session_uses_stamped_fallback: boolean | null
+    /** Whether the "What to watch" toggle was on the tab at all: the denominator for opening it. */
+    behavior_comparison_available: boolean
+    /** Why the toggle was shown disabled, null when it was usable. */
+    behavior_comparison_unavailable_reason: string | null
 }
 
 /** The facets the recordings list was narrowed by when a recording was opened from it. */
@@ -247,6 +251,10 @@ export interface ExperimentWatchShelfContext {
     sessions_truncated: boolean
     /** The project has more event names than one comparison ranks, so some were never considered. */
     events_truncated: boolean
+    /** Whether the experiment has stopped enrolling, so waiting cannot fill an empty shelf. */
+    experiment_ended: boolean
+    /** Whole days from the launch to this load, null when the experiment has not launched. */
+    days_since_start: number | null
 }
 
 /** The comparison could not be loaded, and how: a request failure or a backend refusal. */
