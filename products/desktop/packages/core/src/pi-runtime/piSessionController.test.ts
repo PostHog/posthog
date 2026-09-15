@@ -143,7 +143,24 @@ describe("PiSessionController", () => {
     );
   });
 
-  it("keeps a cancelled turn cancelled when a buffered chunk is redelivered", async () => {
+  it.each<[string, (chunk: AgentConversationEvent) => AgentConversationEvent]>([
+    // The transport redelivers the chunk while it still sits in the batch.
+    ["a buffered chunk is redelivered", (chunk) => chunk],
+    // A polled batch can carry activity produced before the abort landed.
+    [
+      "activity produced before the stop arrives late",
+      (chunk) => ({ ...chunk, sourceId: "chunk-1", timestamp: 2 }),
+    ],
+    [
+      "the sent message echoes back late",
+      () => ({
+        type: "user_message",
+        id: "message-1",
+        timestamp: 2,
+        content: [{ type: "text", text: "continue" }],
+      }),
+    ],
+  ])("keeps a cancelled turn cancelled when %s", async (_case, lateEvent) => {
     vi.useFakeTimers();
     const session = createSession();
     let receive: (
@@ -175,10 +192,10 @@ describe("PiSessionController", () => {
     receive(chunk, { isLive: true });
     // The user cancels while the chunk is still buffered.
     await controller.abort("task-1");
-    // A redelivery of the same still-buffered chunk must not reopen the turn:
-    // if it reaches applyTurnEvent it discards the "cancelled" stop reason.
-    receive(chunk, { isLive: true });
-    receive({ type: "turn_completed", timestamp: 2 }, { isLive: true });
+    // Whatever lands after the stop must not clear the "cancelled" reason, or
+    // the completion below notifies the user who just pressed stop.
+    receive(lateEvent(chunk), { isLive: true });
+    receive({ type: "turn_completed", timestamp: 3 }, { isLive: true });
     vi.advanceTimersByTime(16);
 
     expect(notifier.notify).toHaveBeenCalledWith(

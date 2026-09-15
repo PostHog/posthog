@@ -1217,6 +1217,13 @@ export class PiSessionController {
         startedAt:
           activeTurn?.startedAt ??
           (event.type === "user_message" ? event.timestamp : undefined),
+        // A cancel is final for its turn. Activity that was already in flight
+        // when the abort landed must keep the reason, because a completion that
+        // carries no reason of its own then reads as "end_turn" and notifies
+        // the user who just pressed stop. A failure still clears here, because
+        // a recovering turn continues.
+        stopReason:
+          activeTurn?.stopReason === "cancelled" ? "cancelled" : undefined,
       });
       return;
     }
