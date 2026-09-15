@@ -667,3 +667,32 @@ describe('schema-utils', () => {
         })
     })
 })
+
+describe('summarizeSchema constraints', () => {
+    // The exec `info` summary is the only schema an exec-mode agent sees. Dropping
+    // the length cap here meant the agent learned about it from the rejection.
+    it('keeps length, range, pattern and format constraints on object properties', () => {
+        const schema = {
+            type: 'object',
+            properties: {
+                description: { type: 'string', maxLength: 3000 },
+                name: { type: 'string', minLength: 1, pattern: '^[a-z-]+$' },
+                start: { type: 'string', format: 'date-time' },
+                rollout: { type: 'integer', minimum: 0, maximum: 100 },
+            },
+        }
+
+        const result = summarizeSchema(schema, 'my-tool')
+
+        expect(result.properties.description).toEqual({ type: 'string', maxLength: 3000 })
+        expect(result.properties.name).toEqual({ type: 'string', minLength: 1, pattern: '^[a-z-]+$' })
+        expect(result.properties.start).toEqual({ type: 'string', format: 'date-time' })
+        expect(result.properties.rollout).toEqual({ type: 'integer', minimum: 0, maximum: 100 })
+    })
+
+    it('keeps constraints on a leaf schema summarized on its own', () => {
+        const result = summarizeSchema({ type: 'string', maxLength: 400 }, 'my-tool')
+
+        expect(result).toMatchObject({ type: 'string', maxLength: 400 })
+    })
+})

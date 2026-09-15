@@ -240,7 +240,8 @@ tools:
             Creates a new experiment in draft status (ignore the "type" param, since no-code/toolbar experiments must be
             created in the PostHog UI). Requires name and feature_flag_key. Feature flag is auto-created — do not create
             one separately. Defaults: 50/50 control/test, 100% rollout, Bayesian stats. Launch the experiment with the
-            launch tool when ready.
+            launch tool when ready. The description accepts at most 3,000 characters and longer text is rejected, so
+            keep the hypothesis summary short.
         include_params:
             - name
             - description
@@ -307,7 +308,8 @@ tools:
             experiment-prompt-templates for the allowed template keys. Builds one variant per version, each carrying a
             feature flag payload with the prompt name and version so the SDK can resolve which version to serve, and
             attaches one primary metric per template, scoped to the prompt. The feature flag is auto-created — do not
-            create one separately. Launch the experiment with the launch tool when ready.
+            create one separately. Launch the experiment with the launch tool when ready. The description accepts at
+            most 3,000 characters and longer text is rejected, so keep the hypothesis summary short.
         ui_app: experiment
         response:
             include:
@@ -1342,7 +1344,8 @@ tools:
 
 
             Do NOT use this to change lifecycle state — use the dedicated launch, end, pause, resume, archive, or
-            experiment-ship-variant tools instead.
+            experiment-ship-variant tools instead. The description accepts at most 3,000 characters and longer text is
+            rejected, so keep the hypothesis summary short.
         include_params:
             - name
             - description

@@ -15,6 +15,27 @@ interface SummarizedProperty {
     fields?: string[]
     items?: string
     hint?: string
+    minLength?: number
+    maxLength?: number
+    minimum?: number
+    maximum?: number
+    pattern?: string
+    format?: string
+}
+
+/**
+ * Scalar constraints copied through as-is. Without them an agent in exec mode
+ * learns a string cap only from the rejection after it sent too much.
+ */
+const CONSTRAINT_KEYS = ['minLength', 'maxLength', 'minimum', 'maximum', 'pattern', 'format'] as const
+
+function copyConstraints(from: JSONSchema, to: SummarizedProperty | NodeSummary): void {
+    for (const key of CONSTRAINT_KEYS) {
+        const value = from[key]
+        if (typeof value === 'number' || typeof value === 'string') {
+            ;(to as Record<string, unknown>)[key] = value
+        }
+    }
 }
 
 /**
@@ -33,6 +54,12 @@ interface NodeSummary {
     enum?: unknown[]
     const?: unknown
     default?: unknown
+    minLength?: number
+    maxLength?: number
+    minimum?: number
+    maximum?: number
+    pattern?: string
+    format?: string
 }
 
 /**
@@ -227,6 +254,7 @@ function summarizeObject(schema: JSONSchema, toolName: string, fieldPath?: strin
         if (prop.const !== undefined) {
             entry.const = prop.const
         }
+        copyConstraints(prop, entry)
         if (requiredFields.includes(name)) {
             entry.required = true
         }
@@ -283,6 +311,7 @@ function summarizeLeaf(schema: JSONSchema): NodeSummary {
     if (schema.default !== undefined) {
         summary.default = schema.default
     }
+    copyConstraints(schema, summary)
     return summary
 }
 
