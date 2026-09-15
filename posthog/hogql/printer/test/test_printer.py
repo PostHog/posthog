@@ -1842,6 +1842,14 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk)
         self.assertEqual(self._expr(expr, context), "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)")
 
+    @parameterized.expand(["least", "greatest"])
+    def test_least_and_greatest_take_more_than_two_arguments(self, name: str) -> None:
+        context = HogQLContext(team_id=self.team.pk)
+        self.assertEqual(
+            self._expr(f"{name}(1, 2, 3)", context),
+            f"{name}(1, 2, 3)",
+        )
+
     def test_expr_parse_errors(self):
         self._assert_expr_error("", "Empty query")
         self._assert_expr_error("avg(bla)", "Unable to resolve field: bla")
