@@ -36,7 +36,9 @@ export const HogFlowSchema = z.object({
         .nullable(),
     conversion: z
         .object({
-            window_minutes: z.number().nullable(),
+            // Deprecated in favor of `window`, still stored on workflows written before it.
+            window_minutes: z.number().nullable().optional(),
+            window: z.string().nullable().optional(),
             filters: z.any(),
             events: z
                 .array(
