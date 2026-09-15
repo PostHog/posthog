@@ -44,23 +44,25 @@ export interface spanSessionErrorsLogicValues {
 export interface spanSessionErrorsLogicActions {
     fetchNextPageSuccess: (
         spans: Span[],
-        payload?: {
-            value: true
-        }
+        payload?:
+            | {
+                  value: true
+              }
+            | undefined
     ) => {
-        spans: Span[]
         payload?: {
             value: true
         }
+        spans: Span[]
     } // tracingDataLogic
     fetchSpansSuccess: (
         spans: Span[],
         payload?: any
     ) => {
-        spans: Span[]
         payload?: any
+        spans: Span[]
     } // tracingDataLogic
-    loadSessionErrorCounts: () => any
+    loadSessionErrorCounts: (_: void) => void
     loadSessionErrorCountsFailure: (
         error: string,
         errorObject?: any
@@ -70,10 +72,10 @@ export interface spanSessionErrorsLogicActions {
     }
     loadSessionErrorCountsSuccess: (
         sessionErrorCounts: Record<string, number>,
-        payload?: any
+        payload?: void
     ) => {
         sessionErrorCounts: Record<string, number>
-        payload?: any
+        payload?: void
     }
 }
 
@@ -131,7 +133,7 @@ export const spanSessionErrorsLogic = kea<spanSessionErrorsLogicType>([
         sessionErrorCounts: [
             {} as Record<string, number>,
             {
-                loadSessionErrorCounts: async (_, breakpoint): Promise<Record<string, number>> => {
+                loadSessionErrorCounts: async (_: void, breakpoint): Promise<Record<string, number>> => {
                     // Wait first, so a lookup a faster page supersedes pays for none of the work
                     // below. Everything after this reads one snapshot, which keeps the ids and the
                     // range in agreement.
