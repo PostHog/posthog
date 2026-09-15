@@ -16,6 +16,7 @@ from posthog.models import Comment, SessionRecordingPlaylist
 from posthog.models.event.sql import EVENTS_JSON_DATA_TABLE
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.utils import uuid7
+from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.session_recording_api import RecordingsListingResult
 from posthog.session_recordings.synthetic_playlists import ExpiringPlaylistSource, FrustrationSignalsPlaylistSource
@@ -84,6 +85,41 @@ class TestSyntheticPlaylists(APIBaseTest):
         assert session_ids == ["expiring-soon"]
         # count + get_session_ids + recount share a single cached scan
         assert mock_query.call_count == 1
+
+    def test_expiring_playlist_counts_a_recording_whose_clickhouse_expiry_has_no_timezone(self) -> None:
+        cache.clear()
+
+        start_time = datetime.now(UTC) - timedelta(days=27)
+        naive_expiry = (start_time + timedelta(days=30)).replace(tzinfo=None)
+        recordings = SessionRecording.get_or_build_from_clickhouse(
+            self.team,
+            [
+                {
+                    "session_id": "expiring-soon",
+                    "distinct_id": "u1",
+                    "start_time": start_time,
+                    "end_time": start_time + timedelta(minutes=1),
+                    "duration": 60,
+                    "click_count": 0,
+                    "keypress_count": 0,
+                    "expiry_time": naive_expiry,
+                }
+            ],
+        )
+
+        source = ExpiringPlaylistSource()
+
+        with patch(
+            "posthog.session_recordings.synthetic_playlists.list_recordings_from_query",
+            return_value=RecordingsListingResult(
+                recordings=recordings, more_recordings_available=False, timings_header="", next_cursor=None
+            ),
+        ):
+            count = source.count_session_ids(self.team, self.user)
+            session_ids = source.get_session_ids(self.team, self.user)
+
+        assert count == 1
+        assert session_ids == ["expiring-soon"]
 
     def test_retrieve_synthetic_playlist(self) -> None:
         playlist = self._get_synthetic_playlist("synthetic-watch-history")
