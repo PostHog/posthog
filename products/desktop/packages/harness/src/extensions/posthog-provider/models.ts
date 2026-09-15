@@ -158,6 +158,18 @@ const FALLBACK_GATEWAY_MODELS: GatewayModel[] = [
     supports_vision: true,
   },
   {
+    id: "claude-opus-4-6",
+    owned_by: "anthropic",
+    context_window: 1000000,
+    supports_vision: true,
+  },
+  {
+    id: "claude-opus-4-5",
+    owned_by: "anthropic",
+    context_window: 200000,
+    supports_vision: true,
+  },
+  {
     id: "claude-fable-5",
     owned_by: "anthropic",
     context_window: 1000000,
@@ -177,6 +189,12 @@ const FALLBACK_GATEWAY_MODELS: GatewayModel[] = [
   },
   {
     id: "claude-sonnet-4-6",
+    owned_by: "anthropic",
+    context_window: 1000000,
+    supports_vision: true,
+  },
+  {
+    id: "claude-sonnet-4-5",
     owned_by: "anthropic",
     context_window: 1000000,
     supports_vision: true,
@@ -227,6 +245,12 @@ const FALLBACK_GATEWAY_MODELS: GatewayModel[] = [
     id: "gpt-5.3-codex",
     owned_by: "openai",
     context_window: 272000,
+    supports_vision: true,
+  },
+  {
+    id: "gpt-5.2",
+    owned_by: "openai",
+    context_window: 400000,
     supports_vision: true,
   },
   {
