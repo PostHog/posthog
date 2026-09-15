@@ -109,7 +109,7 @@ export interface sourceManagementLogicActions {
     deleteJoin: (join: DataWarehouseViewLink) => {
         join: DataWarehouseViewLink
     } // joinsDataLogic
-    loadJoins: () => void // joinsDataLogic
+    loadJoins: () => any // joinsDataLogic
     loadSources: () => {
         value: true
     } // sourcesDataLogic

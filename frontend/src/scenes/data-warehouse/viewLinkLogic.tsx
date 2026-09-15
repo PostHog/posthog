@@ -131,7 +131,7 @@ export interface viewLinkLogicActions {
         force?: boolean
         shallow?: boolean
     } // databaseTableListLogic
-    loadJoins: () => void // joinsDataLogic
+    loadJoins: () => any // joinsDataLogic
     autofillFieldName: (fieldName: string) => {
         fieldName: string
     }
