@@ -210,13 +210,16 @@ async def test_workflow_notifies_even_without_pr(states, timeout_seconds, polls)
 @pytest.mark.django_db
 def test_send_stamps_the_report_and_refuses_a_second_send(team):
     """One report, one card. A report re-researches whenever a new signal carries it to its next
-    bucket, and every settle starts this workflow again, so the second send must be refused. The
-    support write-back still runs on both, because its note is per ticket rather than per report: a
-    ticket that joins the report after its card has had no note yet and still needs one."""
+    bucket, and every settle starts this workflow again, so the second send must be refused. Both
+    write-backs still run on both sends, because each one records per source rather than per report:
+    a ticket or a GitHub issue that joins the report after its card has heard nothing yet."""
     report = _make_report(team)
     with (
         patch("products.signals.backend.slack_inbox_notifications.dispatch_inbox_item_notifications") as dispatch,
         patch("products.signals.backend.temporal.inbox_notification.post_report_findings_to_tickets") as writeback,
+        patch(
+            "products.signals.backend.temporal.inbox_notification.post_report_link_to_github_issues"
+        ) as github_writeback,
     ):
         dispatch.return_value = 1
         first = _send_report_inbox_notifications(team.id, str(report.id))
@@ -225,6 +228,7 @@ def test_send_stamps_the_report_and_refuses_a_second_send(team):
     assert (first, second) == (1, 0)
     assert dispatch.call_count == 1
     assert writeback.call_count == 2
+    assert github_writeback.call_count == 2
     report.refresh_from_db()
     assert report.inbox_notified_at is not None
 

@@ -26,6 +26,7 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 
+from products.signals.backend.github_writeback import post_report_link_to_github_issues
 from products.signals.backend.models import SignalReport
 from products.signals.backend.support_writeback import post_report_findings_to_tickets
 from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, TASK_RUN_TYPE_IMPLEMENTATION
@@ -145,6 +146,14 @@ def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
         post_report_findings_to_tickets(team, report_id, signals)
     except Exception:
         logger.exception("inbox notification: support write-back failed", report_id=report_id, team_id=team_id)
+
+    # Same errand for a GitHub issue that raised this report, and guarded the same way. Its ledger
+    # row is per issue rather than per report, so an issue that joins the report after its card
+    # still gets a comment, and an issue that already has one is left alone.
+    try:
+        post_report_link_to_github_issues(team, report_id, signals)
+    except Exception:
+        logger.exception("inbox notification: GitHub write-back failed", report_id=report_id, team_id=team_id)
 
     # Claim the report immediately before the send. One conditional UPDATE, so a concurrent settle that
     # got past the workflow's already-notified check loses here instead of sending a second card.

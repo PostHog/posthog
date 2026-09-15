@@ -320,6 +320,15 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "github_open_pull_request_ready overrides this for reports that suggest them as reviewer."
         ),
     )
+    github_issue_writeback_enabled = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether self-driving comments back on a GitHub issue that raised a report, linking to "
+            "the report so everybody watching the issue knows it is being researched. The comment is "
+            "public on the issue thread and carries a link only, never report content. False by "
+            "default. Needs a GitHub integration that can reach the issue's repository."
+        ),
+    )
     reports_generated_today = serializers.SerializerMethodField(
         help_text=(
             "How many reports first became visible in the inbox during the current project-timezone "
@@ -368,6 +377,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "issue_tracking_config",
             "max_reports_per_day",
             "default_open_pull_request_ready",
+            "github_issue_writeback_enabled",
             "reports_generated_today",
             "daily_report_limit_reached",
             "created_at",
