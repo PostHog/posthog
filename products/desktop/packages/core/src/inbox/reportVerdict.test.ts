@@ -39,7 +39,7 @@ describe("deriveReportVerdict", () => {
       "Dismissed until new signals",
       "info",
     ],
-    [{ status: "candidate" }, false, "Queued for investigation", "info"],
+    [{ status: "candidate" }, false, "Waiting to investigate", "info"],
     [
       { status: "in_progress", dismissal_reason: "already_fixed" },
       false,

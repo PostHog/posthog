@@ -25,7 +25,7 @@ export const DismissedAsAlreadyFixed: Story = {
   },
 };
 
-export const Queued: Story = {
+export const WaitingToInvestigate: Story = {
   args: { report: inboxStoryReport({ status: "candidate" }) },
 };
 

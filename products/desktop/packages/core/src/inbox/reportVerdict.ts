@@ -65,8 +65,8 @@ export function deriveReportVerdict(
     case "candidate":
       return {
         tone: "info",
-        title: "Queued for investigation",
-        body: "This report is waiting for an agent to start investigating.",
+        title: "Waiting to investigate",
+        body: "No investigation is running yet.",
       };
     case "in_progress":
       return {

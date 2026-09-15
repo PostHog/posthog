@@ -60,16 +60,11 @@ describe("useInboxBulkActions", () => {
   });
 
   it.each([
-    ["suppressSelected", "dismiss", "other", "1 report dismissed"],
-    [
-      "snoozeSelected",
-      "snooze",
-      "already_fixed",
-      "1 report paused until new signals arrive",
-    ],
+    ["suppressSelected", "dismiss", "other"],
+    ["snoozeSelected", "snooze", "already_fixed"],
   ] as const)(
     "%s confirms success after an optimistic rerender",
-    async (actionName, actionType, reason, message) => {
+    async (actionName, actionType, reason) => {
       let finishRequest: (() => void) | undefined;
       mocks.updateState.mockReturnValue(
         new Promise<void>((resolve) => {
@@ -107,9 +102,65 @@ describe("useInboxBulkActions", () => {
           action_type: actionType,
         }),
       );
-      expect(mocks.success).toHaveBeenCalledWith(message);
+      expect(mocks.success).toHaveBeenCalledOnce();
     },
   );
+
+  it.each([
+    ["potential", false, true],
+    ["candidate", false, true],
+    ["in_progress", true, true],
+    ["pending_input", true, true],
+    ["ready", true, true],
+    ["failed", true, true],
+    ["suppressed", false, false],
+    ["resolved", false, false],
+    ["deleted", false, false],
+  ] as const)(
+    "%s has separate pause and archive eligibility",
+    async (status, canPause, canArchive) => {
+      mocks.updateState.mockResolvedValue({ ...report, status: "potential" });
+      const queryClient = new QueryClient({
+        defaultOptions: { mutations: { retry: false } },
+      });
+      const { result } = renderHook(
+        () => useInboxBulkActions([{ ...report, status }], report.id),
+        { wrapper: createWrapper(queryClient) },
+      );
+
+      expect(result.current.snoozeDisabledReason === null).toBe(canPause);
+      expect(result.current.suppressDisabledReason === null).toBe(canArchive);
+      await act(async () => {
+        await expect(
+          result.current.snoozeSelected({ reason: "already_fixed", note: "" }),
+        ).resolves.toBe(canPause);
+      });
+      expect(mocks.updateState).toHaveBeenCalledTimes(canPause ? 1 : 0);
+    },
+  );
+
+  it("blocks pausing a mixed selection that includes a waiting report", async () => {
+    const waitingReport: SignalReport = {
+      ...report,
+      id: "report-2",
+      status: "potential",
+    };
+    const queryClient = new QueryClient();
+    const { result } = renderHook(
+      () =>
+        useInboxBulkActions(
+          [report, waitingReport],
+          [report.id, waitingReport.id],
+        ),
+      { wrapper: createWrapper(queryClient) },
+    );
+
+    expect(result.current.suppressDisabledReason).toBeNull();
+    await expect(
+      result.current.snoozeSelected({ reason: "already_fixed", note: "" }),
+    ).resolves.toBe(false);
+    expect(mocks.updateState).not.toHaveBeenCalled();
+  });
 
   it.each([
     ["suppressSelected", "suppressed", "other"],

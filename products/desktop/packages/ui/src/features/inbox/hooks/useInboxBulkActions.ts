@@ -93,10 +93,16 @@ async function runBulkAction(
   };
 }
 
-/** Active workflow statuses for snooze and suppress. Terminal `suppressed` / `deleted` are excluded. */
 const suppressibleStatuses = new Set<SignalReport["status"]>([
   "potential",
   "candidate",
+  "in_progress",
+  "pending_input",
+  "ready",
+  "failed",
+]);
+
+const snoozableStatuses = new Set<SignalReport["status"]>([
   "in_progress",
   "pending_input",
   "ready",
@@ -150,7 +156,7 @@ function formatBulkActionSummary(
   return `${successCount} ${formulated}, ${failureCount} failed`;
 }
 
-function getSnoozeOrSuppressDisabledReason(
+function getSuppressDisabledReason(
   selectedCount: number,
   selectedReports: SignalReport[],
 ): string | null {
@@ -176,7 +182,7 @@ function getSelectedReportEligibility(
   );
   const selectedCount = selectedReports.length;
 
-  const snoozeOrSuppressDisabledReason = getSnoozeOrSuppressDisabledReason(
+  const suppressDisabledReason = getSuppressDisabledReason(
     selectedCount,
     selectedReports,
   );
@@ -185,8 +191,12 @@ function getSelectedReportEligibility(
     selectedReports,
     selectedIds: selectedReports.map((report) => report.id),
     selectedCount,
-    snoozeDisabledReason: snoozeOrSuppressDisabledReason,
-    suppressDisabledReason: snoozeOrSuppressDisabledReason,
+    snoozeDisabledReason:
+      suppressDisabledReason ??
+      (selectedReports.every((report) => snoozableStatuses.has(report.status))
+        ? null
+        : "a selected report is waiting for signals or an investigation"),
+    suppressDisabledReason,
     deleteDisabledReason: selectedCount === 0 ? DISABLED_NO_SELECTION : null,
     reingestDisabledReason: selectedCount === 0 ? DISABLED_NO_SELECTION : null,
     removeReviewerDisabledReason:
