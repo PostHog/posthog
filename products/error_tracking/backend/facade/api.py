@@ -131,8 +131,8 @@ def _to_issue_assignment_notification(assignment) -> contracts.ErrorTrackingIssu
     )
 
 
-def list_issues(team_id: int) -> list[contracts.ErrorTrackingIssuePreview]:
-    issues = logic.list_issues(team_id)
+def list_issues(team_id: int, limit: int = logic.MAX_LISTED_ISSUES) -> list[contracts.ErrorTrackingIssuePreview]:
+    issues = logic.list_issues(team_id, limit=limit)
     return [_to_issue_preview(issue) for issue in issues]
 
 

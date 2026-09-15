@@ -45,7 +45,6 @@ ee/hogai/core/test/test_artifacts.py::TestVisualizationArtifactContent
 ee/hogai/core/test/test_base_callback_handlers.py::TestSubagentCallbackHandler
 ee/hogai/core/test/test_dispatcher_integration.py::TestDispatcherIntegration
 ee/hogai/research_agent/test/test_runner.py::TestResearchAgentRunnerConfiguration
-ee/hogai/stream/test/test_redis_stream.py::TestGetSubagentStreamKey
 ee/hogai/summarizers/test/test_property_filters.py::TestPropertyFilterCollectionDescriber
 ee/hogai/summarizers/test/test_property_filters.py::TestPropertyFilterDescriber
 ee/hogai/test/test_registry.py::TestToolRegistry
@@ -321,7 +320,6 @@ products/endpoints/backend/tests/test_rate_limit.py::TestMaterializationCache
 products/engineering_analytics/backend/tests/test_logic_workflows.py::TestCostPerMergeSeries
 products/error_tracking/backend/hogql_queries/test/test_error_tracking_pending_fingerprint_issue_state_updates.py::TestPendingUpdateUnionBuilder
 products/error_tracking/backend/test_notifications.py::TestAssignerExcludingResolver
-products/experiments/backend/hogql_queries/test/test_hogql_aggregation_integration.py::TestHogQLAggregationIntegration
 products/experiments/backend/hogql_queries/test/test_hogql_aggregation_utils.py::TestHogQLAggregationUtils
 products/experiments/backend/hogql_queries/test/test_hogql_injection.py::TestHogQLInjectionPrevention
 products/experiments/backend/hogql_queries/test/test_metric_source.py::TestMetricSourceInfo

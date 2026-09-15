@@ -42,7 +42,7 @@ function CopyResponseKeyButton({ questionId }: { questionId: string }): JSX.Elem
     )
 }
 
-export function SurveyResultsFiltersBar(): JSX.Element {
+export function SurveyResultsFiltersBar({ actions }: { actions?: React.ReactNode }): JSX.Element {
     const {
         survey,
         answerFilters,
@@ -135,15 +135,18 @@ export function SurveyResultsFiltersBar(): JSX.Element {
                         </LemonButton>
                     )}
                 </div>
-                <LemonMenu items={[{ label: 'View insights', icon: <IconGraph />, to: surveyAsInsightURL }]}>
-                    <LemonButton
-                        size="small"
-                        icon={<IconEllipsis />}
-                        aria-label="More result actions"
-                        tooltip="More result actions"
-                        data-attr="survey-results-more-actions"
-                    />
-                </LemonMenu>
+                <div className="flex flex-wrap items-center gap-2">
+                    {actions}
+                    <LemonMenu items={[{ label: 'View insights', icon: <IconGraph />, to: surveyAsInsightURL }]}>
+                        <LemonButton
+                            size="small"
+                            icon={<IconEllipsis />}
+                            aria-label="More result actions"
+                            tooltip="More result actions"
+                            data-attr="survey-results-more-actions"
+                        />
+                    </LemonMenu>
+                </div>
             </div>
 
             {resultsFiltersExpanded && (

@@ -217,6 +217,11 @@ export type CommonConfig = BaseServerConfig & {
     EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: number
     EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: number
     EXTERNAL_REQUEST_CONNECTIONS: number
+    // The number of connections the HTTP/2 dispatchers open per origin. The request helper holds a burst to a cold
+    // origin behind one probe request, so this cap only bounds an origin that negotiates HTTP/1.1 and the spill past
+    // an HTTP/2 origin's stream limit. Keep it above the largest per-origin concurrency a caller runs. The image fetch
+    // lane allows 6 per registrable domain.
+    EXTERNAL_REQUEST_H2_CONNECTIONS: number
 
     // PostHog analytics
     POSTHOG_API_KEY: string
@@ -249,6 +254,7 @@ export type ExternalRequestConfig = Pick<
     | 'EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS'
     | 'EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS'
     | 'EXTERNAL_REQUEST_CONNECTIONS'
+    | 'EXTERNAL_REQUEST_H2_CONNECTIONS'
 >
 
 export function getExternalRequestConfig(): ExternalRequestConfig {
@@ -260,6 +266,7 @@ export function getExternalRequestConfig(): ExternalRequestConfig {
         EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: Number(process.env.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS ?? 3000),
         EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: Number(process.env.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS ?? 10000),
         EXTERNAL_REQUEST_CONNECTIONS: Number(process.env.EXTERNAL_REQUEST_CONNECTIONS ?? 500),
+        EXTERNAL_REQUEST_H2_CONNECTIONS: Number(process.env.EXTERNAL_REQUEST_H2_CONNECTIONS ?? 8),
     }
 }
 
@@ -414,6 +421,7 @@ export function getDefaultCommonConfig(): CommonConfig {
         EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: 3000,
         EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: 10000,
         EXTERNAL_REQUEST_CONNECTIONS: 500,
+        EXTERNAL_REQUEST_H2_CONNECTIONS: 8,
 
         // PostHog analytics
         POSTHOG_API_KEY: '',

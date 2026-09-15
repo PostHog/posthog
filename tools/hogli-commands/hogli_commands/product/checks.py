@@ -17,10 +17,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .ast_helpers import module_import_targets
-from .crossings import driven_wiring_locations
+from .crossings import driven_wiring_locations, facade_shape_use, recorded_facade_shape_rows
 from .isolation import (
+    GARAGE_PREFIXES,
+    FacadeShapeFinding,
     IsolationStatus,
     compute_isolation_status,
+    facade_shape_findings,
     has_legacy_interface_leaks,
     has_routes_module,
     has_tach_interface,
@@ -31,6 +34,7 @@ from .isolation import (
     names_from_pattern as _names_from_pattern,
     pattern_targets_public_surface as _pattern_targets_public_surface,
     routes_in_turbo_inputs,
+    webhook_consumers_unwatched,
 )
 from .paths import TACH_TOML, get_tach_block
 
@@ -436,12 +440,13 @@ def _contract_check_withheld_note(status: IsolationStatus) -> str | None:
 
 
 class ImportSurfaceCheck(ProductCheck):
-    """Hold the two import-linter contracts by AST, so a namespace package cannot dodge them.
+    """Hold the three import-linter contracts by AST, so a namespace package cannot dodge them.
 
-    The contracts say routes.py imports only presentation/, and presentation/ imports only
-    facade/ and itself. import-linter enforces both through grimp, and grimp does not descend
-    into a directory without an __init__.py — so `from ...backend.services.views import X`
-    with no `services/__init__.py` is invisible to it and the contract passes vacuously.
+    The contracts say routes.py imports only presentation/, presentation/ imports only facade/
+    and itself, and webhook_consumers.py imports only facade/. import-linter enforces them all
+    through grimp, and grimp does not descend into a directory without an __init__.py — so
+    `from ...backend.services.views import X` with no `services/__init__.py` is invisible to it
+    and the contract passes vacuously.
     That is a live view outside presentation/ that the narrowed contract-check inputs do not
     watch. This check reads the same imports straight from the AST, honors the same
     ignore_imports deferrals, and fails on what grimp cannot see.
@@ -454,6 +459,7 @@ class ImportSurfaceCheck(ProductCheck):
     SURFACES = (
         ("routes", ("presentation",)),
         ("presentation", ("presentation", "facade")),
+        ("webhook_consumers", ("facade",)),
     )
 
     def should_run(self, ctx: CheckContext) -> bool:
@@ -477,7 +483,9 @@ class ImportSurfaceCheck(ProductCheck):
             for f in files:
                 importer = self._module_name(ctx, f)
                 for line, target in module_import_targets(f, ctx.backend_dir, prefix):
-                    if target.startswith(allowed_prefixes) or f"{importer} -> {target}" in ignored:
+                    # Segment boundary on purpose: `facade_legacy` must not pass as `facade`.
+                    under_surface = any(target == p or target.startswith(f"{p}.") for p in allowed_prefixes)
+                    if under_surface or f"{importer} -> {target}" in ignored:
                         continue
                     issues.append(
                         f"{f.relative_to(ctx.product_dir)}:{line} imports {target} — {source} may only import "
@@ -849,8 +857,9 @@ class IsolationChainCheck(ProductCheck):
                 "facade/presentation — the skip is inert (every change still re-runs the full Django "
                 'suite). Add a turbo.json narrowing inputs to ["backend/facade/**", '
                 '"backend/presentation/**"] plus the model surface (backend/models.py or '
-                "backend/models/**, and backend/migrations/**) and any wiring locations the "
-                "product has (backend/tasks/**, backend/temporal/**, …) to turn the skip on"
+                "backend/models/**, and backend/migrations/**), backend/webhook_consumers.py if the "
+                "product declares webhook consumers, and any wiring locations the product has "
+                "(backend/tasks/**, backend/temporal/**, …) to turn the skip on"
             )
         # When needs_turn_on is suppressed purely because of a facade violation (the other four
         # conjuncts hold), the facade_violations warning above already explains what blocks narrowing,
@@ -870,6 +879,21 @@ class IsolationChainCheck(ProductCheck):
                 f"turbo.json narrows contract-check inputs but omits {routes_glob} — the routes module is the "
                 "product's route-registration entry point (public API surface, imported by core), so a "
                 f'routes-only change would skip the Django suite. Add "{routes_glob}" to the contract-check inputs'
+            )
+
+        # Watching the consumer declarations: posthog/ingress/ imports webhook_consumers.py by name
+        # on the first delivery, so a consumer change a narrowing does not watch would skip the
+        # Django suite. Reported on its own condition, not folded into needs_turn_on: an unwatched
+        # consumer module is itself what makes has_narrowed False, so every other turbo-omission
+        # issue goes quiet with it, and needs_turn_on is ANDed with eligibility, sealing and the
+        # facade-violation gate — any one of those would hide the omission that caused the silence.
+        consumers_unwatched = webhook_consumers_unwatched(ctx.product_dir)
+        if consumers_unwatched:
+            result.issues.append(
+                "turbo.json narrows contract-check inputs but omits backend/webhook_consumers.py — "
+                "posthog/ingress imports the module by name on the first delivery, so a consumer "
+                "change (a new handler, a new event type) would skip the Django suite. Add "
+                '"backend/webhook_consumers.py" to the contract-check inputs'
             )
 
         # Watching the permanent-interface exposures: a marked [[interfaces]] block lets core
@@ -895,8 +919,8 @@ class IsolationChainCheck(ProductCheck):
             driven = [g for g in status.unwatched_garages if g in status.driven_wiring_locations]
             evidence = (
                 f" Tests outside the product still execute what lives in {', '.join(driven)}: see the "
-                f"`{ctx.name}:` drives lines in products/model_crossing_uses_baseline.txt, and move those "
-                "tests into the product to drop the input."
+                f"`{ctx.name}:` lines with a `drives(...)` kind in products/model_crossing_uses_baseline.txt, "
+                "and move those tests into the product to drop the input."
                 if driven
                 else ""
             )
@@ -935,11 +959,11 @@ class IsolationChainCheck(ProductCheck):
         # PackageJsonScriptsCheck — the skip can't be enabled until the wave empties them.
 
         if result.issues or result.warnings:
-            # needs_turn_on and routes_unwatched both point at turbo.json. needs_turn_on can't
-            # co-occur with the facade/turbo mismatch issues above (it requires a real facade, a
-            # script, and no narrowing). routes_unwatched can co-occur with them (it only needs
-            # has_narrowed + a routes module), but turbo.json is still where the routes omission is
-            # fixed, so it wins; the co-firing mismatch issues still print in the lint output.
+            # needs_turn_on, routes_unwatched and consumers_unwatched all point at turbo.json.
+            # needs_turn_on can't co-occur with the facade/turbo mismatch issues above (it requires
+            # a real facade, a script, and no narrowing). routes_unwatched and consumers_unwatched
+            # can co-occur with them, but turbo.json is still where those omissions are fixed, so
+            # they win; the co-firing mismatch issues still print in the lint output.
             # An unqualified permanent exposure is a defect in the tach.toml marker itself, so point
             # there; it takes precedence because it's the most fundamental of these issues.
             turbo_omission = has_narrowed and (
@@ -947,7 +971,7 @@ class IsolationChainCheck(ProductCheck):
             )
             if status.unqualified_permanent_exposures:
                 result.file = "tach.toml"
-            elif needs_turn_on or routes_unwatched or turbo_omission:
+            elif needs_turn_on or routes_unwatched or consumers_unwatched or turbo_omission:
                 result.file = f"products/{ctx.name}/turbo.json"
             else:
                 result.file = f"products/{ctx.name}/backend/facade/api.py"
@@ -958,6 +982,74 @@ class IsolationChainCheck(ProductCheck):
         else:
             result.lines = ["✓ ok"]
 
+        return result
+
+
+_CROSSING_LEDGER = "products/model_crossing_uses_baseline.txt"
+
+# The remedy the lint prints per finding kind. Each one is the move that removes the row, not advice
+# to think about the row. The rule is products/architecture.md § Facades: The Public Interface.
+_FACADE_SHAPE_REMEDIES: dict[str, str] = {
+    "returns": "return a frozen contract from facade/contracts.py instead of the ORM object",
+    "accepts": "take ids and contracts, so the caller never holds a Django or a DRF object "
+    "(an `Any` row on team, request or user hides one behind the annotation)",
+    "logic": f"move each body to the wiring location that owns it ({', '.join(GARAGE_PREFIXES)}) "
+    "and leave the re-export in the facade",
+}
+
+
+def _facade_shape_issue(finding: FacadeShapeFinding) -> str:
+    """The lint line for one finding: where it is, what it is, and the move that removes it."""
+    if finding.kind == "logic":
+        what = f"holds {finding.count} definition(s) with a body: {', '.join(finding.bodies)}"
+    else:
+        symbol = f"{finding.symbol}({finding.parameter})" if finding.parameter else finding.symbol
+        what = f"{finding.kind} {finding.source}.{finding.type_name} at {symbol}"
+    return (
+        f"facade/{finding.facade_module} {what} — {_FACADE_SHAPE_REMEDIES[finding.kind]}. "
+        "The ledger only shrinks, so this is not a row to add"
+    )
+
+
+class FacadeShapeCheck(ProductCheck):
+    """Read what the facade accepts and returns, not only what it imports.
+
+    tach and import-linter work on the import graph, so a facade that imports its model module to
+    build contracts and one that returns the model from a public function look identical to them.
+    A model or a QuerySet on the boundary gives the caller managers, save()/delete(), and FK
+    descriptors that query on attribute access, so the caller reaches the whole database through a
+    function the doctrine says returns data. A DRF or a Django HTTP type means the facade knows the
+    transport, which belongs in presentation/.
+
+    Runs in both lint modes. A lenient product with a facade folder is exactly where the drawer
+    forms: the folder is public by location while nothing holds its shape.
+
+    The findings are ratcheted as the `facade-*` kinds of the model-crossing ledger, next to the
+    other couplings the import graph cannot see. Only the unrecorded direction blocks here: a row
+    whose finding is gone is caught by the repo-invariant test, which compares the whole file
+    against a fresh scan.
+    """
+
+    label = "facade shape"
+
+    def should_run(self, ctx: CheckContext) -> bool:
+        return super().should_run(ctx) and (ctx.backend_dir / "facade").is_dir()
+
+    def run(self, ctx: CheckContext) -> CheckResult:
+        findings = facade_shape_findings(ctx.backend_dir, ctx.name)
+        recorded = recorded_facade_shape_rows(ctx.name)
+        unrecorded = [f for f in findings if facade_shape_use(f).as_baseline_line() not in recorded]
+
+        result = CheckResult(file=f"products/{ctx.name}/backend/facade")
+        result.issues.extend(_facade_shape_issue(f) for f in unrecorded)
+
+        if result.issues:
+            result.lines = [f"✗ {len(result.issues)} issue(s)"] + [f"  → {i}" for i in result.issues]
+        elif recorded:
+            result.warnings.append(f"facade shape debt: {len(recorded)} row(s) in {_CROSSING_LEDGER}")
+            result.lines = [f"⚠ facade shape debt: {len(recorded)} rows"]
+        else:
+            result.lines = ["✓ ok"]
         return result
 
 
@@ -1182,5 +1274,6 @@ CHECKS: list[ProductCheck] = [
     FileFolderConflictsCheck(),
     TachCheck(),
     IsolationChainCheck(),
+    FacadeShapeCheck(),
     OrphanedTestFilesCheck(),
 ]

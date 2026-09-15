@@ -64,7 +64,9 @@ export const LlmSkillsCreateBody = /* @__PURE__ */ zod
         allowed_tools: zod
             .array(zod.string())
             .optional()
-            .describe('List of pre-approved tools the skill may use. Tool names cannot contain whitespace.'),
+            .describe(
+                'Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant.'
+            ),
         metadata: zod.record(zod.string(), zod.unknown()).optional().describe('Arbitrary key-value metadata.'),
         owners: zod
             .array(zod.uuid())
@@ -172,7 +174,9 @@ export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
     allowed_tools: zod
         .array(zod.string())
         .optional()
-        .describe('List of pre-approved tools the skill may use. Tool names cannot contain whitespace.'),
+        .describe(
+            'Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant.'
+        ),
     metadata: zod.record(zod.string(), zod.unknown()).optional().describe('Arbitrary key-value metadata.'),
     files: zod
         .array(
@@ -305,6 +309,11 @@ export const llmSkillsNamePublishCommunityCreateBodyAuthorHandleOneRegExp = new 
 export const llmSkillsNamePublishCommunityCreateBodyAuthorHandleTwoMax = 0
 
 export const LlmSkillsNamePublishCommunityCreateBody = /* @__PURE__ */ zod.object({
+    expected_skill_id: zod.uuid().describe('Immutable ID of the skill version that the publisher reviewed.'),
+    expected_version: zod
+        .number()
+        .min(1)
+        .describe('Skill version that the publisher reviewed. The request returns 409 if the latest version changed.'),
     display_name: zod
         .union([
             zod

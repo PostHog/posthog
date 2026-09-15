@@ -7,7 +7,7 @@ import { isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
 import { taskLogic } from '../logics/taskLogic'
 import { isPiTaskRuntime, OriginProduct } from '../types/taskTypes'
 import { type TurnTrailer } from '../utils/turnTrailers'
-import { ContextUsageBar } from './ContextUsageBar'
+import { ContextUsageChip } from './ContextUsageChip'
 import { FeedbackPromptTrailer } from './FeedbackPromptTrailer'
 import { PermissionInput } from './PermissionInput'
 import { QuestionInput } from './QuestionInput'
@@ -90,6 +90,7 @@ function RunSurfaceRoot({
     const replayOnly = interaction !== 'live'
     // A pending surface (no run id) must supply `streamKey` to key on; `runId` is the key otherwise.
     const logicKey = streamKey ?? runId ?? ''
+    const hasOptimisticClientStream = !!streamKey && streamKey !== runId
     const { hasThreadItems } = useValues(runStreamLogic({ streamKey: logicKey, conversationId, replayOnly }))
 
     // The runtime and scout flag live on the task (not the run), so the surface owns loading it once and
@@ -114,8 +115,7 @@ function RunSurfaceRoot({
                 </LemonBanner>
             )
         }
-        // A created task's metadata fetch must not replace its already visible optimistic thread.
-        if (!hasThreadItems) {
+        if (!hasThreadItems && !hasOptimisticClientStream) {
             return <RunLogSkeleton />
         }
     }
@@ -188,10 +188,19 @@ function RunSurfaceBootstrap({ taskId }: { taskId: string }): null {
 
 /** Thread slot: the streamed run thread, with the shared run-log skeleton during the first bootstrap. */
 function RunSurfaceThread({
+    restoreReadPosition = false,
     className,
     listClassName,
     rowClassName,
-}: { className?: string; listClassName?: string; rowClassName?: string } = {}): JSX.Element {
+    showContextUsage = false,
+}: {
+    restoreReadPosition?: boolean
+    className?: string
+    listClassName?: string
+    rowClassName?: string
+    /** Composer-less live embeds keep the usage line in the thread footer; the runner shows it in its composer. */
+    showContextUsage?: boolean
+} = {}): JSX.Element {
     const { interaction, isScout, taskId, streamKey, runId } = useRunSurfaceContext()
     const { bootstrapLoading, hasThreadItems } = useValues(runStreamLogic)
     // Feedback identity: always the task, matching `$ai_session_id` on other surfaces.
@@ -220,19 +229,21 @@ function RunSurfaceThread({
             ) : null,
         [feedbackSessionId, feedbackRun]
     )
-    const showSkeleton = bootstrapLoading && !hasThreadItems
+    const showSkeleton = bootstrapLoading && !hasThreadItems && streamKey === runId
     if (showSkeleton) {
         return <RunLogSkeleton className={className} listClassName={listClassName} rowClassName={rowClassName} />
     }
-    // Context usage rides the thread footer for live runs, but never for a
-    // scout run. An error surfaces as a `handleStreamError` item folded into the thread, so it renders here too.
-    // Turn feedback follows the same gate: only interactive, non-scout surfaces collect ratings.
+    // The runner shows context usage in its composer footer (`ContextUsageChip`); a surface with no
+    // composer opts back into the thread footer line. Never for a scout run.
+    // An error surfaces as a `handleStreamError` item folded into the thread, so it renders here too.
+    // Turn feedback: only interactive, non-scout surfaces collect ratings.
     return (
         <ThreadView
+            scrollRestorationKey={restoreReadPosition ? taskId : undefined}
             className={className}
             listClassName={listClassName}
             rowClassName={rowClassName}
-            showContextUsage={interaction === 'live' && !isScout}
+            showContextUsage={showContextUsage && interaction === 'live' && !isScout}
             renderTurnTrailer={collectsFeedback ? renderTurnTrailer : undefined}
             footerExtra={feedbackPrompt}
         />
@@ -300,5 +311,5 @@ export const RunSurface = Object.assign(RunSurfaceRoot, {
     Root: RunSurfaceRoot,
     Thread: RunSurfaceThread,
     Composer: RunSurfaceComposer,
-    ContextUsage: ContextUsageBar,
+    ContextUsage: ContextUsageChip,
 })
