@@ -25,6 +25,17 @@ LLM_TRANSIENT_EXCEPTIONS = (
 # on a separate counter to avoid false "LLM Provider Errors" alerts.
 HTTPX_TRANSPORT_EXCEPTIONS = (httpx.ReadError, httpx.ConnectError)
 
+# Authentication and permission errors (401, 403). A bad or misscoped API key causes them,
+# so a retry cannot succeed. Kept apart from the transient provider errors on purpose.
+LLM_AUTH_EXCEPTIONS = (
+    # Anthropic auth errors
+    anthropic.AuthenticationError,
+    anthropic.PermissionDeniedError,
+    # OpenAI auth errors
+    openai.AuthenticationError,
+    openai.PermissionDeniedError,
+)
+
 # Client/validation errors that won't resolve on retry (400, 422, etc.)
 LLM_CLIENT_EXCEPTIONS = (
     # Anthropic client errors
@@ -44,6 +55,14 @@ LLM_PROVIDER_ERROR_COUNTER = Counter(
 LLM_CLIENT_ERROR_COUNTER = Counter(
     "posthog_ai_llm_client_errors_total",
     "Total number of LLM client/validation errors",
+    ["provider"],
+)
+
+# Sits at 0 in steady state, because a credential is either correct or it is not. A sustained
+# rate means the agent cannot call the provider at all, and only an operator can fix it.
+LLM_AUTH_ERROR_COUNTER = Counter(
+    "posthog_ai_llm_auth_errors_total",
+    "Total number of LLM authentication/permission errors (bad or misscoped API key)",
     ["provider"],
 )
 
