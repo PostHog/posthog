@@ -3,6 +3,7 @@ import time
 import uuid
 import datetime as dt
 import posixpath
+from typing import Any
 
 from django.conf import settings
 from django.db import connection, models, transaction
@@ -11,12 +12,11 @@ from django.shortcuts import get_object_or_404
 
 import boto3
 import structlog
-import posthoganalytics
 from botocore.client import Config
 from botocore.exceptions import ClientError
 from drf_spectacular.utils import OpenApiResponse, PolymorphicProxySerializer, extend_schema
 from rest_framework import mixins, response, serializers, status, viewsets
-from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotFound, ValidationError
 from rest_framework.throttling import BaseThrottle
 
 from posthog.hogql.errors import ExposedHogQLError
@@ -32,8 +32,11 @@ from posthog.models import Team
 from posthog.rate_limit import BatchExportsCountRowsBurstRateThrottle, BatchExportsCountRowsSustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 
+from products.batch_exports.backend.api.utils import check_hogql_batch_exports_enabled
 from products.batch_exports.backend.hogql_source import (
     UnsupportedHogQLQueryError,
+    find_interval_placeholders,
+    parse_hogql_select_for_batch_export,
     validate_hogql_query_for_batch_export,
 )
 from products.batch_exports.backend.models.batch_export import (
@@ -124,12 +127,59 @@ class FileDownloadSessionsRequestSerializer(serializers.Serializer):
 HOGQL_QUERY_HELP_TEXT = (
     "HogQL SELECT query whose results are exported. This model is in closed beta and is enabled "
     "per team; when it is not enabled, the request fails with a permission error that names HogQL "
-    "batch exports. Contact PostHog support to request access. Placeholders are not currently "
-    "supported, and every column in the SELECT clause must be a field or have an alias. It is "
-    "recommended to limit the query with a WHERE clause, for example bounding timestamp on the "
-    "events table, both to avoid exporting more rows than expected and because user queries run "
-    "under stricter resource limits than the other models."
+    "batch exports. Contact PostHog support to request access. The query may reference the "
+    "{data_interval_start} and {data_interval_end} placeholders. Provide a value for each "
+    "placeholder the query references; missing referenced bounds are rejected, not inferred. "
+    "When both bounds are supplied, they must span at most seven days. A supplied end must not be in the future. "
+    "Without placeholders, the query runs unchanged, even if bounds are supplied. Every column "
+    "in the SELECT clause must be a field or have an alias. It is recommended to limit the query "
+    "with a WHERE clause, for example bounding timestamp on the events table, both to avoid "
+    "exporting more rows than expected and because user queries run under stricter resource "
+    "limits than the other models."
 )
+
+
+DATA_INTERVAL_START_HELP_TEXT = (
+    "Start of the export interval. Required for the events, persons, and sessions models. "
+    "For HogQL, required only when the query references {data_interval_start}. "
+    "When both bounds are supplied, the interval must span at most seven days."
+)
+DATA_INTERVAL_END_HELP_TEXT = (
+    "End of the export interval. Required for the events, persons, and sessions models. "
+    "For HogQL, required only when the query references {data_interval_end}. "
+    "A supplied end must not be in the future or precede a supplied start. "
+    "Bounds replace HogQL placeholders; they do not add filters to the query."
+)
+
+
+def validate_file_download_interval(
+    data_interval_start: dt.datetime | None,
+    data_interval_end: dt.datetime | None,
+    *,
+    hogql_query: str | None = None,
+) -> None:
+    if hogql_query is not None:
+        try:
+            placeholders = find_interval_placeholders(parse_hogql_select_for_batch_export(hogql_query))
+        except UnsupportedHogQLQueryError as e:
+            raise ValidationError({"hogql_query": str(e)}) from e
+        bounds = {"data_interval_start": data_interval_start, "data_interval_end": data_interval_end}
+        missing = {
+            name: f"'{name}' is required because the query references '{{{name}}}'."
+            for name in sorted(placeholders)
+            if bounds[name] is None
+        }
+        if missing:
+            raise ValidationError(missing)
+    elif data_interval_start is None or data_interval_end is None:
+        raise ValidationError("'data_interval_start' and 'data_interval_end' are required. Provide both bounds.")
+    if data_interval_start is not None and data_interval_end is not None:
+        if data_interval_start > data_interval_end:
+            raise ValidationError("'data_interval_end' must occur after 'data_interval_start'")
+        if data_interval_end - data_interval_start > FILE_DOWNLOAD_MAX_RANGE:
+            raise ValidationError("data interval range too big. Choose an interval of at most seven days.")
+    if data_interval_end is not None and data_interval_end > dt.datetime.now(dt.UTC):
+        raise ValidationError(f"The provided 'data_interval_end' ({data_interval_end.isoformat()}) is in the future")
 
 
 class FileDownloadHogQLRequestSerializer(serializers.Serializer):
@@ -138,6 +188,12 @@ class FileDownloadHogQLRequestSerializer(serializers.Serializer):
     file = FileDownloadDestinationFileConfigSerializer()
     model = serializers.ChoiceField(choices=FileDownloadHogQLModel.choices)
     hogql_query = serializers.CharField(help_text=HOGQL_QUERY_HELP_TEXT)
+    data_interval_start = serializers.DateTimeField(
+        default_timezone=dt.UTC, required=False, help_text=DATA_INTERVAL_START_HELP_TEXT
+    )
+    data_interval_end = serializers.DateTimeField(
+        default_timezone=dt.UTC, required=False, help_text=DATA_INTERVAL_END_HELP_TEXT
+    )
 
 
 class FileDownloadCountRowsRequestSerializer(serializers.Serializer):
@@ -148,6 +204,18 @@ class FileDownloadCountRowsRequestSerializer(serializers.Serializer):
         help_text="Model to count rows for. Only 'hogql' is supported.",
     )
     hogql_query = serializers.CharField(help_text=HOGQL_QUERY_HELP_TEXT)
+    data_interval_start = serializers.DateTimeField(
+        default_timezone=dt.UTC, required=False, help_text=DATA_INTERVAL_START_HELP_TEXT
+    )
+    data_interval_end = serializers.DateTimeField(
+        default_timezone=dt.UTC, required=False, help_text=DATA_INTERVAL_END_HELP_TEXT
+    )
+
+    def validate(self, data: dict[str, Any]) -> dict[str, Any]:
+        validate_file_download_interval(
+            data.get("data_interval_start"), data.get("data_interval_end"), hogql_query=data["hogql_query"]
+        )
+        return data
 
 
 class FileDownloadCountRowsResponseSerializer(serializers.Serializer):
@@ -155,26 +223,9 @@ class FileDownloadCountRowsResponseSerializer(serializers.Serializer):
 
     count = serializers.IntegerField(
         min_value=0,
-        help_text="Number of rows the query returns now. A HogQL batch export runs its query as of "
-        "the time the export starts, so a run started now would export this many rows.",
+        help_text="Number of rows the query returns with the supplied interval bounds. "
+        "Data arriving between counting and exporting can change the result.",
     )
-
-
-def check_hogql_batch_exports_enabled(team: Team) -> None:
-    """Raise if HogQL-powered batch exports are not enabled for the team."""
-    if not posthoganalytics.feature_enabled(
-        "hogql-batch-exports",
-        str(team.uuid),
-        groups={"organization": str(team.organization.id)},
-        group_properties={
-            "organization": {
-                "id": str(team.organization.id),
-                "created_at": team.organization.created_at,
-            }
-        },
-        send_feature_flag_events=False,
-    ):
-        raise PermissionDenied("HogQL batch exports are not enabled for this team.")
 
 
 COUNT_ROWS_TIMEOUT_MESSAGE = (
@@ -186,7 +237,14 @@ COUNT_ROWS_TIMEOUT_MESSAGE = (
 )
 
 
-def count_rows_for_hogql_batch_export(team: Team, hogql_query: str, timeout: int = 30) -> int:
+def count_rows_for_hogql_batch_export(
+    team: Team,
+    hogql_query: str,
+    timeout: int = 30,
+    *,
+    data_interval_start: dt.datetime | None = None,
+    data_interval_end: dt.datetime | None = None,
+) -> int:
     """Count the rows a HogQL query would produce.
 
     Raises:
@@ -198,15 +256,11 @@ def count_rows_for_hogql_batch_export(team: Team, hogql_query: str, timeout: int
     query_settings = get_user_hogql_batch_export_query_settings()
     query_settings.max_execution_time = timeout
 
-    # HogQL exports have no data interval: `create` runs them with a now/now interval.
-    # TODO: We should support these interval or just make it not required.
-    now = dt.datetime.now(dt.UTC)
-
     # `execute_hogql_query` resolves modifiers differently than the batch
     # export, which could potentially affect counts.
     # TODO: How big is the difference? Is it worth aligning these two?
     query_response = execute_hogql_query(
-        query=record_batch_model.get_count_hogql_query(now, now),
+        query=record_batch_model.get_count_hogql_query(data_interval_start, data_interval_end),
         team=team,
         query_type="HogQLBatchExportCountRowsQuery",
         settings=query_settings,
@@ -227,12 +281,11 @@ class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
     # Only specific to hogql
     hogql_query = serializers.CharField(required=False, help_text=HOGQL_QUERY_HELP_TEXT)
 
-    # Run attributes; required for all models except hogql, which runs as of now
     data_interval_start = serializers.DateTimeField(
-        default_timezone=dt.UTC, required=False, help_text="Start of the data interval to export"
+        default_timezone=dt.UTC, required=False, help_text=DATA_INTERVAL_START_HELP_TEXT
     )
     data_interval_end = serializers.DateTimeField(
-        default_timezone=dt.UTC, required=False, help_text="End of the data interval to export"
+        default_timezone=dt.UTC, required=False, help_text=DATA_INTERVAL_END_HELP_TEXT
     )
 
     def validate(self, data):
@@ -242,19 +295,7 @@ class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
         if data.get("hogql_query") is not None:
             raise ValidationError("'hogql_query' is only supported when 'model' is 'hogql'")
 
-        if data.get("data_interval_start") is None or data.get("data_interval_end") is None:
-            raise ValidationError(f"'data_interval_start' and 'data_interval_end' are required for '{data['model']}'")
-
-        if data["data_interval_start"] > data["data_interval_end"]:
-            raise ValidationError("'data_interval_end' must occur after 'data_interval_start'")
-
-        if data["data_interval_end"] - data["data_interval_start"] > FILE_DOWNLOAD_MAX_RANGE:
-            raise ValidationError("data interval range too big")
-
-        if data["data_interval_end"] > dt.datetime.now(dt.UTC):
-            raise ValidationError(
-                f"The provided 'data_interval_end' ({data['data_interval_end'].isoformat()}) is in the future"
-            )
+        validate_file_download_interval(data.get("data_interval_start"), data.get("data_interval_end"))
 
         return data
 
@@ -262,20 +303,16 @@ class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
         team = self.context["get_team"]()
         check_hogql_batch_exports_enabled(team)
 
-        # not sure if we need to be this strict but probably best to be explicit
-        # TODO: can remove this once we do support data_interval_start/end
-        if data.get("data_interval_start") is not None or data.get("data_interval_end") is not None:
-            raise ValidationError(
-                "'data_interval_start' and 'data_interval_end' are not supported when 'model' is 'hogql': "
-                "the query runs as of the time the export starts"
-            )
-
         if data.get("include") is not None or data.get("exclude") is not None:
             raise ValidationError("'include' and 'exclude' are not supported when 'model' is 'hogql'")
 
         hogql_query = data.get("hogql_query")
         if not hogql_query:
             raise ValidationError("'hogql_query' is required when 'model' is 'hogql'")
+
+        validate_file_download_interval(
+            data.get("data_interval_start"), data.get("data_interval_end"), hogql_query=hogql_query
+        )
 
         try:
             validate_hogql_query_for_batch_export(hogql_query, team)
@@ -296,11 +333,13 @@ class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
         source = None
         if model == "hogql":
             source = BatchExportSource(team_id=team_id, hogql_query=validated_data.pop("hogql_query"))
-            # For now, HogQL exports have no data interval: the query runs as of now.
-            # We set a concrete now/now interval to keep everything downstream (eg workflow ID,
-            # staging paths) working unchanged. We should perhaps make the data interval optional in
-            # future.
-            data_interval_start = data_interval_end = dt.datetime.now(dt.UTC)
+            data_interval_start = validated_data.pop("data_interval_start", None)
+            data_interval_end = validated_data.pop("data_interval_end", None)
+            # Unreferenced bounds keep run bookkeeping zero-width without changing the query's range.
+            if data_interval_start is None:
+                data_interval_start = data_interval_end or dt.datetime.now(dt.UTC)
+            if data_interval_end is None:
+                data_interval_end = data_interval_start
         else:
             data_interval_start = validated_data.pop("data_interval_start")
             data_interval_end = validated_data.pop("data_interval_end")
@@ -667,7 +706,12 @@ class FileDownloadBatchExportOnDemandViewSet(
         check_hogql_batch_exports_enabled(self.team)
 
         try:
-            count = count_rows_for_hogql_batch_export(self.team, request.validated_data["hogql_query"])
+            count = count_rows_for_hogql_batch_export(
+                self.team,
+                request.validated_data["hogql_query"],
+                data_interval_start=request.validated_data.get("data_interval_start"),
+                data_interval_end=request.validated_data.get("data_interval_end"),
+            )
         except UnsupportedHogQLQueryError as e:
             raise ValidationError({"hogql_query": str(e)}) from e
         except (ExposedHogQLError, ExposedCHQueryError) as e:

@@ -61,7 +61,7 @@ export const BatchExportsCreateBody = () => zod
             .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql')
             .optional()
             .describe(
-                'Which data model to export (events, persons, sessions).\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
+                'Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
             ),
         destination: zod
             .union([
@@ -510,7 +510,7 @@ export const BatchExportsPartialUpdateBody = () => zod
             .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql')
             .optional()
             .describe(
-                'Which data model to export (events, persons, sessions).\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
+                'Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
             ),
         destination: zod
             .union([
@@ -1101,7 +1101,19 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
             hogql_query: zod
                 .string()
                 .describe(
-                    'HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models.'
+                    'HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. A supplied end must not be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models.'
+                ),
+            data_interval_start: zod.iso
+                .datetime({ offset: true })
+                .optional()
+                .describe(
+                    'Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. When both bounds are supplied, the interval must span at most seven days.'
+                ),
+            data_interval_end: zod.iso
+                .datetime({ offset: true })
+                .optional()
+                .describe(
+                    'End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query.'
                 ),
         })
         .describe('Typed configuration for the hogql model.'),
@@ -1180,13 +1192,20 @@ export const FileDownloadBatchExportsCancelCreateBody = () => zod
             .string()
             .optional()
             .describe(
-                'HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models.'
+                'HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. A supplied end must not be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models.'
             ),
         data_interval_start: zod.iso
             .datetime({ offset: true })
             .optional()
-            .describe('Start of the data interval to export'),
-        data_interval_end: zod.iso.datetime({ offset: true }).optional().describe('End of the data interval to export'),
+            .describe(
+                'Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. When both bounds are supplied, the interval must span at most seven days.'
+            ),
+        data_interval_end: zod.iso
+            .datetime({ offset: true })
+            .optional()
+            .describe(
+                'End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query.'
+            ),
     })
     .describe('Request shape for a FileDownload batch export on demand.')
 
@@ -1210,7 +1229,19 @@ export const FileDownloadBatchExportsCountRowsCreateBody = () => zod
         hogql_query: zod
             .string()
             .describe(
-                'HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models.'
+                'HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. A supplied end must not be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models.'
+            ),
+        data_interval_start: zod.iso
+            .datetime({ offset: true })
+            .optional()
+            .describe(
+                'Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. When both bounds are supplied, the interval must span at most seven days.'
+            ),
+        data_interval_end: zod.iso
+            .datetime({ offset: true })
+            .optional()
+            .describe(
+                'End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query.'
             ),
     })
     .describe('Request shape for counting the rows a file download batch export would produce.')

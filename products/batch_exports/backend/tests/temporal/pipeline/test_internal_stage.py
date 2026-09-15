@@ -47,6 +47,7 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
 )
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
 from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
+from products.batch_exports.backend.temporal.record_batch_model import HogQLQueryRecordBatchModel
 from products.batch_exports.backend.tests.temporal.utils.mock_clickhouse import MockClickHouseClient
 from products.batch_exports.backend.tests.temporal.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
@@ -195,20 +196,41 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_sessio
     )
 
 
-async def test_write_batch_export_record_batches_to_internal_stage_rejects_future_data_interval_end():
+@pytest.mark.parametrize(
+    "hogql_query,requires_interval_end",
+    [
+        (None, True),
+        ("SELECT {data_interval_end} AS bound", True),
+        ("SELECT {data_interval_start} AS bound", False),
+    ],
+    ids=["fixed-model", "end-placeholder", "start-placeholder-only"],
+)
+async def test_write_batch_export_record_batches_to_internal_stage_checks_only_required_interval_end(
+    hogql_query: str | None, requires_interval_end: bool
+) -> None:
     data_interval_start = dt.datetime.now(dt.UTC) - dt.timedelta(hours=1)
     data_interval_end = dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)
+    if not requires_interval_end:
+        data_interval_start = data_interval_end
+    query_or_model = HogQLQueryRecordBatchModel(team_id=1, hogql_query=hogql_query) if hogql_query else "SELECT 1"
 
     with (
         patch(
             "products.batch_exports.backend.temporal.pipeline.internal_stage.wait_for_delta_past_data_interval_end"
         ) as mock_wait,
-        patch("products.batch_exports.backend.temporal.pipeline.internal_stage.get_client") as mock_get_client,
+        patch(
+            "products.batch_exports.backend.temporal.pipeline.internal_stage.get_client",
+            side_effect=ConnectionError("ClickHouse unavailable"),
+        ) as mock_get_client,
         override_settings(DEBUG=False, TEST=False),
     ):
-        with pytest.raises(DataIntervalEndInFutureError, match="The provided 'data_interval_end'.*is in the future"):
+        error = DataIntervalEndInFutureError if requires_interval_end else ConnectionError
+        message = (
+            "The provided 'data_interval_end'.*is in the future" if requires_interval_end else "ClickHouse unavailable"
+        )
+        with pytest.raises(error, match=message):
             await _write_batch_export_record_batches_to_internal_stage(
-                query_or_model="SELECT 1",
+                query_or_model=query_or_model,
                 full_range=(data_interval_start, data_interval_end),
                 query_parameters={},
                 team_id=1,
@@ -219,7 +241,10 @@ async def test_write_batch_export_record_batches_to_internal_stage_rejects_futur
             )
 
     mock_wait.assert_not_called()
-    mock_get_client.assert_not_called()
+    if requires_interval_end:
+        mock_get_client.assert_not_called()
+    else:
+        mock_get_client.assert_called_once()
 
 
 async def _generate_record_batches_from_internal_stage(
@@ -1446,10 +1471,9 @@ class TestHogQLModel:
     ):
         """insert_into_internal_stage_activity stages correct data for a user-defined HogQL query.
 
-        The data interval has no meaning for the HogQL model currently: the query is executed as-is,
-        scoped to the team by the HogQL printer, and we don't wait for the interval end to pass.
-        Each case asserts exact rows and column names (aliases) read back from the staged Arrow
-        files.
+        These queries reference no interval placeholders, so each is executed as-is, scoped to
+        the team by the HogQL printer, and we don't wait for the interval end to pass. Each case
+        asserts exact rows and column names (aliases) read back from the staged Arrow files.
         """
         events, persons = hogql_model_test_data
 
@@ -1470,6 +1494,55 @@ class TestHogQLModel:
             build_expected_rows(events, persons)
         )
         mock_wait.assert_not_called()
+
+    async def test_stages_expected_data_bounded_by_interval_placeholders(
+        self,
+        hogql_model_test_data,
+        activity_environment,
+        object_storage_client,
+        ateam,
+        data_interval_start,
+        data_interval_end,
+    ):
+        """A query referencing the interval placeholders stages only rows within the run's interval.
+
+        The run covers the second half of the fixture's interval, so events stamped at the
+        interval start are excluded and those stamped later are kept. The wait for the interval
+        end is part of the contract too: a query bounded by the interval end must let
+        replication lag settle before reading, or the run misses rows that settle after it
+        queries.
+        """
+        events, _ = hogql_model_test_data
+        # Each person's events are stamped at either end of the fixture's interval, so halving
+        # it leaves exactly the later ones in range.
+        bounded_start = data_interval_start + (data_interval_end - data_interval_start) / 2
+
+        with patch(
+            "products.batch_exports.backend.temporal.pipeline.internal_stage.wait_for_delta_past_data_interval_end"
+        ) as mock_wait:
+            exported_rows = await _run_activity(
+                activity_environment=activity_environment,
+                object_storage_client=object_storage_client,
+                team_id=ateam.pk,
+                data_interval_start=bounded_start,
+                data_interval_end=data_interval_end,
+                model=BatchExportModel(
+                    name="hogql",
+                    schema=None,
+                    hogql_query=(
+                        "SELECT uuid AS uuid, timestamp AS timestamp FROM events "
+                        "WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}"
+                    ),
+                ),
+            )
+
+        expected_uuids = {
+            uuid.UUID(event["uuid"])
+            for event in events
+            if dt.datetime.fromisoformat(event["timestamp"]).replace(tzinfo=dt.UTC) >= bounded_start
+        }
+        assert {row["uuid"] for row in exported_rows} == expected_uuids
+        mock_wait.assert_called_once()
 
     async def test_stages_expected_data_for_warehouse_view(
         self,
