@@ -146,7 +146,9 @@ tools:
         annotations:
             readOnly: true
             destructive: false
-            idempotent: true
+            # An llm simulation makes a real, charged model call and can answer differently
+            # each time, so a client must not retry it as if it were free and repeatable.
+            idempotent: false
         title: Simulate detector on insight
         description: >
             Run an anomaly detector on an insight's historical data without creating any alert or check records. Use

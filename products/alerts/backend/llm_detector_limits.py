@@ -83,7 +83,7 @@ def llm_detector_interval_error(calculation_interval: Any) -> str | None:
     return None
 
 
-def llm_alert_limit_error(*, team_id: int, exclude_alert_id: str | None) -> str | None:
+def llm_alert_limit_error(*, team_id: int, exclude_alert_id: str | None, organization_id: Any = None) -> str | None:
     """The message to show when enabling one more AI-detector alert would pass the team cap.
 
     Call inside a transaction that holds ``lock_llm_alert_limit`` for the team, and only
@@ -91,7 +91,7 @@ def llm_alert_limit_error(*, team_id: int, exclude_alert_id: str | None) -> str 
     already AI-judged adds no spend, so editing it must never trip the cap, even when the
     cap was lowered beneath the current count.
     """
-    cap = max_llm_alerts_per_team()
+    cap = max_llm_alerts_per_team(organization_id=organization_id)
     existing = count_enabled_llm_alerts(team_id=team_id, exclude_alert_id=exclude_alert_id)
     if existing >= cap:
         return (
@@ -112,13 +112,16 @@ def lock_llm_alert_limit(*, team_id: int) -> None:
 _PAYLOAD_DISTINCT_ID = "internal_alerts_llm_detector_limits"
 
 
-def max_llm_alerts_per_team() -> int:
+def max_llm_alerts_per_team(*, organization_id: Any = None) -> int:
     """The cap, from the flag payload, falling back to the code default.
+
+    ``organization_id`` evaluates the flag for that organization, so a rule targeting one
+    of them can carry its own cap. Without it the read resolves the flag's default payload.
 
     A read error never blocks alert editing: it resolves to the default, which is
     stricter than any value the payload is likely to carry.
     """
-    payload = _read_payload()
+    payload = _read_payload(organization_id=organization_id)
     raw = (payload or {}).get(PAYLOAD_MAX_ALERTS_KEY)
     if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
         return DEFAULT_MAX_LLM_ALERTS_PER_TEAM
@@ -143,9 +146,21 @@ def count_enabled_llm_alerts(*, team_id: int, exclude_alert_id: str | None = Non
     return queryset.count()
 
 
-def _read_payload() -> dict | None:
+def _read_payload(*, organization_id: Any = None) -> dict | None:
     try:
-        payload = posthoganalytics.get_feature_flag_payload(LLM_DETECTOR_FLAG, _PAYLOAD_DISTINCT_ID, match_value=True)
+        if organization_id is None:
+            # No organization to evaluate against, so read the flag's default payload.
+            payload = posthoganalytics.get_feature_flag_payload(
+                LLM_DETECTOR_FLAG, _PAYLOAD_DISTINCT_ID, match_value=True
+            )
+        else:
+            # Evaluated rather than read at a fixed match value, so a rule targeting this
+            # organization serves its own cap.
+            payload = posthoganalytics.get_feature_flag_payload(
+                LLM_DETECTOR_FLAG,
+                _PAYLOAD_DISTINCT_ID,
+                groups={"organization": str(organization_id)},
+            )
         if isinstance(payload, str):
             payload = json.loads(payload)
         return payload if isinstance(payload, dict) else None
