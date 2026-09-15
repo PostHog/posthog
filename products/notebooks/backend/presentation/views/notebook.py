@@ -105,6 +105,7 @@ from products.notebooks.backend.presentation.reusable_widget_serializers import 
     ReusableWidgetForkRequestSerializer,
     ReusableWidgetPublishRequestSerializer,
 )
+from products.notebooks.backend.presentation.widget_analytics import reusable_widget_origin
 from products.notebooks.backend.presentation.widget_serializers import (
     WidgetCancelRequestSerializer,
     WidgetErrorSerializer,
@@ -169,7 +170,6 @@ from products.notebooks.backend.sql_v2_variables import (
 )
 from products.notebooks.backend.temporal.client import start_sql_v2_run_workflow
 from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput
-from products.notebooks.backend.widget_analytics import reusable_widget_origin
 from products.tasks.backend.facade.exceptions import SandboxProvisionError
 from products.tasks.backend.facade.sandbox import SandboxStatus
 

@@ -40,6 +40,7 @@ from products.notebooks.backend.presentation.reusable_widget_serializers import 
     ReusableWidgetReviewRequestSerializer,
     ReusableWidgetVersionPageSerializer,
 )
+from products.notebooks.backend.presentation.widget_analytics import reusable_widget_origin
 from products.notebooks.backend.presentation.widget_serializers import (
     WidgetErrorSerializer,
     WidgetFrameSerializer,
@@ -48,7 +49,6 @@ from products.notebooks.backend.presentation.widget_serializers import (
     WidgetStatusSerializer,
     WidgetVersionQuerySerializer,
 )
-from products.notebooks.backend.widget_analytics import reusable_widget_origin
 
 
 class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):

@@ -6,14 +6,12 @@ from uuid import UUID
 from django.db import transaction
 
 from posthog.dataclasses import frozen
-from posthog.event_usage import EventSource, get_event_source, report_user_or_team_action
+from posthog.event_usage import report_user_or_team_action
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import get_was_impersonated
 
 if TYPE_CHECKING:
-    from rest_framework.request import Request
-
     from products.notebooks.backend.models import GeneratedWidget
 
 
@@ -37,13 +35,6 @@ class ReusableWidgetActivityContext(ActivityContextBase):
     source_widget_id: str | None
     generation_id: str | None
     generation_operation: str | None
-
-
-def reusable_widget_origin(request: "Request", *, automatic: bool = False) -> str:
-    if automatic:
-        return "auto_attach"
-    source = get_event_source(request)
-    return "ui" if source == EventSource.WEB else source.value
 
 
 def record_reusable_widget_operation(
