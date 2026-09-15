@@ -1340,7 +1340,13 @@ class CSPMiddleware:
                 # frames rather than from our page. Unlayer bears that out: embed.js is the only
                 # unlayer URL this policy has ever reported, because the editor itself runs in a
                 # frame that carries its own policy rather than ours.
-                f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval' {resource_url} https://*.i.posthog.com https://js.stripe.com https://challenges.cloudflare.com https://editor.unlayer.com",
+                #
+                # Unlayer is pinned to a path rather than the host, because react-email-editor
+                # hardcodes that one URL and we do not pass its `scriptUrl` prop. A source path is
+                # matched against the URL path alone, so the `?2` the library appends does not
+                # defeat it. The cost is that a version bump which moves the file needs this line
+                # updated, or the editor stops loading.
+                f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval' {resource_url} https://*.i.posthog.com https://js.stripe.com https://challenges.cloudflare.com https://editor.unlayer.com/embed.js",
                 # A data: font cannot execute script, and this directive governs font loading only,
                 # so the token widens nothing else. It also carries nothing out: a data: URL makes
                 # no request, which is what the CSS-injection attacks on this directive need. The
