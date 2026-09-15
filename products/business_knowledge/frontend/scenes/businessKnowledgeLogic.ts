@@ -178,12 +178,12 @@ export interface businessKnowledgeLogicValues {
     readyCount: number
     refreshingIds: string[]
     searchTerm: string
-    sourceTypeFilter: SourceTypeFilter
     showEditSourceErrors: boolean
     showEditUrlSourceErrors: boolean
     showFileSourceErrors: boolean
     showTextSourceErrors: boolean
     showUrlSourceErrors: boolean
+    sourceTypeFilter: SourceTypeFilter
     sources: KnowledgeSource[]
     sourcesLoading: boolean
     textSource: TextSourceFormValues
@@ -245,7 +245,7 @@ export interface businessKnowledgeLogicActions {
             id: string
         }
     }
-    loadSources: () => any
+    loadSources: (_: void) => void
     loadSourcesFailure: (
         error: string,
         errorObject?: any
@@ -255,10 +255,10 @@ export interface businessKnowledgeLogicActions {
     }
     loadSourcesSuccess: (
         sources: KnowledgeSourceApi[],
-        payload?: any
+        payload?: void
     ) => {
         sources: KnowledgeSourceApi[]
-        payload?: any
+        payload?: void
     }
     openCreateModal: () => {
         value: true
@@ -353,12 +353,6 @@ export interface businessKnowledgeLogicActions {
     setCreateTab: (tab: CreateTab) => {
         tab: CreateTab
     }
-    setSearchTerm: (searchTerm: string) => {
-        searchTerm: string
-    }
-    setSourceTypeFilter: (sourceTypeFilter: SourceTypeFilter) => {
-        sourceTypeFilter: SourceTypeFilter
-    }
     setEditSourceManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
     }
@@ -397,6 +391,12 @@ export interface businessKnowledgeLogicActions {
     }
     setFileSourceValues: (values: DeepPartial<FileSourceFormValues>) => {
         values: DeepPartial<FileSourceFormValues>
+    }
+    setSearchTerm: (searchTerm: string) => {
+        searchTerm: string
+    }
+    setSourceTypeFilter: (sourceTypeFilter: SourceTypeFilter) => {
+        sourceTypeFilter: SourceTypeFilter
     }
     setTextSourceManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
@@ -597,7 +597,7 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
         sources: [
             [] as KnowledgeSource[],
             {
-                loadSources: async (_, breakpoint) => {
+                loadSources: async (_: void, breakpoint) => {
                     const sources = await listSources({
                         search: values.searchTerm,
                         sourceType: values.sourceTypeFilter,
