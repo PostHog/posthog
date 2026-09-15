@@ -6523,6 +6523,35 @@ class TestIntegrationRequestAccessAPI(APIBaseTest):
         mock_report.assert_not_called()
 
 
+class TestApplePushIntegrationAPI(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("numeric_team_id", "team_id_apple", 12345),
+            ("object_signing_key", "signing_key", {"pem": "-----BEGIN PRIVATE KEY-----"}),
+        ]
+    )
+    def test_rejects_a_config_field_that_is_not_a_string(self, _name, field, value):
+        # `config` is a JSON field, so nothing types what a client posts into it. A wrong type has
+        # to read as a validation error, not as a server error.
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "apns",
+                "config": {
+                    "signing_key": "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----",
+                    "key_id": "KEY1",
+                    "team_id_apple": "TEAM123",
+                    "bundle_id": "com.example.app",
+                    field: value,
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert not Integration.objects.filter(team=self.team, kind="apns").exists()
+
+
 class TestPushIdentityVerificationAPI(APIBaseTest):
     def setUp(self):
         super().setUp()

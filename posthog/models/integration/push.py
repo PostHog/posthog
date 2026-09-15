@@ -270,6 +270,13 @@ class ApplePushIntegration:
         push_identity_verification: str | None = None,
         push_identity_public_keys: list[str] | None = None,
     ) -> "model.Integration":
+        # The posted config is untyped JSON, so a field can arrive as any type. Stripping a number
+        # below raises, which the endpoint answers with a server error rather than a validation one.
+        if not all(
+            value is None or isinstance(value, str) for value in (signing_key, key_id, team_id_apple, bundle_id)
+        ):
+            raise ValidationError("All APNS fields must be strings: signing_key, key_id, team_id_apple, bundle_id")
+
         # A space copied out of the developer portal corrupts the signed JWT and the apns-topic.
         signing_key = (signing_key or "").strip()
         key_id = (key_id or "").strip()

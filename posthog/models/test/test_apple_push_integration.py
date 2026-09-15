@@ -73,6 +73,11 @@ class TestApplePushIntegration(BaseTest):
         with self.assertRaises(ValidationError):
             self._create_apple_push_integration(**{field: value})
 
+    @parameterized.expand(["signing_key", "key_id", "team_id_apple", "bundle_id"])
+    def test_rejects_a_field_that_is_not_a_string(self, field):
+        with self.assertRaises(ValidationError):
+            self._create_apple_push_integration(**{field: 12345})
+
     def test_strips_whitespace_around_the_signing_key(self):
         # A leading space makes the key unusable for ES256, so the credential could never send.
         integration = self._create_apple_push_integration(
