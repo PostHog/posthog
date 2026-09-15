@@ -362,15 +362,15 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
         creation_context: zod
             .union([
                 zod
-                    .enum(['dashboards', 'feature_flags', 'metrics', 'onboarding', 'posthog_ai'])
+                    .enum(['dashboards', 'experiments', 'metrics', 'onboarding', 'posthog_ai'])
                     .describe(
-                        '\* `dashboards` - dashboards\n\* `feature_flags` - feature_flags\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+                        '\* `dashboards` - dashboards\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Surface the dashboard was created from. Reported on the `dashboard created` event.\n\n\* `dashboards` - dashboards\n\* `feature_flags` - feature_flags\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+                'Surface the dashboard was created from. Reported on the `dashboard created` event.\n\n\* `dashboards` - dashboards\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
             ),
         _create_in_folder: zod.string().optional(),
     })
@@ -478,15 +478,15 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
         creation_context: zod
             .union([
                 zod
-                    .enum(['dashboards', 'feature_flags', 'metrics', 'onboarding', 'posthog_ai'])
+                    .enum(['dashboards', 'experiments', 'metrics', 'onboarding', 'posthog_ai'])
                     .describe(
-                        '\* `dashboards` - dashboards\n\* `feature_flags` - feature_flags\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+                        '\* `dashboards` - dashboards\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Surface the dashboard was created from. Reported on the `dashboard created` event.\n\n\* `dashboards` - dashboards\n\* `feature_flags` - feature_flags\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+                'Surface the dashboard was created from. Reported on the `dashboard created` event.\n\n\* `dashboards` - dashboards\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
             ),
         _create_in_folder: zod.string().optional(),
     })
@@ -3716,15 +3716,15 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
         creation_context: zod
             .union([
                 zod
-                    .enum(['dashboards', 'feature_flags', 'metrics', 'onboarding', 'posthog_ai'])
+                    .enum(['dashboards', 'experiments', 'metrics', 'onboarding', 'posthog_ai'])
                     .describe(
-                        '\* `dashboards` - dashboards\n\* `feature_flags` - feature_flags\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+                        '\* `dashboards` - dashboards\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Surface the dashboard was created from. Reported on the `dashboard created` event.\n\n\* `dashboards` - dashboards\n\* `feature_flags` - feature_flags\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+                'Surface the dashboard was created from. Reported on the `dashboard created` event.\n\n\* `dashboards` - dashboards\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
             ),
         _create_in_folder: zod.string().optional(),
     })
@@ -3830,15 +3830,15 @@ export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
         creation_context: zod
             .union([
                 zod
-                    .enum(['dashboards', 'feature_flags', 'metrics', 'onboarding', 'posthog_ai'])
+                    .enum(['dashboards', 'experiments', 'metrics', 'onboarding', 'posthog_ai'])
                     .describe(
-                        '\* `dashboards` - dashboards\n\* `feature_flags` - feature_flags\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+                        '\* `dashboards` - dashboards\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Surface the dashboard was created from. Reported on the `dashboard created` event.\n\n\* `dashboards` - dashboards\n\* `feature_flags` - feature_flags\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+                'Surface the dashboard was created from. Reported on the `dashboard created` event.\n\n\* `dashboards` - dashboards\n\* `experiments` - experiments\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
             ),
         _create_in_folder: zod.string().optional(),
     })

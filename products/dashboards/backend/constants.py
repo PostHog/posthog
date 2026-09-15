@@ -65,7 +65,7 @@ DEFAULT_DASHBOARD_CREATION_CONTEXT = "dashboards"
 
 DASHBOARD_CREATION_CONTEXT_CHOICES: tuple[str, ...] = (
     DEFAULT_DASHBOARD_CREATION_CONTEXT,
-    "feature_flags",
+    "experiments",
     "metrics",
     "onboarding",
     DASHBOARD_CREATION_CONTEXT_POSTHOG_AI,

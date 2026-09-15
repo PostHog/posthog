@@ -1785,10 +1785,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     @patch("products.dashboards.backend.api.dashboard.report_user_action")
     def test_dashboard_creation_reports_creation_context(self, mock_report_user_action):
-        self.dashboard_api.create_dashboard({"name": "flag metrics", "creation_context": "feature_flags"})
+        self.dashboard_api.create_dashboard({"name": "Experiment: checkout", "creation_context": "experiments"})
 
         reported_properties = mock_report_user_action.call_args[0][2]
-        assert reported_properties["creation_context"] == "feature_flags"
+        assert reported_properties["creation_context"] == "experiments"
 
     def test_dashboard_creation_rejects_unknown_creation_context(self):
         self.dashboard_api.create_dashboard(

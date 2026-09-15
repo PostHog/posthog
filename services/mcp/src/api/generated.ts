@@ -21853,7 +21853,7 @@ export namespace Schemas {
 
     /**
      * * `dashboards` - dashboards
-     * * `feature_flags` - feature_flags
+     * * `experiments` - experiments
      * * `metrics` - metrics
      * * `onboarding` - onboarding
      * * `posthog_ai` - posthog_ai
@@ -21863,7 +21863,7 @@ export namespace Schemas {
 
     export const DashboardCreationContextEnum = {
       Dashboards: 'dashboards',
-      FeatureFlags: 'feature_flags',
+      Experiments: 'experiments',
       Metrics: 'metrics',
       Onboarding: 'onboarding',
       PosthogAi: 'posthog_ai',
@@ -21970,7 +21970,7 @@ export namespace Schemas {
       /** Surface the dashboard was created from. Reported on the `dashboard created` event.
        *
        * * `dashboards` - dashboards
-       * * `feature_flags` - feature_flags
+       * * `experiments` - experiments
        * * `metrics` - metrics
        * * `onboarding` - onboarding
        * * `posthog_ai` - posthog_ai */

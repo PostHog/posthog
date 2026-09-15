@@ -356,7 +356,6 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                             name: name,
                             description: description,
                             use_template: useTemplate,
-                            creation_context: props.featureFlagId ? 'feature_flags' : 'dashboards',
                             ...(props.initialTags && { tags: props.initialTags }),
                             ...(typeof _create_in_folder === 'string' ? { _create_in_folder } : {}),
                         } as Partial<DashboardType>

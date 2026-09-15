@@ -509,7 +509,7 @@ export interface DashboardCustomizationApi {
 
 /**
  * * `dashboards` - dashboards
- * * `feature_flags` - feature_flags
+ * * `experiments` - experiments
  * * `metrics` - metrics
  * * `onboarding` - onboarding
  * * `posthog_ai` - posthog_ai
@@ -519,7 +519,7 @@ export type DashboardCreationContextEnumApi =
 
 export const DashboardCreationContextEnumApi = {
     Dashboards: 'dashboards',
-    FeatureFlags: 'feature_flags',
+    Experiments: 'experiments',
     Metrics: 'metrics',
     Onboarding: 'onboarding',
     PosthogAi: 'posthog_ai',
@@ -626,7 +626,7 @@ export interface DashboardApi {
     /** Surface the dashboard was created from. Reported on the `dashboard created` event.
      *
      * * `dashboards` - dashboards
-     * * `feature_flags` - feature_flags
+     * * `experiments` - experiments
      * * `metrics` - metrics
      * * `onboarding` - onboarding
      * * `posthog_ai` - posthog_ai */
