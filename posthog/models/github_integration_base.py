@@ -986,7 +986,11 @@ class GitHubIntegrationBase:
         commit = body[0].get("commit") if isinstance(body[0], dict) else None
         if not isinstance(commit, dict):
             return None
-        raw_date = (commit.get("author") or {}).get("date") or (commit.get("committer") or {}).get("date")
+        author = commit.get("author")
+        committer = commit.get("committer")
+        raw_date = (author.get("date") if isinstance(author, dict) else None) or (
+            committer.get("date") if isinstance(committer, dict) else None
+        )
         if not isinstance(raw_date, str):
             return None
         try:

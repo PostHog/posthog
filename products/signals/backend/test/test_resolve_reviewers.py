@@ -746,6 +746,20 @@ class TestDepartedCommitAuthors:
         assert [r.login for r in first.reviewers] == [r.login for r in second.reviewers]
         assert second.diagnostics.inactive_author_count == 1
 
+    def test_an_unattributed_account_is_asked_about_once(self, team):
+        # GitHub answered, so the answer caches even though it keeps the author. Leaving the key
+        # absent would re-ask on every later report for the same repository.
+        probed: list[str] = []
+        github = self._fake_github("blame-author", GitHubAuthorLastCommit(last_commit_at=None), probed=probed)
+
+        first = self._resolve(team, github, self._active_owner_activity())
+        second = self._resolve(team, github, self._active_owner_activity())
+
+        assert probed == ["blame-author"]
+        assert "blame-author" in [r.login for r in second.reviewers]
+        assert first.diagnostics.inactive_author_count == 0
+        assert second.diagnostics.inactive_author_count == 0
+
     def test_agent_proposed_candidates_are_not_probed(self, team):
         # Only commit evidence claims someone owns an area because they once wrote it. A manually
         # named or agent-proposed reviewer is an ownership statement in its own right, so this path

@@ -71,7 +71,8 @@ def _probe_inactive_authors(github: GitHubIntegration, repository: str, logins: 
 
     An author GitHub cannot speak for — a failed probe, a throttled one, or an account with no
     attributed commit on the default branch — is left out, because a probe that did not answer
-    must not remove a candidate. Each answer is cached, so a retried report does not re-ask.
+    must not remove a candidate. Every answer GitHub gave is cached, so a retried report does not
+    re-ask; a probe that did not answer is not, so the next report tries again.
     """
     now = timezone.now()
     inactive: set[str] = set()
@@ -87,7 +88,11 @@ def _probe_inactive_authors(github: GitHubIntegration, repository: str, logins: 
             except Exception:
                 logger.warning("Author activity probe failed for %s", repository, exc_info=True)
                 continue
-            if last_commit is None or last_commit.last_commit_at is None:
+            if last_commit is None:
+                continue
+            if last_commit.last_commit_at is None:
+                # GitHub answered, and no commit is attributed to the account, so the author stands.
+                cache.set(_cache_key(repository, login), False, AUTHOR_ACTIVITY_CACHE_TTL_SECONDS)
                 continue
             is_inactive = days_since(last_commit.last_commit_at, now) > AUTHOR_ACTIVITY_WINDOW_DAYS
             cache.set(_cache_key(repository, login), is_inactive, AUTHOR_ACTIVITY_CACHE_TTL_SECONDS)

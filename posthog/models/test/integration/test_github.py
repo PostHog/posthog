@@ -225,6 +225,7 @@ class TestGitHubIntegrationModel(BaseTest):
             ("non_200", 404, []),
             ("not_a_list", 200, {"message": "nope"}),
             ("undated_commit", 200, [{"commit": {}}]),
+            ("author_not_a_dict", 200, [{"commit": {"author": "octocat"}}]),
         ]
     )
     def test_author_last_commit_says_nothing_when_github_did_not_answer(self, _name, status_code, body):
