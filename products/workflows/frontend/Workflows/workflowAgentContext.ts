@@ -2,6 +2,7 @@ import { redactSecretHogFunctionInputs } from 'scenes/hog-functions/hog-function
 
 import { CyclotronJobInputSchemaType, CyclotronJobInputType, HogFunctionTemplateType } from '~/types'
 
+import type { ComposerOverride } from 'products/posthog_ai/frontend/api/logics'
 import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 import { isEmailAction, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
@@ -11,6 +12,9 @@ import type { HogFlow } from './hogflows/types'
 // the chip actually detaches the payload instead of only hiding the chip.
 const SKILL_DISMISS_GROUP = 'workflow-scene-skill'
 const EDITOR_STATE_DISMISS_GROUP = 'workflow-scene-state'
+// The AI-first composer keeps its own group. A dismissal is global and never resets, so a skill chip closed
+// on a workflow would otherwise take this page's instructions with it, on this visit and every later one.
+const NEW_WORKFLOW_DISMISS_GROUP = 'new-workflow-composer'
 
 const BUILDING_WORKFLOWS_SKILL = 'building-workflows'
 const DESIGNING_EMAIL_TEMPLATES_SKILL = 'designing-email-templates'
@@ -55,6 +59,94 @@ export const WORKFLOW_AGENT_HEADLINES: string[] = [
 ]
 
 export const EMAIL_EDITOR_AGENT_HEADLINES: string[] = ['How should this email look?']
+
+export const NEW_WORKFLOW_AGENT_HEADLINES: string[] = ['What workflow would you like to build today?']
+
+export const NEW_WORKFLOW_COMPOSER_OVERRIDE: ComposerOverride = {
+    hideRepositorySelector: true,
+    hideSuggestions: true,
+    hideRecentTasks: true,
+    // This page is not a takeover host, and it closes a side panel open on PostHog AI, so nothing
+    // would receive the replay click.
+    hideOnboardingReplay: true,
+}
+
+export interface NewWorkflowSuggestion {
+    title: string
+    description: string
+    prompt: string
+}
+
+// The first is the data-driven ask; the rest follow the templates users pick most often.
+export const NEW_WORKFLOW_SUGGESTIONS: NewWorkflowSuggestion[] = [
+    {
+        title: 'Improve my conversion',
+        description: 'Look at the funnel and draft a campaign for the biggest drop-off',
+        prompt: 'Look at my conversion funnel and draft a campaign to improve the biggest drop-off',
+    },
+    {
+        title: 'Welcome new signups',
+        description: 'A short email sequence over the first week',
+        prompt: 'Send a welcome email sequence to new signups over their first week',
+    },
+    {
+        title: 'Alert on new support tickets',
+        description: 'Post to Slack when a ticket comes in',
+        prompt: 'Notify the team in Slack when a new support ticket comes in',
+    },
+    {
+        title: 'Finish onboarding',
+        description: 'Nudge people who started but never completed it',
+        prompt: 'Remind users who started onboarding but never finished it',
+    },
+    {
+        title: 'Win back inactive users',
+        description: 'Reach out after 30 days of silence',
+        prompt: 'Re-engage users who have been inactive for 30 days',
+    },
+    {
+        title: 'Webhook on upgrade',
+        description: 'Call my endpoint when a customer upgrades',
+        prompt: 'Send a webhook when a user upgrades their plan',
+    },
+    {
+        title: 'Triage alerts from Slack',
+        description: 'Investigate each new alert and reply with findings in the thread',
+        prompt: 'When an alert is posted in my Slack alerts channel, start an AI investigation and reply with the findings in the thread',
+    },
+    {
+        title: 'Celebrate a milestone',
+        description: 'Congratulate people when they hit one, and point at the next',
+        prompt: 'Send a congratulations email when a user reaches a milestone and point them at the next one',
+    },
+]
+
+// Static text: the user lands here from "New workflow" with nothing built yet, so the fastest useful
+// outcome is a draft in the editor, which they then refine with the agent alongside.
+const DRAFT_FIRST_CONTEXT_ITEM: AttachedContextItem = {
+    type: 'instructions',
+    hidden: true,
+    dismissGroup: NEW_WORKFLOW_DISMISS_GROUP,
+    value:
+        'The user is starting a new workflow from a description. Make workflows-create your first tool call and ' +
+        'keep it minimal: the trigger plus the steps as placeholders, with placeholder email subjects and bodies. ' +
+        'Do not ask clarifying questions first. The editor opens the draft the moment it exists, so fill in ' +
+        'content and details afterwards with workflows-patch-graph and workflows-patch-action-email, then test. ' +
+        'Never enable it.',
+}
+
+/**
+ * Agent context for the AI-first new-workflow composer: skill pointer plus the draft-first instruction, no
+ * editor state. The chip cannot be closed here, unlike on a workflow, because the page advances only when
+ * the agent creates the draft and closing a chip detaches the hidden items it stands for.
+ */
+export function buildNewWorkflowComposerContext(): AttachedContextItem[] {
+    return [
+        { ...PREAMBLE_CONTEXT_ITEM, dismissGroup: NEW_WORKFLOW_DISMISS_GROUP },
+        { ...SKILL_CHIP_CONTEXT_ITEM, dismissGroup: NEW_WORKFLOW_DISMISS_GROUP, dismissible: false },
+        DRAFT_FIRST_CONTEXT_ITEM,
+    ]
+}
 
 const EMAIL_EDITING_DISMISS_GROUP = 'workflow-scene-email-editing'
 

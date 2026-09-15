@@ -3,6 +3,7 @@ import { HogFunctionTemplateType } from '~/types'
 import type { HogFlow } from './hogflows/types'
 import {
     EDITOR_STATE_MAX_CHARS,
+    buildNewWorkflowComposerContext,
     buildWorkflowAgentContext,
     redactWorkflowSecretInputs,
     serializeWorkflowEditorState,
@@ -282,6 +283,24 @@ describe('workflowAgentContext', () => {
 
             expect(instructionValues(items).some((value) => value.includes('email editor open'))).toBe(false)
             expect(instructionValues(items).some((value) => value.includes('designing-email-templates'))).toBe(false)
+        })
+    })
+
+    describe('buildNewWorkflowComposerContext', () => {
+        // A dismissal is recorded against the group, is global, and never resets, so sharing the editor
+        // scene's group would let a chip closed on a workflow strip this page's instructions. The page
+        // advances only once the agent creates the draft, and there would be no chip left to bring them back.
+        it('cannot be dismissed from the workflow editor scene, or from its own chip', () => {
+            const editorGroups = new Set(
+                buildWorkflowAgentContext(workflowWith({}), 'flow-1', templatesById)
+                    .map((item) => item.dismissGroup)
+                    .filter(Boolean)
+            )
+            const items = buildNewWorkflowComposerContext()
+
+            expect(items.every((item) => !editorGroups.has(item.dismissGroup))).toBe(true)
+            expect(items.find((item) => item.type === 'skill')?.dismissible).toBe(false)
+            expect(items.some((item) => item.value?.includes('workflows-create'))).toBe(true)
         })
     })
 })

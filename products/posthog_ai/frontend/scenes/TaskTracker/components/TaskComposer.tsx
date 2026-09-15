@@ -12,6 +12,7 @@ import {
     Suggestions,
     Welcome,
 } from 'products/posthog_ai/frontend/api/primitives'
+import { composerOverrideLogic } from 'products/posthog_ai/frontend/logics/composerOverrideLogic'
 import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
 import { taskRunDefaultsLogic } from 'products/posthog_ai/frontend/logics/taskRunDefaultsLogic'
 import { getRuntimeAdapterForModel, resolveEffortForModel } from 'products/posthog_ai/frontend/utils/composerModels'
@@ -49,6 +50,7 @@ export function TaskComposer(): JSX.Element {
     } = useValues(taskTrackerSceneLogic)
     const { catalogue } = useValues(modelCatalogueLogic)
     const { myConfigLoading } = useValues(taskRunDefaultsLogic)
+    const { composerOverride } = useValues(composerOverrideLogic)
 
     // The bound instance's key — 'scene' on `/ai` and `/tasks`, the panel key when embedded. The onboarding
     // takeover is keyed the same way, so a starter prompt chosen on replay reaches this composer.
@@ -74,7 +76,7 @@ export function TaskComposer(): JSX.Element {
                 <Welcome headline={displayHeadline}>
                     {/* Temporary migration affordance — delete with the rest of the onboarding takeover
                         once everyone is on the new PostHog AI. */}
-                    <OnboardingReplayButton panelId={panelId} />
+                    {!composerOverride?.hideOnboardingReplay && <OnboardingReplayButton panelId={panelId} />}
                 </Welcome>
 
                 <Suggestions.Root
@@ -85,10 +87,12 @@ export function TaskComposer(): JSX.Element {
                 >
                     {/* Repo/branch picker sits 8px above the input it configures. */}
                     <div className="w-full flex flex-col gap-2">
-                        <RepositorySelector
-                            value={newTaskData.repositoryConfig}
-                            onChange={(config) => setNewTaskData({ repositoryConfig: config })}
-                        />
+                        {!composerOverride?.hideRepositorySelector && (
+                            <RepositorySelector
+                                value={newTaskData.repositoryConfig}
+                                onChange={(config) => setNewTaskData({ repositoryConfig: config })}
+                            />
+                        )}
                         <ComposerModeShortcut
                             onCycle={() =>
                                 setNewTaskData({
@@ -153,7 +157,10 @@ export function TaskComposer(): JSX.Element {
                                     />
                                 </Composer.Footer>
                             </Composer.Frame>
-                            <Suggestions.Dropdown />
+                            {/* Gated with the button row below, because the open-group value is shared with
+                                the side panel's composer: a group left expanded there would list generic
+                                prompts on this host, and a click on one starts an unexpected run. */}
+                            {!composerOverride?.hideSuggestions && <Suggestions.Dropdown />}
                             <AIConsentPopoverWrapper
                                 placement="bottom-end"
                                 showArrow
@@ -167,7 +174,7 @@ export function TaskComposer(): JSX.Element {
                         </Composer.Root>
                     </div>
 
-                    <Suggestions.Buttons data={DEFAULT_SUGGESTIONS_DATA} />
+                    {!composerOverride?.hideSuggestions && <Suggestions.Buttons data={DEFAULT_SUGGESTIONS_DATA} />}
                 </Suggestions.Root>
             </div>
         </div>

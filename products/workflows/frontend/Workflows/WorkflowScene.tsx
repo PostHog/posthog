@@ -20,10 +20,15 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
+import { NewWorkflowAgent } from './NewWorkflowAgent'
+import { newWorkflowLogic } from './newWorkflowLogic'
 import { Workflow } from './Workflow'
 import {
     EMAIL_EDITOR_AGENT_HEADLINES,
+    NEW_WORKFLOW_AGENT_HEADLINES,
+    NEW_WORKFLOW_COMPOSER_OVERRIDE,
     WORKFLOW_AGENT_HEADLINES,
+    buildNewWorkflowComposerContext,
     buildWorkflowAgentContext,
     isEditingEmailAction,
 } from './workflowAgentContext'
@@ -84,6 +89,10 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         500
     )
     const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
+    const { aiComposerAvailable } = useValues(newWorkflowLogic)
+    // The AI-first composer replaces the editor for a brand-new workflow; deep links that carry a
+    // starting point and the escape hatch land in the editor instead (see `aiComposerAvailable`).
+    const showAiComposer = workflowSceneProps.id === 'new' && aiComposerAvailable
     // The email takeover reflects its state into the URL (?editor=email beside the step's ?node=);
     // while it is open the panel's framing follows the email being edited, not the graph. Both
     // swaps update the same provider registrations in place, so they keep their first-registered
@@ -95,22 +104,39 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     // entirely for users the integration flag hasn't reached.
     const agentContextItems = useMemo(
         () =>
-            sceneIntegrationEnabled
-                ? buildWorkflowAgentContext(
-                      debouncedAgentSource.workflow,
-                      debouncedAgentSource.id,
-                      hogFunctionTemplatesById,
-                      editingEmailActionId
-                  )
-                : null,
-        [sceneIntegrationEnabled, debouncedAgentSource, hogFunctionTemplatesById, editingEmailActionId]
+            showAiComposer
+                ? buildNewWorkflowComposerContext()
+                : sceneIntegrationEnabled
+                  ? buildWorkflowAgentContext(
+                        debouncedAgentSource.workflow,
+                        debouncedAgentSource.id,
+                        hogFunctionTemplatesById,
+                        editingEmailActionId
+                    )
+                  : null,
+        [showAiComposer, sceneIntegrationEnabled, debouncedAgentSource, hogFunctionTemplatesById, editingEmailActionId]
     )
     useSceneAgentPanel({
         sceneKey: 'workflow',
         contextItems: agentContextItems,
-        headlines: editingEmail ? EMAIL_EDITOR_AGENT_HEADLINES : WORKFLOW_AGENT_HEADLINES,
+        headlines: showAiComposer
+            ? NEW_WORKFLOW_AGENT_HEADLINES
+            : editingEmail
+              ? EMAIL_EDITOR_AGENT_HEADLINES
+              : WORKFLOW_AGENT_HEADLINES,
+        composer: showAiComposer ? NEW_WORKFLOW_COMPOSER_OVERRIDE : undefined,
         active: !!originalWorkflow || workflowSceneProps.id === 'new',
+        // The composer is the page while drafting; the panel opens itself once the draft exists.
+        autoOpen: !showAiComposer,
     })
+
+    if (showAiComposer) {
+        return (
+            <SceneContent className="h-full flex flex-col grow" data-attr="workflow-scene">
+                <NewWorkflowAgent />
+            </SceneContent>
+        )
+    }
 
     if (!originalWorkflow && workflowLoading) {
         return <SpinnerOverlay sceneLevel />
