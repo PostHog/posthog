@@ -546,6 +546,64 @@ describe('cohortEditLogic', () => {
         })
     })
 
+    describe('used-in summary', () => {
+        afterEach(() => {
+            cleanup()
+        })
+
+        const cohortId = 8
+        const cohortName = 'Referenced cohort'
+        // 42 insights behind a 2-item page, and a cohorts block nothing references.
+        const usedInMocks = {
+            get: {
+                [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
+                    ...mockCohort,
+                    id: cohortId,
+                    name: cohortName,
+                },
+                [`/api/projects/:team_id/cohorts/${cohortId}/used_in/`]: {
+                    feature_flags: {
+                        results: [{ id: 7, key: 'my-flag', name: 'My flag' }],
+                        total: 1,
+                        has_more: false,
+                    },
+                    insights: {
+                        results: [
+                            { id: 1, short_id: 'abc123', name: 'Weekly signups' },
+                            { id: 2, short_id: 'def456', name: 'Activation funnel' },
+                        ],
+                        total: 42,
+                        has_more: true,
+                    },
+                    cohorts: { results: [], total: 0, has_more: false },
+                },
+            },
+        }
+
+        it('counts every use from the total and leaves the list collapsed', async () => {
+            useMocks(usedInMocks)
+
+            render(<CohortEdit id={cohortId} />)
+
+            expect(
+                await screen.findByRole('button', { name: 'Used in 1 feature flag and 42 insights' })
+            ).toBeInTheDocument()
+            expect(screen.queryByRole('link', { name: 'Weekly signups' })).not.toBeInTheDocument()
+        })
+
+        it('reveals the grouped links and the truncation note once expanded', async () => {
+            useMocks(usedInMocks)
+
+            render(<CohortEdit id={cohortId} />)
+
+            await userEvent.click(await screen.findByRole('button', { name: /^Used in/ }))
+
+            expect(screen.getByRole('link', { name: 'My flag' })).toBeInTheDocument()
+            expect(screen.getByRole('link', { name: 'Weekly signups' })).toBeInTheDocument()
+            expect(screen.getByText(/2 of 42 shown/)).toBeInTheDocument()
+        })
+    })
+
     describe('criteria row type switching', () => {
         afterEach(() => {
             cleanup()
