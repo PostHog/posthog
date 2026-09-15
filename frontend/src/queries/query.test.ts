@@ -36,6 +36,9 @@ describe('query', () => {
                     if (data.query?.kind === 'EventsQuery' && data.query.select[0] === 'error') {
                         return [500, { detail: 'error' }]
                     }
+                    if (data.query?.kind === 'EventsQuery' && data.query.select[0] === 'empty') {
+                        return [204]
+                    }
                     return [200, {}]
                 },
             },
@@ -160,6 +163,16 @@ describe('query', () => {
         })
         // Raw error text must stay out of telemetry
         expect(queryFailedCalls[0][1]).not.toHaveProperty('error_message')
+    })
+
+    it('reports an empty-body query response as a named failure', async () => {
+        const q: EventsQuery = setLatestVersionsOnQuery({
+            kind: NodeKind.EventsQuery,
+            select: ['empty'],
+            limit: 100,
+        })
+
+        await expect(performQuery(q)).rejects.toThrow('Empty response from the query endpoint (EventsQuery)')
     })
 
     it('does not emit a query failed event when the request is aborted', async () => {

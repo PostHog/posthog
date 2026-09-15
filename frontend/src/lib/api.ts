@@ -6775,7 +6775,7 @@ const api = {
                 ? new ApiRequest().accountsTableQuery()
                 : new ApiRequest().query(undefined, bodyKind)
 
-        return await apiRequest.create({
+        const response = await apiRequest.create({
             ...queryOptions?.requestOptions,
             data: {
                 query,
@@ -6786,6 +6786,15 @@ const api = {
                 limit_context: queryOptions?.limitContext,
             },
         })
+
+        if (!response) {
+            // This endpoint always sends a JSON body, so an empty one means the request failed
+            // and `getJSONFromSuccessResponse` resolved it to null. The result is typed
+            // non-nullable and every caller dereferences it, so name the failure here.
+            throw new ApiError(`Empty response from the query endpoint (${bodyKind ?? 'unknown kind'})`)
+        }
+
+        return response
     },
 
     async queryHogQL<T = any[]>(
