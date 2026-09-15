@@ -23,11 +23,7 @@ describe('agentAttribution', () => {
 
     it.each([
         ['no trigger at all', null, null],
-        [
-            'a product trigger, whose job id is not a task',
-            { job_type: 'hog_flow', job_id: '1234', payload: {} },
-            null,
-        ],
+        ['a product trigger, whose job id is not a task', { job_type: 'hog_flow', job_id: '1234', payload: {} }, null],
         ['an agent trigger carrying neither field', { job_type: 'agent', job_id: '', payload: {} }, null],
         [
             'an agent trigger with both fields',
@@ -44,10 +40,7 @@ describe('agentAttribution', () => {
             { job_type: 'agent', job_id: AGENT_TASK_ID, payload: { intent: { nested: true } } },
             { intent: null, taskId: AGENT_TASK_ID },
         ],
-    ] as [string, Trigger | null, ReturnType<typeof agentAttribution>][])(
-        'reads %s',
-        (_label, trigger, expected) => {
-            expect(agentAttribution(logItem(trigger))).toEqual(expected)
-        }
-    )
+    ] as [string, Trigger | null, ReturnType<typeof agentAttribution>][])('reads %s', (_label, trigger, expected) => {
+        expect(agentAttribution(logItem(trigger))).toEqual(expected)
+    })
 })
