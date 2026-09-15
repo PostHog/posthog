@@ -23,10 +23,12 @@ export function AnnotationsOptionsFilter(): JSX.Element {
     const { annotations } = useValues(annotationsModel)
 
     const enabled = showAnnotations !== false
-    const selectedEmojis = annotationsFilter?.emojis ?? []
-    const savedSearch = annotationsFilter?.search ?? ''
-    const [searchDraft, setSearchDraft] = useState(savedSearch)
-    useEffect(() => setSearchDraft(savedSearch), [savedSearch])
+    // updateInsightFilter debounces, so patches merge into a local draft to keep rapid emoji clicks.
+    const [draft, setDraft] = useState(annotationsFilter ?? undefined)
+    useEffect(() => setDraft(annotationsFilter ?? undefined), [annotationsFilter])
+    const selectedEmojis = draft?.emojis ?? []
+    const [searchDraft, setSearchDraft] = useState(draft?.search ?? '')
+    useEffect(() => setSearchDraft(draft?.search ?? ''), [draft?.search])
 
     const emojiOptions = useMemo((): string[] => {
         const counts = new Map<string, number>()
@@ -39,10 +41,12 @@ export function AnnotationsOptionsFilter(): JSX.Element {
     }, [annotations])
 
     const setFilter = (patch: AnnotationsFilter): void => {
-        const next: AnnotationsFilter = { ...annotationsFilter, ...patch }
-        const emojis = next.emojis?.length ? next.emojis : undefined
-        const search = next.search?.trim() || undefined
-        updateInsightFilter({ annotationsFilter: emojis || search ? { emojis, search } : undefined })
+        const merged: AnnotationsFilter = { ...draft, ...patch }
+        const emojis = merged.emojis?.length ? merged.emojis : undefined
+        const search = merged.search?.trim() || undefined
+        const next = emojis || search ? { emojis, search } : undefined
+        setDraft(next)
+        updateInsightFilter({ annotationsFilter: next })
     }
 
     const toggleEmoji = (emoji: string): void =>
@@ -96,11 +100,11 @@ export function AnnotationsOptionsFilter(): JSX.Element {
                                 data-attr="insight-annotations-filter-search"
                             />
                         </div>
-                        {annotationsFilter && (
+                        {draft && (
                             <LemonButton
                                 size="small"
                                 type="tertiary"
-                                onClick={() => updateInsightFilter({ annotationsFilter: undefined })}
+                                onClick={() => setFilter({ emojis: undefined, search: undefined })}
                                 data-attr="insight-annotations-filter-clear"
                             >
                                 Show all annotations
@@ -116,7 +120,7 @@ export function AnnotationsOptionsFilter(): JSX.Element {
                     disabledReason={!enabled ? 'Enable annotations to choose which ones to show' : undefined}
                     data-attr="insight-annotations-filter"
                 >
-                    {summarizeAnnotationsFilter(annotationsFilter)}
+                    {summarizeAnnotationsFilter(draft)}
                 </LemonButton>
             </LemonDropdown>
         </div>
