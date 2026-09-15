@@ -52,7 +52,14 @@ def _at(hours: float) -> datetime:
 
 
 def _attempt(
-    sha: str, start: float, end: float | None, *, failed: bool = False, attempt: int = 1, jobs: tuple[str, ...] = ()
+    sha: str,
+    start: float,
+    end: float | None,
+    *,
+    failed: bool = False,
+    succeeded: bool | None = None,
+    attempt: int = 1,
+    jobs: tuple[str, ...] = (),
 ) -> RunAttempt:
     return RunAttempt(
         run_id=hash(sha) % 1000,
@@ -63,6 +70,7 @@ def _attempt(
         started_at=_at(start),
         completed_at=_at(end) if end is not None else None,
         failed=failed,
+        succeeded=(end is not None and not failed) if succeeded is None else succeeded,
         failed_jobs=jobs,
     )
 
@@ -108,6 +116,17 @@ class TestPRTimelineBuilder(SimpleTestCase):
                     (Kind.CI_RUNNING, 3, 4),
                     (Kind.WAITING_FOR_REVIEW, 4, 5),
                     (Kind.APPROVED_NOT_ENQUEUED, 5, 6),
+                ],
+            ),
+            (
+                "cancelled_rerun_is_not_a_pass",
+                _pr(5, [_attempt("a", 0, 1, failed=True), _attempt("a", 3, 4, attempt=2, succeeded=False)]),
+                [],
+                [
+                    (Kind.CI_RUNNING, 0, 1),
+                    (Kind.RED_NOT_PROVABLE, 1, 3),
+                    (Kind.CI_RUNNING, 3, 4),
+                    (Kind.REVIEW_STATE_UNKNOWN, 4, 5),
                 ],
             ),
             (

@@ -16,7 +16,7 @@ export function PullRequestCountsCard({
         ? [
               ['Opened', String(summary.opened_pr_count)],
               [
-                  'Deployed to production',
+                  'Deployed',
                   summary.lead_time.deploy_data_available ? String(summary.lead_time.deployed_merged_pr_count) : '—',
               ],
           ]

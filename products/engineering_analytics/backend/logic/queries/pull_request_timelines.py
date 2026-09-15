@@ -114,7 +114,8 @@ _JOB_ATTEMPTS_SELECT = f"""
         min(started_at) AS started_at,
         max(completed_at) AS completed_at,
         countIf(status != 'completed') AS unfinished,
-        groupArrayIf(name, conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})) AS failed_jobs
+        groupArrayIf(name, conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})) AS failed_jobs,
+        countIf(conclusion NOT IN ('success', 'skipped')) AS unsuccessful
     FROM __JOBS_SOURCE__ AS j
     WHERE run_id IN {{run_ids}} AND NOT is_rerun_copy
     GROUP BY run_id, run_attempt
@@ -151,6 +152,8 @@ class _JobAttempt:
     # None while any job of the attempt is still running.
     completed_at: datetime | None
     failed_jobs: tuple[str, ...]
+    # Every job finished with success or skipped.
+    succeeded: bool
 
 
 class PullRequestTimelinesQuery:
@@ -362,35 +365,42 @@ class PullRequestTimelinesQuery:
         ) in runs:
             run_attempts = job_attempts.get(int(run_id), [])
             pushed_at = created or started_at
-            attempts[int(number)].extend(
-                RunAttempt(
-                    run_id=int(run_id),
-                    workflow_name=workflow_name or "",
-                    head_sha=head_sha or "",
-                    attempt=job_attempt.attempt,
-                    pushed_at=pushed_at,
-                    started_at=job_attempt.started_at,
-                    completed_at=job_attempt.completed_at,
-                    failed=bool(job_attempt.failed_jobs),
-                    failed_jobs=job_attempt.failed_jobs,
+            completed = status == "completed"
+            run_failed = completed and conclusion in DECISIVE_FAILURE_CONCLUSIONS
+            newest_attempt = int(attempt or 1)
+            for job_attempt in run_attempts:
+                # The run row decides its newest attempt's verdict: the failing job's row can arrive
+                # after the rest of the attempt's jobs.
+                failed = bool(job_attempt.failed_jobs) or (job_attempt.attempt == newest_attempt and run_failed)
+                attempts[int(number)].append(
+                    RunAttempt(
+                        run_id=int(run_id),
+                        workflow_name=workflow_name or "",
+                        head_sha=head_sha or "",
+                        attempt=job_attempt.attempt,
+                        pushed_at=pushed_at,
+                        started_at=job_attempt.started_at,
+                        completed_at=job_attempt.completed_at,
+                        failed=failed,
+                        succeeded=job_attempt.succeeded and not failed,
+                        failed_jobs=job_attempt.failed_jobs,
+                    )
                 )
-                for job_attempt in run_attempts
-            )
             # The jobs sync can lag behind the run row, so the run's newest attempt comes from the run
             # row whenever the jobs have not reported it yet.
-            if run_attempts and int(attempt or 1) <= max(job_attempt.attempt for job_attempt in run_attempts):
+            if run_attempts and newest_attempt <= max(job_attempt.attempt for job_attempt in run_attempts):
                 continue
-            completed = status == "completed"
             attempts[int(number)].append(
                 RunAttempt(
                     run_id=int(run_id),
                     workflow_name=workflow_name or "",
                     head_sha=head_sha or "",
-                    attempt=int(attempt or 1),
+                    attempt=newest_attempt,
                     pushed_at=pushed_at,
                     started_at=started_at,
                     completed_at=updated_at if completed else None,
-                    failed=completed and conclusion in DECISIVE_FAILURE_CONCLUSIONS,
+                    failed=run_failed,
+                    succeeded=completed and conclusion == "success",
                     failed_jobs=(),
                 )
             )
@@ -423,7 +433,9 @@ class PullRequestTimelinesQuery:
             },
         )
         by_run: dict[int, list[_JobAttempt]] = defaultdict(list)
-        for run_id, run_attempt, started_at, completed_at, unfinished, failed_jobs in response.results or []:
+        for run_id, run_attempt, started_at, completed_at, unfinished, failed_jobs, unsuccessful in (
+            response.results or []
+        ):
             if started_at is None:
                 continue
             by_run[int(run_id)].append(
@@ -432,6 +444,7 @@ class PullRequestTimelinesQuery:
                     started_at=started_at,
                     completed_at=None if unfinished else completed_at,
                     failed_jobs=tuple(failed_jobs or ()),
+                    succeeded=not unfinished and not unsuccessful,
                 )
             )
         return by_run

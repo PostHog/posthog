@@ -51,6 +51,8 @@ class RunAttempt:
     # None while the attempt is still running.
     completed_at: datetime | None
     failed: bool
+    # Cancelled, neutral and action-required attempts are neither failed nor succeeded.
+    succeeded: bool
     # Names of the jobs that failed in this attempt; empty when job data is not synced.
     failed_jobs: tuple[str, ...]
 
@@ -267,7 +269,7 @@ class PRTimelineBuilder:
     def _passed_later(push: _Push, failed: RunAttempt) -> bool:
         assert failed.completed_at is not None
         return any(
-            attempt.started_at >= failed.completed_at and attempt.completed_at is not None and not attempt.failed
+            attempt.started_at >= failed.completed_at and attempt.completed_at is not None and attempt.succeeded
             for attempt in push.attempts_by_workflow[failed.workflow_name]
         )
 

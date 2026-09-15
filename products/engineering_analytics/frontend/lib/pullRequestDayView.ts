@@ -135,6 +135,9 @@ const AUTHOR_CAN_CLEAR: ReadonlySet<Kind> = new Set([
     Kind.RedNotProvable,
 ])
 
+// Without synced reviews nobody is known to be blocking the PR, so it gets its own group.
+const UNKNOWN_OWNER: ReadonlySet<Kind> = new Set([Kind.ReviewStateUnknown])
+
 export const RED_KINDS: Kind[] = [Kind.RedFixedByPush, Kind.RedPassedOnRerun, Kind.RedMasterBroken, Kind.RedNotProvable]
 
 export interface DayViewRow {
@@ -206,7 +209,14 @@ export function groupTimelines(items: PRTimelineApi[]): DayViewGroup[] {
         {
             key: 'open-others',
             label: 'Open, waiting on others',
-            rows: openReady.filter((row) => !AUTHOR_CAN_CLEAR.has(row.highlightKind)).sort(byHighlightDesc),
+            rows: openReady
+                .filter((row) => !AUTHOR_CAN_CLEAR.has(row.highlightKind) && !UNKNOWN_OWNER.has(row.highlightKind))
+                .sort(byHighlightDesc),
+        },
+        {
+            key: 'open-unknown',
+            label: 'Open, review state unknown',
+            rows: openReady.filter((row) => UNKNOWN_OWNER.has(row.highlightKind)).sort(byHighlightDesc),
         },
         {
             key: 'merged-long',

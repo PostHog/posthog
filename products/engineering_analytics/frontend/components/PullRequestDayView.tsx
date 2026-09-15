@@ -46,7 +46,7 @@ function DayViewRowItem({
     const hover = [
         pr.title,
         showAuthor ? `by ${pr.author.handle}` : null,
-        `${pr.is_draft ? 'opened' : 'ready'} ${dayjs(pr.started_at).format('ddd D MMM HH:mm')}`,
+        `timeline from ${dayjs(pr.started_at).format('ddd D MMM HH:mm')}`,
         pluralize(pr.pushes, 'push', 'pushes'),
         pr.estimated_cost_usd != null ? `CI cost ${compactUsd(pr.estimated_cost_usd)}` : null,
     ]
