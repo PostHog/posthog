@@ -57,8 +57,6 @@ tools:
             - persisted_filters
             - persisted_variables
             - _create_in_folder
-            # Server-owned attribution — a model naming its own surface would make the
-            # `dashboard created` origin property untrustworthy.
             - creation_context
         response:
             exclude:
