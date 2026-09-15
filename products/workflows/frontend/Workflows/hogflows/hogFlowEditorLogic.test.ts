@@ -676,6 +676,18 @@ describe('hogFlowEditorLogic', () => {
         })
     })
 
+    describe('onDragOver', () => {
+        it.each([
+            ['a frozen dataTransfer', Object.freeze({ dropEffect: 'none' })],
+            ['no dataTransfer', null],
+        ])('does not throw with %s', (_name, dataTransfer) => {
+            const event: any = { preventDefault: jest.fn(), dataTransfer }
+
+            expect(() => logic.actions.onDragOver(event)).not.toThrow()
+            expect(event.preventDefault).toHaveBeenCalled()
+        })
+    })
+
     describe('showDropzones branch-join placement', () => {
         const makeNode = (id: string): HogFlowActionNode =>
             ({

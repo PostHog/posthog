@@ -2709,7 +2709,11 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
             onDragOver: ({ event }) => {
                 event.preventDefault()
-                event.dataTransfer.dropEffect = 'move'
+                try {
+                    // The browser freezes dataTransfer once the drag event stops dispatching, and the
+                    // preventDefault above is what enables the drop, so a failed write only costs the cursor.
+                    event.dataTransfer.dropEffect = 'move'
+                } catch {}
             },
 
             onDrop: ({ event, targetEdge, joinEdges }) => {
