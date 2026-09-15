@@ -1515,7 +1515,8 @@ class WatchFeedResponseSerializer(serializers.Serializer):
         many=True,
         help_text=(
             "Succeeded observations in the window worth watching, most interesting first: signal emitters, "
-            "then type-specific hits, then unviewed before viewed, then newest."
+            "then type-specific hits, then unviewed before viewed, then the scan's own notability judgment, "
+            "then prose that reads as friction, then newest."
         ),
     )
 

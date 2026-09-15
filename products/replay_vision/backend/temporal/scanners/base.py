@@ -175,9 +175,10 @@ class BaseScannerOutput(BaseModel, frozen=True):
 
     confidence: float = confidence_field()
     # Optional because observations scanned before notability shipped have neither field; readers must treat
-    # `None` as "never judged" rather than "not notable", and fall back to their own heuristics.
-    notability: float | None = None
-    notability_reason: str | None = None
+    # `None` as "never judged" rather than "not notable", and fall back to their own heuristics. Uses the
+    # shared field so direct construction is bound to 0-1, not just the LLM-response step schemas.
+    notability: float | None = notability_field()
+    notability_reason: str | None = notability_reason_field()
 
     def to_event_properties(self) -> dict[str, Any]:
         """Flatten with `scanner_output_*` keys for the event; `scanner_type` is excluded (already a top-level property via the snapshot)."""
