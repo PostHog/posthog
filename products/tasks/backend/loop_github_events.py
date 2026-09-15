@@ -9,6 +9,8 @@ and JSON parsing, alongside the other webhook consumers.
 import time
 from typing import Any, Literal
 
+from django.db import InterfaceError, OperationalError
+
 import structlog
 from prometheus_client import Counter
 
@@ -129,6 +131,12 @@ def _match_and_fire_for_integration(
             )
             .select_related("loop")
         )
+    except (OperationalError, InterfaceError):
+        # A dropped database connection is not specific to this team, so let it reach the webhook
+        # dispatcher, which discards the dead connection and runs the delivery again. Handling it
+        # as a per-team failure would drop the triggers of every remaining team for this delivery,
+        # with no retry.
+        raise
     except Exception as e:
         logger.exception("loop_github_event_team_lookup_failed", team_id=integration.team_id, delivery_id=delivery_id)
         capture_exception(e)
@@ -157,6 +165,10 @@ def _fire_matched_trigger(trigger: LoopTrigger, delivery_id: str, summary: dict[
             trigger_context=trigger_context,
         )
         _observe_github_event(_fire_result_outcome(result.reason))
+    except (OperationalError, InterfaceError):
+        # Same reason as the team lookup above. LoopFire is unique on (loop_trigger, fire_key) and
+        # the fire key is the delivery id, so the dispatcher retry cannot fire a trigger twice.
+        raise
     except Exception as e:
         logger.exception("loop_github_event_fire_failed", trigger_id=str(trigger.id), delivery_id=delivery_id)
         capture_exception(e)

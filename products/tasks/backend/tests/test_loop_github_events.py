@@ -4,6 +4,7 @@ from typing import ClassVar
 import time_machine
 from unittest.mock import patch
 
+from django.db import OperationalError
 from django.test import TestCase
 
 from parameterized import parameterized
@@ -436,3 +437,49 @@ class TestHandleGithubEventForLoops(TestCase):
                 handle_github_event_for_loops("push", payload, delivery_id=f"del-flood-{i}")
 
         self.assertEqual(mock_fire_loop.call_count, 2)
+
+    @parameterized.expand(
+        [
+            ("connection_error", OperationalError("the connection is closed"), True),
+            ("other_error", RuntimeError("stale team reference"), False),
+        ]
+    )
+    @patch(FIRE_LOOP_PATCH_TARGET, autospec=True)
+    def test_a_dropped_connection_reaches_the_webhook_dispatcher(self, _name, error, expect_raise, mock_fire_loop):
+        # The dispatcher closes the dead connection and runs the delivery again, so a connection
+        # error must not be absorbed as a per-team failure. Every other error stays isolated.
+        mock_fire_loop.side_effect = error
+        loop = self._create_loop(self.team)
+        self._create_github_trigger(
+            self.team,
+            loop,
+            github_integration_id=self.integration.id,
+            repository="acme/repo",
+            events=["push"],
+        )
+        payload = self._event_payload("push", installation_id=998877, repository="acme/repo")
+
+        if expect_raise:
+            with self.assertRaises(OperationalError):
+                handle_github_event_for_loops("push", payload, delivery_id="del-connection-blip")
+        else:
+            handle_github_event_for_loops("push", payload, delivery_id="del-connection-blip")
+
+        self.assertEqual(mock_fire_loop.call_count, 1)
+
+    def test_a_dropped_connection_during_the_trigger_lookup_reaches_the_dispatcher(self):
+        # The per-team guard around the trigger lookup isolates one team's failure from the rest of
+        # the delivery. A dead connection is not a per-team failure, so it must not be isolated.
+        loop = self._create_loop(self.team)
+        self._create_github_trigger(
+            self.team,
+            loop,
+            github_integration_id=self.integration.id,
+            repository="acme/repo",
+            events=["push"],
+        )
+        payload = self._event_payload("push", installation_id=998877, repository="acme/repo")
+
+        with patch.object(LoopTrigger.objects, "for_team", side_effect=OperationalError("the connection is closed")):
+            with self.assertRaises(OperationalError):
+                handle_github_event_for_loops("push", payload, delivery_id="del-lookup-blip")
