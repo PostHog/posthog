@@ -1,8 +1,26 @@
 import { IconFolder, IconGithub } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import type { DataTableProps } from '@posthog/quill-components'
+import { DataTable } from '@posthog/quill-components'
+import {
+    Avatar,
+    AvatarFallback,
+    Button,
+    Card,
+    Empty,
+    EmptyContent,
+    EmptyDescription,
+    EmptyHeader,
+    EmptyTitle,
+    Item,
+    ItemContent,
+    ItemDescription,
+    ItemTitle,
+    Skeleton,
+    Text,
+} from '@posthog/quill-primitives'
 
-import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { TZLabel } from 'lib/components/TZLabel'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import type { WizardRunApi } from '../generated/api.schemas'
 import { wizardGithubRepositoryUrl, wizardWorkspaceLabel } from '../wizardRunDisplay'
@@ -14,7 +32,6 @@ import { WizardRunStatusTag } from './WizardRunStatusTag'
 export function WizardRunTable({
     runs,
     totalRuns,
-    selectedRunId,
     currentUserId,
     loading,
     failed,
@@ -31,7 +48,6 @@ export function WizardRunTable({
 }: {
     runs: WizardRunApi[]
     totalRuns: number
-    selectedRunId: string | null
     currentUserId: number | null
     loading: boolean
     failed: boolean
@@ -46,130 +62,191 @@ export function WizardRunTable({
     onCopyRunId: (runId: string) => void
     onCancel: (run: WizardRunApi) => void
 }): JSX.Element {
-    const columns: LemonTableColumns<WizardRunApi> = [
+    const columns: DataTableProps<WizardRunApi, unknown>['columns'] = [
         {
-            title: 'Program',
-            key: 'program',
-            render: (_, run) => (
-                <div className="min-w-44">
-                    <div className="font-semibold">{run.program.name}</div>
-                    <div className="text-xs text-muted">Wizard {run.program.wizard_version}</div>
-                </div>
-            ),
+            accessorKey: 'program.name',
+            header: 'Program',
+            cell: ({ row }) => {
+                const run = row.original
+                return (
+                    <Button variant="link-muted" size="sm" onClick={() => onSelect(run)}>
+                        <span className="flex min-w-44 flex-col items-start text-left">
+                            <span className="font-semibold">{run.program.name}</span>
+                            <Text size="xs" variant="muted">
+                                Wizard {run.program.wizard_version}
+                            </Text>
+                        </span>
+                    </Button>
+                )
+            },
         },
         {
-            title: 'Workspace',
-            key: 'workspace',
-            render: (_, run) => {
+            id: 'workspace',
+            header: 'Workspace',
+            enableSorting: false,
+            meta: { expand: true },
+            cell: ({ row }) => {
+                const run = row.original
                 if (run.workspace.type === 'git_repository') {
                     return (
-                        <LemonButton
-                            size="small"
-                            type="tertiary"
-                            icon={<IconGithub />}
-                            to={wizardGithubRepositoryUrl(run.workspace.repository)}
-                            targetBlank
-                            className="w-fit"
-                            onClick={(e) => e.stopPropagation()}
+                        <Button
+                            variant="link-muted"
+                            size="sm"
+                            render={
+                                <LinkPrimitive
+                                    to={wizardGithubRepositoryUrl(run.workspace.repository)}
+                                    target="_blank"
+                                    onClick={(event) => event.stopPropagation()}
+                                />
+                            }
                         >
+                            <IconGithub />
                             {run.workspace.repository}
-                        </LemonButton>
+                        </Button>
                     )
                 }
                 return (
-                    <span className="inline-flex items-center gap-1 px-2 py-1 text-sm font-medium">
+                    <Text size="sm" className="flex items-center gap-1">
                         <IconFolder />
                         {wizardWorkspaceLabel(run)}
+                    </Text>
+                )
+            },
+        },
+        {
+            id: 'created_by',
+            accessorFn: (run) => run.created_by?.first_name || run.created_by?.email || '',
+            header: 'Created by',
+            cell: ({ row }) => {
+                const creator = row.original.created_by
+                if (!creator) {
+                    return (
+                        <Text size="sm" variant="muted">
+                            Unknown
+                        </Text>
+                    )
+                }
+
+                const name = [creator.first_name, creator.last_name].filter(Boolean).join(' ') || creator.email
+                const initials = creator.first_name
+                    ? `${creator.first_name[0]}${creator.last_name[0] ?? ''}`
+                    : creator.email[0]
+
+                return (
+                    <span className="flex min-w-0 items-center gap-2">
+                        <Avatar size="sm">
+                            <AvatarFallback>{initials}</AvatarFallback>
+                        </Avatar>
+                        <Text size="sm" className="max-w-40 truncate">
+                            {name}
+                        </Text>
                     </span>
                 )
             },
         },
         {
-            title: 'Environment',
-            key: 'environment',
-            render: (_, run) => <WizardRunEnvironmentTag environment={run.environment} />,
+            accessorKey: 'environment',
+            header: 'Environment',
+            cell: ({ row }) => <WizardRunEnvironmentTag environment={row.original.environment} />,
         },
         {
-            title: 'Status',
-            key: 'status',
-            render: (_, run) => (
-                <div className="flex min-w-36 flex-col items-start gap-1">
-                    <WizardRunStatusTag status={run.status} />
-                    {run.status === 'failed' && run.error_message && (
-                        <span className="max-w-52 text-xs text-muted" title={run.error_message}>
-                            {run.error_message}
-                        </span>
-                    )}
-                </div>
-            ),
+            accessorKey: 'status',
+            header: 'Status',
+            cell: ({ row }) => {
+                const run = row.original
+                return <WizardRunStatusTag status={run.status} />
+            },
         },
         {
-            title: 'Started',
-            key: 'started_at',
-            render: (_, run) =>
-                run.started_at ? (
-                    <TZLabel time={run.started_at} className="whitespace-nowrap text-xs" />
+            accessorKey: 'started_at',
+            header: 'Started',
+            cell: ({ row }) =>
+                row.original.started_at ? (
+                    <TZLabel time={row.original.started_at} className="whitespace-nowrap text-xs" />
                 ) : (
-                    <span className="whitespace-nowrap text-xs text-muted">Not started</span>
+                    <Text size="xs" variant="muted">
+                        Not started
+                    </Text>
                 ),
+        },
+        {
+            id: 'actions',
+            header: () => <span className="sr-only">Actions</span>,
+            enableSorting: false,
+            meta: { align: 'right' },
+            cell: ({ row }) => (
+                <WizardRunActionsMenu
+                    run={row.original}
+                    currentUserId={currentUserId}
+                    refreshing={refreshing}
+                    cancelling={cancelling}
+                    onView={onSelect}
+                    onRefresh={onRefreshRun}
+                    onCopyRunId={onCopyRunId}
+                    onCancel={onCancel}
+                />
+            ),
         },
     ]
 
-    // Judge failure against the unfiltered list: a background poll can fail while a filter
-    // legitimately matches nothing.
     if (failed && totalRuns === 0) {
         return (
-            <LemonBanner type="error" action={{ children: 'Refresh', onClick: onRefreshRuns }}>
-                <div className="font-semibold">Couldn’t load Wizard runs.</div>
-                <div className="text-sm">Refresh the page and try again.</div>
-            </LemonBanner>
+            <Item tone="destructive" variant="outline">
+                <ItemContent>
+                    <ItemTitle>Couldn’t load Wizard runs</ItemTitle>
+                    <ItemDescription>Refresh the page and try again.</ItemDescription>
+                </ItemContent>
+                <Button variant="outline" size="sm" onClick={onRefreshRuns}>
+                    Refresh
+                </Button>
+            </Item>
         )
     }
+
+    const empty = hasActiveFilters ? (
+        <Empty className="min-h-64 py-12">
+            <EmptyHeader>
+                <EmptyTitle>No matching Wizard runs</EmptyTitle>
+                <EmptyDescription>Try another search or clear the current filters.</EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+                <Button variant="outline" onClick={onClearFilters}>
+                    Clear filters
+                </Button>
+            </EmptyContent>
+        </Empty>
+    ) : (
+        <WizardRunsEmptyState onOpenLibrary={onOpenLibrary} />
+    )
 
     return (
         <div className="flex flex-col gap-2">
             {failed && totalRuns > 0 && (
-                <LemonBanner type="warning" action={{ children: 'Refresh', onClick: onRefreshRuns }}>
-                    Live updates stopped. The list may be out of date.
-                </LemonBanner>
+                <Item tone="warning" variant="outline">
+                    <ItemContent>Live updates stopped. The list may be out of date.</ItemContent>
+                    <Button variant="outline" size="sm" onClick={onRefreshRuns}>
+                        Refresh
+                    </Button>
+                </Item>
             )}
-            <LemonTable
-                id="wizard-runs"
-                dataSource={runs}
-                columns={columns}
-                rowKey="id"
-                loading={loading}
-                loadingSkeletonRows={7}
-                nouns={['Wizard run', 'Wizard runs']}
-                pagination={{ pageSize: 25, hideOnSinglePage: false, useUrl: false }}
-                rowClassName="h-[68px]"
-                rowStatus={(run) => (run.id === selectedRunId ? 'highlighted' : null)}
-                onRow={(run) => ({ onClick: () => onSelect(run), className: 'cursor-pointer' })}
-                emptyState={
-                    hasActiveFilters ? (
-                        <EmptyMessage
-                            title="No matching Wizard runs"
-                            description="Try another search or clear the current filters."
-                            buttonText="Clear filters"
-                            buttonOnClick={onClearFilters}
-                        />
-                    ) : (
-                        <WizardRunsEmptyState onOpenLibrary={onOpenLibrary} />
-                    )
-                }
-                rowActions={(run) => (
-                    <WizardRunActionsMenu
-                        run={run}
-                        currentUserId={currentUserId}
-                        refreshing={refreshing}
-                        cancelling={cancelling}
-                        onView={onSelect}
-                        onRefresh={onRefreshRun}
-                        onCopyRunId={onCopyRunId}
-                        onCancel={onCancel}
+            {loading ? (
+                <div className="flex flex-col gap-2">
+                    {Array.from({ length: 7 }).map((_, index) => (
+                        <Skeleton key={index} className="h-[68px] w-full" />
+                    ))}
+                </div>
+            ) : (
+                <Card size="sm" flush className="overflow-hidden">
+                    <DataTable
+                        columns={columns}
+                        data={runs}
+                        empty={empty}
+                        pageSize={25}
+                        fullWidth
+                        onRowClick={onSelect}
                     />
-                )}
-            />
+                </Card>
+            )}
         </div>
     )
 }

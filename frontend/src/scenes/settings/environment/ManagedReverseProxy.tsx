@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useMemo } from 'react'
 
@@ -56,8 +56,10 @@ export function ManagedReverseProxy(): JSX.Element {
         diagnoseLoadingIds,
         expandedRecordIds,
     } = useValues(proxyLogic)
-    const { acknowledgeCloudflareOptIn, deleteRecord, retryRecord, diagnose, setRecordExpanded, showForm } =
-        useActions(proxyLogic)
+    const { acknowledgeCloudflareOptIn, retryRecord, diagnose, setRecordExpanded, showForm } = useActions(proxyLogic)
+    // Awaitable so the confirmation dialog can hold its Delete button in a loading state
+    // until the request settles.
+    const { deleteRecord } = useAsyncActions(proxyLogic)
     const { preflight } = useValues(preflightLogic)
 
     const cloudflareProxyEnabled = preflight?.instance_preferences?.cloudflare_proxy_enabled
@@ -191,6 +193,7 @@ export function ManagedReverseProxy(): JSX.Element {
                                             secondaryButton: {
                                                 children: 'Cancel',
                                             },
+                                            shouldAwaitSubmit: true,
                                         })
                                     },
                                 },

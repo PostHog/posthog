@@ -1,9 +1,9 @@
 import {
     ActivityLogItem,
+    ActivityLogUserName,
     Describer,
     HumanizedChange,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
 import { ActivityScope } from '~/types'
@@ -46,7 +46,7 @@ export const instanceSettingActivityDescriber: Describer = (
 
     const key = change.field || logItem.detail.name || 'unknown setting'
     const transition = describeSecretTransition(change.before, change.after)
-    const actor = <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>
+    const actor = <ActivityLogUserName logItem={logItem} />
 
     if (transition) {
         return {

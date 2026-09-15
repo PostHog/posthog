@@ -24,8 +24,6 @@ import {
     notificationTypeFromTemplateId,
 } from 'products/alerts/frontend/logic/alertNotifications'
 
-import type { UserBasicType } from '../../../../frontend/src/types'
-
 export const ALERT_NOTIFICATION_TYPE_OPTIONS = [
     { label: 'Slack', value: ALERT_NOTIFICATION_TYPE_SLACK },
     { label: 'Discord', value: ALERT_NOTIFICATION_TYPE_DISCORD },
@@ -67,126 +65,10 @@ export interface alertNotificationLogicActions {
         errorObject?: any
     } // integrationsLogic
     loadIntegrationsSuccess: (
-        integrations: {
-            config: any
-            created_at: string
-            created_by?: UserBasicType | null | undefined
-            display_name: string
-            errors?: string | undefined
-            files_write_requestable?: boolean | undefined
-            icon_url: any
-            id: number
-            installation_shared?: boolean | null | undefined
-            installation_status?:
-                | null
-                | import('products/integrations/frontend/generated/api.schemas').InstallationStatusEnumApi
-                | undefined
-            kind:
-                | 'apns'
-                | 'aws-redshift'
-                | 'aws-s3'
-                | 'azure-blob'
-                | 'bing-ads'
-                | 'clickup'
-                | 'customerio-app'
-                | 'customerio-track'
-                | 'customerio-webhook'
-                | 'databricks'
-                | 'email'
-                | 'firebase'
-                | 'github'
-                | 'gitlab'
-                | 'google-ads'
-                | 'google-analytics'
-                | 'google-calendar'
-                | 'google-cloud-service-account'
-                | 'google-cloud-storage'
-                | 'google-pubsub'
-                | 'google-search-console'
-                | 'google-sheets'
-                | 'hubspot'
-                | 'instagram'
-                | 'intercom'
-                | 'jira'
-                | 'linear'
-                | 'linkedin-ads'
-                | 'meta-ads'
-                | 'pardot'
-                | 'pinterest-ads'
-                | 'postgresql'
-                | 'reddit-ads'
-                | 's3-compatible'
-                | 'salesforce'
-                | 'slack'
-                | 'snapchat'
-                | 'snowflake'
-                | 'stripe'
-                | 'tiktok-ads'
-                | 'twilio'
-                | 'vercel'
-                | 'youtube-analytics'
-        }[],
+        integrations: IntegrationType[],
         payload?: any
     ) => {
-        integrations: {
-            config: any
-            created_at: string
-            created_by?: UserBasicType | null | undefined
-            display_name: string
-            errors?: string | undefined
-            files_write_requestable?: boolean | undefined
-            icon_url: any
-            id: number
-            installation_shared?: boolean | null | undefined
-            installation_status?:
-                | null
-                | import('products/integrations/frontend/generated/api.schemas').InstallationStatusEnumApi
-                | undefined
-            kind:
-                | 'apns'
-                | 'aws-redshift'
-                | 'aws-s3'
-                | 'azure-blob'
-                | 'bing-ads'
-                | 'clickup'
-                | 'customerio-app'
-                | 'customerio-track'
-                | 'customerio-webhook'
-                | 'databricks'
-                | 'email'
-                | 'firebase'
-                | 'github'
-                | 'gitlab'
-                | 'google-ads'
-                | 'google-analytics'
-                | 'google-calendar'
-                | 'google-cloud-service-account'
-                | 'google-cloud-storage'
-                | 'google-pubsub'
-                | 'google-search-console'
-                | 'google-sheets'
-                | 'hubspot'
-                | 'instagram'
-                | 'intercom'
-                | 'jira'
-                | 'linear'
-                | 'linkedin-ads'
-                | 'meta-ads'
-                | 'pardot'
-                | 'pinterest-ads'
-                | 'postgresql'
-                | 'reddit-ads'
-                | 's3-compatible'
-                | 'salesforce'
-                | 'slack'
-                | 'snapchat'
-                | 'snowflake'
-                | 'stripe'
-                | 'tiktok-ads'
-                | 'twilio'
-                | 'vercel'
-                | 'youtube-analytics'
-        }[]
+        integrations: IntegrationType[]
         payload?: any
     } // integrationsLogic
     addPendingNotification: (notification: PendingAlertNotification) => {

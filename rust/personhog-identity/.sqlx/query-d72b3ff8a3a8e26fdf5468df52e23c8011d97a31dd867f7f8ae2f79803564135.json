@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO lifecycle_op_tmp (op_id, op_type, team_id, step, request)\n            VALUES ($1, $2, $3, $4, $5)\n            ON CONFLICT (op_id) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int4",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d72b3ff8a3a8e26fdf5468df52e23c8011d97a31dd867f7f8ae2f79803564135"
+}

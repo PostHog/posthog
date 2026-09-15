@@ -49,6 +49,7 @@ _LAZY = {
     "get_or_create_webhook_hog_function": "logic.external_data_source.webhooks",
     "get_webhook_url": "logic.external_data_source.webhooks",
     "reconcile_webhook_events": "logic.external_data_source.webhooks",
+    "store_webhook_extra_inputs": "logic.external_data_source.webhooks",
     "WebhookConsumerConfig": "logic.webhook_consumer.config",
     "WebhookS3Sink": "logic.webhook_consumer.consumer",
     "get_managed_warehouse_data_status": "logic.managed_warehouse_data_status",

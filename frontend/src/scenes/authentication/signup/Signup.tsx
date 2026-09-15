@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useState } from 'react'
 
@@ -16,6 +16,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { RegionField } from 'scenes/authentication/shared/authScene/RegionField'
+import { pendingOAuthConnectionLogic, reviewAccessCopy } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { TurnstileChallenge } from 'scenes/authentication/signup/signupForm/TurnstileChallenge'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -43,6 +44,7 @@ function SignupEmailPanel(): JSX.Element {
     const { isSignupPanelEmailSubmitting, signupPanelEmailManualErrors, pendingInvite, loginUrl, emailCaseNotice } =
         useValues(signupLogic)
     const { preflight } = useValues(preflightLogic)
+    const { pendingConnection } = useValues(pendingOAuthConnectionLogic)
     const [showJoinOrg, setShowJoinOrg] = useState(false)
     const lastLoginMethod = getCookie('ph_last_login_method') as LoginMethod | null
     const accountExists = !!signupPanelEmailManualErrors?.email
@@ -66,7 +68,16 @@ function SignupEmailPanel(): JSX.Element {
 
     return (
         <AuthSceneCard footer={footer}>
-            <AuthCardTitle title="Get started" sub="Make your product self-driving." />
+            <AuthCardTitle
+                title={
+                    pendingConnection ? `Create your account to connect ${pendingConnection.clientName}` : 'Get started'
+                }
+                sub={
+                    pendingConnection
+                        ? reviewAccessCopy(pendingConnection, 'Once your account is ready')
+                        : 'Make your product self-driving.'
+                }
+            />
             <Form logic={signupLogic} formKey="signupPanelEmail" enableFormOnSubmit className="flex flex-col gap-4">
                 <RegionField />
                 <LemonField
@@ -469,6 +480,8 @@ function SignupProfilePanel(): JSX.Element {
 export function Signup(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { panel } = useValues(signupLogic)
+    // Mounted at the scene root so the cookie is read once, not on every panel change
+    useMountedLogic(pendingOAuthConnectionLogic)
 
     if (user) {
         return null

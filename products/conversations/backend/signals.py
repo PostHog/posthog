@@ -2,7 +2,7 @@ from email.utils import make_msgid
 from typing import Any, cast
 
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import F
 from django.db.models.functions import Greatest
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
@@ -16,10 +16,12 @@ from posthog.models.comment import Comment
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.signals import secret_api_token_rotated
 
+from .ai.human_outcome import maybe_record_human_outcome
 from .cache import invalidate_identity_tickets_cache, invalidate_messages_cache, invalidate_tickets_cache
 from .events import capture_message_received, capture_message_sent, capture_private_message_sent, capture_ticket_created
 from .models import EmailOutboxMessage, SigningSecret, Ticket
 from .models.constants import Channel
+from .services.messages import visible_ticket_messages
 from .tasks.email import send_email_reply
 from .tasks.github import post_reply_to_github
 from .tasks.slack import post_reply_to_slack
@@ -169,6 +171,17 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
                 invalidate_tickets_cache(team_id, ticket.widget_session_id)
             invalidate_messages_cache(team_id, item_id)
 
+            if is_team_message and created_by_id:
+                try:
+                    maybe_record_human_outcome(
+                        team_id=team_id,
+                        ticket_id=item_id,
+                        comment_id=comment_id,
+                        human_content=content or "",
+                    )
+                except Exception as e:
+                    capture_exception(e, {"ticket_id": item_id})
+
             # Customer-facing analytics (to customer's project)
             if is_team_message:
                 author = User.objects.filter(id=created_by_id).first() if created_by_id else None
@@ -262,18 +275,8 @@ def handle_comment_soft_delete(sender, instance: Comment, **kwargs):
                 Ticket.objects.filter(id=item_id, team_id=team_id).update(**update_fields)
 
             # Recalculate last_message from remaining non-private messages
-            # Use exclude + isnull to match _is_private_message() identity check:
-            # - Exclude only exact boolean True
-            # - Include everything else (False, None, missing key, weird values)
-            # The isnull handles SQL NULL semantics where ~Q alone would exclude missing keys
             last_comment = (
-                Comment.objects.filter(
-                    team_id=team_id,
-                    scope="conversations_ticket",
-                    item_id=item_id,
-                    deleted=False,
-                )
-                .filter(~Q(item_context__is_private=True) | Q(item_context__is_private__isnull=True))
+                visible_ticket_messages(team_id, item_id)
                 .exclude(pk=comment_pk)  # Exclude the one being deleted
                 .order_by("-created_at")
                 .first()

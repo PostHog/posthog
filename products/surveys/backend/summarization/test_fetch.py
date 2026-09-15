@@ -3,13 +3,13 @@
 import uuid
 from datetime import datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from .fetch import fetch_responses
 
 
-@freeze_time("2025-01-15 12:00:00")
+@time_machine.travel("2025-01-15 12:00:00", tick=False)
 class TestFetchResponses(ClickhouseTestMixin, APIBaseTest):
     def test_deduplicates_responses_by_submission_id(self):
         """Multiple survey sent events with the same submission ID should return only one response."""

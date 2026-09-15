@@ -9,6 +9,8 @@ import {
 } from "@posthog/core/scouts/scoutSuggestions";
 import { Badge, Button } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
+import { useProjectTimezone } from "@posthog/ui/features/projects/useProjectTimezone";
+import { formatTimezoneAbbreviation } from "@posthog/ui/primitives/timezone";
 import { track } from "@posthog/ui/shell/analytics";
 import type { ScoutConfigUpdate } from "../hooks/useScoutConfigMutations";
 
@@ -75,6 +77,7 @@ function SuggestionCard({
   // A canonical pick names an agent this project already has, off. Without that
   // agent there is nothing to switch on, so the card offers the draft instead.
   const canTurnOn = item.kind === "canonical" && config !== undefined;
+  const timezone = useProjectTimezone();
 
   const act = () => {
     track(ANALYTICS_EVENTS.SCOUT_ACTION, {
@@ -102,7 +105,10 @@ function SuggestionCard({
         {item.why_here}
       </p>
       <span className="text-[11px] text-gray-9">
-        {suggestionMetaLine(item.proposed_config)}
+        {suggestionMetaLine(
+          item.proposed_config,
+          timezone && formatTimezoneAbbreviation(timezone),
+        )}
       </span>
       <div className="mt-1 flex items-center gap-1.5">
         <Button

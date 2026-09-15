@@ -313,6 +313,30 @@ export interface SidebarNavItemClickedProperties {
   layout?: SidebarLayout;
 }
 
+/** Every row of the account / project / org menu, plus opening it. */
+export type ProjectMenuAction =
+  | "open"
+  | "switch_project"
+  | "switch_organization"
+  | "create_project"
+  | "create_organization"
+  | "discord"
+  | "changelog"
+  | "website"
+  | "privacy_policy"
+  | "keyboard_shortcuts"
+  | "archived"
+  | "settings"
+  | "log_out";
+
+export interface ProjectMenuActionProperties {
+  action: ProjectMenuAction;
+  /** The rail draws the trigger as an icon, the code sidebar as a footer row. */
+  appearance: "row" | "icon";
+  /** For switch_project / switch_organization: whether the pick moved anywhere. */
+  changed?: boolean;
+}
+
 export type TaskListSurface = "sidebar" | "space" | "saved_search";
 
 export interface TaskListGroupingChangedProperties {
@@ -548,10 +572,9 @@ export type OnboardingStepId =
   | "project-select"
   | "consent"
   | "connect-github"
-  | "install-cli"
-  | "select-repo";
+  | "install-cli";
 
-type OnboardingSkipReason = "no_repo_selected" | "dev_skip";
+type OnboardingSkipReason = "dev_skip";
 
 export interface OnboardingStepViewedProperties {
   step_id: OnboardingStepId;
@@ -585,11 +608,6 @@ export interface OnboardingProjectSelectedProperties {
   had_multiple_projects: boolean;
 }
 
-export interface OnboardingFolderSelectedProperties {
-  has_git_remote: boolean;
-  repository_provider: RepositoryProvider;
-}
-
 export interface OnboardingCliCheckCompletedProperties {
   git_installed: boolean;
   gh_installed: boolean;
@@ -604,7 +622,6 @@ export interface OnboardingCliRunCompletedProperties {
 export interface OnboardingCompletedProperties {
   duration_seconds: number;
   github_connected: boolean;
-  repo_skipped: boolean;
 }
 
 export type OnboardingGithubConnectFlow =
@@ -1149,7 +1166,13 @@ type ChannelActionType =
   | "mention_member"
   | "view_activity"
   | "open_mention"
-  | "activity_tab_change";
+  | "activity_tab_change"
+  /** Sessions ↔ Canvases in a space's sidebar list. */
+  | "space_tab_change"
+  | "expand_channel"
+  | "activity_unreads_toggle"
+  | "activity_mark_all_read"
+  | "activity_load_more";
 
 type TaskFeedActionType = "create" | "update" | "delete" | "open";
 
@@ -1170,14 +1193,19 @@ export interface ChannelActionProperties {
   task_id?: string;
   /** For file_task: destination channel when different from `channel_id`. */
   target_channel_id?: string;
-  /** For nav_click: which destination ("home"|"activity"|"inbox"|"canvas"|"agents"|"files"|"settings"). */
+  /**
+   * For nav_click: which destination ("home"|"activity"|"inbox"|"canvas"|"agents"|"files"|"settings").
+   * A space's sidebar rows send their page key, where "home" is the row labelled "Feed".
+   */
   nav_target?: string;
   /** For mention_member: the tagged teammate's user uuid. */
   mentioned_user_id?: string;
   /** For new_task_suggestion: the starter-prompt card label. */
   suggestion_label?: string;
-  /** For activity_tab_change: the tab landed on. */
+  /** The tab landed on; space_tab_change sends the kind it lists ("task" reads "Sessions"). */
   tab?: string;
+  /** For activity_unreads_toggle: the state being entered. */
+  enabled?: boolean;
   /** Whether the underlying mutation resolved successfully. */
   success?: boolean;
   /** For auto_archive_update: the selected inactivity window. Null disables it. */
@@ -1628,7 +1656,6 @@ export const ANALYTICS_EVENTS = {
   ONBOARDING_STEP_SKIPPED: "Onboarding step skipped",
   ONBOARDING_SIGN_IN_INITIATED: "Onboarding sign in initiated",
   ONBOARDING_PROJECT_SELECTED: "Onboarding project selected",
-  ONBOARDING_FOLDER_SELECTED: "Onboarding folder selected",
   ONBOARDING_GITHUB_CONNECT_STARTED: "Onboarding github connect started",
   ONBOARDING_GITHUB_CONNECT_FAILED: "Onboarding github connect failed",
   ONBOARDING_GITHUB_CONNECT_PENDING_ADMIN:
@@ -1714,6 +1741,7 @@ export const ANALYTICS_EVENTS = {
   CANVAS_RENDERED: "Canvas rendered",
   CANVAS_RUNTIME_ERROR: "Canvas runtime error",
   CONTEXT_ACTION: "Context action",
+  PROJECT_MENU_ACTION: "Project menu action",
 
   // Autoresearch events
   AUTORESEARCH_ARMED: "Autoresearch armed",
@@ -1841,7 +1869,6 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.ONBOARDING_STEP_SKIPPED]: OnboardingStepSkippedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_SIGN_IN_INITIATED]: OnboardingSignInInitiatedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_PROJECT_SELECTED]: OnboardingProjectSelectedProperties;
-  [ANALYTICS_EVENTS.ONBOARDING_FOLDER_SELECTED]: OnboardingFolderSelectedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_STARTED]: OnboardingGithubConnectStartedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_FAILED]: OnboardingGithubConnectFailedProperties;
   [ANALYTICS_EVENTS.ONBOARDING_GITHUB_CONNECT_PENDING_ADMIN]: OnboardingGithubConnectPendingAdminProperties;
@@ -1926,6 +1953,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.CANVAS_RENDERED]: CanvasRenderedProperties;
   [ANALYTICS_EVENTS.CANVAS_RUNTIME_ERROR]: CanvasRuntimeErrorProperties;
   [ANALYTICS_EVENTS.CONTEXT_ACTION]: ContextActionProperties;
+  [ANALYTICS_EVENTS.PROJECT_MENU_ACTION]: ProjectMenuActionProperties;
 
   // Autoresearch events
   [ANALYTICS_EVENTS.AUTORESEARCH_ARMED]: AutoresearchArmedProperties;

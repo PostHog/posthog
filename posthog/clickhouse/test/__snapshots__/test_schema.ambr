@@ -641,6 +641,20 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_person_property_mutation_log]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_person_property_mutation_log
+  (
+      team_id Int64,
+      uuid UUID,
+      properties String
+  )
+  ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_events_json_test', kafka_group_name = 'clickhouse_person_property_mutation_log', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_skip_broken_messages = 100
+  
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_plugin_log_entries]
   '''
   
@@ -2928,6 +2942,20 @@
   
   '''
 # ---
+# name: test_create_table_query[kafka_person_property_mutation_log]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_person_property_mutation_log
+  (
+      team_id Int64,
+      uuid UUID,
+      properties String
+  )
+  ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_events_json_test', kafka_group_name = 'clickhouse_person_property_mutation_log', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_skip_broken_messages = 100
+  
+  '''
+# ---
 # name: test_create_table_query[kafka_plugin_log_entries]
   '''
   
@@ -4073,6 +4101,35 @@
   
   '''
 # ---
+# name: test_create_table_query[metric_attributes3]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.metric_attributes3
+  (
+      `team_id` Int32,
+      `metric_name` LowCardinality(String),
+      `time_bucket` DateTime64(0),
+      `original_expiry_time_bucket` DateTime64(0),
+      `service_name` LowCardinality(String),
+      `attribute_key` LowCardinality(String),
+      `attribute_value` String,
+      `attribute_type` LowCardinality(String),
+      `attribute_count` SimpleAggregateFunction(sum, UInt64),
+      INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
+      INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1
+  )
+  ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metric_attributes3', '{replica}-{shard}')
+  PARTITION BY toDate(original_expiry_time_bucket)
+  ORDER BY (team_id, metric_name, attribute_type, time_bucket, attribute_key, attribute_value, service_name, original_expiry_time_bucket)
+  TTL original_expiry_time_bucket
+  SETTINGS
+      index_granularity = 8192,
+      ttl_only_drop_parts = 1
+  
+  '''
+# ---
 # name: test_create_table_query[metric_attributes]
   '''
   
@@ -4102,6 +4159,25 @@
 # ---
 # name: test_create_table_query[metric_attributes_distributed]
   "CREATE TABLE IF NOT EXISTS posthog_test.metric_attributes_distributed AS posthog_test.metric_attributes2 ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'metric_attributes2')"
+# ---
+# name: test_create_table_query[metric_names3]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.metric_names3
+  (
+      `team_id` Int32,
+      `metric_name` LowCardinality(String),
+      `time_bucket` DateTime64(0),
+      `original_expiry_time_bucket` DateTime64(0),
+      `original_expiry_timestamp` SimpleAggregateFunction(max, DateTime64(6))
+  )
+  ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metric_names3', '{replica}-{shard}')
+  PARTITION BY toDate(original_expiry_time_bucket)
+  ORDER BY (team_id, time_bucket, metric_name, original_expiry_time_bucket)
+  TTL original_expiry_timestamp
+  SETTINGS index_granularity = 8192
+  
+  '''
 # ---
 # name: test_create_table_query[metric_samples1]
   '''
@@ -4181,9 +4257,43 @@
       INDEX idx_service_set service_name TYPE set(1000) GRANULARITY 1,
       INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_attr_keys mapKeys(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
-      INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1
+      INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_last_seen_minmax last_seen TYPE minmax GRANULARITY 1
   )
   ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metric_series2', '{replica}-{shard}', last_seen)
+  ORDER BY (team_id, metric_name, series_fingerprint)
+  TTL original_expiry_timestamp
+  SETTINGS index_granularity = 8192
+  
+  '''
+# ---
+# name: test_create_table_query[metric_series3]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.metric_series3
+  (
+      `team_id` Int32,
+      `metric_name` LowCardinality(String),
+      `series_fingerprint` UInt64 CODEC(Delta(8), Default),
+      `metric_type` LowCardinality(String),
+      `unit` LowCardinality(String),
+      `aggregation_temporality` LowCardinality(String),
+      `is_monotonic` Bool DEFAULT false,
+      `service_name` LowCardinality(String),
+      `instrumentation_scope` String,
+      `resource_attributes` Map(LowCardinality(String), String),
+      `resource_fingerprint` UInt64 MATERIALIZED cityHash64(resource_attributes),
+      `attributes` Map(LowCardinality(String), String),
+      `last_seen` DateTime64(6),
+      `original_expiry_timestamp` DateTime64(6),
+      INDEX idx_service_set service_name TYPE set(1000) GRANULARITY 1,
+      INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_attr_keys mapKeys(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_last_seen_minmax last_seen TYPE minmax GRANULARITY 1
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metric_series3', '{replica}-{shard}', last_seen)
+  PARTITION BY toDate(original_expiry_timestamp)
   ORDER BY (team_id, metric_name, series_fingerprint)
   TTL original_expiry_timestamp
   SETTINGS index_granularity = 8192
@@ -4264,99 +4374,6 @@
       index_granularity_bytes = 104857600,
       index_granularity = 8192,
       ttl_only_drop_parts = 1
-  
-  '''
-# ---
-# name: test_create_table_query[metrics1_to_metric_attributes]
-  '''
-  
-  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.metrics1_to_metric_attributes TO posthog_test.metric_attributes
-  (
-      `team_id` Int32,
-      `time_bucket` DateTime64(0),
-      `service_name` LowCardinality(String),
-      `resource_fingerprint` UInt64,
-      `attribute_key` LowCardinality(String),
-      `attribute_value` String,
-      `attribute_type` LowCardinality(String),
-      `attribute_count` SimpleAggregateFunction(sum, UInt64)
-  )
-  AS SELECT
-      team_id,
-      time_bucket,
-      service_name,
-      resource_fingerprint,
-      attribute_key,
-      attribute_value,
-      attribute_type,
-      attribute_count
-  FROM
-  (
-      SELECT
-          team_id AS team_id,
-          toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket,
-          service_name AS service_name,
-          resource_fingerprint,
-          mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS attributes,
-          arrayJoin(attributes) AS attribute,
-          'metric' AS attribute_type,
-          attribute.1 AS attribute_key,
-          attribute.2 AS attribute_value,
-          sumSimpleState(1) AS attribute_count
-      FROM posthog_test.metrics1
-      GROUP BY
-          team_id,
-          time_bucket,
-          service_name,
-          resource_fingerprint,
-          attributes
-  )
-  
-  '''
-# ---
-# name: test_create_table_query[metrics1_to_resource_attributes]
-  '''
-  
-  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.metrics1_to_resource_attributes TO posthog_test.metric_attributes
-  (
-      `team_id` Int32,
-      `time_bucket` DateTime64(0),
-      `service_name` LowCardinality(String),
-      `resource_fingerprint` UInt64,
-      `attribute_key` LowCardinality(String),
-      `attribute_value` String,
-      `attribute_type` LowCardinality(String),
-      `attribute_count` SimpleAggregateFunction(sum, UInt64)
-  )
-  AS SELECT
-      team_id,
-      time_bucket,
-      service_name,
-      resource_fingerprint,
-      attribute_key,
-      attribute_value,
-      attribute_type,
-      attribute_count
-  FROM
-  (
-      SELECT
-          team_id AS team_id,
-          toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket,
-          service_name AS service_name,
-          resource_fingerprint,
-          arrayJoin(resource_attributes) AS attribute,
-          'resource' AS attribute_type,
-          attribute.1 AS attribute_key,
-          attribute.2 AS attribute_value,
-          sumSimpleState(1) AS attribute_count
-      FROM posthog_test.metrics1
-      GROUP BY
-          team_id,
-          time_bucket,
-          service_name,
-          resource_fingerprint,
-          resource_attributes
-  )
   
   '''
 # ---
@@ -4466,6 +4483,58 @@
   
   '''
 # ---
+# name: test_create_table_query[metrics2_input_to_metric_attributes3]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.metrics2_input_to_metric_attributes3 TO posthog_test.metric_attributes3
+  (
+      `team_id` Int32,
+      `metric_name` LowCardinality(String),
+      `time_bucket` DateTime64(0),
+      `original_expiry_time_bucket` DateTime64(0),
+      `service_name` LowCardinality(String),
+      `attribute_key` LowCardinality(String),
+      `attribute_value` String,
+      `attribute_type` LowCardinality(String),
+      `attribute_count` SimpleAggregateFunction(sum, UInt64)
+  )
+  AS SELECT
+      team_id,
+      metric_name,
+      time_bucket,
+      original_expiry_time_bucket,
+      service_name,
+      attribute_key,
+      attribute_value,
+      attribute_type,
+      attribute_count
+  FROM
+  (
+      SELECT
+          team_id AS team_id,
+          metric_name AS metric_name,
+          toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
+          toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
+          service_name AS service_name,
+          mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS filtered_attributes,
+          arrayJoin(filtered_attributes) AS attribute,
+          'metric' AS attribute_type,
+          attribute.1 AS attribute_key,
+          attribute.2 AS attribute_value,
+          sumSimpleState(1) AS attribute_count
+      FROM posthog_test.metrics2_input
+      WHERE has_labels
+      GROUP BY
+          team_id,
+          metric_name,
+          time_bucket,
+          original_expiry_time_bucket,
+          service_name,
+          filtered_attributes
+  )
+  
+  '''
+# ---
 # name: test_create_table_query[metrics2_input_to_metric_attributes]
   '''
   
@@ -4511,6 +4580,52 @@
           service_name,
           filtered_attributes
   )
+  
+  '''
+# ---
+# name: test_create_table_query[metrics2_input_to_metric_names3]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.metrics2_input_to_metric_names3 TO posthog_test.metric_names3
+  (
+      `team_id` Int32,
+      `metric_name` LowCardinality(String),
+      `time_bucket` DateTime64(0),
+      `original_expiry_time_bucket` DateTime64(0),
+      `original_expiry_timestamp` SimpleAggregateFunction(max, DateTime64(6))
+  )
+  AS SELECT
+      team_id,
+      metric_name,
+      toStartOfHour(timestamp) AS time_bucket,
+      toStartOfHour(input.original_expiry_timestamp) AS original_expiry_time_bucket,
+      maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp
+  FROM posthog_test.metrics2_input AS input
+  WHERE has_labels
+  GROUP BY team_id, time_bucket, metric_name, original_expiry_time_bucket
+  
+  '''
+# ---
+# name: test_create_table_query[metrics2_input_to_metric_series3]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.metrics2_input_to_metric_series3 TO posthog_test.metric_series3
+  AS SELECT
+      team_id,
+      metric_name,
+      series_fingerprint,
+      metric_type,
+      unit,
+      aggregation_temporality,
+      is_monotonic,
+      service_name,
+      instrumentation_scope,
+      resource_attributes,
+      attributes,
+      timestamp AS last_seen,
+      original_expiry_timestamp
+  FROM posthog_test.metrics2_input
+  WHERE has_labels
   
   '''
 # ---
@@ -4567,6 +4682,58 @@
       _topic,
       _offset
   FROM posthog_test.metrics2_input
+  
+  '''
+# ---
+# name: test_create_table_query[metrics2_input_to_resource_attributes3]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS posthog_test.metrics2_input_to_resource_attributes3 TO posthog_test.metric_attributes3
+  (
+      `team_id` Int32,
+      `metric_name` LowCardinality(String),
+      `time_bucket` DateTime64(0),
+      `original_expiry_time_bucket` DateTime64(0),
+      `service_name` LowCardinality(String),
+      `attribute_key` LowCardinality(String),
+      `attribute_value` String,
+      `attribute_type` LowCardinality(String),
+      `attribute_count` SimpleAggregateFunction(sum, UInt64)
+  )
+  AS SELECT
+      team_id,
+      metric_name,
+      time_bucket,
+      original_expiry_time_bucket,
+      service_name,
+      attribute_key,
+      attribute_value,
+      attribute_type,
+      attribute_count
+  FROM
+  (
+      SELECT
+          team_id AS team_id,
+          metric_name AS metric_name,
+          toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
+          toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
+          service_name AS service_name,
+          resource_attributes AS filtered_attributes,
+          arrayJoin(filtered_attributes) AS attribute,
+          'resource' AS attribute_type,
+          attribute.1 AS attribute_key,
+          attribute.2 AS attribute_value,
+          sumSimpleState(1) AS attribute_count
+      FROM posthog_test.metrics2_input
+      WHERE has_labels
+      GROUP BY
+          team_id,
+          metric_name,
+          time_bucket,
+          original_expiry_time_bucket,
+          service_name,
+          filtered_attributes
+  )
   
   '''
 # ---
@@ -5036,6 +5203,57 @@
           -- created_at,
           version
       FROM `posthog_test`.`kafka_person_overrides`
+  
+  '''
+# ---
+# name: test_create_table_query[person_property_mutation_log]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS person_property_mutation_log
+  (
+      team_id Int64,
+      event_uuid UUID,
+      properties String,
+      ingested_at DateTime('UTC')
+  )
+  ENGINE = Distributed('aux', 'posthog_test', 'person_property_mutation_log_data')
+  
+  '''
+# ---
+# name: test_create_table_query[person_property_mutation_log_data]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS person_property_mutation_log_data
+  (
+      team_id Int64,
+      event_uuid UUID,
+      properties String,
+      ingested_at DateTime('UTC')
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_property_mutation_log_data', '{replica}-{shard}', ingested_at)
+  PARTITION BY toDate(ingested_at)
+  ORDER BY (team_id, event_uuid)
+  TTL ingested_at + INTERVAL 30 DAY
+  SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query[person_property_mutation_log_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS person_property_mutation_log_mv
+  TO person_property_mutation_log
+  AS SELECT
+      team_id,
+      uuid AS event_uuid,
+      concat('{', arrayStringConcat(arrayMap(
+          property -> concat(toJSONString(property.1), ':', property.2),
+          arrayFilter(property -> property.1 IN ('$set', '$set_once', '$unset'),
+              JSONExtractKeysAndValuesRaw(source.properties))
+      ), ','), '}') AS properties,
+      toDateTime(_timestamp, 'UTC') AS ingested_at
+  FROM kafka_person_property_mutation_log AS source
+  WHERE JSONHas(source.properties, '$set') OR JSONHas(source.properties, '$set_once') OR JSONHas(source.properties, '$unset')
   
   '''
 # ---
@@ -6336,10 +6554,10 @@
       -- because we batch events we expect message_count to be lower than event_count
       event_count SimpleAggregateFunction(sum, Int64),
       -- which source the snapshots came from Mobile or Web. Web if absent
-      snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+      snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-      snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+      snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
@@ -6375,7 +6593,7 @@
   `console_log_count` Int64, `console_warn_count` Int64,
   `console_error_count` Int64, `size` Int64, `message_count` Int64,
   `event_count` Int64,
-  `snapshot_source` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+  `snapshot_source` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
   `snapshot_library` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
   `_timestamp` Nullable(DateTime)
   ,`retention_period_days` SimpleAggregateFunction(max, Nullable(Int64))
@@ -6384,7 +6602,7 @@
   ,`ai_tags_freeform` SimpleAggregateFunction(groupUniqArrayArray, Array(String))
   ,`ai_highlighted` SimpleAggregateFunction(max, UInt8)
   ,`surfacing_score` SimpleAggregateFunction(max, Nullable(Float32))
-  ,`snapshot_mode` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))
+  ,`snapshot_mode_v2` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))
   )
   AS SELECT
   session_id,
@@ -6417,7 +6635,7 @@
   -- we can count the number of kafka messages instead of sending it explicitly
   sum(message_count) as message_count,
   sum(event_count) as event_count,
-  argMinState(snapshot_source, first_timestamp) as snapshot_source,
+  argMinState(replay.snapshot_source, first_timestamp) as snapshot_source,
   argMinState(snapshot_library, first_timestamp) as snapshot_library,
   max(_timestamp) as _timestamp
   ,max(retention_period_days) as retention_period_days
@@ -6426,8 +6644,8 @@
   ,groupUniqArrayArray(ai_tags_freeform) as ai_tags_freeform
   ,max(ai_highlighted) as ai_highlighted
   ,max(surfacing_score) as surfacing_score
-  ,argMinState(snapshot_mode, first_timestamp) as snapshot_mode
-  FROM posthog_test.kafka_session_replay_events
+  ,argMinState(replay.snapshot_mode, first_timestamp) as snapshot_mode_v2
+  FROM posthog_test.kafka_session_replay_events AS replay
   group by session_id, team_id
   
   '''
@@ -8181,10 +8399,10 @@
       -- because we batch events we expect message_count to be lower than event_count
       event_count SimpleAggregateFunction(sum, Int64),
       -- which source the snapshots came from Mobile or Web. Web if absent
-      snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+      snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-      snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+      snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
@@ -10284,10 +10502,10 @@
       -- because we batch events we expect message_count to be lower than event_count
       event_count SimpleAggregateFunction(sum, Int64),
       -- which source the snapshots came from Mobile or Web. Web if absent
-      snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+      snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-      snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+      snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
@@ -11183,6 +11401,35 @@
   
   '''
 # ---
+# name: test_create_table_query_replicated_and_storage[metric_attributes3]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.metric_attributes3
+  (
+      `team_id` Int32,
+      `metric_name` LowCardinality(String),
+      `time_bucket` DateTime64(0),
+      `original_expiry_time_bucket` DateTime64(0),
+      `service_name` LowCardinality(String),
+      `attribute_key` LowCardinality(String),
+      `attribute_value` String,
+      `attribute_type` LowCardinality(String),
+      `attribute_count` SimpleAggregateFunction(sum, UInt64),
+      INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
+      INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1
+  )
+  ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metric_attributes3', '{replica}-{shard}')
+  PARTITION BY toDate(original_expiry_time_bucket)
+  ORDER BY (team_id, metric_name, attribute_type, time_bucket, attribute_key, attribute_value, service_name, original_expiry_time_bucket)
+  TTL original_expiry_time_bucket
+  SETTINGS
+      index_granularity = 8192,
+      ttl_only_drop_parts = 1
+  
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[metric_attributes]
   '''
   
@@ -11207,6 +11454,25 @@
   SETTINGS
       deduplicate_merge_projection_mode = 'drop',
       index_granularity = 8192
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[metric_names3]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.metric_names3
+  (
+      `team_id` Int32,
+      `metric_name` LowCardinality(String),
+      `time_bucket` DateTime64(0),
+      `original_expiry_time_bucket` DateTime64(0),
+      `original_expiry_timestamp` SimpleAggregateFunction(max, DateTime64(6))
+  )
+  ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metric_names3', '{replica}-{shard}')
+  PARTITION BY toDate(original_expiry_time_bucket)
+  ORDER BY (team_id, time_bucket, metric_name, original_expiry_time_bucket)
+  TTL original_expiry_timestamp
+  SETTINGS index_granularity = 8192
   
   '''
 # ---
@@ -11285,9 +11551,43 @@
       INDEX idx_service_set service_name TYPE set(1000) GRANULARITY 1,
       INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_attr_keys mapKeys(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
-      INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1
+      INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_last_seen_minmax last_seen TYPE minmax GRANULARITY 1
   )
   ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metric_series2', '{replica}-{shard}', last_seen)
+  ORDER BY (team_id, metric_name, series_fingerprint)
+  TTL original_expiry_timestamp
+  SETTINGS index_granularity = 8192
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[metric_series3]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS posthog_test.metric_series3
+  (
+      `team_id` Int32,
+      `metric_name` LowCardinality(String),
+      `series_fingerprint` UInt64 CODEC(Delta(8), Default),
+      `metric_type` LowCardinality(String),
+      `unit` LowCardinality(String),
+      `aggregation_temporality` LowCardinality(String),
+      `is_monotonic` Bool DEFAULT false,
+      `service_name` LowCardinality(String),
+      `instrumentation_scope` String,
+      `resource_attributes` Map(LowCardinality(String), String),
+      `resource_fingerprint` UInt64 MATERIALIZED cityHash64(resource_attributes),
+      `attributes` Map(LowCardinality(String), String),
+      `last_seen` DateTime64(6),
+      `original_expiry_timestamp` DateTime64(6),
+      INDEX idx_service_set service_name TYPE set(1000) GRANULARITY 1,
+      INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_attr_keys mapKeys(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX idx_last_seen_minmax last_seen TYPE minmax GRANULARITY 1
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metric_series3', '{replica}-{shard}', last_seen)
+  PARTITION BY toDate(original_expiry_timestamp)
   ORDER BY (team_id, metric_name, series_fingerprint)
   TTL original_expiry_timestamp
   SETTINGS index_granularity = 8192
@@ -11665,6 +11965,24 @@
       -- the newest known mapping for it in the table. Query side we will need to
       -- ensure that we are always querying the latest version of the mapping.
       ORDER BY (team_id, old_person_id)
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[person_property_mutation_log_data]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS person_property_mutation_log_data
+  (
+      team_id Int64,
+      event_uuid UUID,
+      properties String,
+      ingested_at DateTime('UTC')
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_property_mutation_log_data', '{replica}-{shard}', ingested_at)
+  PARTITION BY toDate(ingested_at)
+  ORDER BY (team_id, event_uuid)
+  TTL ingested_at + INTERVAL 30 DAY
+  SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
   
   '''
 # ---
@@ -13394,10 +13712,10 @@
       -- because we batch events we expect message_count to be lower than event_count
       event_count SimpleAggregateFunction(sum, Int64),
       -- which source the snapshots came from Mobile or Web. Web if absent
-      snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+      snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-      snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+      snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
@@ -14292,10 +14610,10 @@
       -- because we batch events we expect message_count to be lower than event_count
       event_count SimpleAggregateFunction(sum, Int64),
       -- which source the snapshots came from Mobile or Web. Web if absent
-      snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+      snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       -- knowing something is mobile isn't enough, we need to know if e.g. RN or flutter
       snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-      snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+      snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime),
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),

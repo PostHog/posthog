@@ -12,6 +12,7 @@ from products.feature_flags.backend.session_recording_links import (
     ReplayGateRewrite,
     relink_teams,
     replay_gated_flags,
+    replay_gated_flags_for_projects,
     rewritten_linked_flag,
     rewritten_trigger_groups,
     save_replay_gate_rewrites,
@@ -85,6 +86,22 @@ class TestReplayGateMatchersAgree(BaseTest):
 
         assert teams_gating_replay_on_flag(gate_flag, key=gate_flag.key).exists() is False
         assert replay_gated_flags(self.team.project_id).gates(gate_flag) is False
+
+    def test_the_multi_project_scan_keeps_each_projects_keys_to_itself(self) -> None:
+        # A flag key names one flag only within its project, so two projects can hold the same
+        # key. A scan that pooled the keys would report each project's flag as gated by the
+        # other project's trigger group.
+        mine = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        other_team = Team.objects.create(organization=self.organization)
+        theirs = FeatureFlag.objects.create(team=other_team, created_by=self.user, key="replay-gate")
+        other_team.session_recording_trigger_groups = trigger_groups({"flag": "replay-gate"})
+        other_team.save()
+
+        gates = replay_gated_flags_for_projects([self.team.project_id, other_team.project_id])
+
+        assert gates[other_team.project_id].gates(theirs) is True
+        assert self.team.project_id not in gates
+        assert replay_gated_flags(self.team.project_id).gates(mine) is False
 
 
 class TestReplayGateWritesUseTheLockedRow(BaseTest):

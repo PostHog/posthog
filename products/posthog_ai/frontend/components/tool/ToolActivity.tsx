@@ -45,6 +45,18 @@ export function ToolActivity({
     const pauseFollowing = VirtualizedThread.usePauseFollowing()
     const { isLoading, isFailed, wasCancelled } = resolveToolCallStatus(message.status, !!turnCancelled, !!turnComplete)
     const status: ActivityStatus = isFailed ? 'failed' : isLoading ? 'in_progress' : 'completed'
+    // A finished call is the common case, so it carries no label; only exceptions get a word.
+    const statusLabel = isFailed
+        ? 'Failed'
+        : wasCancelled
+          ? 'Canceled'
+          : isLoading
+            ? message.status === 'pending'
+                ? 'Pending'
+                : 'Running'
+            : message.status === 'completed'
+              ? null
+              : 'Incomplete'
 
     // Failures remain readable without opening the raw input/output.
     const errorLine =
@@ -64,19 +76,11 @@ export function ToolActivity({
             title={
                 <span className="flex items-center gap-2 min-w-0">
                     <span className="truncate">{title}</span>
-                    <span className="text-muted shrink-0 font-normal">
-                        {isFailed
-                            ? 'Failed'
-                            : wasCancelled
-                              ? 'Canceled'
-                              : isLoading
-                                ? message.status === 'pending'
-                                    ? 'Pending'
-                                    : 'Running'
-                                : message.status === 'completed'
-                                  ? 'Completed'
-                                  : 'Incomplete'}
-                    </span>
+                    {statusLabel && (
+                        <span className={`${isFailed ? 'text-danger' : 'text-muted'} shrink-0 font-normal`}>
+                            {statusLabel}
+                        </span>
+                    )}
                 </span>
             }
             status={status}

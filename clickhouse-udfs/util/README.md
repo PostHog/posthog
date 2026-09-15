@@ -7,6 +7,7 @@ This module contains the executable ClickHouse UDFs used by PostHog:
 - `JSONCleanPostHogPersonProperties`
 - `JSONCleanPostHogTemporaryProperties`
 - `JSONStripEmptyStringsAndNulls`
+- `decompress(data, codec)`
 
 Run `./scripts/build.sh` to test the module and build Linux amd64 and arm64 binaries into
 `posthog/user_scripts`.
@@ -15,6 +16,9 @@ Run `./scripts/integration_test.sh` to execute the stateless fixtures against Cl
 
 See [JSONDropKeys benchmarks](../../docs/internal/json-drop-keys-benchmarks.md) for the
 file-based workloads and commands to compare throughput and allocations.
+
+See [decompression usage and benchmarks](../../docs/internal/clickhouse-utility-udfs.md#decompressdata-codec)
+for supported codecs, Kafka envelope handling, and size limits.
 
 These utility UDFs keep stable, unversioned names. Regenerating the deployment manifest does not
 change `UDF_VERSION`, which only switches callers between versioned funnel UDF releases.

@@ -52,7 +52,7 @@ SCRUB_DROP_PAGECACHE="${SCRUB_DROP_PAGECACHE:-0}"
 # --- Version pins, mirrored from Dockerfile.sandbox-base ARGs -----------------
 GIT_VERSION=2.49.1
 GIT_SHA256=310831de967f1c8c5e8ff55f92807dea89f83dc3d3d2a5d16c209bd01a31def1
-UV_VERSION=0.11.15
+UV_VERSION=0.12.13
 RUFF_VERSION=0.14.11
 TY_VERSION=0.0.29
 GH_CLI_VERSION=2.97.0
@@ -336,6 +336,7 @@ log "guards + cpu sampler (delivered over ssh by bake-golden.sh)"
 # fails the bake if a hand run omitted them.
 test -x /opt/posthog/bin/git
 test -x /opt/posthog/bin/gh
+test -x /opt/posthog/bin/hogli
 test -x /usr/local/bin/posthog-cpu-billing-sampler
 
 log "git identity"
@@ -430,6 +431,7 @@ agentsh --version
 test -x /scripts/node_modules/.bin/agent-server
 test -x /opt/posthog/bin/git
 test -x /opt/posthog/bin/gh
+test -x /opt/posthog/bin/hogli
 
 # LAST step: strip the ephemeral CI ssh key so it does not persist into the
 # snapshot and therefore into every restored task box. Production restores with

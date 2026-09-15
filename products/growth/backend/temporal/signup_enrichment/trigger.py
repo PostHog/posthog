@@ -10,7 +10,6 @@ for every signup so consumers can read it either way.
 import asyncio
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from email.utils import parseaddr
 
 from django.conf import settings
 from django.db import transaction
@@ -22,10 +21,10 @@ from temporalio.service import RPCError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
-from posthog.models.instance_setting import get_instance_setting
 from posthog.temporal.common.client import sync_connect
-from posthog.utils import GenericEmails, get_instance_region
+from posthog.utils import GenericEmails
 
+from products.growth.backend.enrichment import gates
 from products.growth.backend.enrichment.writer import record_signup_work_email
 from products.growth.backend.temporal.signup_enrichment.workflow import SignupEnrichmentInputs
 
@@ -44,14 +43,6 @@ _dispatch_executor = ThreadPoolExecutor(
 _dispatch_slots = threading.BoundedSemaphore(_DISPATCH_MAX_PENDING)
 
 
-def domain_from_email(email: str) -> str | None:
-    _, address = parseaddr(email or "")
-    if "@" not in address:
-        return None
-    domain = address.rsplit("@", 1)[1].strip().lower()
-    return domain or None
-
-
 def start_signup_enrichment_workflow(
     *,
     organization_id: str,
@@ -68,10 +59,10 @@ def start_signup_enrichment_workflow(
         return
     # Cloud only — self-hosted has no Harmonic key or internal project to score against. The
     # instance setting above is the real per-region toggle.
-    if get_instance_region() not in ("US", "EU"):
+    if not gates.region_allowed():
         return
 
-    domain = domain_from_email(email)
+    domain = gates.domain_from_email(email)
     if not domain:
         return
 
@@ -134,7 +125,7 @@ def _enrichment_enabled() -> bool:
     # Reading the instance setting hits the database on a cache miss, and signup must never fail
     # or stall on it. A failed read means enrichment does not run for that signup.
     try:
-        return bool(get_instance_setting("GROWTH_SIGNUP_ENRICHMENT_ENABLED"))
+        return gates.enrichment_enabled()
     except Exception as e:
         capture_exception(e)
         return False

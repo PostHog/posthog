@@ -13,7 +13,8 @@ Flag keys are unique within a project, so a key alone identifies one flag there,
 matcher here is project-scoped.
 """
 
-from collections.abc import Callable, Mapping
+from collections import defaultdict
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -162,29 +163,42 @@ def teams_gating_replay_on_flag(feature_flag: FeatureFlag, *, key: str) -> Query
 
 
 def replay_gated_flags(project_id: int) -> ReplayFlagGates:
-    """Every flag a team in this project gates session recording on, from both columns.
+    """Single-project form of `replay_gated_flags_for_projects`."""
+    return replay_gated_flags_for_projects([project_id]).get(
+        project_id, ReplayFlagGates(flag_ids=frozenset(), flag_keys=frozenset())
+    )
 
-    One query for the whole project, for callers checking many flags at once;
-    `teams_gating_replay_on_flag` is the per-flag equivalent. Matching trigger groups by key is
-    unambiguous here because both this scan and the flags its result is tested against are scoped
-    to the one project.
+
+def replay_gated_flags_for_projects(project_ids: Collection[int]) -> Mapping[int, ReplayFlagGates]:
+    """Every flag a team in each project gates session recording on, from both columns.
+
+    One query for every project named, for callers checking many flags at once;
+    `teams_gating_replay_on_flag` is the per-flag equivalent. Keyed by project because a flag key
+    identifies one flag only within its own project, so pooling the keys would let a key stored
+    in one project match a same-keyed flag in another. A project that gates on nothing is absent
+    from the result rather than present and empty.
     """
     stored = Team.objects.filter(
         Q(session_recording_linked_flag__isnull=False) | Q(session_recording_trigger_groups__isnull=False),
-        project_id=project_id,
-    ).values_list("session_recording_linked_flag", "session_recording_trigger_groups")
+        project_id__in=project_ids,
+    ).values_list("project_id", "session_recording_linked_flag", "session_recording_trigger_groups")
 
-    flag_ids: set[int] = set()
-    flag_keys: set[str] = set()
-    for linked_flag, trigger_groups in stored:
+    flag_ids: dict[int, set[int]] = defaultdict(set)
+    flag_keys: dict[int, set[str]] = defaultdict(set)
+    for project_id, linked_flag, trigger_groups in stored:
         if (flag_id := stored_flag_id(linked_flag)) is not None:
-            flag_ids.add(flag_id)
+            flag_ids[project_id].add(flag_id)
         for ref in trigger_group_flag_refs(trigger_groups):
             if ref.key is not None:
-                flag_keys.add(ref.key)
+                flag_keys[project_id].add(ref.key)
             if ref.flag_id is not None:
-                flag_ids.add(ref.flag_id)
-    return ReplayFlagGates(flag_ids=frozenset(flag_ids), flag_keys=frozenset(flag_keys))
+                flag_ids[project_id].add(ref.flag_id)
+    return {
+        project_id: ReplayFlagGates(
+            flag_ids=frozenset(flag_ids[project_id]), flag_keys=frozenset(flag_keys[project_id])
+        )
+        for project_id in flag_ids.keys() | flag_keys.keys()
+    }
 
 
 def rewritten_linked_flag(linked_flag: Any, *, flag_id: int, new_key: str) -> dict[str, Any] | None:

@@ -2,7 +2,7 @@ from datetime import date
 from typing import Any, Optional
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -282,7 +282,7 @@ class TestTransistorTransport:
         assert episode_calls[0]["order"] == "asc"
         assert [row["show_id"] for batch in batches for row in batch] == ["22"]
 
-    @freeze_time("2026-08-04")
+    @time_machine.travel("2026-08-04", tick=False)
     @pytest.mark.parametrize(
         "should_use_incremental_field, last_value, expected_start",
         [
@@ -315,7 +315,7 @@ class TestTransistorTransport:
             [{"show_id": "11", "date": "2026-07-18", "raw_date": "18-07-2026", "downloads": 7}],
         ]
 
-    @freeze_time("2026-08-04")
+    @time_machine.travel("2026-08-04", tick=False)
     def test_analytics_splits_long_backfills_into_windows_and_checkpoints_each(self):
         analytics_params: list[dict[str, Any]] = []
 
@@ -336,7 +336,7 @@ class TestTransistorTransport:
             (1, None),
         ]
 
-    @freeze_time("2026-08-04")
+    @time_machine.travel("2026-08-04", tick=False)
     def test_analytics_resumes_at_the_saved_window(self):
         analytics_params: list[dict[str, Any]] = []
 
