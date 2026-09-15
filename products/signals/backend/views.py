@@ -112,6 +112,7 @@ from products.signals.backend.models import (
     SignalReport,
     SignalReportAction,
     SignalReportArtefact,
+    SignalReportCheck,
     SignalReportRefund,
     SignalSourceConfig,
     SignalTeamConfig,
@@ -121,6 +122,12 @@ from products.signals.backend.pull_requests import import_report_pull_requests
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
 from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.report_assignments import InvalidPullRequestUrl, ReportClaimConflict, claim_report
+from products.signals.backend.report_check_execution import resolve_check_query
+from products.signals.backend.report_checks import (
+    MAX_ACTIVE_CHECKS_PER_REPORT,
+    MetricThresholdConfig,
+    parse_check_config,
+)
 from products.signals.backend.report_claims import (
     actor_owns_claim,
     get_active_claim,
@@ -158,6 +165,8 @@ from products.signals.backend.serializers import (
     SignalReportArtefactSerializer,
     SignalReportArtefactWriteResponseSerializer,
     SignalReportArtefactWriteSerializer,
+    SignalReportCheckSerializer,
+    SignalReportCheckWriteSerializer,
     SignalReportClaimSerializer,
     SignalReportListSerializer,
     SignalReportMetricRefreshRequestSerializer,
@@ -4170,6 +4179,165 @@ def _record_reviewer_edit(
         correction_notes_written=len(forwarded.note_ids) if forwarded else None,
         correction_note_targets=forwarded.targets_resolved if forwarded else None,
     )
+
+
+@extend_schema_view(
+    list=extend_schema(
+        summary="List a report's checks",
+        description=(
+            "List the forward-looking checks on a report. A check says what must stay true after "
+            "the report was acted on, and the coordinator records each verdict as a `check_result` "
+            "artefact on the report."
+        ),
+        parameters=[_REPORT_ID_PARAMETER],
+        responses={200: SignalReportCheckSerializer(many=True)},
+        operation_id="signals_report_checks_list",
+    ),
+    retrieve=extend_schema(
+        summary="Get a single check",
+        parameters=[_REPORT_ID_PARAMETER],
+        responses={200: SignalReportCheckSerializer},
+        operation_id="signals_report_checks_retrieve",
+    ),
+    create=extend_schema(
+        summary="Create a check on a report",
+        description=(
+            "Schedule a re-measurement of the report's claim. A `metric_threshold` check runs one "
+            "bounded Trends query and compares the result, so it needs no agent run."
+        ),
+        parameters=[_REPORT_ID_PARAMETER],
+        request=SignalReportCheckWriteSerializer,
+        responses={201: SignalReportCheckSerializer},
+        operation_id="signals_report_checks_create",
+    ),
+    destroy=extend_schema(
+        summary="Cancel a check",
+        description="Stop an active check. Its recorded results stay on the report.",
+        parameters=[_REPORT_ID_PARAMETER],
+        responses={200: SignalReportCheckSerializer},
+        operation_id="signals_report_checks_destroy",
+    ),
+)
+class SignalReportCheckViewSet(
+    TeamAndOrgViewSetMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Checks attached to a signal report: read, create, and cancel.
+
+    There is no update: a check is a claim about the future, and editing its threshold after a
+    result would make the recorded verdict unreadable. Cancel it and write a new one.
+
+    Writes are attributed the same way artefact writes are — to the task named by the
+    `X-PostHog-Task-Id` header when present, else to the requesting user.
+    """
+
+    serializer_class = SignalReportCheckSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "task"
+    queryset = SignalReportCheck.objects.unscoped().order_by("-created_at")
+    http_method_names = ["get", "post", "delete", "head", "options"]
+
+    def _validated_report(self) -> SignalReport:
+        report_id = self.parents_query_dict["report_id"]
+        try:
+            uuid.UUID(str(report_id))
+        except (ValueError, TypeError):
+            raise NotFound()
+        report = (
+            SignalReport.objects.filter(id=report_id, team=self.team)
+            .exclude(status=SignalReport.Status.DELETED)
+            .first()
+        )
+        if report is None:
+            raise NotFound()
+        return report
+
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(report_id=self._validated_report().id, team=self.team)
+
+    def create(self, request: Request, *args, **kwargs) -> Response:
+        report = self._validated_report()
+        write_serializer = SignalReportCheckWriteSerializer(data=request.data)
+        write_serializer.is_valid(raise_exception=True)
+        spec = write_serializer.validated_data
+
+        # Resolve a metric reference now and store the query it points at, rather than at each run.
+        # An unresolvable reference would otherwise sit idle for the whole soak window before
+        # retiring, and a reference resolved late would measure whatever the metric had become.
+        stored_config = spec["config"]
+        config = parse_check_config(spec["kind"], stored_config)
+        if isinstance(config, MetricThresholdConfig) and config.metric_id is not None:
+            try:
+                stored_config = {**stored_config, "query": resolve_check_query(config, report)}
+            except ValueError as error:
+                return Response(
+                    {"error": f"This check cannot run: {error}."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        # Resolved before the locked transaction — a bad X-PostHog-Task-Id header must 400 before
+        # anything mutates, and its task lookup has no business inside the lock.
+        attribution = resolve_request_attribution(request, self.team.id)
+
+        with transaction.atomic():
+            # The cap is a count and then an insert, so it only holds if concurrent creates
+            # serialize. Row-lock the report first, the lock `enforce_report_task_cap` takes to cap
+            # a report's tasks the same way.
+            locked_report = SignalReport.objects.select_for_update().filter(id=report.id, team_id=self.team.id).first()
+            if locked_report is None:
+                raise NotFound()
+
+            active_checks = SignalReportCheck.objects.for_team(self.team.id).filter(
+                report_id=locked_report.id, status=SignalReportCheck.Status.ACTIVE
+            )
+            if active_checks.count() >= MAX_ACTIVE_CHECKS_PER_REPORT:
+                return Response(
+                    {"error": f"A report may carry at most {MAX_ACTIVE_CHECKS_PER_REPORT} active checks."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            check = SignalReportCheck.objects.for_team(locked_report.team_id).create(
+                # The report's own environment team, never a canonicalized one: the report's reads
+                # and its artefact log filter by it.
+                team_id=locked_report.team_id,
+                report_id=locked_report.id,
+                title=spec["title"],
+                rationale=spec.get("rationale", ""),
+                kind=spec["kind"],
+                config=stored_config,
+                next_run_at=spec["next_run_at"],
+                run_interval_minutes=spec.get("run_interval_minutes"),
+                runs_remaining=spec["runs_remaining"],
+                expires_at=spec["expires_at"],
+                actor_kind=attribution.kind,
+                actor_agent=attribution.agent_name,
+                created_by_id=attribution.user_id,
+                task_id=attribution.task_id,
+            )
+        return Response(self.get_serializer(check).data, status=status.HTTP_201_CREATED)
+
+    def destroy(self, request: Request, *args, **kwargs) -> Response:
+        check = cast(SignalReportCheck, self.get_object())
+        # One conditional update rather than a read and then a write. A run that commits its verdict
+        # between the two leaves a result artefact on the report, and an unconditional write would
+        # overwrite the status that artefact explains.
+        cancelled = (
+            SignalReportCheck.objects.for_team(self.team.id)
+            .filter(id=check.id, status=SignalReportCheck.Status.ACTIVE)
+            .update(status=SignalReportCheck.Status.CANCELLED, updated_at=timezone.now())
+        )
+        check.refresh_from_db()
+        if not cancelled:
+            return Response(
+                {"error": f"This check already finished as '{check.status}' and cannot be cancelled."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(self.get_serializer(check).data)
 
 
 @extend_schema_view(

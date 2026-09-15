@@ -2670,6 +2670,7 @@ class ExternalDataSourceType(StrEnum):
     SKIO = "Skio"
     SMARTLEAD = "Smartlead"
     SUBSTACK = "Substack"
+    ELECTRICITY_MAPS = "ElectricityMaps"
 
 
 class ExternalQueryErrorCode(StrEnum):

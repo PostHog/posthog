@@ -237,7 +237,7 @@ export class IngestionSessionReplayMlImageFetchServer extends MlMirrorConsumerSe
         await legacyCrawlHistory.validateAccess(Date.now())
         let crawlHistory =
             legacyCrawlHistory as import('~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history').CrawlHistoryStore
-        if (this.config.AI_RESEARCH_REPLAY_PRIVACY_TABLE) {
+        if (this.config.AI_RESEARCH_REPLAY_KEY_TABLE) {
             if (
                 !this.config.AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE ||
                 this.config.AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE === tableName
