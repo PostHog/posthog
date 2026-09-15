@@ -44739,11 +44739,6 @@ export namespace Schemas {
     export interface HogFlowOptimisation {
       /** Whether PostHog may read this workflow's metrics and suggest changes to it. */
       enabled: boolean;
-      /**
-         * When a producer last read this workflow's metrics.
-         * @nullable
-         */
-      readonly last_run_at: string | null;
     }
 
     export interface HogFlowPublishImpactMoveTarget {

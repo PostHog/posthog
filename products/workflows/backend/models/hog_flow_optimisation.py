@@ -18,7 +18,8 @@ class HogFlowOptimisation(TeamScopedRootMixin, UUIDTModel):
     history, rather than as a pair of columns here that could only remember the last flip.
 
     Cadence lives with whoever schedules the producer - a Signals scout config today - so it is
-    deliberately not repeated here.
+    deliberately not repeated here, and so is "when did it last look": the producer's own run rows
+    answer that, and a column here would only ever be written by a producer that knows about it.
 
     Prototype behind the `self-optimising-workflows` flag.
     """
@@ -36,9 +37,6 @@ class HogFlowOptimisation(TeamScopedRootMixin, UUIDTModel):
 
     enabled = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True, help_text="When this workflow was first opted in.")
-    last_run_at = models.DateTimeField(
-        null=True, blank=True, help_text="When a producer last read this workflow's metrics."
-    )
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         # The opt-in's tenant scope always mirrors its workflow's, as WorkflowProposal's does: a

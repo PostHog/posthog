@@ -3824,9 +3824,6 @@ class HogFlowOptimisationSerializer(serializers.Serializer):
     enabled = serializers.BooleanField(
         help_text="Whether PostHog may read this workflow's metrics and suggest changes to it."
     )
-    last_run_at = serializers.DateTimeField(
-        read_only=True, allow_null=True, help_text="When a producer last read this workflow's metrics."
-    )
 
 
 class WorkflowProposalSerializer(serializers.ModelSerializer):
@@ -5853,14 +5850,7 @@ class HogFlowViewSet(
 
         row = HogFlowOptimisation.objects.filter(team_id=self.team_id, hog_flow=instance).first()
         enabled = row is not None and row.enabled
-        return Response(
-            HogFlowOptimisationSerializer(
-                {
-                    "enabled": enabled,
-                    "last_run_at": row.last_run_at if row else None,
-                }
-            ).data
-        )
+        return Response(HogFlowOptimisationSerializer({"enabled": enabled}).data)
 
     @extend_schema(request=HogFlowInvocationSerializer, responses={200: _FallbackSerializer})
     @action(detail=True, methods=["POST"])
