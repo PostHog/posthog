@@ -126,9 +126,9 @@ async def test_rescores_with_the_resolved_identity_after_the_settle_delay():
 
     assert result == {"matched": True, "fields_filled": 1}
     enrich.assert_awaited_once()
-    assert enrich.await_args.kwargs["is_recheck"] is True
-    assert enrich.await_args.kwargs["role_at_organization"] == "engineering"
-    assert enrich.await_args.kwargs["domain"] == "stripe.com"
+    assert enrich.await_args.kwargs["ctx"].is_recheck is True
+    assert enrich.await_args.kwargs["ctx"].role_at_organization == "engineering"
+    assert enrich.await_args.kwargs["ctx"].domain == "stripe.com"
 
 
 async def test_skips_the_enrich_activity_when_no_signup_identity_resolves():

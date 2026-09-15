@@ -46,8 +46,8 @@ async def resolve_wizard_rescore_signup_inputs_activity(
     from posthog.models.organization import OrganizationMembership  # noqa: PLC0415
     from posthog.utils import GenericEmails  # noqa: PLC0415
 
+    from products.growth.backend.enrichment.gates import domain_from_email  # noqa: PLC0415
     from products.growth.backend.models import OrganizationEnrichment  # noqa: PLC0415
-    from products.growth.backend.temporal.signup_enrichment.trigger import domain_from_email  # noqa: PLC0415
 
     logger = LOGGER.bind(organization_id=inputs.organization_id)
 
