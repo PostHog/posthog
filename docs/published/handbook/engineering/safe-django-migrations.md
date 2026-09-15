@@ -292,7 +292,7 @@ operations = [
 ]
 ```
 
-`DropForeignKey` reads the constraint name out of `pg_constraint`, so there is nothing to hardcode. Never hand-write `ALTER TABLE ... DROP CONSTRAINT IF EXISTS <name>`: Django names foreign keys with a hash suffix, and `IF EXISTS` turns a wrong guess into a migration that succeeds and drops nothing.
+`DropForeignKey` reads the constraint name out of `pg_constraint`, so there is nothing to hardcode. Never hand-write `ALTER TABLE ... DROP CONSTRAINT IF EXISTS <name>`: Django names foreign keys with a hash suffix, and `IF EXISTS` turns a wrong guess into a migration that succeeds and drops nothing. Each drop runs under a short `lock_timeout` of its own, because `DROP CONSTRAINT` takes `ACCESS EXCLUSIVE` on the referenced parent and a long wait for that lock queues every query that arrives behind it. The budget is half the server's `deadlock_timeout` and never more than a second, so a child with keys into two hot parents abandons its own wait before its own deadlock detector runs, and an operator who raises `deadlock_timeout` does not widen the wait with it. That biases a lock cycle toward the migration, but it does not settle one. Each backend arms its detector when its own wait starts, so an application query that began its wait more than the budget earlier can still be the one Postgres aborts. The drop fails fast on a contended parent and `bin/migrate` retries it.
 
 **`deprecate_field()` is not an option for a foreign key.** It writes no migration, so there is nowhere for the constraint drop to live, and the hidden column leaves exactly the orphan described above. Use `untrack_field()` with `DropForeignKey`.
 

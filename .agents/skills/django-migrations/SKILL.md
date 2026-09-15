@@ -101,7 +101,7 @@ Two things a callable does not do for you:
 - **Add a ForeignKey to a [hot table](#hot-table-hazard)** → declare the FK with `db_constraint=False` on the model (so `CreateModel` / `AddField` emit no parent lock), then add the DB constraint back with `AddForeignKeyNotValid` and follow up with `ValidateForeignKey` in a later migration. See [foreign keys to hot tables](#foreign-keys-to-hot-tables).
 - **Index expressed only as raw SQL** (no Django `Index`) → `CreateIndexConcurrently` / `DropIndexConcurrently` wrapped in `SeparateDatabaseAndState`.
 - **Retire a column** → `deprecate_field` on the model, or `untrack_field` in place of the generated `RemoveField`. See [retire a column](#retire-a-column).
-- **Drop a foreign key left behind by a retirement** → `DropForeignKey(table, column=...)` or `DropForeignKey(table, to_table=...)`. It reads the name from `pg_constraint`, so nothing is hardcoded and a retry is a no-op.
+- **Drop a foreign key left behind by a retirement** → `DropForeignKey(table, column=...)` or `DropForeignKey(table, to_table=...)`. It reads the name from `pg_constraint`, so nothing is hardcoded and a retry is a no-op, and it bounds its own wait for the parent's `ACCESS EXCLUSIVE` lock under both the server's `deadlock_timeout` and a one second ceiling of its own.
 
 All concurrent-index ops require `atomic = False`.
 

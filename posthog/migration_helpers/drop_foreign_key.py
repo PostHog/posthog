@@ -38,16 +38,33 @@ a bin/migrate retry.
 The op is irreversible. Add the constraint back with `AddForeignKeyNotValid` in a new
 migration rather than by unapplying this one.
 
-The op deliberately does not touch lock_timeout, exactly like `AddForeignKeyNotValid`.
-Dropping a foreign key takes ACCESS EXCLUSIVE on the referenced parent for a metadata-only
-change held for microseconds, so it should fail fast on contention under whatever
-lock_timeout the connection carries, rather than queue that lock and stall the parent.
-Never disable the timeout here: on a hot parent an unbounded wait blocks every query that
-arrives behind it. A bin/migrate retry re-attempts once the lock is free.
+Each drop runs under a short lock_timeout the op sets itself. The statement is a
+metadata-only change held for microseconds, but it takes ACCESS EXCLUSIVE on the referenced
+parent, and the wait for that lock is the hazard: it queues behind any in-flight read of
+the parent, and every query that arrives after it queues behind the wait. On a hot parent
+such as posthog_team or posthog_user that stalls the site for as long as the wait lasts.
+
+The budget is half the server's own deadlock_timeout, and never more than a second. Two
+waits are in play. A single ALTER holds its ACCESS EXCLUSIVE to COMMIT, so a child with keys
+into two hot parents holds one parent while it requests the next, and that lock order
+crosses the order of any live query reading both. A cycle is resolved by the deadlock
+detector rather than by lock_timeout, and the backend that runs the detector is the one that
+aborts. A budget under deadlock_timeout biases the cycle toward the migration, because the
+op abandons its own wait before its own detector runs. It does not settle the cycle. Each
+backend arms its detector when its own wait starts. An application query that began its wait
+more than the budget earlier reaches its detector first, and that backend aborts itself.
+bin/migrate retries the migration either way. Never widen or disable the timeout here.
+
+The one second is a ceiling on that half, not the budget itself, because deadlock_timeout is
+a server setting this repository does not own. An operator can raise it on a loaded server,
+and half of a raised value is a wait long enough to queue the site behind it. A ceiling only
+lowers the budget, so the bias above holds whatever the server reports.
 """
 
 from django.db import router
 from django.db.migrations.operations.base import Operation
+
+_MAX_LOCK_BUDGET_MS = 1000
 
 _CONSTRAINT_NAMES_SQL = """
     SELECT con.conname
@@ -105,10 +122,22 @@ class DropForeignKey(Operation):
         # them apart, so a same-named table elsewhere would lose its foreign key.
         if not router.allow_migrate(schema_editor.connection.alias, app_label):
             return
-        for name in self._constraint_names(schema_editor):
+        names = self._constraint_names(schema_editor)
+        if not names:
+            return
+        # A transaction-local setting ends with the migration's transaction, but a migration
+        # marked atomic = False has no transaction to hold it, so there the setting is a
+        # session one this op puts back itself.
+        transaction_local = schema_editor.connection.in_atomic_block
+        previous = self._lock_timeout(schema_editor)
+        self._set_lock_timeout(schema_editor, f"{self._lock_budget_ms(schema_editor)}ms", transaction_local)
+        for name in names:
             schema_editor.execute(
                 f"ALTER TABLE {schema_editor.quote_name(self.table)} DROP CONSTRAINT {schema_editor.quote_name(name)}"
             )
+        # A drop that times out must not restore: the rollback carries the setting back, and
+        # the aborted transaction would reject the restore and mask the lock timeout.
+        self._set_lock_timeout(schema_editor, previous, transaction_local)
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state) -> None:
         raise NotImplementedError("DropForeignKey is irreversible; add the constraint back with AddForeignKeyNotValid")
@@ -116,6 +145,20 @@ class DropForeignKey(Operation):
     def describe(self) -> str:
         target = self.column or f"-> {self.to_table}"
         return f"Drop foreign key on {self.table} ({target})"
+
+    def _lock_budget_ms(self, schema_editor) -> int:
+        with schema_editor.connection.cursor() as cursor:
+            cursor.execute("SELECT setting::int FROM pg_settings WHERE name = 'deadlock_timeout'")
+            return max(1, min(_MAX_LOCK_BUDGET_MS, cursor.fetchone()[0] // 2))
+
+    def _lock_timeout(self, schema_editor) -> str:
+        with schema_editor.connection.cursor() as cursor:
+            cursor.execute("SELECT current_setting('lock_timeout')")
+            return cursor.fetchone()[0]
+
+    def _set_lock_timeout(self, schema_editor, value: str, transaction_local: bool) -> None:
+        # set_config takes the value as a parameter, which SET does not.
+        schema_editor.execute("SELECT set_config('lock_timeout', %s, %s)", [value, transaction_local])
 
     def _constraint_names(self, schema_editor) -> list[str]:
         with schema_editor.connection.cursor() as cursor:
