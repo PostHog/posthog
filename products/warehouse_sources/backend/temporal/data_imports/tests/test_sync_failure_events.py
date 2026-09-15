@@ -16,8 +16,8 @@ _PRODUCE_INTERNAL_EVENT = (
 )
 
 
-def _source() -> ExternalDataSource:
-    return ExternalDataSource(team_id=1, source_type="Slack", prefix="community_")
+def _source(**fields) -> ExternalDataSource:
+    return ExternalDataSource(team_id=1, source_type="Slack", prefix="community_", **fields)
 
 
 def _schema(source: ExternalDataSource, **fields) -> ExternalDataSchema:
@@ -25,17 +25,19 @@ def _schema(source: ExternalDataSource, **fields) -> ExternalDataSchema:
 
 
 @pytest.mark.parametrize(
-    "fields,expected_paused",
+    "schema_fields,source_fields,expected_paused",
     [
-        ({"should_sync": True}, False),
-        ({"should_sync": True, "sync_type_config": {"cdc_broken": {"reason": "slot_missing"}}}, True),
-        ({"should_sync": False, "auto_disabled_at": dt.datetime(2026, 1, 1, tzinfo=dt.UTC)}, True),
-        ({"should_sync": False}, None),
+        ({"should_sync": True}, {}, False),
+        ({"should_sync": True, "sync_type_config": {"cdc_broken": {"reason": "slot_missing"}}}, {}, True),
+        ({"should_sync": False, "auto_disabled_at": dt.datetime(2026, 1, 1, tzinfo=dt.UTC)}, {}, True),
+        ({"should_sync": False}, {}, None),
+        ({"should_sync": True, "deleted": True}, {}, None),
+        ({"should_sync": True}, {"deleted": True}, None),
     ],
 )
-def test_produces_an_event_unless_the_user_stopped_the_schema(fields, expected_paused):
-    source = _source()
-    schema = _schema(source, label="general", **fields)
+def test_produces_an_event_unless_the_digest_skips_the_schema(schema_fields, source_fields, expected_paused):
+    source = _source(**source_fields)
+    schema = _schema(source, label="general", **schema_fields)
 
     with patch(_PRODUCE_INTERNAL_EVENT) as mock_produce:
         produce_sync_failed_events(source, [schema], "x" * (MAX_ERROR_LENGTH + 500), job_id="job-1")

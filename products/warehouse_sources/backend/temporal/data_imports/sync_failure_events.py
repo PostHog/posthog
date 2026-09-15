@@ -29,8 +29,8 @@ def produce_sync_failed_events(
     This function never raises. The callers write sync status, and a notification problem must not fail that write.
     """
     for schema in schemas:
-        # A schema the user switched off is not a failure to chase. The failure digest email skips it too.
-        if not schema.should_sync and schema.auto_disabled_at is None:
+        # The failure digest email skips deleted schemas and sources, and schemas the user switched off.
+        if schema.deleted or source.deleted or (not schema.should_sync and schema.auto_disabled_at is None):
             continue
         try:
             produce_internal_event(
