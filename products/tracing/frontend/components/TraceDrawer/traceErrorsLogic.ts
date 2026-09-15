@@ -15,7 +15,11 @@ const MAX_ISSUES = 100
 
 export interface TraceErrorsLogicProps {
     traceId: string
-    /** Trace start, which anchors the window the exceptions must fall in. */
+    /**
+     * Trace start, which anchors the window the exceptions must fall in. The trace anchors it
+     * rather than the inspected span, so walking the waterfall does not re-ask a question whose
+     * answer only moves by the trace's own duration.
+     */
     timestamp: string | null
     sessionId: string
 }
@@ -68,7 +72,9 @@ export type traceErrorsLogicType = MakeLogicType<
 // session hit, so the tab has to answer over the same set or the two disagree.
 export const traceErrorsLogic = kea<traceErrorsLogicType>([
     props({} as TraceErrorsLogicProps),
-    key((props) => props.traceId),
+    // The session is in the key, not just the trace: a trace that touches two sessions answers a
+    // different question for each, and walking to a span of the other session has to re-ask.
+    key((props) => `${props.traceId}:${props.sessionId}`),
     path((key) => ['products', 'tracing', 'frontend', 'components', 'TraceDrawer', 'traceErrorsLogic', key]),
 
     loaders(({ props }) => ({

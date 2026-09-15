@@ -1,7 +1,13 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
-import { EMPTY_TRACE_IDENTITY, resolveTraceIdentity, resolveTraceSessionId, type TraceIdentity } from './traceIdentity'
+import {
+    EMPTY_TRACE_IDENTITY,
+    resolveSpanSessionId,
+    resolveTraceIdentity,
+    resolveTraceSessionId,
+    type TraceIdentity,
+} from './traceIdentity'
 import { tracingCorrelationConfigLogic } from './tracingCorrelationConfigLogic'
 import { PREFETCH_SPANS, tracingDataLogic } from './tracingDataLogic'
 import { TRACING_SCENE_VIEWER_ID, tracingFiltersLogic } from './tracingFiltersLogic'
@@ -132,6 +138,7 @@ export interface tracingViewerLogicMeta {
         ) => TraceIdentity
         traceSessionId: (
             openTraceSpans: Span[],
+            selectedSpanId: string | null,
             configuredSessionIdKeys: string[] | undefined,
             sessionErrorBadgesEnabled: boolean
         ) => string | null
@@ -318,13 +325,26 @@ export const tracingViewerLogic = kea<tracingViewerLogicType>([
         // resolves from one row, so the stricter rule would also make the two disagree. A later
         // page that carries a second session withdraws the answer rather than keeping a wrong one.
         traceSessionId: [
-            (s) => [s.openTraceSpans, s.configuredSessionIdKeys, s.sessionErrorBadgesEnabled],
+            (s) => [s.openTraceSpans, s.selectedSpanId, s.configuredSessionIdKeys, s.sessionErrorBadgesEnabled],
             (
                 openTraceSpans: Span[],
+                selectedSpanId: string | null,
                 configuredSessionIdKeys: string[] | undefined,
                 sessionErrorBadgesEnabled: boolean
-            ): string | null =>
-                sessionErrorBadgesEnabled ? resolveTraceSessionId(openTraceSpans, configuredSessionIdKeys) : null,
+            ): string | null => {
+                if (!sessionErrorBadgesEnabled) {
+                    return null
+                }
+                // The anchored span first, because a badge click opens the drawer on the row the
+                // user pressed. Reading the whole trace instead would answer null for a trace that
+                // touches two sessions, so a row that just showed a count would open a tab saying
+                // the trace has no session.
+                const anchored = selectedSpanId
+                    ? (openTraceSpans.find((span) => span.span_id === selectedSpanId) ?? null)
+                    : null
+                const anchoredSessionId = anchored ? resolveSpanSessionId(anchored, configuredSessionIdKeys) : null
+                return anchoredSessionId ?? resolveTraceSessionId(openTraceSpans, configuredSessionIdKeys)
+            },
         ],
     }),
 
