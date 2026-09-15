@@ -299,12 +299,25 @@ STICKY_SHAPE_MAX_ENTRIES = 20_000
 # ~1-2 KB; this only rejects an abusively large filter value that would otherwise sit
 # in shared Redis for the entry's lifetime. The shape still self-heals via check-miss.
 STICKY_SHAPE_MAX_QUERY_BYTES = 50_000
+# Per-team admission cap on the shared hash, so one tenant can't fill all
+# STICKY_SHAPE_MAX_ENTRIES and starve every other team's shapes for the TTL.
+# Matches the warmer's per-team union cap: recording more than the warmer will
+# ever replay for one team is wasted. The counter is approximate — the warmer's
+# prune (HDEL) does not decrement it, so it over-counts and only ever refuses a
+# team earlier than strictly needed, resetting on its own TTL.
+STICKY_SHAPE_MAX_PER_TEAM = 100
 
 WEB_ANALYTICS_STICKY_WARM_RECORDED = Counter(
     "web_analytics_sticky_warm_shapes_recorded_total",
     "Check-missed shapes recorded into (or refused by) the sticky warm set.",
-    labelnames=["outcome"],  # marked | recorded | full | oversized | error
+    labelnames=["outcome"],  # marked | recorded | full | team_full | oversized | error
 )
+
+
+def _sticky_team_count_key(team_id: int) -> str:
+    # Same hash tag as STICKY_WARM_SHAPES_KEY so the counter and the hash share a
+    # Redis Cluster slot.
+    return f"{{web_precompute_sticky_shapes}}:count:{team_id}"
 
 
 def record_sticky_warm_shape(*, team: Team, runner: Any) -> None:
@@ -327,9 +340,15 @@ def record_sticky_warm_shape(*, team: Team, runner: Any) -> None:
                 pass  # undecodable marker: treat as a first touch and upgrade
         if existing is None:
             # First touch: a marker only. Upgrading an existing marker adds no
-            # field, so only this branch is subject to the cap.
+            # field, so only this branch adds an entry and is subject to the caps.
             if client.hlen(STICKY_WARM_SHAPES_KEY) >= STICKY_SHAPE_MAX_ENTRIES:
                 WEB_ANALYTICS_STICKY_WARM_RECORDED.labels(outcome="full").inc()
+                return
+            count_key = _sticky_team_count_key(team.id)
+            team_count = client.get(count_key)
+            if team_count is not None and int(team_count) >= STICKY_SHAPE_MAX_PER_TEAM:
+                # One tenant must not fill the shared hash and starve other teams.
+                WEB_ANALYTICS_STICKY_WARM_RECORDED.labels(outcome="team_full").inc()
                 return
             payload = json.dumps({"team_id": team.id, "recorded_at": time.time()})
             outcome = "marked"
@@ -350,6 +369,10 @@ def record_sticky_warm_shape(*, team: Team, runner: Any) -> None:
         pipe = client.pipeline()
         pipe.hset(STICKY_WARM_SHAPES_KEY, field, payload)
         pipe.expire(STICKY_WARM_SHAPES_KEY, STICKY_SHAPE_KEY_TTL_SECONDS)
+        if existing is None:
+            # A new field was added, so bump the team's admission counter.
+            pipe.incr(_sticky_team_count_key(team.id))
+            pipe.expire(_sticky_team_count_key(team.id), STICKY_SHAPE_KEY_TTL_SECONDS)
         pipe.execute()
         WEB_ANALYTICS_STICKY_WARM_RECORDED.labels(outcome=outcome).inc()
     except Exception:

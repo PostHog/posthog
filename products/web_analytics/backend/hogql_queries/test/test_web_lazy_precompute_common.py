@@ -51,6 +51,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     PropertyAccessControlled,
     UnsupportedFilterType,
     _oom_pin_key,
+    _sticky_team_count_key,
     _team_shape_set_key,
     check_common_eligibility,
     compute_filters_eligibility_hash,
@@ -802,10 +803,10 @@ class TestWebEnsurePrecomputed(BaseTest):
 class TestStickyWarmShapes(BaseTest):
     def setUp(self):
         super().setUp()
-        redis.get_client().delete(STICKY_WARM_SHAPES_KEY)
+        redis.get_client().delete(STICKY_WARM_SHAPES_KEY, _sticky_team_count_key(self.team.id))
 
     def tearDown(self):
-        redis.get_client().delete(STICKY_WARM_SHAPES_KEY)
+        redis.get_client().delete(STICKY_WARM_SHAPES_KEY, _sticky_team_count_key(self.team.id))
         super().tearDown()
 
     def _runner(self, query=None):
@@ -850,6 +851,19 @@ class TestStickyWarmShapes(BaseTest):
         record_sticky_warm_shape(team=self.team, runner=self._runner(huge))
         assert get_sticky_warm_shapes() == []
         assert redis.get_client().hlen(STICKY_WARM_SHAPES_KEY) == 1  # marker only, never upgraded
+
+    @mock.patch(f"{_COMMON}.STICKY_SHAPE_MAX_PER_TEAM", 1)
+    def test_per_team_cap_refuses_new_shapes_but_still_upgrades_own_marker(self):
+        # One tenant must not fill the shared hash and starve others: past its
+        # per-team cap, new distinct shapes are refused even though the global
+        # hash is nowhere near full. Upgrading the team's own existing marker
+        # adds no field, so it must still proceed.
+        record_sticky_warm_shape(team=self.team, runner=self._runner())  # shape A: marker, team count -> 1
+        filtered = _overview(properties=[EventPropertyFilter(key="$host", value="a.com", operator="exact")])
+        record_sticky_warm_shape(team=self.team, runner=self._runner(filtered))  # shape B: refused, team cap
+        assert redis.get_client().hlen(STICKY_WARM_SHAPES_KEY) == 1
+        record_sticky_warm_shape(team=self.team, runner=self._runner())  # shape A again: upgrades, not blocked
+        assert len(get_sticky_warm_shapes()) == 1
 
     @mock.patch(f"{_COMMON}.STICKY_SHAPE_MAX_ENTRIES", 1)
     def test_full_set_refuses_new_shapes_but_upgrades_existing_markers(self):
