@@ -50,6 +50,7 @@ An anomaly verdict about older history records `latest_point_not_flagged` and do
 Lowering the threshold cannot make that historical check appear to fire for the latest point.
 Investigation charts mark the saved check's triggered dates that remain in the chart window.
 They do not repeat the model call or mark a newer point in place of the saved anomaly.
+The markers still use the saved check after the alert's detector changes.
 
 ## What it refuses, and why
 
@@ -86,6 +87,8 @@ so they cannot delay an edited alert's first check.
 Successful retries retain the shared alert behavior. Durable recovery after a committed activity
 loses its completion remains separate work for all detector types.
 The next scheduler tick handles an edited alert at its current due time.
+An edit between preparation and evaluation can cause one additional retry chain.
+The next workflow prepares the current fingerprint and can record an exhausted failure for that configuration.
 
 ## Gating
 
@@ -130,6 +133,7 @@ The write-scope check runs before these shared limits. A read-only token cannot 
 Staff impersonation previews are not billed. Scheduled checks remain billable.
 Max validates the current insight configuration for every update that leaves an AI alert enabled.
 API and Max updates lock the insight before the alert and validate the locked query definition.
+API creation also locks and revalidates the insight before it inserts an AI alert.
 
 The preview judges the whole window in one call, which is not the same shape as a live check.
 A live check judges only whether the latest point is anomalous.

@@ -812,6 +812,12 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
         team = self.context["get_team"]()
+        if DetectorType.LLM.value in _detector_types(validated_data.get("detector_config")):
+            insight = validated_data["insight"]
+            if not lock_insight_for_evaluation(team_id=team.id, insight_id=insight.id):
+                raise ValidationError({"insight": ["The insight no longer exists. Refresh the alert."]})
+            insight.refresh_from_db()
+            validated_data = self.validate(validated_data)
         current_count = AlertConfiguration.objects.filter(team_id=team.id).count()
         check_count_limit(
             team=team,

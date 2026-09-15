@@ -2940,12 +2940,29 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert response.json()["attr"] == "calculation_interval"
 
-    @parameterized.expand([("create", False), ("concurrent_insight_change", True), ("concurrent_query_change", True)])
+    @parameterized.expand(
+        [
+            ("create", False),
+            ("concurrent_create_query_change", True),
+            ("concurrent_insight_change", True),
+            ("concurrent_query_change", True),
+        ]
+    )
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_rejected_for_a_breakdown_insight(self, _name, concurrent_change, _flag) -> None:
         breakdown_insight = self._create_breakdown_insight()
         config = {"type": "llm", "threshold": 0.7, "window": 90}
-        if concurrent_change:
+        if _name == "concurrent_create_query_change":
+            create = AlertSerializer.create
+
+            def change_query_before_create(serializer, validated_data):
+                Insight.objects.filter(id=validated_data["insight"].id).update(query=breakdown_insight["query"])
+                return create(serializer, validated_data)
+
+            with mock.patch.object(AlertSerializer, "create", new=change_query_before_create):
+                response = self._create(config)
+            assert not AlertConfiguration.objects.filter(team=self.team).exists()
+        elif concurrent_change:
             created = self._create({"type": "zscore", "threshold": 0.9, "window": 30})
             assert created.status_code == status.HTTP_201_CREATED, created.content
             update = AlertSerializer.update

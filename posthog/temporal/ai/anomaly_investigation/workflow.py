@@ -41,7 +41,6 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.utils import absolute_uri
 
-from products.alerts.backend.facade.api import is_llm_detector_config
 from products.alerts.backend.investigation_episode import EpisodeInvestigations, episode_investigations
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from products.notebooks.backend.facade import api as notebooks
@@ -149,7 +148,11 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
 
     insight = alert.insight
     metric_description = insight.name or f"Insight {insight.short_id}"
-    detector_type = (alert.detector_config or {}).get("type") or "threshold"
+    detector_type = (
+        "llm"
+        if isinstance((alert_check.triggered_metadata or {}).get("verdict_is_anomaly"), bool)
+        else (alert.detector_config or {}).get("type") or "threshold"
+    )
     series_index = (alert.config or {}).get("series_index", 0)
 
     # Measured up front rather than left to a tool call: without it the agent has only the
@@ -729,11 +732,9 @@ def _build_multimodal_context(*, alert, context_text: str, triggered_dates: list
     if not dates or not values:
         return context_text
 
-    triggered_indices = sim.get("triggered_indices") or []
-    if is_llm_detector_config(alert.detector_config):
-        # The saved check identifies the firing points without another billable model call.
-        saved_dates = set(triggered_dates)
-        triggered_indices = [index for index, date in enumerate(dates) if date in saved_dates]
+    # The alert's detector can change while an investigation waits to start.
+    saved_dates = set(triggered_dates)
+    triggered_indices = [index for index, date in enumerate(dates) if date in saved_dates]
 
     png = render_series_chart(
         dates=dates,

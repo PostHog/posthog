@@ -806,6 +806,23 @@ class TestRecordFailedEvaluation:
             assert before.state == alert.state
             assert before.next_check_at == due_before
             assert not await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert).exists)()
+            prepared_again = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(alert.id)))
+            if change == "detector":
+                assert prepared_again.action == PrepareAction.AUTO_DISABLE
+                await before.arefresh_from_db()
+                assert not before.enabled
+                return
+            assert prepared_again.action == PrepareAction.EVALUATE
+            result_again = await env.run(
+                record_failed_evaluation,
+                RecordFailedEvaluationActivityInputs(
+                    alert_id=str(alert.id),
+                    error_message="Model timed out",
+                    evaluation_fingerprint=prepared_again.evaluation_fingerprint,
+                    team_id=alert.team_id,
+                ),
+            )
+            assert result_again.alert_check_id is not None
 
     async def test_skips_disabled_alert_without_recording_or_notifying(self, alert_with_user) -> None:
         # Disabling an alert mid-check makes evaluate_alert raise into this activity. A normal
