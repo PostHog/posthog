@@ -412,6 +412,22 @@ class TestBackpressureGuard:
         assert act.reader is None
 
 
+class TestMarkSchemasRunning:
+    def test_skips_activity_log_to_avoid_stale_pooled_connection(self):
+        # A previous attempt may have left the pooler connection stale; the extra
+        # _get_before_update SELECT that activity logging would run raises OperationalError
+        # ("the connection is closed") on it, failing the run before extraction even starts.
+        source = _make_source()
+        act = _make_extract_activity(source)
+        schema = _make_schema("users", source=source)
+        act.cdc_schemas = [schema]
+
+        act._mark_schemas_running()
+
+        assert schema.status == ExternalDataSchema.Status.RUNNING
+        schema.save.assert_called_once_with(update_fields=["status", "updated_at"], skip_activity_log=True)
+
+
 class TestFlushDeferredRuns:
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
     def test_sends_kafka_messages_for_deferred_runs(self, MockProducer):
