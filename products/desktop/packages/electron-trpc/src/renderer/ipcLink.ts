@@ -46,10 +46,11 @@ const getElectronTRPC = () => {
 
 class IPCClient {
   #pendingRequests = new Map<string | number, IPCRequest>();
-  #electronTRPC = getElectronTRPC();
+  #electronTRPC: RendererGlobalElectronTRPC;
   #sessionId = crypto.randomUUID();
 
-  constructor() {
+  constructor(electronTRPC: RendererGlobalElectronTRPC) {
+    this.#electronTRPC = electronTRPC;
     this.#electronTRPC.onMessage((response: TRPCResponseMessage) => {
       this.#handleResponse(response);
     });
@@ -68,9 +69,9 @@ class IPCClient {
     }
   }
 
-  request(op: Operation, callbacks: IPCCallbacks) {
+  request(op: Operation, callbacks: IPCCallbacks, linkId: string) {
     const { type, signal } = op;
-    const scopedId = `${this.#sessionId}:${op.id}`;
+    const scopedId = `${this.#sessionId}:${linkId}:${op.id}`;
     const scopedOp = { ...op, id: scopedId };
 
     if (signal?.aborted) {
@@ -124,41 +125,61 @@ export type IPCLinkOptions<TRouter extends AnyTRPCRouter> = TransformerOptions<
   inferTRPCClientTypes<TRouter>
 >;
 
+const clientsByBridge = new WeakMap<
+  RendererGlobalElectronTRPC["onMessage"],
+  IPCClient
+>();
+
+function getSharedIPCClient(): IPCClient {
+  const electronTRPC = getElectronTRPC();
+  let client = clientsByBridge.get(electronTRPC.onMessage);
+  if (!client) {
+    client = new IPCClient(electronTRPC);
+    clientsByBridge.set(electronTRPC.onMessage, client);
+  }
+  return client;
+}
+
 export function ipcLink<TRouter extends AnyTRPCRouter>(
   opts?: IPCLinkOptions<TRouter>,
 ): TRPCLink<TRouter> {
   return () => {
-    const client = new IPCClient();
+    const client = getSharedIPCClient();
+    const linkId = crypto.randomUUID();
     const transformer = getTransformer(opts?.transformer);
 
     return ({ op }) => {
       return observable((observer) => {
         op.input = transformer.input.serialize(op.input);
 
-        const unsubscribe = client.request(op, {
-          error(err) {
-            observer.error(err as TRPCClientError<TRouter>);
-            unsubscribe();
-          },
-          complete() {
-            observer.complete();
-          },
-          next(response) {
-            const transformed = transformResult(response, transformer.output);
-
-            if (!transformed.ok) {
-              observer.error(TRPCClientError.from(transformed.error));
-              return;
-            }
-
-            observer.next({ result: transformed.result });
-
-            if (op.type !== "subscription") {
+        const unsubscribe = client.request(
+          op,
+          {
+            error(err) {
+              observer.error(err as TRPCClientError<TRouter>);
               unsubscribe();
+            },
+            complete() {
               observer.complete();
-            }
+            },
+            next(response) {
+              const transformed = transformResult(response, transformer.output);
+
+              if (!transformed.ok) {
+                observer.error(TRPCClientError.from(transformed.error));
+                return;
+              }
+
+              observer.next({ result: transformed.result });
+
+              if (op.type !== "subscription") {
+                unsubscribe();
+                observer.complete();
+              }
+            },
           },
-        });
+          linkId,
+        );
 
         return () => {
           unsubscribe();

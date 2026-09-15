@@ -60,6 +60,37 @@ beforeEach(() => {
 vi.stubGlobal("electronTRPC", electronTRPC);
 
 describe("ipcLink", () => {
+  test("two links share one bridge handler and each gets only its own responses", async () => {
+    const first = createTRPCClient<Router>({
+      links: [ipcLink({ transformer: superjson })],
+    });
+    const second = createTRPCClient<Router>({
+      links: [ipcLink({ transformer: superjson })],
+    });
+    const mock = electronTRPC as unknown as {
+      sendMessage: ReturnType<typeof vi.fn>;
+    };
+
+    const firstQuery = first.testQuery.query();
+    const secondQuery = second.testQuery.query();
+    expect(handlers).toHaveLength(1);
+    const firstId = getSentOperationId(mock, 0);
+    const secondId = getSentOperationId(mock, 1);
+    expect(firstId).not.toBe(secondId);
+
+    handlers[0]({
+      id: secondId,
+      result: { type: "data", data: superjson.serialize("second") },
+    });
+    await expect(secondQuery).resolves.toBe("second");
+
+    handlers[0]({
+      id: firstId,
+      result: { type: "data", data: superjson.serialize("first") },
+    });
+    await expect(firstQuery).resolves.toBe("first");
+  });
+
   test("can create ipcLink", () => {
     expect(() => createTRPCClient({ links: [ipcLink()] })).not.toThrow();
   });
