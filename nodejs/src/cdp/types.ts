@@ -282,6 +282,34 @@ export type AppMetricType = MinimalAppMetric & {
     app_source: MetricLogSource
 }
 
+/**
+ * Where an event stopped, for a record on a dead-letter topic.
+ *
+ * `filter` and `inputs` are the two failures the pipeline expects and handles per function.
+ * `parse` and `process` are the ones it does not: a message it cannot read, and anything else
+ * that throws while an event is being turned into invocations. Those two exist so an unanticipated
+ * bug parks the event rather than stalling the partition it arrived on.
+ */
+export type DeadLetterStep = 'parse' | 'filter' | 'inputs' | 'process'
+
+/** An event that produced no invocation and is recoverable only from a dead-letter record. */
+export type DeadLetterFailure = {
+    /**
+     * The globals this failure came from, by reference.
+     *
+     * The consumer holds the Kafka message these were built from, so carrying the object is how a
+     * failure found deep in the pipeline gets matched back to its bytes. Naming the event instead
+     * would need a key, and the only candidate is the event UUID, which the client supplies and is
+     * therefore unique only within a team.
+     */
+    globals: HogFunctionInvocationGlobals
+    /** The hog function or hog flow that failed. Absent when the failure was not specific to one. */
+    sourceId?: string
+    sourceKind?: 'hog_function' | 'hog_flow'
+    step: DeadLetterStep
+    error: string
+}
+
 export interface HogFunctionTiming {
     kind: 'hog' | 'async_function'
     duration_ms: number

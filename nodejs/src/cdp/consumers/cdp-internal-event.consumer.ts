@@ -8,6 +8,7 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
+import { CDP_INTERNAL_EVENTS_DLQ_OUTPUT } from '../outputs/outputs'
 import { CdpInternalEventSchema } from '../schema'
 import {
     GITHUB_EVENT_RECEIVED_EVENT,
@@ -15,6 +16,7 @@ import {
     getInternalEventFilterEventIds,
     hasMatchingInternalEventFilter,
 } from '../schema/hogflow'
+import { CdpDeadLetterService } from '../services/dead-letter/cdp-dead-letter.service'
 import { HogFlowInvocationPipeline } from '../services/hog-flow-invocation-pipeline.service'
 import { HogFunctionInvocationPipeline } from '../services/hog-function-invocation-pipeline.service'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
@@ -46,6 +48,9 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
     protected kafkaConsumer: KafkaConsumerInterface
     private hogFunctionPipeline: HogFunctionInvocationPipeline
     private hogFlowPipeline: HogFlowInvocationPipeline
+    private deadLetterService: CdpDeadLetterService
+    /** The message each set of globals was built from, so a failure can find its bytes. */
+    private messageByGlobals = new WeakMap<HogFunctionInvocationGlobals, Message>()
 
     constructor(
         config: PluginsServerConfig,
@@ -55,9 +60,16 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
         super(config, deps)
         this.hogQueue = jobQueues.hogQueue
         this.hogflowQueue = jobQueues.hogflowQueue
+        const groupId = 'cdp-internal-events-consumer'
         this.kafkaConsumer = createKafkaConsumer({
-            groupId: 'cdp-internal-events-consumer',
+            groupId,
             topic: KAFKA_CDP_INTERNAL_EVENTS,
+        })
+        this.deadLetterService = new CdpDeadLetterService(config, {
+            outputs: this.outputs,
+            output: CDP_INTERNAL_EVENTS_DLQ_OUTPUT,
+            consumerGroup: groupId,
+            resolveMessage: (globals) => this.messageByGlobals.get(globals),
         })
         this.hogFunctionPipeline = new HogFunctionInvocationPipeline(config, {
             hogFunctionManager: this.hogFunctionManager,
@@ -70,6 +82,7 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
             quotaLimiting: deps.quotaLimiting,
             redis: this.redis,
             valkeyShadow: this.valkeyShadow,
+            deadLetterService: this.deadLetterService,
         })
         this.hogFlowPipeline = new HogFlowInvocationPipeline(config, {
             hogFlowManager: this.hogFlowManager,
@@ -81,6 +94,7 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
             quotaLimiting: deps.quotaLimiting,
             redis: this.redis,
             valkeyShadow: this.valkeyShadow,
+            deadLetterService: this.deadLetterService,
         })
     }
 
@@ -197,7 +211,15 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
                         return
                     }
 
-                    events.push(convertInternalEventToHogFunctionInvocationGlobals(event, team, this.config.SITE_URL))
+                    const globals = convertInternalEventToHogFunctionInvocationGlobals(
+                        event,
+                        team,
+                        this.config.SITE_URL
+                    )
+                    // The one place holding both. A failure found later in the pipeline carries
+                    // these globals, and this is how it gets back to the bytes to park.
+                    this.messageByGlobals.set(globals, message)
+                    events.push(globals)
                 } catch (e) {
                     // A dependency outage is not a poison message. Rethrowing fails the batch, so the
                     // offsets stay put and the consumer retries, instead of dropping every event of a
@@ -207,6 +229,12 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
                     }
                     logger.error('Error parsing message', e)
                     counterParseError.labels({ error: e.message }).inc()
+                    // Unreadable for this code version. Park the bytes rather than dropping them: a
+                    // schema we cannot read today is often one a later version can.
+                    this.deadLetterService.recordMessageFailure(message, {
+                        step: 'parse',
+                        error: e.message,
+                    })
                 }
             })
         )
@@ -217,11 +245,15 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
     public override async start(): Promise<void> {
         await super.start()
         await Promise.all([this.hogQueue.startAsProducer(), this.hogflowQueue.startAsProducer()])
+        await this.deadLetterService.checkTopic()
         await this.kafkaConsumer.connect(async (messages) => {
             logger.info('🔁', `${this.name} - handling batch`, { size: messages.length })
             return await instrumentFn('cdpConsumer.handleEachBatch', async () => {
                 const invocationGlobals = await this._parseKafkaBatch(messages)
                 const { backgroundTask } = await this.processBatch(invocationGlobals)
+                // Awaited, not backgrounded: the offsets for these messages are stored once this
+                // handler resolves, so a record has to exist by then or the event is gone.
+                await this.deadLetterService.produceForBatch(messages)
                 return { backgroundTask }
             })
         })

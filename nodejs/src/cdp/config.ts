@@ -1,5 +1,7 @@
 import {
     KAFKA_APP_METRICS_2,
+    KAFKA_CDP_EVENTS_DLQ,
+    KAFKA_CDP_INTERNAL_EVENTS_DLQ,
     KAFKA_EVENTS_JSON,
     KAFKA_HOG_INVOCATION_RESULTS,
     KAFKA_LOG_ENTRIES,
@@ -118,6 +120,17 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_RERUN_WORKER_BATCH_SIZE: number
     CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC: string
     CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER: CdpProducerName
+    // Dead-letter queue for events that matched a function but produced no invocation.
+    // Off until the topics exist on the cluster — a missing topic would fail every batch.
+    CDP_DLQ_ENABLED: boolean
+    // Above this share of a batch failing unexpectedly, the batch fails instead of being parked.
+    // Low on purpose: a deploy that breaks the builder shows up in a small slice of a batch long
+    // before it reaches half of one, and stalling early costs less than draining the stream.
+    CDP_DLQ_BATCH_FAIL_RATIO: number
+    CDP_EVENTS_DLQ_TOPIC: string
+    CDP_EVENTS_DLQ_PRODUCER: CdpProducerName
+    CDP_INTERNAL_EVENTS_DLQ_TOPIC: string
+    CDP_INTERNAL_EVENTS_DLQ_PRODUCER: CdpProducerName
 
     CDP_EMAIL_TRACKING_URL: string
 
@@ -319,6 +332,14 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_RERUN_WORKER_BATCH_SIZE: 1,
         CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC: KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
         CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER: WAREHOUSE_PRODUCER,
+        CDP_DLQ_ENABLED: false,
+        CDP_DLQ_BATCH_FAIL_RATIO: 0.1,
+        CDP_EVENTS_DLQ_TOPIC: KAFKA_CDP_EVENTS_DLQ,
+        // Same cyclotron Warpstream cluster as every other CDP topic — the replay worker
+        // consumes from there, and no ClickHouse table reads these topics.
+        CDP_EVENTS_DLQ_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
+        CDP_INTERNAL_EVENTS_DLQ_TOPIC: KAFKA_CDP_INTERNAL_EVENTS_DLQ,
+        CDP_INTERNAL_EVENTS_DLQ_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
 
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',
 

@@ -18,6 +18,7 @@ import {
     MinimalAppMetric,
 } from '../types'
 import { dualRead } from '../utils/dual-store'
+import { CdpDeadLetterService } from './dead-letter/cdp-dead-letter.service'
 import { HogFlowExecutorService } from './hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './hogflows/hogflow-manager.service'
 import { shouldBlockHogFlowDueToQuota } from './hogflows/hogflow-quota-limiting'
@@ -41,6 +42,8 @@ export interface HogFlowInvocationPipelineDeps {
     quotaLimiting: QuotaLimiting
     redis: RedisV2
     valkeyShadow: CdpValkeyShadowPools
+    /** Absent for consumers that have no dead-letter topic; their build failures stay metrics-only. */
+    deadLetterService?: CdpDeadLetterService
 }
 
 /**
@@ -91,15 +94,24 @@ export class HogFlowInvocationPipeline {
                         ? teamHogFlows.filter((flow) => eligibilityFn(flow, globals))
                         : teamHogFlows
 
-                    const { invocations, metrics, logs } = await this.deps.hogFlowExecutor.buildHogFlowInvocations(
-                        eligibleFlows,
-                        globals
-                    )
+                    try {
+                        const { invocations, metrics, logs, buildFailures } =
+                            await this.deps.hogFlowExecutor.buildHogFlowInvocations(eligibleFlows, globals)
 
-                    this.deps.hogFunctionMonitoringService.queueAppMetrics(metrics, 'hog_flow')
-                    this.deps.hogFunctionMonitoringService.queueLogs(logs, 'hog_flow')
+                        this.deps.hogFunctionMonitoringService.queueAppMetrics(metrics, 'hog_flow')
+                        this.deps.hogFunctionMonitoringService.queueLogs(logs, 'hog_flow')
+                        this.deps.deadLetterService?.recordBuildFailures(buildFailures)
 
-                    return invocations
+                        return invocations
+                    } catch (error) {
+                        // See the same guard in HogFunctionInvocationPipeline: one workflow that
+                        // throws unexpectedly must not stall the partition for everyone else.
+                        if (error?.isRetriable === true) {
+                            throw error
+                        }
+                        this.deps.deadLetterService?.recordProcessFailure(globals, error)
+                        return []
+                    }
                 })
             )
         ).flat()

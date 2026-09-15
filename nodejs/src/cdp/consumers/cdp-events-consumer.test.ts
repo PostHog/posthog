@@ -593,6 +593,99 @@ describe('CdpEventsConsumer', () => {
                 ])
             })
         })
+
+        describe('dead letter queue', () => {
+            const handleBatch = async (messages: any[]): Promise<void> => {
+                const connect = processor['kafkaConsumer'].connect as jest.Mock
+                const { backgroundTask } = await connect.mock.calls[0][0](messages)
+                await backgroundTask
+            }
+
+            beforeEach(() => {
+                hub.CDP_DLQ_ENABLED = true
+            })
+
+            it('parks an event whose filter throws, naming only the function that failed', async () => {
+                const erroringFunction = await insertHogFunction({
+                    ...HOG_EXAMPLES.input_printer,
+                    ...HOG_INPUTS_EXAMPLES.secret_inputs,
+                    ...HOG_FILTERS_EXAMPLES.broken_filters,
+                })
+                const healthyFunction = await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+                const event = createIncomingEvent(team.id, {})
+
+                await handleBatch([createKafkaMessage(event)])
+
+                const parked = mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')
+                expect(parked).toHaveLength(1)
+                expect(parked[0].value).toMatchObject({ uuid: event.uuid })
+                expect(parked[0].headers).toMatchObject({
+                    dlq_step: 'filter',
+                    dlq_team_id: String(team.id),
+                    dlq_hog_function_ids: erroringFunction.id,
+                })
+                expect(mockQueueInvocations).toHaveBeenCalledWith([
+                    expect.objectContaining({ functionId: healthyFunction.id }),
+                ])
+            })
+
+            it('parks an event that throws unexpectedly instead of failing the whole batch', async () => {
+                // Nothing in the pipeline expects this, which is the point: an unanticipated bug
+                // used to reject the batch, restart the pod, and stall the partition forever.
+                const fn = await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+                // `mappings` is neither null nor an array, so the builder walks into `.map` on an
+                // object and throws where nothing catches it. Stands in for any shape of data or
+                // bug the per-function handling was not written for.
+                jest.spyOn(processor['hogFunctionManager'], 'getHogFunctionsForTeams').mockResolvedValue({
+                    [team.id]: [{ ...fn, mappings: {} as any }],
+                })
+                const event = createIncomingEvent(team.id, {})
+
+                await expect(handleBatch([createKafkaMessage(event)])).resolves.toBeUndefined()
+
+                const parked = mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')
+                expect(parked).toHaveLength(1)
+                expect(parked[0].headers).toMatchObject({
+                    dlq_step: 'process',
+                    // No function named, so a replay rebuilds all of them: none ran this time.
+                    dlq_hog_function_ids: '',
+                })
+            })
+
+            it('parks a message it cannot parse', async () => {
+                await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+
+                await handleBatch([createKafkaMessage('not json at all')])
+
+                const parked = mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')
+                expect(parked).toHaveLength(1)
+                expect(parked[0].headers).toMatchObject({ dlq_step: 'parse' })
+            })
+
+            it('parks nothing when every function builds', async () => {
+                await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+
+                await handleBatch([createKafkaMessage(createIncomingEvent(team.id, {}))])
+
+                expect(mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')).toHaveLength(0)
+            })
+        })
     })
 })
 
