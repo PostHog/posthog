@@ -9,7 +9,7 @@
 
     .quill-empty__title {
         font-size: var(--text-sm, 0.875rem);
-        font-weight: 500;
+        font-weight: 700;
         line-height: var(--text-sm--line-height, 1.25rem);
         letter-spacing: -0.025em;
     }

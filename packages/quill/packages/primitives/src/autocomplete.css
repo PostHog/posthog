@@ -127,8 +127,11 @@
         display: none;
     }
 
-    .quill-autocomplete__empty:has(~ [data-slot='autocomplete-list']:not(:has([role='option']))),
-    [data-slot='autocomplete-list']:not(:has([role='option'])) ~ .quill-autocomplete__empty {
+    /* Key off Base UI's `data-empty` rather than `:not(:has([role='option']))`:
+       `:has()` cannot nest inside `:has()`, and one invalid selector drops the
+       whole rule, which left the empty state hidden. */
+    .quill-autocomplete__empty:has(~ .quill-autocomplete__list[data-empty]),
+    .quill-autocomplete__list[data-empty] ~ .quill-autocomplete__empty {
         display: flex;
     }
 

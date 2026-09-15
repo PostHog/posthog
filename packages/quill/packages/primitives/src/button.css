@@ -297,7 +297,7 @@
         gap: 0.5rem;
         height: 1.75rem;
         padding-inline: 0.5rem;
-        font-size: var(--text-xs, 0.75rem);
+        font-size: 0.8125rem;
         line-height: 1.625;
     }
 

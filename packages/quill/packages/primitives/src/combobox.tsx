@@ -165,7 +165,7 @@ function ComboboxItem({
             // The default render is a real <button>; only declare nativeButton when the
             // caller hasn't overridden render (their element may not be a button).
             nativeButton={!('render' in props)}
-            render={<Button left className="min-w-0 aria-selected:bg-fill-selected" />}
+            render={<Button left className="min-w-0 text-xs/relaxed aria-selected:bg-fill-selected" />}
             {...props}
         >
             <span className="flex items-center gap-1.5 min-w-0 truncate">{children}</span>

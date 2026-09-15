@@ -173,7 +173,7 @@ function AutocompleteItem({
             render={
                 <Button
                     left
-                    className="font-normal min-w-0 aria-selected:bg-fill-selected data-highlighted:border-ring data-highlighted:ring-2 data-highlighted:ring-ring/30 ring-offset-1"
+                    className="font-normal min-w-0 text-xs/relaxed aria-selected:bg-fill-selected data-highlighted:border-ring data-highlighted:ring-2 data-highlighted:ring-ring/30 ring-offset-1"
                 />
             }
             tabIndex={-1}
