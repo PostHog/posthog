@@ -2,6 +2,7 @@ import { registerNotebookLinkDrag } from 'scenes/notebooks/AddToNotebook/registe
 
 import { initKea } from '../initKea'
 import { loadPostHogJS } from '../loadPostHogJS'
+import { canvasForkBeforeSend, canvasForkMaskNetworkRequest } from './code-canvas/canvasForkTokenRedaction'
 
 let appBooted = false
 
@@ -23,7 +24,12 @@ export function bootApp(): void {
     }
     appBooted = true
 
-    loadPostHogJS()
+    // The canvas fork scene holds a share token in its URL, so telemetry boots with the hooks that
+    // keep that token out of captured events and recorded network requests.
+    loadPostHogJS({
+        beforeSend: canvasForkBeforeSend,
+        sessionRecording: { maskCapturedNetworkRequestFn: canvasForkMaskNetworkRequest },
+    })
     // Kea must initialize before any component mounts
     initKea()
     // Link resolves its drag-to-notebook behavior through a seam so bundles without
