@@ -37,6 +37,7 @@ from posthog.api.streaming import sse_streaming_response
 from posthog.event_usage import report_user_action
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.permissions import is_scout_sandbox_request
 from posthog.rate_limit import ReplayVisionSearchBurstRateThrottle, ReplayVisionSearchSustainedRateThrottle
 from posthog.renderers import ServerSentEventRenderer
 
@@ -65,6 +66,7 @@ from products.replay_vision.backend.scanner_access import (
     scanner_for_reading_observations,
 )
 from products.replay_vision.backend.scanning import RetryOutcome, retry_observation
+from products.replay_vision.backend.scout_writes import refuse_scout_scanner_scan
 from products.replay_vision.backend.search import (
     DEFAULT_SEARCH_LIMIT,
     MAX_SEARCH_LIMIT,
@@ -808,6 +810,11 @@ class ReplayObservationViewSet(
     queryset = ReplayObservation.objects.all()
     filter_backends = [_TeamAwareFilterBackend]
     filterset_class = ReplayObservationFilter
+
+    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
+        super().initial(request, *args, **kwargs)
+        if self.action in {"retry"}:
+            refuse_scout_scanner_scan(is_scout_sandbox_request(request))
 
     def _scanner_for_url(self) -> ReplayScanner:
         # Per-request cache so `stats` doesn't re-run the RBAC + scanner-lookup roundtrip.

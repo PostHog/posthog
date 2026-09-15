@@ -9,6 +9,7 @@ import {
 import { PullRequestDetailContent } from "@posthog/ui/features/inbox/components/PullRequestDetail";
 import { ReportDetailContent } from "@posthog/ui/features/inbox/components/ReportDetail";
 import { ReportPageContext } from "@posthog/ui/features/inbox/components/ReportPageContext";
+import { useCloseReportWhenTerminal } from "@posthog/ui/features/inbox/hooks/useCloseReport";
 import { useInboxTriageHotkey } from "@posthog/ui/features/inbox/hooks/useInboxTriageHotkey";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import {
@@ -68,6 +69,7 @@ export function ReportPage({
 function ReportPageContent({ report }: { report: SignalReport }) {
   const archived = isDismissedReport(report);
   const triageEnabled = useTriageFocusEnabled();
+  useCloseReportWhenTerminal(report);
   useInboxTriageHotkey({ enabled: triageEnabled });
   const hasPr = Boolean(report.implementation_pr_url);
   return (

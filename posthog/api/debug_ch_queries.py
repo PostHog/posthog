@@ -858,9 +858,13 @@ class DebugCHQueries(viewsets.ViewSet):
         # nosemgrep: clickhouse-fstring-param-audit - skip_reason_counts is built from the PrecomputeSkipReason enum
         reads_sql = f"""
             SELECT
+                -- Untagged rows fold into direct_scan inside the GROUP BY, so the percentiles
+                -- cover the merged population. Merging groups after the fact can only sum counts,
+                -- not recombine percentiles.
                 coalesce(
                     nullIf(toString(log_comment.experiment_exposures_path), ''),
-                    ifNull(toString(log_comment.experiment_execution_path), '')
+                    nullIf(toString(log_comment.experiment_execution_path), ''),
+                    'direct_scan'
                 ) AS exposures_path,
                 count() AS reads,
                 countIf(exception_code != 0) AS failed_reads,
@@ -931,8 +935,10 @@ class DebugCHQueries(viewsets.ViewSet):
         metric_events = {"precomputed": 0, "direct_scan": 0, "not_applicable": 0}
         for raw_row in reads_response:
             row = dict(zip(reads_columns, raw_row))
-            path = row["exposures_path"] or "direct_scan"
-            entry = reads_by_path.setdefault(path, _empty_path_entry())
+            # One SQL group per path (the SQL normalizes untagged rows to direct_scan), so the
+            # per-stat assignment below never overwrites another group's percentiles. An unexpected
+            # path surfaces as its own key rather than being silently folded in.
+            entry = reads_by_path.setdefault(row["exposures_path"], _empty_path_entry())
             entry["reads"] += row["reads"]
             entry["failed_reads"] += row["failed_reads"]
             entry["attempted"] += row["attempted"]
