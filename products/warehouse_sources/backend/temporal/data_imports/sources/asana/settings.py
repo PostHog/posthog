@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField
 
@@ -8,16 +10,22 @@ from products.warehouse_sources.backend.types import IncrementalField
 #   "workspace"     -> one request per workspace the token can see
 #   "organization"  -> one request per workspace that is an organization
 #   "project"       -> one request per project across all visible workspaces
-FanOut = Literal["none", "workspace", "organization", "project"]
+#   "task"          -> one request per task across all visible projects
+#   "goal"          -> one request per goal across all visible workspaces
+#   "user"          -> one request per user the token can see
+FanOut = Literal["none", "workspace", "organization", "project", "task", "goal", "user"]
+
+# Every Asana resource is identified by its global id ``gid``.
+PRIMARY_KEY = "gid"
 
 
-@dataclass
+@frozen
 class AsanaEndpointConfig:
     name: str
     fan_out: FanOut
-    # Relative path appended to the API base. Fan-out endpoints carry a single ``{workspace_gid}``
-    # or ``{project_gid}`` placeholder that the framework binds from the parent row per request;
-    # top-level endpoints carry no placeholder.
+    # Relative path appended to the API base. Fan-out endpoints carry a single ``{workspace_gid}``,
+    # ``{project_gid}``, ``{task_gid}``, ``{goal_gid}`` or ``{user_gid}`` placeholder that the
+    # framework binds from the parent row per request; top-level endpoints carry no placeholder.
     path: str
     # Asana list endpoints return compact records ({gid, name, resource_type}) by default.
     # ``opt_fields`` opts extra properties into the response — keep the partition key here.
@@ -25,10 +33,15 @@ class AsanaEndpointConfig:
     # Stable creation-time field used for datetime partitioning. Must be present in opt_fields.
     # Never a ``modified_at``-style field — partitions would rewrite on every sync.
     partition_key: Optional[str] = None
+    # Fan-out parent fields to copy onto every row, mapped to the column they land in. Needed when
+    # the row's own gid is not unique table-wide because the same object is returned under several
+    # parents.
+    parent_fields: dict[str, str] = field(default_factory=dict)
+    primary_keys: list[str] = field(default_factory=lambda: [PRIMARY_KEY])
+    # A few endpoints return the whole collection in one response — they take no limit/offset and
+    # carry no `next_page`. Sending `limit` to those is rejected.
+    paginated: bool = True
 
-
-# Every Asana resource is identified by its global id ``gid``.
-PRIMARY_KEY = "gid"
 
 ASANA_ENDPOINTS: dict[str, AsanaEndpointConfig] = {
     "workspaces": AsanaEndpointConfig(
@@ -72,6 +85,12 @@ ASANA_ENDPOINTS: dict[str, AsanaEndpointConfig] = {
         ],
         partition_key="created_at",
     ),
+    "project_memberships": AsanaEndpointConfig(
+        name="project_memberships",
+        fan_out="project",
+        path="/projects/{project_gid}/project_memberships",
+        opt_fields=["member", "access_level", "parent", "resource_type"],
+    ),
     "tasks": AsanaEndpointConfig(
         name="tasks",
         fan_out="project",
@@ -97,6 +116,57 @@ ASANA_ENDPOINTS: dict[str, AsanaEndpointConfig] = {
             "num_likes",
             "permalink_url",
             "custom_fields",
+        ],
+        partition_key="created_at",
+    ),
+    "stories": AsanaEndpointConfig(
+        name="stories",
+        fan_out="task",
+        path="/tasks/{task_gid}/stories",
+        opt_fields=[
+            "created_at",
+            "created_by",
+            "resource_subtype",
+            "resource_type",
+            "text",
+            "type",
+            "source",
+            "target",
+            "task",
+            "project",
+            "tag",
+            "assignee",
+            "follower",
+            "dependency",
+            "duplicate_of",
+            "duplicated_from",
+            "custom_field",
+            "is_pinned",
+            "is_edited",
+            "num_likes",
+            "sticker_name",
+            "old_name",
+            "new_name",
+            "old_section",
+            "new_section",
+            "old_dates",
+            "new_dates",
+            "old_resource_subtype",
+            "new_resource_subtype",
+            "old_approval_status",
+            "new_approval_status",
+            "old_text_value",
+            "new_text_value",
+            "old_number_value",
+            "new_number_value",
+            "old_date_value",
+            "new_date_value",
+            "old_enum_value",
+            "new_enum_value",
+            "old_multi_enum_values",
+            "new_multi_enum_values",
+            "old_people_value",
+            "new_people_value",
         ],
         partition_key="created_at",
     ),
@@ -136,6 +206,62 @@ ASANA_ENDPOINTS: dict[str, AsanaEndpointConfig] = {
             "created_by",
             "resource_type",
         ],
+    ),
+    "goals": AsanaEndpointConfig(
+        name="goals",
+        fan_out="workspace",
+        path="/goals?workspace={workspace_gid}",
+        opt_fields=[
+            "name",
+            "notes",
+            "owner",
+            "status",
+            "due_on",
+            "start_on",
+            "is_workspace_level",
+            "team",
+            "workspace",
+            "time_period",
+            "metric",
+            "current_status_update",
+            "privacy_setting",
+            "default_access_level",
+            "followers",
+            "num_likes",
+            "custom_fields",
+            "resource_type",
+        ],
+    ),
+    # One row per goal-to-parent-goal edge. The row is the parent goal, so its gid repeats across
+    # every child goal that points at it — `goal_gid` (the child) completes the primary key.
+    "parent_goals": AsanaEndpointConfig(
+        name="parent_goals",
+        fan_out="goal",
+        path="/goals/{goal_gid}/parentGoals",
+        opt_fields=["name", "owner", "resource_type"],
+        parent_fields={"gid": "goal_gid"},
+        primary_keys=["goal_gid", PRIMARY_KEY],
+        paginated=False,
+    ),
+    # User fan-out: /time_tracking_entries needs one of its filters, and `user` is the only one that
+    # covers every entry without a date window (filtering by workspace requires an entered-on range).
+    "time_tracking_entries": AsanaEndpointConfig(
+        name="time_tracking_entries",
+        fan_out="user",
+        path="/time_tracking_entries?user={user_gid}",
+        opt_fields=[
+            "duration_minutes",
+            "entered_on",
+            "created_at",
+            "created_by",
+            "task",
+            "attributable_to",
+            "approval_status",
+            "billable_status",
+            "description",
+            "resource_type",
+        ],
+        partition_key="created_at",
     ),
     # AI Studio usage endpoints (organization fan-out — AI Studio is an org/division feature, so
     # non-organization workspaces are skipped to avoid invalid requests). Both require the

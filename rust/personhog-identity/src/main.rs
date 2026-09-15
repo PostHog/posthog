@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use assignment_coordination::store::{EtcdStore, StoreConfig};
 use axum::{routing::get, Router};
 use common_database::{get_pool_with_config, PoolConfig};
 use envconfig::Envconfig;
@@ -19,6 +20,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
 use personhog_common::client::RouterClient;
+use personhog_coordination::store::PersonhogStore;
 use personhog_identity::config::Config;
 use personhog_identity::leader::LifecycleLeader;
 use personhog_identity::lifecycle::delete::DeleteDriver;
@@ -76,7 +78,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("gRPC address: {}", config.grpc_address);
     tracing::info!("Metrics port: {}", config.metrics_port);
     tracing::info!("Router URL: {}", config.router_url);
+    tracing::info!(
+        property_write_concurrency = config.property_write_concurrency,
+        leader_call_concurrency = config.lifecycle_leader_call_concurrency,
+        router_channels = config.router_channels,
+        "Leader fan-out concurrency"
+    );
     tracing::info!("Tables: {:?}", config.tables());
+
+    // The delete saga groups its fence calls by the leaders' partition
+    // count, which lives in etcd; a service that cannot read it would
+    // batch wrong, so refuse to start instead.
+    let num_partitions = {
+        let etcd_store = EtcdStore::connect(StoreConfig {
+            endpoints: config.etcd_endpoint_list(),
+            prefix: config.etcd_prefix.clone(),
+        })
+        .await
+        .expect("Failed to connect to etcd");
+        PersonhogStore::new(etcd_store)
+            .get_total_partitions()
+            .await
+            .expect("Failed to read total_partitions from etcd")
+    };
+    tracing::info!(num_partitions, "loaded partition count from etcd");
 
     // Build lifecycle manager and register components
     let mut manager = Manager::builder("personhog-identity").build();
@@ -127,8 +152,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0, 30000.0, 60000.0,
             300000.0, 1800000.0, 3600000.0,
         ];
-        // Source counts, not latency; the request cap is 250.
-        const MERGE_SOURCES_BUCKETS: &[f64] = &[1.0, 2.0, 3.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0];
+        // Batch sizes, not latency; the request caps are 250.
+        const PER_CALL_BUCKETS: &[f64] = &[1.0, 2.0, 3.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0];
         let recorder_handle = PrometheusBuilder::new()
             .add_global_label("service", "personhog-identity")
             .set_buckets(BUCKETS)
@@ -138,10 +163,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 OP_DURATION_BUCKETS,
             )
             .unwrap()
-            .set_buckets_for_metric(
-                Matcher::Full("personhog_identity_merge_sources_per_call".into()),
-                MERGE_SOURCES_BUCKETS,
-            )
+            .set_buckets_for_metric(Matcher::Suffix("_per_call".into()), PER_CALL_BUCKETS)
             .unwrap()
             .install_recorder()
             .expect("Failed to install metrics recorder");
@@ -216,9 +238,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let property_writer = Arc::new(
-        RouterClient::new(&config.router_url, config.leader_request_timeout())
-            .expect("Invalid router URL")
-            .with_client_name("personhog-identity"),
+        RouterClient::with_channels(
+            &config.router_url,
+            config.leader_request_timeout(),
+            config.router_channels,
+        )
+        .expect("Invalid router URL")
+        .with_client_name("personhog-identity"),
     );
     // Both sagas' leader surface, reached through the router like the
     // property writes.
@@ -226,10 +252,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let engine = Arc::new(Engine::new(
         storage.primary_pool.clone(),
         config.lifecycle_engine_config(),
+        config.tables(),
     ));
     if let Some(sweeper_handle) = sweeper_handle {
-        let sweeper_merge_driver = MergeDriver::new(property_writer.clone(), config.tables());
-        let sweeper_delete_driver = DeleteDriver::new(lifecycle_leader.clone(), config.tables());
+        let sweeper_merge_driver = MergeDriver::new(
+            property_writer.clone(),
+            config.tables(),
+            config.lifecycle_leader_call_concurrency,
+        );
+        let sweeper_delete_driver = DeleteDriver::new(
+            lifecycle_leader.clone(),
+            config.tables(),
+            config.lifecycle_leader_call_concurrency,
+            num_partitions,
+        );
         let sweeper_engine = engine.clone();
         let sweep_interval = config.lifecycle_sweep_interval();
         let retention = config.lifecycle_op_retention();
@@ -274,16 +310,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         property_writer.clone(),
         MergeOpExecutor::new(
             engine.clone(),
-            MergeDriver::new(property_writer.clone(), config.tables()),
+            MergeDriver::new(
+                property_writer.clone(),
+                config.tables(),
+                config.lifecycle_leader_call_concurrency,
+            ),
         ),
     );
-    let lifecycle_service =
-        PersonHogLifecycleService::new(engine, lifecycle_leader, config.tables());
+    let lifecycle_service = PersonHogLifecycleService::new(
+        engine,
+        lifecycle_leader,
+        config.tables(),
+        config.lifecycle_leader_call_concurrency,
+        num_partitions,
+    );
     let service = PersonHogIdentityService::new(
         storage,
         property_writer,
         config.request_limits(),
         merge_entrance,
+        config.property_write_concurrency,
     );
 
     let grpc_addr = config.grpc_address;

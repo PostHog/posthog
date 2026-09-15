@@ -6,13 +6,13 @@ import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
 import { PIE_DISPLAY_TYPES } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 import type { TrendsFilter } from '~/queries/schema/schema-general'
 import { hasBreakdownFilter } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 
 import { DisplayOption, DisplayOptions } from './DisplayOptions'
 import { BAR_DISPLAYS, displayMatches, isDefaultTrendsLineDisplay, LINE_DISPLAYS } from './displayTypes'

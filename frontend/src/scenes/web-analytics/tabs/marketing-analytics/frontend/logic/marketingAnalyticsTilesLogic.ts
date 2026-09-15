@@ -82,6 +82,7 @@ export interface marketingAnalyticsTilesLogicValues {
     } // marketingAnalyticsLogic
     draftConversionGoal: ConversionGoalFilter | null // marketingAnalyticsLogic
     drillDownLevel: MarketingAnalyticsDrillDownLevel // marketingAnalyticsLogic
+    includeConversionGoals: boolean // marketingAnalyticsLogic
     integrationFilter: IntegrationFilter // marketingAnalyticsLogic
     loading: boolean // marketingAnalyticsLogic
     shouldFilterTestAccounts: boolean // marketingAnalyticsLogic
@@ -107,7 +108,8 @@ export interface marketingAnalyticsTilesLogicMeta {
             },
             draftConversionGoal: ConversionGoalFilter | null,
             integrationFilter: IntegrationFilter,
-            shouldFilterTestAccounts: boolean
+            shouldFilterTestAccounts: boolean,
+            includeConversionGoals: boolean
         ) => QueryTile
         marketingChartTile: (
             compareFilter: CompareFilter,
@@ -145,7 +147,8 @@ export interface marketingAnalyticsTilesLogicMeta {
             compareFilter: CompareFilter,
             integrationFilter: IntegrationFilter,
             drillDownLevel: MarketingAnalyticsDrillDownLevel,
-            shouldFilterTestAccounts: boolean
+            shouldFilterTestAccounts: boolean,
+            includeConversionGoals: boolean
         ) => DataTableNode | null
     }
 }
@@ -174,6 +177,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 'shouldFilterTestAccounts',
                 'drillDownLevel',
                 'baseCurrency',
+                'includeConversionGoals',
             ],
             marketingAnalyticsTableLogic,
             ['query', 'defaultColumns'],
@@ -191,13 +195,15 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 s.draftConversionGoal,
                 s.integrationFilter,
                 s.shouldFilterTestAccounts,
+                s.includeConversionGoals,
             ],
             (
                 compareFilter: CompareFilter | null,
                 dateFilter: { dateFrom: string | null; dateTo: string | null; interval: IntervalType },
                 draftConversionGoal: ConversionGoalFilter | null,
                 integrationFilter: IntegrationFilter,
-                shouldFilterTestAccounts: boolean
+                shouldFilterTestAccounts: boolean,
+                includeConversionGoals: boolean
             ): QueryTile => ({
                 kind: 'query',
                 tileId: TileId.MARKETING_OVERVIEW,
@@ -214,7 +220,8 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                     compareFilter: compareFilter || undefined,
                     properties: [],
                     filterTestAccounts: shouldFilterTestAccounts,
-                    draftConversionGoal: draftConversionGoal || undefined,
+                    draftConversionGoal: includeConversionGoals ? draftConversionGoal || undefined : undefined,
+                    ...(!includeConversionGoals ? { select: Object.values(MarketingAnalyticsBaseColumns) } : {}),
                     integrationFilter: integrationFilter,
                     tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
                 },
@@ -405,6 +412,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 s.integrationFilter,
                 s.drillDownLevel,
                 s.shouldFilterTestAccounts,
+                s.includeConversionGoals,
             ],
             (
                 loading: boolean,
@@ -415,12 +423,23 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 compareFilter: CompareFilter,
                 integrationFilter: IntegrationFilter,
                 drillDownLevel: MarketingAnalyticsDrillDownLevel,
-                shouldFilterTestAccounts: boolean
+                shouldFilterTestAccounts: boolean,
+                includeConversionGoals: boolean
             ): DataTableNode | null => {
                 if (loading) {
                     return null
                 }
-                const marketingQuery = query?.source as MarketingAnalyticsTableQuery | undefined
+                let marketingQuery = query?.source as MarketingAnalyticsTableQuery | undefined
+                if (!includeConversionGoals) {
+                    const baseColumns = new Set<string>(Object.values(MarketingAnalyticsBaseColumns))
+                    baseColumns.add(MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[drillDownLevel].columnAlias)
+                    defaultColumns = defaultColumns.filter((column) => baseColumns.has(column))
+                    marketingQuery = {
+                        ...marketingQuery,
+                        select: marketingQuery?.select?.filter((column) => baseColumns.has(column)),
+                    } as MarketingAnalyticsTableQuery
+                    draftConversionGoal = null
+                }
 
                 // Determine the correct grouping column alias for the current drill-down level
                 const drillDownConfig = MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[drillDownLevel]

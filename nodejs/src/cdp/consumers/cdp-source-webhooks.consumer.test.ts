@@ -14,6 +14,7 @@ import { template as pixelTemplate } from '~/cdp/templates/_sources/pixel/pixel.
 import { template as incomingWebhookTemplate } from '~/cdp/templates/_sources/webhook/incoming_webhook.template'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, HogFunctionType } from '~/cdp/types'
 import { setupExpressApp } from '~/common/api/router'
+import { KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -538,12 +539,77 @@ describe('SourceWebhooksConsumer', () => {
                         metric_name: 'triggered',
                         count: 1,
                     }),
-                    expect.objectContaining({
-                        metric_kind: 'billing',
-                        metric_name: 'billable_invocation',
-                        count: 1,
-                    }),
                 ])
+            })
+
+            it('records a running row and stamps the run start into the queued state', async () => {
+                // Lifecycle rows are gated on this flag, which is off by default outside dev.
+                hub.HOG_INVOCATION_RESULTS_ENABLED = true
+                let stateWhenQueued: string | undefined
+                // Snapshot at call time, so a stamp applied after queueInvocations does not count.
+                mockQueueHogflowInvocationsSpy.mockImplementation((invocations: any[]) => {
+                    stateWhenQueued = JSON.stringify(invocations[0].state)
+                    return Promise.resolve()
+                })
+
+                const res = await doPostRequest({
+                    webhookId: hogFlow.id,
+                    body: {
+                        event: 'my-event',
+                        distinct_id: 'test-distinct-id',
+                    },
+                })
+                expect(res.status).toEqual(201)
+                await waitForBackgroundTasks()
+
+                const rows = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)
+                expect(rows).toHaveLength(1)
+                expect(rows[0].value).toMatchObject({
+                    invocation_id: mockQueueHogflowInvocationsSpy.mock.calls[0][0][0].id,
+                    team_id: team.id,
+                    function_kind: 'hog_flow',
+                    function_id: hogFlow.id,
+                    status: 'running',
+                })
+
+                expect(parseJSON(stateWhenQueued!).firstScheduledAt).toEqual(rows[0].value.first_scheduled_at)
+            })
+
+            it('records no running row when the workflow cannot be queued', async () => {
+                hub.HOG_INVOCATION_RESULTS_ENABLED = true
+                mockQueueHogflowInvocationsSpy.mockRejectedValueOnce(new Error('queue unavailable'))
+
+                const res = await doPostRequest({
+                    webhookId: hogFlow.id,
+                    body: {
+                        event: 'my-event',
+                        distinct_id: 'test-distinct-id',
+                    },
+                })
+
+                expect(res.status).toEqual(500)
+                await waitForBackgroundTasks()
+                // A row here would show a run that never entered cyclotron as permanently running.
+                expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)).toEqual([])
+            })
+
+            it('does not report a workflow trigger as CDP usage', async () => {
+                const reportBillableInvocation = jest.spyOn(
+                    api['cdpSourceWebhooksConsumer']['cdpUsageReporter'],
+                    'reportBillableInvocation'
+                )
+
+                const res = await doPostRequest({
+                    webhookId: hogFlow.id,
+                    body: {
+                        event: 'my-event',
+                        distinct_id: 'test-distinct-id',
+                    },
+                })
+
+                expect(res.status).toEqual(201)
+                await waitForBackgroundTasks()
+                expect(reportBillableInvocation).not.toHaveBeenCalled()
             })
 
             it('does not report usage when queueing the workflow fails', async () => {

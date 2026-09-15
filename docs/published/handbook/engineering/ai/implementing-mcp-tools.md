@@ -75,6 +75,9 @@ which unlocks flexibility in data retrieval, search, and manipulation.
 Additionally, the consumer has access to a skill that provides schema references and example patterns,
 giving it richer context about PostHog's data model.
 
+Here, "SQL-first" describes entity retrieval, not a preference for every analytics task.
+Choose typed queries or SQL from the required calculation and output, as described in [query selection guidance](./writing-skills.md#query-selection-guidance).
+
 Primarily oriented toward coding agents (PostHog Desktop, PostHog AI, Claude Code).
 
 ## Claude web and desktop exec schema budget
@@ -315,6 +318,11 @@ Product teams own their definitions and control which operations are exposed as 
    ```
 
    Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
+
+   For generated list apps, `generate:ui-apps` also checks `detail_tool` and the
+   `detail_args` keys against the tool's input schema snapshot, so a wrong argument
+   name fails generation instead of silently dropping the argument at runtime.
+   See "UI apps" in `services/mcp/CONTRIBUTING.md` for the rules.
 
    #### Custom input schemas
 

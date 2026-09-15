@@ -20,7 +20,26 @@ The option defaults to 8001, which the shared development worker already binds, 
 The shared development worker does not poll these queues.
 See [Temporal development guidance](../../posthog/temporal/README.md) for worker setup.
 
-No schedule exists yet, so start an evaluation run by hand.
+## Dev schedule
+
+`python manage.py schedule_temporal_workflows` creates or updates `alerts-product-check-due-schedule`
+only when `CLOUD_DEPLOYMENT=DEV`. The normal deployment migration step runs this command.
+Registration does nothing in production, local development, or other environments, even with `DEBUG=True`.
+It does not delete schedules created manually in those environments.
+
+The schedule starts `alerts-product-check-due` with `{}` on the evaluation queue every minute (UTC).
+It uses SKIP overlap, a one-minute catchup window, a 50-second workflow execution timeout,
+and one workflow attempt. Creation does not trigger an immediate run; the next minute starts it.
+Delivery has no schedule: evaluation starts its delivery child.
+New schedules start unpaused. Registration updates existing schedules to this policy while retaining their state from Temporal, including manual pauses.
+To stop future smoke-test ticks, pause the schedule in Temporal; resume it there when ready. Pausing does not stop workflows already running.
+Disabling registration alone does not remove an existing Temporal schedule.
+
+Verify the Postgres activity result and the delivery child's completion separately.
+Parent completion does not prove either succeeded. Schedule creation also does not prove worker availability.
+Enable production only in a separate rollout after dev verification.
+
+For local development, start an evaluation run by hand.
 The `execute_temporal_workflow` and `start_temporal_workflow` commands do not know these workflows and reject the name, so use the Temporal CLI in the dev stack:
 
 ```bash
@@ -78,8 +97,8 @@ Verify a successful probe, statement timeout and transaction reset through the c
 `SELECT 1` alone does not verify the intended database identity, application grants, schema, or write readiness.
 These tests do not replace deployment verification.
 
-This registration does not create schedules or deploy workers.
-Schedule registration will set the evaluation workflow's 50-second execution timeout separately.
+Worker registration does not deploy workers. The dev schedule sets the evaluation workflow's
+50-second execution timeout; manually started workflows must set their own timeout.
 
 ## Activity logs
 

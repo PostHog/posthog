@@ -17,9 +17,11 @@ import (
 )
 
 type Suggestion struct {
-	Label  string `json:"label"`
-	Kind   string `json:"kind"`
-	Detail string `json:"detail,omitempty"`
+	Label      string `json:"label"`
+	Kind       string `json:"kind"`
+	Detail     string `json:"detail,omitempty"`
+	InsertText string `json:"insertText,omitempty"`
+	SortText   string `json:"sortText,omitempty"`
 }
 
 type Result struct {
@@ -31,10 +33,21 @@ type Result struct {
 
 const PageSize = 25
 
-var keywords = []string{"SELECT", "FROM", "WHERE", "GROUP BY", "ORDER BY", "LIMIT", "JOIN", "AS"}
+type PositionEncoding string
+
+const (
+	PositionEncodingUTF8  PositionEncoding = "utf-8"
+	PositionEncodingUTF16 PositionEncoding = "utf-16"
+)
+
+var keywords = []string{"SELECT", "FROM", "WHERE", "GROUP BY", "ORDER BY", "LIMIT", "JOIN", "AS", "CASE", "NULL", "TRUE", "FALSE", "NOT"}
+var betweenSeparator = []string{"AND"}
+var predicateContinuations = []string{"AND", "OR", "GROUP BY", "ORDER BY", "LIMIT"}
+var comparisonOperators = []string{"=", "!=", "<", "<=", ">", ">=", "LIKE", "ILIKE", "IN", "NOT IN", "IS NULL", "IS NOT NULL", "BETWEEN", "NOT BETWEEN"}
+var commonFunctions = []string{"avg", "coalesce", "count", "countDistinct", "countIf", "if", "max", "min", "now", "sum", "sumIf", "toDate", "toDateTime", "uniq", "uniqExact"}
 var tableReference = regexp.MustCompile(`(?i)\b(?:FROM|JOIN)\s+([A-Za-z_][A-Za-z0-9_.$]*)(?:\s+(?:AS\s+)?([A-Za-z_][A-Za-z0-9_]*))?`)
 
-func Complete(schema *catalog.Catalog, query string, position int, cursor string) (Result, error) {
+func Complete(schema *catalog.Catalog, query string, position int, positionEncoding PositionEncoding, cursor string) (Result, error) {
 	if err := querylimits.Validate(query); err != nil {
 		return Result{}, err
 	}
@@ -42,14 +55,25 @@ func Complete(schema *catalog.Catalog, query string, position int, cursor string
 	if err != nil {
 		return Result{}, err
 	}
-	if position < 0 || position > len(query) {
-		position = len(query)
+	switch positionEncoding {
+	case PositionEncodingUTF8:
+		if position < 0 || position > len(query) {
+			position = len(query)
+		}
+	case PositionEncodingUTF16:
+		position = utf16OffsetToByteOffset(query, position)
+	default:
+		return Result{}, fmt.Errorf("unsupported position encoding %q", positionEncoding)
 	}
 	prefix, qualifier, start := cursorWord(query[:position])
 	if len(prefix) > querylimits.MaxSuggestionInputBytes {
 		return Result{Suggestions: []Suggestion{}}, nil
 	}
 	lowerPrefix := strings.ToLower(prefix)
+	mode := analyzeCursorContext(query[:start])
+	if mode == completionModeNone {
+		return Result{Suggestions: []Suggestion{}}, nil
+	}
 	repaired := query[:start] + "__posthog_cursor__" + query[position:]
 	bindings, parseErr := tableBindings(repaired)
 	tablesByLowerName := tableNamesByLowerName(schema)
@@ -74,12 +98,21 @@ func Complete(schema *catalog.Catalog, query string, position int, cursor string
 		if tableName, ok := bindings[strings.ToLower(qualifier)]; ok {
 			suggestions = appendFields(suggestions, schema.Tables[tableName], lowerPrefix)
 		}
-	} else if expectsTable(query[:start]) {
+	} else if mode == completionModeTable {
 		for name, table := range schema.Tables {
 			if hasLowerPrefix(name, lowerPrefix) {
 				suggestions = append(suggestions, Suggestion{Label: name, Kind: "table", Detail: table.Type})
 			}
 		}
+	} else if mode == completionModeComparison {
+		suggestions = appendNamed(suggestions, comparisonOperators, lowerPrefix, "operator", "")
+	} else if mode == completionModeBetweenSeparator {
+		suggestions = appendNamed(suggestions, betweenSeparator, lowerPrefix, "keyword", "")
+	} else if mode == completionModePredicateContinuation {
+		suggestions = appendNamed(suggestions, predicateContinuations, lowerPrefix, "keyword", "")
+	} else if mode == completionModePostExpression {
+		suggestions = appendNamed(suggestions, comparisonOperators, lowerPrefix, "operator", "")
+		suggestions = appendNamed(suggestions, predicateContinuations, lowerPrefix, "keyword", "")
 	} else {
 		seen := map[string]bool{}
 		for _, tableName := range bindings {
@@ -89,6 +122,9 @@ func Complete(schema *catalog.Catalog, query string, position int, cursor string
 			seen[tableName] = true
 			suggestions = appendFields(suggestions, schema.Tables[tableName], lowerPrefix)
 		}
+		if mode == completionModeExpression {
+			suggestions = appendFunctions(suggestions, lowerPrefix)
+		}
 		for _, keyword := range keywords {
 			if hasLowerPrefix(keyword, lowerPrefix) {
 				suggestions = append(suggestions, Suggestion{Label: keyword, Kind: "keyword"})
@@ -96,11 +132,16 @@ func Complete(schema *catalog.Catalog, query string, position int, cursor string
 		}
 	}
 	sort.Slice(suggestions, func(i, j int) bool {
-		if suggestions[i].Kind != suggestions[j].Kind {
-			return suggestions[i].Kind < suggestions[j].Kind
+		leftRank := suggestionRank(suggestions[i].Kind)
+		rightRank := suggestionRank(suggestions[j].Kind)
+		if leftRank != rightRank {
+			return leftRank < rightRank
 		}
-		return suggestions[i].Label < suggestions[j].Label
+		return strings.ToLower(suggestions[i].Label) < strings.ToLower(suggestions[j].Label)
 	})
+	for index := range suggestions {
+		suggestions[index].SortText = strconv.Itoa(suggestionRank(suggestions[index].Kind)) + "-" + strings.ToLower(suggestions[index].Label)
+	}
 	result := Result{Suggestions: suggestions, Total: len(suggestions)}
 	if offset > len(suggestions) {
 		offset = len(suggestions)
@@ -114,6 +155,27 @@ func Complete(schema *catalog.Catalog, query string, position int, cursor string
 		result.ParseError = parseErr.Error()
 	}
 	return result, nil
+}
+
+func utf16OffsetToByteOffset(value string, offset int) int {
+	if offset < 0 {
+		return len(value)
+	}
+	utf16Offset := 0
+	for byteOffset, character := range value {
+		if utf16Offset >= offset {
+			return byteOffset
+		}
+		characterWidth := 1
+		if character > 0xFFFF {
+			characterWidth = 2
+		}
+		if utf16Offset+characterWidth > offset {
+			return byteOffset
+		}
+		utf16Offset += characterWidth
+	}
+	return len(value)
 }
 
 func propertyContext(input string, bindings map[string]string) (string, string, bool) {
@@ -186,6 +248,41 @@ func appendFields(out []Suggestion, table catalog.Table, lowerPrefix string) []S
 	return out
 }
 
+func appendFunctions(out []Suggestion, lowerPrefix string) []Suggestion {
+	if lowerPrefix == "" {
+		for _, name := range commonFunctions {
+			out = append(out, Suggestion{Label: name, Kind: "function", Detail: "HogQL function", InsertText: name + "()"})
+		}
+		return out
+	}
+	for _, name := range hogQLFunctions {
+		if hasLowerPrefix(name, lowerPrefix) {
+			out = append(out, Suggestion{Label: name, Kind: "function", Detail: "HogQL function", InsertText: name + "()"})
+		}
+	}
+	return out
+}
+
+func appendNamed(out []Suggestion, values []string, lowerPrefix, kind, detail string) []Suggestion {
+	for _, value := range values {
+		if hasLowerPrefix(value, lowerPrefix) {
+			out = append(out, Suggestion{Label: value, Kind: kind, Detail: detail, InsertText: value})
+		}
+	}
+	return out
+}
+
+func suggestionRank(kind string) int {
+	switch kind {
+	case "field", "property", "table":
+		return 1
+	case "function":
+		return 2
+	default:
+		return 3
+	}
+}
+
 func cursorWord(input string) (prefix, qualifier string, start int) {
 	start = len(input)
 	for start > 0 && isIdentifier(rune(input[start-1])) {
@@ -205,15 +302,6 @@ func cursorWord(input string) (prefix, qualifier string, start int) {
 
 func isIdentifier(r rune) bool {
 	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '$'
-}
-
-func expectsTable(input string) bool {
-	words := strings.Fields(strings.ToUpper(input))
-	if len(words) == 0 {
-		return false
-	}
-	last := words[len(words)-1]
-	return last == "FROM" || last == "JOIN" || strings.HasSuffix(strings.TrimSpace(input), ",")
 }
 
 func hasLowerPrefix(value, lowerPrefix string) bool {

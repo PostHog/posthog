@@ -3,6 +3,9 @@ from .constants import (
     CrawlMode,
     EmbeddingStatus,
     GapStatus,
+    LearningProvider,
+    LearningRunResult,
+    LearningRunStatus,
     RefreshInterval,
     RefreshStatus,
     SafetyVerdict,
@@ -12,6 +15,7 @@ from .constants import (
 from .knowledge_chunk import KnowledgeChunk
 from .knowledge_document import KnowledgeDocument
 from .knowledge_gap_suggestion import KnowledgeGapSuggestion
+from .knowledge_learning_run import KnowledgeLearningRun
 from .knowledge_source import KnowledgeSource
 from .team_business_knowledge_config import TeamBusinessKnowledgeConfig
 
@@ -23,7 +27,11 @@ __all__ = [
     "KnowledgeChunk",
     "KnowledgeDocument",
     "KnowledgeGapSuggestion",
+    "KnowledgeLearningRun",
     "KnowledgeSource",
+    "LearningProvider",
+    "LearningRunResult",
+    "LearningRunStatus",
     "RefreshInterval",
     "RefreshStatus",
     "SafetyVerdict",

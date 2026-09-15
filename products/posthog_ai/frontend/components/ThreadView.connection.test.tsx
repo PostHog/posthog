@@ -60,7 +60,7 @@ describe('ThreadView connection state', () => {
         })
     })
 
-    // A folded _posthog/error frame renders inline through ThreadRow's RunAlertActivity swap (agent_error kind).
+    // A folded _posthog/error frame renders inline as an error card; the run is still live here, so it keeps the softer title.
     it('renders an inline agent-error card for a _posthog/error frame', async () => {
         logic.actions.ingestAcpFrame(notification('_posthog/error', { message: 'boom' }), 'replay')
 
@@ -98,7 +98,7 @@ describe('ThreadView connection state', () => {
 
         act(() => logic.actions.rollbackOptimisticResume())
         await waitFor(() => expect(screen.getByTestId('max-sandbox-context-usage')).toBeVisible())
-        expect(screen.getByText('$0.04')).toBeVisible()
+        expect(screen.getByTestId('max-sandbox-context-usage')).toHaveTextContent('Context 1% · $0.04')
     })
 
     it('uses the startup activity as the state indicator and keeps completed steps expandable', async () => {

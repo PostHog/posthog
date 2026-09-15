@@ -308,11 +308,17 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
             "attempts, new connections are temporarily blocked",
             TRANSIENT_POOLER_MESSAGE,
         ),
-        # PostHog's own egress proxy refusing the CONNECT.
+        # PostHog's own egress proxy refusing or throttling the CONNECT.
         (
             "egress_proxy_bad_gateway",
             ExternalDataSourceType.SALESFORCE,
             "ProxyError('Cannot connect to proxy.', OSError('Tunnel connection failed: 502 Bad gateway'))",
+            TRANSIENT_EGRESS_MESSAGE,
+        ),
+        (
+            "egress_proxy_rate_limited",
+            ExternalDataSourceType.STRIPE,
+            "OSError('Tunnel connection failed: 429 Too Many Requests')",
             TRANSIENT_EGRESS_MESSAGE,
         ),
         # A REST source whose vendor stayed unavailable for longer than both retry layers.

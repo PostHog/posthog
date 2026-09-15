@@ -484,19 +484,19 @@ class TestUpsertAlertTool(BaseTest):
                 "threshold_change_resets_state",
                 {"lower_threshold": 100.0},
                 {"upper_threshold": 200.0},
-                lambda a, t: a.state == AlertState.NOT_FIRING and a.next_check_at is None,
+                lambda a, t: a.state == AlertState.NOT_FIRING and a.next_check_at is not None,
             ),
             (
                 "condition_change_resets_state",
                 {"condition_type": AlertConditionType.ABSOLUTE_VALUE},
                 {"condition_type": AlertConditionType.RELATIVE_INCREASE},
-                lambda a, t: a.state == AlertState.NOT_FIRING and a.next_check_at is None,
+                lambda a, t: a.state == AlertState.NOT_FIRING and a.next_check_at is not None,
             ),
             (
-                "interval_change_clears_next_check_only",
+                "interval_change_marks_alert_due_now",
                 {"calculation_interval": AlertCalculationInterval.DAILY},
                 {"calculation_interval": AlertCalculationInterval.WEEKLY},
-                lambda a, t: a.state == AlertState.FIRING and a.next_check_at is None,
+                lambda a, t: a.state == AlertState.FIRING and a.next_check_at is not None,
             ),
         ]
     )
@@ -517,7 +517,7 @@ class TestUpsertAlertTool(BaseTest):
         await sync_to_async(alert.refresh_from_db)()
         threshold = await sync_to_async(lambda: alert.threshold)()
         assert check(alert, threshold), f"Check failed for {_name}"
-        assert alert.next_check_at is None
+        assert alert.next_check_at is not None
 
     @pytest.mark.django_db
     @pytest.mark.asyncio

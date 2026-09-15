@@ -4,14 +4,25 @@ import posthog from 'posthog-js'
 import { LemonButton, LemonInput, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { capitalizeFirstLetter, fullName } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { columnValueFilter } from '../columnValueFilter'
 import { getAccountRelatedUserAdminUrl } from './accountRelatedUserAdminUrl'
 import { accountRelatedUsersLogic, AccountOrganizationMember, PAGE_SIZE } from './accountRelatedUsersLogic'
 import { AccountsEvents } from './constants'
+
+const LEVEL_FILTER_OPTIONS = [
+    OrganizationMembershipLevel.Owner,
+    OrganizationMembershipLevel.Admin,
+    OrganizationMembershipLevel.Member,
+].map((level) => ({
+    value: level,
+    label: capitalizeFirstLetter(membershipLevelToName.get(level) ?? 'Unknown'),
+}))
 
 export function AccountRelatedUsersExpansion({
     externalId,
@@ -21,9 +32,9 @@ export function AccountRelatedUsersExpansion({
     embedded?: boolean
 }): JSX.Element {
     const logic = accountRelatedUsersLogic({ externalId })
-    const { membersResponse, membersResponseLoading, page, searchTerm } = useValues(logic)
+    const { membersResponse, membersResponseLoading, page, searchTerm, levels, sorting } = useValues(logic)
     const { user } = useValues(userLogic)
-    const { setPage, setSearchTerm } = useActions(logic)
+    const { setPage, setSearchTerm, setLevels, setSorting } = useActions(logic)
 
     const columns: LemonTableColumns<AccountOrganizationMember> = [
         {
@@ -52,11 +63,21 @@ export function AccountRelatedUsersExpansion({
         {
             title: 'Access level',
             key: 'level',
+            sorter: true,
+            defaultSortOrder: -1,
+            ...columnValueFilter<AccountOrganizationMember, OrganizationMembershipLevel>({
+                options: LEVEL_FILTER_OPTIONS,
+                selected: levels,
+                onChange: setLevels,
+                'data-attr': 'customer-analytics-account-users-level-option',
+            }),
             render: (_, member) => capitalizeFirstLetter(membershipLevelToName.get(member.level) ?? 'Unknown'),
         },
         {
             title: 'Last logged in',
             key: 'last_login',
+            sorter: true,
+            defaultSortOrder: -1,
             render: (_, member) => (member.last_login ? <TZLabel time={member.last_login} /> : 'Never'),
         },
     ]
@@ -107,6 +128,9 @@ export function AccountRelatedUsersExpansion({
                 rowKey="id"
                 loading={membersResponseLoading}
                 columns={columns}
+                sorting={sorting}
+                onSort={setSorting}
+                useURLForSorting={false}
                 pagination={{
                     controlled: true,
                     pageSize: PAGE_SIZE,
@@ -121,8 +145,8 @@ export function AccountRelatedUsersExpansion({
                         ? 'This account has no linked organization.'
                         : membersResponse === null
                           ? 'Failed to load related users.'
-                          : searchTerm
-                            ? 'No users match your search.'
+                          : searchTerm || levels.length
+                            ? 'No users match your filters.'
                             : 'No users related to this account yet.'
                 }
             />
