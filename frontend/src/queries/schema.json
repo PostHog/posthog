@@ -38159,7 +38159,8 @@
                     "type": "string"
                 },
                 "value": {
-                    "type": "number"
+                    "description": "The bucket's aggregate; null when it isn't representable (a gap).",
+                    "type": ["number", "null"]
                 }
             },
             "required": ["time", "value"],

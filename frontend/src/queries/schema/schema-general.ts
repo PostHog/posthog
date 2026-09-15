@@ -4656,7 +4656,8 @@ export interface MetricsQueryClause {
 export interface MetricsQueryPoint {
     /** Bucket start, ISO 8601 */
     time: string
-    value: number
+    /** The bucket's aggregate; null when it isn't representable (a gap). */
+    value: number | null
 }
 
 export interface MetricsQuerySeries {

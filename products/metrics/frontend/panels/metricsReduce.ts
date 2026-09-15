@@ -30,8 +30,9 @@ export interface MetricsSeriesRow {
     labels: Record<string, string>
     /** The series' metric name, used as the row title for ungrouped single-series results. */
     metricName?: string
-    /** The reduced value per reducer, keyed by reducer name. `null` means no data. */
-    values: Record<MetricsReducer, number | null>
+    /** The reduced value per requested reducer, keyed by reducer name. `null` means no
+     * data; a reducer the caller did not ask for is absent, so the type stays Partial. */
+    values: Partial<Record<MetricsReducer, number | null>>
     /** The raw series, kept so a row can link back to its points (sparkline, drill-down). */
     series: MetricsQuerySeries
 }
@@ -40,10 +41,7 @@ export function flattenSeriesRows(series: MetricsQuerySeries[], reducers: Metric
     return series.map((s) => ({
         labels: s.labels,
         metricName: s.metricName ?? undefined,
-        values: Object.fromEntries(reducers.map((r) => [r, reduceSeries(s.points, r)])) as Record<
-            MetricsReducer,
-            number | null
-        >,
+        values: Object.fromEntries(reducers.map((r) => [r, reduceSeries(s.points, r)])),
         series: s,
     }))
 }

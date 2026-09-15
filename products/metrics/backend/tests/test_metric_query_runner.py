@@ -619,6 +619,29 @@ class TestRunMetricQueryFacade(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(series), 1)
         self.assertIsNone(series[0].unit)
 
+    def test_mixed_unit_and_unitless_merge_leaves_unit_unset(self):
+        """A unitless series merged with a unit-carrying one is still a mixed
+        result: the unit only applies when every contributing series agrees."""
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            unit="ms",
+            points=[(anchor - dt.timedelta(minutes=10), 1.5)],
+            service_name="svc-a",
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[(anchor - dt.timedelta(minutes=10), 2.5)],
+            service_name="svc-b",
+        )
+
+        series = run_metric_query(team=self.team, request=self._request())
+
+        self.assertEqual(len(series), 1)
+        self.assertIsNone(series[0].unit)
+
     def test_consistent_units_across_merged_series_attach(self):
         anchor = timezone.now().replace(microsecond=0)
         seed_metric(

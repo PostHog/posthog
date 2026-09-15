@@ -107,10 +107,14 @@ def _units_by_fingerprint(team: Team, metric_names: set[str]) -> dict[int, str]:
 
 def _unit_for_fingerprints(fingerprints: set[int], units_by_fingerprint: dict[int, str]) -> str | None:
     """The unit of one output series, resolved from the physical series it
-    aggregated. When the merged series disagree there is no correct single
-    unit, so the series carries none rather than an arbitrary one."""
-    units = {unit for fp in fingerprints if (unit := units_by_fingerprint.get(fp))}
-    return units.pop() if len(units) == 1 else None
+    aggregated. The unit only applies when every contributing series carries
+    the same one — a disagreement, or a series with no unit at all, means the
+    merge has no correct single unit, so it carries none."""
+    units = {units_by_fingerprint.get(fp) for fp in fingerprints}
+    if len(units) != 1:
+        return None
+    (unit,) = units
+    return unit
 
 
 # Hard cap on series returned per clause; the largest series (by summed

@@ -2345,7 +2345,10 @@ class MetricsQueryPoint(BaseModel):
         extra="forbid",
     )
     time: str = Field(..., description="Bucket start, ISO 8601")
-    value: float
+    value: float | None = Field(
+        ...,
+        description="The bucket's aggregate; null when it isn't representable (a gap).",
+    )
 
 
 class MetricsQuerySeries(BaseModel):
