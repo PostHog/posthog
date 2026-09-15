@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import functools
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, ParamSpec, TypeVar
+from typing import TYPE_CHECKING, ParamSpec, TypeVar, cast
 
 import structlog
 from asgiref.sync import async_to_sync
@@ -49,35 +49,57 @@ def is_transient_rpc_error(error: BaseException) -> bool:
     return isinstance(error, RPCError) and error.status in TRANSIENT_RPC_STATUS_CODES
 
 
-def retry_transient_rpc(fn: Callable[P, Awaitable[T]]) -> Callable[P, Awaitable[T]]:
+def retry_transient_rpc(
+    *, not_found_means_applied: bool = False
+) -> Callable[[Callable[P, Awaitable[T]]], Callable[P, Awaitable[T]]]:
     """Retry a schedule call that failed on a transient Temporal RPC status.
 
-    Every helper here is idempotent for the same inputs, apart from create, which raises
-    ScheduleAlreadyRunningError when an earlier attempt landed after all. Callers already treat
-    that as "the schedule exists", so the retry cannot silently duplicate a schedule.
+    Only for calls a second attempt can repeat safely. Manual triggers are not: `handle.trigger()`
+    takes no request id, so a retry past a lost response starts a second workflow run. Create is,
+    because a landed first attempt makes the retry raise ScheduleAlreadyRunningError, which callers
+    already read as "the schedule exists".
+
+    `not_found_means_applied` closes the same gap for delete, whose landed first attempt leaves the
+    retry nothing to find. Set it only where a NOT_FOUND raised on the very first attempt is the
+    caller's business, because that one still propagates.
     """
 
-    @functools.wraps(fn)
-    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
-        backoff = RPC_INITIAL_BACKOFF_SECONDS
-        for attempt in range(1, RPC_MAX_ATTEMPTS):
+    def already_applied(error: RPCError) -> bool:
+        return not_found_means_applied and error.status == RPCStatusCode.NOT_FOUND
+
+    def decorator(fn: Callable[P, Awaitable[T]]) -> Callable[P, Awaitable[T]]:
+        @functools.wraps(fn)
+        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+            backoff = RPC_INITIAL_BACKOFF_SECONDS
+            for attempt in range(1, RPC_MAX_ATTEMPTS):
+                try:
+                    return await fn(*args, **kwargs)
+                except RPCError as error:
+                    # past attempt 1 the call follows a transient failure, so a NOT_FOUND means the
+                    # attempt that timed out landed after all
+                    if attempt > 1 and already_applied(error):
+                        return cast("T", None)
+                    if not is_transient_rpc_error(error):
+                        raise
+                    logger.warning(
+                        "Retrying Temporal schedule call after a transient RPC failure",
+                        operation=fn.__name__,
+                        status=error.status.name,
+                        attempt=attempt,
+                        max_attempts=RPC_MAX_ATTEMPTS,
+                    )
+                    await asyncio.sleep(backoff)
+                    backoff *= RPC_BACKOFF_MULTIPLIER
             try:
                 return await fn(*args, **kwargs)
             except RPCError as error:
-                if not is_transient_rpc_error(error):
-                    raise
-                logger.warning(
-                    "Retrying Temporal schedule call after a transient RPC failure",
-                    operation=fn.__name__,
-                    status=error.status.name,
-                    attempt=attempt,
-                    max_attempts=RPC_MAX_ATTEMPTS,
-                )
-                await asyncio.sleep(backoff)
-                backoff *= RPC_BACKOFF_MULTIPLIER
-        return await fn(*args, **kwargs)
+                if already_applied(error):
+                    return cast("T", None)
+                raise
 
-    return wrapper
+        return wrapper
+
+    return decorator
 
 
 @async_to_sync
@@ -86,7 +108,6 @@ async def trigger_schedule_buffer_one(temporal: Client, schedule_id: str):
     return await a_trigger_schedule_buffer_one(temporal, schedule_id)
 
 
-@retry_transient_rpc
 async def a_trigger_schedule_buffer_one(temporal: Client, schedule_id: str):
     """Async trigger a Temporal Schedule using BUFFER_ONE overlap policy."""
     handle = temporal.get_schedule_handle(schedule_id)
@@ -96,7 +117,7 @@ async def a_trigger_schedule_buffer_one(temporal: Client, schedule_id: str):
 
 
 @async_to_sync
-@retry_transient_rpc
+@retry_transient_rpc()
 async def create_schedule(
     temporal: Client,
     id: str,
@@ -113,7 +134,7 @@ async def create_schedule(
     )
 
 
-@retry_transient_rpc
+@retry_transient_rpc()
 async def a_create_schedule(
     temporal: Client,
     id: str,
@@ -131,7 +152,7 @@ async def a_create_schedule(
 
 
 @async_to_sync
-@retry_transient_rpc
+@retry_transient_rpc()
 async def update_schedule(
     temporal: Client,
     id: str,
@@ -154,7 +175,7 @@ async def update_schedule(
     )
 
 
-@retry_transient_rpc
+@retry_transient_rpc()
 async def a_update_schedule(
     temporal: Client,
     id: str,
@@ -173,7 +194,7 @@ async def a_update_schedule(
 
 
 @async_to_sync
-@retry_transient_rpc
+@retry_transient_rpc()
 async def unpause_schedule(temporal: Client, schedule_id: str, note: str | None = None) -> None:
     """Unpause a Temporal Schedule."""
     handle = temporal.get_schedule_handle(schedule_id)
@@ -181,14 +202,14 @@ async def unpause_schedule(temporal: Client, schedule_id: str, note: str | None 
 
 
 @async_to_sync
-@retry_transient_rpc
+@retry_transient_rpc(not_found_means_applied=True)
 async def delete_schedule(temporal: Client, schedule_id: str) -> None:
     """Delete a Temporal Schedule."""
     handle = temporal.get_schedule_handle(schedule_id)
     await handle.delete()
 
 
-@retry_transient_rpc
+@retry_transient_rpc(not_found_means_applied=True)
 async def a_delete_schedule(temporal: Client, schedule_id: str) -> None:
     """Async delete a Temporal Schedule."""
     handle = temporal.get_schedule_handle(schedule_id)
@@ -196,14 +217,14 @@ async def a_delete_schedule(temporal: Client, schedule_id: str) -> None:
 
 
 @async_to_sync
-@retry_transient_rpc
+@retry_transient_rpc()
 async def describe_schedule(temporal: Client, schedule_id: str):
     """Describe a Temporal Schedule."""
     handle = temporal.get_schedule_handle(schedule_id)
     return await handle.describe()
 
 
-@retry_transient_rpc
+@retry_transient_rpc()
 async def a_describe_schedule(temporal: Client, schedule_id: str) -> ScheduleDescription:
     """Async describe a Temporal Schedule."""
     handle = temporal.get_schedule_handle(schedule_id)
@@ -211,21 +232,21 @@ async def a_describe_schedule(temporal: Client, schedule_id: str) -> ScheduleDes
 
 
 @async_to_sync
-@retry_transient_rpc
+@retry_transient_rpc()
 async def pause_schedule(temporal: Client, schedule_id: str, note: str | None = None) -> None:
     """Pause a Temporal Schedule."""
     handle = temporal.get_schedule_handle(schedule_id)
     await handle.pause(note=note)
 
 
-@retry_transient_rpc
+@retry_transient_rpc()
 async def a_pause_schedule(temporal: Client, schedule_id: str, note: str | None = None) -> None:
     """Pause a Temporal Schedule."""
     handle = temporal.get_schedule_handle(schedule_id)
     await handle.pause(note=note)
 
 
-@retry_transient_rpc
+@retry_transient_rpc()
 async def a_unpause_schedule(temporal: Client, schedule_id: str, note: str | None = None) -> None:
     """Unpause a Temporal Schedule."""
     handle = temporal.get_schedule_handle(schedule_id)
@@ -233,14 +254,12 @@ async def a_unpause_schedule(temporal: Client, schedule_id: str, note: str | Non
 
 
 @async_to_sync
-@retry_transient_rpc
 async def trigger_schedule(temporal: Client, schedule_id: str, note: str | None = None) -> None:
     """Trigger a Temporal Schedule."""
     handle = temporal.get_schedule_handle(schedule_id)
     await handle.trigger()
 
 
-@retry_transient_rpc
 async def a_trigger_schedule(temporal: Client, schedule_id: str, note: str | None = None) -> None:
     """Trigger a Temporal Schedule."""
     handle = temporal.get_schedule_handle(schedule_id)
@@ -248,7 +267,7 @@ async def a_trigger_schedule(temporal: Client, schedule_id: str, note: str | Non
 
 
 @async_to_sync
-@retry_transient_rpc
+@retry_transient_rpc()
 async def schedule_exists(temporal: Client, schedule_id: str) -> bool:
     """Check whether a schedule exists."""
     try:
@@ -260,7 +279,7 @@ async def schedule_exists(temporal: Client, schedule_id: str) -> bool:
         raise
 
 
-@retry_transient_rpc
+@retry_transient_rpc()
 async def a_schedule_exists(temporal: Client, schedule_id: str) -> bool:
     """Check whether a schedule exists. See :func:`schedule_exists`."""
     try:

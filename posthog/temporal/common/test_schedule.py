@@ -5,7 +5,12 @@ from unittest.mock import AsyncMock, patch
 
 from temporalio.service import RPCError, RPCStatusCode
 
-from posthog.temporal.common.schedule import RPC_MAX_ATTEMPTS, a_delete_schedule, is_transient_rpc_error
+from posthog.temporal.common.schedule import (
+    RPC_MAX_ATTEMPTS,
+    a_delete_schedule,
+    a_trigger_schedule,
+    is_transient_rpc_error,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -13,11 +18,11 @@ TIMEOUT = RPCError("Timeout expired", RPCStatusCode.DEADLINE_EXCEEDED, b"")
 NOT_FOUND = RPCError("schedule not found", RPCStatusCode.NOT_FOUND, b"")
 
 
-def fake_client(side_effect: list[Any]) -> tuple[Any, AsyncMock]:
-    delete = AsyncMock(side_effect=side_effect)
+def fake_client(side_effect: list[Any], method: str = "delete") -> tuple[Any, AsyncMock]:
+    call = AsyncMock(side_effect=side_effect)
     client = AsyncMock()
-    client.get_schedule_handle = lambda _: AsyncMock(delete=delete)
-    return client, delete
+    client.get_schedule_handle = lambda _: AsyncMock(**{method: call})
+    return client, call
 
 
 @pytest.mark.parametrize(
@@ -54,3 +59,31 @@ def test_only_transient_statuses_are_classified_as_transient():
     assert is_transient_rpc_error(TIMEOUT)
     assert not is_transient_rpc_error(NOT_FOUND)
     assert not is_transient_rpc_error(ValueError("not an RPC error"))
+
+
+async def test_not_found_after_a_retried_delete_counts_as_deleted():
+    # the delete landed and its response was lost, so the retry finds nothing left to delete
+    client, delete = fake_client([TIMEOUT, NOT_FOUND])
+
+    with patch("posthog.temporal.common.schedule.asyncio.sleep", AsyncMock()):
+        await a_delete_schedule(client, schedule_id="some-schedule")
+
+    assert delete.await_count == 2
+
+
+async def test_not_found_on_the_first_delete_attempt_still_raises():
+    # nothing was sent before it, so this is the caller's own "already gone" case to handle
+    client, _ = fake_client([NOT_FOUND])
+
+    with pytest.raises(RPCError):
+        await a_delete_schedule(client, schedule_id="some-schedule")
+
+
+async def test_manual_trigger_is_never_retried():
+    # trigger takes no request id, so a retry past a lost response starts a second workflow run
+    client, trigger = fake_client([TIMEOUT, None], method="trigger")
+
+    with pytest.raises(RPCError):
+        await a_trigger_schedule(client, schedule_id="some-schedule")
+
+    assert trigger.await_count == 1
