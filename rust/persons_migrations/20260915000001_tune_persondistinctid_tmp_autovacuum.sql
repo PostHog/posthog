@@ -1,8 +1,8 @@
--- `person_id` and `is_deleted` both sit under an index on this table, and both lifecycle write
--- paths rewrite them: the merge saga repoints `person_id` and bumps `version`, and the delete
--- saga tombstones `is_deleted` and bumps `version`. Neither update can take the heap-only tuple
--- path, so each one writes a new heap tuple plus entries in every index, and leaves the old
--- entries as dead tuples.
+-- The merge saga repoints `person_id`, which carries its own index, so that update cannot take the
+-- heap-only tuple path: each repoint writes a new heap tuple plus an entry in all three indexes,
+-- and leaves the old entries as dead tuples. The delete saga writes `is_deleted` and `version`,
+-- neither of them indexed, so it can reuse the heap page when that page has free space, but it
+-- still leaves a dead heap tuple behind.
 --
 -- Default autovacuum waits for 20% dead tuples. On the shadow mapping table that is wasted
 -- storage and slower index scans over the validation set we read to decide whether personhog is
