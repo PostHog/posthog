@@ -30,6 +30,10 @@ export interface LeadTimeBoxPlotProps {
     formatSeconds: (seconds: number) => string
     /** Draw the whiskers at p5/p95 instead of min/max, so one extreme PR can't flatten the boxes. */
     excludeOutliers?: boolean
+    /** List the buckets down the side with the time axis along the bottom. Suits a few buckets. */
+    horizontal?: boolean
+    /** Put the time axis on a log scale, so minutes and days both stay readable on one axis. */
+    logScale?: boolean
     dataAttr: string
     className?: string
 }
@@ -68,7 +72,7 @@ function toDatum(bucket: BoxPlotBucket, excludeOutliers: boolean): BoxPlotDatum 
  * One box-and-whisker per bucket (quill BoxPlot): whisker min→max, box p25→p75, a median line
  * and a mean dot, on a shared seconds scale. Empty buckets stay empty slots so a quiet stretch
  * reads as "nothing deployed", not missing data. One lead-time stage per instance; the Health
- * tab stacks three so the stages compare bucket by bucket.
+ * tab stacks three vertical ones so the stages compare bucket by bucket.
  */
 export function LeadTimeBoxPlot({
     seriesKey,
@@ -76,11 +80,21 @@ export function LeadTimeBoxPlot({
     buckets,
     formatSeconds,
     excludeOutliers = false,
+    horizontal = false,
+    logScale = false,
     dataAttr,
     className,
 }: LeadTimeBoxPlotProps): JSX.Element {
     const theme = useChartTheme()
     const labels = useMemo(() => buckets.map((bucket) => bucket.label), [buckets])
+    const config = useMemo(
+        () => ({
+            yTickFormatter: formatSeconds,
+            axisOrientation: horizontal ? ('horizontal' as const) : ('vertical' as const),
+            yScaleType: logScale ? ('log' as const) : ('linear' as const),
+        }),
+        [formatSeconds, horizontal, logScale]
+    )
     const series = useMemo<BoxPlotSeries<BucketMeta>[]>(
         () => [
             {
@@ -100,7 +114,7 @@ export function LeadTimeBoxPlot({
                 series={series}
                 labels={labels}
                 theme={theme}
-                config={{ yTickFormatter: formatSeconds }}
+                config={config}
                 dataAttr={dataAttr}
                 tooltip={(ctx) => (
                     <BucketTooltip
