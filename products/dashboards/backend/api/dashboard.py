@@ -2007,12 +2007,15 @@ class DashboardSerializer(DashboardMetadataSerializer):
     }
 
     @staticmethod
-    def _extract_display_defaults(tile_data: dict) -> dict:
+    def _extract_display_defaults(tile_data: dict, existing_layouts: dict | None = None) -> dict:
         defaults = {k: tile_data[k] for k in DashboardSerializer.TILE_DISPLAY_FIELDS if k in tile_data}
         if "layouts" in defaults:
             layouts_serializer = DashboardPatchTileLayoutsSerializer(data=defaults["layouts"])
             if not layouts_serializer.is_valid():
                 raise serializers.ValidationError({"layouts": layouts_serializer.errors})
+            defaults["layouts"] = {**(existing_layouts or {}), **layouts_serializer.validated_data}
+            if "sm" not in defaults["layouts"]:
+                raise serializers.ValidationError({"layouts": {"sm": ["This field is required."]}})
         # `filters_overrides` is opaque JSON with the same `properties` shape ambiguity as dashboard
         # `filters` — normalize a PropertyGroupFilter dict on `properties` to the flat-list contract so
         # a malformed tile override can't be persisted for the merge/contradiction code to trip on.
@@ -2137,15 +2140,15 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if tile_id is None:
             return None, False
 
-        tile_defaults = DashboardSerializer._extract_display_defaults(tile_data)
-        if not tile_defaults:
-            return None, False
-
         existing = DashboardTile.objects_including_soft_deleted.filter(
             id=tile_id, dashboard=instance, dashboard__team_id=instance.team_id
         ).first()
         if existing is None:
             raise serializers.ValidationError({"tiles": f"Tile ID {tile_id} is not on this dashboard."})
+
+        tile_defaults = DashboardSerializer._extract_display_defaults(tile_data, existing.layouts)
+        if not tile_defaults:
+            return None, False
 
         became_deleted = bool(tile_defaults.get("deleted")) and not existing.deleted
         # `deleted` is raw request input; coerce it exactly as the ORM will on save, so a value

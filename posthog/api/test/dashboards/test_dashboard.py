@@ -1417,6 +1417,22 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         assert response["attr"].startswith("layouts__sm__")
 
+    def test_layout_patch_merges_breakpoint_with_existing_layout(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        insight_id, _ = self.dashboard_api.create_insight({"dashboards": [dashboard_id], "name": "insight"})
+        tile = DashboardTile.objects.get(insight_id=insight_id, dashboard_id=dashboard_id)
+        desktop_layout = {"x": 2, "y": 3, "w": 6, "h": 5}
+        tile.layouts = {"sm": desktop_layout, "xs": {"x": 0, "y": 3, "w": 1, "h": 5}}
+        tile.save()
+
+        self.dashboard_api.update_dashboard(
+            dashboard_id,
+            {"tiles": [{"id": tile.id, "layouts": {"xs": {"x": 0, "y": 8, "w": 1, "h": 4}}}]},
+        )
+
+        tile.refresh_from_db()
+        assert tile.layouts == {"sm": desktop_layout, "xs": {"x": 0, "y": 8, "w": 1, "h": 4}}
+
     def test_layout_patch_succeeds_on_dashboard_with_mixed_tile_state(self):
         """
         Coverage for layout edits on a dashboard with a realistic mix of tile states:
