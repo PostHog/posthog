@@ -29,7 +29,7 @@ This build-time SQL represents the same aggregation and time range. It cannot in
 
 For "Count `chat with ai` events in the last seven days", either a typed total or SQL can answer the question.
 Prefer the typed query for a new analysis when both methods preserve the requested calculation and output.
-Use `posthog:query-trends` with `math: "total"`, `trendsFilter.display: "BoldNumber"`, and the requested time bounds.
+Use `posthog:query-trends` with `math: "total"`, `compareFilter.compare: true`, `trendsFilter.display: "Metric"`, `trendsFilter.metricSummary: "total"`, and the requested time bounds.
 Resolve both rolling bounds to ISO 8601 timestamps and pass them as `date_from` and `date_to` when matching the SQL window below.
 
 The SQL form remains valid when the user requests SQL or an existing SQL query already fits:
