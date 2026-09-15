@@ -32,8 +32,11 @@ async function fetchAuthoritativeMetadata(path: string): Promise<Metadata> {
 }
 
 /**
- * A rule rather than a field list, so an endpoint added to posthog/api/oauth/metadata.py is
- * rewritten here without a matching change.
+ * Walk a document and point every `us.posthog.com` URL in it at this proxy, at whatever depth the
+ * field sits (`agent_auth.skill` is nested two levels down).
+ *
+ * Matching on the URL rather than on a list of field names means an endpoint added to
+ * posthog/api/oauth/metadata.py is rewritten here without a matching change.
  */
 function rewriteEndpoints(value: unknown, origin: string): unknown {
     if (typeof value === 'string') {
