@@ -60,7 +60,7 @@ async def aget_conversation_state(conversation: Conversation, team: Any, user: A
     """Compile the LangGraph graph, replay the checkpoint, and validate the typed state.
 
     Single source of truth for the LangGraph history read path — both the conversation
-    serializer (history-load) and the legacy-history converter (products/posthog_ai) call this so
+    serializer (history-load) and the conversation mirror (products/posthog_ai) call this so
     the graph-compile + checkpoint-replay logic is never duplicated.
 
     Returns a ConversationStateResult. `state` is None for born-sandbox
@@ -68,12 +68,18 @@ async def aget_conversation_state(conversation: Conversation, team: Any, user: A
     and are captured rather than raised so a bad checkpoint can't 500 a conversation load.
     """
     # Born-sandbox conversations have no LangGraph checkpoint — skip the graph compile entirely.
-    # A CONVERTED conversation (now sandbox, but kept its legacy checkpoint) falls through so its
-    # legacy thread still renders above the "history was converted" divider.
+    # A conversation moved from LangGraph keeps its checkpoint, but its history is in the task's
+    # import run, which the thread renders from the run log; reading the checkpoint too would show
+    # every turn twice. Only a conversion that predates the mirror (no import run) still renders
+    # its legacy thread above the "history was converted" divider.
     if conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX:
-        has_checkpoint = await sync_to_async(conversation.checkpoints.exists)()
-        if not has_checkpoint:
-            return ConversationStateResult(state=None, has_unsupported_content=False, interrupt_payloads={})
+        empty = ConversationStateResult(state=None, has_unsupported_content=False, interrupt_payloads={})
+        if not await sync_to_async(conversation.checkpoints.exists)():
+            return empty
+        if conversation.task_id is not None and await sync_to_async(tasks_facade.get_imported_task_run)(
+            conversation.task_id, conversation.team_id
+        ):
+            return empty
 
     try:
         graph_class, state_class = CONVERSATION_TYPE_MAP[conversation.type]  # type: ignore[index]
@@ -308,12 +314,12 @@ class ConversationSerializer(ConversationMinimalSerializer):
     pending_approvals = serializers.SerializerMethodField()
 
     def get_messages(self, conversation: Conversation) -> list[dict[str, Any]]:
-        # Born-sandbox conversations have no checkpoint — their history lives in S3 ACP logs
-        # (fetched via the products/tasks `logs/` endpoint), so `_get_cached_state` returns None and
-        # messages are []; the cached `messages_json` is intentionally ignored on this path. A
-        # CONVERTED conversation keeps its legacy checkpoint, so its full legacy thread is returned
-        # (rendered above the conversion divider). LangGraph conversations use the cached
-        # `messages_json` when present, else compile + replay the checkpoint.
+        # Sandbox conversations render their history from the task run logs (fetched via the
+        # products/tasks `logs/` endpoint), so `_get_cached_state` returns None and messages are [];
+        # the cached `messages_json` is intentionally ignored on this path. The one exception is a
+        # conversion that predates the mirror (see `aget_conversation_state`). LangGraph
+        # conversations use the cached `messages_json` when present, else compile + replay the
+        # checkpoint.
         if conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX:
             return self._render_state_messages(self._get_cached_state(conversation).state)
 

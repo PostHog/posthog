@@ -584,6 +584,18 @@ class TestConversation(APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(response.json()["id"], str(conversation.id))
 
+            # The mirror links a private task to the chat; a LangGraph chat stays readable by link anyway.
+            private_task = Task.objects.create(
+                team=self.team,
+                title="copy",
+                description="",
+                origin_product=Task.OriginProduct.POSTHOG_AI,
+                created_by=self.other_user,
+            )
+            Conversation.objects.filter(id=conversation.id).update(task=private_task)
+            response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     def test_retrieve_other_teams_conversation_fails(self):
         """Test that user cannot retrieve conversation from another team"""
         conversation = Conversation.objects.create(
@@ -1189,6 +1201,21 @@ class TestConversationSoftDelete(APIBaseTest):
         assert refreshed.deleted_at is not None
         self.assertGreaterEqual(refreshed.deleted_at, before)
         self.assertLessEqual(refreshed.deleted_at, after)
+
+    def test_delete_also_soft_deletes_the_linked_task(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="copy",
+            description="",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+        conversation = self._make_conversation(task=task)
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertTrue(Task.objects.get(pk=task.pk).deleted)
 
     def test_delete_other_users_conversation_returns_404(self):
         other_user = User.objects.create_and_join(
@@ -1810,8 +1837,8 @@ class TestConversationSandboxRoute(APIBaseTest):
         viewset.organization = self.organization
         self.assertEqual(viewset.get_throttles(), [])
 
-    def test_open_rejects_langgraph_conversation_not_converting(self):
-        # A non-sandbox LangGraph conversation that isn't converting (no flag) is rejected.
+    def test_open_rejects_langgraph_conversation(self):
+        # The sandbox endpoint serves sandbox conversations only, whatever flags the user has.
         conversation = Conversation.objects.create(
             user=self.user,
             team=self.team,
@@ -1820,7 +1847,7 @@ class TestConversationSandboxRoute(APIBaseTest):
             agent_runtime=Conversation.AgentRuntime.LANGGRAPH,
         )
         with (
-            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=False),
+            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
             patch("ee.api.conversation.SandboxSession") as m_session,
         ):
             response = self.client.post(
@@ -1830,70 +1857,6 @@ class TestConversationSandboxRoute(APIBaseTest):
             )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         m_session.assert_not_called()
-
-    def _idle_langgraph_conversation(self) -> Conversation:
-        return Conversation.objects.create(
-            user=self.user,
-            team=self.team,
-            title="A chat",
-            type=Conversation.Type.ASSISTANT,
-            agent_runtime=Conversation.AgentRuntime.LANGGRAPH,
-            status=Conversation.Status.IDLE,
-        )
-
-    def test_open_converts_idle_langgraph_thread_on_first_message(self):
-        # A reopened idle LangGraph thread converts to sandbox on its first message via `open`:
-        # the legacy window is read into resumed_context and routed with convert_to_acp=True.
-        conversation = self._idle_langgraph_conversation()
-        block = "<posthog_context>This session was resumed from the legacy implementation.</posthog_context>"
-        sentinel = SandboxRouteResult(
-            task_id="t", run_id="r", trace_id=None, run_status="queued", just_created_run=True
-        )
-        with (
-            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
-            patch("ee.api.conversation.ContextService") as m_ctx,
-            patch("ee.api.conversation.SandboxSession") as m_session,
-            patch("ee.api.conversation.report_user_action"),
-        ):
-            m_ctx.return_value.abuild_resumed_legacy_context = AsyncMock(return_value=block)
-            m_session.return_value.open.return_value = sentinel
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/conversations/{conversation.id}/open/",
-                {"content": "convert me", "trace_id": str(uuid.uuid4())},
-                format="json",
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        kwargs = m_session.return_value.open.call_args.kwargs
-        self.assertTrue(kwargs["convert_to_acp"])
-        self.assertEqual(kwargs["resumed_context"], block)
-
-    def test_open_conversion_context_read_failure_degrades(self):
-        # A failed legacy read must not block the conversion — route with convert_to_acp but no context.
-        conversation = self._idle_langgraph_conversation()
-        sentinel = SandboxRouteResult(
-            task_id="t", run_id="r", trace_id=None, run_status="queued", just_created_run=True
-        )
-        with (
-            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
-            patch("ee.api.conversation.ContextService") as m_ctx,
-            patch("ee.api.conversation.SandboxSession") as m_session,
-            patch("ee.api.conversation.capture_exception") as m_capture,
-            patch("ee.api.conversation.report_user_action"),
-        ):
-            m_ctx.return_value.abuild_resumed_legacy_context = AsyncMock(side_effect=RuntimeError("boom"))
-            m_session.return_value.open.return_value = sentinel
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/conversations/{conversation.id}/open/",
-                {"content": "convert me", "trace_id": str(uuid.uuid4())},
-                format="json",
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        m_capture.assert_called_once()
-        kwargs = m_session.return_value.open.call_args.kwargs
-        self.assertTrue(kwargs["convert_to_acp"])
-        self.assertIsNone(kwargs["resumed_context"])
 
     @override_settings(DEBUG=False)
     def test_open_applies_ai_throttles(self):

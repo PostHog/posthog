@@ -12,6 +12,7 @@ import pydantic
 import structlog
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
+from temporalio.workflow import ParentClosePolicy
 
 from posthog.schema import AgentMode, AssistantEventType, HumanMessage, MaxBillingContext
 
@@ -20,6 +21,8 @@ from posthog.temporal.ai.base import AgentBaseWorkflow
 from posthog.temporal.common.client import async_connect
 
 from products.posthog_ai.backend.models.assistant import Conversation
+from products.posthog_ai.backend.temporal.activities import MirrorConversationInputs
+from products.posthog_ai.backend.temporal.workflows import ConversationMirrorWorkflow
 
 from ee.hogai.chat_agent.runner import ChatAgentRunner
 from ee.hogai.queue import ConversationQueueMessage, ConversationQueueStore
@@ -150,6 +153,22 @@ class ChatAgentWorkflow(AgentBaseWorkflow):
                 maximum_attempts=CHAT_AGENT_ACTIVITY_RETRY_MAX_ATTEMPTS,
             ),
             heartbeat_timeout=timedelta(seconds=CHAT_AGENT_ACTIVITY_HEARTBEAT_TIMEOUT),
+        )
+        if not inputs.use_checkpointer:
+            # A subagent run shares the conversation but writes no turn of its own; only the main
+            # turn has something to copy.
+            return
+        # The turn is persisted and streamed by now. The copy into the task runs as a detached child
+        # so this workflow closes at once: its id is fixed per conversation, and a follow-up sent
+        # while it is still open would join it and lose its message.
+        await workflow.start_child_workflow(
+            ConversationMirrorWorkflow.run,
+            MirrorConversationInputs(
+                team_id=inputs.team_id, user_id=inputs.user_id, conversation_id=str(inputs.conversation_id)
+            ),
+            id=f"conversation-mirror-{inputs.conversation_id}-{workflow.info().run_id}",
+            task_queue=workflow.info().task_queue,
+            parent_close_policy=ParentClosePolicy.ABANDON,
         )
 
 
