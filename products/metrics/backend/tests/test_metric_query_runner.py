@@ -1,3 +1,4 @@
+import re
 import datetime as dt
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -27,6 +28,7 @@ from products.metrics.backend.metric_query_runner import (
     MetricQueryRunner,
     _active_since_expr,
     _align_to_interval,
+    _bounds_mismatch_message,
     _histogram_quantile,
     _pick_interval,
     attribute_field,
@@ -1129,6 +1131,31 @@ class TestHistogramQuantileInterpolation:
     )
     def test_interpolation(self, _name, q, bounds, counts, expected):
         assert abs(_histogram_quantile(q, bounds, counts) - expected) < 1e-9
+
+
+class TestBoundsMismatchMessage:
+    PROMETHEUS_DEFAULT = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
+
+    @parameterized.expand(
+        [
+            # Retuning the tail of a default layout leaves the first bounds shared.
+            ("differ_past_the_shown_window", PROMETHEUS_DEFAULT, (*PROMETHEUS_DEFAULT[:-1], 30.0)),
+            # Six significant digits are not enough to tell these apart.
+            ("differ_in_the_seventh_digit", (1.0000001, 2.0), (1.0000002, 2.0)),
+            ("one_layout_extends_the_other", PROMETHEUS_DEFAULT, (*PROMETHEUS_DEFAULT, 30.0)),
+        ]
+    )
+    def test_names_each_layout_distinctly(self, _name, first, second):
+        message = _bounds_mismatch_message("2026-01-01T00:00:00+00:00", {}, {first, second})
+        rendered = re.findall(r"\[[^\]]*\] \([^)]*\)", message)
+        assert len(rendered) == 2
+        assert rendered[0] != rendered[1]
+
+    def test_counts_boundaries_not_buckets(self):
+        # The bounds alone do not say how many buckets a layout has.
+        message = _bounds_mismatch_message("2026-01-01T00:00:00+00:00", {}, {(0.1, 0.5), (1.0, 5.0)})
+        assert "(2 boundaries)" in message
+        assert "buckets)" not in message
 
 
 class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
