@@ -1,5 +1,6 @@
 import './menu.css'
 
+import type { Menu as MenuPrimitive } from '@base-ui/react/menu'
 import { Menubar as MenubarPrimitive } from '@base-ui/react/menubar'
 import * as React from 'react'
 
@@ -94,7 +95,10 @@ function MenubarItem({
     )
 }
 
-function MenubarCheckboxItem({ ...props }: React.ComponentProps<typeof DropdownMenuCheckboxItem>): React.ReactElement {
+// Explicit Base UI props, not `ComponentProps<typeof ...>`, so inline `onCheckedChange` callbacks keep their parameter type.
+function MenubarCheckboxItem({
+    ...props
+}: MenuPrimitive.CheckboxItem.Props & { inset?: boolean }): React.ReactElement {
     return <DropdownMenuCheckboxItem data-slot="menubar-checkbox-item" {...props} />
 }
 
@@ -102,7 +106,7 @@ function MenubarRadioGroup({ ...props }: React.ComponentProps<typeof DropdownMen
     return <DropdownMenuRadioGroup data-slot="menubar-radio-group" {...props} />
 }
 
-function MenubarRadioItem({ ...props }: React.ComponentProps<typeof DropdownMenuRadioItem>): React.ReactElement {
+function MenubarRadioItem({ ...props }: MenuPrimitive.RadioItem.Props & { inset?: boolean }): React.ReactElement {
     return <DropdownMenuRadioItem data-slot="menubar-radio-item" {...props} />
 }
 
