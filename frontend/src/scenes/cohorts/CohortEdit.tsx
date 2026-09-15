@@ -12,7 +12,16 @@ import {
     IconUpload,
     IconWarning,
 } from '@posthog/icons'
-import { LemonBanner, LemonDialog, LemonDivider, LemonFileInput, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonDialog,
+    LemonDivider,
+    LemonFileInput,
+    LemonSnack,
+    LemonTabs,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
@@ -703,6 +712,31 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                 onRemovePerson={removePersonFromCreateStaticCohort}
                                                 dataNodeKey="createStaticCohort"
                                             />
+                                            {Object.keys(personsToCreateStaticCohort).length > 0 && (
+                                                <div
+                                                    className="flex flex-col gap-y-1"
+                                                    data-attr="cohort-selected-persons"
+                                                >
+                                                    <h4 className="text-xs font-semibold uppercase opacity-60 mb-0">
+                                                        Selected people (
+                                                        {Object.keys(personsToCreateStaticCohort).length})
+                                                    </h4>
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {Object.entries(personsToCreateStaticCohort).map(
+                                                            ([personId, displayName]) => (
+                                                                <LemonSnack
+                                                                    key={personId}
+                                                                    onClose={() =>
+                                                                        removePersonFromCreateStaticCohort(personId)
+                                                                    }
+                                                                >
+                                                                    {displayName || personId}
+                                                                </LemonSnack>
+                                                            )
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
                                         </>
                                     )}
                                     {!isNewCohort && (

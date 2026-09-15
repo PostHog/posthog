@@ -124,7 +124,7 @@ export interface cohortEditLogicValues {
     isCohortValid: boolean
     isPendingCalculation: boolean
     persistedColumns: string[] | null
-    personsToCreateStaticCohort: Record<string, boolean>
+    personsToCreateStaticCohort: Record<string, string | null>
     pollTimeout: number | null
     query: DataTableNode
     showCohortErrors: boolean
@@ -145,7 +145,11 @@ export interface cohortEditLogicActions {
     addFilter: (groupIndex?: number) => {
         groupIndex: number | undefined
     }
-    addPersonToCreateStaticCohort: (personId: string) => {
+    addPersonToCreateStaticCohort: (
+        personId: string,
+        displayName: string | null
+    ) => {
+        displayName: string | null
         personId: string
     }
     checkIfFinishedCalculating: (cohort: CohortType) => {
@@ -531,7 +535,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         duplicateCohort: (asStatic: boolean) => ({ asStatic }),
         updateCohortCount: true,
         setCreationPersonQuery: (query: ActorsQuery) => ({ query }),
-        addPersonToCreateStaticCohort: (personId: string) => ({ personId }),
+        addPersonToCreateStaticCohort: (personId: string, displayName: string | null) => ({ personId, displayName }),
         removePersonFromCreateStaticCohort: (personId: string) => ({ personId }),
         removePersonFromCohort: (personId: string) => ({ personId }),
         resetPersonsToCreateStaticCohort: true,
@@ -717,11 +721,11 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             },
         ],
         personsToCreateStaticCohort: [
-            {} as Record<string, boolean>,
+            {} as Record<string, string | null>,
             {
-                addPersonToCreateStaticCohort: (state, { personId }) => ({
+                addPersonToCreateStaticCohort: (state, { personId, displayName }) => ({
                     ...state,
-                    [personId]: true,
+                    [personId]: displayName,
                 }),
                 removePersonFromCreateStaticCohort: (state, { personId }) => {
                     const newState = { ...state }
