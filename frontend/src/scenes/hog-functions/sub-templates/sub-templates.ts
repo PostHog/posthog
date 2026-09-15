@@ -70,6 +70,13 @@ const BATCH_EXPORT_ALERT_MASKING_TTL_SECONDS = 60 * 60
 const BATCH_EXPORT_ALERT_MASKING_HASH =
     "{event.properties.batch_export_id ? event.properties.batch_export_id : 'unknown-batch-export'}"
 
+// A broken source fails every scheduled sync, and a broken CDC source fails all of its tables at once,
+// so dedupe per source: one message per failing source per hour.
+const WAREHOUSE_SOURCE_ALERT_MASKING_TTL_SECONDS = 60 * 60
+
+const WAREHOUSE_SOURCE_ALERT_MASKING_HASH =
+    "{event.properties.source_id ? event.properties.source_id : 'unknown-warehouse-source'}"
+
 // The page a rageclick happened on: $pathname when posthog-js set it, else the full URL.
 const PA_RAGECLICK_PAGE_EXPR = 'event.properties.$pathname ? event.properties.$pathname : event.properties.$current_url'
 
@@ -243,6 +250,18 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
             threshold: null,
         },
         flag: FEATURE_FLAGS.BATCH_EXPORT_ALERTS,
+    },
+    'warehouse-source-sync-failed': {
+        sub_template_id: 'warehouse-source-sync-failed',
+        type: 'internal_destination',
+        context_id: 'warehouse-source-alerts',
+        filters: { source: 'internal-events', events: [{ id: '$warehouse_source_sync_failed', type: 'events' }] },
+        masking: {
+            hash: WAREHOUSE_SOURCE_ALERT_MASKING_HASH,
+            ttl: WAREHOUSE_SOURCE_ALERT_MASKING_TTL_SECONDS,
+            threshold: null,
+        },
+        flag: FEATURE_FLAGS.WAREHOUSE_SOURCE_SYNC_ALERTS,
     },
 }
 
@@ -618,6 +637,10 @@ function notificationVariants({
 // The error bound matches the backend's 1000-char truncation of the property.
 const BATCH_EXPORT_NAME_SLACK = `{${slackEscapeExpr('event.properties.batch_export_name')}}`
 const BATCH_EXPORT_ERROR_SLACK = `{${slackEscapeExpr('event.properties.error', 1000)}}`
+
+// schema_name and error carry vendor-controlled text, so they get the same Slack escaping as above.
+const WAREHOUSE_SOURCE_SCHEMA_NAME_SLACK = `{${slackEscapeExpr('event.properties.schema_name')}}`
+const WAREHOUSE_SOURCE_ERROR_SLACK = `{${slackEscapeExpr('event.properties.error', 1000)}}`
 
 export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, HogFunctionSubTemplateType[]> = {
     'mcp-tool-error': notificationVariants({
@@ -1695,6 +1718,50 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
     ],
+    'warehouse-source-sync-failed': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['warehouse-source-sync-failed'],
+            template_id: 'template-slack',
+            name: 'Post to Slack on source sync failure',
+            description: 'Post to a Slack channel when a table on a data warehouse source fails to sync',
+            inputs: {
+                blocks: {
+                    value: [
+                        { type: 'header', text: { type: 'plain_text', text: 'Source sync failed' } },
+                        {
+                            type: 'section',
+                            text: {
+                                type: 'mrkdwn',
+                                text: `*${WAREHOUSE_SOURCE_SCHEMA_NAME_SLACK}* on your {event.properties.source_type} source failed to sync. {event.properties.sync_paused ? 'Syncing is paused until the source is fixed.' : 'PostHog will retry on the next scheduled sync.'}`,
+                            },
+                        },
+                        {
+                            type: 'section',
+                            text: { type: 'mrkdwn', text: `*Error:* ${WAREHOUSE_SOURCE_ERROR_SLACK}` },
+                        },
+                        {
+                            type: 'context',
+                            elements: [{ type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' }],
+                        },
+                        { type: 'divider' },
+                        {
+                            type: 'actions',
+                            elements: [
+                                {
+                                    url: '{project.url}/data-management/sources/managed-{event.properties.source_id}/syncs',
+                                    text: { text: 'View syncs', type: 'plain_text' },
+                                    type: 'button',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                text: {
+                    value: `${WAREHOUSE_SOURCE_SCHEMA_NAME_SLACK} on your {event.properties.source_type} source failed to sync: ${WAREHOUSE_SOURCE_ERROR_SLACK}`,
+                },
+            },
+        },
+    ],
 }
 
 export const getSubTemplate = (
@@ -1704,37 +1771,30 @@ export const getSubTemplate = (
     return HOG_FUNCTION_SUB_TEMPLATES[subTemplateId].find((x) => x.template_id === template.id) || null
 }
 
+const EVENT_TO_HOG_FUNCTION_CONTEXT_ID = new Map<string, HogFunctionConfigurationContextId>([
+    ['$error_tracking_issue_created', 'error-tracking'],
+    ['$error_tracking_issue_reopened', 'error-tracking'],
+    ['$error_tracking_issue_spiking', 'error-tracking'],
+    ['$error_tracking_issue_resolved', 'error-tracking'],
+    ['$error_tracking_issue_suppressed', 'error-tracking'],
+    ['$error_tracking_issue_assigned', 'error-tracking'],
+    ['$error_tracking_issue_unassigned', 'error-tracking'],
+    ['$error_tracking_issue_merged', 'error-tracking'],
+    ['$error_tracking_issue_split', 'error-tracking'],
+    ['$insight_alert_firing', 'insight-alerts'],
+    ['$experiment_metric_significant', 'experiment-alerts'],
+    ['$activity_log_entry_created', 'activity-log'],
+    ['$discussion_mention_created', 'discussion-mention'],
+    ['$logs_alert_firing', 'logs-alerting'],
+    ['$logs_alert_resolved', 'logs-alerting'],
+    ['$logs_alert_auto_disabled', 'logs-alerting'],
+    ['$logs_alert_errored', 'logs-alerting'],
+    ['$health_check_issue_firing', 'health-alerts'],
+    ['$health_check_issue_resolved', 'health-alerts'],
+    ['$batch_export_run_failed', 'batch-export-alerts'],
+    ['$warehouse_source_sync_failed', 'warehouse-source-alerts'],
+])
+
 export const eventToHogFunctionContextId = (event: string | undefined): HogFunctionConfigurationContextId => {
-    switch (event) {
-        case '$error_tracking_issue_created':
-        case '$error_tracking_issue_reopened':
-        case '$error_tracking_issue_spiking':
-        case '$error_tracking_issue_resolved':
-        case '$error_tracking_issue_suppressed':
-        case '$error_tracking_issue_assigned':
-        case '$error_tracking_issue_unassigned':
-        case '$error_tracking_issue_merged':
-        case '$error_tracking_issue_split':
-            return 'error-tracking'
-        case '$insight_alert_firing':
-            return 'insight-alerts'
-        case '$experiment_metric_significant':
-            return 'experiment-alerts'
-        case '$activity_log_entry_created':
-            return 'activity-log'
-        case '$discussion_mention_created':
-            return 'discussion-mention'
-        case '$logs_alert_firing':
-        case '$logs_alert_resolved':
-        case '$logs_alert_auto_disabled':
-        case '$logs_alert_errored':
-            return 'logs-alerting'
-        case '$health_check_issue_firing':
-        case '$health_check_issue_resolved':
-            return 'health-alerts'
-        case '$batch_export_run_failed':
-            return 'batch-export-alerts'
-        default:
-            return 'standard'
-    }
+    return (event && EVENT_TO_HOG_FUNCTION_CONTEXT_ID.get(event)) || 'standard'
 }
