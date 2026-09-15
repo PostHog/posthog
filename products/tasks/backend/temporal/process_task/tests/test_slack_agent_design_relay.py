@@ -99,6 +99,11 @@ class _RelayEnv:
         )
 
 
+def _card_text(tasks: list) -> str:
+    """The card's details as Slack renders them: same-id updates append."""
+    return "".join(t.details for t in tasks if t.details)
+
+
 async def test_timeline_interleaves_prose_and_task_cards_in_arrival_order():
     async with _RelayEnv() as relay:
         handle = await relay.start_relay(STREAM_MODE_TIMELINE)
@@ -118,6 +123,7 @@ async def test_timeline_interleaves_prose_and_task_cards_in_arrival_order():
     assert len({t.id for t in tasks}) == 1
     assert tasks[-1].title == "Read"
     assert tasks[-1].status == "complete"
+    assert _card_text(tasks) == "Read: insights"
 
     start_input = relay.rec.calls[0][1]
     assert isinstance(start_input, StartSlackAgentDesignStreamInput)
@@ -131,14 +137,18 @@ async def test_timeline_interleaves_prose_and_task_cards_in_arrival_order():
     assert stop_input.trace_id == "trace-1"
 
 
-async def test_burst_shares_one_card_counting_calls_and_showing_the_latest_outcome():
-    # Consecutive calls update a single card: the title counts them, details show
-    # the current call, output the latest result, and the close marks it complete.
+async def test_burst_card_lists_one_line_per_call_with_outcomes_glued_on():
+    # Consecutive calls accumulate lines in one card: tool name plus args per
+    # line, the result appended to its call's line, the title counting calls.
     async with _RelayEnv() as relay:
         handle = await relay.start_relay(STREAM_MODE_TIMELINE)
         await handle.signal(
             SlackAgentDesignRelayWorkflow.agent_status_update,
             {"title": "posthog/exec", "details": "insight list", "tool_call_id": "tc-1"},
+        )
+        await handle.signal(
+            SlackAgentDesignRelayWorkflow.agent_status_update,
+            {"kind": "tool_result", "tool_call_id": "tc-1", "output": "24 metrics", "failed": False},
         )
         await handle.signal(
             SlackAgentDesignRelayWorkflow.agent_status_update,
@@ -153,18 +163,16 @@ async def test_burst_shares_one_card_counting_calls_and_showing_the_latest_outco
 
     tasks = [c.task_update for c in relay.rec.ordered_chunks() if c.task_update]
     assert len({t.id for t in tasks}) == 1
-    final = tasks[-1]
-    assert final.status == "complete"
-    assert final.title == "posthog/exec (2)"
-    assert final.details == "query run"
-    assert final.output == "12 rows"
+    assert tasks[-1].status == "complete"
+    assert tasks[-1].title == "posthog/exec (2)"
+    assert _card_text(tasks) == ("posthog/exec: insight list → 24 metrics\nposthog/exec: query run → 12 rows")
 
     stop_input = relay.rec.calls[-1][1]
     assert isinstance(stop_input, StopSlackAgentDesignStreamInput)
     assert stop_input.complete_task_id is None
 
 
-async def test_any_failed_call_closes_the_burst_card_as_error():
+async def test_any_failed_call_marks_its_line_and_closes_the_card_as_error():
     # An error status must survive the close: the stop path completing the card
     # again would repaint the failure as success.
     async with _RelayEnv() as relay:
@@ -186,12 +194,31 @@ async def test_any_failed_call_closes_the_burst_card_as_error():
 
     tasks = [c.task_update for c in relay.rec.ordered_chunks() if c.task_update]
     assert len({t.id for t in tasks}) == 1
-    final = tasks[-1]
-    assert final.status == "error"
-    assert final.output == "Failed: exit 1"
+    assert tasks[-1].status == "error"
+    assert _card_text(tasks) == "Bash: make test ✗ exit 1\nBash: make retry"
     stop_input = relay.rec.calls[-1][1]
     assert isinstance(stop_input, StopSlackAgentDesignStreamInput)
     assert stop_input.complete_task_id is None
+
+
+async def test_calls_past_the_line_cap_still_count_and_surface_as_a_tail():
+    # Appends cannot be retracted, so the cap is preemptive: capped calls keep
+    # counting in the title and land as one "+n more" line at close.
+    async with _RelayEnv() as relay:
+        handle = await relay.start_relay(STREAM_MODE_TIMELINE)
+        for index in range(17):
+            await handle.signal(
+                SlackAgentDesignRelayWorkflow.agent_status_update,
+                {"title": "posthog/exec", "details": f"call {index}", "tool_call_id": f"tc-{index}"},
+            )
+        await handle.signal(SlackAgentDesignRelayWorkflow.complete_turn, None)
+        await handle.result()
+
+    tasks = [c.task_update for c in relay.rec.ordered_chunks() if c.task_update]
+    assert tasks[-1].title == "posthog/exec (17)"
+    card_text = _card_text(tasks)
+    assert card_text.count("\n") == 15
+    assert card_text.endswith("…+2 more")
 
 
 async def test_timeline_narrative_breaks_the_card_burst():
