@@ -846,6 +846,22 @@ class TestTeamInlineForm(BaseTest):
         form.is_valid()
         assert "test_account_filters" in form.errors
 
+    @parameterized.expand([("blank", "", []), ("list_of_strings", '["data-attr", "id"]', ["data-attr", "id"])])
+    def test_valid_data_attributes_are_accepted(self, _name: str, raw: str, expected: list[str]) -> None:
+        # Blank cleans to None, and the column is NOT NULL, so it must normalize to [].
+        form = self._inline_form({"data_attributes": raw})
+        form.is_valid()
+        assert "data_attributes" not in form.errors
+        assert form.cleaned_data["data_attributes"] == expected
+
+    @parameterized.expand([("string", '"data-attr"'), ("object", '{"key": "data-attr"}'), ("mixed_list", '["a", 3]')])
+    def test_non_string_list_data_attributes_is_rejected(self, _name: str, raw: str) -> None:
+        # The admin is the last write path that can put a shape into this column that the
+        # autocapture settings page cannot render.
+        form = self._inline_form({"data_attributes": raw})
+        form.is_valid()
+        assert "data_attributes" in form.errors
+
 
 class TestTeamAdminEditGroupTypeMappingView(BaseTest):
     def setUp(self) -> None:
