@@ -85,6 +85,15 @@ class CheckVerdict:
     observed_value: float | None = None
 
 
+@frozen
+class _CheckTransition:
+    """Where a check goes after one verdict. `next_run_at` is None when the check retires."""
+
+    status: str
+    next_run_at: datetime | None
+    runs_remaining: int
+
+
 def resolve_check_query(config: MetricThresholdConfig, report: SignalReport) -> dict:
     """The query this check measures: its own, or the one behind the report metric it rides.
 
@@ -187,30 +196,40 @@ def measure_check(check: SignalReportCheck, *, deadline: float) -> CheckVerdict:
     return evaluate_check_value(comparison=config.comparison, observed_value=measurement.value, subject=check.title)
 
 
-def _next_state(check: SignalReportCheck, verdict: CheckVerdict, now: datetime) -> tuple[str, datetime | None, int]:
+def _next_state(check: SignalReportCheck, verdict: CheckVerdict, now: datetime) -> _CheckTransition:
     """The check's status after this verdict, its next run time, and its remaining runs.
 
     Re-arming anchors on `now` rather than the missed slot, so a coordinator outage cannot leave a
     recurring check owing a burst of catch-up runs.
     """
     if verdict.outcome == "failed":
-        return SignalReportCheck.Status.FAILED, None, check.runs_remaining
+        return _CheckTransition(
+            status=SignalReportCheck.Status.FAILED, next_run_at=None, runs_remaining=check.runs_remaining
+        )
 
     if verdict.outcome == "errored":
         if check.consecutive_errors + 1 >= MAX_CONSECUTIVE_CHECK_ERRORS:
-            return SignalReportCheck.Status.ERRORED, None, check.runs_remaining
+            return _CheckTransition(
+                status=SignalReportCheck.Status.ERRORED, next_run_at=None, runs_remaining=check.runs_remaining
+            )
         retry_at = now + CHECK_ERROR_RETRY_AFTER
         if retry_at > check.expires_at:
-            return SignalReportCheck.Status.EXPIRED, None, check.runs_remaining
-        return SignalReportCheck.Status.ACTIVE, retry_at, check.runs_remaining
+            return _CheckTransition(
+                status=SignalReportCheck.Status.EXPIRED, next_run_at=None, runs_remaining=check.runs_remaining
+            )
+        return _CheckTransition(
+            status=SignalReportCheck.Status.ACTIVE, next_run_at=retry_at, runs_remaining=check.runs_remaining
+        )
 
     runs_remaining = max(0, check.runs_remaining - 1)
     if runs_remaining == 0 or check.run_interval_minutes is None:
-        return SignalReportCheck.Status.PASSED, None, runs_remaining
+        return _CheckTransition(status=SignalReportCheck.Status.PASSED, next_run_at=None, runs_remaining=runs_remaining)
     next_run_at = now + timedelta(minutes=check.run_interval_minutes)
     if next_run_at > check.expires_at:
-        return SignalReportCheck.Status.PASSED, None, runs_remaining
-    return SignalReportCheck.Status.ACTIVE, next_run_at, runs_remaining
+        return _CheckTransition(status=SignalReportCheck.Status.PASSED, next_run_at=None, runs_remaining=runs_remaining)
+    return _CheckTransition(
+        status=SignalReportCheck.Status.ACTIVE, next_run_at=next_run_at, runs_remaining=runs_remaining
+    )
 
 
 def record_check_verdict(check: SignalReportCheck, verdict: CheckVerdict, *, now: datetime | None = None) -> None:
@@ -239,14 +258,14 @@ def record_check_verdict(check: SignalReportCheck, verdict: CheckVerdict, *, now
         )
         if current is None:
             return
-        status, next_run_at, runs_remaining = _next_state(current, verdict, now)
-        current.status = status
-        current.runs_remaining = runs_remaining
+        transition = _next_state(current, verdict, now)
+        current.status = transition.status
+        current.runs_remaining = transition.runs_remaining
         current.last_run_at = now
         current.last_outcome = verdict.outcome
         current.consecutive_errors = current.consecutive_errors + 1 if verdict.outcome == "errored" else 0
-        if next_run_at is not None:
-            current.next_run_at = next_run_at
+        if transition.next_run_at is not None:
+            current.next_run_at = transition.next_run_at
         current.save(
             update_fields=[
                 "status",
