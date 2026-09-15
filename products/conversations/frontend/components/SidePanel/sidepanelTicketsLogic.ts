@@ -16,7 +16,7 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import {
-    appendExceptionToMessage,
+    appendContextToMessage,
     captureSupportTicketBlocked,
     captureSupportWidgetLoadFailed,
     SUPPORT_WIDGET_UNAVAILABLE_MESSAGE,
@@ -836,7 +836,10 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             const request = values.sendSupportRequest
             // Guarding on the message alone dropped the exception, because an error boundary CTA
             // carries an exception and no message — and its crash card promises we attach it
-            const draft = appendExceptionToMessage(request?.message ?? '', request?.exception_event)
+            const draft = appendContextToMessage(request?.message ?? '', {
+                exception_event: request?.exception_event,
+                diagnostic_context: request?.diagnostic_context,
+            })
             if (draft) {
                 actions.setNewTicketDraft(messageToRichContent(draft))
             }

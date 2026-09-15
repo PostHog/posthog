@@ -189,6 +189,7 @@ export interface loginLogicValues {
     codeVerificationTouched: boolean
     codeVerificationTouches: Record<string, boolean>
     codeVerificationValidationErrors: DeepPartialMap<CodeVerificationForm, ValidationErrorType>
+    confirmedLoginMethods: LoginMethod[]
     generalError: {
         code: string
         detail: string
@@ -210,6 +211,7 @@ export interface loginLogicValues {
     loginValidationErrors: DeepPartialMap<LoginForm, ValidationErrorType>
     precheckResponse: PrecheckResponseType
     precheckResponseLoading: boolean
+    precheckTrusted: boolean
     resendResponse: {
         message: string
         success: boolean
@@ -373,6 +375,8 @@ export interface loginLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isPasswordLoginUnavailable: (precheckResponse: PrecheckResponseType) => boolean
         availableLoginMethods: (precheckResponse: PrecheckResponseType) => LoginMethod[]
+        confirmedLoginMethods: (precheckResponse: PrecheckResponseType) => LoginMethod[]
+        precheckTrusted: (precheckResponse: PrecheckResponseType, login: LoginForm) => boolean
         hasNoConfiguredLoginMethod: (
             precheckResponse: PrecheckResponseType,
             isPasswordLoginUnavailable: boolean,
@@ -547,6 +551,25 @@ export const loginLogic = kea<loginLogicType>([
                 return methods
             },
         ],
+        // Methods this specific account is proven to have, so this reads only the response fields
+        // that describe the account. `password_login_available` is not one of them, because the
+        // precheck reports password login as available for an email with no account at all.
+        // `saml_available` is not one either, because it describes the email's domain and stays
+        // true for an address with no account on a SAML domain. `social_providers` already carries
+        // `saml` when the account really has a linked SAML identity.
+        confirmedLoginMethods: [
+            (s) => [s.precheckResponse],
+            (precheckResponse: PrecheckResponseType): LoginMethod[] => {
+                if (precheckResponse.status !== 'completed' || precheckResponse.sso_enforcement) {
+                    return []
+                }
+                const methods: LoginMethod[] = [...(precheckResponse.social_providers ?? [])]
+                if (precheckResponse.webauthn_credentials?.length) {
+                    methods.push('passkey')
+                }
+                return methods
+            },
+        ],
         // A passwordless account with nothing else linked. They can only get back in via a reset.
         hasNoConfiguredLoginMethod: [
             (s) => [s.precheckResponse, s.isPasswordLoginUnavailable, s.availableLoginMethods],
@@ -654,6 +677,18 @@ export const loginLogic = kea<loginLogicType>([
                 }
             },
         },
+    })),
+    // Depends on the login form, which is only built above by `forms()`.
+    selectors(() => ({
+        // True when the precheck resolved for the email now in the form. A failed precheck reports
+        // permissive defaults, and a stale one still holds the previous email's account.
+        precheckTrusted: [
+            (s) => [s.precheckResponse, s.login],
+            (precheckResponse: PrecheckResponseType, login: LoginForm): boolean =>
+                precheckResponse.status === 'completed' &&
+                !precheckResponse.precheckFailed &&
+                precheckResponse.email === login.email,
+        ],
     })),
     listeners(({ values, actions }) => ({
         submitLoginSuccess: () => {

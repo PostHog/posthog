@@ -100,6 +100,12 @@ export function SupportForm({ messageLabel, messagePlaceholder }: SupportFormPro
                             minRows={5}
                             {...props}
                         />
+                        {sendSupportRequest.diagnostic_context && (
+                            <div className="p-2 rounded bg-surface-secondary text-xs text-secondary">
+                                <p className="mb-1 font-semibold">We'll send these details with your message</p>
+                                <p className="mb-0 whitespace-pre-wrap">{sendSupportRequest.diagnostic_context}</p>
+                            </div>
+                        )}
                         {objectStorageAvailable && !!user && (
                             <LemonFileInput
                                 accept="image/*"
