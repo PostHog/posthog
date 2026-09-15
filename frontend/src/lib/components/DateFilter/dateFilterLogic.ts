@@ -80,7 +80,7 @@ export interface dateFilterLogicValues {
     isFixedRangeWithTime: boolean
     isRollingDateRange: boolean
     isVisible: boolean
-    label: string | null
+    label: string
     rangeDateFrom: Dayjs | null
     rangeDateTo: Dayjs | null
     view: DateFilterView
@@ -182,7 +182,7 @@ export interface dateFilterLogicMeta {
             arg5: any,
             dateFromHasTimePrecision: boolean,
             dateToHasTimePrecision: boolean
-        ) => string | null
+        ) => string
     }
 }
 
@@ -374,7 +374,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                 allowSingleAndRange,
                 dateFromHasTimePrecision: boolean,
                 dateToHasTimePrecision: boolean
-            ) => {
+            ): string => {
                 // Only render the "N days ago to M days ago" label when the consumer has opted into
                 // the custom-relative-range picker — other call sites (e.g. trends) may legitimately
                 // store both dates as relative strings (e.g. "-0d"/"-0d" for "Today") without intending
