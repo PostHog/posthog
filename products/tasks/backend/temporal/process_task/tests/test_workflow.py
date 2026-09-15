@@ -347,7 +347,7 @@ class TestProcessTaskWorkflow:
             assert test_task_run.status == signal_status
             assert test_task_run.error_message == signal_error
 
-            await sync_to_async(assert_sandbox_shutdown)(result.sandbox_id, timeout_seconds=10)
+            await sync_to_async(assert_sandbox_shutdown)(result.sandbox_id)
 
         finally:
             await sync_to_async(snapshot.delete)()
