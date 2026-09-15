@@ -27,6 +27,7 @@ const config: SignalScoutConfigApi = {
     mcp_gateway_server_ids: [],
     write_scopes: [],
     network_access: 'trusted',
+    allowed_domains: [],
     model: null,
     last_run_at: null,
     consecutive_failure_count: 0,

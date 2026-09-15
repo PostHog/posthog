@@ -43,6 +43,7 @@ function makeMockScout(overrides: MockScoutOverrides): SignalScoutConfigApi {
         output_destinations: {},
         structured_output_schema: null,
         network_access: 'trusted',
+        allowed_domains: [],
         model: null,
         last_run_at: null,
         consecutive_failure_count: 0,

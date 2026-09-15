@@ -578,6 +578,10 @@ export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersIt
 export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersMax = 5
 
 export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault = true
+export const signalsScoutCreateBodyConfigOneAllowedDomainsItemMax = 255
+
+export const signalsScoutCreateBodyConfigOneAllowedDomainsMax = 100
+
 export const signalsScoutCreateBodyConfigOneRunCronScheduleMax = 100
 
 export const SignalsScoutCreateBody = () => zod
@@ -744,11 +748,20 @@ export const SignalsScoutCreateBody = () => zod
                     .optional()
                     .describe('Destinations that receive each finding or report this scout emits. Empty by default.'),
                 network_access: zod
-                    .enum(['trusted', 'full'])
-                    .describe('\* `trusted` - Trusted domains only\n\* `full` - Full')
+                    .enum(['trusted', 'full', 'custom'])
+                    .describe(
+                        '\* `trusted` - Trusted domains only\n\* `full` - Full\n\* `custom` - Trusted domains plus a custom allowlist'
+                    )
                     .optional()
                     .describe(
-                        "What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.\n\n\* `trusted` - Trusted domains only\n\* `full` - Full"
+                        "What the scout's sandbox can reach over the network while it runs. `trusted` (the default) restricts runs to the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). `custom` keeps that allowlist and adds the scout's own `allowed_domains`, for a skill that names the handful of external sources it reads. `full` lets the scout reach any site. Applies from the scout's next run.\n\n\* `trusted` - Trusted domains only\n\* `full` - Full\n\* `custom` - Trusted domains plus a custom allowlist"
+                    ),
+                allowed_domains: zod
+                    .array(zod.string().max(signalsScoutCreateBodyConfigOneAllowedDomainsItemMax))
+                    .max(signalsScoutCreateBodyConfigOneAllowedDomainsMax)
+                    .optional()
+                    .describe(
+                        "Extra hosts this scout may reach, applied only while `network_access` is `custom`, and always on top of the trusted-domain allowlist rather than instead of it. Give bare domain names such as `status.example.com`, with no scheme, path, or port; `\*.example.com` covers every subdomain. Up to 100 domains. Required when `network_access` is `custom`. The list is kept when the mode changes, so switching back to `custom` restores it. Applies from the scout's next run."
                     ),
                 auto_pause_exempt: zod
                     .boolean()
@@ -795,7 +808,7 @@ export const SignalsScoutConfigListQueryParams = () => zod.object({
 })
 
 /**
- * Register the config for a skill immediately, without waiting for the coordinator to auto-register it — and the way to make a skill without the `signals-scout-` prefix a scout at all. The same call can optionally set `run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, `emit`, `network_access`, and output destinations. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it. Registering puts the skill's body on the schedule as the scout's prompt, so this call needs `llm_skill:write` and editor access to skills on top of `signal_scout:write`, like creating a scout.
+ * Register the config for a skill immediately, without waiting for the coordinator to auto-register it — and the way to make a skill without the `signals-scout-` prefix a scout at all. The same call can optionally set `run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, `emit`, `network_access` (with `allowed_domains` when it is `custom`), and output destinations. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it. Registering puts the skill's body on the schedule as the scout's prompt, so this call needs `llm_skill:write` and editor access to skills on top of `signal_scout:write`, like creating a scout.
  * @summary Create a scout config
  */
 export const SignalsScoutConfigCreateParams = () => zod.object({
@@ -831,6 +844,10 @@ export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersItemR
 export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersMax = 5
 
 export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneThreadReportsDefault = true
+export const signalsScoutConfigCreateBodyAllowedDomainsItemMax = 255
+
+export const signalsScoutConfigCreateBodyAllowedDomainsMax = 100
+
 export const signalsScoutConfigCreateBodyRunCronScheduleMax = 100
 
 export const signalsScoutConfigCreateBodySkillNameMax = 200
@@ -954,11 +971,20 @@ export const SignalsScoutConfigCreateBody = () => zod
             .optional()
             .describe('Destinations that receive each finding or report this scout emits. Empty by default.'),
         network_access: zod
-            .enum(['trusted', 'full'])
-            .describe('\* `trusted` - Trusted domains only\n\* `full` - Full')
+            .enum(['trusted', 'full', 'custom'])
+            .describe(
+                '\* `trusted` - Trusted domains only\n\* `full` - Full\n\* `custom` - Trusted domains plus a custom allowlist'
+            )
             .optional()
             .describe(
-                "What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.\n\n\* `trusted` - Trusted domains only\n\* `full` - Full"
+                "What the scout's sandbox can reach over the network while it runs. `trusted` (the default) restricts runs to the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). `custom` keeps that allowlist and adds the scout's own `allowed_domains`, for a skill that names the handful of external sources it reads. `full` lets the scout reach any site. Applies from the scout's next run.\n\n\* `trusted` - Trusted domains only\n\* `full` - Full\n\* `custom` - Trusted domains plus a custom allowlist"
+            ),
+        allowed_domains: zod
+            .array(zod.string().max(signalsScoutConfigCreateBodyAllowedDomainsItemMax))
+            .max(signalsScoutConfigCreateBodyAllowedDomainsMax)
+            .optional()
+            .describe(
+                "Extra hosts this scout may reach, applied only while `network_access` is `custom`, and always on top of the trusted-domain allowlist rather than instead of it. Give bare domain names such as `status.example.com`, with no scheme, path, or port; `\*.example.com` covers every subdomain. Up to 100 domains. Required when `network_access` is `custom`. The list is kept when the mode changes, so switching back to `custom` restores it. Applies from the scout's next run."
             ),
         auto_pause_exempt: zod
             .boolean()
@@ -985,7 +1011,7 @@ export const SignalsScoutConfigCreateBody = () => zod
     )
 
 /**
- * Tune one scout: change its schedule (rolling `run_interval_minutes`, or a cron `run_cron_schedule` that takes precedence when set), `enabled`, `emit` (dry-run) posture, `network_access` (trusted-domain allowlist vs full access for the scout's sandbox), or output destinations. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
+ * Tune one scout: change its schedule (rolling `run_interval_minutes`, or a cron `run_cron_schedule` that takes precedence when set), `enabled`, `emit` (dry-run) posture, `network_access` (the trusted-domain allowlist, that allowlist plus the scout's own `allowed_domains`, or full access for the scout's sandbox), or output destinations. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
  * @summary Update a scout config
  */
 export const SignalsScoutConfigUpdateParams = () => zod.object({
@@ -1012,6 +1038,10 @@ export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersItemR
     '^[UW][A-Z0-9]{4,}\\s\*(\\|.\*)?$'
 )
 export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersMax = 5
+
+export const signalsScoutConfigUpdateBodyAllowedDomainsItemMax = 255
+
+export const signalsScoutConfigUpdateBodyAllowedDomainsMax = 100
 
 export const signalsScoutConfigUpdateBodyModelMax = 200
 
@@ -1128,11 +1158,20 @@ export const SignalsScoutConfigUpdateBody = () => zod
                 'Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{\"type\": \"object\", \"properties\": {\"verdict\": {\"enum\": [\"good\", \"bad\", \"unsure\"]}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"verdict\", \"reason\"]}`). The root must be `\"type\": \"object\"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout\'s call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.'
             ),
         network_access: zod
-            .enum(['trusted', 'full'])
-            .describe('\* `trusted` - Trusted domains only\n\* `full` - Full')
+            .enum(['trusted', 'full', 'custom'])
+            .describe(
+                '\* `trusted` - Trusted domains only\n\* `full` - Full\n\* `custom` - Trusted domains plus a custom allowlist'
+            )
             .optional()
             .describe(
-                "What the scout's sandbox can reach over the network while it runs. `trusted` (the default) restricts runs to the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers. Applies from the scout's next run.\n\n\* `trusted` - Trusted domains only\n\* `full` - Full"
+                "What the scout's sandbox can reach over the network while it runs. `trusted` (the default) restricts runs to the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). `custom` keeps that allowlist and adds the scout's own `allowed_domains`, for a skill that names the handful of external sources it reads. `full` lets the scout reach any site. Applies from the scout's next run.\n\n\* `trusted` - Trusted domains only\n\* `full` - Full\n\* `custom` - Trusted domains plus a custom allowlist"
+            ),
+        allowed_domains: zod
+            .array(zod.string().max(signalsScoutConfigUpdateBodyAllowedDomainsItemMax))
+            .max(signalsScoutConfigUpdateBodyAllowedDomainsMax)
+            .optional()
+            .describe(
+                "Extra hosts this scout may reach, applied only while `network_access` is `custom`, and always on top of the trusted-domain allowlist rather than instead of it. Give bare domain names such as `status.example.com`, with no scheme, path, or port; `\*.example.com` covers every subdomain. Up to 100 domains. Required when `network_access` is `custom`. The list is kept when the mode changes, so switching back to `custom` restores it. Applies from the scout's next run."
             ),
         model: zod
             .string()

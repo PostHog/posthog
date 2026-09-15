@@ -6,7 +6,7 @@ How scouts get discovered, scheduled, and dispatched; the two distribution paths
 
 - **Discovery.** A scout is a skill that holds a `SignalScoutConfig`, and the coordinator dispatches from those config rows.
   The `signals-scout-` name prefix is optional; it controls only auto-registration, below.
-- **Config.** Each scout has one `SignalScoutConfig` per `(project, skill_name)` carrying its schedule (`run_interval_minutes`, default 1440, or a project-local `run_cron_schedule` that takes precedence when set), `enabled`, `emit`, `network_access` (`trusted` default, `full` for scouts that read arbitrary external sites), the rest of the run posture (`output_destinations`, `structured_output_schema`, `write_scopes`, `mcp_gateway_server_ids`, `model`, `tags`, `auto_pause_exempt`, `display_name`), and a `last_run_at` stamp.
+- **Config.** Each scout has one `SignalScoutConfig` per `(project, skill_name)` carrying its schedule (`run_interval_minutes`, default 1440, or a project-local `run_cron_schedule` that takes precedence when set), `enabled`, `emit`, `network_access` (`trusted` default, `custom` plus `allowed_domains` for named external sources, `full` for scouts that read arbitrary external sites), the rest of the run posture (`output_destinations`, `structured_output_schema`, `write_scopes`, `mcp_gateway_server_ids`, `model`, `tags`, `auto_pause_exempt`, `display_name`), and a `last_run_at` stamp.
   A config is **auto-registered** the first time the coordinator sees a `signals-scout-*` skill without one, so authoring a prefixed skill is enough to get a scout.
   A skill named anything else needs its config created with it.
   Create a fresh per-team scout and its config together with `posthog:scout-create`; the nested `config` object sets its schedule, emit posture, and destinations before it can run, and `files` bundles reference files in the same call.
@@ -27,7 +27,7 @@ That records `status=paused_by_user`, which automatic lifecycle sweeps never res
 Config responses expose `status` and `pause_reason` read-only; writes flow through `enabled`.
 Slowing it = a larger `run_interval_minutes` (or, on a cron scout, a sparser `run_cron_schedule`; the cron wins while it is set).
 Dry-running it = `emit=false`.
-Letting it reach sites outside the trusted-domain allowlist = `network_access="full"`.
+Letting it reach named sites outside the trusted-domain allowlist = `network_access="custom"` with those hosts in `allowed_domains`; letting it reach anything at all = `network_access="full"`.
 All of these via `posthog:scout-config-update` (get the `id` from `-config-list`), or set at creation time in the nested `config` object passed to `posthog:scout-create`.
 
 ## Path A — per-team (skills store)

@@ -973,6 +973,10 @@ export const visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOn
 export const visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOneUsersMax = 5
 
 export const visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault = true
+export const visionScannersScoutsCreateBodyConfigOneAllowedDomainsItemMax = 255
+
+export const visionScannersScoutsCreateBodyConfigOneAllowedDomainsMax = 100
+
 export const visionScannersScoutsCreateBodyConfigOneRunCronScheduleMax = 100
 
 export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
@@ -1124,11 +1128,20 @@ export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
                     .optional()
                     .describe('Destinations that receive each finding or report this scout emits. Empty by default.'),
                 network_access: zod
-                    .enum(['trusted', 'full'])
-                    .describe('\* `trusted` - Trusted domains only\n\* `full` - Full')
+                    .enum(['trusted', 'full', 'custom'])
+                    .describe(
+                        '\* `trusted` - Trusted domains only\n\* `full` - Full\n\* `custom` - Trusted domains plus a custom allowlist'
+                    )
                     .optional()
                     .describe(
-                        "What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.\n\n\* `trusted` - Trusted domains only\n\* `full` - Full"
+                        "What the scout's sandbox can reach over the network while it runs. `trusted` (the default) restricts runs to the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). `custom` keeps that allowlist and adds the scout's own `allowed_domains`, for a skill that names the handful of external sources it reads. `full` lets the scout reach any site. Applies from the scout's next run.\n\n\* `trusted` - Trusted domains only\n\* `full` - Full\n\* `custom` - Trusted domains plus a custom allowlist"
+                    ),
+                allowed_domains: zod
+                    .array(zod.string().max(visionScannersScoutsCreateBodyConfigOneAllowedDomainsItemMax))
+                    .max(visionScannersScoutsCreateBodyConfigOneAllowedDomainsMax)
+                    .optional()
+                    .describe(
+                        "Extra hosts this scout may reach, applied only while `network_access` is `custom`, and always on top of the trusted-domain allowlist rather than instead of it. Give bare domain names such as `status.example.com`, with no scheme, path, or port; `\*.example.com` covers every subdomain. Up to 100 domains. Required when `network_access` is `custom`. The list is kept when the mode changes, so switching back to `custom` restores it. Applies from the scout's next run."
                     ),
                 auto_pause_exempt: zod
                     .boolean()

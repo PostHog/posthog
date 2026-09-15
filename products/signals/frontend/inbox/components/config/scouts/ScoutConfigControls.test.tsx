@@ -33,6 +33,7 @@ const config: SignalScoutConfigApi = {
     status_changed_at: null,
     auto_pause_exempt: false,
     network_access: 'trusted',
+    allowed_domains: [],
     model: null,
     tags: [],
     source_product: null,
@@ -220,6 +221,76 @@ describe('ScoutConfigForm', () => {
         fireEvent.click(getByLabelText(modelSelectLabel))
         fireEvent.click(getByText('Default'))
         expect(onUpdate).toHaveBeenLastCalledWith('config-1', { model: null })
+        unmount()
+    })
+
+    // The API rejects custom network access with an empty domain list, so the picker and the
+    // domain editor have to move the scout into that mode together or not at all.
+    it('opens the domain editor on custom without writing an unsavable mode', () => {
+        const onUpdate = jest.fn()
+        const { getByLabelText, getByText, unmount } = render(<ScoutConfigForm config={config} onUpdate={onUpdate} />)
+
+        fireEvent.click(getByLabelText(`${config.skill_name} network access`))
+        fireEvent.click(getByText('Trusted plus custom'))
+
+        expect(getByLabelText(`${config.skill_name} allowed domains`)).toBeTruthy()
+        expect(onUpdate).not.toHaveBeenCalled()
+        unmount()
+    })
+
+    it('sends the mode with the first domain, then the list alone', () => {
+        const onUpdate = jest.fn()
+        const { getByLabelText, getByText, rerender, unmount } = render(
+            <ScoutConfigForm config={config} onUpdate={onUpdate} />
+        )
+
+        fireEvent.click(getByLabelText(`${config.skill_name} network access`))
+        fireEvent.click(getByText('Trusted plus custom'))
+        const input = getByLabelText(`${config.skill_name} allowed domains`)
+        fireEvent.change(input, { target: { value: 'Status.Example.com' } })
+        fireEvent.keyDown(input, { key: 'Enter' })
+
+        expect(onUpdate).toHaveBeenCalledWith('config-1', {
+            allowed_domains: ['status.example.com'],
+            network_access: 'custom',
+        })
+
+        const saved = { ...config, network_access: 'custom' as const, allowed_domains: ['status.example.com'] }
+        rerender(<ScoutConfigForm config={saved} onUpdate={onUpdate} />)
+        fireEvent.change(getByLabelText(`${config.skill_name} allowed domains`), {
+            target: { value: '*.example.org' },
+        })
+        fireEvent.keyDown(getByLabelText(`${config.skill_name} allowed domains`), { key: 'Enter' })
+
+        expect(onUpdate).toHaveBeenLastCalledWith('config-1', {
+            allowed_domains: ['status.example.com', '*.example.org'],
+        })
+        unmount()
+    })
+
+    it('refuses a domain the sandbox would reject and says why', () => {
+        const onUpdate = jest.fn()
+        const saved = { ...config, network_access: 'custom' as const, allowed_domains: ['status.example.com'] }
+        const { getByLabelText, getByRole, unmount } = render(<ScoutConfigForm config={saved} onUpdate={onUpdate} />)
+        const input = getByLabelText(`${config.skill_name} allowed domains`)
+
+        fireEvent.change(input, { target: { value: 'https://example.com' } })
+        fireEvent.keyDown(input, { key: 'Enter' })
+
+        expect(getByRole('alert').textContent).toContain('is not a domain name')
+        expect(onUpdate).not.toHaveBeenCalled()
+        unmount()
+    })
+
+    it('keeps the last domain, because custom with none of them is not a state the API accepts', () => {
+        const onUpdate = jest.fn()
+        const saved = { ...config, network_access: 'custom' as const, allowed_domains: ['status.example.com'] }
+        const { container, getByRole, unmount } = render(<ScoutConfigForm config={saved} onUpdate={onUpdate} />)
+
+        fireEvent.click(container.querySelector('.LemonTag__right-button') as Element)
+
+        expect(getByRole('alert').textContent).toContain('pick a different network access mode')
+        expect(onUpdate).not.toHaveBeenCalled()
         unmount()
     })
 

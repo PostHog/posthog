@@ -1763,6 +1763,7 @@ export interface SignalScoutOutputDestinationsApi {
 /**
  * * `trusted` - Trusted domains only
  * * `full` - Full
+ * * `custom` - Trusted domains plus a custom allowlist
  */
 export type SignalScoutConfigNetworkAccessEnumApi =
     (typeof SignalScoutConfigNetworkAccessEnumApi)[keyof typeof SignalScoutConfigNetworkAccessEnumApi]
@@ -1770,6 +1771,7 @@ export type SignalScoutConfigNetworkAccessEnumApi =
 export const SignalScoutConfigNetworkAccessEnumApi = {
     Trusted: 'trusted',
     Full: 'full',
+    Custom: 'custom',
 } as const
 
 /**
@@ -1826,11 +1828,18 @@ export interface SignalScoutConfigOptionsApi {
     run_interval_minutes?: number
     /** Destinations that receive each finding or report this scout emits. Empty by default. */
     output_destinations?: SignalScoutOutputDestinationsApi
-    /** What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.
+    /** What the scout's sandbox can reach over the network while it runs. `trusted` (the default) restricts runs to the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). `custom` keeps that allowlist and adds the scout's own `allowed_domains`, for a skill that names the handful of external sources it reads. `full` lets the scout reach any site. Applies from the scout's next run.
      *
      * * `trusted` - Trusted domains only
-     * * `full` - Full */
+     * * `full` - Full
+     * * `custom` - Trusted domains plus a custom allowlist */
     network_access?: SignalScoutConfigNetworkAccessEnumApi
+    /**
+     * Extra hosts this scout may reach, applied only while `network_access` is `custom`, and always on top of the trusted-domain allowlist rather than instead of it. Give bare domain names such as `status.example.com`, with no scheme, path, or port; `*.example.com` covers every subdomain. Up to 100 domains. Required when `network_access` is `custom`. The list is kept when the mode changes, so switching back to `custom` restores it. Applies from the scout's next run.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    allowed_domains?: string[]
     /** Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false. */
     auto_pause_exempt?: boolean
     /**
@@ -1968,11 +1977,18 @@ export interface SignalScoutConfigApi {
      * @nullable
      */
     readonly structured_output_schema: SignalScoutConfigApiStructuredOutputSchema
-    /** What the scout's sandbox can reach over the network while it runs. `trusted` (the default) restricts runs to the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). `full` lets the scout reach any site, for skills that read external sources such as documentation or papers.
+    /** What the scout's sandbox can reach over the network while it runs. `trusted` (the default) restricts runs to the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). `custom` keeps that allowlist and adds the scout's own `allowed_domains`, for a skill that names the handful of external sources it reads. `full` lets the scout reach any site. Applies from the scout's next run.
      *
      * * `trusted` - Trusted domains only
-     * * `full` - Full */
+     * * `full` - Full
+     * * `custom` - Trusted domains plus a custom allowlist */
     readonly network_access: SignalScoutConfigNetworkAccessEnumApi
+    /**
+     * Extra hosts this scout may reach, applied only while `network_access` is `custom`, and always on top of the trusted-domain allowlist rather than instead of it. Give bare domain names such as `status.example.com`, with no scheme, path, or port; `*.example.com` covers every subdomain. Up to 100 domains. Required when `network_access` is `custom`. The list is kept when the mode changes, so switching back to `custom` restores it. Applies from the scout's next run.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    readonly allowed_domains: readonly string[]
     /**
      * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
      * @nullable

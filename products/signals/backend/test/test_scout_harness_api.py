@@ -65,6 +65,7 @@ from products.signals.backend.scout_harness.tools import structured_output as st
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
 from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
+from products.tasks.backend.facade import api as tasks_facade
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -2308,6 +2309,85 @@ class TestRunCronScheduleValidation(SimpleTestCase):
         assert serializer.validated_data["run_cron_schedule"] is None
 
 
+class TestAllowedDomainsValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # Normalization is what keeps one domain one entry: the activity log would otherwise
+            # record a change every time a client resent the same host in a different case.
+            (
+                "lowercased_and_deduped",
+                ["Status.Example.COM", " status.example.com ", "*.Example.org"],
+                True,
+                ["status.example.com", "*.example.org"],
+            ),
+            ("scheme_rejected", ["https://example.com"], False, None),
+            ("path_rejected", ["example.com/status"], False, None),
+            ("port_rejected", ["example.com:8443"], False, None),
+            ("ip_address_rejected", ["10.0.0.1"], False, None),
+            ("localhost_rejected", ["localhost"], False, None),
+            ("single_label_rejected", ["example"], False, None),
+            ("interior_wildcard_rejected", ["api.*.example.com"], False, None),
+            ("bare_wildcard_rejected", ["*"], False, None),
+        ]
+    )
+    def test_allowed_domains_validation(
+        self, _name: str, domains: list[str], valid: bool, expected: list[str] | None
+    ) -> None:
+        serializer = SignalScoutConfigUpdateSerializer(data={"allowed_domains": domains}, partial=True)
+
+        assert serializer.is_valid() is valid, serializer.errors
+        if valid:
+            assert serializer.validated_data["allowed_domains"] == expected
+        else:
+            assert "allowed_domains" in serializer.errors
+
+    def test_over_cap_domain_list_is_rejected(self) -> None:
+        domains = [f"host-{index}.example.com" for index in range(tasks_facade.MAX_SANDBOX_ALLOWED_DOMAINS + 1)]
+
+        serializer = SignalScoutConfigUpdateSerializer(data={"allowed_domains": domains}, partial=True)
+
+        assert not serializer.is_valid()
+        assert "allowed_domains" in serializer.errors
+
+    @parameterized.expand(
+        [
+            # The mode alone is judged against what the row already stores, so a PATCH that only
+            # switches to custom succeeds when the domains are already there and fails when not.
+            ("custom_without_stored_domains", {"network_access": "custom"}, [], False),
+            ("custom_with_stored_domains", {"network_access": "custom"}, ["status.example.com"], True),
+            (
+                "custom_with_domains_in_the_same_request",
+                {"network_access": "custom", "allowed_domains": ["status.example.com"]},
+                [],
+                True,
+            ),
+            ("custom_clearing_its_domains", {"allowed_domains": []}, ["status.example.com"], False),
+            # Domains sent with another mode are stored but never applied, so they are not an error:
+            # the UI keeps the list around while someone toggles modes.
+            (
+                "domains_under_trusted",
+                {"network_access": "trusted", "allowed_domains": ["status.example.com"]},
+                [],
+                True,
+            ),
+        ]
+    )
+    def test_custom_network_access_requires_a_domain(
+        self, _name: str, payload: dict, stored_domains: list[str], valid: bool
+    ) -> None:
+        instance = SignalScoutConfig(
+            skill_name="signals-scout-foo",
+            network_access=SignalScoutConfig.NetworkAccess.CUSTOM if stored_domains else "trusted",
+            allowed_domains=stored_domains,
+        )
+
+        serializer = SignalScoutConfigUpdateSerializer(instance, data=payload, partial=True)
+
+        assert serializer.is_valid() is valid, serializer.errors
+        if not valid:
+            assert "allowed_domains" in serializer.errors
+
+
 class TestScoutHarnessConfigAPI(APIBaseTest):
     def _list_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/configs/"
@@ -3036,19 +3116,46 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         config.refresh_from_db()
         assert config.network_access == SignalScoutConfig.NetworkAccess.TRUSTED
 
-    def test_partial_update_round_trips_network_access(self) -> None:
+    @parameterized.expand(
+        [
+            ("full", {"network_access": "full"}, "full", []),
+            (
+                "custom_with_domains",
+                {"network_access": "custom", "allowed_domains": ["Status.Example.com"]},
+                "custom",
+                ["status.example.com"],
+            ),
+        ]
+    )
+    def test_partial_update_round_trips_network_access(
+        self, _name: str, payload: dict, expected_mode: str, expected_domains: list[str]
+    ) -> None:
         # Wiring guard: DRF silently drops a field missing from the update serializer's
         # `Meta.fields` (the PATCH would 200 while never changing the sandbox posture), and the
-        # read serializer must surface the stored value back.
+        # read serializer must surface the stored values back.
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         assert config.network_access == SignalScoutConfig.NetworkAccess.TRUSTED
 
-        response = self.client.patch(self._detail_url(str(config.id)), data={"network_access": "full"}, format="json")
+        response = self.client.patch(self._detail_url(str(config.id)), data=payload, format="json")
 
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["network_access"] == "full"
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.json()
+        assert body["network_access"] == expected_mode
+        assert body["allowed_domains"] == expected_domains
         config.refresh_from_db()
-        assert config.network_access == SignalScoutConfig.NetworkAccess.FULL
+        assert config.network_access == expected_mode
+        assert config.allowed_domains == expected_domains
+
+    def test_partial_update_rejects_custom_network_access_without_domains(self) -> None:
+        # Wiring guard for the object-level check: the viewset must run it, or a scout lands in
+        # custom mode with nothing to reach and silently runs on the trusted posture instead.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"network_access": "custom"}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        config.refresh_from_db()
+        assert config.network_access == SignalScoutConfig.NetworkAccess.TRUSTED
 
     def test_partial_update_rejects_interval_below_min(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
@@ -3538,6 +3645,36 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert config.created_by_id == self.user.id
         assert config.enabled_by_id == self.user.id
         assert config.network_access == SignalScoutConfig.NetworkAccess.FULL
+
+    def test_create_registers_custom_network_access_with_domains(self) -> None:
+        self._make_skill("signals-scout-fresh")
+
+        response = self.client.post(
+            self._list_url(),
+            data={
+                "skill_name": "signals-scout-fresh",
+                "network_access": "custom",
+                "allowed_domains": ["Status.Example.com", "*.example.org"],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        config = SignalScoutConfig.objects.get(team=self.team, skill_name="signals-scout-fresh")
+        assert config.network_access == SignalScoutConfig.NetworkAccess.CUSTOM
+        assert config.allowed_domains == ["status.example.com", "*.example.org"]
+
+    def test_create_rejects_custom_network_access_without_domains(self) -> None:
+        self._make_skill("signals-scout-fresh")
+
+        response = self.client.post(
+            self._list_url(),
+            data={"skill_name": "signals-scout-fresh", "network_access": "custom"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not SignalScoutConfig.objects.filter(team=self.team, skill_name="signals-scout-fresh").exists()
 
     def test_create_stamps_scout_category_on_skill(self) -> None:
         skill = self._make_skill("signals-scout-fresh")

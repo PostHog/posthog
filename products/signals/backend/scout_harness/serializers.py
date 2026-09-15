@@ -107,6 +107,7 @@ logger = structlog.get_logger(__name__)
             "reasoning_effort": {"type": "string"},
             "service_tier": {"type": "string"},
             "network_access": {"type": "string"},
+            "allowed_domains": {"type": "array", "items": {"type": "string"}},
             "write_scopes": {"type": "array", "items": {"type": "string"}},
             "triggered_by": {"type": "string"},
             "run_note": {"type": "string"},
@@ -263,7 +264,8 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
             "when the run departed from a default: `model`, `runtime_adapter`, and "
             "`reasoning_effort` (routing overrode the agent-server default), `network_access` "
             "(`full` when the scout's config lifted the trusted-domain network restriction for "
-            "this run), `write_scopes` (the extra write access the run's token carried, when the "
+            "this run, `custom` when it added named hosts to it, with those hosts in "
+            "`allowed_domains`), `write_scopes` (the extra write access the run's token carried, when the "
             "scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; "
             "absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's "
             "own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, "
@@ -2774,6 +2776,60 @@ def _validate_write_scopes(value: list[str]) -> list[str]:
     return sorted(set(value))
 
 
+_NETWORK_ACCESS_HELP = (
+    "What the scout's sandbox can reach over the network while it runs. `trusted` (the default) "
+    "restricts runs to the platform's trusted-domain allowlist (PostHog, GitHub, common package "
+    "registries). `custom` keeps that allowlist and adds the scout's own `allowed_domains`, for a "
+    "skill that names the handful of external sources it reads. `full` lets the scout reach any "
+    "site. Applies from the scout's next run."
+)
+
+_ALLOWED_DOMAINS_HELP = (
+    "Extra hosts this scout may reach, applied only while `network_access` is `custom`, and always "
+    "on top of the trusted-domain allowlist rather than instead of it. Give bare domain names such "
+    "as `status.example.com`, with no scheme, path, or port; `*.example.com` covers every "
+    f"subdomain. Up to {tasks_facade.MAX_SANDBOX_ALLOWED_DOMAINS} domains. Required when "
+    "`network_access` is `custom`. The list is kept when the mode changes, so switching back to "
+    "`custom` restores it. Applies from the scout's next run."
+)
+
+
+def _allowed_domains_field(*, read_only: bool = False) -> serializers.ListField:
+    return serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        read_only=read_only,
+        required=False,
+        max_length=tasks_facade.MAX_SANDBOX_ALLOWED_DOMAINS,
+        error_messages={"max_length": f"You can allow up to {tasks_facade.MAX_SANDBOX_ALLOWED_DOMAINS} domains."},
+        help_text=_ALLOWED_DOMAINS_HELP,
+    )
+
+
+def _validate_allowed_domains(value: list[str]) -> list[str]:
+    """Normalize through the same Tasks helper that guards the sandbox environments API.
+
+    Provisioning normalizes again when the env is upserted, so this gate exists to reject a bad
+    domain where a person can still fix it, instead of at the start of an unattended run. The
+    rejection copy comes from Tasks too, so the two surfaces that take a domain list cannot drift.
+    """
+    try:
+        return list(tasks_facade.normalize_sandbox_allowed_domains(value))
+    except ValueError as error:
+        raise serializers.ValidationError(f"{error}. {tasks_facade.SANDBOX_ALLOWED_DOMAIN_FORMAT_HELP}") from error
+
+
+def _validate_network_access_domains(*, network_access: str | None, allowed_domains: list[str]) -> None:
+    """A `custom` scout must name at least one domain, or the mode buys it nothing.
+
+    Called with the merged result of a partial update, not just the incoming fields, so a PATCH
+    that switches only the mode is judged against the domains already stored.
+    """
+    if network_access == SignalScoutConfig.NetworkAccess.CUSTOM and not allowed_domains:
+        raise serializers.ValidationError(
+            {"allowed_domains": "Add at least one domain, or pick a different network access mode."}
+        )
+
+
 class ScoutOrigin(models.TextChoices):
     CANONICAL = "canonical", "canonical"
     CUSTOM = "custom", "custom"
@@ -2885,13 +2941,9 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
     network_access = serializers.ChoiceField(
         choices=SignalScoutConfig.NetworkAccess.choices,
         read_only=True,
-        help_text=(
-            "What the scout's sandbox can reach over the network while it runs. `trusted` (the "
-            "default) restricts runs to the platform's trusted-domain allowlist (PostHog, GitHub, "
-            "common package registries). `full` lets the scout reach any site, for skills that read "
-            "external sources such as documentation or papers."
-        ),
+        help_text=_NETWORK_ACCESS_HELP,
     )
+    allowed_domains = _allowed_domains_field(read_only=True)
     model = serializers.CharField(
         read_only=True,
         allow_null=True,
@@ -2990,6 +3042,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "output_destinations",
             "structured_output_schema",
             "network_access",
+            "allowed_domains",
             "model",
             "mcp_gateway_server_ids",
             "repositories",
@@ -3139,14 +3192,9 @@ class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, seria
     network_access = serializers.ChoiceField(
         choices=SignalScoutConfig.NetworkAccess.choices,
         required=False,
-        help_text=(
-            "What the scout's sandbox can reach over the network while it runs. `trusted` (the "
-            "default) restricts runs to the platform's trusted-domain allowlist (PostHog, GitHub, "
-            "common package registries). Set `full` to let this scout reach any site, for skills "
-            "that read external sources such as documentation or papers. Applies from the scout's "
-            "next run."
-        ),
+        help_text=_NETWORK_ACCESS_HELP,
     )
+    allowed_domains = _allowed_domains_field()
     auto_pause_exempt = serializers.BooleanField(
         required=False,
         help_text=(
@@ -3157,6 +3205,17 @@ class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, seria
 
     def validate_output_destinations(self, value: dict) -> dict:
         return _validate_output_destinations(value, self.context)
+
+    def validate_allowed_domains(self, value: list[str]) -> list[str]:
+        return _validate_allowed_domains(value)
+
+    def validate(self, attrs: dict) -> dict:
+        instance = self.instance
+        _validate_network_access_domains(
+            network_access=attrs.get("network_access", instance.network_access if instance else None),
+            allowed_domains=attrs.get("allowed_domains", list(instance.allowed_domains or []) if instance else []),
+        )
+        return attrs
 
     def update(self, instance: SignalScoutConfig, validated_data: dict) -> SignalScoutConfig:
         output_destinations = validated_data.get("output_destinations")
@@ -3241,6 +3300,7 @@ class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, seria
             "output_destinations",
             "structured_output_schema",
             "network_access",
+            "allowed_domains",
             "model",
             "auto_pause_exempt",
             "tags",
@@ -3277,13 +3337,9 @@ class SignalScoutConfigOptionsSerializer(_ScoutConfigCapabilityFieldsMixin, seri
     network_access = serializers.ChoiceField(
         choices=SignalScoutConfig.NetworkAccess.choices,
         required=False,
-        help_text=(
-            "What the scout's sandbox can reach over the network while it runs. Defaults to "
-            "`trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package "
-            "registries). Set `full` to let this scout reach any site, for skills that read "
-            "external sources such as documentation or papers."
-        ),
+        help_text=_NETWORK_ACCESS_HELP,
     )
+    allowed_domains = _allowed_domains_field()
     auto_pause_exempt = serializers.BooleanField(
         required=False,
         help_text=(
@@ -3309,6 +3365,19 @@ class SignalScoutConfigOptionsSerializer(_ScoutConfigCapabilityFieldsMixin, seri
             team = context.get("team")
             context = {**context, "project_id": getattr(team, "project_id", None)}
         return _validate_output_destinations(value, context)
+
+    def validate_allowed_domains(self, value: list[str]) -> list[str]:
+        return _validate_allowed_domains(value)
+
+    def validate(self, attrs: dict) -> dict:
+        # Create only, so there is no stored list to merge against: `custom` has to bring its own
+        # domains. The upsert path re-runs the update serializer against the existing row, which
+        # applies the merged check there.
+        _validate_network_access_domains(
+            network_access=attrs.get("network_access"),
+            allowed_domains=attrs.get("allowed_domains", []),
+        )
+        return attrs
 
 
 class SignalScoutConfigCreateSerializer(SignalScoutConfigOptionsSerializer):

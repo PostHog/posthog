@@ -13,6 +13,12 @@ _domain_name_validator = DomainNameValidator(accept_idna=False)
 _MODAL_UNSUPPORTED_HOSTS = {"localhost", "host.docker.internal"}
 MAX_SANDBOX_ALLOWED_DOMAINS = 100
 
+# Appended to whatever `normalize_domain` rejected, on every surface that takes a domain list, so a
+# person gets the same instruction wherever they hit it.
+SANDBOX_ALLOWED_DOMAIN_FORMAT_HELP = (
+    "Enter domain names such as example.com or *.example.com without a scheme, path, or port."
+)
+
 
 @dataclass(frozen=True, kw_only=True)
 class InvalidDomain:
