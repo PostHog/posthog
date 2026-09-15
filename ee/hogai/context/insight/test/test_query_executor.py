@@ -72,6 +72,34 @@ class TestAssistantQueryExecutorQueryId(SimpleTestCase):
             ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
         )
 
+    @override_settings(TEST=False)
+    @patch("ee.hogai.context.insight.query_executor.get_query_status")
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    async def test_reports_deduplicated_query_status_id(
+        self, mock_process_query: MagicMock, mock_get_query_status: MagicMock
+    ) -> None:
+        mock_process_query.return_value = {"query_status": {"id": "deduplicated-query-status-id", "complete": False}}
+        mock_get_query_status.return_value = Mock(
+            model_dump=lambda mode: {
+                "id": "deduplicated-query-status-id",
+                "complete": True,
+                "results": {"results": []},
+            }
+        )
+        query = AssistantTrendsQuery(series=[])
+        context = InsightContext(team=MagicMock(pk=1, organization_id=None), query=query, user=MagicMock())
+        query_status_ids: list[str] = []
+
+        with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
+            await context.execute_and_format(
+                include_prompt_framing=False,
+                query_id="requested-query-status-id",
+                on_query_status=query_status_ids.append,
+            )
+
+        self.assertEqual(query_status_ids, ["deduplicated-query-status-id"])
+        self.assertEqual(mock_process_query.call_args.kwargs["query_id"], "requested-query-status-id")
+
 
 class TestAssistantQueryExecutor(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False

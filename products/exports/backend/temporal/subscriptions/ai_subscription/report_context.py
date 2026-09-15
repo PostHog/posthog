@@ -509,11 +509,18 @@ async def _execute_insight(pending: _PendingInsight, semaphore: asyncio.Semaphor
         return _ExecutedInsight(saved=pending.saved, status="failed", content=_UNAVAILABLE_INSIGHT_MARKER)
     context = pending.context
     client_query_id = f"ai-subscription-context-{uuid.uuid4().hex}"
+    cancellable_query_id: str | None = client_query_id
+
+    def record_query_status(query_status_id: str) -> None:
+        nonlocal cancellable_query_id
+        cancellable_query_id = query_status_id if query_status_id == client_query_id else None
 
     async def cancel_context_query() -> None:
+        if cancellable_query_id is None:
+            return
         try:
             await asyncio.wait_for(
-                database_sync_to_async(cancel_query, thread_sensitive=False)(context.team.pk, client_query_id),
+                database_sync_to_async(cancel_query, thread_sensitive=False)(context.team.pk, cancellable_query_id),
                 timeout=CONTEXT_QUERY_CANCELLATION_TIMEOUT_SECONDS,
             )
         except Exception as err:
@@ -528,7 +535,11 @@ async def _execute_insight(pending: _PendingInsight, semaphore: asyncio.Semaphor
                     trigger="ai_subscription_context",
                 ):
                     content = await asyncio.wait_for(
-                        context.execute_and_format(include_prompt_framing=False, query_id=client_query_id),
+                        context.execute_and_format(
+                            include_prompt_framing=False,
+                            query_id=client_query_id,
+                            on_query_status=record_query_status,
+                        ),
                         timeout=CONTEXT_QUERY_TIMEOUT_SECONDS,
                     )
             except asyncio.CancelledError:

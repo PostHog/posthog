@@ -287,6 +287,49 @@ class TestReportContextPureFunctions(SimpleTestCase):
         assert semaphore.locked() is False
         assert executed.status == "failed"
 
+    def test_timeout_does_not_cancel_a_deduplicated_query_status(self) -> None:
+        semaphore = asyncio.Semaphore(1)
+        context = MagicMock(team=MagicMock(pk=1))
+        reported_status_ids: list[str] = []
+
+        async def slow_execute(*_args: object, **kwargs: object) -> str:
+            on_query_status = kwargs["on_query_status"]
+            assert callable(on_query_status)
+            on_query_status("deduplicated-query-status-id")
+            reported_status_ids.append("deduplicated-query-status-id")
+            await asyncio.Event().wait()
+            return "unreachable"
+
+        context.execute_and_format = AsyncMock(side_effect=slow_execute)
+        pending = _PendingInsight(
+            saved=_SavedInsight(
+                id=1,
+                short_id="1",
+                name="Deduplicated insight",
+                description="",
+                query=None,
+                filters_override=None,
+                variables_override=None,
+                available=True,
+            ),
+            context=context,
+        )
+
+        with (
+            patch(f"{_MODULE}.CONTEXT_QUERY_TIMEOUT_SECONDS", 0.01),
+            patch(f"{_MODULE}.uuid.uuid4", return_value=MagicMock(hex="requested-query-status-id")),
+            patch(f"{_MODULE}.cancel_query") as cancel_query,
+        ):
+            executed = async_to_sync(_execute_insight)(pending, semaphore)
+
+        assert context.execute_and_format.await_args.kwargs["query_id"] == (
+            "ai-subscription-context-requested-query-status-id"
+        )
+        assert reported_status_ids == ["deduplicated-query-status-id"]
+        cancel_query.assert_not_called()
+        assert semaphore.locked() is False
+        assert executed.status == "failed"
+
     def test_failed_markers_are_not_successful_computed_evidence(self) -> None:
         evidence = ReportContextEvidence(
             dashboards=(),
