@@ -120,6 +120,84 @@ export function findOversizedMutationRanges(events: eventWithTime[]): OversizedM
     return ranges
 }
 
+// One bounded snapshot of the values that decide which frame the player first draws. Two viewers of
+// the same recording who see different frames must differ in one of these fields, so capturing it on
+// each load lets us diff the two loads instead of guessing. The likely culprits, in order: a
+// loaded_vs_server_gap (the client decoded fewer events than the server counted — dropped head bytes
+// move the time base later), a start_gap_ms (event start and snapshot start disagree), a base_shift_ms
+// (the playable filter moved the base after first render), or a different source_counts set.
+export function buildAnchorDiagnostic(
+    meta: SessionRecordingType | null,
+    snapshotsByWindowId: Record<number, eventWithTime[]>,
+    playableSnapshotsByWindowId: Record<number, eventWithTime[]>,
+    start: Dayjs | null,
+    oversizedMutationRanges: Record<number, OversizedMutationRange[]>,
+    segments: RecordingSegment[],
+    sources: SessionRecordingSnapshotSource[] | null,
+    oversizedGateOn: boolean
+): Record<string, unknown> {
+    const windowIds = Object.keys(snapshotsByWindowId)
+
+    // Primary window: the one the player spends the timeline in (the most events)
+    let primaryWindowId: number | null = null
+    let primaryCount = -1
+    let loadedEventCount = 0
+    let droppedEventCount = 0
+    for (const windowIdKey of windowIds) {
+        const windowId = windowIdKey as unknown as number
+        const rawCount = snapshotsByWindowId[windowId]?.length ?? 0
+        const playableCount = playableSnapshotsByWindowId[windowId]?.length ?? 0
+        loadedEventCount += rawCount
+        droppedEventCount += rawCount - playableCount
+        if (rawCount > primaryCount) {
+            primaryCount = rawCount
+            primaryWindowId = windowId
+        }
+    }
+
+    const rawBaseMs = primaryWindowId !== null ? (snapshotsByWindowId[primaryWindowId]?.[0]?.timestamp ?? null) : null
+    const rrwebBaseMs =
+        primaryWindowId !== null ? (playableSnapshotsByWindowId[primaryWindowId]?.[0]?.timestamp ?? null) : null
+    const eventStartMs = meta?.start_time ? dayjs(meta.start_time).valueOf() : null
+    const chosenStartMs = start?.valueOf() ?? null
+    const serverEventCount = meta?.event_count ?? null
+
+    let oversizedRangesCount = 0
+    for (const ranges of Object.values(oversizedMutationRanges)) {
+        oversizedRangesCount += ranges.length
+    }
+
+    // Bounded by the fixed set of source types, so the payload stays small
+    const sourceCounts: Record<string, number> = {}
+    for (const source of sources ?? []) {
+        sourceCounts[source.source] = (sourceCounts[source.source] ?? 0) + 1
+    }
+
+    return {
+        recording_id: meta?.id ?? null,
+        is_brave: !!(navigator as unknown as { brave?: unknown }).brave,
+        server_event_count: serverEventCount,
+        loaded_event_count: loadedEventCount,
+        loaded_vs_server_gap: serverEventCount !== null ? serverEventCount - loadedEventCount : null,
+        server_total_size: meta?.total_size ?? null,
+        window_count: windowIds.length,
+        event_start_ms: eventStartMs,
+        snapshot_start_ms: rawBaseMs,
+        chosen_start_ms: chosenStartMs,
+        start_gap_ms: eventStartMs !== null && rawBaseMs !== null ? rawBaseMs - eventStartMs : null,
+        raw_base_ms: rawBaseMs,
+        rrweb_base_ms: rrwebBaseMs,
+        base_shift_ms: rawBaseMs !== null && rrwebBaseMs !== null ? rrwebBaseMs - rawBaseMs : null,
+        oversized_gate_on: oversizedGateOn,
+        oversized_ranges_count: oversizedRangesCount,
+        dropped_event_count: droppedEventCount,
+        source_counts: sourceCounts,
+        source_count: sources?.length ?? 0,
+        segments_count: segments.length,
+        first_segment_start_ms: segments[0]?.startTimestamp ?? null,
+    }
+}
+
 export interface SessionRecordingDataCoordinatorLogicProps {
     sessionRecordingId: SessionRecordingId
     // allows disabling polling for new sources in tests
@@ -739,6 +817,23 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             if (values.fullyLoaded && !values.reportedLoaded) {
                 actions.setRecordingReportedLoaded()
                 actions.reportRecordingLoaded(values.sessionPlayerData, values.sessionPlayerMetaData)
+                try {
+                    posthog.capture(
+                        'recording anchor diagnostic',
+                        buildAnchorDiagnostic(
+                            values.sessionPlayerMetaData,
+                            values.snapshotsByWindowId,
+                            values.playableSnapshotsByWindowId,
+                            values.start,
+                            values.oversizedMutationRanges,
+                            values.segments,
+                            values.snapshotSources,
+                            !!values.featureFlags[FEATURE_FLAGS.REPLAY_OVERSIZED_RECORDING_GATE]
+                        )
+                    )
+                } catch {
+                    // diagnostics must never break playback
+                }
             }
         },
     })),
