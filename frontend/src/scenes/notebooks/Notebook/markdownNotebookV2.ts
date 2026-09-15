@@ -133,6 +133,19 @@ export function appendMarkdownNotebookBlock(
     )
 }
 
+/** Matches a block by a component's persisted `nodeId` prop, or by the parsed block id. */
+function matchesMarkdownNotebookNodeId(node: NotebookBlockNode, nodeId: string): boolean {
+    return node.id === nodeId || (node.type === 'component' && node.props.nodeId === nodeId)
+}
+
+/** Whether the notebook still holds the block identified by `nodeId`. A block id is a content
+ * fingerprint, so a cell without a persisted `nodeId` prop stops matching as soon as it is edited. */
+export function hasMarkdownNotebookNode(content: JSONContent | null | undefined, nodeId: string): boolean {
+    return parseMarkdownNotebook(getMarkdownNotebookMarkdown(content)).nodes.some((node) =>
+        matchesMarkdownNotebookNodeId(node, nodeId)
+    )
+}
+
 /** Inserts a markdown block right after the block identified by `targetNodeId` (a component's
  * persisted `nodeId` prop, or the parsed block id). Appends at the end when no block matches. */
 export function insertMarkdownNotebookBlockAfterNode(
@@ -145,9 +158,7 @@ export function insertMarkdownNotebookBlockAfterNode(
     }
 
     const document = parseMarkdownNotebook(getMarkdownNotebookMarkdown(content))
-    const targetIndex = document.nodes.findIndex(
-        (node) => node.id === targetNodeId || (node.type === 'component' && node.props.nodeId === targetNodeId)
-    )
+    const targetIndex = document.nodes.findIndex((node) => matchesMarkdownNotebookNodeId(node, targetNodeId))
     if (targetIndex === -1) {
         return appendMarkdownNotebookBlock(content, blockMarkdown)
     }
