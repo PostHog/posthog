@@ -24,6 +24,7 @@ import {
     type FeatureFlagRequestUsageInterval,
     type FeatureFlagRequestUsageMetric,
     type FeatureFlagRequestUsageSdkTotal,
+    MAX_RANGE_DAYS,
     featureFlagRequestUsageLogic,
 } from './featureFlagRequestUsageLogic'
 import { RequestUsageSummaryCard } from './RequestUsageSummaryCard'
@@ -37,6 +38,7 @@ export function FeatureFlagRequestUsage(): JSX.Element {
         dateFrom,
         dateTo,
         isHourlyAvailable,
+        isRangeTooLong,
         usageResponse,
         usageResponseLoading,
         loadError,
@@ -159,11 +161,18 @@ export function FeatureFlagRequestUsage(): JSX.Element {
                 </div>
             </div>
 
-            {loadError && (
-                <LemonBanner type="error">
-                    Couldn't load feature flag request usage. Adjust the date range or grouping and try again. Contact
-                    support if it keeps failing.
+            {isRangeTooLong ? (
+                <LemonBanner type="warning">
+                    Request usage covers up to {MAX_RANGE_DAYS.day} days at a time. Pick a shorter date range to see
+                    your usage.
                 </LemonBanner>
+            ) : (
+                loadError && (
+                    <LemonBanner type="error">
+                        Couldn't load feature flag request usage. Adjust the date range or grouping and try again.
+                        Contact support if it keeps failing.
+                    </LemonBanner>
+                )
             )}
 
             <LemonBanner type="info">
@@ -207,7 +216,7 @@ export function FeatureFlagRequestUsage(): JSX.Element {
                 </div>
             </div>
 
-            {!loadError && (
+            {!loadError && !isRangeTooLong && (
                 <>
                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                         <RequestUsageSummaryCard label="Remote requests" value={totalRemoteRequests} />
