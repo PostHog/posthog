@@ -280,6 +280,7 @@ async fn test_get_distinct_ids_for_person() {
             person_id: person.id,
             read_options: None,
             limit: None,
+            cursor_id: None,
         }))
         .await
         .expect("RPC failed");
@@ -315,6 +316,7 @@ async fn test_get_distinct_ids_for_person_with_limit(
             person_id: person.id,
             read_options: None,
             limit,
+            cursor_id: None,
         }))
         .await
         .expect("RPC failed");
@@ -690,6 +692,7 @@ async fn test_get_distinct_ids_for_person_limit_keeps_identified() {
             person_id: person.id,
             read_options: None,
             limit: Some(1),
+            cursor_id: None,
         }))
         .await
         .expect("RPC failed");

@@ -187,6 +187,36 @@ def _batched_get_distinct_ids_for_persons(
     return distinct_ids_by_person
 
 
+def _paginated_get_distinct_ids_for_person(
+    team_id: int,
+    person_id: int,
+    page_size: int = 5000,
+) -> list[DistinctIdForPerson]:
+    """Fetch all distinct IDs for a single person using keyset pagination."""
+    client = _get_client()
+    all_dids: list[DistinctIdForPerson] = []
+    cursor_id: int | None = None
+
+    while True:
+        request = GetDistinctIdsForPersonRequest(
+            team_id=team_id,
+            person_id=person_id,
+            limit=page_size,
+        )
+        if cursor_id is not None:
+            request.cursor_id = cursor_id
+
+        resp = client.get_distinct_ids_for_person(request)
+        for d in resp.distinct_ids:
+            all_dids.append(DistinctIdForPerson(id=d.distinct_id, version=int(d.version or 0)))
+
+        if not resp.HasField("next_cursor_id"):
+            break
+        cursor_id = resp.next_cursor_id
+
+    return all_dids
+
+
 if TEST:
 
     def bulk_create_persons(persons_list: list[dict]):

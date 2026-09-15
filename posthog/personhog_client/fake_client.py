@@ -265,11 +265,31 @@ class FakePersonHogClient:
         self, request: person_pb2.GetDistinctIdsForPersonRequest
     ) -> person_pb2.GetDistinctIdsForPersonResponse:
         self.calls.append(_Call("get_distinct_ids_for_person", request))
-        dids = self._distinct_ids.get((request.team_id, request.person_id), [])
+        dids = list(self._distinct_ids.get((request.team_id, request.person_id), []))
         limit = request.limit if request.HasField("limit") and request.limit > 0 else None
-        if limit is not None:
+        cursor_id = request.cursor_id if request.HasField("cursor_id") and request.cursor_id > 0 else None
+
+        for i, d in enumerate(dids):
+            if not d.HasField("id"):
+                d.id = i + 1
+
+        if cursor_id is not None:
+            dids = [d for d in dids if d.id > cursor_id]
+            dids.sort(key=lambda d: d.id)
+        elif limit is not None:
             dids = _order_identified_first(dids)[:limit]
-        return person_pb2.GetDistinctIdsForPersonResponse(distinct_ids=dids)
+
+        if cursor_id is not None and limit is not None:
+            dids = dids[:limit]
+
+        next_cursor_id = None
+        if limit is not None and len(dids) >= limit:
+            next_cursor_id = dids[-1].id
+
+        return person_pb2.GetDistinctIdsForPersonResponse(
+            distinct_ids=dids,
+            next_cursor_id=next_cursor_id,
+        )
 
     def get_distinct_ids_for_persons(
         self, request: person_pb2.GetDistinctIdsForPersonsRequest
