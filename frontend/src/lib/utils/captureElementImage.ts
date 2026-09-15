@@ -27,10 +27,19 @@ function getStylePropertyNames(): string[] {
     return names
 }
 
+/** A 1x1 transparent GIF. */
+const BLANK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+
 /** Rasterizes a live DOM element to an image blob. Throws when the element renders to nothing. */
 export async function captureElementImage(element: HTMLElement, options?: CaptureImageOptions): Promise<Blob> {
     const blob = await toBlob(element, {
         includeStyleProperties: getStylePropertyNames(),
+        // html-to-image inlines every image it finds. Its default for one it cannot fetch is an empty
+        // `src`, which makes the clone fire `error` and rejects the whole capture with a raw DOM Event.
+        imagePlaceholder: BLANK_IMAGE,
+        // A resource that answers with something the browser cannot decode fails the same way after
+        // the placeholder. Leave that one image blank instead of losing the capture.
+        onImageErrorHandler: () => {},
         ...options,
     })
 

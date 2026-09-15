@@ -16,4 +16,12 @@ describe('captureElementImage', () => {
         expect(includeStyleProperties).not.toBeUndefined()
         expect(includeStyleProperties.filter((name: string) => name.startsWith('--'))).toEqual([])
     })
+
+    it('lets a broken page asset degrade the image instead of failing the capture', async () => {
+        await captureElementImage(document.createElement('div'))
+
+        const { imagePlaceholder, onImageErrorHandler } = (toBlob as jest.Mock).mock.calls[0][1]
+        expect(imagePlaceholder).toMatch(/^data:image\//)
+        expect(() => onImageErrorHandler(new Event('error'))).not.toThrow()
+    })
 })
