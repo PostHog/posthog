@@ -322,9 +322,9 @@ class TestWebStatsTableQueryRunner(
         s2 = str(uuid7("2023-12-03"))
         s3 = str(uuid7("2023-12-04"))
         s4 = str(uuid7("2023-12-05"))
-        # Two LinkedIn visitors, one Instagram visitor, and one regular-browser visitor with no
-        # $webview_app. The regular pageview must not surface as a "(not set)" row: the in-app
-        # browser tile answers "which host apps", not "how much traffic is not in-app".
+        # The regular-browser pageview has no $webview_app and must be dropped, not shown as a
+        # "(not set)" row: the in-app browser tile answers "which host apps", not "how much
+        # traffic is not in-app".
         self._create_events(
             [
                 ("li1", [("2023-12-02", s1, "/", {"$webview_app": "LinkedIn"})]),
