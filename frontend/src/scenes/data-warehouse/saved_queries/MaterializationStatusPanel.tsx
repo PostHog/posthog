@@ -410,7 +410,6 @@ export function MaterializationStatusPanel({
                     pagination={{
                         controlled: true,
                         useUrl: false,
-                        hideOnSinglePage: false,
                         pageSize: DEFAULT_JOBS_PAGE_SIZE,
                         currentPage: jobsPage,
                         entryCount: jobsPageResults?.count,
