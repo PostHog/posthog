@@ -83,7 +83,6 @@ def _hash_keys(keys: list[list[object]]) -> str:
 
 
 class _LeafShapeMode(StrEnum):
-    FULL = "full"
     BEHAVIORAL_ONLY = "behavioral_only"
     PERSON_ONLY = "person_only"
 
@@ -95,10 +94,10 @@ def _extract_leaf_shape_keys(filters: dict | None, *, mode: _LeafShapeMode) -> l
     keys: list[list[object]] = []
     for leaf in walk_filter_leaves(properties):
         leaf_type = leaf.get("type")
-        if leaf_type == "person" and mode != _LeafShapeMode.BEHAVIORAL_ONLY:
+        if leaf_type == "person" and mode == _LeafShapeMode.PERSON_ONLY:
             if (condition_hash := leaf.get("conditionHash")) is not None:
                 keys.append(["person", condition_hash])
-        elif leaf_type == "behavioral" and mode != _LeafShapeMode.PERSON_ONLY:
+        elif leaf_type == "behavioral" and mode == _LeafShapeMode.BEHAVIORAL_ONLY:
             if (condition_hash := leaf.get("conditionHash")) is not None:
                 keys.append(
                     [
@@ -115,19 +114,88 @@ def _extract_leaf_shape_keys(filters: dict | None, *, mode: _LeafShapeMode) -> l
                         ),
                     ]
                 )
-        elif leaf_type == "cohort" and mode == _LeafShapeMode.FULL:
-            keys.append(["cohort", leaf.get("value"), bool(leaf.get("negation", False))])
     return keys
 
 
-def extract_leaf_shape_hash(filters: dict | None) -> str:
-    """Fingerprint the leaf fields that feed the Stage 1 `LeafStateKey`.
+def _canonical(node: object) -> str:
+    return json.dumps(node, sort_keys=True, separators=(",", ":"))
 
-    This is not the Rust key itself. It is a stable SHA-256 over the full leaf set, while
-    `LeafStateKey::for_behavioral` uses a 16-byte digest of one leaf. Keep these fields in lockstep:
-    behavioral leaves via `BehavioralLeafKey`; person conditionHash; cohort value and negation.
+
+def _render_definition(node: object) -> list[object] | None:
+    """Render one filter node into an order-insensitive, JSON-serializable form, or `None` if it
+    contributes nothing to the definition.
+
+    Group children are deduped and sorted because AND and OR are commutative and idempotent, so a
+    reordered or repeated criterion is the same definition. A group of one operand renders as that
+    operand: the cohort editor shows its AND/OR toggle even on a single criterion, and a toggle with
+    one operand under it means nothing.
+
+    Cohort references are negated by `negation` or by `operator: "not_in"`, which mirrors
+    `cohort_ref_negation` in `rust/cohort-core/src/filters/leaf_classifier.rs`. Person and
+    behavioral leaves are negated by `negation` alone, because a bare `not_in` on those is a
+    value-list predicate already compiled into the bytecode the conditionHash digests.
+
+    `is True` rather than `bool(...)` for the same reason `_effective_i32` rejects a non-int: Rust
+    reads the field with `as_bool().unwrap_or(false)`, so a non-boolean is absent there, and
+    `bool(1)` here would disagree.
     """
-    return _hash_keys(_extract_leaf_shape_keys(filters, mode=_LeafShapeMode.FULL))
+    if not isinstance(node, dict):
+        return None
+
+    node_type = node.get("type")
+    if node_type in ("AND", "OR"):
+        unique: dict[str, list[object]] = {}
+        for child in node.get("values") or []:
+            if (rendered := _render_definition(child)) is not None:
+                unique.setdefault(_canonical(rendered), rendered)
+        if not unique:
+            return None
+        children = [unique[key] for key in sorted(unique)]
+        if len(children) == 1:
+            return children[0]
+        return [node_type, children]
+
+    negation = node.get("negation") is True
+    if node_type == "behavioral":
+        return [
+            "behavioral",
+            *behavioral_leaf_key(
+                condition_hash=node.get("conditionHash"),
+                value=node.get("value"),
+                time_value=node.get("time_value"),
+                time_interval=node.get("time_interval"),
+                explicit_datetime=node.get("explicit_datetime"),
+                explicit_datetime_to=node.get("explicit_datetime_to"),
+                operator=node.get("operator"),
+                operator_value=node.get("operator_value"),
+            ),
+            negation,
+        ]
+    if node_type == "person":
+        return ["person", node.get("conditionHash"), negation]
+    if node_type == "cohort":
+        return ["cohort", node.get("value"), negation or node.get("operator") == "not_in"]
+    return [node_type]
+
+
+def extract_leaf_shape_hash(filters: dict | None) -> str:
+    """Fingerprint the whole cohort definition: every leaf, its negation, and the AND/OR tree it
+    sits in, order-insensitive.
+
+    This is the only fingerprint that sees composition. The two kind hashes below key on leaf
+    identity alone, so an edit that only moves AND/OR, negation, or a nested-cohort reference moves
+    this hash and neither of theirs. `_maintain_filter_shape_hashes` is the sole consumer, and it
+    uses that difference to decide when an edit needs a repair run that no kind hash would trigger.
+    Keep the leaf fields in lockstep with Rust: behavioral leaves via `BehavioralLeafKey`; person
+    conditionHash; cohort value; the negation rules in `_render_definition`.
+    """
+    if not filters or not (properties := filters.get("properties")):
+        return ""
+
+    rendered = _render_definition(properties)
+    if rendered is None:
+        return ""
+    return hashlib.sha256(_canonical(rendered).encode()).hexdigest()
 
 
 def extract_behavioral_leaf_shape_hash(filters: dict | None) -> str:

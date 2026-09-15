@@ -102,9 +102,10 @@ def stamp_events_readiness(run: CohortBackfillRun, cohort_id: int) -> bool:
     """CAS-stamp event readiness for one pinned cohort.
 
     Keys on the behavioral shape hash, not the full one: edit-time invalidation only nulls
-    ``last_backfill_events_at`` when the behavioral leaves change (see ``_maintain_filter_shape_hashes``).
-    A person-property or cohort-reference edit mid-backfill shifts the full hash without touching
-    events readiness, so keying on the full hash would wrongly supersede a still-valid events backfill.
+    ``last_backfill_events_at`` when the behavioral leaves change, or when the definition changes in
+    a way no other run repairs (see ``_maintain_filter_shape_hashes``).
+    A person-property edit mid-backfill shifts the full hash without touching events readiness, so
+    keying on the full hash would wrongly supersede a still-valid events backfill.
     """
     return _stamp_readiness(run, cohort_id, _EVENTS)
 
