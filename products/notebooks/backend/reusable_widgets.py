@@ -341,14 +341,16 @@ def _validate_binding_hog(hog: str, slot: str) -> None:
 
 def publish_reusable_widget(
     *,
-    notebook: Notebook,
+    team_id: int,
+    notebook_id: UUID,
     node_id: str,
     name: str,
     description: str,
     tags: list[str],
-    user: User,
+    user_id: int,
     authorize_run,
 ) -> ReusableWidgetDetail:
+    notebook = Notebook.objects.get(team_id=team_id, id=notebook_id, deleted=False)
     assert_widget_node_exists(notebook, node_id)
     instance = (
         NotebookWidgetInstance.objects.for_team(notebook.team_id)
@@ -396,7 +398,7 @@ def publish_reusable_widget(
         widget.description = description
         widget.tags = tags
         widget.publication_status = GeneratedWidget.PublicationStatus.PUBLISHED
-        widget.published_by = user
+        widget.published_by_id = user_id
         widget.published_at = published_at
         widget.updated_at = published_at
         widget.save(
@@ -455,13 +457,15 @@ def _normalized_bindings(
 
 def attach_reusable_widget(
     *,
-    notebook: Notebook,
+    team_id: int,
+    notebook_id: UUID,
     node_id: str,
     widget_id: UUID,
     version_id: UUID | None,
     input_bindings: dict[str, object],
-    user: User,
+    user_id: int,
 ) -> WidgetStatus:
+    notebook = Notebook.objects.get(team_id=team_id, id=notebook_id, deleted=False)
     assert_widget_node_exists(notebook, node_id)
     widget = _published_widgets(notebook.team_id).select_related("current_version").filter(id=widget_id).first()
     if widget is None or widget.current_version is None:
@@ -489,7 +493,7 @@ def attach_reusable_widget(
                     "widget": widget,
                     "pinned_version": version if version_id is not None else None,
                     "input_bindings": bindings,
-                    "created_by": user,
+                    "created_by_id": user_id,
                 },
             )
         )
@@ -503,7 +507,7 @@ def attach_reusable_widget(
 
 
 def fork_reusable_widget(
-    *, notebook: Notebook, node_id: str, user: User, version_id: UUID | None = None
+    *, team_id: int, notebook_id: UUID, node_id: str, user_id: int, version_id: UUID | None = None
 ) -> WidgetStatus:
     from products.canvas.backend import (  # noqa: PLC0415 — keeps Canvas storage imports off notebook startup
         notebook_integration as canvas_facade,
@@ -512,6 +516,7 @@ def fork_reusable_widget(
         api as tasks_facade,
     )
 
+    notebook = Notebook.objects.get(team_id=team_id, id=notebook_id, deleted=False)
     assert_widget_node_exists(notebook, node_id)
     instance = (
         NotebookWidgetInstance.objects.for_team(notebook.team_id)
@@ -540,17 +545,17 @@ def fork_reusable_widget(
             canvas_id=instance.widget.canvas_id,
             version_id=source_version.canvas_source_version_id,
         )
-        channel_id = tasks_facade.ensure_personal_channel_id(team_id=notebook.team_id, user_id=user.id)
+        channel_id = tasks_facade.ensure_personal_channel_id(team_id=notebook.team_id, user_id=user_id)
         canvas_id = canvas_facade.create_notebook_canvas(
             team_id=notebook.team_id,
-            user_id=user.id,
+            user_id=user_id,
             channel_id=channel_id,
             name=fork_name,
         )
         prepared_source = canvas_facade.prepare_notebook_canvas_source(
             team_id=notebook.team_id,
             canvas_id=canvas_id,
-            user_id=user.id,
+            user_id=user_id,
             source=source,
             input_names=[
                 str(item["slot"])
@@ -564,7 +569,7 @@ def fork_reusable_widget(
         with canvas_facade.notebook_canvas_source_transaction(team_id=notebook.team_id, prepared=prepared_source):
             publication = canvas_facade.publish_prepared_notebook_canvas_source(
                 team_id=notebook.team_id,
-                user_id=user.id,
+                user_id=user_id,
                 prepared=prepared_source,
             )
     except canvas_facade.NotebookCanvasBuildCapacityError as error:
@@ -585,7 +590,7 @@ def fork_reusable_widget(
             team_id=notebook.team_id,
             name=fork_name,
             canvas_id=canvas_id,
-            created_by=user,
+            created_by_id=user_id,
         )
         version = GeneratedWidgetVersion.objects.for_team(notebook.team_id).create(
             team_id=notebook.team_id,
@@ -605,7 +610,7 @@ def fork_reusable_widget(
             security_review_model=source_version.security_review_model,
             security_review_version=source_version.security_review_version,
             security_reviewed_at=source_version.security_reviewed_at,
-            created_by=user,
+            created_by_id=user_id,
         )
         widget.current_version = version
         widget.save(update_fields=["current_version"])

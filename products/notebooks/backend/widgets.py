@@ -1554,7 +1554,10 @@ def list_widget_versions(*, notebook: Notebook, node_id: str, offset: int = 0, l
     return WidgetVersionPage(results=results, count=count, next_offset=next_offset)
 
 
-def set_widget_instance_version(*, notebook: Notebook, node_id: str, version_id: UUID | None) -> WidgetStatus:
+def set_widget_instance_version(
+    *, team_id: int, notebook_id: UUID, node_id: str, version_id: UUID | None
+) -> WidgetStatus:
+    notebook = Notebook.objects.get(team_id=team_id, id=notebook_id, deleted=False)
     assert_widget_node_exists(notebook, node_id)
     with transaction.atomic():
         instance = (

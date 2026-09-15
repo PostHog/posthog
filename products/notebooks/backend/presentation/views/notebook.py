@@ -936,12 +936,13 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         self._require_query_access()
         try:
             result = publish_reusable_widget(
-                notebook=notebook,
+                team_id=self.team_id,
+                notebook_id=notebook.id,
                 node_id=node_id,
                 name=serializer.validated_data["name"],
                 description=serializer.validated_data.get("description", ""),
                 tags=serializer.validated_data.get("tags", []),
-                user=user,
+                user_id=user.id,
                 authorize_run=self._authorize_widget_run,
             )
         except WidgetError as error:
@@ -984,12 +985,13 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         serializer.is_valid(raise_exception=True)
         try:
             result = attach_reusable_widget(
-                notebook=self.get_object(),
+                team_id=self.team_id,
+                notebook_id=self.get_object().id,
                 node_id=node_id,
                 widget_id=serializer.validated_data["widget_id"],
                 version_id=serializer.validated_data.get("version_id"),
                 input_bindings=serializer.validated_data["input_bindings"],
-                user=user,
+                user_id=user.id,
             )
         except WidgetError as error:
             return self._widget_error_response(error)
@@ -1032,9 +1034,10 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         serializer.is_valid(raise_exception=True)
         try:
             result = fork_reusable_widget(
-                notebook=self.get_object(),
+                team_id=self.team_id,
+                notebook_id=self.get_object().id,
                 node_id=node_id,
-                user=user,
+                user_id=user.id,
                 version_id=serializer.validated_data.get("version_id"),
             )
         except WidgetError as error:
@@ -1191,7 +1194,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         serializer.is_valid(raise_exception=True)
         try:
             result = set_widget_instance_version(
-                notebook=self.get_object(),
+                team_id=self.team_id,
+                notebook_id=self.get_object().id,
                 node_id=node_id,
                 version_id=serializer.validated_data["version_id"],
             )

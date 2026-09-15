@@ -491,7 +491,8 @@ class TestReusableWidgets(APIBaseTest):
             return_value=selected_state,
         ):
             pinned = set_widget_instance_version(
-                notebook=self.notebook,
+                team_id=self.team.id,
+                notebook_id=self.notebook.id,
                 node_id=self.node_id,
                 version_id=self.version.id,
             )
@@ -499,7 +500,9 @@ class TestReusableWidgets(APIBaseTest):
             "products.canvas.backend.notebook_integration.get_canvas_generation_state",
             return_value=latest_state,
         ):
-            unpinned = set_widget_instance_version(notebook=self.notebook, node_id=self.node_id, version_id=None)
+            unpinned = set_widget_instance_version(
+                team_id=self.team.id, notebook_id=self.notebook.id, node_id=self.node_id, version_id=None
+            )
 
         assert pinned.current_version_id == self.version.id
         assert pinned.pinned_version_id == self.version.id
@@ -695,7 +698,8 @@ class TestReusableWidgets(APIBaseTest):
         assert [version.id for version in history.results] == [self.version.id]
         with self.assertRaises(WidgetError) as error:
             set_widget_instance_version(
-                notebook=active_instance.notebook,
+                team_id=self.team.id,
+                notebook_id=active_instance.notebook.id,
                 node_id=self.node_id,
                 version_id=self.widget.pending_version_id,
             )
@@ -1098,12 +1102,13 @@ class TestConcurrentReusableWidgetAttach(NonAtomicBaseTest):
             close_old_connections()
             try:
                 return attach_reusable_widget(
-                    notebook=notebook,
+                    team_id=self.team.id,
+                    notebook_id=notebook.id,
                     node_id="shared",
                     widget_id=widget.id,
                     version_id=None,
                     input_bindings={},
-                    user=self.user,
+                    user_id=self.user.id,
                 )
             finally:
                 close_old_connections()
