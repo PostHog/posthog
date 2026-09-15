@@ -2,9 +2,11 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { ArtefactLogList } from './ArtefactLogList'
 
-const predecessor = 'https://github.com/example/repo/pull/1'
-const retained = 'https://github.com/example/repo/pull/2'
-const replacement = 'https://github.com/example/repo/pull/3'
+// A repository name with no hyphen gives the browser nothing to break on, so these URLs are what
+// the narrow story has to keep inside the card.
+const predecessor = 'https://github.com/exampleorg/exampleplatformservice/pull/48213'
+const retained = 'https://github.com/exampleorg/exampleplatformservice/pull/48244'
+const replacement = 'https://github.com/exampleorg/exampleplatformservice/pull/48261'
 
 const meta: Meta<typeof ArtefactLogList> = {
     title: 'Scenes-App/Signals/ArtefactLogList',
@@ -51,7 +53,8 @@ export const ReplacementLifecycle: Story = {}
 export const Narrow: Story = {
     decorators: [
         (Story) => (
-            <div className="max-w-[520px]">
+            // The detail rail this list always renders in, at its pinned width and padding.
+            <div className="w-[26rem] p-5">
                 <Story />
             </div>
         ),

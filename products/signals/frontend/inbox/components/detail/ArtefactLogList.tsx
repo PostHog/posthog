@@ -544,7 +544,7 @@ function renderArtefactBody({
                 <div className="space-y-1 text-xs">
                     <ReasoningBody text={c.reason ?? ''} />
                     {(c.targets ?? []).map(({ pr_url }) => (
-                        <Link key={pr_url} to={pr_url} target="_blank" className="block">
+                        <Link key={pr_url} to={pr_url} target="_blank" className="block break-words">
                             {pr_url}
                         </Link>
                     ))}
@@ -557,7 +557,7 @@ function renderArtefactBody({
                 <div className="space-y-1 text-xs">
                     <ReasoningBody text="PostHog started an automated replacement for:" />
                     {(c.decision?.targets ?? []).map(({ pr_url }) => (
-                        <Link key={pr_url} to={pr_url} target="_blank" className="block">
+                        <Link key={pr_url} to={pr_url} target="_blank" className="block break-words">
                             {pr_url}
                         </Link>
                     ))}
@@ -570,12 +570,12 @@ function renderArtefactBody({
                 <div className="space-y-1 text-xs">
                     <ReasoningBody text={c.explanation ?? ''} />
                     {(c.replacement_pr_urls ?? []).map((url) => (
-                        <Link key={url} to={url} target="_blank" className="block">
+                        <Link key={url} to={url} target="_blank" className="block break-words">
                             {url}
                         </Link>
                     ))}
                     {Object.entries(c.results ?? {}).map(([url, result]) => (
-                        <div key={url}>
+                        <div key={url} className="break-words">
                             <Link to={url} target="_blank">
                                 {url}
                             </Link>
