@@ -27,6 +27,7 @@ import {
     InsightType,
     PropertyFilterType,
     PropertyOperator,
+    AnnotationScope,
 } from '~/types'
 
 import {
@@ -695,6 +696,18 @@ describe('insightVizDataLogic', () => {
             expect(builtInsightVizDataLogic.values.insightFilter).toMatchObject({
                 ...funnelsQueryDefault.funnelsFilter,
                 layout: FunnelLayout.horizontal,
+            })
+        })
+
+        it('keeps every patch dispatched inside the debounce', async () => {
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateInsightFilter({ showAnnotations: false })
+                builtInsightVizDataLogic.actions.updateInsightFilter({ annotationsScope: AnnotationScope.Project })
+            }).toFinishAllListeners()
+
+            expect(builtInsightVizDataLogic.values.insightFilter).toEqual({
+                showAnnotations: false,
+                annotationsScope: AnnotationScope.Project,
             })
         })
 

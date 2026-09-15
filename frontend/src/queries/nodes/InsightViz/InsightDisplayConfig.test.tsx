@@ -169,7 +169,7 @@ describe('InsightDisplayConfig', () => {
                         Axes: ['X-axis', 'Y-axis'],
                         Lines: ['Style', 'Overlays'],
                     },
-                    displayItems: ['Show values on series', 'Show annotations', 'Show legendBottom'],
+                    displayItems: ['Show values on series', 'Showallannotations', 'Show legendBottom'],
                     overlayItems: lineOverlays,
                 },
             ],
@@ -186,7 +186,7 @@ describe('InsightDisplayConfig', () => {
                     displayItems: [
                         'Show values on series',
                         'Show as % of total',
-                        'Show annotations',
+                        'Showallannotations',
                         'Show legendBottom',
                     ],
                     overlayItems: lineOverlays,
@@ -205,7 +205,7 @@ describe('InsightDisplayConfig', () => {
                     displayItems: [
                         'Show values on series',
                         'Show as % of total',
-                        'Show annotations',
+                        'Showallannotations',
                         'Show legendBottom',
                     ],
                 },
