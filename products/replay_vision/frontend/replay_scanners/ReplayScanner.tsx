@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Suspense } from 'react'
 
-import { IconSparkles } from '@posthog/icons'
+import { IconSearch, IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -18,6 +18,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { searchTabUrl } from '../search/observationQueries'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { formatCreditsRange } from '../utils/credits'
 import { quotaBannerState } from '../utils/quotaProjection'
@@ -30,9 +31,6 @@ import { ReplayScannerTab, replayScannerSceneLogic } from './replayScannerSceneL
 import { scanDrought } from './scanDrought'
 import { LIMIT_REACHED_TOOLTIP } from './scannerCopy'
 
-const ObservationSearchTab = lazyWithRetry(() =>
-    import('../search/ObservationSearchTab').then((module) => ({ default: module.ObservationSearchTab }))
-)
 const ScannerAlertsTab = lazyWithRetry(() =>
     import('./components/ScannerAlertsTab').then((module) => ({ default: module.ScannerAlertsTab }))
 )
@@ -94,6 +92,15 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                 resourceType={{ type: 'replay_vision' }}
                 actions={
                     <>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconSearch />}
+                            to={searchTabUrl({ scanner: scannerId })}
+                            data-attr="vision-scanner-search"
+                        >
+                            Search observations
+                        </LemonButton>
                         {activeTab !== ReplayScannerTab.Calibration && (
                             <LemonButton
                                 type="secondary"
@@ -164,11 +171,6 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         key: ReplayScannerTab.Observations,
                         label: 'Observations',
                         content: <ScannerObservationsTable scannerId={scannerId} />,
-                    },
-                    {
-                        key: ReplayScannerTab.Search,
-                        label: 'Search',
-                        content: <ObservationSearchTab scanner={scanner} />,
                     },
                     {
                         key: ReplayScannerTab.OnDemand,
