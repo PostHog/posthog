@@ -75,6 +75,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     ResumableSource,
     error_message_matches,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.errors import TRANSIENT_EGRESS_PROXY_ERRORS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     DATABASE_HOST_NOT_ALLOWED_ERROR,
     DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
@@ -265,9 +266,7 @@ Transient_Error_Messages: dict[str, str] = {
     # PostHog's own egress proxy refusing the CONNECT. Nothing on the customer's side is wrong, so
     # this message asks nothing of them.
     "Cannot connect to proxy": TRANSIENT_EGRESS_MESSAGE,
-    "Tunnel connection failed: 502": TRANSIENT_EGRESS_MESSAGE,
-    "Tunnel connection failed: 503": TRANSIENT_EGRESS_MESSAGE,
-    "Tunnel connection failed: 504": TRANSIENT_EGRESS_MESSAGE,
+    **dict.fromkeys(TRANSIENT_EGRESS_PROXY_ERRORS, TRANSIENT_EGRESS_MESSAGE),
     # A vendor API that was down or overloaded, in the wording `requests.raise_for_status()` builds:
     # "<status> Server Error: <reason> for url: <url>". REST sources retry these in their transport
     # and again through Temporal, so reaching here means the outage outlasted both and the stored

@@ -102,9 +102,10 @@ tools:
             every embedded node a short `attrs.title` saying what it shows — it renders in the node's header and is what
             a reader skims instead of the query.
 
-            This creates a rich-text (ProseMirror) notebook — use it for document-style notebooks built around embedded
-            charts and saved insights. For step-by-step data analysis with executable SQL/Python cells, use
-            `notebooks-create-markdown` instead.
+            The server stores the notebook as a markdown notebook: it converts this document, embedded charts included,
+            into markdown with component tags. When you update the notebook later, notebooks-retrieve shows its content
+            as one ph-markdown-notebook node, so keep that structure and edit attrs.markdown. For step-by-step data
+            analysis with executable SQL/Python cells, use `notebooks-create-markdown` instead.
         exclude_params:
             - _create_in_folder
         feature_flag: revamped-py-notebooks

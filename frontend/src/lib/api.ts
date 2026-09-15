@@ -1264,7 +1264,11 @@ export class ApiRequest {
     }
 
     public task(id: Task['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.tasks(teamId).addPathComponent(id)
+        if (id === '.' || id === '..') {
+            throw new Error('Invalid task ID')
+        }
+
+        return this.tasks(teamId).addEncodedPathComponent(id)
     }
 
     public taskRuns(taskId: Task['id'], teamId?: TeamType['id']): ApiRequest {
@@ -6576,7 +6580,7 @@ const api = {
             search?: string
             status?: HogFlow['status']
             created_by?: string
-            type?: 'messaging' | 'automation'
+            type?: 'messaging' | 'automation' | 'loop'
             /** JSON-encoded object the stored trigger must contain, e.g. `{"type":"batch"}`. */
             trigger?: string
             limit?: number

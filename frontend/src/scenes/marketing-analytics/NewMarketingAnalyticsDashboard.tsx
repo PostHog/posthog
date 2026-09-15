@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
+import { IconCursor, IconPeople, IconRetention, IconTarget, IconTrends } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCollapse, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
@@ -21,7 +22,6 @@ import {
 import { marketingAttributionLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAttributionLogic'
 import { BREAKDOWN_LABELS } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingBreakdown'
 import { setupPlanLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
-import { MarketingAnalyticsCell } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/shared'
 import { webAnalyticsDataTableQueryContext } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -29,76 +29,85 @@ import { OverviewMetricCardGrid } from '~/queries/nodes/OverviewGrid/OverviewMet
 import { labelFromKey } from '~/queries/nodes/WebOverview/WebOverview'
 import { Query } from '~/queries/Query/Query'
 import {
-    DataTableNode,
     MarketingAnalyticsAttributionBreakdown,
-    MarketingAnalyticsBaseColumns,
-    MarketingAnalyticsDrillDownLevel,
     NodeKind,
     WebOverviewQuery,
     WebOverviewQueryResponse,
+    WebStatsBreakdown,
 } from '~/queries/schema/schema-general'
-import { QueryContext, QueryContextColumn } from '~/queries/types'
+import { QueryContext } from '~/queries/types'
 
+import { suggestionsForSection } from './Setup/sectionRouting'
 import { SuggestionRow } from './Setup/SuggestionRow'
 
-// Channel is the top level because it covers all traffic, not just the platforms with a
-// connected ad source. Source is the second column so a channel breaks down into the
-// sources that make it up.
-const COLUMNS: string[] = [
-    'Channel',
-    MarketingAnalyticsBaseColumns.Source,
-    // Sessions comes from the sessions table, so it's the only column that has a value for
-    // traffic with no ad spend behind it (organic, direct, referral).
-    'Sessions',
-    MarketingAnalyticsBaseColumns.Cost,
-    MarketingAnalyticsBaseColumns.Clicks,
-    MarketingAnalyticsBaseColumns.Impressions,
-    MarketingAnalyticsBaseColumns.CPC,
-    MarketingAnalyticsBaseColumns.CTR,
+const TRAFFIC_BREAKDOWNS = [
+    { value: WebStatsBreakdown.InitialChannelType, label: 'Channel' },
+    { value: WebStatsBreakdown.InitialUTMSource, label: 'UTM source' },
+    { value: WebStatsBreakdown.InitialUTMCampaign, label: 'Campaign' },
+    { value: WebStatsBreakdown.InitialUTMMedium, label: 'Medium' },
+    { value: WebStatsBreakdown.InitialReferringDomain, label: 'Referring domain' },
+    { value: WebStatsBreakdown.InitialPage, label: 'Landing page' },
 ]
 
-const CHANNEL_SOURCE_BREAKDOWN: DataTableNode = {
-    kind: NodeKind.DataTableNode,
-    source: {
-        kind: NodeKind.MarketingAnalyticsTableQuery,
-        dateRange: { date_from: '-30d', date_to: null },
-        drillDownLevel: MarketingAnalyticsDrillDownLevel.ChannelSource,
-        select: COLUMNS,
-        // Sort by channel first so every source of a channel lands together, then by traffic
-        // within the channel — sessions is the one metric every row has.
-        orderBy: [
-            ['Channel', 'ASC'],
-            ['Sessions', 'DESC'],
-        ],
-        properties: [],
-        limit: 200,
-        tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
-    },
-    full: true,
-    embedded: false,
-    showOpenEditorButton: false,
-    showElapsedTime: true,
-    showTimings: true,
-}
-
-// Every cell is a MarketingAnalyticsItem, not a scalar — without a render fn the table falls
-// through to the raw JSON viewer.
 const QUERY_CONTEXT: QueryContext = {
     ...webAnalyticsDataTableQueryContext,
-    columns: COLUMNS.reduce(
-        (acc, column) => {
-            acc[column] = { render: MarketingAnalyticsCell }
-            return acc
-        },
-        {} as Record<string, QueryContextColumn>
-    ),
+    columns: {
+        ...webAnalyticsDataTableQueryContext.columns,
+        visitors: { ...webAnalyticsDataTableQueryContext.columns?.visitors, renderTitle: () => <>Visitors</> },
+        views: { ...webAnalyticsDataTableQueryContext.columns?.views, renderTitle: () => <>Pageviews</> },
+        bounce_rate: { ...webAnalyticsDataTableQueryContext.columns?.bounce_rate, renderTitle: () => <>Bounce rate</> },
+    },
 }
 
 // Scaffold for the redesigned marketing analytics dashboard, gated behind the
 // `new-marketing-analytics-dashboard` feature flag.
 export function NewMarketingAnalyticsDashboard(): JSX.Element {
+    const [selectedSection, setSelectedSection] = useState('acquisition')
+    const [trafficBreakdown, setTrafficBreakdown] = useState(WebStatsBreakdown.InitialChannelType)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const sections = [
+        {
+            key: 'acquisition',
+            title: 'Acquisition',
+            description: 'Visitors, sessions and pageviews',
+            icon: <IconPeople />,
+        },
+        {
+            key: 'engagement',
+            title: 'Engagement',
+            description: 'Session duration and bounce rate',
+            icon: <IconCursor />,
+        },
+        ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_RETENTION]
+            ? [
+                  {
+                      key: 'retention',
+                      title: 'Retention',
+                      description: 'Returning visitors by cohort',
+                      icon: <IconRetention />,
+                  },
+              ]
+            : []),
+        ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ATTRIBUTION]
+            ? [
+                  {
+                      key: 'conversion',
+                      title: 'Conversion',
+                      description: 'Goals and conversion paths',
+                      icon: <IconTarget />,
+                  },
+                  {
+                      key: 'revenue',
+                      title: 'Revenue',
+                      description: 'Revenue by attribution model',
+                      icon: <IconTrends />,
+                  },
+              ]
+            : []),
+    ]
+    const activeSection = sections.some(({ key }) => key === selectedSection) ? selectedSection : 'acquisition'
+    const isTraffic = activeSection === 'acquisition' || activeSection === 'engagement'
     const { revenueGoals, selectedRevenueGoalId, revenueQuery, breakdownBy } = useValues(marketingAttributionLogic)
     const { setRevenueGoalId, setBreakdownBy } = useActions(marketingAttributionLogic)
     const { dateFilter, compareFilter, shouldFilterTestAccounts } = useValues(marketingAnalyticsLogic)
@@ -109,6 +118,13 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
     const sourceSuggestions = visibleSuggestions.filter((suggestion) => suggestion.kind === 'connect_source')
     const reviewSources = (): void => {
         setSetupSection(SetupSection.SOURCES)
+        setActiveTab(MarketingAnalyticsTab.SETUP)
+    }
+
+    const [goalsExpanded, setGoalsExpanded] = useLocalStorage('marketing-goal-suggestions-expanded', true)
+    const goalSuggestions = suggestionsForSection(visibleSuggestions, SetupSection.CONVERSION_GOALS)
+    const reviewGoals = (): void => {
+        setSetupSection(SetupSection.CONVERSION_GOALS)
         setActiveTab(MarketingAnalyticsTab.SETUP)
     }
 
@@ -138,18 +154,20 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
         <div className="mt-4 flex flex-col gap-4">
             <div className="flex flex-wrap items-center gap-2">
                 <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
-                <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
-                <LemonButton size="small" loading={responseLoading} onClick={() => loadData('force_async')}>
-                    Reload summary
-                </LemonButton>
+                {isTraffic && (
+                    <>
+                        <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
+                        <LemonButton size="small" loading={responseLoading} onClick={() => loadData('force_async')}>
+                            Reload summary
+                        </LemonButton>
+                    </>
+                )}
             </div>
             {sourceSuggestions.length > 0 && (
-                <div className="border rounded">
-                    <div className="flex justify-end p-2">
-                        <LemonButton size="small" onClick={reviewSources}>
-                            Review in Setup
-                        </LemonButton>
-                    </div>
+                <div className="border rounded relative">
+                    <LemonButton className="absolute right-2 top-0 z-10" size="small" onClick={reviewSources}>
+                        Review in Setup
+                    </LemonButton>
                     <LemonCollapse
                         embedded
                         size="small"
@@ -158,7 +176,10 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                         panels={[
                             {
                                 key: 'sources',
-                                header: `Suggested ad sources (${sourceSuggestions.length})`,
+                                header: {
+                                    children: `Suggested ad sources (${sourceSuggestions.length})`,
+                                    className: 'pr-36',
+                                },
                                 content: sourceSuggestions.map((suggestion) => (
                                     <SuggestionRow
                                         key={suggestion.id}
@@ -175,118 +196,204 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                     />
                 </div>
             )}
-            {responseError ? (
-                <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadData('force_async') }}>
-                    Could not load traffic metrics. Try again.
-                </LemonBanner>
-            ) : (
-                [
-                    { title: 'Acquisition', keys: ['visitors', 'sessions', 'views'] },
-                    { title: 'Engagement', keys: ['session duration', 'bounce rate'] },
-                ].map(({ title, keys }) => (
-                    <section key={title} className="flex flex-col gap-2" aria-label={title}>
-                        <h2 className="mb-0">{title}</h2>
-                        <OverviewMetricCardGrid
-                            items={keys.flatMap((key) =>
-                                (overview?.results?.filter((item) => item.key === key) ?? []).map((item) => ({
-                                    ...item,
-                                    value: item.value,
-                                }))
-                            )}
-                            loading={responseLoading}
-                            numSkeletons={keys.length}
-                            samplingRate={overview?.samplingRate}
-                            preComputeStrategy={overview?.preComputeStrategy}
-                            labelFromKey={labelFromKey}
-                        />
-                    </section>
-                ))
-            )}
-            {featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ATTRIBUTION] && (
-                <section aria-label="Conversion" className="flex flex-col gap-2">
-                    <h2 className="mb-0">Conversion</h2>
-                    <AttributionTab />
-                </section>
-            )}
-            {featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_RETENTION] && (
-                <section aria-label="Retention" className="flex flex-col gap-2">
-                    <h2 className="mb-0">Retention</h2>
-                    <p className="text-secondary mb-0">
-                        Follow visitors acquired in the selected date range across subsequent periods.
-                    </p>
-                    <RetentionTab />
-                </section>
-            )}
-            {featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ATTRIBUTION] && (
-                <section aria-label="Revenue" className="flex flex-col gap-4">
-                    <h2 className="mb-0">Revenue</h2>
-                    {currentTeamLoading || !currentTeam ? (
-                        <LemonSkeleton className="h-40" />
-                    ) : revenueQuery ? (
-                        <>
-                            <div className="flex flex-wrap items-center gap-2">
-                                <DateFilter
-                                    dateFrom={dateFilter.dateFrom}
-                                    dateTo={dateFilter.dateTo}
-                                    onChange={setDates}
-                                />
-                                <LemonSelect
-                                    value={selectedRevenueGoalId}
-                                    onChange={(value) => value && setRevenueGoalId(value)}
-                                    options={revenueGoals.map((goal) => ({
-                                        value: goal.conversion_goal_id,
-                                        label: goal.conversion_goal_name,
-                                    }))}
-                                    data-attr="marketing-revenue-goal"
-                                />
-                                <LemonSelect
-                                    value={breakdownBy}
-                                    onChange={setBreakdownBy}
-                                    options={Object.values(MarketingAnalyticsAttributionBreakdown).map((value) => ({
-                                        value,
-                                        label: BREAKDOWN_LABELS[value],
-                                    }))}
-                                    data-attr="marketing-revenue-breakdown"
-                                />
-                            </div>
-                            <p className="text-secondary mb-0">
-                                Compare attributed value across models for one revenue goal at a time.
-                            </p>
-                            <AttributionTable
-                                metric="revenue"
-                                query={revenueQuery}
-                                attachTo={marketingAnalyticsLogic}
-                            />
-                        </>
-                    ) : (
-                        <LemonBanner
-                            type="info"
-                            action={{
-                                children: 'Review in Setup',
-                                onClick: () => {
-                                    setSetupSection(SetupSection.CONVERSION_GOALS)
-                                    setActiveTab(MarketingAnalyticsTab.SETUP)
+            {goalSuggestions.length > 0 && (
+                <div className="border rounded relative">
+                    <LemonButton className="absolute right-2 top-0 z-10" size="small" onClick={reviewGoals}>
+                        Review in Setup
+                    </LemonButton>
+                    <LemonCollapse
+                        embedded
+                        size="small"
+                        activeKey={goalsExpanded ? 'goals' : null}
+                        onChange={(key) => setGoalsExpanded(key !== null)}
+                        panels={[
+                            {
+                                key: 'goals',
+                                header: {
+                                    children: `Suggested conversion goals (${goalSuggestions.length})`,
+                                    className: 'pr-36',
                                 },
-                            }}
-                        >
-                            Choose an event or action goal that sums an amount and mark it as Revenue in Setup.
-                        </LemonBanner>
-                    )}
-                </section>
+                                content: goalSuggestions.map((suggestion) => (
+                                    <SuggestionRow
+                                        key={suggestion.id}
+                                        suggestion={suggestion}
+                                        currentSection={SetupSection.CONVERSION_GOALS}
+                                        onReview={(item) => {
+                                            reviewGoals()
+                                            reviewSuggestion(item)
+                                        }}
+                                    />
+                                )),
+                            },
+                        ]}
+                    />
+                </div>
             )}
-            <Query
-                query={{
-                    ...CHANNEL_SOURCE_BREAKDOWN,
-                    source: {
-                        ...CHANNEL_SOURCE_BREAKDOWN.source,
-                        dateRange,
-                        compareFilter,
-                        filterTestAccounts: shouldFilterTestAccounts,
-                    },
-                }}
-                context={QUERY_CONTEXT}
-                readOnly
-            />
+            <nav aria-label="Dashboard sections" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                {sections.map(({ key, title, description, icon }) => (
+                    <LemonButton
+                        key={key}
+                        type={activeSection === key ? 'primary' : 'secondary'}
+                        onClick={() => setSelectedSection(key)}
+                        aria-pressed={activeSection === key}
+                        aria-controls="marketing-dashboard-section"
+                        className="h-full"
+                        fullWidth
+                    >
+                        <div className="flex flex-col gap-2 py-2 text-left">
+                            <span className="flex items-center gap-2 text-lg font-semibold">
+                                {icon}
+                                {title}
+                            </span>
+                            <span className="font-normal">{description}</span>
+                        </div>
+                    </LemonButton>
+                ))}
+            </nav>
+            <div id="marketing-dashboard-section" className="flex flex-col gap-4">
+                {isTraffic &&
+                    (responseError ? (
+                        <LemonBanner
+                            type="error"
+                            action={{ children: 'Retry', onClick: () => loadData('force_async') }}
+                        >
+                            Could not load traffic metrics. Try again.
+                        </LemonBanner>
+                    ) : (
+                        [
+                            { key: 'acquisition', title: 'Acquisition', keys: ['visitors', 'sessions', 'views'] },
+                            { key: 'engagement', title: 'Engagement', keys: ['session duration', 'bounce rate'] },
+                        ]
+                            .filter(({ key }) => key === activeSection)
+                            .map(({ title, keys }) => (
+                                <section key={title} className="flex flex-col gap-2" aria-label={title}>
+                                    <h2 className="mb-0">{title}</h2>
+                                    <OverviewMetricCardGrid
+                                        items={keys.flatMap((key) =>
+                                            (overview?.results?.filter((item) => item.key === key) ?? []).map(
+                                                (item) => ({
+                                                    ...item,
+                                                    value: item.value,
+                                                })
+                                            )
+                                        )}
+                                        loading={responseLoading}
+                                        numSkeletons={keys.length}
+                                        samplingRate={overview?.samplingRate}
+                                        preComputeStrategy={overview?.preComputeStrategy}
+                                        labelFromKey={labelFromKey}
+                                    />
+                                </section>
+                            ))
+                    ))}
+                {activeSection === 'conversion' && (
+                    <section aria-label="Conversion" className="flex flex-col gap-2">
+                        <h2 className="mb-0">Conversion</h2>
+                        <AttributionTab />
+                    </section>
+                )}
+                {activeSection === 'retention' && (
+                    <section aria-label="Retention" className="flex flex-col gap-2">
+                        <h2 className="mb-0">Retention</h2>
+                        <p className="text-secondary mb-0">
+                            Follow visitors acquired in the selected date range across subsequent periods.
+                        </p>
+                        <RetentionTab />
+                    </section>
+                )}
+                {activeSection === 'revenue' && (
+                    <section aria-label="Revenue" className="flex flex-col gap-4">
+                        <h2 className="mb-0">Revenue</h2>
+                        {currentTeamLoading || !currentTeam ? (
+                            <LemonSkeleton className="h-40" />
+                        ) : revenueQuery ? (
+                            <>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <DateFilter
+                                        dateFrom={dateFilter.dateFrom}
+                                        dateTo={dateFilter.dateTo}
+                                        onChange={setDates}
+                                    />
+                                    <LemonSelect
+                                        value={selectedRevenueGoalId}
+                                        onChange={(value) => value && setRevenueGoalId(value)}
+                                        options={revenueGoals.map((goal) => ({
+                                            value: goal.conversion_goal_id,
+                                            label: goal.conversion_goal_name,
+                                        }))}
+                                        data-attr="marketing-revenue-goal"
+                                    />
+                                    <LemonSelect
+                                        value={breakdownBy}
+                                        onChange={setBreakdownBy}
+                                        options={Object.values(MarketingAnalyticsAttributionBreakdown).map((value) => ({
+                                            value,
+                                            label: BREAKDOWN_LABELS[value],
+                                        }))}
+                                        data-attr="marketing-revenue-breakdown"
+                                    />
+                                </div>
+                                <p className="text-secondary mb-0">
+                                    Compare attributed value across models for one revenue goal at a time.
+                                </p>
+                                <AttributionTable
+                                    metric="revenue"
+                                    query={revenueQuery}
+                                    attachTo={marketingAnalyticsLogic}
+                                />
+                            </>
+                        ) : (
+                            <LemonBanner
+                                type="info"
+                                action={{
+                                    children: 'Review in Setup',
+                                    onClick: () => {
+                                        setSetupSection(SetupSection.CONVERSION_GOALS)
+                                        setActiveTab(MarketingAnalyticsTab.SETUP)
+                                    },
+                                }}
+                            >
+                                Choose an event or action goal that sums an amount and mark it as Revenue in Setup.
+                            </LemonBanner>
+                        )}
+                    </section>
+                )}
+                {isTraffic && (
+                    <>
+                        <div className="flex items-center gap-2">
+                            <span>Breakdown by</span>
+                            <LemonSelect
+                                value={trafficBreakdown}
+                                onChange={setTrafficBreakdown}
+                                options={TRAFFIC_BREAKDOWNS}
+                                aria-label="Traffic breakdown"
+                            />
+                        </div>
+                        <Query
+                            query={{
+                                kind: NodeKind.DataTableNode,
+                                source: {
+                                    kind: NodeKind.WebStatsTableQuery,
+                                    breakdownBy: trafficBreakdown,
+                                    dateRange,
+                                    compareFilter,
+                                    filterTestAccounts: shouldFilterTestAccounts,
+                                    includeBounceRate: activeSection === 'engagement',
+                                    properties: [],
+                                    limit: 25,
+                                    tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                },
+                                hiddenColumns: activeSection === 'engagement' ? ['context.columns.views'] : [],
+                                full: true,
+                                embedded: false,
+                                showOpenEditorButton: false,
+                            }}
+                            context={{ ...QUERY_CONTEXT, compareFilter }}
+                            readOnly
+                        />
+                    </>
+                )}
+            </div>
         </div>
     )
 }

@@ -24,6 +24,8 @@ export { getThinkingMessageFromResponse, getRandomThinkingMessage, THINKING_MESS
 export { resolveEffortForModel, DEFAULT_COMPOSER_MODEL, DEFAULT_COMPOSER_EFFORT } from '../utils/composerModels'
 export { modelCatalogueLogic } from '../logics/modelCatalogueLogic'
 
+export { tasksLogic } from '../logics/tasksLogic'
+
 // --- Attached-context store + injection hook (headless) ---
 // Global registry of on-screen context providers; `contextItems` is what the send paths wrap into the
 // trusted/untrusted context blocks. `useAttachedContext` registers a provider for the lifetime of a mount.

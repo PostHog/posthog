@@ -314,6 +314,107 @@ export const SignalsReportArtefactsPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Schedule a re-measurement of the report's claim. A `metric_threshold` check runs one bounded Trends query and compares the result, so it needs no agent run.
+ * @summary Create a check on a report
+ */
+export const signalsReportChecksCreateBodyTitleMax = 200
+
+export const signalsReportChecksCreateBodyRationaleMax = 2000
+
+export const signalsReportChecksCreateBodyRunIntervalMinutesMin = 360
+export const signalsReportChecksCreateBodyRunIntervalMinutesMax = 129600
+
+export const signalsReportChecksCreateBodyRunsRemainingMax = 10
+
+export const SignalsReportChecksCreateBody = /* @__PURE__ */ zod
+    .object({
+        title: zod
+            .string()
+            .max(signalsReportChecksCreateBodyTitleMax)
+            .describe('Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`.'),
+        rationale: zod
+            .string()
+            .max(signalsReportChecksCreateBodyRationaleMax)
+            .optional()
+            .describe('Why the check is worth running.'),
+        kind: zod
+            .enum(['metric_threshold'])
+            .describe('\* `metric_threshold` - Metric Threshold')
+            .describe('How the check is evaluated.\n\n\* `metric_threshold` - Metric Threshold'),
+        config: zod
+            .object({
+                metric_id: zod
+                    .union([zod.string(), zod.null()])
+                    .optional()
+                    .describe(
+                        "Identifier of a metric on the report whose query this check measures. The metric's query is copied into `query` when the check is created."
+                    ),
+                query: zod
+                    .union([zod.record(zod.string(), zod.unknown()), zod.null()])
+                    .optional()
+                    .describe(
+                        'Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created.'
+                    ),
+                comparison: zod
+                    .object({
+                        operator: zod.enum(['lte', 'gte', 'between']).describe('`lte`, `gte`, or `between`.'),
+                        value: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('The bound for `lte` and `gte`; unused by `between`.'),
+                        bounds: zod
+                            .union([
+                                zod.object({
+                                    lower: zod.number(),
+                                    upper: zod.number(),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('The inclusive range for `between`; unused by `lte` and `gte`.'),
+                    })
+                    .describe('What the measured value must satisfy to pass.'),
+                baseline_value: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe('The value observed when the check was written, recorded on each result for context.'),
+            })
+            .describe(
+                "A deterministic check: measure one number, compare it, record the verdict.\n\nThe number comes either from a metric the report already shows (``metric_id``) or from a query\nthe author supplies. Both end up in the same runner, so a supplied query must satisfy the live\nmetric contract — the node allowlist, the bounded window, and the single-output-series rule.\n\nA caller names one source. When it names a metric, the create path copies that metric's query\ninto ``query`` before the row is stored, so the check keeps measuring what its author saw even if\nthe report's metric is later rewritten under the same id; ``metric_id`` stays as provenance.\n\nUnknown keys are refused rather than ignored, so a misspelled field name is reported instead of\nbeing dropped in silence and stored as it arrived."
+            )
+            .describe('What the check measures and what the result must satisfy; the shape depends on `kind`.'),
+        next_run_at: zod.iso
+            .datetime({ offset: true })
+            .optional()
+            .describe(
+                'When to first evaluate the check. Must be in the future and within 90 days. Defaults to 7 days from now.'
+            ),
+        run_interval_minutes: zod
+            .number()
+            .min(signalsReportChecksCreateBodyRunIntervalMinutesMin)
+            .max(signalsReportChecksCreateBodyRunIntervalMinutesMax)
+            .nullish()
+            .describe(
+                'Gap between runs for a recurring check, between 360 and 129600 minutes. Omit for a one-shot check.'
+            ),
+        runs_remaining: zod
+            .number()
+            .min(1)
+            .max(signalsReportChecksCreateBodyRunsRemainingMax)
+            .optional()
+            .describe('How many times to evaluate the check, at most 10. Defaults to 1.'),
+        expires_at: zod.iso
+            .datetime({ offset: true })
+            .optional()
+            .describe(
+                'Horizon after which the check retires unrun. Defaults to 30 days after the last scheduled run, or the 90-day horizon if that comes first.'
+            ),
+    })
+    .describe(
+        "Request body for creating a check on a report.\n\nThe schedule is the check's own: `next_run_at` says when to look, rather than the system\nderiving a soak window from a merged pull request that many fixes never have."
+    )
+
+/**
  * Transition many reports to a new state in one call.
  *
  * Each id is processed independently: a report whose transition isn't allowed from its
@@ -424,7 +525,7 @@ export const signalsScoutCreateBodyConfigOneRepositoriesItemMax = 255
 
 export const signalsScoutCreateBodyConfigOneRepositoriesMax = 10
 
-export const signalsScoutCreateBodyConfigOneWriteScopesMax = 7
+export const signalsScoutCreateBodyConfigOneWriteScopesMax = 8
 
 export const signalsScoutCreateBodyConfigOneRunIntervalMinutesMin = 30
 export const signalsScoutCreateBodyConfigOneRunIntervalMinutesMax = 43200
@@ -520,7 +621,7 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                     .max(signalsScoutCreateBodyConfigOneWriteScopesMax)
                     .optional()
                     .describe(
-                        "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+                        "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
                     ),
                 enabled: zod
                     .boolean()
@@ -680,7 +781,7 @@ export const signalsScoutConfigCreateBodyRepositoriesItemMax = 255
 
 export const signalsScoutConfigCreateBodyRepositoriesMax = 10
 
-export const signalsScoutConfigCreateBodyWriteScopesMax = 7
+export const signalsScoutConfigCreateBodyWriteScopesMax = 8
 
 export const signalsScoutConfigCreateBodyRunIntervalMinutesMin = 30
 export const signalsScoutConfigCreateBodyRunIntervalMinutesMax = 43200
@@ -740,7 +841,7 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .max(signalsScoutConfigCreateBodyWriteScopesMax)
             .optional()
             .describe(
-                "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+                "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
             ),
         enabled: zod.boolean().optional().describe('Whether this scout runs on its schedule. Defaults to true.'),
         emit: zod
@@ -878,7 +979,7 @@ export const signalsScoutConfigUpdateBodyRepositoriesItemMax = 255
 
 export const signalsScoutConfigUpdateBodyRepositoriesMax = 10
 
-export const signalsScoutConfigUpdateBodyWriteScopesMax = 7
+export const signalsScoutConfigUpdateBodyWriteScopesMax = 8
 
 export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -1028,7 +1129,7 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .max(signalsScoutConfigUpdateBodyWriteScopesMax)
             .optional()
             .describe(
-                "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+                "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
             ),
     })
     .describe('Editable display name, schedule, enablement, and emit posture for one scout config.')
@@ -1466,7 +1567,7 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
                 '\* `immediately_actionable` - immediately_actionable\n\* `requires_human_input` - requires_human_input\n\* `not_actionable` - not_actionable'
             )
             .describe(
-                "The scout's actionability call: `immediately_actionable` -> the report surfaces READY; `requires_human_input` -> PENDING_INPUT; `not_actionable` -> suppressed. A safety-judge failure suppresses the report regardless.\n\n\* `immediately_actionable` - immediately_actionable\n\* `requires_human_input` - requires_human_input\n\* `not_actionable` - not_actionable"
+                "The scout's actionability call: `immediately_actionable` -> the report surfaces READY; `requires_human_input` -> PENDING_INPUT; `not_actionable` -> suppressed. A safety-judge failure suppresses the report regardless. A root cause you have not found is not human input: a report that names the evidence, the code surface, or a reproducible failure path is `immediately_actionable`, because investigating it is the action. Reserve `requires_human_input` for a report blocked on a decision only a person can make.\n\n\* `immediately_actionable` - immediately_actionable\n\* `requires_human_input` - requires_human_input\n\* `not_actionable` - not_actionable"
             ),
         already_addressed: zod
             .boolean()

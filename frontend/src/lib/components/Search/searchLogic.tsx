@@ -974,6 +974,7 @@ export const searchLogic = kea<searchLogicType>([
 
                 // Synonyms people search for that don't appear in the item name.
                 const pathSearchKeywords: Record<string, string[]> = {
+                    Destinations: ['batch exports', 'export data'],
                     Sources: ['data warehouse', 'warehouse', 'connectors', 'import data'],
                 }
 

@@ -108,6 +108,7 @@ impl TestContext {
                 attempt_alert_threshold: 5,
                 gc_batch_limit: 10_000,
             },
+            self.tables.clone(),
         )
     }
 
@@ -191,10 +192,13 @@ impl TestContext {
     }
 
     pub async fn cleanup(&self) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM lifecycle_op WHERE team_id = $1")
-            .bind(self.team_id as i32)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(&format!(
+            "DELETE FROM {} WHERE team_id = $1",
+            self.tables.lifecycle_op
+        ))
+        .bind(self.team_id as i32)
+        .execute(&self.pool)
+        .await?;
         sqlx::query(&format!(
             "DELETE FROM {} WHERE team_id = $1",
             self.tables.person_distinct_id

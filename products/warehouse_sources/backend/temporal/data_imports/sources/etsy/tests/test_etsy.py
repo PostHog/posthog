@@ -306,7 +306,7 @@ class TestEtsyTransport:
     def test_oversized_window_is_halved_instead_of_hitting_the_offset_ceiling(self) -> None:
         # First probe reports more rows than the offset ceiling can reach, so the slice splits.
         session = _FakeSession(
-            [_page(_rows(PAGE_SIZE), MAX_OFFSET + 1), _page(_rows(1), 1), _page(_rows(1, start=1), 1)]
+            [_page(_rows(PAGE_SIZE), MAX_OFFSET + PAGE_SIZE + 1), _page(_rows(1), 1), _page(_rows(1, start=1), 1)]
         )
         rows, _ = _collect(session, "receipts")
 
@@ -327,6 +327,30 @@ class TestEtsyTransport:
         window = session.get_calls[0][1]
         assert window["max_created"] - window["min_created"] < MIN_WINDOW_SECONDS
         assert len(rows) == MAX_OFFSET + PAGE_SIZE
+
+    @time_machine.travel("2005-03-01", tick=False)
+    def test_ledger_windows_stay_inside_etsys_31_day_maximum(self) -> None:
+        session = _FakeSession([_page([], 0) for _ in range(2)])
+        _collect(session, "ledger_entries")
+
+        windows = [(call[1]["min_created"], call[1]["max_created"]) for call in session.get_calls]
+        assert len(windows) == 2
+        assert max(end - start for start, end in windows) <= 31 * 24 * 60 * 60
+
+    @time_machine.travel("2005-01-15", tick=False)
+    def test_reviews_split_the_window_rather_than_paging_past_the_first_page(self) -> None:
+        # Offset 100 is the request Etsy rejects; the window has to narrow instead.
+        session = _FakeSession(
+            [
+                _page(_rows(PAGE_SIZE, key="transaction_id"), PAGE_SIZE + 1),
+                _page(_rows(1, key="transaction_id"), 1),
+                _page(_rows(1, start=1, key="transaction_id"), 1),
+            ]
+        )
+        rows, _ = _collect(session, "reviews")
+
+        assert [call[1]["offset"] for call in session.get_calls] == [0, 0, 0]
+        assert len(rows) == 2
 
     @time_machine.travel("2005-01-15", tick=False)
     def test_resume_finishes_the_saved_window_then_continues_after_it(self) -> None:
