@@ -524,15 +524,18 @@ WHERE and(
                 raise QueryError(
                     f"Conversion goal action with id={self.query.conversionGoal.actionId} not found in this project."
                 )
-            return action_to_expr(action)
+            goal_expr = action_to_expr(action)
         elif isinstance(self.query.conversionGoal, CustomEventConversionGoal):
-            return ast.CompareOperation(
+            goal_expr = ast.CompareOperation(
                 left=ast.Field(chain=["events", "event"]),
                 op=ast.CompareOperationOp.Eq,
                 right=ast.Constant(value=self.query.conversionGoal.customEventName),
             )
         else:
             return None
+        if self.query.conversionGoal.properties:
+            return ast.And(exprs=[goal_expr, property_to_expr(self.query.conversionGoal.properties, team=self.team)])
+        return goal_expr
 
     @cached_property
     def conversion_count_expr(self) -> Optional[ast.Expr]:

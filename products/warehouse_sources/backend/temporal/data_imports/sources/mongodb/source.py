@@ -1,4 +1,4 @@
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 from posthog.schema import (
     DataWarehouseSourceCategory,
@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
     get_collection_names,
     get_leading_index_keys,
     get_schemas as get_mongo_schemas,
+    get_server_metadata as get_mongo_server_metadata,
     mongo_client,
     mongo_source,
 )
@@ -347,6 +348,9 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             return False, _MONGO_CONNECT_FAILED_MESSAGE
 
         return True, None
+
+    def get_server_metadata(self, config: MongoDBSourceConfig, team_id: int) -> dict[str, Any]:
+        return get_mongo_server_metadata(config.connection_string, team_id)
 
     def source_for_pipeline(self, config: MongoDBSourceConfig, inputs: SourceInputs) -> SourceResponse:
         return mongo_source(
