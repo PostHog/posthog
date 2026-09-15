@@ -5291,7 +5291,10 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
     @parameterized.expand(
         [
             ("no_pr", {}, None, None),
+            ("null_output", None, None, None),
+            ("invalid_pr_url", {"pr_url": {"unexpected": "value"}}, None, None),
             ("pr_without_state", {"pr_url": _PR_URL}, _PR_URL, "unknown"),
+            ("invalid_pr_state", {"pr_url": _PR_URL, "pr_state": "unexpected"}, _PR_URL, "unknown"),
             ("open_pr", {"pr_url": _PR_URL, "pr_state": "open"}, _PR_URL, "open"),
             ("merged_by_state", {"pr_url": _PR_URL, "pr_state": "merged"}, _PR_URL, "merged"),
             ("merged_by_webhook_flag", {"pr_url": _PR_URL, "pr_state": "open", "pr_merged": True}, _PR_URL, "merged"),
@@ -5313,6 +5316,44 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
         [payload] = response.json()["results"]
         self.assertEqual(payload["latest_run"]["pr_url"], expected_pr_url)
         self.assertEqual(payload["latest_run"]["pr_state"], expected_pr_state)
+
+    def test_summaries_refresh_latest_pr_in_one_query(self):
+        tasks = [self.create_task(f"Task {index}") for index in range(3)]
+        task_updated_at = tasks[0].updated_at
+        for task in tasks:
+            TaskRun.objects.create(
+                team=self.team,
+                task=task,
+                status=TaskRun.Status.COMPLETED,
+                output={"pr_url": _PR_URL, "pr_state": "open"},
+            )
+        latest_pr_url = "https://github.com/example/project/pull/2"
+        latest_run = TaskRun.objects.create(
+            team=self.team,
+            task=tasks[0],
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": latest_pr_url, "pr_state": "open", "pr_merged": False},
+        )
+        for pr_state, pr_merged, expected_state in [
+            ("open", False, "open"),
+            ("closed", False, "closed"),
+            ("open", True, "merged"),
+        ]:
+            with self.subTest(pr_state=pr_state, pr_merged=pr_merged):
+                TaskRun.update_output_atomic(latest_run.id, updates={"pr_state": pr_state, "pr_merged": pr_merged})
+                with self.assertNumQueries(1):
+                    summaries = tasks_facade.get_task_summaries(
+                        self.team.id, self.user.id, ids=[task.id for task in tasks]
+                    )
+                self.assertEqual(len(summaries), len(tasks))
+                summary = next(summary for summary in summaries if summary.id == tasks[0].id)
+                assert summary.latest_run is not None
+                self.assertEqual(str(summary.latest_run.id), str(latest_run.id))
+                self.assertEqual(summary.latest_run.pr_url, latest_pr_url)
+                self.assertEqual(summary.latest_run.pr_state, expected_state)
+                tasks[0].refresh_from_db()
+                self.assertEqual(tasks[0].updated_at, task_updated_at)
+                self.assertEqual(summary.updated_at, task_updated_at)
 
     def test_summaries_paginates_large_id_sets(self):
         tasks = [self.create_task(f"Task {i}") for i in range(3)]
