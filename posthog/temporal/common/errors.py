@@ -5,6 +5,46 @@ from temporalio.exceptions import (
     FailureError,
     TimeoutError as TemporalTimeoutError,
 )
+from temporalio.service import RPCError, RPCStatusCode
+
+# Temporal Cloud surfaces transient server-side conditions as gRPC errors that a short backoff
+# usually clears: per-namespace throttling (RESOURCE_EXHAUSTED, for example "namespace rate limit
+# exceeded"), request deadlines on the visibility/history services (DEADLINE_EXCEEDED, for example
+# "downstream duration timeout"), and connection-level failures (UNAVAILABLE, for example a DNS
+# lookup blip resolving the cluster's frontend host). A later call can still get past all of these.
+TRANSIENT_RPC_STATUS_CODES = frozenset(
+    {RPCStatusCode.RESOURCE_EXHAUSTED, RPCStatusCode.DEADLINE_EXCEEDED, RPCStatusCode.UNAVAILABLE}
+)
+
+# Two more statuses carry a transport failure in the message rather than in the status itself.
+#
+# tonic/hyper surface a mid-stream HTTP/2 transport interruption (a reset stream, or a response body
+# read cut short) as status UNKNOWN with an "h2 protocol error" message.
+#
+# tonic's timeout layer cancels a call that outruns the core client's per-request RPC deadline and
+# surfaces it as status CANCELLED with the message "Timeout expired", which is the client-side
+# analog of DEADLINE_EXCEEDED. A transport connection closed mid-request also surfaces as CANCELLED,
+# with the message "operation was canceled" (a known upstream pattern, see temporalio/sdk-core#807).
+#
+# Match the message per status, because taking either whole status would also swallow a real
+# cancellation and a lasting server-side UNKNOWN, both of which must reach the caller.
+TRANSIENT_RPC_TRANSPORT_MESSAGES: dict[RPCStatusCode, tuple[str, ...]] = {
+    RPCStatusCode.UNKNOWN: ("h2 protocol error",),
+    RPCStatusCode.CANCELLED: ("Timeout expired", "operation was canceled"),
+}
+
+
+def is_transient_temporal_rpc_error(error: BaseException) -> bool:
+    """Whether this Temporal RPC failure is one that a later call can still get past.
+
+    Temporal speaks gRPC through tonic, so this classifies `temporalio.service.RPCError`. The
+    personhog client speaks grpcio and has its own classifier in `posthog/personhog_client/`.
+    """
+    if not isinstance(error, RPCError):
+        return False
+    if error.status in TRANSIENT_RPC_STATUS_CODES:
+        return True
+    return any(phrase in error.message for phrase in TRANSIENT_RPC_TRANSPORT_MESSAGES.get(error.status, ()))
 
 
 class NonReportableError(Exception):

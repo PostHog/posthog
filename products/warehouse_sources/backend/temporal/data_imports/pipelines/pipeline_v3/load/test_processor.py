@@ -656,6 +656,9 @@ class TestPostImportTrigger:
             # timeout produces. Must be ridden out the same way, not dropped on the first blip.
             ("client_side_cancel", RPCError("Timeout expired", RPCStatusCode.CANCELLED, b"")),
             ("lost_connection", RPCError("operation was canceled", RPCStatusCode.CANCELLED, b"")),
+            # The trigger takes the whole shared transient set, so a mid-stream HTTP/2 blip
+            # (status UNKNOWN) rides out here too, not only the CANCELLED timeouts above.
+            ("transport_blip", RPCError("h2 protocol error", RPCStatusCode.UNKNOWN, b"")),
         ]
     )
     @patch(f"{_PROCESSOR}.capture_exception")

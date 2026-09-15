@@ -15,10 +15,10 @@ import posthoganalytics
 from asgiref.sync import async_to_sync
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
-from temporalio.service import RPCError, RPCStatusCode
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential_jitter
 
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.common.errors import is_transient_temporal_rpc_error
 from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.facade.api import update_external_job_status
@@ -79,6 +79,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DELTA_WRITE_DURATION_SECONDS,
     IDEMPOTENCY_HIT_TOTAL,
     PARQUET_READ_DURATION_SECONDS,
+    POST_LOAD_TRIGGER_DROPPED_TOTAL,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import (
     ExportSignalMessage,
@@ -532,27 +533,13 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
     _release_pipeline_lock_for_job(export_signal)
 
 
-# tonic's timeout layer cancels a call that outruns the client's per-request RPC deadline and
-# surfaces it as status CANCELLED with the message "Timeout expired" — the client-side analog of
-# DEADLINE_EXCEEDED above — and a connection closed mid-request as CANCELLED with "operation was
-# canceled". Match the phrase rather than the whole status so a genuine cancellation still
-# surfaces. Same phrases the data-imports source client (sources/temporalio/temporalio.py) and the
-# Temporal schedule helpers (posthog/temporal/common/schedule.py) treat as transient.
-_RETRYABLE_RPC_MESSAGES_BY_STATUS: dict[RPCStatusCode, tuple[str, ...]] = {
-    RPCStatusCode.CANCELLED: ("Timeout expired", "operation was canceled"),
-}
-
-
 def _is_retryable_temporal_rpc_error(exc: BaseException) -> bool:
     # These fire-and-forget starts run outside a Temporal workflow, so unlike
     # `workflow.start_child_workflow` they get none of the server-side retry a durable
     # workflow command would have — a bare client RPC timeout would otherwise drop the
     # trigger permanently.
-    if isinstance(exc, RPCError):
-        if exc.status in (RPCStatusCode.DEADLINE_EXCEEDED, RPCStatusCode.UNAVAILABLE):
-            return True
-        if any(phrase in exc.message for phrase in _RETRYABLE_RPC_MESSAGES_BY_STATUS.get(exc.status, ())):
-            return True
+    if is_transient_temporal_rpc_error(exc):
+        return True
 
     # `async_connect()` runs before any service client exists, so a transient failure to
     # reach the Temporal frontend (DNS blip, connection refused/reset) surfaces as the Rust
@@ -630,6 +617,7 @@ def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, 
             external_data_job_id=export_signal.job_id,
         )
     except Exception as e:
+        POST_LOAD_TRIGGER_DROPPED_TOTAL.labels(trigger="ducklake_register").inc()
         logger.error(
             "failed_to_start_ducklake_registration_workflow",
             team_id=export_signal.team_id,
@@ -706,6 +694,7 @@ def _trigger_post_import_workflow(export_signal: ExportSignalMessage) -> None:
             external_data_job_id=export_signal.job_id,
         )
     except Exception as e:
+        POST_LOAD_TRIGGER_DROPPED_TOTAL.labels(trigger="post_import").inc()
         logger.error(
             "failed_to_start_post_import_workflow",
             team_id=export_signal.team_id,
