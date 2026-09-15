@@ -63,7 +63,7 @@ Examples:
 
 **Required:** Read `.github/pull_request_template.md` and use its exact section structure. Do not invent a different format.
 Invoke `/writing-pr-descriptions` before writing the body — it carries the shape rules.
-Always fill the `## 🤖 Agent context` section.
+Always fill the `## 🤖 Agent context` section, including the exact model that wrote the code.
 NEVER put sensitive information in a PR description or comment. A user may share sensitive data in an agent session; none of it belongs on the PR.
 
 **Screenshots:** Upload frontend/visual changes with `hogli pr:upload-image <file>` and embed the printed markdown. The first run only warns and uploads nothing; re-run with `--yes` to confirm. Only PostHog employees can upload, but the public can permanently view these assets, so only upload the image if you're certain it doesn't contain customer data (including customer names), secrets, or sensitive internal info.
@@ -276,7 +276,7 @@ ALWAYS invoke the matching skill **first** — do not skip it, and do not attemp
 - `/writing-user-facing-copy` — writing or editing any text a user reads (UI labels, tooltips, empty/error states, notifications, docs, support replies), or any code change that adds or changes a visible string
 - `/writing-code-comments` — writing or editing a code comment in any language, or reviewing a diff that adds comments
 - `/writing-pr-descriptions` — writing or editing any PR body, before `gh pr create` or `gh pr edit --body`
-- `/reviewing-with-coderabbit` — before `gh pr create`, and whenever a review of a branch is asked for; the CodeRabbit pass is paused, so the PR opens without a local pass, never with `/code-review` or review subagents in its place
+- `/reviewing-with-coderabbit` — before `gh pr create`, and whenever a review of a branch is asked for; when the CLI is unavailable the PR opens without a local pass, never with `/code-review` or review subagents in its place
 
 **Invoke when in the area:**
 

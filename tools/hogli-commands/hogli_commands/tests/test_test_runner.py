@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+import contextlib
 from pathlib import Path
 
 import pytest
@@ -21,6 +23,7 @@ from hogli_commands.test_runner import (
     _resolve_to_repo_relative,
     _run_changed,
     _run_grouped,
+    _warn_if_dev_stack_is_down,
     detect_test_type,
 )
 from parameterized import parameterized
@@ -547,7 +550,8 @@ class TestRunGrouped:
 
 class TestCliPassthrough:
     @patch("hogli_commands.test_runner._run")
-    def test_hogli_test_passes_unknown_options_to_runner(self, mock_run: MagicMock) -> None:
+    def test_hogli_test_passes_unknown_options_to_runner(self, mock_run: MagicMock, monkeypatch) -> None:
+        monkeypatch.delenv("POSTHOG_TASK_RUN_ID", raising=False)
         result = runner.invoke(
             cli,
             [
@@ -624,3 +628,30 @@ class TestScopedRunHints:
         _hint_scoped_run("posthog/api/test")
 
         assert ("hogli test --changed" in capsys.readouterr().out) is hinted
+
+    @parameterized.expand(
+        [
+            ("database_down_on_a_baked_image_warns", ["pytest", "a.py"], True, True, False, True),
+            ("seeded_database_ready_is_quiet", ["pytest", "a.py"], True, True, True, False),
+            ("outside_a_sandbox_is_quiet", ["pytest", "a.py"], False, True, False, False),
+            ("unbaked_image_is_quiet", ["pytest", "a.py"], True, False, False, False),
+            ("non_pytest_runner_is_quiet", ["pnpm", "exec", "jest", "a.test.ts"], True, True, False, False),
+        ],
+    )
+    def test_a_down_dev_stack_is_only_reported_where_the_advice_applies(
+        self, _name: str, command, in_sandbox, baked_image, database_ready, warned
+    ):
+        stdout = io.StringIO()
+        with pytest.MonkeyPatch.context() as monkeypatch, contextlib.redirect_stdout(stdout):
+            if in_sandbox:
+                monkeypatch.setenv("POSTHOG_TASK_RUN_ID", "run-1")
+            else:
+                monkeypatch.delenv("POSTHOG_TASK_RUN_ID", raising=False)
+            monkeypatch.setattr("hogli_commands.test_runner._seeded_test_database_ready", lambda: database_ready)
+            monkeypatch.setattr(
+                "hogli_commands.test_runner._DEV_STACK_BAKE_MANIFEST", MagicMock(exists=lambda: baked_image)
+            )
+
+            _warn_if_dev_stack_is_down(command)
+
+        assert ("bootstrap-dev-stack" in stdout.getvalue()) is warned

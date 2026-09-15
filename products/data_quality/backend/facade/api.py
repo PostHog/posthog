@@ -7,6 +7,7 @@ the AST-bearing ``CheckPlan`` stay inside ``logic``, since they are compiler int
 data. ORM model classes never cross here either -- ``facade/models.py`` is their one channel.
 """
 
+from ..activity_logging import log_metric_schedule_change
 from ..logic.checks import (
     checks_for_subject,
     edit_check,
@@ -26,9 +27,18 @@ from ..logic.errors import CheckConfigError, CheckEditConflict, SubjectUnresolva
 from ..logic.health import CheckStatusRow, roll_up_health
 from ..logic.navigation import SubjectKey, SubjectLocation, subject_locations
 from ..logic.notifications import notify_materialization_blocked
+from ..logic.output_schema import metric_output_schema
 from ..logic.permissions import authorized_subject_types, restrict_subject_types, writable_subjects
 from ..logic.registry import UnknownCheckTypeError, list_check_types
 from ..logic.run_records import record_check_run
+from ..logic.schedule_service import get_schedule_with_history, schedule_with_history, update_schedule
+from ..logic.schedules import (
+    MetricCheckSchedule,
+    ScheduleUnavailableError,
+    ScheduleUpdateResult,
+    get_schedule,
+    set_schedule,
+)
 from ..logic.serialization import compute_fingerprint, from_config_entry, to_config_entry
 from ..logic.subject_access import (
     DenialContext,
@@ -46,17 +56,23 @@ from ..logic.subject_access import (
     visible_checks,
     without_denied_runs,
 )
-from ..logic.subjects import resolve_metric_subjects, resolve_subject
+from ..logic.subjects import resolve_metric_subjects, resolve_subject, testable_metric_subjects
 from ..logic.triggers import materialization_audit_mode as quality_audit_mode
-from .contracts import CheckTypeInfo
+from .contracts import CheckTypeInfo, MetricSubject, OutputColumn
 
 __all__ = [
+    "log_metric_schedule_change",
+    "MetricCheckSchedule",
+    "ScheduleUnavailableError",
+    "ScheduleUpdateResult",
     "CheckConfigError",
     "CheckEditConflict",
     "CheckStatusRow",
     "CheckTypeInfo",
     "CompiledCheck",
     "DenialContext",
+    "MetricSubject",
+    "OutputColumn",
     "ReadableSubjects",
     "ReferencedSubjects",
     "SubjectKey",
@@ -82,7 +98,10 @@ __all__ = [
     "ensure_name_available",
     "from_config_entry",
     "get_gate_config",
+    "get_schedule",
+    "get_schedule_with_history",
     "list_check_types",
+    "metric_output_schema",
     "notify_materialization_blocked",
     "quality_audit_mode",
     "record_check_run",
@@ -91,13 +110,17 @@ __all__ = [
     "resolve_metric_subjects",
     "roll_up_health",
     "set_gate_materialization_on_checks",
+    "set_schedule",
+    "schedule_with_history",
     "soft_delete_check",
     "start_check_suite",
     "subject_health",
     "subject_locations",
+    "testable_metric_subjects",
     "suites_backing_unreadable_runs_q",
     "to_config_entry",
     "unreadable_suites_q",
+    "update_schedule",
     "upsert_check",
     "validate_check",
     "visible_checks",

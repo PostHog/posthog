@@ -945,6 +945,7 @@ class Task(DeletedMetaFields, models.Model):
         user_id: int,
         title_manually_set: bool = False,
         repository: str | None = None,
+        repositories: list[str] | None = None,
         channel: Channel | None = None,
         slack_thread_context: Optional["SlackThreadContext"] = None,
         slack_thread_url: str | None = None,
@@ -985,6 +986,15 @@ class Task(DeletedMetaFields, models.Model):
         GitHub-integration resolution and authorship logic from drifting between them.
         """
         created_by = User.objects.get(id=user_id)
+
+        # One repo set for the whole path: `repositories` is what provisioning clones and what
+        # snapshot reuse is keyed on, `repository` the singular column older readers still use.
+        # Callers may send either, so resolve them into agreement here rather than leaving each
+        # creation path to patch the row afterwards.
+        resolved_repositories = [
+            repository_name.lower() for repository_name in (repositories or ([repository] if repository else []))
+        ]
+        repository = resolved_repositories[0] if resolved_repositories else None
 
         from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
         from products.tasks.backend.temporal.process_task.utils import (
@@ -1049,8 +1059,11 @@ class Task(DeletedMetaFields, models.Model):
             if user_github_integration is not None:
                 github_user_integration = user_github_integration.integration
 
-        if repository:
-            if not github_integration and github_user_integration is None and not is_public_sandbox_repo(repository):
+        if not github_integration and github_user_integration is None:
+            # Every entry is cloned, so a private second repository fails the run just as surely
+            # as a private first one.
+            private_repositories = [name for name in resolved_repositories if not is_public_sandbox_repo(name)]
+            if private_repositories:
                 raise ValueError(f"Team {team.id} does not have a GitHub integration")
 
         sandbox_env = None
@@ -1088,6 +1101,7 @@ class Task(DeletedMetaFields, models.Model):
             github_integration=github_integration,
             github_user_integration=github_user_integration,
             repository=repository,
+            repositories=resolved_repositories,
             channel=channel,
             internal=internal,
             runtime=runtime,
@@ -1229,6 +1243,7 @@ class Task(DeletedMetaFields, models.Model):
         origin_product: "Task.OriginProduct",
         user_id: int,
         repository: str | None = None,
+        repositories: list[str] | None = None,
         channel: Channel | None = None,
         slack_thread_context: Optional["SlackThreadContext"] = None,
         slack_thread_url: str | None = None,
@@ -1258,6 +1273,7 @@ class Task(DeletedMetaFields, models.Model):
             origin_product=origin_product,
             user_id=user_id,
             repository=repository,
+            repositories=repositories,
             channel=channel,
             slack_thread_context=slack_thread_context,
             slack_thread_url=slack_thread_url,
@@ -1286,6 +1302,7 @@ class Task(DeletedMetaFields, models.Model):
         user_id: int,
         title_manually_set: bool = False,
         repository: str | None = None,  # Format: "organization/repository", e.g. "posthog/posthog-js"
+        repositories: list[str] | None = None,
         channel: Channel | None = None,
         create_pr: bool = True,
         mode: str = "background",
@@ -1340,6 +1357,7 @@ class Task(DeletedMetaFields, models.Model):
             user_id=user_id,
             title_manually_set=title_manually_set,
             repository=repository,
+            repositories=repositories,
             channel=channel,
             slack_thread_context=slack_thread_context,
             slack_thread_url=slack_thread_url,
@@ -1381,7 +1399,9 @@ class Task(DeletedMetaFields, models.Model):
             run_extra_state.update(extra_run_state)
         if github_read_access:
             # Read by TaskProcessingContext.github_read_access: provisioning injects a read-only
-            # GitHub token into the (repo-less) sandbox instead of the full credential path.
+            # GitHub token instead of taking the full credential path. It holds for the whole run
+            # whether or not the run clones, so a repo-pinned caller that asks for read access
+            # gets a checkout it can read and never write capability it did not ask for.
             run_extra_state["github_read_access"] = True
         # Persist everything the dispatch needs alongside the row, in the same INSERT, so a
         # reconciler can re-dispatch faithfully if the workflow start is ever lost.
@@ -2524,6 +2544,20 @@ class TaskRun(models.Model):
         except Exception as e:
             logger.warning("task_run.heartbeat_failed", task_run_id=str(self.id), error=str(e))
 
+    def signal_agent_turn_completed(self) -> None:
+        import asyncio
+
+        from posthog.temporal.common.client import sync_connect
+
+        from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
+
+        try:
+            client = sync_connect()
+            handle = client.get_workflow_handle(self.workflow_id)
+            asyncio.run(handle.signal(ProcessTaskWorkflow.agent_state_changed, arg=False))
+        except Exception as e:
+            logger.warning("task_run.turn_completed_signal_failed", task_run_id=str(self.id), error=str(e))
+
     def signal_agent_boot_milestone(
         self, milestone: Literal["agent_command_dispatched", "agent_activity_observed"]
     ) -> bool:
@@ -2647,18 +2681,20 @@ class TaskRun(models.Model):
     # expiry — user history must not silently vanish after 30 days.
     DEFAULT_LOG_TTL_DAYS = 30
 
-    def append_log(self, entries: list[dict], *, ttl_days: int | None = DEFAULT_LOG_TTL_DAYS):
+    def append_log(self, entries: list[dict], *, ttl_days: int | None = DEFAULT_LOG_TTL_DAYS, lock_attempts: int = 3):
         """Append log entries to S3 storage.
 
         `ttl_days` tags a newly-created log file for expiry; pass `None` to write a log that is
         never auto-expired. The tag is only applied on
         first write — re-tagging an existing log would not change a TTL already in flight.
+        `lock_attempts` is how often to wait for the per-log append lock before raising
+        TaskRunLogAppendUnserialized; a caller that retries the append itself passes 1.
         """
         entries = [e for e in entries if not self._is_agent_message_chunk(e)]
         if not entries:
             return
 
-        is_new_file = append_jsonl_object(self.log_url, entries)
+        is_new_file = append_jsonl_object(self.log_url, entries, lock_attempts=lock_attempts)
 
         self._mirror_logs_to_posthog_logs(entries)
 
@@ -2801,6 +2837,30 @@ class TaskRun(models.Model):
             props["benjamin_version"] = benjamin_version
         return props
 
+    def analytics_properties(self) -> dict:
+        """Run context shared by run events and GitHub PR attribution."""
+        return {
+            "task_id": str(self.task_id),
+            "run_id": str(self.id),
+            "team_id": self.team_id,
+            "repository": self.task.repository,
+            "repositories": (self.state or {}).get("repositories")
+            or self.task.repositories
+            or ([self.task.repository] if self.task.repository else []),
+            "origin_product": self.task.origin_product,
+            "title": self.task.title,
+            "signal_report_id": str(self.task.signal_report_id) if self.task.signal_report_id else None,
+            "loop_id": (self.state or {}).get("loop_id"),
+            "loop_trigger_id": (self.state or {}).get("loop_trigger_id"),
+            "environment": self.environment,
+            # The bare `environment` property gets clobbered by the analytics
+            # client's deployment-region super-property, so ship the run's
+            # local/cloud value under an unclobbered name too.
+            "run_environment": self.environment,
+            "mode": self.mode,
+            **self._analytics_usage_properties(),
+        }
+
     def capture_event(
         self,
         event: str,
@@ -2821,27 +2881,7 @@ class TaskRun(models.Model):
                 if self.task.created_by_id and self.task.created_by
                 else str(self.team.uuid)
             )
-            all_properties: dict = {
-                "task_id": str(self.task_id),
-                "run_id": str(self.id),
-                "team_id": self.team_id,
-                "repository": self.task.repository,
-                "repositories": (self.state or {}).get("repositories")
-                or self.task.repositories
-                or ([self.task.repository] if self.task.repository else []),
-                "origin_product": self.task.origin_product,
-                "title": self.task.title,
-                "signal_report_id": str(self.task.signal_report_id) if self.task.signal_report_id else None,
-                "loop_id": (self.state or {}).get("loop_id"),
-                "loop_trigger_id": (self.state or {}).get("loop_trigger_id"),
-                "environment": self.environment,
-                # The bare `environment` property gets clobbered by the analytics
-                # client's deployment-region super-property, so ship the run's
-                # local/cloud value under an unclobbered name too.
-                "run_environment": self.environment,
-                "mode": self.mode,
-                **self._analytics_usage_properties(),
-            }
+            all_properties = self.analytics_properties()
             if properties:
                 all_properties.update(properties)
             capture_kwargs: dict = {

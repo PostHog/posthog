@@ -1,18 +1,8 @@
-"""Ingestion rollup for the metrics overview page.
+"""Build metrics overview data from `metric_series`.
 
-Reads `metric_series` only — one row per (metric, label-set) with a
-materialized `last_seen`, sorted by `(team_id, metric_name,
-series_fingerprint)` — so the landing page never scans the raw datapoint
-table. Two queries: an unwindowed pass for freshness plus window-scoped
-inventory counts, and a windowed GROUP BY service.
-
-No FINAL, same argument as `MetricNamesQueryRunner`: ReplacingMergeTree
-duplicates share the fingerprint, `max(last_seen)` picks the row FINAL would
-keep, and `uniqExact(series_fingerprint)` counts duplicates once. The
-freshness pass filters inside the aggregates rather than in WHERE because
-`last_seen` must be the max over ALL retained series: when ingestion stops,
-the window counts go to zero but the status strip still needs to say how
-long ago the last datapoint arrived.
+`max(last_seen)` and `uniqExact` handle duplicate rows without FINAL.
+Counts use a window so the index skips old parts. Freshness reads the last
+data point. All three queries run concurrently.
 """
 
 import datetime as dt
@@ -39,43 +29,31 @@ from products.metrics.backend.facade.contracts import MetricsOverview, MetricsSe
 
 tracer = trace.get_tracer(__name__)
 
-# The overview tolerates partial results, so reads break at the budget instead
-# of erroring the way the chart queries do. Mirrors MetricNamesQueryRunner.
+# The overview accepts partial results. Stop at the read limit.
 _QUERY_SETTINGS = HogQLGlobalSettings(
     max_bytes_to_read=HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES,
     read_overflow_mode="break",
 )
 
-# More services than this stops being an overview; the largest win.
+# Show only the largest services.
 MAX_SERVICES = 500
 
 DEFAULT_LOOKBACK = dt.timedelta(days=1)
 
 
-def _set_query_timing_attributes(span: Span, response: HogQLQueryResponse) -> None:
-    """Split the HogQL root timing from the ClickHouse read.
+@frozen
+class _OverviewCounts:
+    metric_names: int
+    series: int
 
-    `.` is the whole lifecycle (parse, resolve, print, execute), so a slow overview
-    trace needs `./clickhouse_execute` to tell a slow read from slow query building.
-    """
+
+def _set_query_timing_attributes(span: Span, response: HogQLQueryResponse) -> None:
+    """Set separate timing attributes for the query and ClickHouse read."""
     timings = {timing.k: timing.t for timing in response.timings or ()}
     if (query_seconds := timings.get(".")) is not None:
         span.set_attribute("query.seconds", query_seconds)
     if (clickhouse_seconds := timings.get("./clickhouse_execute")) is not None:
         span.set_attribute("clickhouse.seconds", clickhouse_seconds)
-
-
-@frozen
-class _OverviewTotals:
-    """Project-wide freshness and inventory counts, before the per-service split.
-
-    `metric_names` and `series` are both counts of the window, so they are named
-    rather than positional — swapping them would misreport the project silently.
-    """
-
-    last_seen: str | None
-    metric_names: int
-    series: int
 
 
 class MetricsOverviewQueryRunner:
@@ -89,25 +67,43 @@ class MetricsOverviewQueryRunner:
     def _lookback_interval(self) -> ast.Call:
         return ast.Call(name="toIntervalSecond", args=[ast.Constant(value=int(self.lookback.total_seconds()))])
 
-    def _run_totals(self) -> _OverviewTotals:
-        with tracer.start_as_current_span("metrics.overview.totals") as span:
+    def _run_freshness(self) -> str | None:
+        with tracer.start_as_current_span("metrics.overview.freshness") as span:
             span.set_attribute("team_id", self.team.pk)
-            # `last_seen_at`, not `last_seen`: HogQL registers select aliases before
-            # resolving the aggregate filters and would shadow the table column.
+            # Report the last data point, even after ingestion stops.
+            query = parse_select("SELECT max(toNullable(last_seen)) AS last_seen_at FROM posthog.metric_series")
+            assert isinstance(query, ast.SelectQuery)
+
+            response = execute_hogql_query(
+                query_type="MetricsOverviewFreshnessQuery",
+                query=query,
+                team=self.team,
+                workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
+                settings=_QUERY_SETTINGS,
+            )
+            _set_query_timing_attributes(span, response)
+            if not response.results or response.results[0][0] is None:
+                return None
+            return response.results[0][0].isoformat()
+
+    def _run_counts(self) -> _OverviewCounts:
+        with tracer.start_as_current_span("metrics.overview.counts") as span:
+            span.set_attribute("team_id", self.team.pk)
+            # Put the time window in WHERE so the index skips old parts.
             query = parse_select(
                 """
                     SELECT
-                        max(toNullable(last_seen)) AS last_seen_at,
-                        uniqExactIf(metric_name, last_seen > now() - {lookback}) AS metric_names,
-                        uniqExactIf(series_fingerprint, last_seen > now() - {lookback}) AS active_series
+                        uniqExact(metric_name) AS metric_names,
+                        uniqExact(series_fingerprint) AS active_series
                     FROM posthog.metric_series
+                    WHERE last_seen > now() - {lookback}
                 """,
                 placeholders={"lookback": self._lookback_interval()},
             )
             assert isinstance(query, ast.SelectQuery)
 
             response = execute_hogql_query(
-                query_type="MetricsOverviewTotalsQuery",
+                query_type="MetricsOverviewCountsQuery",
                 query=query,
                 team=self.team,
                 workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
@@ -115,13 +111,9 @@ class MetricsOverviewQueryRunner:
             )
             _set_query_timing_attributes(span, response)
             if not response.results:
-                return _OverviewTotals(last_seen=None, metric_names=0, series=0)
-            last_seen, metric_names, series = response.results[0]
-            return _OverviewTotals(
-                last_seen=last_seen.isoformat() if last_seen is not None else None,
-                metric_names=int(metric_names),
-                series=int(series),
-            )
+                return _OverviewCounts(metric_names=0, series=0)
+            metric_names, series = response.results[0]
+            return _OverviewCounts(metric_names=int(metric_names), series=int(series))
 
     def _run_services(self) -> tuple[MetricsServiceOverview, ...]:
         with tracer.start_as_current_span("metrics.overview.services") as span:
@@ -168,19 +160,22 @@ class MetricsOverviewQueryRunner:
             span.set_attribute("lookback_seconds", int(self.lookback.total_seconds()))
 
             if TEST:
-                totals = self._run_totals()
+                last_seen = self._run_freshness()
+                counts = self._run_counts()
                 services = self._run_services()
             else:
-                with ThreadPoolExecutor(max_workers=2, thread_name_prefix="metrics_overview") as executor:
-                    totals_future = executor.submit(contextvars.copy_context().run, self._run_totals)
+                with ThreadPoolExecutor(max_workers=3, thread_name_prefix="metrics_overview") as executor:
+                    freshness_future = executor.submit(contextvars.copy_context().run, self._run_freshness)
+                    counts_future = executor.submit(contextvars.copy_context().run, self._run_counts)
                     services_future = executor.submit(contextvars.copy_context().run, self._run_services)
-                    totals = totals_future.result()
+                    last_seen = freshness_future.result()
+                    counts = counts_future.result()
                     services = services_future.result()
 
             return MetricsOverview(
-                last_seen=totals.last_seen,
-                metric_names=totals.metric_names,
-                series=totals.series,
+                last_seen=last_seen,
+                metric_names=counts.metric_names,
+                series=counts.series,
                 lookback_seconds=int(self.lookback.total_seconds()),
                 services=services,
             )

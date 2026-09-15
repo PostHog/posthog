@@ -64,9 +64,12 @@ unit-testable against the real `git` binary without booting the app
 
 ## Spec mapping (storage → SKILL.md)
 
-- `allowed_tools` (stored list) → `allowed-tools` (spec's hyphenated, space-separated string)
+- `allowed_tools` (stored list) → `allowed-tools` (spec's hyphenated, space-separated string). A harness that
+  reads the file treats it as pre-approved; a host that loads the skill over MCP ignores it until the user
+  approves the grant. See `docs/internal/skills/skills-over-mcp.md`.
 - platform `version` → `metadata.version` (the spec defines no top-level version field)
-- `description` is validated against the spec's 1024 limit on export (`validate_for_export`)
+- `description` is validated against the spec's 1024 limit on export (`compute_spec_problems`, which also
+  decides whether a skill is packageable at all; the API reports its output as `spec_problems`)
 
 ## Cross-agent portability
 

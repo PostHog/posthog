@@ -15,6 +15,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.
     EPOCH_RFC_3339,
     MetronomeCursorPaginator,
     MetronomeResumeConfig,
+    _clamp_window_start,
+    _coalesced_pages,
     _format_rfc3339,
     _paginator_for,
     get_resource,
@@ -163,12 +165,26 @@ class TestMetronomeResources:
         assert resource["endpoint"]["params"] == {}
         assert isinstance(resource["endpoint"]["paginator"], MetronomeCursorPaginator)
 
+    @parameterized.expand([("usage",), ("usage_daily",), ("usage_hourly",)])
+    def test_usage_value_is_typed_as_a_float(self, endpoint) -> None:
+        # A batch of whole numbers infers an integer column, and the first fractional usage amount
+        # after that no longer fits it, which fails the sync and turns the schema off.
+        resource = cast(
+            dict[str, Any],
+            get_resource(endpoint, should_use_incremental_field=False, window_starting_on=EPOCH_RFC_3339),
+        )
+        data_map = resource["data_map"]
+
+        assert isinstance(data_map({"value": 7})["value"], float)
+        # No usage matched the period, which is not the same as none of it costing anything.
+        assert data_map({"value": None})["value"] is None
+
     @parameterized.expand([("invoices",), ("contracts",)])
     def test_get_resource_rejects_fanout_endpoints(self, endpoint) -> None:
         with pytest.raises(ValueError, match="Fan-out endpoint"):
             get_resource(endpoint, should_use_incremental_field=False)
 
-    @parameterized.expand([("usage_daily", "day"), ("usage_hourly", "hour")])
+    @parameterized.expand([("usage_daily", "DAY"), ("usage_hourly", "HOUR")])
     def test_bucketed_usage_merges_on_a_body_window_with_no_injected_param(self, endpoint, window_size) -> None:
         resource = cast(
             dict[str, Any],
@@ -182,6 +198,24 @@ class TestMetronomeResources:
         assert body["window_size"] == window_size
         assert body["starting_on"] == "2026-01-01T00:00:00Z"
         assert body["ending_before"] > "2026-01-01T00:00:00Z"
+        # An hourly table asks for whole days too; Metronome 400s on a bound off UTC midnight.
+        assert body["ending_before"].endswith("T00:00:00Z")
+
+    @parameterized.expand(
+        [
+            ("a_full_day_is_left_alone", "2026-09-03T00:00:00Z", "2026-09-04T00:00:00Z", "2026-09-03T00:00:00Z"),
+            (
+                "a_shorter_window_backs_the_start_off",
+                "2026-09-04T00:00:00Z",
+                "2026-09-04T00:00:00Z",
+                "2026-09-03T00:00:00Z",
+            ),
+        ]
+    )
+    def test_clamp_window_start_holds_the_one_day_minimum(self, _name, starting_on, ending_before, expected) -> None:
+        # Metronome rejects a window shorter than a day, so the end bound reaching the start has to
+        # widen the request rather than send one the vendor answers with a 400.
+        assert _clamp_window_start(starting_on, ending_before) == expected
 
     @parameterized.expand([("usage_daily",), ("usage_hourly",)])
     def test_get_resource_rejects_a_bucketed_endpoint_with_no_lower_bound(self, endpoint) -> None:
@@ -195,9 +229,58 @@ class TestMetronomeResources:
 
         assert resource["endpoint"]["method"] == "post"
         body = resource["endpoint"]["json"]
-        assert body["window_size"] == "none"
+        assert body["window_size"] == "NONE"
         assert body["starting_on"] == EPOCH_RFC_3339
         assert body["ending_before"] > EPOCH_RFC_3339
+        assert body["ending_before"].endswith("T00:00:00Z")
+
+
+class TestMetronomeCoalescing:
+    @patch(f"{TRANSPORT}.USAGE_COALESCE_PAGES", 2)
+    def test_a_batch_is_checkpointed_only_once_it_has_been_yielded(self) -> None:
+        # The cursor may only move over rows that reached Delta. Checkpointing while the batch is
+        # still filling would let a worker rotation resume past pages the consumer never flushed.
+        events: list[str] = []
+
+        def pages():
+            for index in range(5):
+                events.append(f"page-{index}")
+                yield [{"n": index}]
+
+        for batch in _coalesced_pages(pages(), lambda: events.append("commit")):
+            events.append(f"flush-{len(batch)}")
+
+        # A batch closes on the page that would overflow it, so the pull of that page precedes the
+        # flush, and the cursor committed after it names the first page the batch does not carry.
+        assert events == [
+            "page-0",
+            "page-1",
+            "page-2",
+            "flush-2",
+            "commit",
+            "page-3",
+            "page-4",
+            "flush-2",
+            "commit",
+            "flush-1",
+            "commit",
+        ]
+
+    @patch(f"{TRANSPORT}.USAGE_COALESCE_ROWS", 3)
+    def test_the_row_cap_closes_a_batch_before_the_page_cap(self) -> None:
+        # Metronome sets the page size, so a batch is held to a row count as well as a page count.
+        pages = ([{"n": index}, {"n": index}] for index in range(3))
+
+        sizes = [len(batch) for batch in _coalesced_pages(pages, lambda: None)]
+
+        assert sizes == [2, 2, 2]
+        assert max(sizes) <= 3
+
+    @patch(f"{TRANSPORT}.USAGE_COALESCE_ROWS", 3)
+    def test_a_page_wider_than_the_row_cap_is_yielded_whole(self) -> None:
+        # A batch may only end where a cursor does, so an oversized page is passed through rather
+        # than split; the batcher applies its own byte cap downstream.
+        assert [len(batch) for batch in _coalesced_pages(iter([[1, 2, 3, 4, 5]]), lambda: None)] == [5]
 
 
 class TestMetronomeSourceResponse:
@@ -235,11 +318,11 @@ class TestMetronomeSourceResponse:
                 "2026-03-14T00:00:00Z",
             ),
             (
-                "a_watermark_is_floored_to_the_hour",
+                "an_hourly_watermark_floors_to_utc_midnight_too",
                 "usage_hourly",
                 datetime(2026, 3, 14, 15, 9, 26, tzinfo=UTC),
                 None,
-                "2026-03-14T15:00:00Z",
+                "2026-03-14T00:00:00Z",
             ),
             (
                 "a_first_sync_starts_where_the_schema_recorded_its_range",
@@ -260,7 +343,15 @@ class TestMetronomeSourceResponse:
                 "usage_hourly",
                 None,
                 None,
-                "2026-08-04T12:00:00Z",
+                "2026-08-04T00:00:00Z",
+            ),
+            # The window runs to the next midnight, so the day in progress is inside it.
+            (
+                "a_watermark_inside_today_still_asks_for_today",
+                "usage_daily",
+                NOW,
+                None,
+                "2026-09-03T00:00:00Z",
             ),
         ]
     )
@@ -375,6 +466,40 @@ class TestMetronomeSourceResponse:
                 starting_on=synced_body["starting_on"],
             )
         )
+
+    @parameterized.expand(
+        [
+            ("bucketed_usage_holds_it", "usage_daily", True, False),
+            # A full refresh is not a coalescing walk, so its cursor still moves page by page.
+            ("full_refresh_checkpoints_each_page", "usage_daily", False, True),
+            # Incremental too, but not a usage window: it sets its own page size, so it never
+            # reaches the page counts the usage caps are sized for.
+            ("audit_logs_checkpoints_each_page", "audit_logs", True, True),
+        ]
+    )
+    @patch(f"{TRANSPORT}.rest_api_resource")
+    def test_only_a_bucketed_usage_walk_defers_its_checkpoint(
+        self, _name, endpoint, should_use_incremental_field, saves_on_the_page, mock_rest_api_resource
+    ) -> None:
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+        mock_rest_api_resource.return_value = iter([[{"n": 1}]])
+
+        response = metronome_source(
+            api_key="tok",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="job-1",
+            resumable_source_manager=manager,
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=datetime(2026, 3, 14, tzinfo=UTC),
+            history_start=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        mock_rest_api_resource.call_args.kwargs["resume_hook"]({"cursor": "cursor-3"})
+
+        assert manager.save_state.called is saves_on_the_page
+        list(cast(Any, response.items()))
+        assert manager.save_state.called is True
 
     @patch(f"{TRANSPORT}.build_dependent_resource")
     def test_invoices_fan_out_over_customers(self, mock_build) -> None:
