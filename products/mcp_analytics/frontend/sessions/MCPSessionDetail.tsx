@@ -243,6 +243,10 @@ export function MCPSessionDetail(): JSX.Element {
             {!loading && toolCalls.length > 0 && (
                 <MCPAnalyticsFeedbackPrompt
                     contextKey={selectedSession.session_id}
+                    context={{
+                        visibleToolCalls: toolCalls.length,
+                        visibleErrors: toolCalls.filter((call) => call.is_error).length,
+                    }}
                     prompt={MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT}
                 />
             )}

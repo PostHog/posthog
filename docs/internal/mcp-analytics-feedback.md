@@ -6,10 +6,13 @@ A visible tab starts a fresh delay.
 Loading, empty, impersonated, and capture-disabled sessions do not receive a prompt.
 The SDK must load the survey and its feature flags and return it as an active matching survey before the delay starts.
 
-A separate API survey supplies stable question IDs and validates the layout.
-Each placement supplies its own question text through `MCPAnalyticsFeedbackPromptConfig`.
-The supported shape is one two-point emoji rating question followed by one optional open-text question.
-The UI renders the configured text and thumbs buttons using LemonUI components.
+A separate API survey supplies stable question IDs, wording, and the question layout.
+`MCPAnalyticsFeedbackPromptConfig.surveyId` selects a survey; omitting it uses the session usefulness survey.
+The supported shape is a two-point emoji rating followed by one to four open-text, rating, single-choice, or multiple-choice questions.
+Follow-ups can be required or optional.
+Branching, custom validation, open-ended choices, shuffled choices, and link questions suppress the prompt because this pilot does not implement those behaviors.
+The UI renders the survey definition using LemonUI components.
+Placements can override the first two question texts through `MCPAnalyticsFeedbackPromptConfig`; the session placement uses the survey's wording.
 The prompt snapshots its copy and placement when shown, so all events in one submission describe the same displayed questions.
 The first choice queues a partial response immediately and reveals the optional follow-up.
 Selecting Done or Send feedback completes the same submission.
@@ -45,10 +48,12 @@ The API survey can launch before deployment because it does not display itself.
 The custom frontend must be deployed before viewers can see the prompt.
 Draft and stopped surveys do not start a new prompt; a viewer with an already visible prompt can finish it.
 Feature flag targeting is checked through `getActiveMatchingSurveys`, while the frontend owns the reading delay and cooldown.
-Keep the question IDs, types, and order stable.
+Keep question IDs stable when editing wording or reordering follow-ups.
+The first question must remain the two-point emoji rating.
+An open prompt snapshots the full definition so edits apply to subsequent prompts.
 Placements can change the wording while asking about the same usefulness measurement.
 Use a new survey for a different measurement.
-An incompatible question count or type suppresses the prompt.
+An unsupported question count, type, or behavior suppresses the prompt.
 
 ## Measurement
 
@@ -87,6 +92,8 @@ Keep `entryPoint` stable and increment `version` when changing either question's
 Other placements must mount the same component only when their content is ready for review.
 Identify header feedback by its separate survey ID and use the SDK's `$pathname` or `$current_url` to determine the tab.
 The selector widget does not receive the inline prompt's custom placement properties.
+The prompt attaches counts of visible tool calls and visible errors at the time it opens.
+These counts describe the reviewed content, not the respondent’s intent or success.
 No MCP session IDs, tool inputs, outputs, or customer end-user details are attached by this prompt.
 The SDK's existing viewer identity and group context remain available for cohort analysis.
 
@@ -99,3 +106,53 @@ Do not interpret a missing impression event as a zero response rate.
 This question measures reported usefulness of a session review.
 It does not establish that the viewer changed their product or achieved a business outcome.
 Assess those separately through follow-up conversations about the change made and the result observed.
+
+## Voice pilot
+
+Voice is optional input for the first open-text follow-up.
+The respondent records locally for up to one minute, stops, and selects Transcribe recording to upload.
+The transcript is appended to any existing answer and remains editable before the respondent selects Send feedback.
+Recording, upload, and transcription never submit a survey response automatically.
+Discarding, closing the prompt, or navigating away releases the microphone and any local audio URL.
+A failed transcription keeps the recording available for retry; typing remains available after discarding it.
+
+The authenticated `POST /api/projects/{project_id}/mcp_analytics/feedback_audio/` endpoint accepts a multipart `audio` file in WebM, MP4, or Ogg format, capped at 5 MiB.
+It requires project access, the `mcp-analytics-feedback-voice` flag, and the organization's AI data processing approval.
+The endpoint allows five requests per user per minute and uses the configured OpenAI endpoint with `gpt-4o-mini-transcribe`, a 30-second timeout, and no automatic retries.
+PostHog does not persist audio, the unreviewed transcript, or provider error details.
+The model provider's data handling follows the deployment's provider agreement.
+The reviewed text is sent only through the normal survey response event.
+This authenticated pilot endpoint is for the PostHog app; it is not a public SDK upload API.
+
+All survey lifecycle events snapshot `feedback_voice_variant` (`voice` or `text`) and `feedback_voice_available` when the prompt appears.
+The boolean flag defines assignment; availability also requires browser recording support.
+Completed responses include `feedback_input_method` and `feedback_voice_question_ids` to identify answers that used transcription, including transcripts edited before submission.
+Do not interpret `feedback_input_method: text` on a rating-only partial response as an open-text answer.
+
+`sessionRecordingUrl` links to the respondent's browser session near the moment the prompt appeared.
+The SDK also supplies its normal session properties.
+The URL does not guarantee that replay was captured or retained.
+The respondent's browser replay is separate from the MCP session they were reviewing; this pilot does not copy or upload the reviewed session.
+
+### Rollout and comparison
+
+1. Deploy and verify the endpoint and UI with the voice flag disabled for general traffic.
+   Keep the header survey in its existing popover configuration until that deployment is confirmed.
+2. Enable voice for a small internal cohort with AI processing approval and confirm a real recording can be transcribed and edited.
+3. Configure the same API survey for both groups.
+   Keep the existing rating and open-text question IDs.
+   Suggested open-text wording: "What were you trying to find, and what happened?"
+   Add an optional single-choice outcome question: "Did you find what you needed?" with "Yes", "Partly", and "No".
+4. Assign 50% of eligible viewers to the boolean voice flag with stable person-level assignment.
+   Keep targeting, prompt delay, cooldown, and wording identical between groups.
+   Record the rollout start and survey question version; exclude older submissions from the comparison.
+5. Compare groups by assignment, including people offered voice who chose to type.
+   Comparing voice users against typists alone is self-selected and does not estimate the effect of offering voice.
+
+The primary measure is actionable explanations per unique shown submission.
+Review a sample without exposing input method to the reviewer, using a fixed rubric: does the answer state a concrete goal, describe what happened, and provide enough detail to identify a next action?
+Also report nonempty follow-up rate, completed-submission rate, dismissals, and unique viewers and organizations.
+Deduplicate partial and completed events by `$survey_submission_id`.
+Break results down by `feedback_voice_available` and report uncertainty when the sample is small.
+Longer answers alone are not evidence of better feedback.
+Keep respondent-reported outcomes separate from the usefulness rating and any inferred outcome.

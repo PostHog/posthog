@@ -3,12 +3,13 @@ import { SurveyQuestionType } from 'posthog-js'
 import { useId } from 'react'
 
 import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonLabel, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { userLogic } from 'scenes/userLogic'
 
-import { MCPAnalyticsFeedbackPromptConfig } from './constants'
+import { MCPAnalyticsFeedbackPromptConfig, MCPFeedbackContext } from './constants'
 import { mcpAnalyticsFeedbackLogic } from './mcpAnalyticsFeedbackLogic'
+import { MCPFeedbackFollowUp } from './MCPFeedbackFollowUp'
 
 const thumbRatings = [
     { value: '1', label: 'Thumbs up', icon: <IconThumbsUp /> },
@@ -17,22 +18,24 @@ const thumbRatings = [
 
 export function MCPAnalyticsFeedbackPrompt({
     contextKey,
+    context,
     prompt: promptConfig,
 }: {
     contextKey: string
+    context?: MCPFeedbackContext
     prompt: MCPAnalyticsFeedbackPromptConfig
 }): JSX.Element | null {
     const questionId = useId()
-    const detailId = useId()
     const { user } = useValues(userLogic)
     const logic = mcpAnalyticsFeedbackLogic({
         userId: user?.uuid ?? '',
         contextKey,
+        context,
         prompt: promptConfig,
         isImpersonated: user?.is_impersonated ?? false,
     })
-    const { visible, survey, prompt, answer, detail, completed, submitting, error } = useValues(logic)
-    const { dismissPrompt, setDetail, submitResponse } = useActions(logic)
+    const { visible, survey, prompt, answer, completed, submitting, error } = useValues(logic)
+    const { dismissPrompt, submitResponse } = useActions(logic)
 
     if (
         !visible ||
@@ -49,40 +52,11 @@ export function MCPAnalyticsFeedbackPrompt({
                 {completed ? (
                     <div role="status">Thanks for your feedback.</div>
                 ) : answer ? (
-                    <div className="space-y-2">
-                        <div className="text-secondary text-xs" role="status">
-                            Thanks for answering.
-                        </div>
-                        <LemonLabel htmlFor={detailId} showOptional>
-                            {prompt.followUpQuestion}
-                        </LemonLabel>
-                        <LemonTextArea
-                            id={detailId}
-                            value={detail}
-                            onChange={setDetail}
-                            autoFocus
-                            minRows={2}
-                            maxRows={4}
-                            maxLength={2000}
-                            disabled={submitting}
-                            data-attr="mcp-analytics-feedback-detail"
-                        />
-                        <div className="flex flex-wrap gap-2">
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                loading={submitting}
-                                onClick={() => submitResponse(answer, true)}
-                                data-attr="mcp-analytics-feedback-submit"
-                            >
-                                {detail.trim() ? 'Send feedback' : 'Done'}
-                            </LemonButton>
-                        </div>
-                    </div>
+                    <MCPFeedbackFollowUp feedback={logic} />
                 ) : (
                     <div className="space-y-2">
                         <div className="font-semibold" id={questionId}>
-                            {prompt.question}
+                            {prompt.question ?? survey.questions[0].question}
                         </div>
                         <div className="flex flex-wrap gap-2" role="group" aria-labelledby={questionId}>
                             {thumbRatings.map((rating) => (

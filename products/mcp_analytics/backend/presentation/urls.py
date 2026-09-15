@@ -2,9 +2,11 @@
 
 from rest_framework.routers import DefaultRouter
 
+from .feedback_audio import MCPFeedbackAudioViewSet
 from .views import MCPFeedbackViewSet, MCPIntentClusterViewSet, MCPMissingCapabilityViewSet, MCPSessionViewSet
 
 router = DefaultRouter()
+router.register(r"feedback_audio", MCPFeedbackAudioViewSet, basename="mcp-analytics-feedback-audio")
 router.register(r"feedback", MCPFeedbackViewSet, basename="mcp-analytics-feedback")
 router.register(r"missing_capabilities", MCPMissingCapabilityViewSet, basename="mcp-analytics-missing-capability")
 router.register(r"sessions", MCPSessionViewSet, basename="mcp-analytics-sessions")

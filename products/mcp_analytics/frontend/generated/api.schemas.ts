@@ -141,6 +141,21 @@ export interface MCPFeedbackCreateApi {
     category?: MCPAnalyticsSubmissionFeedbackCategoryEnumApi
 }
 
+export interface FeedbackAudioRequestApi {
+    /** Recorded feedback in WebM, MP4, or Ogg format, up to 5 MiB. */
+    audio: Blob
+}
+
+export interface FeedbackAudioResponseApi {
+    /** Transcribed feedback for the respondent to review before submitting. */
+    text: string
+}
+
+export interface FeedbackAudioErrorApi {
+    /** Why the recording could not be transcribed and how to continue. */
+    detail: string
+}
+
 /**
  * * `idle` - Idle
  * * `computing` - Computing
