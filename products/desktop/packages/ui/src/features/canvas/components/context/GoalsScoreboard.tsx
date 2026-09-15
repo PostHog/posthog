@@ -1,4 +1,9 @@
-import { PlusIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import {
+  ChartBarIcon,
+  PlusIcon,
+  SparkleIcon,
+  WarningCircleIcon,
+} from "@phosphor-icons/react";
 import {
   type ContextGoal,
   formatNumber,
@@ -11,11 +16,13 @@ import { cn, Text } from "@posthog/quill";
 import { useGoalMeasure } from "@posthog/ui/features/canvas/hooks/useGoalMeasure";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useState } from "react";
-import { GoalDialog } from "./GoalDialog";
+import { GoalDialog, type GoalSubmitOptions } from "./GoalDialog";
 
 interface GoalsScoreboardProps {
   goals: ContextGoal[];
   onChange: (goals: ContextGoal[]) => Promise<void>;
+  /** Start a task that writes a measure for a goal saved without one. */
+  onAskAgentForMeasure: (goal: ContextGoal) => Promise<void>;
   isSaving: boolean;
 }
 
@@ -29,19 +36,21 @@ type Editing = { index: number | null } | null;
 export function GoalsScoreboard({
   goals,
   onChange,
+  onAskAgentForMeasure,
   isSaving,
 }: GoalsScoreboardProps) {
   const [editing, setEditing] = useState<Editing>(null);
   const editingGoal =
     editing && editing.index !== null ? goals[editing.index] : null;
 
-  const upsert = async (goal: ContextGoal) => {
+  const upsert = async (goal: ContextGoal, options: GoalSubmitOptions) => {
     if (editing?.index == null) {
       await onChange([...goals, goal]);
     } else {
       await onChange(goals.map((g, i) => (i === editing.index ? goal : g)));
     }
     setEditing(null);
+    if (options.askAgent) await onAskAgentForMeasure(goal);
   };
 
   const remove = async () => {
@@ -81,7 +90,7 @@ export function GoalsScoreboard({
             </span>
             {goals.length === 0 ? (
               <span className="text-xxs">
-                One number, a target, and why it matters. Agents report on it.
+                Write HogQL, link an insight, or ask an agent to measure it.
               </span>
             ) : null}
           </button>
@@ -139,7 +148,7 @@ function GoalTile({
   onOpen: () => void;
   disabled: boolean;
 }) {
-  const measure = useGoalMeasure(goal.sql);
+  const measure = useGoalMeasure(goal.measure);
   const current = measure.data ?? null;
   const status = goalStatus(current, goal.target);
   const progress =
@@ -153,11 +162,19 @@ function GoalTile({
       title={goal.why || goal.name}
       className="flex h-full w-full flex-col gap-2 rounded-lg border border-border bg-card px-3 py-3 text-left transition-colors hover:bg-fill-hover"
     >
-      <span className="truncate text-muted-foreground text-xs">
-        {goal.name}
+      <span className="flex items-center gap-1.5 truncate text-muted-foreground text-xs">
+        {goal.measure?.kind === "insight" ? (
+          <ChartBarIcon size={12} className="shrink-0" />
+        ) : null}
+        <span className="truncate">{goal.name}</span>
       </span>
       <span className="font-semibold text-foreground text-xl tabular-nums leading-none">
-        {measure.isLoading ? (
+        {goal.measure === null ? (
+          <span className="flex items-center gap-1.5 text-muted-foreground text-sm">
+            <SparkleIcon size={14} />
+            Waiting for a measure
+          </span>
+        ) : measure.isLoading ? (
           <Spinner size="sm" aria-hidden="true" />
         ) : measure.error ? (
           <span className="flex items-center gap-1 text-sm text-warning-foreground">

@@ -45,6 +45,10 @@ interface GenerateContextInput {
   /** What the user says this context is about; seeds the plan. */
   description: string;
   workspaceMode?: WorkspaceMode;
+  /** Replace the CONTEXT.md build prompt with another context-editing task. */
+  prompt?: string;
+  /** Title for the task when `prompt` is set. */
+  title?: string;
 }
 
 // Launches the session that builds a context's CONTEXT.md. The task runs
@@ -84,6 +88,8 @@ export function useGenerateContext() {
       channelName,
       description,
       workspaceMode = "cloud",
+      prompt,
+      title,
     }: GenerateContextInput): Promise<Task | null> => {
       setIsStarting(true);
       try {
@@ -116,13 +122,15 @@ export function useGenerateContext() {
         }
         const result = await taskService.createTask(
           {
-            content: buildContextGenerationPrompt({
-              channelName,
-              channelId,
-              description,
-              contextLayerEnabled,
-            }),
-            taskDescription: contextMdTaskTitle(channelName),
+            content:
+              prompt ??
+              buildContextGenerationPrompt({
+                channelName,
+                channelId,
+                description,
+                contextLayerEnabled,
+              }),
+            taskDescription: title ?? contextMdTaskTitle(channelName),
             workspaceMode,
             adapter: adapter ?? "claude",
             // Own the task on the channel so it lands in the context feed

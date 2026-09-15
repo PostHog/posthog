@@ -38,8 +38,9 @@ interface ReferencesRailProps {
 }
 
 /**
- * Where the detail lives: files and links, and the PostHog objects this space
- * owns. Two short lists beside the briefing, each with one inline add form.
+ * What agents read and what they watch for this space: docs and files, and
+ * the live objects (dashboards, flags, experiments, errors). Two short lists
+ * beside the briefing, each with one inline add form.
  */
 export function ReferencesRail({
   links,
@@ -51,9 +52,9 @@ export function ReferencesRail({
   return (
     <aside className="flex min-w-0 flex-col gap-6">
       <RailGroup
-        title="Files and links"
+        title="Reading"
         count={links.length}
-        emptyHint="Specs, docs, and repository files with more detail."
+        emptyHint="Specs, docs, and repository files agents should read."
         isSaving={isSaving}
         renderForm={(close) => (
           <AddLinkForm
@@ -88,9 +89,9 @@ export function ReferencesRail({
       </RailGroup>
 
       <RailGroup
-        title="PostHog objects"
+        title="Watching"
         count={objects.length}
-        emptyHint="Dashboards, insights, flags, and experiments that belong here."
+        emptyHint="Dashboards, flags, experiments, and errors agents should watch."
         isSaving={isSaving}
         renderForm={(close) => (
           <AddObjectForm

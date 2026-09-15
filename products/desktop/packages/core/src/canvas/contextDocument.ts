@@ -1,8 +1,9 @@
 // A space's CONTEXT.md is one markdown document, but the Context page edits it
-// as four parts: free-form knowledge, files and links, PostHog objects, and
-// goals. The parts live in three managed `##` sections with a fixed shape so
-// they round-trip through this module; everything else is the knowledge body
-// and is carried verbatim. Agents read the whole document as before.
+// as four parts: free-form knowledge, what agents read (files and links), what
+// they watch (dashboards, flags, experiments), and goals. The parts live in
+// three managed `##` sections with a fixed shape so they round-trip through
+// this module; everything else is the knowledge body and is carried verbatim.
+// Agents read the whole document as before.
 
 export type ContextObjectKind =
   | "insight"
@@ -42,12 +43,17 @@ export interface GoalTarget {
   dueDate: string | null;
 }
 
+/** How a goal's current value is read. */
+export type GoalMeasure =
+  | { kind: "hogql"; sql: string }
+  | { kind: "insight"; shortId: string; url: string; name: string };
+
 export interface ContextGoal {
   name: string;
   /** Why this goal matters, in markdown. */
   why: string;
-  /** HogQL that returns the current value in its first cell. */
-  sql: string;
+  /** Null until a person or an agent adds one. */
+  measure: GoalMeasure | null;
   target: GoalTarget | null;
 }
 
@@ -74,16 +80,18 @@ export const CONTEXT_OBJECT_KIND_LABELS: Record<ContextObjectKind, string> = {
   link: "Link",
 };
 
-const SECTION_LINKS = "Files and links";
-const SECTION_OBJECTS = "PostHog objects";
+const SECTION_LINKS = "Reading";
+const SECTION_OBJECTS = "Watching";
 const SECTION_GOALS = "Goals";
 
 type ManagedSection = "links" | "objects" | "goals";
 
 const SECTION_BY_HEADING: Record<string, ManagedSection> = {
+  reading: "links",
   "files and links": "links",
   links: "links",
   files: "links",
+  watching: "objects",
   "posthog objects": "objects",
   objects: "objects",
   goals: "goals",
@@ -159,6 +167,18 @@ function parseTargetLine(line: string): GoalTarget | null {
   return { direction, value, dueDate: match[3] ?? null };
 }
 
+// `- Measure: [Name](https://…/insights/abc)` links a goal to a saved insight.
+const MEASURE_RE = /^(?:[-*]\s+)?measure:\s*\[([^\]]*)\]\(([^)\s]+)\)\s*$/i;
+
+function parseMeasureLine(line: string): GoalMeasure | null {
+  const match = MEASURE_RE.exec(line.trim());
+  if (!match) return null;
+  const url = match[2];
+  const parsed = parsePostHogObjectUrl(url);
+  if (parsed?.kind !== "insight") return null;
+  return { kind: "insight", shortId: parsed.id, url, name: match[1].trim() };
+}
+
 function parseGoals(lines: string[]): ContextGoal[] {
   const goals: ContextGoal[] = [];
   let current: ContextGoal | null = null;
@@ -169,7 +189,8 @@ function parseGoals(lines: string[]): ContextGoal[] {
   const flush = () => {
     if (!current) return;
     current.why = whyLines.join("\n").trim();
-    current.sql = current.sql || sqlLines.join("\n").trim();
+    const sql = sqlLines.join("\n").trim();
+    if (!current.measure && sql) current.measure = { kind: "hogql", sql };
     goals.push(current);
     current = null;
     sqlLines.length = 0;
@@ -188,7 +209,7 @@ function parseGoals(lines: string[]): ContextGoal[] {
     const heading = /^###\s+(.+?)\s*$/.exec(line);
     if (heading) {
       flush();
-      current = { name: heading[1], why: "", sql: "", target: null };
+      current = { name: heading[1], why: "", measure: null, target: null };
       continue;
     }
     if (!current) continue;
@@ -199,6 +220,11 @@ function parseGoals(lines: string[]): ContextGoal[] {
     const target = parseTargetLine(line);
     if (target) {
       current.target = target;
+      continue;
+    }
+    const measure = parseMeasureLine(line);
+    if (measure) {
+      current.measure = measure;
       continue;
     }
     whyLines.push(line);
@@ -298,7 +324,14 @@ export function serializeContextDocument(doc: ContextDocument): string {
       const lines = [`### ${goal.name}`];
       if (goal.why.trim()) lines.push("", goal.why.trim());
       if (goal.target) lines.push("", formatTarget(goal.target));
-      if (goal.sql.trim()) lines.push("", "```sql", goal.sql.trim(), "```");
+      if (goal.measure?.kind === "insight") {
+        lines.push(
+          "",
+          `- Measure: [${goal.measure.name}](${goal.measure.url})`,
+        );
+      } else if (goal.measure?.kind === "hogql" && goal.measure.sql.trim()) {
+        lines.push("", "```sql", goal.measure.sql.trim(), "```");
+      }
       return lines.join("\n");
     });
     parts.push(`## ${SECTION_GOALS}\n\n${blocks.join("\n\n")}`);

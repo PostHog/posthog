@@ -1,13 +1,21 @@
 import { ArrowSquareOutIcon, SparkleIcon } from "@phosphor-icons/react";
 import {
   type ContextDocument,
+  type ContextGoal,
   parseContextDocument,
   serializeContextDocument,
 } from "@posthog/core/canvas/contextDocument";
 import { Button, Text, ToggleGroup, ToggleGroupItem } from "@posthog/quill";
+import type { Task } from "@posthog/shared/domain-types";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import { channelPageIcon } from "@posthog/ui/features/canvas/components/channelPages";
+import {
+  buildGoalMeasurePrompt,
+  goalMeasureTaskTitle,
+} from "@posthog/ui/features/canvas/contextPrompt";
 import type { ContextDocumentStore } from "@posthog/ui/features/canvas/hooks/useContextDocumentStore";
+import { useGenerateContext } from "@posthog/ui/features/canvas/hooks/useGenerateContext";
+import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import {
   PageHeader,
@@ -20,6 +28,7 @@ import {
 } from "@posthog/ui/primitives/PageHeader";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
+import { navigateToChannelTask } from "@posthog/ui/router/navigationBridge";
 import { useMemo, useState } from "react";
 import { ContextEmptyHero } from "./ContextEmptyHero";
 import { GoalsScoreboard } from "./GoalsScoreboard";
@@ -52,6 +61,12 @@ export function SpaceContextPage({
   const [view, setView] = useState<View>("overview");
   const [agentOpen, setAgentOpen] = useState(false);
   const [writing, setWriting] = useState(false);
+  const [measureTask, setMeasureTask] = useState<{
+    goal: string;
+    task: Task;
+  } | null>(null);
+  const contextLayerEnabled = useContextLayerFlag();
+  const { generate } = useGenerateContext();
   const doc = useMemo(
     () => parseContextDocument(store.content),
     [store.content],
@@ -65,6 +80,23 @@ export function SpaceContextPage({
 
   const saveDoc = (next: ContextDocument) =>
     store.save(serializeContextDocument(next));
+
+  const askAgentForMeasure = async (goal: ContextGoal) => {
+    const task = await generate({
+      channelId,
+      channelName,
+      description: "",
+      prompt: buildGoalMeasurePrompt({
+        channelName,
+        channelId,
+        goalName: goal.name,
+        goalWhy: goal.why,
+        contextLayerEnabled,
+      }),
+      title: goalMeasureTaskTitle(goal.name),
+    });
+    if (task) setMeasureTask({ goal: goal.name, task });
+  };
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -162,6 +194,33 @@ export function SpaceContextPage({
               />
             ) : null}
 
+            {measureTask ? (
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-2.5">
+                <Text size="xs">
+                  An agent is writing the measure for "{measureTask.goal}". The
+                  number appears here when it publishes.
+                </Text>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      navigateToChannelTask(channelId, measureTask.task.id)
+                    }
+                  >
+                    Open task
+                  </Button>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={() => setMeasureTask(null)}
+                  >
+                    Dismiss
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
             {view === "source" ? (
               <RawContextEditor
                 content={store.content}
@@ -182,6 +241,7 @@ export function SpaceContextPage({
                 <GoalsScoreboard
                   goals={doc.goals}
                   onChange={(goals) => saveDoc({ ...doc, goals })}
+                  onAskAgentForMeasure={askAgentForMeasure}
                   isSaving={store.isSaving}
                 />
                 <div className="grid @3xl:grid-cols-[minmax(0,1fr)_260px] gap-8">
