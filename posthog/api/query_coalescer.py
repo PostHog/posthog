@@ -266,8 +266,9 @@ class QueryCoalescer:
 _TEAM_ID_RE = re.compile(r"^/api/(?:environments|projects)/(\d+)/")
 
 _COALESCE_PATH_PATTERNS = [
+    # A follower never calls get_object(), so object-level access control does not run
+    # for it. Do not add a detail route that relies on that check.
     re.compile(r"^/api/(?:environments|projects)/\d+/query/$"),
-    re.compile(r"^/api/(?:environments|projects)/\d+/insights/\d+/$"),
 ]
 
 

@@ -403,9 +403,18 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
         events = [row[0] for row in response.json()["results"]]
         self.assertIn("test_event", events)
 
-    def test_non_matching_path_skips_coalescing(self):
-        with mock.patch("posthog.api.query_coalescer.QueryCoalescer") as mock_cls:
-            self.client.get(f"/api/environments/{self.team.id}/annotations/")
+    @parameterized.expand(
+        [
+            ("annotations", "/api/environments/{team_id}/annotations/"),
+            ("insight_detail", "/api/environments/{team_id}/insights/123/"),
+        ]
+    )
+    def test_non_matching_path_skips_coalescing(self, _name, path_template):
+        with (
+            mock.patch("posthog.api.query_coalescer.posthoganalytics.feature_enabled", return_value=True),
+            mock.patch("posthog.api.query_coalescer.QueryCoalescer") as mock_cls,
+        ):
+            self.client.get(path_template.format(team_id=self.team.id))
             mock_cls.assert_not_called()
 
     def test_follower_gets_replayed_5xx_response(self):
@@ -478,7 +487,6 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("query", "/api/environments/{team_id}/query/"),
-            ("insights_pk", "/api/environments/{team_id}/insights/123/"),
         ]
     )
     def test_matching_paths_trigger_coalescing(self, _name, path_template):
