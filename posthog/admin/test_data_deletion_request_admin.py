@@ -1007,7 +1007,13 @@ class TestDataDeletionRequestFormHidesUnsupportedTypes(SimpleTestCase):
         for field in PERSON_REMOVAL_FIELDS:
             self.assertNotIn(field, form.fields)
 
-    @parameterized.expand([(RequestType.PROPERTY_REMOVAL,), (RequestType.PERSON_REMOVAL,)])
+    @parameterized.expand(
+        [
+            (RequestType.HOGQL_EVENT_REMOVAL,),
+            (RequestType.PROPERTY_REMOVAL,),
+            (RequestType.PERSON_REMOVAL,),
+        ]
+    )
     def test_existing_request_keeps_its_own_type_selectable(self, request_type):
         from posthog.admin.admins.data_deletion_request_admin import DataDeletionRequestForm
 

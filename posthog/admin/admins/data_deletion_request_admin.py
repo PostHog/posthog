@@ -48,7 +48,11 @@ PERSON_REMOVAL_FIELDS = (
     "person_drop_recordings",
 )
 
-UNSUPPORTED_REQUEST_TYPES = (RequestType.PERSON_REMOVAL, RequestType.PROPERTY_REMOVAL)
+UNSUPPORTED_REQUEST_TYPES = (
+    RequestType.HOGQL_EVENT_REMOVAL,
+    RequestType.PERSON_REMOVAL,
+    RequestType.PROPERTY_REMOVAL,
+)
 
 # Requests can only be edited while draft or pending. Once approved (or later), the
 # criteria are locked — operators must explicitly "revert to draft" to change them.
@@ -258,6 +262,8 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         "min_timestamp",
         "max_timestamp",
         "stats_calculated_at",
+        "hogql_query",
+        "hogql_variables",
         "created_at",
         "created_by",
         "updated_at",
@@ -292,6 +298,8 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                     "properties",
                     "person_properties",
                     "hogql_predicate",
+                    "hogql_query",
+                    "hogql_variables",
                     "notes",
                 ),
             },
