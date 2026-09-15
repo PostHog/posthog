@@ -2,7 +2,7 @@ import re
 import time
 import hashlib
 from collections.abc import Sequence
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Protocol, TypedDict, cast
 
 from django.conf import settings
@@ -20,6 +20,7 @@ from products.ai_training.backend.privacy.reader import KEY_READ_LEASE_SECONDS
 logger = structlog.get_logger(__name__)
 
 KEY_SHARDS = 32
+MONTH_DELETE_GRACE_DAYS = 14
 DynamoItem = dict[str, dict[str, str | bool | bytes]]
 
 
@@ -38,6 +39,7 @@ class DeletionWork(TypedDict, total=False):
 
 class PrivacyDynamoClient(Protocol):
     def put_item(self, **kwargs: object) -> DynamoResponse: ...
+    def delete_item(self, **kwargs: object) -> DynamoResponse: ...
     def get_item(self, **kwargs: object) -> DynamoResponse: ...
     def query(self, **kwargs: object) -> DynamoResponse: ...
     def transact_write_items(self, **kwargs: object) -> DynamoResponse: ...
@@ -45,6 +47,11 @@ class PrivacyDynamoClient(Protocol):
 
 def item_key(pk: str, sk: str) -> DynamoItem:
     return {"pk": {"S": pk}, "sk": {"S": sk}}
+
+
+def month_end(session_month: str) -> datetime:
+    year, month = (int(part) for part in session_month.split("-"))
+    return datetime(year + month // 12, month % 12 + 1, 1, tzinfo=UTC)
 
 
 def identity_digest(value: str) -> str:
@@ -79,6 +86,9 @@ class AITrainingPrivacyStore:
     def delete_month(self, session_month: str) -> int:
         if re.fullmatch(r"[0-9]{4}-(0[1-9]|1[0-2])", session_month) is None:
             raise ValueError("Session month must use YYYY-MM")
+        # Ingestion does not fence on the month, so a key committed after its index shard is swept would survive; the grace period keeps deletion behind the mirror's lag instead.
+        if timezone.now() < month_end(session_month) + timedelta(days=MONTH_DELETE_GRACE_DAYS):
+            raise ValueError(f"Session month {session_month} must be at least {MONTH_DELETE_GRACE_DAYS} days old")
         count = 0
         for shard in range(KEY_SHARDS):
             cursor = None
@@ -90,6 +100,7 @@ class AITrainingPrivacyStore:
                 cursor = response.get("LastEvaluatedKey")
                 if not cursor:
                     break
+        self.client.delete_item(TableName=self.table_name, Key=item_key(f"month:{session_month}", "deleted"))
         return count
 
     def page(self, pk: str, prefix: str, cursor: DynamoItem | None = None) -> DynamoResponse:
