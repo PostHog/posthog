@@ -42,7 +42,7 @@ class ClassifyInput:
     ticket_id: str = ""
 
 
-@dataclass
+@dataclass(frozen=False)
 class ClassifyOutput:
     ticket_type: str
     needs_diagnostics: bool
@@ -61,7 +61,7 @@ class RefineQueriesInput:
     ticket_id: str = ""
 
 
-@dataclass
+@dataclass(frozen=False)
 class RefineQueriesOutput:
     queries: list[str]
     llm_attempts: int = 1
@@ -104,7 +104,7 @@ class DraftInput:
     auto_publishable: bool = False
 
 
-@dataclass
+@dataclass(frozen=False)
 class DraftOutput:
     reply: str
     citations: list[str]
@@ -132,7 +132,7 @@ class ValidateInput:
     ticket_id: str = ""
 
 
-@dataclass
+@dataclass(frozen=False)
 class ValidateOutput:
     grounded: bool
     coverage: float
@@ -167,7 +167,7 @@ class SafetyFilterInput:
     ticket_id: str = ""
 
 
-@dataclass
+@dataclass(frozen=False)
 class SafetyFilterOutput:
     safe: bool
     threat_type: str = ""
@@ -186,7 +186,7 @@ class ReviewReplyInput:
     ticket_id: str = ""
 
 
-@dataclass
+@dataclass(frozen=False)
 class ReviewReplyOutput:
     safe: bool
     reason: str = ""

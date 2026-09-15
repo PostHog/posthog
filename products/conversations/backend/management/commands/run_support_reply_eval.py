@@ -8,12 +8,11 @@ from __future__ import annotations
 
 import asyncio
 from functools import partial
-from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
 
-from products.conversations.evals.fixtures import FIXTURES, SupportReplyFixture, expected_for
-from products.conversations.evals.report import format_report
+from products.conversations.evals.fixtures import FIXTURES, expected_for
+from products.conversations.evals.report import EvalRow, format_report
 from products.conversations.evals.runner import run_fixture
 from products.conversations.evals.scorers import DETERMINISTIC_SCORERS
 from products.conversations.evals.seeders import provision_eval_team, seed_case, teardown_eval_team
@@ -33,14 +32,12 @@ class Command(BaseCommand):
         keep: bool = options["keep"]
         rows = asyncio.run(self._run(live=live, fixture_filter=fixture_filter, keep=keep))
         self.stdout.write(format_report(rows))
-        if any(output.get("exit_code") not in (0, None) for _, output, _ in rows):
+        if any(row.output.get("exit_code") not in (0, None) for row in rows):
             raise CommandError("One or more support-reply fixtures failed to execute.")
 
-    async def _run(
-        self, *, live: bool, fixture_filter: str, keep: bool
-    ) -> list[tuple[SupportReplyFixture, dict[str, Any], dict[str, Any]]]:
+    async def _run(self, *, live: bool, fixture_filter: str, keep: bool) -> list[EvalRow]:
         selected = [f for f in FIXTURES if not fixture_filter or fixture_filter in f.name]
-        rows: list[tuple[SupportReplyFixture, dict[str, Any], dict[str, Any]]] = []
+        rows: list[EvalRow] = []
         for fixture in selected:
             eval_team = await asyncio.to_thread(partial(provision_eval_team, label=fixture.name))
             try:
@@ -48,7 +45,7 @@ class Command(BaseCommand):
                 output = await run_fixture(fixture, seed, live=live)
                 expected = expected_for(fixture)
                 scores = {scorer._name(): scorer._run_eval_sync(output, expected) for scorer in DETERMINISTIC_SCORERS}
-                rows.append((fixture, output, scores))
+                rows.append(EvalRow(fixture=fixture, output=output, scores=scores))
             finally:
                 if not keep:
                     await asyncio.to_thread(partial(teardown_eval_team, eval_team=eval_team))
