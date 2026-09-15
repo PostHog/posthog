@@ -1499,7 +1499,9 @@ class LLMSkillViewSet(
 
         if skill.version != payload.validated_data["expected_version"]:
             return Response(
-                {"detail": "This skill changed after you reviewed it. Reopen the dialog and review the latest version."},
+                {
+                    "detail": "This skill changed after you reviewed it. Reopen the dialog and review the latest version."
+                },
                 status=status.HTTP_409_CONFLICT,
             )
 
