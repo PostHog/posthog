@@ -69,6 +69,14 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
                 fields=["pipeline", "status", "finished_at"],
                 name="idx_extdatajob_pipe_stat_fin",
             ),
+            # Serves the "latest job for this schema" lookups (per-column statistics, schema
+            # resync, cancel, API-version repin, CDC re-snapshot): equality on schema, ordered
+            # by created_at DESC with LIMIT. Without it the schema FK index walks every job the
+            # schema has ever run and sorts the wide heap rows to keep one.
+            models.Index(
+                fields=["schema", "-created_at"],
+                name="idx_extdatajob_schema_created",
+            ),
         ]
 
     def folder_path(self) -> str:
