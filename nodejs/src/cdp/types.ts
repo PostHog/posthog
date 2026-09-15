@@ -485,7 +485,13 @@ export type HogFlowInvocationContext = {
         // ever catches a wake the subscription streams missed, gating its eventual removal.
         pollReparked?: boolean
         // A step parked on an external run: cleared when the matcher writes a matching `resumeResult`.
-        awaitingResume?: { key: string; deadlineAt: string; dispatch: Record<string, unknown>; label?: string }
+        awaitingResume?: {
+            key: string
+            deadlineAt: string
+            dispatch: Record<string, unknown>
+            label?: string
+            parkedAt?: string
+        }
         resumeResult?: { key: string; status: WorkflowStepResumeStatus; result?: Record<string, unknown> }
     }
     // Set by the subscription matcher consumer when an incoming event matched the

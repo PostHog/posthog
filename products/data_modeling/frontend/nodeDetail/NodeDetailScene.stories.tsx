@@ -1,6 +1,7 @@
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { useEffect, useRef } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { NodeDetailScene } from 'scenes/models/NodeDetailScene'
 import { urls } from 'scenes/urls'
 
@@ -113,10 +114,7 @@ export const MaterializedView: Story = {
                             sync_frequency: '1hour',
                         },
                     ],
-                    '/api/environments/:team_id/data_modeling_jobs/': () => [
-                        200,
-                        { results: [], count: 0, next: null },
-                    ],
+                    '/api/projects/:team_id/data_modeling_jobs/': () => [200, { results: [], count: 0, next: null }],
                 },
             },
         },
@@ -125,5 +123,66 @@ export const MaterializedView: Story = {
 
 export const NarrowMaterializedView: Story = {
     ...MaterializedView,
+    decorators: NarrowView.decorators,
+}
+
+const suspension = {
+    clickhouse: { at: '2026-09-13T12:00:00Z', reason: 'The source table orders is unavailable.', job_id: 'run-0' },
+}
+
+export const SuspendedWithRunHistory: Story = {
+    parameters: {
+        pageUrl: urls.nodeDetail(node.id, 'materialization'),
+        featureFlags: [FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES],
+        msw: {
+            mocks: {
+                get: {
+                    '/api/environments/:team_id/data_modeling_nodes/:id/': () => [
+                        200,
+                        { ...node, type: 'matview', suspended: suspension, last_run_status: 'Failed' },
+                    ],
+                    '/api/environments/:team_id/warehouse_saved_queries/:id/': () => [
+                        200,
+                        {
+                            ...savedQuery,
+                            is_materialized: true,
+                            status: 'Failed',
+                            sync_frequency: '1hour',
+                            suspended: suspension,
+                        },
+                    ],
+                    '/api/projects/:team_id/data_modeling_jobs/': ({ request }: { request: Request }) => {
+                        const params = new URL(request.url).searchParams
+                        // Every run this model has failed, so the last-successful-sync lookup finds nothing.
+                        if (params.get('status') === 'Completed') {
+                            return [200, { count: 0, next: null, results: [] }]
+                        }
+                        const offset = Number(params.get('offset') ?? 0)
+                        return [
+                            200,
+                            {
+                                count: 25,
+                                next: offset < 20 ? '/next' : null,
+                                results: Array.from({ length: Math.min(10, 25 - offset) }, (_, index) => ({
+                                    id: `run-${offset + index}`,
+                                    status: 'Failed',
+                                    rows_materialized: 0,
+                                    rows_expected: null,
+                                    error: 'The source table orders is unavailable.',
+                                    created_at: '2026-09-13T12:00:00Z',
+                                    last_run_at: '2026-09-13T12:00:00Z',
+                                    updated_at: '2026-09-13T12:00:03Z',
+                                })),
+                            },
+                        ]
+                    },
+                },
+            },
+        },
+    },
+}
+
+export const NarrowSuspendedWithRunHistory: Story = {
+    ...SuspendedWithRunHistory,
     decorators: NarrowView.decorators,
 }

@@ -17,16 +17,17 @@ import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { AccessControlLevel, AccessControlResourceType, DataModelingJob, LogEntryLevel } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, LogEntryLevel } from '~/types'
 
 import { SERVING_ENGINE } from 'products/data_modeling/frontend/suspension'
+import type { DataModelingJobApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 import { MaterializationLoading } from 'products/data_warehouse/frontend/shared/components/MaterializationLoading'
 import { MaterializationRunActions } from 'products/data_warehouse/frontend/shared/components/MaterializationRunActions'
 import { MaterializationRunError } from 'products/data_warehouse/frontend/shared/components/MaterializationRunError'
 
 import { IncrementalConfigOptions } from '../editor/IncrementalConfigFields'
 import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
-import { materializationJobsLogic } from './materializationJobsLogic'
+import { DEFAULT_JOBS_PAGE_SIZE, materializationJobsLogic } from './materializationJobsLogic'
 import { computeJobDuration, jobLogsWindow } from './materializationJobUtils'
 import {
     SyncFrequencySelect,
@@ -131,7 +132,11 @@ export function MaterializationStatusPanel({
     const {
         dataModelingJobs,
         dataModelingJobsLoading,
-        hasMoreJobsToLoad,
+        jobsPage,
+        jobsPageResults,
+        olderJobsPageLoading,
+        olderJobsPageError,
+        dataModelingJobsError,
         lastSuccessfulSyncAt,
         startingMaterialization,
         savedQuery,
@@ -144,7 +149,8 @@ export function MaterializationStatusPanel({
     } = useValues(jobsLogic)
     const {
         loadDataModelingJobs,
-        loadOlderDataModelingJobs,
+        setJobsPage,
+        loadOlderJobsPage,
         setInitialSyncFrequency,
         setIncrementalDraft,
         setSyncFrequencyDraft,
@@ -389,21 +395,46 @@ export function MaterializationStatusPanel({
                         icon={<IconRefresh />}
                         size="small"
                         type="secondary"
-                        onClick={() => loadDataModelingJobs()}
-                        loading={dataModelingJobsLoading}
+                        onClick={() => (jobsPage === 1 ? loadDataModelingJobs() : loadOlderJobsPage())}
+                        loading={jobsPage === 1 ? dataModelingJobsLoading : olderJobsPageLoading}
                         disabledReason={startingMaterialization ? 'Materialization is starting' : undefined}
                         tooltip="Refresh runs"
+                        aria-label="Refresh runs"
                     />
                 </div>
+                {(jobsPage === 1 ? dataModelingJobsError : olderJobsPageError) && (
+                    <LemonBanner type="error">Couldn't load runs. Use Refresh runs to try again.</LemonBanner>
+                )}
                 <LemonTable
+                    rowKey="id"
+                    pagination={{
+                        controlled: true,
+                        useUrl: false,
+                        pageSize: DEFAULT_JOBS_PAGE_SIZE,
+                        currentPage: jobsPage,
+                        entryCount: jobsPageResults?.count,
+                        // PaginationControl decides whether an arrow is enabled from the entry count, not
+                        // from these handlers, so withholding one while a page loads would leave a live
+                        // arrow that does nothing. Let the click through: the page loader breakpoints, so
+                        // the superseded response is discarded.
+                        onBackward: jobsPage > 1 ? () => setJobsPage(jobsPage - 1) : undefined,
+                        onForward: jobsPageResults?.next ? () => setJobsPage(jobsPage + 1) : undefined,
+                    }}
                     size="small"
-                    loading={dataModelingJobsLoading && !dataModelingJobs?.results?.length}
-                    dataSource={dataModelingJobs?.results || []}
+                    // A timer reloads page 1 in the background, and LemonTable's loading overlay blocks
+                    // pointer events over the rows and the pager, so page 1 shows the loader only before it
+                    // has rows. Only a user action loads an older page, so that loader always shows.
+                    loading={
+                        jobsPage === 1
+                            ? dataModelingJobsLoading && !jobsPageResults?.results?.length
+                            : olderJobsPageLoading
+                    }
+                    dataSource={jobsPage > 1 && olderJobsPageError ? [] : jobsPageResults?.results || []}
                     columns={[
                         {
                             title: 'Status',
                             dataIndex: 'status',
-                            render: (_, job: DataModelingJob) => {
+                            render: (_, job: DataModelingJobApi) => {
                                 const { status, rows_materialized, rows_expected } = job
                                 const type = STATUS_TAG_TYPES[status] || 'warning'
 
@@ -436,8 +467,8 @@ export function MaterializationStatusPanel({
                             title: 'Refresh mode',
                             dataIndex: 'run_mode',
                             isHidden:
-                                !showIncremental || !savedQuery.is_materialized || !dataModelingJobs?.results?.length,
-                            render: (_, { run_mode }: DataModelingJob) =>
+                                !showIncremental || !savedQuery.is_materialized || !jobsPageResults?.results?.length,
+                            render: (_, { run_mode }: DataModelingJobApi) =>
                                 run_mode === 'incremental'
                                     ? 'Incremental'
                                     : run_mode === 'full_refresh'
@@ -447,7 +478,7 @@ export function MaterializationStatusPanel({
                         {
                             title: 'Error',
                             dataIndex: 'error',
-                            render: (_, { error, status }: DataModelingJob) => (
+                            render: (_, { error, status }: DataModelingJobApi) => (
                                 <div className="max-w-28 @min-[48rem]/materialization:max-w-60">
                                     <span
                                         className={`block truncate ${status === 'Failed' ? 'text-danger' : 'text-secondary'}`}
@@ -460,7 +491,7 @@ export function MaterializationStatusPanel({
                         {
                             title: 'Rows',
                             dataIndex: 'rows_materialized',
-                            render: (_, { rows_materialized, status, run_mode }: DataModelingJob) => {
+                            render: (_, { rows_materialized, status, run_mode }: DataModelingJobApi) => {
                                 if (
                                     (status === 'Running' || status === 'Cancelled' || status === 'Skipped') &&
                                     rows_materialized === 0
@@ -487,18 +518,18 @@ export function MaterializationStatusPanel({
                         {
                             title: 'Updated',
                             dataIndex: 'last_run_at',
-                            render: (_, { last_run_at }: DataModelingJob) =>
+                            render: (_, { last_run_at }: DataModelingJobApi) =>
                                 last_run_at ? <TZLabel time={last_run_at} /> : '-',
                         },
                         {
                             title: 'Duration',
-                            render: (_, job: DataModelingJob) => computeJobDuration(job),
+                            render: (_, job: DataModelingJobApi) => computeJobDuration(job),
                         },
                     ]}
                     expandable={
-                        dataModelingJobs?.results?.length
+                        jobsPageResults?.results?.length
                             ? {
-                                  expandedRowRender: (job: DataModelingJob) => (
+                                  expandedRowRender: (job: DataModelingJobApi) => (
                                       <div className="p-4 min-w-0">
                                           <MaterializationRunError error={job.error} status={job.status} />
                                           <LogsViewer
@@ -524,20 +555,6 @@ export function MaterializationStatusPanel({
                     }
                     nouns={['run', 'runs']}
                     emptyState="No runs available"
-                    footer={
-                        hasMoreJobsToLoad && (
-                            <div className="flex items-center m-2">
-                                <LemonButton
-                                    center
-                                    fullWidth
-                                    onClick={() => loadOlderDataModelingJobs()}
-                                    loading={dataModelingJobsLoading}
-                                >
-                                    Load older runs
-                                </LemonButton>
-                            </div>
-                        )
-                    }
                 />
             </div>
         </div>
