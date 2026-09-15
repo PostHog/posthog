@@ -15,12 +15,15 @@ import { humanFriendlyDuration } from 'lib/utils/durations'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from 'scenes/dashboard/dashboardConstants'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { ExporterLogin } from '~/exporter/ExporterLogin'
 import { ExportType, ExportedData } from '~/exporter/types'
 import { isMetricInsightQuery } from '~/queries/utils'
 
 import { exporterViewLogic } from './exporterViewLogic'
+import { SharedPageHeader } from './SharedPageHeader'
+import { SharedPageShareButton } from './SharedPageShareButton'
 
 const LazyArtifactScene = lazyWithRetry(() => import('./scenes/ExporterArtifactScene'))
 const LazyCanvasScene = lazyWithRetry(() => import('./scenes/ExporterCanvasScene'))
@@ -157,6 +160,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                     'Exporter--recording': !!recording,
                     'Exporter--notebook': !!notebook,
                     'Exporter--canvas': !!canvas,
+                    'Exporter--artifact': !!taskArtifact,
                     'Exporter--heatmap': type === ExportType.Heatmap,
                 })}
                 ref={elementRef}
@@ -225,52 +229,43 @@ export function Exporter(props: ExportedData): JSX.Element {
                 ) : canvas ? (
                     <div className="SharedCanvas">
                         {!whitelabel && type === ExportType.Scene && (
-                            <div className="SharedDashboard-header">
-                                <Link
-                                    to="https://posthog.com?utm_medium=in-product&utm_campaign=shared-canvas"
-                                    target="_blank"
-                                >
-                                    <Logo size="xs" />
-                                </Link>
-                                <div className="SharedDashboard-header-title">
-                                    <h1 className="mb-2">{canvas.name}</h1>
-                                    <LemonMarkdown lowKeyHeadings>{canvas.description || ''}</LemonMarkdown>
-                                </div>
-                                <div className="SharedDashboard-header-team text-right">
-                                    <span className="block">{currentTeam?.name}</span>
-                                </div>
-                            </div>
+                            <SharedPageHeader
+                                title={canvas.name || 'Canvas'}
+                                description={canvas.description}
+                                teamName={currentTeam?.name}
+                                utmCampaign="shared-canvas"
+                                actions={
+                                    <SharedPageShareButton
+                                        noun="canvas"
+                                        // A copy starts from the build the link shows, so a gone build offers no copy.
+                                        forkUrl={
+                                            canvas.allow_forking && canvas.published && accessToken
+                                                ? urls.codeCanvasFork(accessToken)
+                                                : null
+                                        }
+                                    />
+                                }
+                            />
                         )}
                         <Suspense fallback={<ExportedSceneSkeleton />}>
-                            <LazyCanvasScene
-                                canvas={canvas}
-                                forcedTheme={forcedTheme}
-                                accessToken={accessToken}
-                                canCopy={!whitelabel && type === ExportType.Scene}
-                            />
+                            <LazyCanvasScene canvas={canvas} forcedTheme={forcedTheme} />
                         </Suspense>
                     </div>
                 ) : taskArtifact ? (
                     <div className="SharedArtifact">
                         {!whitelabel && type === ExportType.Scene && (
-                            <div className="SharedDashboard-header">
-                                <Link
-                                    to="https://posthog.com?utm_medium=in-product&utm_campaign=shared-artifact"
-                                    target="_blank"
-                                >
-                                    <Logo size="xs" />
-                                </Link>
-                                <div className="SharedDashboard-header-title">
-                                    <h1 className="mb-2">{taskArtifact.name}</h1>
-                                </div>
-                                <div className="SharedDashboard-header-team text-right">
-                                    <span className="block">{currentTeam?.name}</span>
-                                </div>
-                            </div>
+                            <SharedPageHeader
+                                title={taskArtifact.name || 'File'}
+                                teamName={currentTeam?.name}
+                                utmCampaign="shared-artifact"
+                                actions={<SharedPageShareButton noun="file" />}
+                            />
                         )}
-                        <Suspense fallback={<ExportedSceneSkeleton />}>
-                            <LazyArtifactScene artifact={taskArtifact} />
-                        </Suspense>
+                        <div className="SharedArtifact-body flex-1 p-4">
+                            <Suspense fallback={<ExportedSceneSkeleton />}>
+                                <LazyArtifactScene artifact={taskArtifact} />
+                            </Suspense>
+                        </div>
                     </div>
                 ) : insight ? (
                     <Suspense fallback={<ExportedSceneSkeleton />}>
