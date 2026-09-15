@@ -157,6 +157,19 @@ class TestFeatureFlagFacadeGatedWrites(APIBaseTest):
         assert change_request.intent["http_method"] == "PATCH"
         assert change_request.resource_id == str(flag.id)
 
+    def test_update_does_not_resurrect_a_flag_deleted_after_it_was_read(self):
+        # A bulk delete leaves `version` untouched, so the version check cannot see it. The write
+        # has to apply this request to the locked row, which still carries the delete.
+        flag = self._create_flag()
+        stale = FeatureFlag.objects.get(pk=flag.pk)
+        FeatureFlag.objects.filter(pk=flag.pk).update(deleted=True)
+
+        update_flag(stale, {"name": "renamed"}, team=self.team, user=self.user)
+
+        refreshed = FeatureFlag.objects_including_soft_deleted.get(pk=flag.pk)
+        assert refreshed.deleted is True
+        assert refreshed.name == "renamed"
+
     def test_system_create_logs_system_activity(self):
         with self.captureOnCommitCallbacks(execute=True):
             flag = create_flag(

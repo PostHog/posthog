@@ -16,7 +16,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
-from products.feature_flags.backend.api.feature_flag import FlagRolloutWriteRequest
+from products.feature_flags.backend.api.feature_flag import FeatureFlagViewSet, FlagRolloutWriteRequest
 from products.feature_flags.backend.facade.api import update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -331,6 +331,66 @@ class TestFeatureFlagRolloutActions(APIBaseTest):
         assert ChangeRequest.objects.filter(team=self.team).count() == 0
         flag.refresh_from_db()
         assert flag.filters == TARGETING
+
+    @parameterized.expand(ROLLOUT_ACTIONS)
+    def test_rollout_action_accepts_the_null_version_a_legacy_flag_reads_as(self, action, body):
+        # `version` is nullable, so a flag written before versioning reads as null. The
+        # documented flow is to send back what the read returned, and rejecting that value
+        # would leave those flags with no way to use these endpoints at all.
+        flag = self._flag()
+        FeatureFlag.objects.filter(pk=flag.pk).update(version=None)
+
+        response = self._act(flag, action, {**body, "version": None})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+    @parameterized.expand(ROLLOUT_ACTIONS)
+    def test_rollout_action_preserves_legacy_filter_keys(self, action, body):
+        # `super_groups` carries early access enrollment targeting and `holdout_groups` the
+        # pre-`holdout` encoding. Neither is a declared field, so the structural pass drops both
+        # unless the write declares the cleanup exemption. A rollout write sends the stored
+        # filters back, so losing them would rewrite targeting the caller never touched.
+        legacy = {
+            **TARGETING,
+            "holdout_groups": [{"properties": [], "rollout_percentage": 5, "variant": "holdout-1"}],
+            "super_groups": [{"properties": [], "rollout_percentage": 15}],
+        }
+        flag = self._flag(filters=legacy)
+
+        response = self._act(flag, action, {**body, "version": flag.version})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        flag.refresh_from_db()
+        assert flag.filters["holdout_groups"] == legacy["holdout_groups"]
+        assert flag.filters["super_groups"] == legacy["super_groups"]
+
+    def test_a_no_op_rollout_is_refused_when_the_flag_changed_after_it_was_read(self):
+        # The requested state already matches the copy the caller read, so the transform is a
+        # no-op against it. Deciding from that copy answers 200 for a flag another write has
+        # already moved on; the decision has to be made against the locked row.
+        flag = self._flag()
+        stale_version = flag.version
+        original = FeatureFlagViewSet._rollout_precondition
+        fired: list[bool] = []
+
+        def precondition(view, feature_flag, version):
+            original(view, feature_flag, version)
+            if not fired:
+                fired.append(True)
+                FeatureFlag.objects.filter(pk=flag.pk).update(version=(flag.version or 0) + 1)
+
+        with patch.object(FeatureFlagViewSet, "_rollout_precondition", precondition):
+            response = self._act(
+                flag,
+                "set_release_condition_rollout",
+                {
+                    "condition_index": 0,
+                    "rollout_percentage": TARGETING["groups"][0]["rollout_percentage"],
+                    "version": stale_version,
+                },
+            )
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.content
 
     def test_the_serializer_refuses_a_stale_version_under_its_row_lock(self):
         # The action's own check cannot close the window: an edit can land between it and the

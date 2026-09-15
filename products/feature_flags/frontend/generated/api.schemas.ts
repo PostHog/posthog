@@ -1206,6 +1206,53 @@ export interface ActivityLogPaginatedResponseApi {
     total_count: number
 }
 
+/**
+ * The body every DRF exception on these actions renders as.
+ *
+ * `ErrorResponseSerializer` declares a single `error` key, which no response on this viewset
+ * produces: the project exception handler renders this envelope instead. Declaring the wrong
+ * shape reaches the generated clients and the MCP tools, where an agent reads a key that is
+ * never there.
+ */
+export interface FlagActionErrorApi {
+    /** Error class, for example `validation_error`. */
+    type: string
+    /** Machine-readable reason, for example `invalid_input`. */
+    code: string
+    /** Human-readable description of what was refused. */
+    detail: string
+    /**
+     * Request field the error belongs to, or null when it belongs to no single field.
+     * @nullable
+     */
+    attr: string | null
+}
+
+/**
+ * The 409 body an approval policy produces, which differs from every other error here.
+ *
+ * Raised through the approvals mixin rather than the exception handler, so it carries the
+ * change request it opened instead of the `type`/`attr` envelope.
+ */
+export interface FlagApprovalConflictApi {
+    /** Always `approval_required`. */
+    code: string
+    /** Always `approval_required`. */
+    status: string
+    /** Human-readable description of the policy that gated the change. */
+    detail: string
+    /** Same text as `detail`. */
+    message: string
+    /** Resource the change request targets, `feature_flag` here. */
+    resource_type: string
+    /** Id of the flag the change request targets. */
+    resource_id: string
+    /** Id of the change request that was opened. */
+    change_request_id: string
+    /** Who can approve the change request. */
+    required_approvers: unknown
+}
+
 export interface DependentFlagApi {
     /** Feature flag ID */
     id: number
@@ -1217,16 +1264,19 @@ export interface DependentFlagApi {
 
 export interface FeatureFlagRollOutToEveryoneRequestApi {
     /**
-     * The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version.
+     * The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0, so the value a read returns is always one this accepts.
      * @minimum 0
+     * @nullable
      */
-    version: number
+    version: number | null
     /**
      * The variant every user gets. Required for a multivariate flag and rejected for any other flag, because a release condition decides who the flag serves and not which variant they get.
      * @nullable
      */
     variant_key?: string | null
 }
+
+export type FeatureFlagActionConflictApi = FlagActionErrorApi | FlagApprovalConflictApi
 
 export interface FeatureFlagSetReleaseConditionRolloutRequestApi {
     /**
@@ -1241,10 +1291,11 @@ export interface FeatureFlagSetReleaseConditionRolloutRequestApi {
      */
     rollout_percentage: number
     /**
-     * The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version.
+     * The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0, so the value a read returns is always one this accepts.
      * @minimum 0
+     * @nullable
      */
-    version: number
+    version: number | null
 }
 
 export interface FeatureFlagRolloutSummaryApi {

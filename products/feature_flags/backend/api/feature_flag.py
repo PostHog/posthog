@@ -22,7 +22,13 @@ import requests
 import structlog
 from cryptography.fernet import InvalidToken
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, extend_schema_field
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    OpenApiResponse,
+    PolymorphicProxySerializer,
+    extend_schema_field,
+)
 from prometheus_client import Counter
 from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.exceptions import ErrorDetail
@@ -102,6 +108,7 @@ from products.feature_flags.backend.api.filters_schema import (
     I32_MIN,
     I64_MAX,
     I64_MIN,
+    LEGACY_UNKNOWN_FILTER_KEYS,
     PRESERVE_UNKNOWN_KEYS_CONTEXT_KEY,
     FeatureFlagFiltersSerializer,
     FinitePercentageField,
@@ -1690,11 +1697,21 @@ class FeatureFlagSerializer(
                 PRESERVE_UNKNOWN_KEYS_CONTEXT_KEY: not fully_enforced,
             },
         )
+        # A caller that declares the cleanup exemption sends the stored filters back with one
+        # field changed, so the legacy keys below arrive from storage rather than from the
+        # client. Dropping them would rewrite targeting the caller never touched, which is the
+        # thing the exemption exists to prevent, so carry them across the structural pass.
+        legacy_carryover = (
+            {key: merged[key] for key in LEGACY_UNKNOWN_FILTER_KEYS if key in merged}
+            if getattr(self.context.get("request"), "skip_opportunistic_filter_cleanup", False)
+            else {}
+        )
+
         structurally_valid = structural.is_valid()
         if structurally_valid:
             # Also normalizes the stored side (operator aliases, payload encoding, groups
             # default) and drops unknown keys, logging non-legacy ones.
-            merged = structural.validated_data
+            merged = {**structural.validated_data, **legacy_carryover}
         else:
             details = [
                 ErrorDetail(f"{violation.path}: {violation.message}", code=violation.rule_id)
@@ -2339,16 +2356,21 @@ class FeatureFlagSerializer(
 
                 # Continue with the update
                 validated_data["version"] = locked_version + 1
-                old_key = instance.key
+                # Every read and the save below use the locked row, not the instance loaded
+                # before the lock. `save()` writes every field, so applying this request to the
+                # stale copy would restore whatever another writer changed in the meantime for
+                # a field this request never sent. A bulk delete leaves `version` untouched, so
+                # the version check above cannot catch it and the flag came back undeleted.
+                old_key = locked_instance.key
 
                 # Clear any soft-deleted tombstone on `new_key` so the (team, key)
                 # unique constraint doesn't block the rename. Mirrors create().
                 new_key = validated_data.get("key")
-                if new_key and new_key != old_key and validated_data.get("deleted", instance.deleted) is False:
+                if new_key and new_key != old_key and validated_data.get("deleted", locked_instance.deleted) is False:
                     self._free_key_held_by_soft_deleted_flags(new_key, exclude_pk=instance.pk)
 
                 with ImpersonatedContext(request):
-                    instance = super().update(instance, validated_data)
+                    instance = super().update(locked_instance, validated_data)
         except IntegrityError as e:
             self._reraise_duplicate_key_violation(e)
 
@@ -3200,15 +3222,61 @@ def flag_lifecycle_responses(
     if approval_gated:
         conflicts.append("An approval policy gates this change. A change request was opened; the flag is unchanged.")
     if conflicts:
-        responses[409] = OpenApiResponse(response=ErrorResponseSerializer, description=" ".join(conflicts))
+        # The two 409 reasons render different bodies, so the schema names both rather than
+        # picking one and describing the other in prose.
+        conflict_response: Any = FlagActionErrorSerializer
+        if version_precondition and approval_gated:
+            conflict_response = PolymorphicProxySerializer(
+                component_name="FeatureFlagActionConflict",
+                serializers=[FlagActionErrorSerializer, FlagApprovalConflictSerializer],
+                resource_type_field_name=None,
+            )
+        elif approval_gated:
+            conflict_response = FlagApprovalConflictSerializer
+        responses[409] = OpenApiResponse(response=conflict_response, description=" ".join(conflicts))
     if bad_request is not None:
-        responses[400] = OpenApiResponse(response=ErrorResponseSerializer, description=bad_request)
+        responses[400] = OpenApiResponse(response=FlagActionErrorSerializer, description=bad_request)
     return responses
+
+
+class FlagActionErrorSerializer(serializers.Serializer):
+    """The body every DRF exception on these actions renders as.
+
+    `ErrorResponseSerializer` declares a single `error` key, which no response on this viewset
+    produces: the project exception handler renders this envelope instead. Declaring the wrong
+    shape reaches the generated clients and the MCP tools, where an agent reads a key that is
+    never there.
+    """
+
+    type = serializers.CharField(help_text="Error class, for example `validation_error`.")
+    code = serializers.CharField(help_text="Machine-readable reason, for example `invalid_input`.")
+    detail = serializers.CharField(help_text="Human-readable description of what was refused.")
+    attr = serializers.CharField(
+        allow_null=True, help_text="Request field the error belongs to, or null when it belongs to no single field."
+    )
+
+
+class FlagApprovalConflictSerializer(serializers.Serializer):
+    """The 409 body an approval policy produces, which differs from every other error here.
+
+    Raised through the approvals mixin rather than the exception handler, so it carries the
+    change request it opened instead of the `type`/`attr` envelope.
+    """
+
+    code = serializers.CharField(help_text="Always `approval_required`.")
+    status = serializers.CharField(help_text="Always `approval_required`.")
+    detail = serializers.CharField(help_text="Human-readable description of the policy that gated the change.")
+    message = serializers.CharField(help_text="Same text as `detail`.")
+    resource_type = serializers.CharField(help_text="Resource the change request targets, `feature_flag` here.")
+    resource_id = serializers.CharField(help_text="Id of the flag the change request targets.")
+    change_request_id = serializers.CharField(help_text="Id of the change request that was opened.")
+    required_approvers = serializers.JSONField(help_text="Who can approve the change request.")
 
 
 FLAG_VERSION_PRECONDITION_HELP = (
     "The `version` from your most recent read of this flag. The change is refused with 409 if anyone else "
-    "changed the flag after that version."
+    "changed the flag after that version. A flag written before versioning reads as `null`; send that back "
+    "unchanged and it is read as 0, so the value a read returns is always one this accepts."
 )
 
 
@@ -3230,11 +3298,11 @@ class FeatureFlagSetReleaseConditionRolloutRequestSerializer(serializers.Seriali
             "that sends `filters`."
         ),
     )
-    version = serializers.IntegerField(min_value=0, help_text=FLAG_VERSION_PRECONDITION_HELP)
+    version = serializers.IntegerField(min_value=0, allow_null=True, help_text=FLAG_VERSION_PRECONDITION_HELP)
 
 
 class FeatureFlagRollOutToEveryoneRequestSerializer(serializers.Serializer):
-    version = serializers.IntegerField(min_value=0, help_text=FLAG_VERSION_PRECONDITION_HELP)
+    version = serializers.IntegerField(min_value=0, allow_null=True, help_text=FLAG_VERSION_PRECONDITION_HELP)
     variant_key = serializers.CharField(
         required=False,
         allow_null=True,
@@ -3978,6 +4046,19 @@ class FeatureFlagViewSet(
         if version != current_version:
             raise Conflict(flag_version_conflict_message(version, current_version))
 
+    def _locked_rollout_flag(self, feature_flag: FeatureFlag, version: int) -> FeatureFlag:
+        """Re-read the flag under its row lock and refuse a caller whose version is not current.
+
+        The caller's version is checked against the instance loaded before the lock as a fast
+        path, but the decision that follows has to be made against this row. A write that lands
+        between the two reads leaves the earlier copy stale, and a transform computed from it
+        can compare equal to filters that no longer exist, which would answer 200 for a change
+        that was never applied.
+        """
+        locked = FeatureFlag.objects_including_soft_deleted.select_for_update().get(pk=feature_flag.pk)
+        self._rollout_precondition(locked, version)
+        return locked
+
     def _rollout_write(
         self, request: request.Request, feature_flag: FeatureFlag, filters: dict, version: int
     ) -> FeatureFlag:
@@ -4020,28 +4101,37 @@ class FeatureFlagViewSet(
             return rejection
 
         data = request.validated_data
-        version = data["version"]
+        # A flag written before versioning reads as null; the precondition normalises the stored
+        # side the same way, so a caller can send back exactly what the read returned.
+        version = data["version"] or 0
         self._rollout_precondition(feature_flag, version)
 
-        current_filters = feature_flag.get_filters()
-        try:
-            new_filters = flag_filters.set_release_condition_rollout(
-                current_filters, data["condition_index"], data["rollout_percentage"]
-            )
-        except IndexError:
-            condition_count = len(current_filters.get("groups") or [])
-            if condition_count:
-                message = (
-                    f"This feature flag has no release condition at index {data['condition_index']}. It has "
-                    f"{condition_count}, so the valid indexes are 0 through {condition_count - 1}."
+        with transaction.atomic():
+            locked_flag = self._locked_rollout_flag(feature_flag, version)
+            current_filters = locked_flag.get_filters()
+            try:
+                new_filters = flag_filters.set_release_condition_rollout(
+                    current_filters, data["condition_index"], data["rollout_percentage"]
                 )
-            else:
-                message = "This feature flag has no release conditions, so there is none to set a percentage on."
-            raise exceptions.ValidationError(message)
+            except IndexError:
+                condition_count = len(current_filters.get("groups") or [])
+                if condition_count:
+                    message = (
+                        f"This feature flag has no release condition at index {data['condition_index']}. It has "
+                        f"{condition_count}, so the valid indexes are 0 through {condition_count - 1}."
+                    )
+                else:
+                    message = "This feature flag has no release conditions, so there is none to set a percentage on."
+                raise exceptions.ValidationError(message)
 
-        if new_filters == current_filters:
-            return self._lifecycle_response(feature_flag)
-        return self._lifecycle_response(self._rollout_write(request, feature_flag, new_filters, version))
+            if new_filters == current_filters:
+                return self._lifecycle_response(locked_flag)
+
+        # Outside the lock on purpose: the approval gate creates a change request and then
+        # raises, so holding a transaction across it would roll that record back. The write
+        # takes the row lock again and repeats the version check, so a change landing in
+        # between is refused there rather than applied over.
+        return self._lifecycle_response(self._rollout_write(request, locked_flag, new_filters, version))
 
     @validated_request(
         FeatureFlagRollOutToEveryoneRequestSerializer,
@@ -4085,16 +4175,22 @@ class FeatureFlagViewSet(
             return rejection
 
         data = request.validated_data
-        version = data["version"]
+        # A flag written before versioning reads as null; the precondition normalises the stored
+        # side the same way, so a caller can send back exactly what the read returned.
+        version = data["version"] or 0
         self._rollout_precondition(feature_flag, version)
 
-        current_filters = feature_flag.get_filters()
-        variant_key = self._validated_variant_key(current_filters, data.get("variant_key"))
+        with transaction.atomic():
+            locked_flag = self._locked_rollout_flag(feature_flag, version)
+            current_filters = locked_flag.get_filters()
+            variant_key = self._validated_variant_key(current_filters, data.get("variant_key"))
 
-        new_filters = flag_filters.roll_out_to_everyone(current_filters, variant_key=variant_key)
-        if new_filters == current_filters:
-            return self._lifecycle_response(feature_flag)
-        return self._lifecycle_response(self._rollout_write(request, feature_flag, new_filters, version))
+            new_filters = flag_filters.roll_out_to_everyone(current_filters, variant_key=variant_key)
+            if new_filters == current_filters:
+                return self._lifecycle_response(locked_flag)
+
+        # Outside the lock, for the reason given on the sibling action above.
+        return self._lifecycle_response(self._rollout_write(request, locked_flag, new_filters, version))
 
     @staticmethod
     def _validated_variant_key(current_filters: dict, variant_key: str | None) -> str | None:
