@@ -56,6 +56,10 @@ class TestDashboardPatchOpenApiContract:
         breakpoints = layouts_field.fields
         assert {"sm", "xs"}.issubset(breakpoints), f"Tile layouts must expose sm/xs. Got: {sorted(breakpoints)}."
         sm_field = breakpoints["sm"]
+        assert sm_field.required, (
+            "Tile layouts must require 'sm'. A write replaces the tile's whole layouts value, so a payload "
+            "carrying only 'xs' erases the desktop placement the dashboard renders from."
+        )
         assert isinstance(sm_field, serializers.Serializer)
         assert {"x", "y", "w", "h"}.issubset(sm_field.fields), (
             f"Tile layout box must expose x/y/w/h. Got: {sorted(sm_field.fields)}."

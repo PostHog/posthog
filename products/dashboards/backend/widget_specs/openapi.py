@@ -66,8 +66,11 @@ class _DashboardPatchTileLayoutBoxOpenApiSerializer(serializers.Serializer):
 
 class _DashboardPatchTileLayoutsOpenApiSerializer(serializers.Serializer):
     sm = _DashboardPatchTileLayoutBoxOpenApiSerializer(
-        required=False,
-        help_text="Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.",
+        help_text=(
+            "Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. A write replaces the "
+            "tile's whole layout and the dashboard reads desktop placement from this box, so send it whenever "
+            "you send layouts."
+        ),
     )
     xs = _DashboardPatchTileLayoutBoxOpenApiSerializer(
         required=False,

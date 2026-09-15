@@ -652,8 +652,8 @@ export interface _DashboardPatchTileLayoutBoxOpenApiApi {
 }
 
 export interface _DashboardPatchTileLayoutsOpenApiApi {
-    /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
-    sm?: _DashboardPatchTileLayoutBoxOpenApiApi
+    /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. A write replaces the tile's whole layout and the dashboard reads desktop placement from this box, so send it whenever you send layouts. */
+    sm: _DashboardPatchTileLayoutBoxOpenApiApi
     /** Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders. */
     xs?: _DashboardPatchTileLayoutBoxOpenApiApi
 }

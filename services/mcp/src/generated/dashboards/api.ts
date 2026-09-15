@@ -417,8 +417,9 @@ export const DashboardsPartialUpdateBody = () => zod
                                         .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
                                     h: zod.number().describe('Height in grid rows.'),
                                 })
-                                .optional()
-                                .describe('Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'),
+                                .describe(
+                                    "Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. A write replaces the tile's whole layout and the dashboard reads desktop placement from this box, so send it whenever you send layouts."
+                                ),
                             xs: zod
                                 .object({
                                     x: zod.number().describe('Column position in the dashboard grid (0-indexed).'),

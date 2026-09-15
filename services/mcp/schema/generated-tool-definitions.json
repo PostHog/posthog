@@ -2687,7 +2687,7 @@
         }
     },
     "dashboard-reorder-tiles": {
-        "description": "Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. First, use dashboard-get to see current tile IDs. By default existing tile widths and heights are preserved. Use the layout parameter to resize every tile as it repacks: `two_column` for 6-wide tiles, `three_column` for 4-wide tiles when the dashboard should be more compact, or `full_width` for one tile per row. For a size these presets do not cover, set `layouts` per tile with dashboard-update instead.",
+        "description": "Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. First, use dashboard-get to see current tile IDs. By default existing tile widths and heights are preserved. Use the layout parameter to resize every tile as it repacks: `two_column` for 6-wide tiles, `three_column` for 4-wide tiles when the dashboard should be more compact, or `full_width` for one tile per row. For a size that these presets do not cover, set `layouts` per tile with dashboard-update instead.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Reorder dashboard tiles",

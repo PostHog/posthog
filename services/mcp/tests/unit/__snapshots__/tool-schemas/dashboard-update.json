@@ -195,7 +195,7 @@
                         "description": "Grid position and size per breakpoint. Works for every tile type, including insight tiles. A write replaces the tile's whole layout, so send a complete sm box rather than the one value you want to change. Boxes are stored as sent and overlaps are not resolved, so send sm boxes that do not overlap, and include every tile you move in the same request.",
                         "properties": {
                             "sm": {
-                                "description": "Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.",
+                                "description": "Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. A write replaces the tile's whole layout and the dashboard reads desktop placement from this box, so send it whenever you send layouts.",
                                 "properties": {
                                     "h": {
                                         "description": "Height in grid rows.",
@@ -241,6 +241,7 @@
                                 "type": "object"
                             }
                         },
+                        "required": ["sm"],
                         "type": "object"
                     },
                     "widget": {
