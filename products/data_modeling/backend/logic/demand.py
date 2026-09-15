@@ -2,20 +2,26 @@ from collections import defaultdict
 from collections.abc import Collection
 from datetime import UTC, datetime
 from itertools import batched
+from typing import TYPE_CHECKING
 
 from django.db.models import Case, DateTimeField, F, Value, When
 from django.db.models.functions import Greatest
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 
 from posthog.redis import get_client
 
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node
 
+if TYPE_CHECKING:
+    from posthog.models import Team
+
 logger = structlog.get_logger(__name__)
 
+MODEL_DEMAND_FLAG = "data-modeling-track-model-demand"
 SHARD_COUNT = 16
 FLUSH_BATCH_SIZE = 1000
 
@@ -35,6 +41,27 @@ class ModelDemand:
     @staticmethod
     def buffer_key(shard: int) -> str:
         return f"data_modeling:demand:{shard}"
+
+    @staticmethod
+    def enabled(team: "Team") -> bool:
+        # This runs on the query hot path, so the flag is evaluated from the local definition cache only:
+        # an inconclusive answer means "off", never an HTTP call and never a recorded demand.
+        try:
+            return bool(
+                posthoganalytics.feature_enabled(
+                    MODEL_DEMAND_FLAG,
+                    str(team.uuid),
+                    groups={"organization": str(team.organization_id), "project": str(team.pk)},
+                    group_properties={
+                        "organization": {"id": str(team.organization_id)},
+                        "project": {"id": str(team.pk)},
+                    },
+                    only_evaluate_locally=True,
+                    send_feature_flag_events=False,
+                )
+            )
+        except Exception:
+            return False
 
     @classmethod
     def record(cls, team_id: int, saved_query_ids: Collection[str]) -> None:
@@ -96,24 +123,34 @@ class ModelDemand:
     def flush(cls) -> None:
         client = get_client()
         failure: Exception | None = None
+        failed_teams: set[int] = set()
         for shard in range(SHARD_COUNT):
             key = cls.buffer_key(shard)
-            entries = client.zrange(key, 0, FLUSH_BATCH_SIZE - 1, withscores=True)
-            demand_by_team: dict[int, dict[str, float]] = defaultdict(dict)
-            acknowledgements_by_team: dict[int, list[bytes | float]] = defaultdict(list)
-            for member, timestamp in entries:
-                team_id, query_id = member.decode().split(":", 1)
-                demand_by_team[int(team_id)][query_id] = timestamp
-                acknowledgements_by_team[int(team_id)] += [member, timestamp]
-            for team_id, demand in demand_by_team.items():
-                # A team that keeps failing must not withhold the later teams of this shard or any
-                # later shard, so each team is acknowledged on its own and the first error is
-                # re-raised once every shard is read.
-                try:
-                    cls.persist_team(team_id, demand)
-                    client.eval(ACKNOWLEDGE, 1, key, *acknowledgements_by_team[team_id])
-                except Exception as error:
-                    logger.exception("Failed to flush model demand", team_id=team_id)
-                    failure = failure or error
+            retained = 0
+            while True:
+                entries = client.zrange(key, retained, retained + FLUSH_BATCH_SIZE - 1, withscores=True)
+                demand_by_team: dict[int, dict[str, float]] = defaultdict(dict)
+                acknowledgements_by_team: dict[int, list[bytes | float]] = defaultdict(list)
+                for member, timestamp in entries:
+                    team_id, query_id = member.decode().split(":", 1)
+                    demand_by_team[int(team_id)][query_id] = timestamp
+                    acknowledgements_by_team[int(team_id)] += [member, timestamp]
+                for team_id, demand in demand_by_team.items():
+                    if team_id in failed_teams:
+                        retained += len(demand)
+                        continue
+                    # A team that keeps failing must not withhold the later teams of this shard or any
+                    # later shard, so each team is acknowledged on its own and the first error is
+                    # re-raised once every shard is read.
+                    try:
+                        cls.persist_team(team_id, demand)
+                        client.eval(ACKNOWLEDGE, 1, key, *acknowledgements_by_team[team_id])
+                    except Exception as error:
+                        logger.exception("Failed to flush model demand", team_id=team_id)
+                        failure = failure or error
+                        failed_teams.add(team_id)
+                        retained += len(demand)
+                if len(entries) < FLUSH_BATCH_SIZE:
+                    break
         if failure is not None:
             raise failure

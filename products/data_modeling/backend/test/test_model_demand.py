@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from datetime import timedelta
+from typing import Any
 
 import time_machine
 from posthog.test.base import BaseTest
@@ -19,7 +20,7 @@ from posthog.hogql.query import HogQLQueryExecutor
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.redis import get_client
 
-from products.data_modeling.backend.logic.demand import SHARD_COUNT, ModelDemand
+from products.data_modeling.backend.logic.demand import MODEL_DEMAND_FLAG, SHARD_COUNT, ModelDemand
 from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -46,6 +47,9 @@ class TestModelDemand(BaseTest):
         self.node = node
         self.redis_client = get_client()
         self.key = ModelDemand.buffer_key(self.team.pk % SHARD_COUNT)
+        flag = patch("posthoganalytics.feature_enabled", side_effect=lambda key, *a, **kw: key == MODEL_DEMAND_FLAG)
+        self.feature_enabled = flag.start()
+        self.addCleanup(flag.stop)
 
     def executor(self, query: str, context: HogQLContext | None = None) -> HogQLQueryExecutor:
         return HogQLQueryExecutor(
@@ -77,6 +81,25 @@ class TestModelDemand(BaseTest):
         self.node.refresh_from_db()
         self.assertEqual(self.node.last_demand_at, self.now)
         self.assertEqual(self.redis_client.zcard(self.key), 0)
+
+    @parameterized.expand([("off", False), ("evaluation_failed", RuntimeError("flag service down"))])
+    def test_demand_is_only_recorded_when_the_flag_is_on(self, _name: str, evaluation: Any) -> None:
+        def evaluate(key: str, *args: Any, **kwargs: Any) -> bool:
+            if key != MODEL_DEMAND_FLAG:
+                return False
+            if isinstance(evaluation, Exception):
+                raise evaluation
+            return evaluation
+
+        self.feature_enabled.side_effect = evaluate
+        with (
+            tags_context(product=Product.WAREHOUSE, feature=Feature.QUERY),
+            patch("posthog.hogql.query.sync_execute", return_value=([[1]], [("id", "Int64")])),
+        ):
+            self.assertEqual(self.executor("SELECT id FROM demand_view").execute().results, [[1]])
+        self.assertEqual(self.redis_client.zcard(self.key), 0)
+        # The flag sits on the query hot path, so an inconclusive answer must never turn into an HTTP call.
+        self.assertTrue(self.feature_enabled.call_args.kwargs["only_evaluate_locally"])
 
     @parameterized.expand(
         [(Feature.DATA_MODELING,), (Feature.SCHEMA_INTROSPECTION,), (Feature.ENRICHMENT,), (Feature.CACHE_WARMUP,)]
@@ -228,6 +251,28 @@ class TestModelDemand(BaseTest):
         self.assertEqual(self.redis_client.zrange(self.key, 0, -1), [f"{stalled_team_id}:{self.view.pk}".encode()])
         ModelDemand.flush()
         self.assertEqual(self.redis_client.zcard(self.key), 0)
+
+    def test_a_failing_team_that_fills_the_batch_does_not_starve_the_shard(self) -> None:
+        stalled_team_id = self.team.pk + SHARD_COUNT
+        with time_machine.travel(self.now - timedelta(minutes=1), tick=False):
+            ModelDemand.record(stalled_team_id, [str(self.view.pk), "stalled-view"])
+        ModelDemand.record(self.team.pk, [str(self.view.pk)])
+
+        with (
+            patch("products.data_modeling.backend.logic.demand.FLUSH_BATCH_SIZE", 2),
+            patch.object(
+                ModelDemand,
+                "persist_team",
+                side_effect=[OperationalError("database unavailable"), DEFAULT],
+                wraps=ModelDemand.persist_team,
+            ),
+        ):
+            with self.assertRaisesRegex(OperationalError, "unavailable"):
+                ModelDemand.flush()
+
+        self.node.refresh_from_db()
+        self.assertEqual(self.node.last_demand_at, self.now)
+        self.assertEqual(self.redis_client.zcard(self.key), 2)
 
     def test_redis_failure_does_not_fail_the_query(self) -> None:
         with (

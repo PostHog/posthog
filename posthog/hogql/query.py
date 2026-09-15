@@ -890,7 +890,7 @@ class HogQLQueryExecutor:
                     # Defer the product dependency to avoid loading its ORM models during HogQL imports.
                     from products.data_modeling.backend.facade.demand import record_model_demand
 
-                    record_model_demand(self.team.pk, self.context.referenced_saved_query_ids)
+                    record_model_demand(self.team, self.context.referenced_saved_query_ids)
 
                 if prepared_execution.engine == "direct_sql":
                     self._execute_direct_sql_query()
