@@ -1099,6 +1099,11 @@ class GitHubIntegrationBase:
             "base_sha": base.get("sha"),
             "repository": repo_path,
             "author": user.get("login"),
+            "assignees": [
+                entry["login"]
+                for entry in (pr.get("assignees") or [])
+                if isinstance(entry, dict) and entry.get("login")
+            ],
             "created_at": pr.get("created_at"),
             "updated_at": pr.get("updated_at"),
             "merged_at": pr.get("merged_at"),
@@ -1257,6 +1262,30 @@ class GitHubIntegrationBase:
             entry["login"] for entry in (issue.get("assignees") or []) if isinstance(entry, dict) and entry.get("login")
         ]
         return {"success": True, "assignees": assigned}
+
+    def is_assignable(self, repository: str, login: str) -> dict[str, Any]:
+        """Whether ``login`` can be assigned to issues and pull requests in ``repository``.
+
+        The add-assignees endpoint drops a login it cannot assign instead of failing, so a caller
+        that must know whether one specific person lands checks here first.
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        response = self._installation_authenticated_get(
+            f"https://api.github.com/repos/{repo_path}/assignees/{login}",
+            endpoint="/repos/{owner}/{repo}/assignees/{assignee}",
+        )
+        if response is None:
+            return {"success": False, "error": "Network error checking assignee"}
+        if response.status_code == 204:
+            return {"success": True, "assignable": True}
+        if response.status_code == 404:
+            return {"success": True, "assignable": False}
+        return {
+            "success": False,
+            "error": f"Failed to check assignee: {response.text}",
+            "status_code": response.status_code,
+        }
 
     def add_pull_request_assignees_from_url(self, pr_url: str, assignees: Iterable[str]) -> dict[str, Any]:
         """Add assignees to a pull request by its HTML URL."""
