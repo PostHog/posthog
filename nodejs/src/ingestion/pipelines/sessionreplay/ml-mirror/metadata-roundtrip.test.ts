@@ -21,14 +21,14 @@ import { sessionKeyId, tableKeyString } from './privacy/schema'
 import { MlKafkaEncryption } from './privacy/transport'
 import { PSEUDONYM_SESSION, PSEUDONYM_TEAM, pseudonymize } from './pseudonymize'
 
-const SESSION_A = '01a0a482-5500-7000-8000-000000000001'
+const SESSION_A = '01a0a4f0-3200-7000-8000-000000000001'
 
 const block = (sessionId: string, teamId: number, distinctId: string): SessionBlockMetadata => ({
     ...createNoopBlockMetadata(sessionId, teamId),
     distinctId,
     blockUrl: `s3://ml-bucket/key-${sessionId}?range=bytes=10-42`,
-    startDateTime: DateTime.fromMillis(1789466400000),
-    endDateTime: DateTime.fromMillis(1789466405000),
+    startDateTime: DateTime.fromMillis(1789473600000),
+    endDateTime: DateTime.fromMillis(1789473605000),
     eventCount: 5,
     messageCount: 2,
     clickCount: 1,
@@ -38,27 +38,27 @@ const block = (sessionId: string, teamId: number, distinctId: string): SessionBl
         {
             kind: 'page',
             windowId: 'w1',
-            eventTimestamp: 1789466400001.5,
+            eventTimestamp: 1789473600001.5,
             eventIndex: 0,
             url: 'https://example.com/[redacted]',
         },
-        { kind: 'full_snapshot', windowId: 'w1', eventTimestamp: 1789466400001.5, eventIndex: 1 },
+        { kind: 'full_snapshot', windowId: 'w1', eventTimestamp: 1789473600001.5, eventIndex: 1 },
         {
             kind: 'json_ld',
             windowId: 'w1',
-            eventTimestamp: 1789466400001.5,
+            eventTimestamp: 1789473600001.5,
             eventIndex: 2,
-            fullSnapshotTimestamp: 1789466400001.5,
+            fullSnapshotTimestamp: 1789473600001.5,
             rootTypes: ['Product'],
         },
         {
             kind: 'page',
             windowId: 'w1',
-            eventTimestamp: 1789466400001.5,
+            eventTimestamp: 1789473600001.5,
             eventIndex: 2,
             url: 'https://example.com/[redacted]',
         },
-        { kind: 'json_ld', windowId: 'w1', eventTimestamp: 1789466400001.5, eventIndex: 3, rootTypes: ['Article'] },
+        { kind: 'json_ld', windowId: 'w1', eventTimestamp: 1789473600001.5, eventIndex: 3, rootTypes: ['Article'] },
     ],
 })
 
@@ -98,7 +98,7 @@ describe('ML metadata producer → sink round-trip', () => {
 
         await new MlBlockMetadataSink(outputs, 'test-secret', reader).storeSessionBlocks([
             block(SESSION_A, 1, 'person-1'),
-            block('01a0a482-54ff-7000-8000-000000000001', 2, 'person-2'),
+            block('01a0a4f0-31ff-7000-8000-000000000001', 2, 'person-2'),
         ])
         expect(produced).toHaveLength(2)
 
@@ -169,7 +169,7 @@ describe('ML metadata producer → sink round-trip', () => {
         expect(legacyRows[0]).not.toHaveProperty('distinct_id')
         expect(legacyRows[0]).toMatchObject({
             team_id: pseudonymize('test-secret', PSEUDONYM_TEAM, '2'),
-            session_id: pseudonymize('test-secret', PSEUDONYM_SESSION, '01a0a482-54ff-7000-8000-000000000001'),
+            session_id: pseudonymize('test-secret', PSEUDONYM_SESSION, '01a0a4f0-31ff-7000-8000-000000000001'),
         })
         const legacyLabels = await readRows(puts.find((put) => put.Key!.includes('v1/kind=json_ld'))!.Body)
         expect(legacyLabels).toHaveLength(2)

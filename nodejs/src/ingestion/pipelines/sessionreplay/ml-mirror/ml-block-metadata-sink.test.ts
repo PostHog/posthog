@@ -32,7 +32,7 @@ describe('MlBlockMetadataSink', () => {
     })
 
     it('rejects v2 metadata when encryption is not configured', async () => {
-        await expect(sink.storeSessionBlocks([block('01a0a482-5500-7000-8000-000000000001', 7)])).rejects.toThrow(
+        await expect(sink.storeSessionBlocks([block('01a0a4f0-3200-7000-8000-000000000001', 7)])).rejects.toThrow(
             'requires privacy configuration'
         )
         expect(outputs.queueMessages).not.toHaveBeenCalled()
@@ -49,7 +49,7 @@ describe('MlBlockMetadataSink', () => {
     })
 
     it('still calls queueMessages for an all-skipped batch', async () => {
-        await sink.storeSessionBlocks([block('01a0a482-5500-7000-8000-000000000001', 1, { isDeleted: true })])
+        await sink.storeSessionBlocks([block('01a0a4f0-3200-7000-8000-000000000001', 1, { isDeleted: true })])
         expect(outputs.queueMessages).toHaveBeenCalledWith(ML_BLOCK_METADATA_OUTPUT, [])
     })
 })

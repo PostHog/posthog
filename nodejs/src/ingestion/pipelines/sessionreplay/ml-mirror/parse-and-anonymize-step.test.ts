@@ -282,10 +282,10 @@ describe('createParseAndAnonymizeMessageStep with image collection', () => {
 
     it('keeps old and new image refs separate for the same team across repeated messages', async () => {
         for (const [sessionId, expectedTeamId] of [
-            ['01a0a482-54ff-7000-8000-000000000001', teamId],
-            ['01a0a482-5500-7000-8000-000000000001', '1'],
-            ['01a0a482-54ff-7000-8000-000000000001', teamId],
-            ['01a0a482-5500-7000-8000-000000000001', '1'],
+            ['01a0a4f0-31ff-7000-8000-000000000001', teamId],
+            ['01a0a4f0-3200-7000-8000-000000000001', '1'],
+            ['01a0a4f0-31ff-7000-8000-000000000001', teamId],
+            ['01a0a4f0-3200-7000-8000-000000000001', '1'],
         ]) {
             addonSuccessWithImages(Buffer.from('a'), [{ hash: 'hashA', offset: 0, len: 1 }], sessionId)
             const result = await step({ message: kafkaMessage(), headers: { ...headers, session_id: sessionId }, team })

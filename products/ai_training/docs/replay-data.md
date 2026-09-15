@@ -9,7 +9,7 @@ Its storage and deletion implementation is separate from production session repl
 
 ## Session versions
 
-The cutoff is **Tuesday, 2026-09-15 at 10:00 UTC**, which is 11:00 in Europe/London.
+The cutoff is **Tuesday, 2026-09-15 at 12:00 UTC**, which is 13:00 in Europe/London.
 The session UUIDv7 timestamp selects the version:
 
 - Before the cutoff: v1 uses HMAC team and session IDs.
