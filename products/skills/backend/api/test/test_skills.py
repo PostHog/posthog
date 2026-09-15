@@ -2028,7 +2028,7 @@ class TestSkillAccessControlRBAC(APIBaseTest):
 
         response = self.client.post(
             self._url(f"name/{self.skill.name}/publish-community"),
-            data={"author_handle": "someone"},
+            data={"expected_version": self.skill.version, "author_handle": "someone"},
             format="json",
         )
 
@@ -2064,7 +2064,7 @@ class TestSkillAccessControlRBAC(APIBaseTest):
 
         response = self.client.post(
             self._url(f"name/{self.skill.name}/publish-community"),
-            data={"author_handle": "someone"},
+            data={"expected_version": self.skill.version, "author_handle": "someone"},
             format="json",
         )
 
