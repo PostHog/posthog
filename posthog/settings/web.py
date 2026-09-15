@@ -1113,6 +1113,13 @@ ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS = get_list(get_from_env("ERROR_TRACK
 WORKFLOWS_WEBHOOK_SECRET = get_from_env("WORKFLOWS_WEBHOOK_SECRET", "")
 
 ####
+# Inbound webhook ingress (see posthog/ingress/)
+# Wall-clock seconds one request's consumers share. Providers give a delivery a short window
+# and mostly never retry it, so this sits under the tightest of those (GitHub's ten seconds)
+# and leaves room for verification and the response itself.
+INGRESS_DELIVERY_BUDGET_SECONDS = get_from_env("INGRESS_DELIVERY_BUDGET_SECONDS", 8.0, type_cast=float)
+
+####
 # OAuth
 
 OIDC_RSA_PRIVATE_KEY = os.getenv("OIDC_RSA_PRIVATE_KEY", "").replace("\\n", "\n")

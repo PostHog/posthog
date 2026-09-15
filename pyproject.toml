@@ -790,6 +790,24 @@ ignore_imports = [
     "products.workflows.backend.routes -> products.workflows.backend.api.workflow_tasks",
 ]
 
+# webhook_consumers.py is the one module core reads (through posthog.ingress.dispatch.loading)
+# to register a product's inbound webhook consumers. Restricting what it may import gives the
+# chain core -> webhook_consumers -> facade as two import edges, so a handler cannot reach
+# product internals. Unlike the two contracts above it, this one carries no grandfathered list:
+# stamphog's is the only such module in the tree, and the ones arriving with the remaining
+# endpoint migrations already import only their own facade.
+[[tool.importlinter.contracts]]
+name = "webhook consumers must only import facade"
+type = "forbidden"
+source_modules = ["products.*.backend.webhook_consumers"]
+forbidden_modules = [
+    "products.*.backend",
+]
+allow_indirect_imports = true
+ignore_imports = [
+    "products.**.backend.webhook_consumers -> products.**.backend.facade.**",
+]
+
 # The facade is the layer below presentation. A facade that imports its product's presentation
 # inverts the layering (and drags DRF onto every consumer's import path); a facade that imports
 # DRF is presentation in disguise. Only direct imports are checked (allow_indirect_imports is

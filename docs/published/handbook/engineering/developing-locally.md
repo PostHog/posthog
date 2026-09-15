@@ -162,6 +162,8 @@ You can now change PostHog in any way you want. See [Project structure](./projec
 
 By default, `hogli start` runs a minimal set of services (enough for product analytics). To customize which services start, run `hogli dev:setup` which lets you select intents based on the products you're working on. Your choices are saved and used automatically by `hogli start`.
 
+The session replay video export worker builds a Docker image on its first start, then reuses the cached image. It runs in development mode to accept Django's default development key. The launcher translates HTTP loopback storage URLs to `host.docker.internal`, preserving optional ports and paths. It maps that hostname to Docker's host gateway so the container can reach host object storage on native Linux too. A worker startup failure returns a nonzero exit code.
+
 ### Setting environment variables
 
 Three env files come into play when `hogli start` runs:
