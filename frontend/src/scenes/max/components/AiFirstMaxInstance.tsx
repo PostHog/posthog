@@ -47,8 +47,9 @@ export function ChatHeader({
     onViewChange?: (mode: PhaiViewMode) => void
 }): JSX.Element {
     const { openSidePanelMax } = useActions(maxGlobalLogic)
-    const { chatTitle } = useValues(maxLogic)
-    const isTitleLoading = chatTitle === 'New chat'
+    const { chatTitle, conversationNotFound } = useValues(maxLogic)
+    // A chat we could not load has no title to wait for, so the placeholder must stop spinning.
+    const isTitleLoading = chatTitle === 'New chat' && !conversationNotFound
 
     return (
         <div
