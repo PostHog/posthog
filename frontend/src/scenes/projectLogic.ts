@@ -339,10 +339,6 @@ export const projectLogic = kea<projectLogicType>([
             lemonToast.success('Project deletion has been canceled')
             actions.loadCurrentProject()
         },
-        cancelProjectDeletionFailure: ({ errorObject }) => {
-            const apiError = errorObject as Record<string, any>
-            lemonToast.error(apiError?.detail || 'Failed to cancel project deletion. Please try again.')
-        },
         createProjectSuccess: ({ currentProject }) => {
             if (currentProject) {
                 actions.switchTeam(currentProject.id, urls.projectHomepage())

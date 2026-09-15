@@ -13,6 +13,7 @@ from posthog.api.project import ProjectViewSet
 from posthog.api.project_tags import MAX_TAGS_PER_FILTER
 from posthog.api.test.test_team import EnvironmentToProjectRewriteClient, team_api_test_factory
 from posthog.constants import AvailableFeature
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.person.util import get_person_by_uuid
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -91,6 +92,16 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["name"], "Hedgebox")
+
+    def test_cannot_create_project_with_pending_duplicate_name(self):
+        self._set_unlimited_projects()
+        self.project.is_pending_deletion = True
+        self.project.save(update_fields=["is_pending_deletion"])
+
+        response = self.client.post("/api/projects/", {"name": self.project.name})
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertIn("already a project called", response.json()["detail"])
 
     def test_creating_projects_without_name_generates_unique_default_names(self):
         self._set_unlimited_projects()
@@ -519,6 +530,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             project_id=project_id,
             user_id=self.user.id,
             project_name=project_name,
+            start_delay=timedelta(hours=48),
         )
 
     @parameterized.expand(
@@ -596,6 +608,16 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertFalse(self.project.is_pending_deletion)
         self.assertIsNone(self.project.deletion_scheduled_at)
         mock_cancel_delete_task.assert_called_once_with(project_id=self.project.id)
+        restored_activities = list(
+            ActivityLog.objects.filter(
+                team_id=self.project.id,
+                item_id=str(self.project.id),
+                activity="restored",
+            )
+            .order_by("scope")
+            .values_list("scope", flat=True)
+        )
+        self.assertEqual(restored_activities, ["Project", "Team"])
 
     @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")
     def test_project_deletion_cancellation_rejects_a_stale_schedule(self, mock_cancel_delete_task):

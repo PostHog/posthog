@@ -1015,10 +1015,8 @@ class ProjectBackwardCompatSerializer(
         )
         # Trim the stored side too: names created before this validation (or via the ORM) may carry
         # surrounding whitespace and must still count as duplicates of their trimmed form.
-        duplicates = (
-            Project.objects.annotate(trimmed_name=Trim("name"))
-            .filter(organization_id=organization_id, trimmed_name__iexact=value)
-            .exclude(is_pending_deletion=True)
+        duplicates = Project.objects.annotate(trimmed_name=Trim("name")).filter(
+            organization_id=organization_id, trimmed_name__iexact=value
         )
         if self.instance is not None:
             duplicates = duplicates.exclude(pk=self.instance.pk)
@@ -1710,6 +1708,31 @@ class ProjectViewSet(
 
         project.is_pending_deletion = False
         project.deletion_scheduled_at = None
+
+        user = cast(User, request.user)
+        was_impersonated = is_impersonated(request)
+        for team in project.teams.only("id", "name"):
+            log_activity(
+                organization_id=cast(UUIDT, project.organization_id),
+                team_id=team.pk,
+                user=user,
+                was_impersonated=was_impersonated,
+                scope="Team",
+                item_id=team.pk,
+                activity="restored",
+                detail=Detail(name=str(team.name)),
+            )
+        log_activity(
+            organization_id=cast(UUIDT, project.organization_id),
+            team_id=project.pk,
+            user=user,
+            was_impersonated=was_impersonated,
+            scope="Project",
+            item_id=project.pk,
+            activity="restored",
+            detail=Detail(name=str(project.name)),
+        )
+
         return response.Response(ProjectSerializer(project, context=self.get_serializer_context()).data)
 
     @action(
