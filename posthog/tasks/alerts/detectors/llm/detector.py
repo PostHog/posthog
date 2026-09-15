@@ -330,7 +330,7 @@ class LLMDetector(BaseDetector):
             # Worth seeing in the check history: the model did flag something, the
             # confidence gate is what stopped the alert.
             metadata["below_threshold"] = True
-        if verdict.is_anomaly and confident and not judge_every_point and not latest_point_flagged:
+        if verdict.is_anomaly and not judge_every_point and not latest_point_flagged:
             metadata["latest_point_not_flagged"] = True
 
         anomaly_score = self._anomaly_score(verdict)

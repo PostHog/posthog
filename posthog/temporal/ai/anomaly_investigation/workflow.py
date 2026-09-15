@@ -41,6 +41,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.utils import absolute_uri
 
+from products.alerts.backend.facade.api import is_llm_detector_config
 from products.alerts.backend.investigation_episode import EpisodeInvestigations, episode_investigations
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from products.notebooks.backend.facade import api as notebooks
@@ -179,6 +180,7 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
     anomaly_context = await sync_to_async(_build_multimodal_context, thread_sensitive=False)(
         alert=alert,
         context_text=anomaly_context_text,
+        triggered_dates=list(alert_check.triggered_dates or []),
     )
 
     try:
@@ -707,7 +709,7 @@ async def _mark_failed(alert_check, reason: str) -> None:
     )
 
 
-def _build_multimodal_context(*, alert, context_text: str):
+def _build_multimodal_context(*, alert, context_text: str, triggered_dates: list[str]):
     """Return a LangChain HumanMessage content value — either a plain string or a
     list of content blocks with the text and a rendered chart PNG.
 
@@ -727,10 +729,16 @@ def _build_multimodal_context(*, alert, context_text: str):
     if not dates or not values:
         return context_text
 
+    triggered_indices = sim.get("triggered_indices") or []
+    if is_llm_detector_config(alert.detector_config):
+        # The saved check identifies the firing points without another billable model call.
+        saved_dates = set(triggered_dates)
+        triggered_indices = [index for index, date in enumerate(dates) if date in saved_dates]
+
     png = render_series_chart(
         dates=dates,
         values=values,
-        triggered_indices=sim.get("triggered_indices") or [],
+        triggered_indices=triggered_indices,
         scores=sim.get("scores") or None,
         title=(alert.insight.name or alert.name or "Metric")[:80],
     )

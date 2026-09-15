@@ -2935,7 +2935,7 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert response.json()["attr"] == "calculation_interval"
 
-    @parameterized.expand([("create", False), ("concurrent_insight_change", True)])
+    @parameterized.expand([("create", False), ("concurrent_insight_change", True), ("concurrent_query_change", True)])
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_rejected_for_a_breakdown_insight(self, _name, concurrent_change, _flag) -> None:
         breakdown_insight = self._create_breakdown_insight()
@@ -2946,7 +2946,10 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
             update = AlertSerializer.update
 
             def change_insight_before_lock(serializer, instance, validated_data):
-                AlertConfiguration.objects.filter(pk=instance.pk).update(insight_id=breakdown_insight["id"])
+                if _name == "concurrent_query_change":
+                    Insight.objects.filter(id=instance.insight_id).update(query=breakdown_insight["query"])
+                else:
+                    AlertConfiguration.objects.filter(pk=instance.pk).update(insight_id=breakdown_insight["id"])
                 return update(serializer, instance, validated_data)
 
             with mock.patch.object(AlertSerializer, "update", new=change_insight_before_lock):

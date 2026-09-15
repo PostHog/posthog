@@ -25,6 +25,9 @@ person, and which points it flagged.
 
 Changing the detector configuration resets the alert state and schedules a new check.
 Metric metadata is escaped and marked as data in the prompt. The chart uses a fixed title.
+SQL detector series preserve ISO date and timestamp labels from the selected label column.
+The labels follow the same row order and window as the values.
+If any label in the window is missing or invalid, the series has no dates and the model receives row positions.
 
 ## The number is confidence, not probability
 
@@ -43,8 +46,10 @@ History with both statistical and AI scores uses a neutral score label.
 ## When a check fires
 
 A live check fires only when the model names the latest point.
-A confident anomaly verdict about older history records `latest_point_not_flagged` and does not
-fire, because the alert is about what is happening now.
+An anomaly verdict about older history records `latest_point_not_flagged` and does not fire, even below the confidence threshold.
+Lowering the threshold cannot make that historical check appear to fire for the latest point.
+Investigation charts mark the saved check's triggered dates that remain in the chart window.
+They do not repeat the model call or mark a newer point in place of the saved anomaly.
 
 ## What it refuses, and why
 
@@ -115,6 +120,7 @@ For the AI type it is a charged call, so it is throttled per project at 10 a min
 The write-scope check runs before these shared limits. A read-only token cannot consume them.
 Staff impersonation previews are not billed. Scheduled checks remain billable.
 Max validates the current insight configuration before it re-enables a disabled AI alert.
+API and Max updates lock the insight before the alert and validate the locked query definition.
 
 The preview judges the whole window in one call, which is not the same shape as a live check.
 A live check judges only whether the latest point is anomalous.

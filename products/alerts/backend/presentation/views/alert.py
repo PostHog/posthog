@@ -114,6 +114,7 @@ from products.alerts.backend.insight_alert_state_machine import (
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.alerts.backend.presentation.views.schedule_restriction import AlertScheduleRestriction
+from products.product_analytics.backend.facade.api import lock_insight_for_evaluation
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 
 
@@ -863,7 +864,18 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
 
     @transaction.atomic
     def update(self, instance, validated_data):
-        instance = AlertConfiguration.objects.select_for_update().get(pk=instance.pk)
+        current_insight_id = AlertConfiguration.objects.get(pk=instance.pk).insight_id
+        target_insight = validated_data.get("insight")
+        insight_ids = {current_insight_id, target_insight.id if target_insight else current_insight_id}
+        # Use the evaluation lock order so query edits cannot pass validation during this save.
+        for insight_id in sorted(insight_ids):
+            if not lock_insight_for_evaluation(team_id=instance.team_id, insight_id=insight_id):
+                raise ValidationError({"insight": ["The insight no longer exists. Refresh the alert."]})
+        instance = AlertConfiguration.objects.select_for_update(no_key=True).get(pk=instance.pk)
+        if instance.insight_id != current_insight_id:
+            raise ValidationError({"insight": ["The alert's insight changed. Retry the update."]})
+        if target_insight:
+            target_insight.refresh_from_db()
         # Recheck the combined configuration after concurrent updates have finished.
         self.instance = instance
         validated_data = self.validate(validated_data)

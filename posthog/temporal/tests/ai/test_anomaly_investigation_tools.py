@@ -1,5 +1,6 @@
 from typing import Any
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from posthog.schema import (
@@ -14,6 +15,7 @@ from posthog.schema import (
 
 from posthog.caching.insight_result import InsightResult
 from posthog.temporal.ai.anomaly_investigation.tools import _run_detector_simulation
+from posthog.temporal.ai.anomaly_investigation.workflow import _build_multimodal_context
 
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
@@ -62,9 +64,12 @@ def test_run_detector_simulation_returns_the_alerts_configured_series(mock_calcu
     assert result["data"] == configured_series[:-1]
 
 
+@pytest.mark.parametrize("triggered_dates,expected_indices", [(["2026-07-09"], [8]), (["2026-06-01"], [])])
 @patch("posthog.tasks.alerts.detectors.llm.detector.LLMDetector._ask_model")
 @patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
-def test_run_detector_simulation_never_rescores_an_ai_alert(mock_calculate: MagicMock, mock_ask: MagicMock) -> None:
+def test_run_detector_simulation_never_rescores_an_ai_alert(
+    mock_calculate: MagicMock, mock_ask: MagicMock, triggered_dates: list[str], expected_indices: list[int]
+) -> None:
     series = [10.0, 11.0, 10.0, 9.0] * 3
     mock_calculate.return_value = InsightResult(
         result=[_trend_result("series 0", series)],
@@ -91,6 +96,14 @@ def test_run_detector_simulation_never_rescores_an_ai_alert(mock_calculate: Magi
     assert not isinstance(result, str)
     assert result["data"] == series[:-1]
     assert result["triggered_indices"] == []
+    with patch(
+        "posthog.temporal.ai.anomaly_investigation.workflow.render_series_chart", return_value=b"chart"
+    ) as render:
+        context = _build_multimodal_context(
+            alert=alert, context_text="Investigate the change.", triggered_dates=triggered_dates
+        )
+    assert isinstance(context, list)
+    assert render.call_args.kwargs["triggered_indices"] == expected_indices
     mock_ask.assert_not_called()
 
 

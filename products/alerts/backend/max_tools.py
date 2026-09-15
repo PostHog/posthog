@@ -36,6 +36,7 @@ from products.alerts.backend.llm_detector_limits import (
     lock_llm_alert_limit,
 )
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
+from products.product_analytics.backend.facade.api import lock_insight_for_evaluation
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 
 from ee.hogai.artifacts.types import ModelArtifactResult
@@ -352,8 +353,17 @@ class UpsertAlertTool(MaxTool):
         write is refused.
         """
         with transaction.atomic():
-            # Match the API lock order and read the state that this write will change.
-            alert.refresh_from_db(from_queryset=AlertConfiguration.objects.select_for_update())
+            current_insight_id = AlertConfiguration.objects.get(id=alert.id, team_id=alert.team_id).insight_id
+            # Match evaluation's insight-before-alert lock order to keep validation stable.
+            if not lock_insight_for_evaluation(team_id=alert.team_id, insight_id=current_insight_id):
+                return _SaveRefusal(
+                    message="The insight no longer exists. Refresh the alert.", error_code="validation_failed"
+                )
+            alert.refresh_from_db(from_queryset=AlertConfiguration.objects.select_for_update(no_key=True))
+            if alert.insight_id != current_insight_id:
+                return _SaveRefusal(
+                    message="The alert's insight changed. Retry the update.", error_code="validation_failed"
+                )
             new_interval = action.calculation_interval or alert.calculation_interval
             new_enabled = action.enabled if action.enabled is not None else alert.enabled
             if error := AlertConfiguration.real_time_alert_validation_error(

@@ -112,7 +112,7 @@ def _build_text(*, context: DetectionContext, points: list[tuple[str, float]], j
     if context.dates and any(date is not None for date in context.dates):
         sections.append(f"Points (index, date, value), oldest first:\n{table}")
     else:
-        # A SQL result carries no timestamps, so the model must not reason about calendar
+        # Without date labels, the model must not reason about calendar
         # shape it cannot see, or invent a date to name in its rationale.
         sections.append(
             "These points have no timestamps: they are result rows in the query's order, oldest "

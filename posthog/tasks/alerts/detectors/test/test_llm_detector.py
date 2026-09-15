@@ -140,13 +140,15 @@ class TestLLMDetectorVerdictMapping:
 
         assert result.triggered_indices == [len(SERIES) - 1]
 
-    @parameterized.expand([("history_only", [1, 2]), ("no_indices", [])])
+    @parameterized.expand([("history_only", [1, 2], 0.9), ("no_indices", [], 0.9), ("below_threshold", [1, 2], 0.5)])
     def test_live_check_does_not_fire_unless_the_latest_point_is_flagged(
-        self, _name: str, triggered_indices: list[int]
+        self, _name: str, triggered_indices: list[int], confidence: float
     ) -> None:
         # A confident "anomaly" about a point in the history must not page anyone about a
         # normal current value.
-        result = _detect(LLMDetector({"type": "llm"}), _verdict(triggered_indices=triggered_indices))
+        result = _detect(
+            LLMDetector({"type": "llm"}), _verdict(triggered_indices=triggered_indices, confidence=confidence)
+        )
 
         assert result.is_anomaly is False
         assert result.triggered_indices == []
