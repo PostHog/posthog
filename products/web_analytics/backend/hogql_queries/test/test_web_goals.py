@@ -30,6 +30,7 @@ from posthog.test.persons import add_cohort_members
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.web_analytics.backend.hogql_queries.web_goals import WebGoalsQueryRunner
+from products.web_analytics.backend.hogql_queries.web_goals_actions import select_goal_actions
 
 
 @snapshot_clickhouse_queries
@@ -527,3 +528,19 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert results is not None
         assert pretty_print_in_tests(str(results.results), self.team.pk) == self.snapshot
+
+
+class TestSelectGoalActions(APIBaseTest):
+    def test_action_whose_filter_does_not_compile_is_skipped(self):
+        Action.objects.create(
+            team=self.team,
+            name="Works",
+            steps_json=[{"event": "$pageview"}],
+        )
+        Action.objects.create(
+            team=self.team,
+            name="Broken HogQL filter",
+            steps_json=[{"event": "$pageview", "properties": [{"key": "1 person_id", "type": "hogql"}]}],
+        )
+
+        assert [action.name for action, _ in select_goal_actions(self.team)] == ["Works"]
