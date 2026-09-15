@@ -85,6 +85,9 @@ class FakePersonHogClient:
         # synthetic ids for persons created by split_person
         self._next_split_person_id = 1_000_000_000
 
+        # monotonic counter for distinct ID row IDs
+        self._next_distinct_id_row_id = 1
+
     # ── Builder methods ──────────────────────────────────────────────
 
     def add_person(
@@ -251,20 +254,21 @@ class FakePersonHogClient:
         self.calls.append(_Call("get_distinct_ids_for_person", request))
         dids = list(self._distinct_ids.get((request.team_id, request.person_id), []))
         limit = request.limit if request.HasField("limit") and request.limit > 0 else None
-        cursor_id = request.cursor_id if request.HasField("cursor_id") and request.cursor_id > 0 else None
+        has_cursor = request.HasField("cursor_id")
+        cursor_id = request.cursor_id if has_cursor else None
 
-        for i, d in enumerate(dids):
+        for d in dids:
             if not d.HasField("id"):
-                d.id = i + 1
+                d.id = self._next_distinct_id_row_id
+                self._next_distinct_id_row_id += 1
 
-        if cursor_id is not None:
-            dids = [d for d in dids if d.id > cursor_id]
+        if has_cursor:
+            dids = [d for d in dids if d.id > (cursor_id or 0)]
             dids.sort(key=lambda d: d.id)
+            if limit is not None:
+                dids = dids[:limit]
         elif limit is not None:
             dids = _order_identified_first(dids)[:limit]
-
-        if cursor_id is not None and limit is not None:
-            dids = dids[:limit]
 
         next_cursor_id = None
         if limit is not None and len(dids) >= limit:
