@@ -354,9 +354,6 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             "EOF occurred in violation of protocol",
             "Connection reset by peer",
             "Connection aborted",
-            "Tunnel connection failed: 502",
-            "Tunnel connection failed: 503",
-            "Tunnel connection failed: 504",
             "returned response code 429",
             "returned response code 502",
             "returned response code 503",
@@ -381,10 +378,6 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # entry covers the case where the server stays saturated past all in-process
             # attempts, so Temporal's own retry — with a fresh backoff budget — isn't noise.
             "TOO_MANY_SIMULTANEOUS_QUERIES",
-            # `_get_client` already retries this in-process (see `_TRANSIENT_CONNECT_DROP_SUBSTRINGS`
-            # in clickhouse.py); this entry covers the case where our own egress proxy stays
-            # unreachable past all in-process attempts, so Temporal's retry isn't noise.
-            "Cannot connect to proxy.', TimeoutError('timed out')",
         }
 
     @contextmanager

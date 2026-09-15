@@ -90,6 +90,7 @@ function RunSurfaceRoot({
     const replayOnly = interaction !== 'live'
     // A pending surface (no run id) must supply `streamKey` to key on; `runId` is the key otherwise.
     const logicKey = streamKey ?? runId ?? ''
+    const hasOptimisticClientStream = !!streamKey && streamKey !== runId
     const { hasThreadItems } = useValues(runStreamLogic({ streamKey: logicKey, conversationId, replayOnly }))
 
     // The runtime and scout flag live on the task (not the run), so the surface owns loading it once and
@@ -114,8 +115,7 @@ function RunSurfaceRoot({
                 </LemonBanner>
             )
         }
-        // A created task's metadata fetch must not replace its already visible optimistic thread.
-        if (!hasThreadItems) {
+        if (!hasThreadItems && !hasOptimisticClientStream) {
             return <RunLogSkeleton />
         }
     }
@@ -188,11 +188,13 @@ function RunSurfaceBootstrap({ taskId }: { taskId: string }): null {
 
 /** Thread slot: the streamed run thread, with the shared run-log skeleton during the first bootstrap. */
 function RunSurfaceThread({
+    restoreReadPosition = false,
     className,
     listClassName,
     rowClassName,
     showContextUsage = false,
 }: {
+    restoreReadPosition?: boolean
     className?: string
     listClassName?: string
     rowClassName?: string
@@ -227,7 +229,7 @@ function RunSurfaceThread({
             ) : null,
         [feedbackSessionId, feedbackRun]
     )
-    const showSkeleton = bootstrapLoading && !hasThreadItems
+    const showSkeleton = bootstrapLoading && !hasThreadItems && streamKey === runId
     if (showSkeleton) {
         return <RunLogSkeleton className={className} listClassName={listClassName} rowClassName={rowClassName} />
     }
@@ -237,6 +239,7 @@ function RunSurfaceThread({
     // Turn feedback: only interactive, non-scout surfaces collect ratings.
     return (
         <ThreadView
+            scrollRestorationKey={restoreReadPosition ? taskId : undefined}
             className={className}
             listClassName={listClassName}
             rowClassName={rowClassName}
