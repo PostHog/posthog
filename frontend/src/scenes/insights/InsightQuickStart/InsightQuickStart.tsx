@@ -1,6 +1,6 @@
 import './InsightQuickStart.scss'
 
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
@@ -9,6 +9,7 @@ import { IconPlay, IconSparkles } from '@posthog/icons'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
 import { isInsightTypeCreatable } from 'scenes/saved-insights/insightTypesMetadata'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
@@ -81,6 +82,7 @@ interface InsightOptionCardProps {
     preview?: { static: string; animated: string }
     docLink?: string
     index: number
+    insightType?: InsightType
 }
 
 function InsightOptionCard({
@@ -93,8 +95,17 @@ function InsightOptionCard({
     preview,
     docLink,
     index,
+    insightType,
 }: InsightOptionCardProps): JSX.Element {
     const [isHovered, setIsHovered] = useState(false)
+    const { reportSavedInsightNewInsightClicked } = useActions(eventUsageLogic)
+
+    const handleClick = (): void => {
+        if (insightType) {
+            reportSavedInsightNewInsightClicked(insightType, 'quick-start')
+        }
+        router.actions.push(url)
+    }
 
     return (
         <div
@@ -107,7 +118,7 @@ function InsightOptionCard({
                 className="cursor-pointer h-full overflow-hidden"
                 data-attr={dataAttr}
                 hoverEffect
-                onClick={() => router.actions.push(url)}
+                onClick={handleClick}
             >
                 <div className="flex flex-col gap-3 h-full">
                     {preview && (
@@ -192,6 +203,7 @@ export function InsightQuickStart(): JSX.Element {
                         preview={INSIGHT_PREVIEWS[insightType as InsightType]}
                         docLink={metadata.tooltipDocLink}
                         index={index + 1}
+                        insightType={insightType as InsightType}
                     />
                 ))}
             </div>

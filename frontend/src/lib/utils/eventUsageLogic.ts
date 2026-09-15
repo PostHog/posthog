@@ -66,6 +66,7 @@ import {
     FilterLogicalOperator,
     FunnelCorrelation,
     HelpType,
+    InsightSceneSource,
     InsightShortId,
     MultipleSurveyQuestion,
     OnboardingStepKey,
@@ -1823,7 +1824,11 @@ export interface eventUsageLogicActions {
         query: Node<Record<string, any>> | null
         saveType: 'save' | 'save_as'
     }
-    reportInsightStarted: (query: Node | null) => {
+    reportInsightStarted: (
+        query: Node | null,
+        entrySource?: InsightSceneSource | null
+    ) => {
+        entrySource: InsightSceneSource | null | undefined
         query: Node<Record<string, any>> | null
     }
     reportInsightViewed: (
@@ -2456,7 +2461,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         // insights
         reportInsightMetadataAiGenerated: (queryKind: NodeKind) => ({ queryKind }),
         reportInsightMetadataAiGenerationFailed: (queryKind: NodeKind) => ({ queryKind }),
-        reportInsightStarted: (query: Node | null) => ({ query }),
+        reportInsightStarted: (query: Node | null, entrySource?: InsightSceneSource | null) => ({ query, entrySource }),
         reportInsightSaved: (
             insight: Partial<QueryBasedInsightModel> | null,
             query: Node | null,
@@ -3431,12 +3436,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 total_properties: totalProperties,
             })
         },
-        reportInsightStarted: async ({ query }, breakpoint) => {
+        reportInsightStarted: async ({ query, entrySource }, breakpoint) => {
             // "insight started" means the user opened a blank insight editor (intent — it may never be
             // persisted). The actual creation is tracked server-side as "insight created".
             await breakpoint(500) // Debounce to avoid multiple quick "New insight" clicks being reported
 
-            posthog.capture('insight started', { ...sanitizeQuery(query), source: 'web' })
+            posthog.capture('insight started', {
+                ...sanitizeQuery(query),
+                source: 'web',
+                entry_source: entrySource ?? null,
+            })
         },
         reportInsightMetadataAiGenerated: async ({ queryKind }) => {
             posthog.capture('insight metadata ai generated', { query_kind: queryKind })
