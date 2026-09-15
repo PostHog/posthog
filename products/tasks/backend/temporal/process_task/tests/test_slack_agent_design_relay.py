@@ -12,10 +12,9 @@ from products.tasks.backend.temporal.process_task.activities.slack_agent_design 
     STREAM_MODE_FINAL_ONLY,
     STREAM_MODE_TIMELINE,
     AppendSlackAgentDesignStepsInput,
-    RenderSlackAgentDesignMessageInput,
-    RenderSlackAgentDesignMessageOutput,
     StartSlackAgentDesignStreamInput,
     StopSlackAgentDesignStreamInput,
+    StreamChunk,
 )
 from products.tasks.backend.temporal.process_task.slack_agent_design_relay import (
     SlackAgentDesignRelayInput,
@@ -29,22 +28,25 @@ TASK_QUEUE = "test-slack-agent-design-relay"
 class StreamRecorder:
     def __init__(self) -> None:
         self.calls: list[tuple[str, object]] = []
-        self.artifact_blocks_once: list[dict] = []
+        self.first_call = asyncio.Event()
 
     def record(self, kind: str, input: object) -> None:
         self.calls.append((kind, input))
+        self.first_call.set()
 
-    def renders(self) -> list[RenderSlackAgentDesignMessageInput]:
-        return [input for _, input in self.calls if isinstance(input, RenderSlackAgentDesignMessageInput)]
+    def ordered_chunks(self) -> list[StreamChunk]:
+        chunks: list[StreamChunk] = []
+        for kind, input in self.calls:
+            if kind == "start":
+                assert isinstance(input, StartSlackAgentDesignStreamInput)
+                chunks.extend(input.ordered_chunks)
+            elif kind == "append":
+                assert isinstance(input, AppendSlackAgentDesignStepsInput)
+                chunks.extend(input.ordered_chunks)
+        return chunks
 
 
 def _activities(rec: StreamRecorder) -> list:
-    @activity.defn(name="render_slack_agent_design_message")
-    async def render(input: RenderSlackAgentDesignMessageInput) -> RenderSlackAgentDesignMessageOutput:
-        rec.record("render", input)
-        blocks, rec.artifact_blocks_once = rec.artifact_blocks_once, []
-        return RenderSlackAgentDesignMessageOutput(ts="999.100", artifact_blocks=blocks)
-
     @activity.defn(name="start_slack_agent_design_stream")
     async def start(input: StartSlackAgentDesignStreamInput) -> str | None:
         rec.record("start", input)
@@ -58,11 +60,11 @@ def _activities(rec: StreamRecorder) -> list:
     async def stop(input: StopSlackAgentDesignStreamInput) -> None:
         rec.record("stop", input)
 
-    return [render, start, append, stop]
+    return [start, append, stop]
 
 
 class _RelayEnv:
-    """One time-skipping env + worker around the relay, with recorded activities."""
+    """One time-skipping env + worker around the relay, with recorded stream activities."""
 
     def __init__(self) -> None:
         self.rec = StreamRecorder()
@@ -97,13 +99,7 @@ class _RelayEnv:
         )
 
 
-def _final_segments(rec: StreamRecorder) -> list:
-    closing = [r for r in rec.renders() if r.closing]
-    assert closing, "no closing render happened"
-    return closing[-1].segments
-
-
-async def test_timeline_interleaves_prose_and_card_segments_in_arrival_order():
+async def test_timeline_interleaves_prose_and_task_cards_in_arrival_order():
     async with _RelayEnv() as relay:
         handle = await relay.start_relay(STREAM_MODE_TIMELINE)
         await handle.signal(SlackAgentDesignRelayWorkflow.agent_text_delta, "Let me check the data.")
@@ -112,25 +108,30 @@ async def test_timeline_interleaves_prose_and_card_segments_in_arrival_order():
         await handle.signal(SlackAgentDesignRelayWorkflow.complete_turn, "trace-1")
         await handle.result()
 
-    segments = _final_segments(relay.rec)
-    assert [s.kind for s in segments] == ["text", "cards", "text"]
-    assert segments[0].text == "Let me check the data."
-    assert [c.title for c in segments[1].calls] == ["Read"]
-    assert segments[1].complete
-    assert segments[2].text == "Found it."
+    chunks = relay.rec.ordered_chunks()
+    kinds = ["task" if c.task_update else "md" for c in chunks]
+    assert kinds == ["md", "task", "md"]
+    assert chunks[0].markdown_text == "Let me check the data."
+    assert chunks[1].task_update is not None
+    assert chunks[1].task_update.title == "Read"
+    assert chunks[1].task_update.status == "in_progress"
+    assert chunks[2].markdown_text == "Found it."
 
-    closing = relay.rec.renders()[-1]
-    assert closing.closing
-    assert closing.trace_id == "trace-1"
-    assert closing.run_id == "run-1"
-    # Renders after the first update the posted message rather than posting again.
-    assert all(r.ts == "999.100" for r in relay.rec.renders()[1:])
-    assert relay.rec.renders()[0].ts is None
+    start_input = relay.rec.calls[0][1]
+    assert isinstance(start_input, StartSlackAgentDesignStreamInput)
+    assert start_input.task_display_mode == STREAM_MODE_TIMELINE
+    assert start_input.run_id == "run-1"
+
+    stop_kind, stop_input = relay.rec.calls[-1]
+    assert stop_kind == "stop"
+    assert isinstance(stop_input, StopSlackAgentDesignStreamInput)
+    assert stop_input.complete_task_id == chunks[1].task_update.id
+    assert stop_input.trace_id == "trace-1"
 
 
-async def test_burst_stays_one_card_segment_and_outcomes_land_on_their_calls():
-    # Consecutive calls share a card; a call's result must land on that call, and
-    # a failure must be legible on it.
+async def test_each_tool_call_gets_its_own_card_and_its_outcome_lands_on_it():
+    # One card per call, and a finished call's result must flip that call's card
+    # (filling its output), not the card of whichever call ran last.
     async with _RelayEnv() as relay:
         handle = await relay.start_relay(STREAM_MODE_TIMELINE)
         await handle.signal(
@@ -145,21 +146,50 @@ async def test_burst_stays_one_card_segment_and_outcomes_land_on_their_calls():
             SlackAgentDesignRelayWorkflow.agent_status_update,
             {"kind": "tool_result", "tool_call_id": "tc-1", "output": "12 rows", "failed": False},
         )
+        await handle.signal(SlackAgentDesignRelayWorkflow.complete_turn, None)
+        await handle.result()
+
+    tasks = [c.task_update for c in relay.rec.ordered_chunks() if c.task_update]
+    ids = {t.id for t in tasks}
+    assert len(ids) == 2
+    card_one_id = next(t.id for t in tasks if t.details == "insight list")
+    card_one_final = [t for t in tasks if t.id == card_one_id][-1]
+    assert card_one_final.status == "complete"
+    assert card_one_final.output == "12 rows"
+
+    card_two_id = next(t.id for t in tasks if t.details == "query run")
+    stop_input = relay.rec.calls[-1][1]
+    assert isinstance(stop_input, StopSlackAgentDesignStreamInput)
+    assert stop_input.complete_task_id == card_two_id
+
+
+async def test_failed_tool_call_marks_its_card_as_error_and_stop_leaves_it_alone():
+    # An error status must survive the close: the stop path completing the card
+    # again would repaint the failure as success.
+    async with _RelayEnv() as relay:
+        handle = await relay.start_relay(STREAM_MODE_TIMELINE)
         await handle.signal(
             SlackAgentDesignRelayWorkflow.agent_status_update,
-            {"kind": "tool_result", "tool_call_id": "tc-2", "output": "exit 1", "failed": True},
+            {"title": "Bash", "details": "make test", "tool_call_id": "tc-1"},
+        )
+        await handle.signal(
+            SlackAgentDesignRelayWorkflow.agent_status_update,
+            {"kind": "tool_result", "tool_call_id": "tc-1", "output": "exit 1", "failed": True},
         )
         await handle.signal(SlackAgentDesignRelayWorkflow.complete_turn, None)
         await handle.result()
 
-    segments = _final_segments(relay.rec)
-    assert [s.kind for s in segments] == ["cards"]
-    first, second = segments[0].calls
-    assert first.output == "12 rows" and not first.failed
-    assert second.output == "exit 1" and second.failed
+    tasks = [c.task_update for c in relay.rec.ordered_chunks() if c.task_update]
+    assert tasks[-1].status == "error"
+    assert tasks[-1].output == "exit 1"
+    stop_input = relay.rec.calls[-1][1]
+    assert isinstance(stop_input, StopSlackAgentDesignStreamInput)
+    assert stop_input.complete_task_id is None
 
 
-async def test_timeline_narrative_splits_bursts_into_separate_cards():
+async def test_timeline_narrative_breaks_the_card_burst():
+    # Prose between tool calls completes the open card, so the next call opens a
+    # new one and the thread keeps its text → card → text → card rhythm.
     async with _RelayEnv() as relay:
         handle = await relay.start_relay(STREAM_MODE_TIMELINE)
         await handle.signal(SlackAgentDesignRelayWorkflow.agent_status_update, {"title": "Read"})
@@ -168,33 +198,17 @@ async def test_timeline_narrative_splits_bursts_into_separate_cards():
         await handle.signal(SlackAgentDesignRelayWorkflow.complete_turn, None)
         await handle.result()
 
-    segments = _final_segments(relay.rec)
-    assert [s.kind for s in segments] == ["cards", "text", "cards"]
-    assert [c.title for c in segments[0].calls] == ["Read"]
-    assert segments[0].complete
-    assert [c.title for c in segments[2].calls] == ["Grep"]
+    tasks = [c.task_update for c in relay.rec.ordered_chunks() if c.task_update]
+    assert [(t.title, t.status) for t in tasks] == [
+        ("Read", "in_progress"),
+        ("Read", "complete"),
+        ("Grep", "in_progress"),
+    ]
+    assert tasks[0].id == tasks[1].id
+    assert tasks[2].id != tasks[0].id
 
 
-async def test_artifact_blocks_returned_by_a_render_stay_in_the_message():
-    # Blocks popped from the artifact queue must persist across later rewrites,
-    # anchored where they first rendered.
-    async with _RelayEnv() as relay:
-        relay.rec.artifact_blocks_once = [{"type": "image", "image_url": "https://example.com/c.png"}]
-        handle = await relay.start_relay(STREAM_MODE_TIMELINE)
-        await handle.signal(SlackAgentDesignRelayWorkflow.agent_text_delta, "Chart coming.")
-        await asyncio.sleep(1)
-        await handle.signal(SlackAgentDesignRelayWorkflow.agent_text_delta, " And the wrap-up.")
-        await handle.signal(SlackAgentDesignRelayWorkflow.complete_turn, None)
-        await handle.result()
-
-    segments = _final_segments(relay.rec)
-    kinds = [s.kind for s in segments]
-    assert "blocks" in kinds
-    blocks_segment = next(s for s in segments if s.kind == "blocks")
-    assert blocks_segment.blocks == [{"type": "image", "image_url": "https://example.com/c.png"}]
-
-
-async def test_final_only_renders_one_batch_with_only_the_post_tool_answer():
+async def test_final_only_posts_one_batch_with_only_the_post_tool_answer():
     async with _RelayEnv() as relay:
         handle = await relay.start_relay(STREAM_MODE_FINAL_ONLY)
         await handle.signal(SlackAgentDesignRelayWorkflow.agent_text_delta, "Let me look into this…")
@@ -203,12 +217,15 @@ async def test_final_only_renders_one_batch_with_only_the_post_tool_answer():
         await handle.signal(SlackAgentDesignRelayWorkflow.complete_turn, "trace-2")
         await handle.result()
 
-    renders = relay.rec.renders()
-    assert [kind for kind, _ in relay.rec.calls] == ["render"]
-    assert renders[0].closing
-    assert renders[0].trace_id == "trace-2"
-    assert [s.kind for s in renders[0].segments] == ["text"]
-    assert renders[0].segments[0].text == "The answer is 42."
+    assert [kind for kind, _ in relay.rec.calls] == ["start", "stop"]
+    start_input = relay.rec.calls[0][1]
+    assert isinstance(start_input, StartSlackAgentDesignStreamInput)
+    assert start_input.first_markdown_text == "The answer is 42."
+    assert not start_input.ordered_chunks
+    stop_input = relay.rec.calls[1][1]
+    assert isinstance(stop_input, StopSlackAgentDesignStreamInput)
+    assert stop_input.trace_id == "trace-2"
+    assert stop_input.complete_task_id is None
 
 
 async def test_final_only_with_no_answer_posts_nothing():

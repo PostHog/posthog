@@ -976,7 +976,7 @@ def deliver_pending_slack_file_artifacts(
                     logger.warning("task_artifact.slack_post_budget_exhausted", artifact_id=str(card.artifact.id))
                     continue
                 blocks = _chart_card_blocks(card)
-                card_posted = _queue_blocks_for_open_reply(run, blocks)
+                card_posted = _append_blocks_to_stream(slack, mapping=mapping, ts=stream_ts, blocks=blocks)
                 if not card_posted:
                     try:
                         card_posted = _post_blocks_with_processing_retry(
@@ -1546,25 +1546,19 @@ def _open_stream_ts(run: TaskRun) -> str | None:
     return ts if isinstance(ts, str) and ts else None
 
 
-def _queue_blocks_for_open_reply(run: TaskRun, blocks: list[dict[str, Any]]) -> bool:
-    """Queue blocks on TaskRun.state for the open agent-design reply; the relay's
-    next render carries them into the message. False on any failure, so the caller
-    can fall back to a separate thread message."""
-    from products.tasks.backend.temporal.process_task.activities.slack_agent_design import (  # noqa: PLC0415 — keep temporal off the service import path
-        SLACK_PENDING_BLOCKS_STATE_KEY,
-    )
-
-    def _mutate(state: dict[str, Any]) -> None:
-        pending = state.get(SLACK_PENDING_BLOCKS_STATE_KEY)
-        if not isinstance(pending, list):
-            pending = []
-        state[SLACK_PENDING_BLOCKS_STATE_KEY] = [*pending, *blocks]
-
+def _append_blocks_to_stream(slack: Any, *, mapping: Any, ts: str, blocks: list[dict[str, Any]]) -> bool:
+    """Append blocks into the open agent-design stream. False on any failure, so the
+    caller can fall back to a separate thread message — the stream may have closed
+    between the ts read and this call."""
     try:
-        TaskRun.mutate_state_atomic(run.id, _mutate)
+        slack.chat_appendStream(
+            channel=mapping.channel,
+            ts=ts,
+            chunks=[{"type": "blocks", "blocks": blocks}],
+        )
         return True
     except Exception:
-        logger.warning("task_artifact.reply_block_queue_failed", task_run_id=str(run.id), exc_info=True)
+        logger.warning("task_artifact.stream_append_failed", task_run_id=str(mapping.task_run_id), exc_info=True)
         return False
 
 
@@ -1661,11 +1655,14 @@ def _post_canvas_created_message(
     escaped_canvas_id = _escape_slack_mrkdwn_text(canvas_id)
     canvas_reference = f"<{canvas_url}|{escaped_name}>" if canvas_url else f"*{escaped_name}*"
     text = f"Created Slack canvas {canvas_reference} (`{escaped_canvas_id}`)."
-    # With an agent-design reply open, the notice rides that message where the
-    # agent mentioned the canvas rather than landing as its own reply.
-    if _open_stream_ts(run) is not None and _queue_blocks_for_open_reply(
-        run,
-        [{"type": "section", "text": {"type": "mrkdwn", "text": text}}],
+    # With an agent-design stream open, the notice rides the streamed message where
+    # the agent mentioned the canvas rather than landing as its own reply.
+    stream_ts = _open_stream_ts(run)
+    if stream_ts is not None and _append_blocks_to_stream(
+        slack,
+        mapping=mapping,
+        ts=stream_ts,
+        blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": text}}],
     ):
         return
     try:

@@ -33,10 +33,7 @@ from products.tasks.backend.logic.services.living_artifacts import (
     get_task_artifacts_for_run,
 )
 from products.tasks.backend.models import Task, TaskArtifact, TaskRun
-from products.tasks.backend.temporal.process_task.activities.slack_agent_design import (
-    SLACK_PENDING_BLOCKS_STATE_KEY,
-    SLACK_STREAM_TS_STATE_KEY,
-)
+from products.tasks.backend.temporal.process_task.activities.slack_agent_design import SLACK_STREAM_TS_STATE_KEY
 
 
 def _xlsx_bytes() -> bytes:
@@ -737,12 +734,8 @@ class TestStreamDelivery(TestCase):
     def _open_stream(self, ts: str = "999.100") -> None:
         TaskRun.objects.filter(id=self.task_run.id).update(state={SLACK_STREAM_TS_STATE_KEY: ts})
 
-    def _pending_blocks(self) -> list:
-        state = TaskRun.objects.filter(id=self.task_run.id).values_list("state", flat=True).first() or {}
-        return state.get(SLACK_PENDING_BLOCKS_STATE_KEY) or []
-
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
-    def test_canvas_notice_rides_the_open_reply(self, mock_integration_for_mapping):
+    def test_canvas_notice_rides_the_open_stream(self, mock_integration_for_mapping):
         slack = self._create_mapping(mock_integration_for_mapping)
         slack.api_call.return_value = {"canvas_id": "F123", "url": "https://app.slack.com/docs/T123/F123"}
         self._open_stream()
@@ -754,9 +747,12 @@ class TestStreamDelivery(TestCase):
             content="# Report",
         )
 
-        (block,) = self._pending_blocks()
-        self.assertEqual(block["type"], "section")
-        self.assertIn("Report canvas", block["text"]["text"])
+        slack.chat_appendStream.assert_called_once()
+        append_kwargs = slack.chat_appendStream.call_args.kwargs
+        self.assertEqual(append_kwargs["ts"], "999.100")
+        (chunk,) = append_kwargs["chunks"]
+        self.assertEqual(chunk["type"], "blocks")
+        self.assertIn("Report canvas", chunk["blocks"][0]["text"]["text"])
         slack.chat_postMessage.assert_not_called()
 
     @patch("products.tasks.backend.logic.services.living_artifacts.slack_message_exists", return_value=True)
@@ -764,7 +760,7 @@ class TestStreamDelivery(TestCase):
     @patch("posthog.storage.object_storage.tag")
     @patch("posthog.storage.object_storage.write")
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
-    def test_chart_created_while_streaming_lands_in_the_reply_queue(
+    def test_chart_created_while_streaming_lands_in_the_stream(
         self,
         mock_integration_for_mapping,
         _mock_write,
@@ -787,8 +783,10 @@ class TestStreamDelivery(TestCase):
             export_asset_id=asset.id,
         )
 
-        blocks = self._pending_blocks()
-        image_block = blocks[1]
+        slack.chat_appendStream.assert_called_once()
+        (chunk,) = slack.chat_appendStream.call_args.kwargs["chunks"]
+        self.assertEqual(chunk["type"], "blocks")
+        image_block = chunk["blocks"][1]
         self.assertEqual(image_block["type"], "image")
         self.assertEqual(image_block["image_url"], "http://localhost:8010/exporter/export-1.png?token=abc")
         slack.chat_postMessage.assert_not_called()
@@ -801,7 +799,7 @@ class TestStreamDelivery(TestCase):
     @patch("posthog.storage.object_storage.tag")
     @patch("posthog.storage.object_storage.write")
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
-    def test_queue_failure_falls_back_to_a_thread_message(
+    def test_stream_append_failure_falls_back_to_a_thread_message(
         self,
         mock_integration_for_mapping,
         _mock_write,
@@ -810,24 +808,21 @@ class TestStreamDelivery(TestCase):
         _mock_message_exists,
     ):
         slack = self._create_mapping(mock_integration_for_mapping, scopes={"files:write"})
+        slack.chat_appendStream.side_effect = RuntimeError("stream already stopped")
         slack.chat_postMessage.return_value = {"ok": True, "ts": "1111.2"}
         asset = ExportedAsset.objects.create(team=self.team, export_format=ExportedAsset.ExportFormat.PNG)
         mock_image_url.return_value = "http://localhost:8010/exporter/export-1.png?token=abc"
         self._open_stream()
 
-        with patch(
-            "products.tasks.backend.logic.services.living_artifacts._queue_blocks_for_open_reply",
-            return_value=False,
-        ):
-            artifact = create_living_artifact(
-                run=self.task_run,
-                name="Signups by week.png",
-                artifact_type=TaskArtifact.ArtifactType.FILE,
-                adapter=TaskArtifact.Adapter.SLACK_FILE,
-                content_bytes=b"png-bytes",
-                content_type="image/png",
-                export_asset_id=asset.id,
-            )
+        artifact = create_living_artifact(
+            run=self.task_run,
+            name="Signups by week.png",
+            artifact_type=TaskArtifact.ArtifactType.FILE,
+            adapter=TaskArtifact.Adapter.SLACK_FILE,
+            content_bytes=b"png-bytes",
+            content_type="image/png",
+            export_asset_id=asset.id,
+        )
 
         slack.chat_postMessage.assert_called_once()
         blocks = slack.chat_postMessage.call_args.kwargs["blocks"]
