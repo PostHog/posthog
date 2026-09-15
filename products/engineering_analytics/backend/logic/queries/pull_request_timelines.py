@@ -78,13 +78,26 @@ _REVIEWS_SELECT = """
     LIMIT 100000
 """
 
+# A skipped run never executes, so it adds no red or running time. HogQL caps a result at 50k rows,
+# and skipped and merge-queue runs are a third of a busy team's runs, so both stay out of this list.
 _RUNS_SELECT = """
-    SELECT
-        id, pr_number, workflow_name, head_sha, status, conclusion,
-        run_started_at, updated_at, run_attempt, is_merge_queue,
-        __GATE_ATTEMPT__ AS gate_attempt
+    SELECT id, pr_number, workflow_name, head_sha, status, conclusion, run_started_at, updated_at, run_attempt
     FROM __RUNS_SOURCE__ AS r
     WHERE pr_number IN {pr_numbers} AND run_started_at >= {run_from}
+        AND NOT is_merge_queue AND ifNull(conclusion, '') != 'skipped'
+    LIMIT 1000000
+"""
+
+# One row per merge-queue attempt: the queue runs several workflows for each attempt.
+_GATE_ATTEMPTS_SELECT = """
+    SELECT
+        pr_number,
+        min(run_started_at) AS started_at,
+        max(updated_at) AS completed_at,
+        countIf(status != 'completed' OR updated_at IS NULL) AS unfinished
+    FROM __RUNS_SOURCE__ AS r
+    WHERE pr_number IN {pr_numbers} AND run_started_at >= {run_from} AND is_merge_queue
+    GROUP BY pr_number, __GATE_ATTEMPT__
     LIMIT 1000000
 """
 
@@ -292,39 +305,27 @@ class PullRequestTimelinesQuery:
     def _query_attempts(
         self, pr_numbers: list[int], run_from: datetime
     ) -> tuple[dict[int, list[RunAttempt]], dict[int, list[GateAttempt]]]:
+        runs_source = self._curated.run_source(started_floor=True)
+        placeholders: dict[str, ast.Expr] = {
+            "pr_numbers": ast.Constant(value=pr_numbers),
+            "run_from": ast.Constant(value=run_from),
+            "run_started_floor": run_started_floor_constant(run_from),
+        }
         response = self._curated.run(
-            _RUNS_SELECT.replace("__RUNS_SOURCE__", self._curated.run_source(started_floor=True)).replace(
-                "__GATE_ATTEMPT__", gate_attempt_expr("r.head_branch")
-            ),
+            _RUNS_SELECT.replace("__RUNS_SOURCE__", runs_source),
             query_type="engineering_analytics.pull_request_timelines_runs",
-            placeholders={
-                "pr_numbers": ast.Constant(value=pr_numbers),
-                "run_from": ast.Constant(value=run_from),
-                "run_started_floor": run_started_floor_constant(run_from),
-            },
+            placeholders=placeholders,
         )
         runs = [row for row in response.results or [] if row[6] is not None]
-        job_attempts = self._query_job_attempts([int(row[0]) for row in runs if not row[9]], run_from)
+        # A run on its first attempt that did not fail has exactly one attempt, and its run row already
+        # describes it. Only re-runs (earlier attempts) and failures (failed job names) need the jobs.
+        job_attempts = self._query_job_attempts(
+            [int(row[0]) for row in runs if int(row[8] or 1) > 1 or row[5] in DECISIVE_FAILURE_CONCLUSIONS],
+            run_from,
+        )
 
         attempts: dict[int, list[RunAttempt]] = defaultdict(list)
-        gate_runs: dict[tuple[int, str], list[tuple]] = defaultdict(list)
-        for row in runs:
-            (
-                run_id,
-                number,
-                workflow_name,
-                head_sha,
-                status,
-                conclusion,
-                started_at,
-                updated_at,
-                attempt,
-                is_queue,
-                gate,
-            ) = row
-            if is_queue:
-                gate_runs[(int(number), gate)].append(row)
-                continue
+        for run_id, number, workflow_name, head_sha, status, conclusion, started_at, updated_at, attempt in runs:
             run_attempts = job_attempts.get(int(run_id))
             if run_attempts:
                 attempts[int(number)].extend(
@@ -355,15 +356,19 @@ class PullRequestTimelinesQuery:
                 )
             )
 
+        gates_response = self._curated.run(
+            _GATE_ATTEMPTS_SELECT.replace("__RUNS_SOURCE__", runs_source).replace(
+                "__GATE_ATTEMPT__", gate_attempt_expr("r.head_branch")
+            ),
+            query_type="engineering_analytics.pull_request_timelines_gate_attempts",
+            placeholders=placeholders,
+        )
         gates: dict[int, list[GateAttempt]] = defaultdict(list)
-        for (number, _gate), rows in gate_runs.items():
-            still_running = any(row[4] != "completed" or row[7] is None for row in rows)
-            gates[number].append(
-                GateAttempt(
-                    started_at=min(row[6] for row in rows),
-                    completed_at=None if still_running else max(row[7] for row in rows),
+        for number, started_at, completed_at, unfinished in gates_response.results or []:
+            if started_at is not None:
+                gates[int(number)].append(
+                    GateAttempt(started_at=started_at, completed_at=None if unfinished else completed_at)
                 )
-            )
         return attempts, gates
 
     def _query_job_attempts(
