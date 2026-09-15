@@ -320,7 +320,6 @@ products/endpoints/backend/tests/test_rate_limit.py::TestMaterializationCache
 products/engineering_analytics/backend/tests/test_logic_workflows.py::TestCostPerMergeSeries
 products/error_tracking/backend/hogql_queries/test/test_error_tracking_pending_fingerprint_issue_state_updates.py::TestPendingUpdateUnionBuilder
 products/error_tracking/backend/test_notifications.py::TestAssignerExcludingResolver
-products/experiments/backend/hogql_queries/test/test_hogql_aggregation_integration.py::TestHogQLAggregationIntegration
 products/experiments/backend/hogql_queries/test/test_hogql_aggregation_utils.py::TestHogQLAggregationUtils
 products/experiments/backend/hogql_queries/test/test_hogql_injection.py::TestHogQLInjectionPrevention
 products/experiments/backend/hogql_queries/test/test_metric_source.py::TestMetricSourceInfo

@@ -1,1 +1,1 @@
-1352_email_lookup_indexes
+1353_drop_retired_ducklake_tables

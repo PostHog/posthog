@@ -23,7 +23,10 @@ It is exercised locally via management commands, and it is also used by the prod
   - very short factual summary
   - optional typed impact metrics (see below), when the team is opted in
   - optional charts (see below), when the team is opted in
-    The repository used for research is tracked separately via the `repo_selection` artefact.
+  - an optional task-attributed fix verification note for actionable reports
+
+  The repository used for research is tracked separately via the `repo_selection` artefact.
+
 - `reviewer_telemetry.py`
   Emits the `signals_suggested_reviewers_resolved` product-analytics event whenever a report's suggested reviewers are persisted, recording which GitHub logins link to a PostHog user and which don't (unlinkable reviewers can't be routed or run autostart, but still count as "assigned" in reviewer metrics).
   - Called after the artefact write commits (via `transaction.on_commit` where a transaction is open), never in-transaction: the research activity (`source="pipeline"`), scout report creation and reviewer edits (`"scout"` / `"scout_edit"`), custom-agent persistence (`"custom_agent"`), the app reviewers PUT (`"user_edit"`), and the artefacts POST (`"api"`).
@@ -59,6 +62,7 @@ In production, the `update` path is triggered automatically when a `ready` repor
 
 This module is intentionally prompt-orchestration only.
 Production persistence is handled outside `run_multi_turn_research()`, in the caller activity, so this module stays isolated from report DB writes.
+Fix verification is best-effort. Generation failures do not fail completed research, but cancellation still does.
 
 ### Charts
 

@@ -42,6 +42,8 @@ MAX_SELECT_TRACES_LIMIT_EXPORT = 10000  # 10k traces
 MAX_SELECT_POSTHOG_AI_LIMIT = 500  # 500 rows
 # Default limit for PostHog AI queries
 DEFAULT_POSTHOG_AI_RETURNED_ROWS = 100
+MAX_SELECT_DATA_CATALOG_LIMIT = 10000
+DEFAULT_DATA_CATALOG_RETURNED_ROWS = 1000
 # Max amount of memory usage when doing group by before swapping to disk. Only used in certain queries
 MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 22 * 1024 * 1024 * 1024
 
@@ -88,6 +90,7 @@ class LimitContext(StrEnum):
     SAVED_QUERY = "saved_query"
     RETENTION = "retention"
     POSTHOG_AI = "posthog_ai"
+    DATA_CATALOG = "data_catalog"
 
 
 def get_max_limit_for_context(limit_context: LimitContext) -> int:
@@ -110,6 +113,8 @@ def get_max_limit_for_context(limit_context: LimitContext) -> int:
         return sys.maxsize  # Max python int
     elif limit_context == LimitContext.POSTHOG_AI:
         return MAX_SELECT_POSTHOG_AI_LIMIT  # 500
+    elif limit_context == LimitContext.DATA_CATALOG:
+        return MAX_SELECT_DATA_CATALOG_LIMIT  # 10k
     else:
         raise ValueError(f"Unexpected LimitContext value: {limit_context}")
 
@@ -122,6 +127,8 @@ def get_default_limit_for_context(limit_context: LimitContext) -> int:
         return DEFAULT_RETURNED_ROWS  # 100
     elif limit_context == LimitContext.POSTHOG_AI:
         return DEFAULT_POSTHOG_AI_RETURNED_ROWS  # 100
+    elif limit_context == LimitContext.DATA_CATALOG:
+        return DEFAULT_DATA_CATALOG_RETURNED_ROWS  # 1000
     elif limit_context == LimitContext.HEATMAPS:
         return MAX_SELECT_HEATMAPS_LIMIT  # 1M
     elif limit_context == LimitContext.COHORT_CALCULATION:

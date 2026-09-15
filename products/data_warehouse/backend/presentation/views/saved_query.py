@@ -446,6 +446,12 @@ class ViewDescriptionField(serializers.CharField):
         return view_annotation_map(instance).get("")
 
 
+# Only these two are still written to the column: MODIFIED on edit, CANCELLED by the cancel action.
+# Every other value was last written by the v1 materialization workflow, which no longer exists, so it
+# describes a run no current code path could have produced.
+STATUSES_STILL_WRITTEN = frozenset({DataWarehouseSavedQuery.Status.MODIFIED, DataWarehouseSavedQuery.Status.CANCELLED})
+
+
 class DataWarehouseSavedQuerySerializerMixin:
     """Shared methods for DataWarehouseSavedQuery serializers.
 
@@ -471,13 +477,13 @@ class DataWarehouseSavedQuerySerializerMixin:
     @extend_schema_field(serializers.DateTimeField(allow_null=True))
     def get_last_run_at(self, view: DataWarehouseSavedQuery) -> datetime | None:
         run = self._serving_run(view)
-        return run.last_run_at if run is not None else view.last_run_at
+        return run.last_run_at if run is not None else None
 
     @extend_schema_field(serializers.ChoiceField(choices=DataWarehouseSavedQuery.Status.choices, allow_null=True))
     def get_status(self, view: DataWarehouseSavedQuery) -> str | None:
         run = self._serving_run(view)
         if run is None:
-            return view.status
+            return view.status if view.status in STATUSES_STILL_WRITTEN else None
         # Modified means "edited and not materialized since", which no run can express. A run that
         # happened after the edit answers it, so the column only wins while the edit is the newer fact.
         edited_since_the_run = (
@@ -490,7 +496,7 @@ class DataWarehouseSavedQuerySerializerMixin:
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_latest_error(self, view: DataWarehouseSavedQuery) -> str | None:
         run = self._serving_run(view)
-        return run.error if run is not None else view.latest_error
+        return run.error if run is not None else None
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_sync_frequency(self, schema: DataWarehouseSavedQuery):

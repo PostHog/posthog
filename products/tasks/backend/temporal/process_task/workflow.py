@@ -1519,8 +1519,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 # A run that outlived the hard cap is a failure, not a completion, and the
                 # state marker carries the reason so error_message stays empty.
                 await self._update_task_run_status("failed", timeout_marker=TIMED_OUT_WALL_CLOCK_STATE_KEY)
-            elif timeout_event is not None and self._end_of_turn_received is False:
-                # A turn still open at the timeout means the agent died, not that it finished.
+            elif timeout_event is not None and self._agent_lost_mid_turn():
                 await self._update_task_run_status(
                     "failed", error_message=AGENT_LOST_ERROR_MESSAGE, timed_out_inactivity=True
                 )
@@ -2783,10 +2782,18 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             return False
         return not self.context.create_pr or self._ci_repetitions > 0
 
+    def _agent_lost_mid_turn(self) -> bool:
+        """True only when an open turn is backed by evidence the agent was still working.
+
+        `agent_state_changed(False)` is the only report that a turn ended, so a run that sent
+        one has finished even if a later signal reopened the turn.
+        """
+        return self._end_of_turn_received is False and self._agent_active is not False
+
     def _mark_sandbox_gone(self) -> None:
         # A sandbox that vanished mid-turn took the agent's work with it. Mid-setup it is a failed
         # setup for onboarding; see _onboarding_exit_is_failure for the open-PR exemption.
-        agent_lost = self._end_of_turn_received is False
+        agent_lost = self._agent_lost_mid_turn()
         self._completion_status = "failed" if agent_lost or self._onboarding_exit_is_failure() else "completed"
         self._completion_error = SANDBOX_GONE_ERROR_MESSAGE
         self._completion_timeout_marker = SANDBOX_GONE_STATE_KEY
@@ -3279,7 +3286,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._heartbeat_received = True
         self._last_active_time = now
         self._last_agent_heartbeat_at = now
-        self._end_of_turn_received = False
 
     @temporalio.workflow.signal
     async def client_activity(self) -> None:
@@ -3492,6 +3498,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             # A delivered message opens a turn: the first heartbeat may lag or be throttled away.
             if outcome != STEER_DECLINED_OUTCOME and _turn_opens_on_dispatch():
                 self._end_of_turn_received = False
+                # The ingest plane never reports a turn active, only inactive at its close, so a
+                # stale `False` from the turn that just ended must not carry into this one — it
+                # would permanently hide a lost agent for every later turn of the run.
+                self._agent_active = None
             return outcome
         except Exception as e:
             error_properties = self._activity_error_properties(e)

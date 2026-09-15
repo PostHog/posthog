@@ -1,15 +1,16 @@
 import re
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, TypeVar
 
 from django.db import IntegrityError, transaction
-from django.db.models import QuerySet
+from django.db.models import Max, QuerySet
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
-from ..marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
+from ..marketplace.packaging import CODEX_METADATA_PATH, SPEC_DESCRIPTION_MAX_LENGTH, compute_plugin_version
 from ..models.skills import (
     CATEGORY_BY_NAME_PREFIX,
     LLMSkill,
@@ -80,6 +81,147 @@ def normalize_skill_file_path(value: str) -> str:
     # here, so storing them verbatim would make `references\guide.md` a single flat tree entry
     # rather than a file under `references/`, and would let the two spellings dodge dedup.
     return normalized
+
+
+# Stable codes for the reasons a skill cannot be packaged. The archive walks and the read-only
+# `spec_problems` API field both branch on them, so a code is part of the contract; the message is
+# for the author.
+SPEC_PROBLEM_NAME_MALFORMED = "name_malformed"
+SPEC_PROBLEM_DESCRIPTION_EMPTY = "description_empty"
+SPEC_PROBLEM_DESCRIPTION_TOO_LONG = "description_too_long"
+SPEC_PROBLEM_FILE_PATH_INVALID = "file_path_invalid"
+SPEC_PROBLEM_FILE_PATH_NOT_CANONICAL = "file_path_not_canonical"
+SPEC_PROBLEM_FILE_PATH_COLLIDES = "file_path_collides"
+SPEC_PROBLEM_FILE_PATH_SHADOWS_DIRECTORY = "file_path_shadows_directory"
+
+# Entries every packaged skill directory carries, generated from the skill row (see
+# marketplace.packaging.build_skill_tree). A bundled file only takes one of these paths back when it
+# spells it exactly, so the generated entry is replaced rather than duplicated.
+_GENERATED_SKILL_ENTRIES = ("SKILL.md", CODEX_METADATA_PATH)
+
+
+@frozen
+class SkillSpecProblem:
+    code: str
+    message: str
+    file_path: str | None = None
+
+
+def _name_problems(name: str) -> list[SkillSpecProblem]:
+    if skill_name_is_well_formed(name):
+        return []
+    return [
+        SkillSpecProblem(
+            code=SPEC_PROBLEM_NAME_MALFORMED,
+            message=(
+                f"'{name}' cannot be a skill directory name. Use up to {MAX_SKILL_NAME_LENGTH} lowercase letters, "
+                "numbers and hyphens, with no leading, trailing or consecutive hyphens."
+            ),
+        )
+    ]
+
+
+def _description_problems(description: str) -> list[SkillSpecProblem]:
+    problems: list[SkillSpecProblem] = []
+    if len(description) > SPEC_DESCRIPTION_MAX_LENGTH:
+        problems.append(
+            SkillSpecProblem(
+                code=SPEC_PROBLEM_DESCRIPTION_TOO_LONG,
+                message=(
+                    f"The description is {len(description)} characters. Shorten it to "
+                    f"{SPEC_DESCRIPTION_MAX_LENGTH} characters or fewer."
+                ),
+            )
+        )
+    if not description.strip():
+        problems.append(
+            SkillSpecProblem(
+                code=SPEC_PROBLEM_DESCRIPTION_EMPTY,
+                message="Add a description. It tells an agent what the skill does and when to use it.",
+            )
+        )
+    return problems
+
+
+def _shadowing_entry(path: str, claimed: dict[str, str]) -> str | None:
+    """The claimed entry that is a parent directory of ``path``, such as `assets` under `assets/logo.png`."""
+    parts = path.lower().split("/")
+    for depth in range(1, len(parts)):
+        parent = claimed.get("/".join(parts[:depth]))
+        if parent is not None:
+            return parent
+    return None
+
+
+def compute_file_path_problems(file_paths: list[str]) -> list[SkillSpecProblem]:
+    problems: list[SkillSpecProblem] = []
+    # Keyed by the lowercased entry name, valued by the spelling that claimed it, so a collision can
+    # name the entry it collides with. Seeded with the generated entries.
+    claimed: dict[str, str] = {entry.lower(): entry for entry in _GENERATED_SKILL_ENTRIES}
+    for path in file_paths:
+        try:
+            canonical = normalize_skill_file_path(path)
+        except ValueError as err:
+            problems.append(SkillSpecProblem(code=SPEC_PROBLEM_FILE_PATH_INVALID, message=str(err), file_path=path))
+            continue
+        if canonical != path:
+            # A legacy `refs\\guide.md` is archived verbatim, so it lands as one flat file instead of a
+            # file under `refs/`, or collides with `refs/guide.md`.
+            problems.append(
+                SkillSpecProblem(
+                    code=SPEC_PROBLEM_FILE_PATH_NOT_CANONICAL,
+                    message=f"Rename this file to '{canonical}'. The stored path does not unpack to that location.",
+                    file_path=path,
+                )
+            )
+            continue
+        lowered = path.lower()
+        # Only the exact sidecar path replaces the generated one; a case variant such as
+        # `Agents/OpenAI.yaml` keys a second entry and collides instead.
+        if lowered in claimed and path != CODEX_METADATA_PATH:
+            claimant = claimed[lowered]
+            if path == claimant:
+                # A zip can carry one member twice, and the backslash swap on import can collapse
+                # two members onto one path, so the pair is not always a case variant.
+                message = f"Remove this duplicate. Another file already uses the path '{claimant}'."
+            else:
+                message = (
+                    f"Rename this file. It differs from '{claimant}' only in letter case, so the two "
+                    "become one file on a case-insensitive filesystem."
+                )
+            problems.append(SkillSpecProblem(code=SPEC_PROBLEM_FILE_PATH_COLLIDES, message=message, file_path=path))
+            continue
+        claimed[lowered] = path
+    for path in claimed.values():
+        parent = _shadowing_entry(path, claimed)
+        if parent is None:
+            continue
+        # Either side of the pair can be a generated entry, which the author has no row for and
+        # cannot rename. Report the bundled side, because that is the only name they can change.
+        if parent in _GENERATED_SKILL_ENTRIES:
+            message = (
+                f"Move this file out of '{parent}/'. Every skill generates '{parent}', so it cannot "
+                "also be a directory."
+            )
+            culprit = path
+        else:
+            message = f"Rename '{parent}'. It is a file, so this skill cannot also hold '{path}' under it."
+            culprit = parent
+        problems.append(
+            SkillSpecProblem(code=SPEC_PROBLEM_FILE_PATH_SHADOWS_DIRECTORY, message=message, file_path=culprit)
+        )
+    return problems
+
+
+def compute_spec_problems(name: str, description: str, file_paths: list[str]) -> list[SkillSpecProblem]:
+    """Every reason a skill cannot be packaged. Empty means it packages cleanly.
+
+    One rule set for the three consumers: the skills bundle, the plugin marketplace, and the
+    read-only `spec_problems` field that tells the author why the skill is missing from both. A
+    skill with no problems here synthesizes an archive that unpacks on any filesystem, and a git
+    tree real git can clone.
+    """
+    return [*_name_problems(name), *_description_problems(description), *compute_file_path_problems(file_paths)]
 
 
 def check_allowed_tool_name(value: str) -> None:
@@ -197,6 +339,20 @@ def get_active_skill_queryset(team: Team) -> QuerySet[LLMSkill]:
 
 def get_latest_skills_queryset(team: Team) -> QuerySet[LLMSkill]:
     return get_active_skill_queryset(team).filter(is_latest=True)
+
+
+def team_skills_version(team: Team) -> str:
+    """Keep archived rows in the version so an archive does not expose an older timestamp.
+
+    This is a marketplace version, not a validator for the access-filtered list.
+    In-place writers must update updated_at because QuerySet.update() skips auto_now.
+    """
+    latest = LLMSkill.objects.filter(team=team).aggregate(latest=Max("updated_at"))["latest"]
+    if latest is None:
+        return "1.0.0"
+    elapsed = latest - datetime(1970, 1, 1, tzinfo=UTC)
+    epoch_microseconds = (elapsed.days * 86400 + elapsed.seconds) * 1_000_000 + elapsed.microseconds
+    return compute_plugin_version(epoch_microseconds)
 
 
 def get_skill_by_name_from_db(

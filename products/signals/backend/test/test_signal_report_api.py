@@ -2148,7 +2148,10 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                     content_type="application/json",
                 )
         assert response.status_code == status.HTTP_200_OK, response.json()
-        mock_task.delay.assert_called_once_with(report_id=str(report.id), team_id=self.team.id, reason="resolved")
+        # The caller rides along so the comment on the PR can name who resolved the report.
+        mock_task.delay.assert_called_once_with(
+            report_id=str(report.id), team_id=self.team.id, reason="resolved", actor_user_id=self.user.id
+        )
 
     def test_state_transition_response_includes_source_products(self):
         report = self._create_report()

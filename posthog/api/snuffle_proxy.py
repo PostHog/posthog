@@ -76,7 +76,7 @@ class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if not any(pattern.fullmatch(path) for pattern in self.allowed_paths):
             return _error_response(status.HTTP_404_NOT_FOUND, "not_found", f"unsupported endpoint: {path}")
 
-        base_url = settings.SNUFFLE_URL
+        base_url = settings.SNUFFLE_APM_URL
         if not base_url:
             return _error_response(
                 status.HTTP_501_NOT_IMPLEMENTED, "unavailable", "PromQL/LogQL query API is not configured"
@@ -88,7 +88,7 @@ class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         params = _forwardable(request.query_params)
         headers = {TEAM_ID_HEADER: str(team_id), "Accept": request.headers.get("Accept", "application/json")}
         body = _forwardable(request.data) if method == "POST" and isinstance(request.data, QueryDict) else None
-        auth = (settings.SNUFFLE_USER, settings.SNUFFLE_PASSWORD) if settings.SNUFFLE_USER else None
+        auth = (settings.SNUFFLE_APM_USER, settings.SNUFFLE_APM_PASSWORD) if settings.SNUFFLE_APM_USER else None
 
         try:
             upstream = internal_requests.request(
@@ -98,7 +98,7 @@ class SnuffleProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 data=body,
                 headers=headers,
                 auth=auth,
-                timeout=settings.SNUFFLE_TIMEOUT_SECONDS,
+                timeout=settings.SNUFFLE_APM_TIMEOUT_SECONDS,
             )
         except requests.Timeout:
             logger.warning("snuffle_proxy_timeout", team_id=team_id, path=path)

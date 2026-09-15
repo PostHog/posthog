@@ -2767,10 +2767,36 @@ class TestSavedQueryStateComesFromTheServingRun(APIBaseTest):
 
         self.assertEqual(self._detail(view)["status"], "Completed")
 
-    def test_modified_survives_when_the_view_has_never_run(self):
+    def test_modified_survives_when_the_view_has_never_run(self) -> None:
         view = self._view("never_ran", status=DataWarehouseSavedQuery.Status.MODIFIED)
 
         self.assertEqual(self._detail(view)["status"], "Modified")
+
+    def test_cancelled_survives_when_the_view_has_never_run(self) -> None:
+        view = self._view("cancelled_never_ran", status=DataWarehouseSavedQuery.Status.CANCELLED)
+
+        self.assertEqual(self._detail(view)["status"], "Cancelled")
+
+    @parameterized.expand(
+        [
+            (DataWarehouseSavedQuery.Status.FAILED,),
+            (DataWarehouseSavedQuery.Status.RUNNING,),
+            (DataWarehouseSavedQuery.Status.COMPLETED,),
+        ]
+    )
+    def test_a_run_state_no_code_path_writes_any_more_is_not_reported(self, frozen_status: str) -> None:
+        view = self._view(
+            f"frozen_{frozen_status}",
+            status=frozen_status,
+            latest_error="Table reference no longer exists for model.",
+            last_run_at=timezone.now() - timedelta(days=90),
+        )
+
+        body = self._detail(view)
+
+        self.assertIsNone(body["status"])
+        self.assertIsNone(body["latest_error"])
+        self.assertIsNone(body["last_run_at"])
 
     def test_the_list_route_agrees_with_the_detail_route(self):
         # the two read through different halves of _serving_run: prefetch on list, lookup on detail

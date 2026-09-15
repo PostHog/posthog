@@ -213,11 +213,6 @@ devbox:
     devbox:sync:
         click: hogli_commands.devbox.sync:cmd_sync
         description: Mirror your local PostHog checkout to a devbox
-    devbox:task:
-        click: hogli_commands.devbox.cli:devbox_task
-        description: Run a background agent task on a fresh devbox
-        # exec-replaces the process (os.execvp): completed events can't fire
-        untracked: true
     devbox:secret:list:
         click: hogli_commands.devbox.cli:devbox_secret_list
         description: List your Coder user secrets

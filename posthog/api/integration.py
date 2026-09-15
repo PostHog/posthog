@@ -211,6 +211,7 @@ def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, 
     )
     try:
         # 300s tolerance matches the Stripe provisioning HMAC check at ee/partners/stripe/api/provisioning/signature.py.
+        # nosemgrep: inbound-webhooks-go-through-ingress -- this signs a marketplace install redirect, not a webhook delivery, so there is nothing for the dispatcher to fan out
         stripe.WebhookSignature.verify_header(payload, install_signature, settings.STRIPE_SIGNING_SECRET, tolerance=300)
         return True
     except stripe.SignatureVerificationError:
