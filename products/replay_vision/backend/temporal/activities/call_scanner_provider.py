@@ -36,9 +36,14 @@ from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
+from products.replay_vision.backend.models.replay_scanner import ScannerModel
 from products.replay_vision.backend.tags import slugify_tag
 from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
-from products.replay_vision.backend.temporal.conversation import function_calls, run_tool_loop
+from products.replay_vision.backend.temporal.conversation import (
+    DEFAULT_MAX_TOOL_ITERATIONS,
+    function_calls,
+    run_tool_loop,
+)
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import ConsentWithdrawnError, FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.events_tool import build_events_index, dispatch_events_tool, events_tool
@@ -79,6 +84,18 @@ _MAX_LLM_ATTEMPTS = 2  # one initial call + one re-prompt with the validation er
 # One clean re-ask after a validation failure. The per-step re-prompt above retries inside the same conversation,
 # where the model stays anchored on the answer it just got wrong; a fresh conversation is an independent draw.
 _MAX_MISSION_ATTEMPTS = 2
+
+# Event lookups a step may spend before the forced tool-free answer. Gemini 3.8 Flash follows "look it up"
+# far more eagerly than earlier Flash models, and each extra round-trip appends an uncached tool response and
+# another reasoning pass, so its scans cost more at the same list price. Cap it lower than the loop default.
+_MAX_TOOL_ITERATIONS_BY_MODEL: dict[str, int] = {ScannerModel.GEMINI_3_8_FLASH: 3}
+
+
+def _tool_budget(model: str) -> int:
+    """Event lookups per step for `model`, accepting either the bare id or the `models/` form the API takes."""
+    return _MAX_TOOL_ITERATIONS_BY_MODEL.get(model.removeprefix("models/"), DEFAULT_MAX_TOOL_ITERATIONS)
+
+
 # Snapshot `verify_positives` values that draw; anything else (including a typo) behaves as `off`.
 _VERIFY_MODES = ("shadow", "enforce")
 # Activity time kept free of verify draws, so assembling and returning the result never races the timeout.
@@ -193,6 +210,7 @@ async def run_scan(
         events_truncated=llm_inputs.events_truncated,
         product_context=llm_inputs.product_context,
         event_descriptions=llm_inputs.event_descriptions,
+        tool_budget=_tool_budget(snapshot.model),
     )
     video_part = types.Part(file_data=types.FileData(file_uri=file_uri, mime_type=mime_type))
 
@@ -701,7 +719,9 @@ async def _run_step(
     for attempt in range(_MAX_LLM_ATTEMPTS):
         started = time.monotonic()
         try:
-            response = await run_tool_loop(generate=_generate, convo=convo, dispatch=dispatch)
+            response = await run_tool_loop(
+                generate=_generate, convo=convo, dispatch=dispatch, max_tool_iterations=_tool_budget(model)
+            )
             if function_calls(response):
                 # Tool budget spent and the model still wants a lookup. Rather than hard-fail, complete the
                 # round-trip and force one final tool-free turn so it answers from what it has already seen.

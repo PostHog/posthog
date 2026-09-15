@@ -677,6 +677,9 @@ export const ExecuteSQLSchema = z.object({
 
 const MAX_EVENTS_PAGE_SIZE = 500
 
+const ENTITY_FIELD_DESCRIPTION =
+    'The entity to read: `person`, `session` for the columns of the `sessions` table, or a group type name. The plural form of any of these is accepted too.'
+
 // Every read below is strict so a field it does not have is named back to the caller. Left
 // open, an ignored `search` or `property_name` returns a confident answer to a different
 // question than the one asked.
@@ -705,7 +708,7 @@ const ReadEventPropertiesQuerySchema = z
 const ReadEntityPropertiesQuerySchema = z
     .object({
         kind: z.literal('entity_properties'),
-        entity: z.string().describe('The type of the entity that you want to retrieve properties for.'),
+        entity: z.string().describe(ENTITY_FIELD_DESCRIPTION),
     })
     .strict()
 
@@ -719,7 +722,7 @@ const ReadActionPropertiesQuerySchema = z
 const ReadEntitySamplePropertyValuesQuerySchema = z
     .object({
         kind: z.literal('entity_property_values'),
-        entity: z.string().describe('The type of the entity that you want to retrieve properties for.'),
+        entity: z.string().describe(ENTITY_FIELD_DESCRIPTION),
         property_name: z.string().describe('Verified property name of an entity.'),
     })
     .strict()

@@ -11,11 +11,17 @@ from products.growth.backend.temporal.signup_enrichment.reenrichment import (
     select_reenrichment_candidates_activity,
 )
 from products.growth.backend.temporal.signup_enrichment.workflow import (
+    SignupEnrichmentRecheckWorkflow,
     SignupEnrichmentWorkflow,
     enrich_signup_organization_activity,
 )
 
-WORKFLOWS = [SignupEnrichmentWorkflow, IcpReenrichmentSweepWorkflow, HarmonicEnrichmentStatusPollWorkflow]
+WORKFLOWS = [
+    SignupEnrichmentWorkflow,
+    SignupEnrichmentRecheckWorkflow,
+    IcpReenrichmentSweepWorkflow,
+    HarmonicEnrichmentStatusPollWorkflow,
+]
 
 ACTIVITIES = [
     enrich_signup_organization_activity,

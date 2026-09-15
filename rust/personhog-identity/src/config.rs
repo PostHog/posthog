@@ -103,6 +103,14 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub leader_request_timeout_ms: u64,
 
+    /// etcd endpoints, comma separated. The delete saga groups its fence
+    /// calls by leader partition, and the partition count lives in etcd.
+    #[envconfig(default = "http://localhost:2379")]
+    pub etcd_endpoints: String,
+
+    #[envconfig(default = "/personhog/")]
+    pub etcd_prefix: String,
+
     /// Interval between HTTP/2 keepalive pings sent by the gRPC server (0 = disabled)
     #[envconfig(default = "30")]
     pub grpc_keepalive_interval_secs: u64,
@@ -273,6 +281,14 @@ impl Config {
 
     pub fn leader_request_timeout(&self) -> Duration {
         Duration::from_millis(self.leader_request_timeout_ms)
+    }
+
+    pub fn etcd_endpoint_list(&self) -> Vec<String> {
+        self.etcd_endpoints
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
     }
 
     pub fn grpc_keepalive_interval(&self) -> Option<Duration> {

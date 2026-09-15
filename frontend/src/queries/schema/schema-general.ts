@@ -3246,9 +3246,11 @@ export type WebAnalyticsPropertyFilter =
     | CohortPropertyFilter
 export type WebAnalyticsPropertyFilters = WebAnalyticsPropertyFilter[]
 export type ActionConversionGoal = {
+    properties?: WebAnalyticsPropertyFilters
     actionId: integer
 }
 export type CustomEventConversionGoal = {
+    properties?: WebAnalyticsPropertyFilters
     customEventName: string
 }
 export type WebAnalyticsConversionGoal = ActionConversionGoal | CustomEventConversionGoal
@@ -3873,6 +3875,7 @@ export enum WebStatsBreakdown {
     FrustrationMetrics = 'FrustrationMetrics',
 }
 export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQueryResponse> {
+    includeTrafficMetrics?: boolean
     kind: NodeKind.WebStatsTableQuery
     breakdownBy: WebStatsBreakdown
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
@@ -9597,6 +9600,7 @@ export const externalDataSources = [
     'Skio',
     'Smartlead',
     'Substack',
+    'ElectricityMaps',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -9849,6 +9853,11 @@ export enum SubscriptionFreeTierLimit {
 /** Maximum length, in characters, of an AI subscription prompt. */
 export enum SubscriptionAIPromptMaxLength {
     CHARACTERS = 4000,
+}
+
+/** Maximum number of dashboards and insights an AI subscription may use as context. */
+export enum SubscriptionAIContextLimit {
+    COUNT = 3,
 }
 
 export type UsageMetricFormat = 'numeric' | 'currency'
