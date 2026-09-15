@@ -23,7 +23,13 @@ import { useRepositoryIntegration } from "@posthog/ui/features/integrations/useI
 import { toast } from "@posthog/ui/primitives/toast";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
-import { type ReactElement, useCallback, useMemo } from "react";
+import {
+  type ReactElement,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+} from "react";
 import { GithubConnectionRequiredDialog } from "./GithubConnectionRequiredDialog";
 
 interface GithubConnectionRequiredRecoveryProps {
@@ -79,12 +85,25 @@ export function GithubConnectionRequiredRecovery({
     }
   }, [onOpenChange, sessionService, task]);
 
+  // The GitHub callback reaches every mounted recovery, not only the one that
+  // started the flow, so a single connection would resume every blocked task
+  // on screen. Retry the task whose dialog the user actually used.
+  const connectStartedRef = useRef(false);
+
   const { error, isConnecting, isTimedOut, hasError, isPending, connect } =
     useGithubConnect({
       projectId,
       projectHasTeamIntegration: hasGithubIntegration,
-      onConnected: () => void retryInvestigation(),
+      onConnected: () => {
+        if (!connectStartedRef.current) return;
+        connectStartedRef.current = false;
+        void retryInvestigation();
+      },
     });
+
+  useEffect(() => {
+    if (hasError || isTimedOut) connectStartedRef.current = false;
+  }, [hasError, isTimedOut]);
 
   const runLocally = useCallback(() => {
     if (!localFolder) return;
@@ -125,6 +144,7 @@ export function GithubConnectionRequiredRecovery({
       onOpenChange={onOpenChange}
       onConnect={() => {
         if (projectId == null || cloudRegion == null) return;
+        connectStartedRef.current = true;
         void connect();
       }}
       onRunLocally={runLocally}
