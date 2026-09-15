@@ -33,8 +33,17 @@ logger = get_write_only_logger()
 # expected control flow, not a defect.
 # "AIFeaturesCloudOnly" is raised by the AI observability guard on non-cloud deployments (see
 # posthog/temporal/ai_observability/llm_endpoint.py). It reflects the deployment, not a defect.
+# "ScannerAdmissionBusy" is the replay vision admission lock timing out on a contended scanner row
+# (see products/replay_vision/backend/temporal/errors.py). The timeout is deliberate, the scan goes
+# through on the activity retry, and record_scanner_admission_busy already counts the contention.
 EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset(
-    {"trace_not_settled", "TransientRepartitionError", "EmbeddingServiceUnavailable", "AIFeaturesCloudOnly"}
+    {
+        "trace_not_settled",
+        "TransientRepartitionError",
+        "EmbeddingServiceUnavailable",
+        "AIFeaturesCloudOnly",
+        "ScannerAdmissionBusy",
+    }
 )
 
 
