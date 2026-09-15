@@ -139,6 +139,7 @@ impl storage::DistinctIdLookup for FailingStorage {
         _person_id: i64,
         _consistency: storage::postgres::ConsistencyLevel,
         _limit: Option<i64>,
+        _cursor_id: Option<i64>,
     ) -> storage::StorageResult<Vec<storage::DistinctIdWithVersion>> {
         Err(self.error.clone())
     }
@@ -513,6 +514,7 @@ impl storage::DistinctIdLookup for SuccessStorage {
         _person_id: i64,
         _consistency: storage::postgres::ConsistencyLevel,
         _limit: Option<i64>,
+        _cursor_id: Option<i64>,
     ) -> storage::StorageResult<Vec<storage::DistinctIdWithVersion>> {
         Ok(Vec::new())
     }
@@ -946,6 +948,7 @@ impl storage::DistinctIdLookup for PopulatedStorage {
         _person_id: i64,
         _consistency: storage::postgres::ConsistencyLevel,
         _limit: Option<i64>,
+        _cursor_id: Option<i64>,
     ) -> storage::StorageResult<Vec<storage::DistinctIdWithVersion>> {
         Ok(Vec::new())
     }
@@ -1355,6 +1358,7 @@ impl storage::DistinctIdLookup for ConsistencyTrackingStorage {
         _person_id: i64,
         consistency: storage::postgres::ConsistencyLevel,
         _limit: Option<i64>,
+        _cursor_id: Option<i64>,
     ) -> storage::StorageResult<Vec<storage::DistinctIdWithVersion>> {
         self.record(consistency);
         Ok(Vec::new())

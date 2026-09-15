@@ -126,7 +126,13 @@ async fn test_get_distinct_ids_for_person() {
 
     let result = ctx
         .storage
-        .get_distinct_ids_for_person(ctx.team_id, person.id, ConsistencyLevel::Eventual, None)
+        .get_distinct_ids_for_person(
+            ctx.team_id,
+            person.id,
+            ConsistencyLevel::Eventual,
+            None,
+            None,
+        )
         .await
         .expect("Failed to get distinct IDs");
 
@@ -2853,6 +2859,76 @@ async fn test_set_person_version_floor_missing_person() {
         .await
         .unwrap();
     assert!(!updated);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_get_distinct_ids_for_person_paginated() {
+    let ctx = TestContext::new().await;
+    let person = ctx
+        .insert_person("page_did_0", None)
+        .await
+        .expect("insert person");
+
+    for i in 1..5 {
+        ctx.add_distinct_id_to_person(person.id, &format!("page_did_{i}"))
+            .await
+            .expect("add distinct id");
+    }
+
+    let page1 = ctx
+        .storage
+        .get_distinct_ids_for_person(
+            ctx.team_id,
+            person.id,
+            ConsistencyLevel::Eventual,
+            Some(2),
+            None,
+        )
+        .await
+        .expect("page 1");
+    assert_eq!(page1.len(), 2);
+
+    let cursor = page1.last().unwrap().id;
+    let page2 = ctx
+        .storage
+        .get_distinct_ids_for_person(
+            ctx.team_id,
+            person.id,
+            ConsistencyLevel::Eventual,
+            Some(2),
+            Some(cursor),
+        )
+        .await
+        .expect("page 2");
+    assert_eq!(page2.len(), 2);
+    assert!(page2[0].id > cursor);
+
+    let cursor2 = page2.last().unwrap().id;
+    let page3 = ctx
+        .storage
+        .get_distinct_ids_for_person(
+            ctx.team_id,
+            person.id,
+            ConsistencyLevel::Eventual,
+            Some(2),
+            Some(cursor2),
+        )
+        .await
+        .expect("page 3");
+    assert_eq!(page3.len(), 1);
+
+    let mut all_dids: Vec<String> = page1
+        .iter()
+        .chain(page2.iter())
+        .chain(page3.iter())
+        .map(|d| d.distinct_id.clone())
+        .collect();
+    all_dids.sort();
+    let mut expected: Vec<String> = (0..5).map(|i| format!("page_did_{i}")).collect();
+    expected.sort();
+    assert_eq!(all_dids, expected);
 
     ctx.cleanup().await.ok();
 }
