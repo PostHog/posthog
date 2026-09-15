@@ -25,6 +25,8 @@ import posthoganalytics
 
 from posthog.comment.formatting import (
     extract_slack_user_ids,
+    slack_blocks_have_text,
+    slack_blocks_to_text,
     slack_to_content_and_rich_content,
     strip_slack_user_mentions,
 )
@@ -695,7 +697,7 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
     files = event.get("files")  # Slack file attachments (images, etc.)
 
     # Require either text or files
-    if not slack_user_id or (not text.strip() and not files):
+    if not slack_user_id or (not text.strip() and not files and not slack_blocks_have_text(blocks)):
         return
 
     settings_dict = team.conversations_settings or {}
@@ -795,12 +797,16 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
 _EMOJI_SHORTCODE_RE = re.compile(r":[a-z0-9_'+-]+:")
 
 
-def _is_trivial_message(text: str, files: list[dict] | None) -> bool:
+def _is_trivial_message(text: str, files: list[dict] | None, blocks: list[dict] | None = None) -> bool:
     """Too trivial to nudge: emoji-only or 3 words or fewer. Messages with files
-    (e.g. screenshots) are never trivial."""
+    (e.g. screenshots) are never trivial.
+
+    Slack leaves `text` empty when a message carries its body in blocks, so weigh the blocks
+    instead of reading that message as wordless."""
     if files:
         return False
-    stripped = _EMOJI_SHORTCODE_RE.sub(" ", text or "")
+    body = text if text and text.strip() else slack_blocks_to_text(blocks)
+    stripped = _EMOJI_SHORTCODE_RE.sub(" ", body)
     words = [w for w in stripped.split() if re.search(r"[A-Za-z0-9]", w)]
     return len(words) <= NUDGE_TRIVIAL_MAX_WORDS
 
@@ -976,7 +982,7 @@ def _should_send_nudge(
     team_id = _get_team_id(team)
 
     # Cheapest checks first — no Slack API.
-    if _is_trivial_message(text, files):
+    if _is_trivial_message(text, files, blocks):
         return NudgeDecision(send=False, classifier_verdict="skipped")
     if is_nudge_suppressed(team_id, channel, slack_user_id):
         return NudgeDecision(send=False, classifier_verdict="skipped")
@@ -1177,7 +1183,11 @@ def create_ticket_from_confirmation(
     original_text = original_msg.get("text", "")
 
     # Require an author and either text or files
-    if not original_msg.get("user") or (not original_text.strip() and not original_msg.get("files")):
+    if not original_msg.get("user") or (
+        not original_text.strip()
+        and not original_msg.get("files")
+        and not slack_blocks_have_text(original_msg.get("blocks"))
+    ):
         return None
 
     ticket = _create_ticket_and_backfill(
@@ -1255,7 +1265,9 @@ def handle_support_mention(event: dict, team: Team, slack_team_id: str) -> None:
         if messages:
             parent_msg = messages[0]
             parent_text = parent_msg.get("text", "")
-            if parent_msg.get("user") and (parent_text.strip() or parent_msg.get("files")):
+            if parent_msg.get("user") and (
+                parent_text.strip() or parent_msg.get("files") or slack_blocks_have_text(parent_msg.get("blocks"))
+            ):
                 _create_ticket_and_backfill(
                     client=client,
                     team=team,
@@ -1269,7 +1281,11 @@ def handle_support_mention(event: dict, team: Team, slack_team_id: str) -> None:
 
     # A bare "@supporthog" (mention only, no message or files) must not create an empty
     # ticket. The parent-seeding branch above already handled thread-escalation mentions.
-    if not strip_slack_user_mentions(text).strip() and not files:
+    if (
+        not strip_slack_user_mentions(text).strip()
+        and not files
+        and not slack_blocks_have_text(blocks, ignore_mentions=True)
+    ):
         logger.info(
             "slack_support_mention_empty_skipped",
             team_id=_get_team_id(team),
@@ -1406,7 +1422,7 @@ def _backfill_thread_replies(
         reply_blocks = reply.get("blocks")
         reply_files = reply.get("files")
 
-        if not reply_text.strip() and not reply_files:
+        if not reply_text.strip() and not reply_files and not slack_blocks_have_text(reply_blocks):
             continue
 
         attachments = split_slack_attachments(extract_slack_files(reply_files, team, client))
@@ -1582,9 +1598,10 @@ def handle_support_reaction(event: dict, team: Team, slack_team_id: str) -> None
 
     reacted_text = reacted_msg.get("text", "")
     reacted_files = reacted_msg.get("files")
+    reacted_blocks = reacted_msg.get("blocks")
 
     # Require either text or files
-    if not reacted_text.strip() and not reacted_files:
+    if not reacted_text.strip() and not reacted_files and not slack_blocks_have_text(reacted_blocks):
         return
 
     # Only backfill replies posted after the reacted message; earlier thread history is

@@ -20,6 +20,7 @@ from products.conversations.backend.slack import (
     TICKET_CONFIRM_ACTION_DISMISS,
     TICKET_CONFIRM_ACTION_OPEN,
     SlackConfirmationNeedsRetry,
+    _is_trivial_message,
     create_ticket_from_confirmation,
     handle_member_joined_channel,
     handle_member_left_channel,
@@ -36,6 +37,19 @@ TASKS_MODULE = "products.conversations.backend.tasks.slack"
 MESSAGE_TS = "1700000000.000100"
 MESSAGE_SENT_AT = datetime(2023, 11, 14, 22, 13, 20, 100, tzinfo=UTC)
 USE_TEAMMATE_EMAIL = "use-the-org-members-own-email"
+_BLOCK_KIT_BODY = [{"type": "section", "text": {"type": "mrkdwn", "text": "The whole message body"}}]
+_TEXTLESS_BLOCKS = [{"type": "divider"}]
+_MENTION_ONLY_BLOCK = [{"type": "section", "text": {"type": "mrkdwn", "text": "<@U123ABC>"}}]
+
+
+def _rich_text_blocks(*elements: dict) -> list[dict]:
+    return [{"type": "rich_text", "elements": [{"type": "rich_text_section", "elements": list(elements)}]}]
+
+
+_BARE_MENTION_BLOCKS = _rich_text_blocks({"type": "user", "user_id": "U0BOT001"})
+_MENTION_WITH_TEXT_BLOCKS = _rich_text_blocks(
+    {"type": "user", "user_id": "U0BOT001"}, {"type": "text", "text": " help me"}
+)
 
 
 class TestSlackMessageRouting(BaseTest):
@@ -132,15 +146,21 @@ class TestSlackMessageRouting(BaseTest):
 
     @parameterized.expand(
         [
-            ("bare_mention", "<@U0BOT001>", None, False),
-            ("mention_with_whitespace", "<@U0BOT001>   ", None, False),
-            ("mention_with_only_other_mentions", "<@U0BOT001> <@U0USER99>", None, False),
-            ("mention_with_text", "<@U0BOT001> help me", None, True),
-            ("bare_mention_with_files", "<@U0BOT001>", [{"url_private": "https://x/y.png"}], True),
+            ("bare_mention", "<@U0BOT001>", None, None, False),
+            ("mention_with_whitespace", "<@U0BOT001>   ", None, None, False),
+            ("mention_with_only_other_mentions", "<@U0BOT001> <@U0USER99>", None, None, False),
+            ("mention_with_text", "<@U0BOT001> help me", None, None, True),
+            ("bare_mention_with_files", "<@U0BOT001>", [{"url_private": "https://x/y.png"}], None, True),
+            # Slack sends rich_text blocks alongside the text, and a mention renders there as
+            # its raw token. Only the words around it decide whether there is a message.
+            ("bare_mention_with_blocks", "<@U0BOT001>", None, _BARE_MENTION_BLOCKS, False),
+            ("mention_body_in_blocks", "<@U0BOT001>", None, _MENTION_WITH_TEXT_BLOCKS, True),
         ]
     )
     @patch(f"{MODULE}.create_or_update_slack_ticket")
-    def test_empty_mention_does_not_create_ticket(self, _name, text, files, should_create, mock_create_or_update):
+    def test_empty_mention_does_not_create_ticket(
+        self, _name, text, files, blocks, should_create, mock_create_or_update
+    ):
         handle_support_mention(
             {
                 "type": "app_mention",
@@ -149,6 +169,39 @@ class TestSlackMessageRouting(BaseTest):
                 "user": "U123",
                 "text": text,
                 "files": files,
+                "blocks": blocks,
+            },
+            self.team,
+            "T123",
+        )
+
+        assert mock_create_or_update.called is should_create
+
+    @parameterized.expand(
+        [
+            ("no_text_and_no_blocks", "", None, False),
+            ("no_text_but_block_kit_body", "", _BLOCK_KIT_BODY, True),
+            ("no_text_and_textless_blocks", "", _TEXTLESS_BLOCKS, False),
+            # The guard runs before display names resolve, so a mention-only block must not
+            # read as empty just because nothing has looked the user up yet.
+            ("no_text_but_mention_only_block", "", _MENTION_ONLY_BLOCK, True),
+        ]
+    )
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_blocks_decide_ingestion_when_slack_sends_no_text(
+        self, _name, text, blocks, should_create, mock_create_or_update, _mock_get_client
+    ):
+        # Slack makes `text` optional once a message carries blocks, so an app can post a
+        # whole message body with an empty `text` field.
+        handle_support_message(
+            {
+                "type": "message",
+                "channel": "C_CONFIG",
+                "ts": "1700000000.000100",
+                "user": "U123",
+                "text": text,
+                "blocks": blocks,
             },
             self.team,
             "T123",
@@ -682,6 +735,19 @@ class TestSlackNudge(BaseTest):
         mock_get_client.return_value.chat_postMessage.assert_not_called()
         mock_create_or_update.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("emoji_only_text", "thanks :+1:", None, True),
+            ("substantive_text", "our API started returning errors today", None, False),
+            ("empty_text_with_block_kit_body", "", _BLOCK_KIT_BODY, False),
+            ("empty_text_with_textless_blocks", "", _TEXTLESS_BLOCKS, True),
+        ]
+    )
+    def test_block_body_counts_toward_triviality(self, _name, text, blocks, expected_trivial):
+        # Slack leaves `text` empty when the body is in blocks. Reading that as wordless made
+        # the nudge skip the message, so it was never offered as a ticket at all.
+        assert _is_trivial_message(text, None, blocks) is expected_trivial
+
     @patch(f"{MODULE}.get_slack_client")
     @patch(f"{MODULE}.create_or_update_slack_ticket")
     def test_trivial_message_skips_prompt(self, mock_create_or_update, mock_get_client):
@@ -913,6 +979,29 @@ class TestSlackNudge(BaseTest):
         assert kwargs["channel_detail"] == ChannelDetail.SLACK_CHANNEL_MESSAGE
         mock_backfill.assert_called_once()
 
+    @patch(f"{MODULE}._backfill_thread_replies")
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_create_ticket_from_confirmation_seeds_from_a_blocks_only_message(
+        self, mock_create_or_update, mock_get_client, _mock_backfill
+    ):
+        # Ingestion offers the prompt for a message whose body is entirely in its blocks, so
+        # refusing it here would answer the click with "Couldn't open a ticket".
+        mock_get_client.return_value.conversations_history.return_value = {
+            "messages": [{"user": "U_OP", "text": "", "blocks": _BLOCK_KIT_BODY, "ts": "1700000000.000100"}]
+        }
+        mock_create_or_update.return_value = object()
+
+        create_ticket_from_confirmation(
+            team=self.team,
+            slack_team_id="T123",
+            slack_channel_id="C_OTHER",
+            message_ts="1700000000.000100",
+        )
+
+        mock_create_or_update.assert_called_once()
+        assert mock_create_or_update.call_args.kwargs["blocks"] == _BLOCK_KIT_BODY
+
     @parameterized.expand(
         [
             (
@@ -925,6 +1014,10 @@ class TestSlackNudge(BaseTest):
             ),
             ("empty_history", {"messages": []}),
             ("empty_content", {"messages": [{"user": "U_OP", "text": "   ", "ts": "1700000000.000100"}]}),
+            (
+                "textless_blocks",
+                {"messages": [{"user": "U_OP", "text": "", "blocks": _TEXTLESS_BLOCKS, "ts": "1700000000.000100"}]},
+            ),
         ]
     )
     @patch(f"{MODULE}.get_slack_client")
