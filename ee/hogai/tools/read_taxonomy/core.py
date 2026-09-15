@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 from posthog.event_usage import EventSource
 from posthog.models import Team, User
+from posthog.taxonomy.dynamic_properties import PropertyScope, dynamic_property_patterns, format_dynamic_property_lines
 
 from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit
 from ee.hogai.chat_agent.taxonomy.entities import resolve_entity_name
@@ -85,20 +86,25 @@ class ReadTaxonomyToolArgs(BaseModel):
     query: ReadTaxonomyQuery = Field(..., discriminator="kind")
 
 
-DYNAMIC_PERSON_PROPERTIES_HINT = """
-NOTE: Some person properties follow dynamic naming patterns and will NOT appear in the list above.
-If the user's question involves surveys, feature flags, early access features, or product tours, construct the property name using these patterns:
-- $survey_dismissed/{survey_id}, $survey_responded/{survey_id} — Boolean, survey dismiss/response tracking
-- $feature_enrollment/{flag_key} — Boolean, early access feature enrollment
-- $feature_interaction/{feature_key} — Boolean, feature interaction tracking
-- $product_tour_dismissed/{tour_id}, $product_tour_shown/{tour_id}, $product_tour_completed/{tour_id} — Boolean, product tour lifecycle
-""".strip()
+def _dynamic_properties_hint(scope: PropertyScope) -> str:
+    """List the dynamic property names of one scope, so the agent can build one it cannot look up.
 
-DYNAMIC_EVENT_PROPERTIES_HINT = """
-NOTE: Some event properties follow dynamic naming patterns and will NOT appear in the list above.
-If the user's question involves feature flags, construct the property name using this pattern:
-- $feature/{flag_key} — the feature flag value for a specific flag
-""".strip()
+    Generated from `DYNAMIC_PROPERTY_PATTERNS` rather than written out, because the HogQL taxonomy
+    check reads the same list. A name documented here but missing there gets reported back to the
+    caller as unknown, which reads as a broken taxonomy.
+    """
+    return "\n".join(
+        [
+            f"NOTE: Some {scope} properties follow dynamic naming patterns and will NOT appear in the list above.",
+            "Each name below ends in an id or a key, so construct it yourself when the user's question needs it:",
+            format_dynamic_property_lines(dynamic_property_patterns(scope)),
+        ]
+    )
+
+
+DYNAMIC_PERSON_PROPERTIES_HINT = _dynamic_properties_hint("person")
+
+DYNAMIC_EVENT_PROPERTIES_HINT = _dynamic_properties_hint("event")
 
 
 def execute_taxonomy_query(

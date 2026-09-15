@@ -15,6 +15,7 @@ from posthog.hogql.escape_sql import escape_hogql_identifier, escape_hogql_strin
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models import EventDefinition, PropertyDefinition, Team
+from posthog.taxonomy.dynamic_properties import is_dynamic_property
 
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
@@ -41,15 +42,6 @@ TRIGRAM_SIMILARITY_THRESHOLD = 0.3
 # pg_trgm compares every name in it, and a caller controls how many unknown names one query carries.
 # Names past this cap still warn, only without "Did you mean".
 MAX_SUGGESTED_NAMES = 5
-
-# Property names that are legitimately dynamic — they encode an id/key after the prefix, so they will
-# never appear in PropertyDefinition and must not be flagged as unknown.
-DYNAMIC_PROPERTY_PREFIXES = (
-    "$feature/",
-    "$feature_enrollment/",
-    "$survey_responded/",
-    "$survey_dismissed/",
-)
 
 
 @dataclass(frozen=True)
@@ -141,7 +133,7 @@ def validate_taxonomy_references(
 
         if visitor.property_names:
             property_references = [
-                reference for reference in visitor.property_names if not _is_dynamic_property(reference.name)
+                reference for reference in visitor.property_names if not is_dynamic_property(reference.name)
             ]
             if property_references:
                 warnings.extend(
@@ -166,10 +158,6 @@ def _is_event_field(node: ast.Expr) -> bool:
 
 def _is_properties_field(node: ast.Expr) -> bool:
     return isinstance(node, ast.Field) and len(node.chain) == 1 and node.chain[0] == "properties"
-
-
-def _is_dynamic_property(name: str) -> bool:
-    return any(name.startswith(prefix) for prefix in DYNAMIC_PROPERTY_PREFIXES)
 
 
 def _event_literal_from_equality(field_node: ast.Expr, value_node: ast.Expr) -> TaxonomyReference | None:
