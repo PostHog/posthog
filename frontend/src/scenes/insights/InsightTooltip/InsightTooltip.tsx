@@ -11,7 +11,7 @@ import { dayjs } from 'lib/dayjs'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { shortTimeZone } from 'lib/utils/timezones'
-import { formatAggregationValue } from 'scenes/insights/utils'
+import { formatAggregationValue, getNullBreakdownNotes } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { FormatPropertyValueForDisplayFunction, propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -167,6 +167,22 @@ export function InsightTooltip({
         ? getTooltipTitle(seriesData, altRightTitle, formattedDate)
         : null
 
+    // Rows of a multiple breakdown can each lack a different property, so every explanation is shown.
+    const nullBreakdownExplanations = Array.from(
+        new Set(
+            seriesData
+                ?.map((s) => getNullBreakdownNotes(s.breakdown_value, breakdownFilter)?.explanation)
+                .filter((explanation): explanation is string => !!explanation)
+        )
+    )
+    const nullBreakdownFootnote = nullBreakdownExplanations.length ? (
+        <div className="table-subtext">
+            {nullBreakdownExplanations.map((explanation) => (
+                <div key={explanation}>{explanation}</div>
+            ))}
+        </div>
+    ) : null
+
     if (itemizeEntitiesAsColumns) {
         hideColorCol = true
         const dataSource = invertDataSource(seriesData, breakdownFilter, formatCompareLabel)
@@ -293,6 +309,7 @@ export function InsightTooltip({
                         }
                     />
                 </div>
+                {nullBreakdownFootnote}
                 {!hideInspectActorsSection && (
                     <ClickToInspectActors
                         inspectLabel={inspectLabel ?? defaultInspectLabel}
@@ -378,6 +395,7 @@ export function InsightTooltip({
                     }
                 />
             </div>
+            {nullBreakdownFootnote}
             {!hideInspectActorsSection && (
                 <ClickToInspectActors
                     inspectLabel={inspectLabel ?? defaultInspectLabel}

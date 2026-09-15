@@ -2,13 +2,14 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils/objects'
 import { pluralize } from 'lib/utils/strings'
-import { BREAKDOWN_BASELINE_STRING_LABEL } from 'scenes/insights/utils'
+import { BREAKDOWN_BASELINE_STRING_LABEL, getNullBreakdownNotes } from 'scenes/insights/utils'
 
 import {
     BreakdownItem,
     FunnelsActorsQuery,
     InsightActorsQuery,
     InsightActorsQueryOptionsResponse,
+    NodeKind,
     insightActorsQueryOptionsResponseKeys,
 } from '~/queries/schema/schema-general'
 import { isTrendsQuery } from '~/queries/utils'
@@ -157,4 +158,16 @@ export const cleanedInsightActorsQueryOptions = (
     }
 
     return transformed
+}
+
+/** Explain the null breakdown bucket when the modal drills into it. */
+export const nullBreakdownNotesForQuery = (
+    query: FunnelsActorsQuery | InsightActorsQuery | null
+): ReturnType<typeof getNullBreakdownNotes> => {
+    if (!query) {
+        return null
+    }
+    const breakdown = query.kind === NodeKind.FunnelsActorsQuery ? query.funnelStepBreakdown : query.breakdown
+    const breakdownFilter = 'breakdownFilter' in query.source ? query.source.breakdownFilter : undefined
+    return getNullBreakdownNotes(breakdown, breakdownFilter)
 }
