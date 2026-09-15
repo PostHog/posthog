@@ -4,7 +4,9 @@ from typing import Any, Optional, cast
 import pytest
 import time_machine
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
+from django.core.cache import cache
 from django.db.utils import IntegrityError
 from django.utils import timezone
 
@@ -13,6 +15,7 @@ from rest_framework import status
 
 from posthog.api.test.test_property_definition import exclude_virtual_properties
 from posthog.models import ActivityLog, EventProperty, Tag
+from posthog.taxonomy import definition_search
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
@@ -566,6 +569,33 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
             ("5_when_verified", False, False),
             ("6_when_verified", False, False),
         ]
+
+    @parameterized.expand(
+        [
+            ("first_page", 0, 4, ["1_verified", "3_verified", "2_plain", "4_described"]),
+            ("page_across_the_boundary", 1, 2, ["3_verified", "2_plain"]),
+            ("last_page", 3, 4, ["4_described", "5_plain"]),
+        ]
+    )
+    def test_large_project_lists_verified_first_then_by_name(
+        self, _name: str, offset: int, limit: int, expected_names: list[str]
+    ):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
+        )
+        EnterprisePropertyDefinition.objects.create(team=self.team, name="1_verified", verified=True)
+        PropertyDefinition.objects.create(team=self.team, name="2_plain")
+        EnterprisePropertyDefinition.objects.create(team=self.team, name="3_verified", verified=True)
+        EnterprisePropertyDefinition.objects.create(team=self.team, name="4_described", description="kept")
+        PropertyDefinition.objects.create(team=self.team, name="5_plain")
+        # The large-project flag is cached per project, so an earlier request in this class must not decide it.
+        cache.clear()
+
+        with patch.object(definition_search, "PROJECT_SCAN_MAX_DEFINITIONS", 2):
+            response = self.client.get(f"/api/projects/@current/property_definitions/?offset={offset}&limit={limit}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [r["name"] for r in exclude_virtual_properties(response.json()["results"])] == expected_names
 
     def test_exclude_hidden_properties(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
