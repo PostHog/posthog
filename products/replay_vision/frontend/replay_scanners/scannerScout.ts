@@ -6,6 +6,7 @@ import type {
     SignalScoutConfigApi,
     SignalScoutOutputDestinationsApi,
 } from 'products/signals/frontend/generated/api.schemas'
+import { SIGNALS_SCOUT_SKILL_PREFIX } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
 
 // pinned: what a scout's config records as its owner, alongside the scanner id in `source_id`.
 // Signals stores the pair; the backend has the same constant in `scout_source.py`, and the two must
@@ -27,7 +28,6 @@ export const SCANNER_SCOUT_CRON = '0 9 * * *'
 export const SCOUT_DISPLAY_NAME_MAX_LENGTH = 200
 
 const SKILL_NAME_MAX_LENGTH = 64
-const SKILL_NAME_PREFIX = 'signals-scout-'
 // Room for the `-2`..`-99` a collision appends.
 const COLLISION_SUFFIX_LENGTH = 3
 
@@ -55,11 +55,12 @@ export function scoutSkillName(
     templateKey: ScannerScoutTemplateKey,
     takenNames: string[]
 ): string {
-    const room = SKILL_NAME_MAX_LENGTH - SKILL_NAME_PREFIX.length - COLLISION_SUFFIX_LENGTH - templateKey.length - 1
+    const room =
+        SKILL_NAME_MAX_LENGTH - SIGNALS_SCOUT_SKILL_PREFIX.length - COLLISION_SUFFIX_LENGTH - templateKey.length - 1
     const scannerSlug = slugify(scannerName).slice(0, Math.max(0, room)).replace(/-$/, '')
     // The cap must hold whatever the key's length does, so the assembled base is clamped too rather
     // than trusted to the `room` arithmetic above.
-    const base = `${SKILL_NAME_PREFIX}${[scannerSlug, templateKey]
+    const base = `${SIGNALS_SCOUT_SKILL_PREFIX}${[scannerSlug, templateKey]
         .filter(Boolean)
         .join('-')
         .slice(0, SKILL_NAME_MAX_LENGTH - COLLISION_SUFFIX_LENGTH)
