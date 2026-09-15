@@ -654,6 +654,31 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertIn("already being deleted", response.json()["detail"])
         mock_delete_task.assert_not_called()
 
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
+    @patch("products.managed_warehouse.backend.facade.api.get_team_deletion_block_reason")
+    def test_concurrent_project_deletion_cannot_clear_pending_state(self, mock_block_reason, mock_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        scheduled_at = timezone.now() + timedelta(hours=48)
+
+        def claim_deletion(*args: object, **kwargs: object) -> None:
+            Project.objects.filter(id=self.project.id).update(
+                is_pending_deletion=True,
+                deletion_scheduled_at=scheduled_at,
+            )
+            return None
+
+        mock_block_reason.side_effect = claim_deletion
+
+        response = self.client.delete(f"/api/projects/{self.project.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("already being deleted", response.json()["detail"])
+        self.project.refresh_from_db()
+        self.assertTrue(self.project.is_pending_deletion)
+        self.assertEqual(self.project.deletion_scheduled_at, scheduled_at)
+        mock_delete_task.assert_not_called()
+
     def test_team_deletion_does_not_cascade_to_persons(self):
         """Verify that deleting Team directly doesn't CASCADE delete Persons (on_delete=DO_NOTHING)."""
         # Create a Person

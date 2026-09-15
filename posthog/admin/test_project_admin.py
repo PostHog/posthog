@@ -8,8 +8,10 @@ from django.contrib.admin.sites import AdminSite
 from django.contrib.auth.models import Group
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.core.exceptions import PermissionDenied
-from django.test import RequestFactory
+from django.test import RequestFactory, override_settings
 from django.utils import timezone
+
+from temporalio.common import WorkflowIDConflictPolicy
 
 from posthog.admin.admins.project_admin import ProjectAdmin
 from posthog.admin.authorization import DELETION_AUTHORIZED_GROUP
@@ -54,58 +56,62 @@ class TestProjectAdminDeleteNow(BaseTest):
                 "posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow",
                 side_effect=start_side_effect,
             ) as mock_start,
-            patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow") as mock_cancel,
         ):
             response = self.admin.delete_now_view(http_request, str(self.project.pk))
-        return response, mock_start, mock_cancel
+        return response, mock_start
 
     def test_post_deletes_pending_project_now(self):
-        response, mock_start, mock_cancel = self._call()
+        response, mock_start = self._call()
 
         self.assertEqual(response.status_code, 302)
         self.project.refresh_from_db()
         self.assertTrue(self.project.is_pending_deletion)
         self.assertEqual(self.project.deletion_scheduled_at, timezone.now())
-        mock_cancel.assert_called_once_with(project_id=self.project.pk)
         mock_start.assert_called_once()
         self.assertIsNone(mock_start.call_args.kwargs["start_delay"])
+        self.assertEqual(mock_start.call_args.kwargs["id_conflict_policy"], WorkflowIDConflictPolicy.TERMINATE_EXISTING)
 
     def test_post_rejected_when_deletion_already_started(self):
         self._mark_pending(hours=-1)
 
-        response, mock_start, mock_cancel = self._call()
+        response, mock_start = self._call()
 
         self.assertEqual(response.status_code, 302)
         self.project.refresh_from_db()
         self.assertTrue(self.project.is_pending_deletion)
         self.assertEqual(self.project.deletion_scheduled_at, timezone.now() - timedelta(hours=1))
-        mock_cancel.assert_not_called()
         mock_start.assert_not_called()
 
-    def test_fallback_restores_original_schedule_when_immediate_start_fails(self):
+    def test_failed_immediate_start_keeps_original_schedule(self):
         self._mark_pending(hours=2)
 
-        def fake_start(*args, **kwargs):
-            if kwargs.get("start_delay") is None:
-                raise Exception("temporal unavailable")
-
-        response, mock_start, mock_cancel = self._call(start_side_effect=fake_start)
+        response, mock_start = self._call(start_side_effect=Exception("temporal unavailable"))
 
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(mock_start.call_count, 2)
-        self.assertEqual(mock_start.call_args_list[-1].kwargs["start_delay"], timedelta(hours=2))
+        mock_start.assert_called_once()
         self.project.refresh_from_db()
         self.assertTrue(self.project.is_pending_deletion)
         self.assertEqual(self.project.deletion_scheduled_at, timezone.now() + timedelta(hours=2))
 
     def test_get_redirects_without_deleting(self):
-        response, mock_start, mock_cancel = self._call(method="GET")
+        response, mock_start = self._call(method="GET")
 
         self.assertEqual(response.status_code, 302)
-        mock_cancel.assert_not_called()
         mock_start.assert_not_called()
         self.project.refresh_from_db()
         self.assertEqual(self.project.deletion_scheduled_at, timezone.now() + timedelta(hours=48))
+
+    @override_settings(DISABLE_BULK_DELETES=True)
+    def test_bulk_delete_guard_keeps_original_schedule(self):
+        self._mark_pending(hours=2)
+
+        response, mock_start = self._call()
+
+        self.assertEqual(response.status_code, 302)
+        mock_start.assert_not_called()
+        self.project.refresh_from_db()
+        self.assertTrue(self.project.is_pending_deletion)
+        self.assertEqual(self.project.deletion_scheduled_at, timezone.now() + timedelta(hours=2))
 
     def test_staff_outside_deletion_group_cannot_delete_now(self):
         self.user.groups.clear()

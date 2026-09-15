@@ -249,10 +249,9 @@ class ProjectAdmin(admin.ModelAdmin):
         return redirect(change_url)
 
     def delete_now_view(self, request, project_id):
-        from posthog.temporal.delete_teams.dispatch import (
-            cancel_delete_project_data_workflow,
-            start_delete_project_data_workflow,
-        )
+        from temporalio.common import WorkflowIDConflictPolicy
+
+        from posthog.temporal.delete_teams.dispatch import start_delete_project_data_workflow
 
         change_url = reverse("admin:posthog_project_change", args=[project_id])
 
@@ -268,6 +267,12 @@ class ProjectAdmin(admin.ModelAdmin):
         if not can_trigger_admin_deletion(request):
             raise PermissionDenied
 
+        if settings.DISABLE_BULK_DELETES:
+            messages.error(
+                request, "Bulk deletes are temporarily disabled during a database migration. Try again later."
+            )
+            return redirect(change_url)
+
         if not project.is_pending_deletion:
             messages.error(request, f"Project {project.name} ({project.pk}) is not pending deletion.")
             return redirect(change_url)
@@ -279,13 +284,6 @@ class ProjectAdmin(admin.ModelAdmin):
             return redirect(change_url)
 
         team_ids = list(project.teams.values_list("id", flat=True))
-        # Read the remaining delay before cancelling, so the fallback restart keeps the
-        # original schedule instead of pushing the deletion back a fresh 48 hours.
-        remaining_delay = project.deletion_scheduled_at - timezone.now()
-
-        # The scheduled run has not started yet (its date is still in the future), so cancel it
-        # and start a replacement that runs immediately.
-        cancel_delete_project_data_workflow(project_id=project.pk)
         try:
             start_delete_project_data_workflow(
                 team_ids=team_ids,
@@ -293,21 +291,10 @@ class ProjectAdmin(admin.ModelAdmin):
                 user_id=request.user.id,
                 project_name=project.name,
                 start_delay=None,
+                id_conflict_policy=WorkflowIDConflictPolicy.TERMINATE_EXISTING,
             )
         except Exception as e:
-            # The delayed run is gone, so restart it on the original schedule to keep the
-            # deletion on track before surfacing the failure.
-            start_delete_project_data_workflow(
-                team_ids=team_ids,
-                project_id=project.pk,
-                user_id=request.user.id,
-                project_name=project.name,
-                start_delay=remaining_delay,
-            )
-            messages.error(
-                request,
-                f"Failed to start deletion: {e}.",
-            )
+            messages.error(request, f"Could not start deletion now: {e}. The scheduled deletion is unchanged.")
             return redirect(change_url)
 
         project.deletion_scheduled_at = timezone.now()

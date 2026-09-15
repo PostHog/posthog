@@ -3,6 +3,8 @@ from datetime import timedelta
 
 from django.conf import settings
 
+from temporalio.common import WorkflowIDConflictPolicy
+
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.delete_teams.types import DeleteOrganizationWorkflowInputs, DeleteProjectDataWorkflowInputs
 
@@ -16,6 +18,7 @@ def start_delete_project_data_workflow(
     user_id: int,
     project_name: str,
     start_delay: timedelta | None = PROJECT_DELETION_DELAY,
+    id_conflict_policy: WorkflowIDConflictPolicy = WorkflowIDConflictPolicy.UNSPECIFIED,
 ) -> None:
     inputs = DeleteProjectDataWorkflowInputs(
         team_ids=team_ids, project_id=project_id, user_id=user_id, project_name=project_name
@@ -30,6 +33,7 @@ def start_delete_project_data_workflow(
             id=workflow_id,
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
             start_delay=start_delay if project_id is not None else None,
+            id_conflict_policy=id_conflict_policy,
         )
 
     asyncio.run(_start())

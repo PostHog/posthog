@@ -1608,10 +1608,15 @@ class ProjectViewSet(
 
         from posthog.temporal.delete_teams.dispatch import PROJECT_DELETION_DELAY, start_delete_project_data_workflow
 
-        # Mark as pending deletion so the UI locks this project out until the scheduled task removes it.
+        deletion_scheduled_at = timezone.now() + PROJECT_DELETION_DELAY
+        claimed_project = Project.objects.filter(pk=project.pk, is_pending_deletion=False).update(
+            is_pending_deletion=True,
+            deletion_scheduled_at=deletion_scheduled_at,
+        )
+        if not claimed_project:
+            raise exceptions.ValidationError("This project is already being deleted.")
         project.is_pending_deletion = True
-        project.deletion_scheduled_at = timezone.now() + PROJECT_DELETION_DELAY
-        project.save(update_fields=["is_pending_deletion", "deletion_scheduled_at"])
+        project.deletion_scheduled_at = deletion_scheduled_at
 
         # Hand off all deletion work (bulky postgres, batch exports, project/team records,
         # ClickHouse, email) to the durable Temporal workflow.
@@ -1624,9 +1629,12 @@ class ProjectViewSet(
                 project_name=project_name,
             )
         except Exception:
+            Project.objects.filter(pk=project.pk, deletion_scheduled_at=deletion_scheduled_at).update(
+                is_pending_deletion=False,
+                deletion_scheduled_at=None,
+            )
             project.is_pending_deletion = False
             project.deletion_scheduled_at = None
-            project.save(update_fields=["is_pending_deletion", "deletion_scheduled_at"])
             raise
 
         for team in teams:
