@@ -2,11 +2,14 @@ import { setPendingOAuthConnectionCookie } from 'scenes/authentication/shared/pe
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { signupLogic } from './signupLogic'
+import { SignupPanelOnboardingForm, signupLogic } from './signupLogic'
+
+jest.mock('posthog-js')
 
 describe('signupLogic — email error surfacing', () => {
     let logic: ReturnType<typeof signupLogic.build>
@@ -315,16 +318,20 @@ describe('signupLogic — name handling', () => {
         expect(logic.values.panel).toBe(2)
     })
 
-    it('surfaces a first_name API error on the name field instead of the generic banner', async () => {
+    it.each<[string, keyof SignupPanelOnboardingForm]>([
+        ['first_name', 'name'],
+        ['last_name', 'name'],
+        ['organization_name', 'organization_name'],
+    ])('surfaces a %s API error on the %s field instead of the generic banner', async (attr, field) => {
         useMocks({
             post: {
                 '/api/signup/': () => [
                     400,
                     {
                         type: 'validation_error',
-                        code: 'blank',
-                        detail: 'This field may not be blank.',
-                        attr: 'first_name',
+                        code: 'invalid_url',
+                        detail: 'Mocked field error.',
+                        attr,
                     },
                 ],
             },
@@ -340,12 +347,16 @@ describe('signupLogic — name handling', () => {
         logic.actions.submitSignupPanelOnboarding()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.signupPanelOnboardingManualErrors.name).toBe('This field may not be blank.')
+        expect(logic.values.signupPanelOnboardingManualErrors[field]).toBe('Mocked field error.')
         expect(logic.values.signupPanelOnboardingManualErrors.generic).toBeUndefined()
         // The display-level selector fields read from — the error must remain visible after the
         // failed submit (a successful submit resets showErrors and would hide it)
-        expect(logic.values.signupPanelOnboardingErrors.name).toBe('This field may not be blank.')
+        expect(logic.values.signupPanelOnboardingErrors[field]).toBe('Mocked field error.')
         expect(logic.values.panel).toBe(2)
+        expect(posthog.capture).toHaveBeenCalledWith('sign up validation failed', {
+            attr,
+            code: 'invalid_url',
+        })
     })
 })
 

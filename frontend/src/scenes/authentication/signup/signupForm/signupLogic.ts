@@ -558,6 +558,13 @@ export const signupLogic = kea<signupLogicType>([
 
                     actions.resetChallenge()
 
+                    // Without this, a signup the backend rejects leaves no trace in analytics.
+                    // Only the attribute and the code are sent, never the value the person typed.
+                    posthog.capture('sign up validation failed', {
+                        attr: error.attr ?? null,
+                        code: error.code ?? null,
+                    })
+
                     // If the server returns an email validation error, send the user back to the
                     // email step so the error appears next to the field that caused it.
                     const emailError = error.data?.email
@@ -575,6 +582,13 @@ export const signupLogic = kea<signupLogicType>([
                     if (error.attr === 'first_name' || error.attr === 'last_name') {
                         actions.setSignupPanelOnboardingManualErrors({
                             name: String(error.detail || 'Please enter your name'),
+                        })
+                        throw e
+                    }
+
+                    if (error.attr === 'organization_name') {
+                        actions.setSignupPanelOnboardingManualErrors({
+                            organization_name: String(error.detail || 'Please enter a different organization name'),
                         })
                         throw e
                     }

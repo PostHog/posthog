@@ -46,7 +46,7 @@ _NON_NEWLINE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f\u0085\u2028\u2029
 _BRACKET_RE = re.compile(r"[<>]")
 _INVISIBLE_CHAR_RE = re.compile(r"[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]")
 
-_URL_ERROR = "URLs are not allowed in this field."
+_URL_ERROR = "Remove the web address prefix, such as https:// or www. A plain domain like example.com is fine."
 _CONTROL_ERROR = "Line breaks and control characters are not allowed in this field."
 _BRACKET_ERROR = "Angle brackets are not allowed in this field."
 _INVISIBLE_ERROR = "Invisible or direction-override characters are not allowed in this field."
