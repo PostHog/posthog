@@ -10,7 +10,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from posthog.test.base import BaseTest
@@ -74,6 +74,7 @@ from products.signals.backend.scout_harness.runner import (
     _ai_stage,
     _create_run_row,
     _failure_streak_runs_in_window,
+    _read_run_metrics,
     arun_signals_scout,
 )
 from products.signals.backend.scout_harness.skill_loader import (
@@ -3216,6 +3217,43 @@ async def test_workflow_retries_a_scheduled_run_the_provider_refused(
     # retried at the same cadence.
     assert slept == [timedelta(seconds=upstream_retry_backoff_s(a)) for a in range(1, expected_attempts)]
     assert output.status == ("failed" if attempts <= attempts_before_success else "completed")
+
+
+class TestReadRunMetrics(BaseTest):
+    def _run(self, **columns: Any) -> SignalScoutRun:
+        config, _ = SignalScoutConfig.objects.get_or_create(team=self.team, skill_name="signals-scout-general")
+        return SignalScoutRun.objects.create(
+            team=self.team,
+            task_run=_make_task_run(self.team),
+            scout_config=config,
+            skill_name="signals-scout-general",
+            skill_version=1,
+            **columns,
+        )
+
+    @parameterized.expand(
+        [
+            ("nothing written", {}, False),
+            ("emitted a finding", {"emitted_count": 1}, True),
+            ("authored a report", {"emitted_report_ids": ["r-1"]}, True),
+            ("edited a report", {"edited_report_ids": ["r-2"]}, True),
+            ("null report columns", {"emitted_report_ids": None, "edited_report_ids": None}, False),
+        ]
+    )
+    def test_wrote_output_covers_every_durable_channel(
+        self, _name: str, columns: dict[str, Any], expected: bool
+    ) -> None:
+        run = self._run(**columns)
+        assert _read_run_metrics(run.id, self.team.id).wrote_output is expected
+
+    def test_emitted_count_stays_the_finding_tally(self) -> None:
+        run = self._run(emitted_report_ids=["r-1"], edited_report_ids=["r-2"])
+        metrics = _read_run_metrics(run.id, self.team.id)
+        assert metrics.emitted_count == 0
+        assert metrics.wrote_output is True
+
+    def test_missing_row_reads_as_no_output(self) -> None:
+        assert _read_run_metrics(uuid7(), self.team.id).wrote_output is False
 
 
 class TestScoutCosts(BaseTest):

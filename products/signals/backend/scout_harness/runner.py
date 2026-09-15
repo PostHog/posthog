@@ -392,7 +392,7 @@ async def arun_signals_scout(
             run_note=run_note,
         )
         runtime_s = time.monotonic() - started
-        emitted_count, _ = await database_sync_to_async(_read_run_metrics, thread_sensitive=False)(
+        run_output = await database_sync_to_async(_read_run_metrics, thread_sensitive=False)(
             run_id, team.parent_team_id or team.id
         )
         # A run that got all the way through closes the breaker: the lane works, so any streak
@@ -411,7 +411,7 @@ async def arun_signals_scout(
             task_run_id=task_run_id,
             status=tasks_facade.TaskRunStatus.COMPLETED.value,
             runtime_s=runtime_s,
-            emitted_count=emitted_count,
+            emitted_count=run_output.emitted_count,
             triggered_by=triggered_by,
             model=model,
             runtime_adapter=runtime_adapter,
@@ -448,12 +448,12 @@ async def arun_signals_scout(
         # A partial run can still have emitted (and have a linked TaskRun) before failing,
         # so read both from the bridge row when it exists; otherwise it never ran far
         # enough to persist either.
-        emitted_count, failed_task_run_id = (
+        run_output = (
             await database_sync_to_async(_read_run_metrics, thread_sensitive=False)(
                 run_id, team.parent_team_id or team.id
             )
             if row_persisted
-            else (0, None)
+            else _RunOutput(emitted_count=0, task_run_id=None, wrote_output=False)
         )
         # Upstream refusals are not evidence about this lane. A provider rate limit or outage
         # fails every due lane fleet-wide at once, so counting them would walk healthy scouts
@@ -478,10 +478,10 @@ async def arun_signals_scout(
             github_guidance=github_guidance,
             business_knowledge_maintained=business_knowledge_maintained,
             run_id=run_id,
-            task_run_id=failed_task_run_id,
+            task_run_id=run_output.task_run_id,
             status=tasks_facade.TaskRunStatus.FAILED.value,
             runtime_s=runtime_s,
-            emitted_count=emitted_count,
+            emitted_count=run_output.emitted_count,
             triggered_by=triggered_by,
             model=model,
             runtime_adapter=runtime_adapter,
@@ -508,10 +508,12 @@ async def arun_signals_scout(
             runtime_s=runtime_s,
             skill_name=skill.name,
             skill_version=skill.version,
-            # A partial run that already emitted is not offered for retry: the findings are
-            # written, so another attempt re-derives them against the dedupe layer instead of
-            # recovering a lost scan.
-            retryable_upstream=retryable_upstream and emitted_count == 0,
+            # A partial run that already wrote something is not offered for retry. A retry
+            # re-runs the whole activity under a fresh `run_id`, and the emit idempotency key is
+            # run-scoped, so nothing stops a second attempt repeating the write. Findings would
+            # only be re-derived against the dedupe layer, but an authored or edited report has
+            # no such collapse, so the union of both channels gates the retry.
+            retryable_upstream=retryable_upstream and not run_output.wrote_output,
         )
     except BaseException as exc:
         # Cancellation / worker-shutdown / system-exit: re-raise so Temporal sees the
@@ -1306,22 +1308,40 @@ def _run_row_exists(run_id: Any, team_id: int) -> bool:
     return SignalScoutRun.objects.unscoped().filter(team_id=team_id, id=run_id).exists()
 
 
-def _read_run_metrics(run_id: Any, team_id: int) -> tuple[int, str | None]:
+@frozen
+class _RunOutput:
+    """What the bridge row records about one run's output. `wrote_output` unions every durable
+    channel a scout writes through — the finding tally plus both report-channel columns — because
+    a retry re-runs the whole activity and only an untouched run is safe to start again."""
+
+    emitted_count: int
+    task_run_id: str | None
+    wrote_output: bool
+
+
+def _read_run_metrics(run_id: Any, team_id: int) -> _RunOutput:
     # The bridge row carries the authoritative emit tally (the emit tool bumps it in-run)
     # and the FK to the linked TaskRun — the join key into LLM analytics, where the
     # richer per-run metrics (tool calls, generations, tokens, cost) already live. Reading
-    # both here keeps that linkage on failed runs too, not just clean completions. Returns
-    # (0, None) when the row never persisted (failure before the first turn).
+    # both here keeps that linkage on failed runs too, not just clean completions. The two
+    # report-channel columns are read for `wrote_output` only; they never fold into
+    # `emitted_count`, which stays the finding tally the analytics dimension means.
+    # Returns an empty output when the row never persisted (failure before the first turn).
     row = (
         SignalScoutRun.objects.unscoped()
         .filter(team_id=team_id, id=run_id)
-        .values_list("emitted_count", "task_run_id")
+        .values_list("emitted_count", "task_run_id", "emitted_report_ids", "edited_report_ids")
         .first()
     )
     if row is None:
-        return 0, None
-    emitted_count, task_run_id = row
-    return emitted_count or 0, str(task_run_id) if task_run_id else None
+        return _RunOutput(emitted_count=0, task_run_id=None, wrote_output=False)
+    emitted_count, task_run_id, emitted_report_ids, edited_report_ids = row
+    emitted_count = emitted_count or 0
+    return _RunOutput(
+        emitted_count=emitted_count,
+        task_run_id=str(task_run_id) if task_run_id else None,
+        wrote_output=bool(emitted_count or emitted_report_ids or edited_report_ids),
+    )
 
 
 def _capture_run_started(
