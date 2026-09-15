@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.test import override_settings
 from django.utils import timezone
@@ -55,13 +56,14 @@ class TestRealtimeReadiness(BaseTest):
         status: str = CohortBackfillRunStatus.SEEDING,
         trigger: str = CohortBackfillTrigger.COHORT_CREATED,
         scope: str = CohortBackfillScope.COHORT,
+        kind: str = CohortBackfillKind.BEHAVIORAL,
         cohort: Cohort | None = None,
         created_at=None,
     ) -> CohortBackfillRun:
         run = CohortBackfillRun.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             cohort=cohort if scope == CohortBackfillScope.COHORT else None,
-            backfill_kind=CohortBackfillKind.BEHAVIORAL,
+            backfill_kind=kind,
             trigger_kind=trigger,
             scope=scope,
             status=status,
@@ -173,6 +175,83 @@ class TestRealtimeReadiness(BaseTest):
         self._participate(self._run(scope=CohortBackfillScope.TEAM), cohort)
 
         assert self._state(cohort) == CohortRealtimeState.BUILDING
+
+    def test_a_superseded_participation_does_not_report_the_build_it_left(self) -> None:
+        # Editing a cohort a team run is building supersedes only its participation; the run keeps
+        # running for the rest of the team. Reading that row would show the abandoned build and
+        # hide the rebuild the edit just queued.
+        cohort = self._cohort()
+        participation = self._participate(self._run(scope=CohortBackfillScope.TEAM), cohort)
+        CohortBackfillRunCohort.objects.for_team(self.team.id).filter(id=participation.id).update(
+            superseded_at=timezone.now()
+        )
+        get_redis_client().set(
+            cohort_backfill_pending_key(cohort.id, CohortBackfillKind.BEHAVIORAL),
+            CohortBackfillTrigger.COHORT_EDITED,
+            ex=300,
+        )
+
+        assert self._state(cohort) == CohortRealtimeState.REBUILDING
+
+    def test_a_cohort_waiting_on_two_kinds_shows_the_one_furthest_behind(self) -> None:
+        # Both stamps gate flag targeting, so the cohort is only as far along as its slower build.
+        cohort = self._cohort(filters=filters(BEHAVIORAL_LEAF, PERSON_LEAF))
+        self._participate(self._run(status=CohortBackfillRunStatus.RECONCILING, cohort=cohort), cohort)
+        self._participate(
+            self._run(status=CohortBackfillRunStatus.SEEDING, kind=CohortBackfillKind.PERSON_PROPERTY, cohort=cohort),
+            cohort,
+        )
+
+        build = resolve_realtime_readiness([cohort])[cohort.id].build
+        assert build is not None
+        assert build.phase == CohortHistoryBuildPhase.SCANNING
+
+    def test_a_kind_parked_on_an_operator_stops_the_build_reading_as_in_progress(self) -> None:
+        # A blocked run needs a person, so a cohort waiting on one is not making progress however
+        # well its other kind is going.
+        cohort = self._cohort(filters=filters(BEHAVIORAL_LEAF, PERSON_LEAF))
+        self._participate(self._run(status=CohortBackfillRunStatus.SEEDING, cohort=cohort), cohort)
+        self._participate(
+            self._run(status=CohortBackfillRunStatus.BLOCKED, kind=CohortBackfillKind.PERSON_PROPERTY, cohort=cohort),
+            cohort,
+        )
+
+        assert self._state(cohort) == CohortRealtimeState.NEEDS_ATTENTION
+
+    def test_a_run_for_a_kind_the_filters_no_longer_need_decides_nothing(self) -> None:
+        # A person run left over from an earlier definition is not something this cohort waits on,
+        # so neither its progress nor its being blocked describes the cohort.
+        cohort = self._cohort()
+        self._participate(
+            self._run(status=CohortBackfillRunStatus.BLOCKED, kind=CohortBackfillKind.PERSON_PROPERTY, cohort=cohort),
+            cohort,
+        )
+        self._participate(self._run(status=CohortBackfillRunStatus.SEEDING, cohort=cohort), cohort)
+
+        readiness = resolve_realtime_readiness([cohort])[cohort.id]
+        assert readiness.state == CohortRealtimeState.BUILDING
+        assert readiness.build is not None
+        assert readiness.build.phase == CohortHistoryBuildPhase.SCANNING
+
+    def test_the_build_timestamp_follows_chunk_progress(self) -> None:
+        # Confirming a chunk never touches the run row, so reporting the run's own timestamp would
+        # leave the page claiming no progress for hours while the percentage climbed.
+        cohort = self._cohort()
+        run = self._run(cohort=cohort)
+        self._participate(run, cohort)
+        self._chunks(run, total=2, confirmed=1)
+
+        build = resolve_realtime_readiness([cohort])[cohort.id].build
+        assert build is not None
+        assert build.updated_at is not None
+        assert build.updated_at >= run.updated_at
+
+    def test_a_failed_debounce_lookup_reports_no_state_rather_than_a_wrong_one(self) -> None:
+        # Redis is the only record of a queued build, so a lookup that fails cannot tell a cohort
+        # nothing is preparing from one whose build task is waiting out its countdown.
+        cohort = self._cohort()
+        with patch("products.cohorts.backend.realtime_state.get_redis_client", side_effect=RuntimeError("down")):
+            assert resolve_realtime_readiness([cohort]) == {}
 
     def test_scan_progress_comes_from_confirmed_chunks(self) -> None:
         cohort = self._cohort()

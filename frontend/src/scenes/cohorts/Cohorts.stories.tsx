@@ -90,8 +90,16 @@ export const CohortsEmpty: Story = {
     decorators: [mswDecorator({ get: { '/api/projects/:team_id/cohorts/': toPaginatedResponse([]) } })],
 }
 
+// The preparing cohort's tag holds a spinner for as long as its build runs, and the runner waits
+// for every loader to disappear before it snapshots. These stories name the element to wait for
+// instead. The runner freezes animations, so a spinner still snapshots deterministically.
+const progressTestOptions = {
+    waitForLoadersToDisappear: false,
+    waitForSelector: '[data-attr="cohort-realtime-tag"]',
+}
+
 export const CohortsWithRealtimeStates: Story = {
-    parameters: { pageUrl: urls.cohorts() },
+    parameters: { pageUrl: urls.cohorts(), testOptions: progressTestOptions },
     decorators: [
         mswDecorator({
             get: { '/api/projects/:team_id/cohorts/': toPaginatedResponse([...mockCohorts, ...realtimeCohorts]) },
@@ -121,12 +129,18 @@ export const CohortEditRealtimeReadyFlagOff: Story = {
 }
 
 export const CohortEditRealtimePreparing: Story = {
-    parameters: { pageUrl: urls.cohort(5) },
+    parameters: {
+        pageUrl: urls.cohort(5),
+        testOptions: { waitForLoadersToDisappear: false, waitForSelector: '[data-attr="cohort-realtime-status"]' },
+    },
     decorators: [mswDecorator({ get: { '/api/projects/:team_id/cohorts/5/': realtimeCohorts[1], ...cohortApiMocks } })],
 }
 
 export const CohortEditRealtimeRebuilding: Story = {
-    parameters: { pageUrl: urls.cohort(5) },
+    parameters: {
+        pageUrl: urls.cohort(5),
+        testOptions: { waitForLoadersToDisappear: false, waitForSelector: '[data-attr="cohort-realtime-status"]' },
+    },
     decorators: [
         mswDecorator({
             get: {

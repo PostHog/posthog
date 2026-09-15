@@ -755,7 +755,9 @@ export const CohortsWithRealtimeStates: Story = {
     ],
     parameters: {
         featureFlags: [FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING],
-        testOptions: { waitForSelector: '.taxonomic-infinite-list' },
+        // The preparing cohort's tag holds a spinner while its build runs, so the runner cannot
+        // wait for every loader to disappear here.
+        testOptions: { waitForLoadersToDisappear: false, waitForSelector: '[data-attr="cohort-realtime-tag"]' },
         docs: {
             description: {
                 story: 'Cohort rows carry their realtime trait, so someone picking one for a feature flag sees which cohorts flags can already target and which are still being prepared.',

@@ -6,10 +6,8 @@ import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { CRITERIA_VALIDATIONS, NEW_CRITERIA, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
@@ -198,11 +196,11 @@ describe('cohortEditLogic', () => {
     })
 
     describe('realtime history build polling', () => {
-        beforeEach(() => {
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING], {
-                [FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING]: true,
-            })
+        // No feature flag setup: the API only sends `realtime` inside the rollout, so gating the
+        // poll on the flag as well would strand a build whose flags resolve after the page fetch.
+        afterEach(() => {
+            // One case varies the generated criteria keys; the rest of the file reads the constant.
+            ;(uuidv4 as jest.Mock).mockReturnValue('mocked-uuid')
         })
 
         const buildingRealtime: CohortRealtimeReadinessApi = {
@@ -215,10 +213,15 @@ describe('cohortEditLogic', () => {
             ready_at: '2026-09-15T10:20:00Z',
             build: null,
         }
+        const criteriaGroupKeys = (): (string | undefined)[] =>
+            logic.values.cohort.filters.properties.values.map((group) => (group as CohortCriteriaGroupFilter).sort_key)
 
         it('merges the readiness without discarding unsaved criteria, and keeps watching', async () => {
             // The build runs for tens of minutes, so every poll lands on a form the user may be
-            // part-way through editing. Merging the whole cohort back would throw those edits away.
+            // part-way through editing. Merging the whole cohort back would throw those edits away,
+            // and re-keying the criteria groups would remount the fields they are typing in.
+            let nextKey = 0
+            ;(uuidv4 as jest.Mock).mockImplementation(() => `criteria-key-${nextKey++}`)
             useMocks({
                 get: { '/api/projects/:team_id/cohorts/:id/': { ...mockCohort, realtime: readyRealtime } },
             })
@@ -227,6 +230,7 @@ describe('cohortEditLogic', () => {
                 logic.actions.setCohort({ ...mockCohort, realtime: buildingRealtime })
                 logic.actions.setOuterGroupsType(FilterLogicalOperator.And)
             }).toMatchValues({ cohort: partial({ realtime: buildingRealtime }) })
+            const keysBeforePoll = criteriaGroupKeys()
 
             await expectLogic(logic, () => {
                 logic.actions.pollRealtimeReadiness()
@@ -239,6 +243,28 @@ describe('cohortEditLogic', () => {
                         filters: partial({ properties: partial({ type: FilterLogicalOperator.And }) }),
                     }),
                 })
+            expect(criteriaGroupKeys()).toEqual(keysBeforePoll)
+        })
+
+        it('drops a readiness the save it crossed has already replaced', async () => {
+            // A poll in flight answers for the definition before the save, so letting it land would
+            // report the old build as ready and stop watching the one the save just started.
+            useMocks({
+                get: { '/api/projects/:team_id/cohorts/:id/': { ...mockCohort, realtime: readyRealtime } },
+            })
+            await initCohortLogic({ id: 1 })
+            await expectLogic(logic, () => {
+                logic.actions.setCohort({ ...mockCohort, realtime: buildingRealtime })
+            }).toMatchValues({ cohort: partial({ realtime: buildingRealtime }) })
+
+            const rebuildingRealtime: CohortRealtimeReadinessApi = { ...buildingRealtime, state: 'rebuilding' }
+            await expectLogic(logic, () => {
+                logic.actions.pollRealtimeReadiness()
+                logic.actions.saveCohortSuccess({ ...mockCohort, realtime: rebuildingRealtime })
+            }).toFinishAllListeners()
+
+            expect(logic.values.cohort.realtime).toEqual(rebuildingRealtime)
+            expect(lemonToast.success).not.toHaveBeenCalled()
         })
 
         it('announces the ready moment once, not on every check after it', async () => {

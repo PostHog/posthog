@@ -53,7 +53,7 @@ export function CohortRealtimeTag({
 
     return (
         <Tooltip title={content.explanation}>
-            <LemonTag type="muted" size="small" icon={content.icon}>
+            <LemonTag type="muted" size="small" icon={content.icon} data-attr="cohort-realtime-tag">
                 {content.label}
             </LemonTag>
         </Tooltip>

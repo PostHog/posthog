@@ -455,7 +455,7 @@ def _validate_behavioral_cohort_for_feature_flag(
                 code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
             )
         raise serializers.ValidationError(
-            detail=f"Cohort '{cohort.name}' isn't ready for feature flags yet. PostHog is still preparing it, which usually takes under 30 minutes. Try again once the cohort page shows it as realtime.",
+            detail=f"Cohort '{cohort.name}' isn't ready for feature flags yet. Open the cohort to see whether PostHog is still preparing it, and try again once it shows as realtime.",
             code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
         )
 
