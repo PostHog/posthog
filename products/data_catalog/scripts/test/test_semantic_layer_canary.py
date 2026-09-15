@@ -10,6 +10,7 @@ import httpx
 from products.data_catalog.scripts.semantic_layer_canary import (
     MAX_CANCEL_ATTEMPTS,
     BrowserSessionCredentials,
+    CanaryError,
     CanaryRunConfig,
     PermanentCanaryError,
     PostHogCanaryClient,
@@ -184,6 +185,38 @@ async def test_execute_canary_rejects_dataset_without_enabled_cases() -> None:
     ) as client:
         with pytest.raises(RuntimeError, match="no_enabled_cases"):
             await execute_canary(client, CanaryRunConfig())
+
+
+@pytest.mark.parametrize(
+    "malformed_path,content,expected_code",
+    [
+        ("/datasets/", b"<html>gateway error</html>", "invalid_dataset_response"),
+        ("/dataset_items/", b"<html>gateway error</html>", "invalid_dataset_item_response"),
+        ("/datasets/", b'{"results": "caf\xe9"}', "invalid_dataset_response"),
+    ],
+    ids=["dataset_page_not_json", "item_page_not_json", "dataset_page_not_utf8"],
+)
+@pytest.mark.asyncio
+async def test_execute_canary_reports_an_unparseable_dataset_response_as_a_canary_error(
+    malformed_path: str, content: bytes, expected_code: str
+) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith(malformed_path):
+            return httpx.Response(200, content=content)
+        if request.url.path.endswith("/datasets/"):
+            return _dataset_response()
+        return _items_response([_dataset_item("ambiguous")])
+
+    async with PostHogCanaryClient(
+        host="https://us.posthog.test",
+        project_id=2,
+        browser_credentials=_browser_credentials(),
+        transport=httpx.MockTransport(handler),
+    ) as client:
+        with pytest.raises(CanaryError) as caught:
+            await execute_canary(client, CanaryRunConfig())
+
+    assert caught.value.code == expected_code
 
 
 @pytest.mark.asyncio

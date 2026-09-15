@@ -30,6 +30,8 @@ MAX_CANCEL_ATTEMPTS = 3
 STOPPED_RUN_STATUSES = frozenset({"cancelled", "failed"})
 DEFAULT_TIMEOUT_SECONDS = 1_900.0
 DATASET_PAGE_SIZE = 25
+DATASETS_PATH = "/api/environments/{project_id}/datasets/"
+DATASET_ITEMS_PATH = "/api/environments/{project_id}/dataset_items/"
 BROWSER_HELPER_PATH = Path(__file__).with_name("browser_session_credentials.mjs")
 DEFAULT_BROWSER_PROFILE = Path(".context/semantic-layer-canary-browser")
 DEFAULT_BROWSER_LOGIN_TIMEOUT_SECONDS = 600
@@ -60,14 +62,14 @@ class ClarificationRequested(CanaryError):
         self.questions = questions
 
 
-class _DatasetSummary(BaseModel):
+class DatasetSummary(BaseModel):
     id: str
     name: str
     current_revision: int | None
 
 
 class _DatasetPage(BaseModel):
-    results: list[_DatasetSummary]
+    results: list[DatasetSummary]
 
 
 class CanaryCaseInput(BaseModel):
@@ -133,6 +135,12 @@ class DatasetSnapshot(BaseModel):
     dataset_name: str
     revision: int
     cases: list[CanaryCase]
+
+
+class ParsedDatasetItemPage(BaseModel):
+    cases: list[CanaryCase]
+    next_page: str | None
+    item_count: int
 
 
 class CanaryRunConfig(BaseModel):
@@ -240,16 +248,14 @@ class PostHogCanaryClient:
 
     async def load_dataset_snapshot(self, dataset_name: str, revision: int | None = None) -> DatasetSnapshot:
         dataset_response = await self._client.get(
-            f"/api/environments/{self.project_id}/datasets/",
-            params={"search": dataset_name, "archived": "false"},
+            DATASETS_PATH.format(project_id=self.project_id),
+            params=dataset_search_params(dataset_name),
         )
         dataset_response.raise_for_status()
-        dataset_page = _DatasetPage.model_validate(dataset_response.json())
-        exact_matches = [dataset for dataset in dataset_page.results if dataset.name == dataset_name]
-        if len(exact_matches) != 1:
-            raise PermanentCanaryError("dataset_not_found")
-
-        dataset = exact_matches[0]
+        try:
+            dataset = select_dataset(dataset_response.json(), dataset_name)
+        except ValueError as error:
+            raise RetryableCanaryError("invalid_dataset_response") from error
         selected_revision = revision if revision is not None else dataset.current_revision
         if selected_revision is None:
             raise PermanentCanaryError("dataset_has_no_revision")
@@ -269,40 +275,18 @@ class PostHogCanaryClient:
 
         while True:
             response = await self._client.get(
-                f"/api/environments/{self.project_id}/dataset_items/",
-                params={
-                    "dataset": dataset_id,
-                    "revision": revision,
-                    "archived": "false",
-                    "limit": DATASET_PAGE_SIZE,
-                    "offset": offset,
-                },
+                DATASET_ITEMS_PATH.format(project_id=self.project_id),
+                params=dataset_items_params(dataset_id, revision, offset),
             )
             response.raise_for_status()
-            page = _DatasetItemPage.model_validate(response.json())
-            for item in page.results:
-                if not item.metadata.enabled:
-                    continue
-                if item.metadata.case_id in seen_case_ids:
-                    raise PermanentCanaryError("duplicate_case_id")
-                seen_case_ids.add(item.metadata.case_id)
-                cases.append(
-                    CanaryCase(
-                        dataset_item_id=item.id,
-                        case_id=item.metadata.case_id,
-                        category=item.metadata.category,
-                        question=item.input.question,
-                        agent_mode=item.input.agent_mode,
-                        expected_metric=item.expected_output.expected_metric,
-                        expected_routing=item.expected_output.expected_routing,
-                        expected_behavior=item.expected_output.expected_behavior,
-                    )
-                )
-            if page.next is None:
+            try:
+                page = parse_dataset_item_page(response.json(), seen_case_ids)
+            except ValueError as error:
+                raise RetryableCanaryError("invalid_dataset_item_response") from error
+            cases.extend(page.cases)
+            if page.next_page is None:
                 return cases
-            if not page.results:
-                raise PermanentCanaryError("invalid_dataset_pagination")
-            offset += len(page.results)
+            offset += page.item_count
 
     async def open_turn(
         self,
@@ -328,7 +312,7 @@ class PostHogCanaryClient:
         _raise_for_api_error(response)
         try:
             opened = _ConversationOpenResponse.model_validate(response.json())
-        except (json.JSONDecodeError, ValidationError) as error:
+        except ValueError as error:
             raise RetryableCanaryError("invalid_open_response") from error
         if opened.trace_id != trace_id:
             raise RetryableCanaryError("invalid_open_response")
@@ -392,7 +376,7 @@ class PostHogCanaryClient:
         _raise_for_api_error(response)
         try:
             return _TaskRunResponse.model_validate(response.json()).status
-        except (json.JSONDecodeError, ValidationError) as error:
+        except ValueError as error:
             raise RetryableCanaryError("invalid_task_run_response") from error
 
     async def _confirm_terminal_status(self, opened: _ConversationOpenResponse) -> None:
@@ -409,6 +393,54 @@ class PostHogCanaryClient:
 
     def task_url(self, task_id: str, task_run_id: str) -> str:
         return f"{self.host}/project/{self.project_id}/tasks/{task_id}?runId={task_run_id}"
+
+
+def dataset_search_params(dataset_name: str) -> dict[str, str]:
+    return {"search": dataset_name, "archived": "false"}
+
+
+def dataset_items_params(dataset_id: str, revision: int, offset: int) -> dict[str, str | int]:
+    return {
+        "dataset": dataset_id,
+        "revision": revision,
+        "archived": "false",
+        "limit": DATASET_PAGE_SIZE,
+        "offset": offset,
+    }
+
+
+def select_dataset(page_json: object, dataset_name: str) -> DatasetSummary:
+    dataset_page = _DatasetPage.model_validate(page_json)
+    exact_matches = [dataset for dataset in dataset_page.results if dataset.name == dataset_name]
+    if len(exact_matches) != 1:
+        raise PermanentCanaryError("dataset_not_found")
+    return exact_matches[0]
+
+
+def parse_dataset_item_page(page_json: object, seen_case_ids: set[str]) -> ParsedDatasetItemPage:
+    page = _DatasetItemPage.model_validate(page_json)
+    if page.next is not None and not page.results:
+        raise PermanentCanaryError("invalid_dataset_pagination")
+    cases: list[CanaryCase] = []
+    for item in page.results:
+        if not item.metadata.enabled:
+            continue
+        if item.metadata.case_id in seen_case_ids:
+            raise PermanentCanaryError("duplicate_case_id")
+        seen_case_ids.add(item.metadata.case_id)
+        cases.append(
+            CanaryCase(
+                dataset_item_id=item.id,
+                case_id=item.metadata.case_id,
+                category=item.metadata.category,
+                question=item.input.question,
+                agent_mode=item.input.agent_mode,
+                expected_metric=item.expected_output.expected_metric,
+                expected_routing=item.expected_output.expected_routing,
+                expected_behavior=item.expected_output.expected_behavior,
+            )
+        )
+    return ParsedDatasetItemPage(cases=cases, next_page=page.next, item_count=len(page.results))
 
 
 def parse_browser_credentials(raw_credentials: str) -> BrowserSessionCredentials:
@@ -506,7 +538,7 @@ async def _consume_task_stream(response: httpx.Response) -> None:
             raise RetryableCanaryError("invalid_sse_json") from error
         if not isinstance(payload, dict):
             return False
-        return _is_completed_turn(payload)
+        return is_completed_turn(payload)
 
     try:
         async for line in response.aiter_lines():
@@ -534,7 +566,7 @@ async def _consume_task_stream(response: httpx.Response) -> None:
     raise TaskStreamReconnect(last_event_id)
 
 
-def _is_completed_turn(payload: dict[str, object]) -> bool:
+def is_completed_turn(payload: dict[str, object]) -> bool:
     payload_type = payload.get("type")
     if payload_type == "task_run_state":
         status = payload.get("status")
