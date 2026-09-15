@@ -25,12 +25,13 @@ from urllib.parse import quote, urlencode, urlsplit
 
 from django.conf import settings
 
-import requests
 import structlog
 import posthoganalytics
 from prometheus_client import Counter, Histogram
 
 from posthog.dataclasses import frozen
+from posthog.egress.browserless.transport import BrowserlessEgressBudgetExhausted, browserless_request
+from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
 from posthog.security.url_validation import is_url_allowed
 
@@ -147,6 +148,10 @@ class LighthouseAuditFailedError(RuntimeError):
     """Browserless or Lighthouse itself could not produce a usable report."""
 
 
+class LighthouseFleetBusyError(RuntimeError):
+    """The fleet's egress budget is spent, so this audit never started a browser."""
+
+
 @frozen
 class LcpElement:
     selector: str | None
@@ -251,11 +256,12 @@ def run_lighthouse_audit(*, team_id: int, url: str, form_factor: str = DEFAULT_F
 def execute_lighthouse_audit(prepared: PreparedAudit) -> LighthouseAudit:
     """Spend the browser load for an already-validated audit and return the reduced report.
 
-    Raises `LighthouseAuditFailedError` when the run itself fails, and
-    `InvalidLighthouseTargetError` when the page turns out to have left the allowed hosts.
+    Raises `LighthouseAuditFailedError` when the run itself fails,
+    `InvalidLighthouseTargetError` when the page turns out to have left the allowed hosts, and
+    `LighthouseFleetBusyError` when the fleet's egress budget refused the call outright.
     """
     target, endpoint, form_factor = prepared.target, prepared.endpoint, prepared.form_factor
-    payload = _request_audit(endpoint=endpoint, url=target, form_factor=form_factor)
+    payload = _request_audit(endpoint_url=endpoint, url=target, form_factor=form_factor)
     report = payload.get("data") if isinstance(payload.get("data"), dict) else payload
     if not isinstance(report, dict):
         raise LighthouseAuditFailedError("Lighthouse returned a report in an unrecognized shape.")
@@ -400,7 +406,7 @@ def _build_performance_url() -> str | None:
     return f"{scheme}://{netloc}/performance?{urlencode(params)}"
 
 
-def _request_audit(*, endpoint: str, url: str, form_factor: str) -> dict[str, Any]:
+def _request_audit(*, endpoint_url: str, url: str, form_factor: str) -> dict[str, Any]:
     body = {
         "url": url,
         "config": {
@@ -423,7 +429,26 @@ def _request_audit(*, endpoint: str, url: str, form_factor: str) -> dict[str, An
     )
     started = time.monotonic()
     try:
-        response = requests.post(endpoint, json=body, timeout=timeout)
+        # `BATCH` because an audit holds a browser session for tens of seconds where the heatmap
+        # screenshot on the same fleet holds one for a few, and somebody is watching that render:
+        # a background explanation should be shed first rather than queue in front of it.
+        response = browserless_request(
+            "POST",
+            endpoint_url,
+            token=settings.LIGHTHOUSE_BROWSERLESS_TOKEN,
+            source="signals_lighthouse_audit",
+            endpoint="performance",
+            priority=Priority.BATCH,
+            json=body,
+            timeout=timeout,
+        )
+    except BrowserlessEgressBudgetExhausted as e:
+        # Refused before any browser started, so it is not a failed audit: the caller refunds the
+        # slot rather than charging the run for a page that was never loaded. Kept out of the
+        # latency histogram, which measures page loads.
+        logger.warning("signals.lighthouse.fleet_busy", form_factor=form_factor)
+        LIGHTHOUSE_REQUESTS.labels(form_factor=form_factor, outcome="fleet_busy").inc()
+        raise LighthouseFleetBusyError(f"The browser fleet is at capacity: {_redact(str(e))}") from None
     except Exception as e:
         # `str(e)` on a requests error quotes the full url, token query string included, so it is
         # scrubbed for the log line exactly as it is for the raised message.

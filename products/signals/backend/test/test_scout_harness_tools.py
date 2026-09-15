@@ -17,6 +17,8 @@ from django.utils import timezone
 import pytest_asyncio
 from parameterized import parameterized
 
+from posthog.egress.browserless.transport import BrowserlessEgressBudgetExhausted
+from posthog.egress.limiter.policies import Priority
 from posthog.models.scoping import team_scope
 from posthog.settings.signals import _parse_team_ids
 from posthog.sync import database_sync_to_async
@@ -37,6 +39,7 @@ from products.signals.backend.scout_harness.tools import (
     InvalidLighthouseTargetError,
     InvalidScratchpadError,
     LighthouseAuditFailedError,
+    LighthouseFleetBusyError,
     LighthouseUnavailableError,
     audits_remaining_for_run,
     emit_finding,
@@ -1829,7 +1832,7 @@ class TestLighthouseAudit:
         response.json.return_value = payload
         with override_settings(**_AUDIT_SETTINGS), _no_flag_payload():
             with patch(
-                "products.signals.backend.scout_harness.tools.lighthouse.requests.post", return_value=response
+                "products.signals.backend.scout_harness.tools.lighthouse.browserless_request", return_value=response
             ) as post:
                 return run_lighthouse_audit(team_id=_AUDIT_TEAM_ID, url=url, form_factor=form_factor), post
 
@@ -1870,7 +1873,7 @@ class TestLighthouseAudit:
     )
     def test_rejects_a_target_outside_the_allowlist(self, _name: str, url: str) -> None:
         with override_settings(**_AUDIT_SETTINGS), _no_flag_payload():
-            with patch("products.signals.backend.scout_harness.tools.lighthouse.requests.post") as post:
+            with patch("products.signals.backend.scout_harness.tools.lighthouse.browserless_request") as post:
                 with pytest.raises(InvalidLighthouseTargetError):
                     run_lighthouse_audit(team_id=_AUDIT_TEAM_ID, url=url)
         # The fence has to hold before the request, or a disallowed page is already rendered.
@@ -1940,7 +1943,9 @@ class TestLighthouseAudit:
         response = MagicMock(status_code=500, content=b"")
         response.text = f"upstream rejected https://browserless.example.com/performance?token={quote(token, safe='')}"
         with override_settings(**{**_AUDIT_SETTINGS, "LIGHTHOUSE_BROWSERLESS_TOKEN": token}), _no_flag_payload():
-            with patch("products.signals.backend.scout_harness.tools.lighthouse.requests.post", return_value=response):
+            with patch(
+                "products.signals.backend.scout_harness.tools.lighthouse.browserless_request", return_value=response
+            ):
                 with pytest.raises(LighthouseAuditFailedError) as raised:
                     run_lighthouse_audit(team_id=_AUDIT_TEAM_ID, url="https://posthog.com/pricing")
 
@@ -1954,8 +1959,27 @@ class TestLighthouseAudit:
         response = MagicMock(status_code=200, content=b"x" * 2048)
         response.json.return_value = _lighthouse_payload()
         with override_settings(**{**_AUDIT_SETTINGS, "LIGHTHOUSE_REPORT_MAX_BYTES": 1024}), _no_flag_payload():
-            with patch("products.signals.backend.scout_harness.tools.lighthouse.requests.post", return_value=response):
+            with patch(
+                "products.signals.backend.scout_harness.tools.lighthouse.browserless_request", return_value=response
+            ):
                 with pytest.raises(LighthouseAuditFailedError, match="implausibly large"):
+                    run_lighthouse_audit(team_id=_AUDIT_TEAM_ID, url="https://posthog.com/pricing")
+
+    def test_asks_the_fleet_as_batch_so_a_waiting_render_goes_first(self) -> None:
+        # An audit holds a browser session for tens of seconds where the heatmap screenshot on the
+        # same fleet holds one for a few, and somebody is watching that render.
+        _, post = self._audit(_lighthouse_payload())
+
+        assert post.call_args.kwargs["priority"] is Priority.BATCH
+
+    def test_a_fleet_at_capacity_is_not_a_failed_audit(self) -> None:
+        # Distinct from a failed load: no browser started, so the caller can hand the slot back.
+        with override_settings(**_AUDIT_SETTINGS), _no_flag_payload():
+            with patch(
+                "products.signals.backend.scout_harness.tools.lighthouse.browserless_request",
+                side_effect=BrowserlessEgressBudgetExhausted("Browserless egress budget exhausted"),
+            ):
+                with pytest.raises(LighthouseFleetBusyError):
                     run_lighthouse_audit(team_id=_AUDIT_TEAM_ID, url="https://posthog.com/pricing")
 
     def test_is_unavailable_when_no_browserless_is_configured(self) -> None:

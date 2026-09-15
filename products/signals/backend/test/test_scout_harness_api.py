@@ -19,6 +19,7 @@ from rest_framework import status
 from social_django.models import UserSocialAuth
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.egress.browserless.transport import BrowserlessEgressBudgetExhausted
 from posthog.models import OAuthApplication
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
@@ -4557,7 +4558,7 @@ class TestScoutHarnessLighthouseAPI(APIBaseTest):
                 return_value=None,
             ):
                 with patch(
-                    "products.signals.backend.scout_harness.tools.lighthouse.requests.post", return_value=response
+                    "products.signals.backend.scout_harness.tools.lighthouse.browserless_request", return_value=response
                 ) as browserless:
                     return (
                         self.client.post(self._audit_url(str(run.id)), data={"url": url}, format="json"),
@@ -4619,7 +4620,7 @@ class TestScoutHarnessLighthouseAPI(APIBaseTest):
                 return_value=None,
             ):
                 with patch(
-                    "products.signals.backend.scout_harness.tools.lighthouse.requests.post", return_value=broken
+                    "products.signals.backend.scout_harness.tools.lighthouse.browserless_request", return_value=broken
                 ):
                     response = self.client.post(
                         self._audit_url(str(run.id)),
@@ -4629,6 +4630,29 @@ class TestScoutHarnessLighthouseAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert self._spent(run) == 1
+
+    def test_a_fleet_at_capacity_gives_the_slot_back(self) -> None:
+        # The egress gate refuses before a browser starts, so five refusals must not read as five
+        # audits — a busy fleet would otherwise empty a run's budget without measuring anything.
+        run = _make_run(self.team)
+        with self.settings(**_LIGHTHOUSE_API_SETTINGS, SIGNALS_LIGHTHOUSE_TEAM_IDS={self.team.id}):
+            with patch(
+                "products.signals.backend.scout_harness.tools.lighthouse.posthoganalytics.get_feature_flag_payload",
+                return_value=None,
+            ):
+                with patch(
+                    "products.signals.backend.scout_harness.tools.lighthouse.browserless_request",
+                    side_effect=BrowserlessEgressBudgetExhausted("Browserless egress budget exhausted"),
+                ):
+                    response = self.client.post(
+                        self._audit_url(str(run.id)),
+                        data={"url": "https://posthog.com/pricing"},
+                        format="json",
+                    )
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert self._spent(run) == 0
+        assert f"{MAX_AUDITS_PER_RUN} of {MAX_AUDITS_PER_RUN} audits still available" in response.json()["detail"]
 
     def test_returns_501_when_the_deployment_has_no_browserless(self) -> None:
         run = _make_run(self.team)

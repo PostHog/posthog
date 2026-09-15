@@ -151,6 +151,7 @@ from products.signals.backend.scout_harness.tools.lighthouse import (
     RUN_AUDIT_COUNT_KEY,
     InvalidLighthouseTargetError,
     LighthouseAuditFailedError,
+    LighthouseFleetBusyError,
     LighthouseUnavailableError,
     audits_remaining_for_run,
     execute_lighthouse_audit,
@@ -237,6 +238,14 @@ class _LighthouseNotConfigured(exceptions.APIException):
 
     status_code = status.HTTP_501_NOT_IMPLEMENTED
     default_code = "lighthouse_not_configured"
+
+
+class _LighthouseFleetBusy(exceptions.APIException):
+    """503 for an audit the fleet's egress budget refused. Nothing is wrong with the request and
+    the budget refills on its own, so this reads as "come back", not as a failed audit."""
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "lighthouse_fleet_busy"
 
 
 # `SignalScoutRunViewSet.lookup_field` is `run_id`, but the model's PK field is `id`, so
@@ -1372,6 +1381,11 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             404: OpenApiResponse(description="No such run in this project, or the run belongs to a different scout."),
             429: OpenApiResponse(description="Audit rate limit exceeded; retry later."),
             501: OpenApiResponse(description="Lighthouse audits are not configured on this deployment."),
+            503: OpenApiResponse(
+                description=(
+                    "The browser fleet is at capacity, so no audit ran and the run keeps the slot. Retry later."
+                )
+            ),
         },
         summary="Run a Lighthouse audit for a run",
         description=(
@@ -1465,10 +1479,38 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.ValidationError({"detail": f"{exc} {spent_message}"})
         except LighthouseAuditFailedError as exc:
             raise exceptions.ValidationError({"detail": f"{exc} {spent_message}"})
+        except LighthouseFleetBusyError as exc:
+            # No browser was started, so the reservation above bought nothing. Give the slot back
+            # rather than letting a busy fleet eat a run's whole budget in five instant refusals.
+            self._refund_audit(run)
+            raise _LighthouseFleetBusy(
+                detail=f"{exc} ({self._audits_left(run)} of {MAX_AUDITS_PER_RUN} audits still available.)"
+            )
 
         payload = audit.as_dict()
         payload["audits_remaining"] = remaining - 1
         return Response(LighthouseAuditResponseSerializer(payload).data, status=status.HTTP_200_OK)
+
+    @staticmethod
+    def _refund_audit(run: SignalScoutRun) -> None:
+        """Hand back a slot reserved for a browser load that never happened.
+
+        Re-read under the row lock rather than decrementing the count this request computed: a
+        concurrent audit on the same run may have reserved its own slot in between, and writing
+        back a stale total would hand that one back too.
+        """
+        with transaction.atomic():
+            locked = SignalScoutRun.all_teams.select_for_update(of=("self",)).filter(pk=run.pk).first()
+            if locked is None:
+                return
+            metadata = dict(locked.metadata or {})
+            spent = metadata.get(RUN_AUDIT_COUNT_KEY)
+            if not isinstance(spent, int) or spent <= 0:
+                return
+            metadata[RUN_AUDIT_COUNT_KEY] = spent - 1
+            locked.metadata = metadata
+            locked.save(update_fields=["metadata"])
+            run.metadata = metadata
 
     @staticmethod
     def _audits_left(run: SignalScoutRun) -> int:
