@@ -101,8 +101,7 @@ def mark_cdc_broken(
         if create_visibility_jobs:
             _create_failure_visibility_jobs(source, newly_broken, message, log)
         _schedule_failure_digest(source, log)
-        # Re-read the schemas, because the locked merge above wrote the cdc_broken marker to the
-        # database only, and the event reports the paused state from that marker.
+        # Re-read: the locked merge above wrote the cdc_broken marker, which sync_paused reads, only to the database.
         produce_sync_failed_events(
             source, ExternalDataSchema.objects.filter(id__in=[schema.id for schema in newly_broken]), message
         )
