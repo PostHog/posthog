@@ -24,6 +24,10 @@ from posthog.temporal.tests.test_alerts_activities import _create_alert
         pytest.param([2, 2], 4, 1, [0, 1, 0, 1], id="overflow-fills-unused-capacity"),
         pytest.param([3, 1], 2, 1, [0, 1], id="fair-share-precedes-overflow"),
         pytest.param([3, 3, 3], 5, 3, [0, 1, 2, 0, 1], id="truncation-uses-rank-rounds"),
+        pytest.param([4, 1, 1, 1], 4, 1, [0, 1, 2, 3], id="many-teams-precede-noisy-overflow"),
+        pytest.param([4, 1, 1], 6, 2, [0, 1, 2, 0, 0, 0], id="unused-shares-return-to-noisy-team"),
+        pytest.param([4, 3, 2], 7, 2, [0, 1, 2, 0, 1, 2, 0], id="all-share-rounds-precede-overflow"),
+        pytest.param([1, 1, 1], 2, 1, [0, 1], id="cap-smaller-than-due-team-count"),
     ],
 )
 async def test_retrieve_due_alerts_orders_fair_share_before_overflow(
