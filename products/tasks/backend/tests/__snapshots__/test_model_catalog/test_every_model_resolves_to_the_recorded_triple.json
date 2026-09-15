@@ -33,6 +33,15 @@
       "runtime_adapter": "codex"
     }
   ],
+  "pi_reasoning_efforts": [
+    "off",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+  ],
   "reasoning_efforts": [
     "low",
     "medium",
@@ -178,5 +187,22 @@
       },
       "provider": "openai"
     }
-  }
+  },
+  "runtimes": [
+    {
+      "label": "Claude Code",
+      "runtime": "acp",
+      "runtime_adapter": "claude"
+    },
+    {
+      "label": "Codex",
+      "runtime": "acp",
+      "runtime_adapter": "codex"
+    },
+    {
+      "label": "Pi",
+      "runtime": "pi",
+      "runtime_adapter": null
+    }
+  ]
 }

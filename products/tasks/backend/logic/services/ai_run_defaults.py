@@ -41,7 +41,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.tasks.backend.constants import PI_THINKING_LEVEL_CHOICES
+from products.tasks.backend.constants import PI_REASONING_EFFORTS
 from products.tasks.backend.feature_flags import (
     get_model_access_error,
     get_required_model_flag,
@@ -237,7 +237,7 @@ def _resolve_from_preferences(
         # No catalogue lookup: the ACP catalogue does not own Pi's model ids, and its
         # effort map would drop depths Pi does support. A level that is no longer legal
         # keeps its model and loses only the depth.
-        if reasoning_effort not in PI_THINKING_LEVEL_CHOICES:
+        if reasoning_effort not in PI_REASONING_EFFORTS:
             reasoning_effort = None
         return ResolvedAIRunConfig(
             runtime=PI,
@@ -285,9 +285,9 @@ def validate_ai_run_preferences(
             raise ValidationError("model must be set to configure a Pi default.")
         if runtime_adapter is not None:
             raise ValidationError("runtime_adapter cannot be set with runtime 'pi' — Pi has no ACP adapter.")
-        if reasoning_effort is not None and reasoning_effort not in PI_THINKING_LEVEL_CHOICES:
+        if reasoning_effort is not None and reasoning_effort not in PI_REASONING_EFFORTS:
             raise ValidationError(
-                f"Unknown thinking level '{reasoning_effort}'. Valid: {', '.join(sorted(PI_THINKING_LEVEL_CHOICES))}."
+                f"Unknown thinking level '{reasoning_effort}'. Valid: {', '.join(sorted(PI_REASONING_EFFORTS))}."
             )
         return
 

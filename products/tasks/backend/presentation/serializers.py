@@ -50,7 +50,7 @@ from products.tasks.backend.facade.run_config import (
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
     CONTEXT_WINDOW_CHOICES,
     INITIAL_PERMISSION_MODE_CHOICES,
-    PI_THINKING_LEVEL_CHOICES,
+    PI_REASONING_EFFORTS,
     PUBLIC_REASONING_EFFORTS,
     WARMABLE_ORIGIN_PRODUCTS,
     LLMProvider,
@@ -3476,7 +3476,7 @@ class TaskRunBootstrapCreateRequestSerializer(
                     errors[field] = "This field cannot be used with a Pi task."
 
             reasoning_effort = attrs.get("reasoning_effort")
-            if reasoning_effort is not None and reasoning_effort not in PI_THINKING_LEVEL_CHOICES:
+            if reasoning_effort is not None and reasoning_effort not in PI_REASONING_EFFORTS:
                 errors["reasoning_effort"] = "This thinking level is not supported by Pi."
 
             if errors:
@@ -4611,7 +4611,7 @@ class TasksAIRunPreferencesSerializer(serializers.Serializer):
             return attrs
 
         is_pi = attrs.get("runtime") == tasks_facade.TaskRuntime.PI
-        allowed = PI_THINKING_LEVEL_CHOICES if is_pi else [effort.value for effort in PUBLIC_REASONING_EFFORTS]
+        allowed = PI_REASONING_EFFORTS if is_pi else [effort.value for effort in PUBLIC_REASONING_EFFORTS]
         if reasoning_effort not in allowed:
             label = "thinking level" if is_pi else "reasoning effort"
             raise serializers.ValidationError(
