@@ -31,6 +31,10 @@ MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG = "tasks-modal-network-allowlist"
 HOGLAND_SANDBOX_FEATURE_FLAG = "tasks-hogland-sandbox"
 AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG = "tasks-agent-run-otel-telemetry"
 PI_CLOUD_RUNTIME_FEATURE_FLAG = "pi-harness"
+# The depths a Pi run offers. Its own vocabulary, not the ACP reasoning efforts: Pi adds
+# `off` and `minimal`, and has no `ultracode`. Lives here so the write serializer and the
+# run-defaults service validate against one tuple.
+PI_THINKING_LEVEL_CHOICES = ("off", "minimal", "low", "medium", "high", "xhigh", "max")
 # Gates agent-to-agent peer messaging between cloud runs. v1 additionally requires the Pi
 # runtime, so the effective audience is teams with both this flag and
 # PI_CLOUD_RUNTIME_FEATURE_FLAG enabled.

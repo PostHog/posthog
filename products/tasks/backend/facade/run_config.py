@@ -14,6 +14,7 @@ from products.tasks.backend.constants import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
     INITIAL_PERMISSION_MODE_CHOICES,
+    PI_THINKING_LEVEL_CHOICES,
     InitialPermissionMode,
     get_required_model_flag,
 )
@@ -64,6 +65,7 @@ __all__ = [
     "CODEX_INITIAL_PERMISSION_MODE_CHOICES",
     "CONTEXT_WINDOW_CHOICES",
     "INITIAL_PERMISSION_MODE_CHOICES",
+    "PI_THINKING_LEVEL_CHOICES",
     "WARMABLE_ORIGIN_PRODUCTS",
     "InitialPermissionMode",
     "PUBLIC_REASONING_EFFORTS",

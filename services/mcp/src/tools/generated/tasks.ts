@@ -542,6 +542,9 @@ const tasksConfigCreate = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof TasksConfigCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.runtime !== undefined) {
+            body['runtime'] = params.runtime
+        }
         if (params.runtime_adapter !== undefined) {
             body['runtime_adapter'] = params.runtime_adapter
         }
@@ -743,6 +746,9 @@ const tasksMeConfigCreate = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof TasksMeConfigCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.runtime !== undefined) {
+            body['runtime'] = params.runtime
+        }
         if (params.runtime_adapter !== undefined) {
             body['runtime_adapter'] = params.runtime_adapter
         }

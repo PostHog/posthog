@@ -2210,6 +2210,12 @@ def _resolve_run_defaults_state(
         logger.exception("slack_app_home_run_defaults_resolution_failed", slack_user_id=slack_user_id)
         return RunDefaultsState(settings_url=settings_url)
 
+    if resolved.runtime != ai_run_defaults.ACP:
+        # A mention never runs the Pi harness, so it falls back to Slack's own floor (see
+        # run_preferences._central_run_default). Naming a Pi default here would describe a
+        # run nobody gets.
+        return RunDefaultsState(settings_url=settings_url)
+
     return RunDefaultsState(
         model=resolved.model,
         reasoning_effort=resolved.reasoning_effort,

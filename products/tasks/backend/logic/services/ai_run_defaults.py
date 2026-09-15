@@ -1,7 +1,7 @@
 """Central AI run defaults for task runs.
 
-Resolves the effective `(runtime_adapter, model, reasoning_effort)` triple for a
-new task run from, in order: explicit per-run values, the acting user's
+Resolves the effective `(runtime, runtime_adapter, model, reasoning_effort)` selection
+for a new task run from, in order: explicit per-run values, the acting user's
 per-project preference (`UserTasksConfig`), and the project default
 (`TeamTasksConfig`). Surfaces with their own preference layer (e.g. the Slack
 app's per-workspace/per-user settings) resolve first and pass the result as
@@ -20,8 +20,14 @@ passes through (the agent server owns the final fallback), a triple whose
 runtime adapter is no longer valid is skipped in favor of the next level, and
 a reasoning effort the resolved model doesn't support is dropped. This module
 never raises during resolution. The one hard gate is entitlement: a level whose
-model is behind an access flag the acting user doesn't hold is skipped, so a
-stored default can never launch a model the run paths would refuse.
+model is behind an access flag the acting user doesn't hold is skipped, and so is a
+Pi level the acting user has no Pi harness access to, so a stored default can never
+launch something the run paths would refuse.
+
+`runtime` names the harness: `acp` for the claude/codex adapters, `pi` for the Pi
+harness. A row stored before Pi was offered carries no `runtime` key and reads as
+`acp`. A Pi level carries a model and no adapter, so an ACP caller reads it as "this
+user has no ACP default" — which is what a user who chose Pi means.
 """
 
 from dataclasses import dataclass
@@ -35,44 +41,60 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.tasks.backend.feature_flags import get_model_access_error, get_required_model_flag
+from products.tasks.backend.constants import PI_THINKING_LEVEL_CHOICES
+from products.tasks.backend.feature_flags import (
+    get_model_access_error,
+    get_required_model_flag,
+    is_pi_cloud_runtime_enabled,
+)
 from products.tasks.backend.logic.services.model_catalogue import filter_unsupported_effort
-from products.tasks.backend.models import TeamTasksConfig, UserTasksConfig
+from products.tasks.backend.models import Task, TeamTasksConfig, UserTasksConfig
 from products.tasks.backend.temporal.process_task.utils import (
     PUBLIC_REASONING_EFFORTS,
     RuntimeAdapter,
     validate_model_selection,
 )
 
+ACP = Task.Runtime.ACP.value
+PI = Task.Runtime.PI.value
+
 
 @dataclass(frozen=True)
 class ResolvedAIRunConfig:
-    """The effective AI run triple plus which preference level supplied it."""
+    """The effective AI run selection plus which preference level supplied it."""
 
     runtime_adapter: str | None = None
     model: str | None = None
     reasoning_effort: str | None = None
     source: Literal["explicit", "user", "team", "none"] = "none"
+    # Last, so the existing keyword construction and `asdict()` key order both hold.
+    runtime: str = ACP
 
 
 def resolve_ai_run_selection(
     team_id: int,
     user_id: int | None,
     *,
+    runtime: str = ACP,
     runtime_adapter: str | None = None,
     model: str | None = None,
     reasoning_effort: str | None = None,
 ) -> ResolvedAIRunConfig:
-    """The effective runtime selection for a new run: the caller's own selection when it
-    pins anything, otherwise the stored defaults.
+    """The effective runtime selection for a new run on `runtime`'s harness: the caller's
+    own selection when it pins anything, otherwise the stored defaults.
 
     A partial pin (either `runtime_adapter` or `model` alone) is treated as explicit and
     returned untouched — filling in the other half from a preference would pair values
     the caller never chose together. When defaults apply, an explicitly passed
-    `reasoning_effort` survives and the default triple's effort only fills a gap.
+    `reasoning_effort` survives and the default's effort only fills a gap.
+
+    A stored default belonging to the other harness supplies nothing. Stating that here
+    rather than leaving it to the adapter null check keeps a Pi default from reaching an
+    ACP run as a model with no adapter.
     """
     if runtime_adapter or model:
         return ResolvedAIRunConfig(
+            runtime=runtime,
             runtime_adapter=runtime_adapter,
             model=model,
             reasoning_effort=reasoning_effort,
@@ -80,9 +102,11 @@ def resolve_ai_run_selection(
         )
 
     resolved = resolve_ai_run_defaults(team_id, user_id)
-    if not (resolved.runtime_adapter and resolved.model):
-        return ResolvedAIRunConfig(reasoning_effort=reasoning_effort, source="none")
+    usable = bool(resolved.runtime == runtime and resolved.model and (runtime == PI or resolved.runtime_adapter))
+    if not usable:
+        return ResolvedAIRunConfig(runtime=runtime, reasoning_effort=reasoning_effort, source="none")
     return ResolvedAIRunConfig(
+        runtime=runtime,
         runtime_adapter=resolved.runtime_adapter,
         model=resolved.model,
         reasoning_effort=reasoning_effort or resolved.reasoning_effort,
@@ -145,15 +169,32 @@ def resolve_ai_run_defaults(
     acting_distinct_id: str | None = None
     acting_distinct_id_loaded = False
 
-    def _model_accessible(model: str | None) -> bool:
-        if get_required_model_flag(model) is None:
-            return True
+    def _distinct_id() -> str | None:
         nonlocal acting_distinct_id, acting_distinct_id_loaded
         if not acting_distinct_id_loaded:
             acting_distinct_id_loaded = True
             if user_id is not None:
                 acting_distinct_id = User.objects.filter(id=user_id).values_list("distinct_id", flat=True).first()
-        return get_model_access_error(model, distinct_id=acting_distinct_id) is None
+        return acting_distinct_id
+
+    def _level_usable(resolved: ResolvedAIRunConfig) -> bool:
+        """Whether the acting user may launch what this level stores."""
+        if resolved.runtime == PI:
+            organization_id = (
+                Team.objects.filter(id=canonical_team_id).values_list("organization_id", flat=True).first()
+            )
+            # The same identity the run path evaluates this flag under (`pi_cloud_runtime_enabled`):
+            # `distinct_id` is nullable, and without the fallback a user who has none would lose a
+            # stored Pi default that their runs are entitled to. The model gate below keeps the raw
+            # value on purpose — an unidentifiable caller must not reach a gated model.
+            pi_distinct_id = _distinct_id() or (f"user_{user_id}" if user_id is not None else None)
+            if not is_pi_cloud_runtime_enabled(
+                distinct_id=pi_distinct_id, organization_id=str(organization_id) if organization_id else None
+            ):
+                return False
+        if get_required_model_flag(resolved.model) is None:
+            return True
+        return get_model_access_error(resolved.model, distinct_id=_distinct_id()) is None
 
     if user_preferences is None and user_id is not None:
         user_preferences = (
@@ -163,17 +204,17 @@ def resolve_ai_run_defaults(
             .first()
         )
     resolved = _resolve_from_preferences(user_preferences, source="user")
-    # A default naming a model the acting user isn't entitled to falls through to
-    # the next level, the same way an unusable pair does — a stored default must
-    # never launch a model the cold run path would have refused.
-    if resolved is not None and _model_accessible(resolved.model):
+    # A default naming a model or a harness the acting user isn't entitled to falls
+    # through to the next level, the same way an unusable pair does — a stored default
+    # must never launch something the cold run path would have refused.
+    if resolved is not None and _level_usable(resolved):
         return resolved
 
     team_prefs = (
         TeamTasksConfig.objects.filter(team_id=canonical_team_id).values_list("ai_run_preferences", flat=True).first()
     )
     resolved = _resolve_from_preferences(team_prefs, source="team")
-    if resolved is not None and _model_accessible(resolved.model):
+    if resolved is not None and _level_usable(resolved):
         return resolved
 
     return ResolvedAIRunConfig(source="none")
@@ -183,12 +224,27 @@ def _resolve_from_preferences(
     preferences: dict[str, Any] | None, *, source: Literal["user", "team"]
 ) -> ResolvedAIRunConfig | None:
     """A `ResolvedAIRunConfig` from a stored preference payload, or `None` when the
-    payload carries no usable `(runtime_adapter, model)` pair (fall through to the
-    next level)."""
+    payload carries nothing usable (fall through to the next level)."""
     prefs = preferences or {}
+    runtime = prefs.get("runtime") or ACP
     runtime_adapter = prefs.get("runtime_adapter") or None
     model = prefs.get("model") or None
     reasoning_effort = prefs.get("reasoning_effort") or None
+
+    if runtime == PI:
+        if not model:
+            return None
+        # No catalogue lookup: the ACP catalogue does not own Pi's model ids, and its
+        # effort map would drop depths Pi does support. A level that is no longer legal
+        # keeps its model and loses only the depth.
+        if reasoning_effort not in PI_THINKING_LEVEL_CHOICES:
+            reasoning_effort = None
+        return ResolvedAIRunConfig(
+            runtime=PI,
+            model=model,
+            reasoning_effort=reasoning_effort,
+            source=source,
+        )
 
     if not (runtime_adapter and model):
         return None
@@ -199,6 +255,7 @@ def _resolve_from_preferences(
         reasoning_effort = filter_unsupported_effort(runtime_adapter, model, reasoning_effort)
 
     return ResolvedAIRunConfig(
+        runtime=ACP,
         runtime_adapter=runtime_adapter,
         model=model,
         reasoning_effort=reasoning_effort,
@@ -210,18 +267,30 @@ def validate_ai_run_preferences(
     runtime_adapter: str | None,
     model: str | None,
     reasoning_effort: str | None,
+    runtime: str | None = None,
 ) -> None:
-    """Validate the `(runtime_adapter, model, reasoning_effort)` triple on the write
-    path so half-set rows never reach the DB.
+    """Validate a stored selection on the write path so half-set rows never reach the DB.
 
-    The storage rule — both halves of the pair or neither — lives here; whether the
-    three values may be used together is the model catalogue's call, so that part
-    defers to `validate_model_selection`. Deliberately not strict on model-id
-    membership: the gateway's model list drifts, and resolution handles stale ids
-    leniently.
+    Each harness states what a complete selection is. ACP keeps the pair rule — both
+    halves or neither — and defers "may these be used together" to the model catalogue.
+    Pi carries a model and no adapter, and its depths are its own vocabulary, so it takes
+    neither the catalogue's word nor the ACP effort list. Deliberately not strict on
+    model-id membership: the gateway's model list drifts, and resolution handles stale
+    ids leniently.
 
     Raises `django.core.exceptions.ValidationError` on inconsistency.
     """
+    if runtime == PI:
+        if model is None:
+            raise ValidationError("model must be set to configure a Pi default.")
+        if runtime_adapter is not None:
+            raise ValidationError("runtime_adapter cannot be set with runtime 'pi' — Pi has no ACP adapter.")
+        if reasoning_effort is not None and reasoning_effort not in PI_THINKING_LEVEL_CHOICES:
+            raise ValidationError(
+                f"Unknown thinking level '{reasoning_effort}'. Valid: {', '.join(sorted(PI_THINKING_LEVEL_CHOICES))}."
+            )
+        return
+
     if (runtime_adapter is None) != (model is None):
         raise ValidationError(
             "runtime_adapter and model must be set together — set both to configure a default, or both to null to clear it."
@@ -245,29 +314,37 @@ def validate_ai_run_preferences_payload(prefs: dict) -> None:
     `build_ai_run_preferences_payload`, so unknown keys cannot occur on that path.
 
     Raises `django.core.exceptions.ValidationError` on unknown keys, non-string
-    values, or an inconsistent triple.
+    values, or an inconsistent selection.
     """
-    allowed_keys = ("runtime_adapter", "model", "reasoning_effort")
+    allowed_keys = ("runtime", "runtime_adapter", "model", "reasoning_effort")
     unknown = sorted(set(prefs) - set(allowed_keys))
     if unknown:
         raise ValidationError(f"Unknown keys: {', '.join(unknown)}. Allowed: {', '.join(allowed_keys)}.")
     non_strings = sorted(key for key, value in prefs.items() if not isinstance(value, str))
     if non_strings:
         raise ValidationError(f"Values must be strings: {', '.join(non_strings)}.")
-    validate_ai_run_preferences(prefs.get("runtime_adapter"), prefs.get("model"), prefs.get("reasoning_effort"))
+    runtime = prefs.get("runtime")
+    if runtime is not None and runtime not in (ACP, PI):
+        raise ValidationError(f"Unknown runtime '{runtime}'. Valid: {ACP}, {PI}.")
+    validate_ai_run_preferences(
+        prefs.get("runtime_adapter"), prefs.get("model"), prefs.get("reasoning_effort"), runtime
+    )
 
 
 def build_ai_run_preferences_payload(
     runtime_adapter: str | None,
     model: str | None,
     reasoning_effort: str | None,
+    runtime: str | None = None,
 ) -> dict[str, str]:
-    """Pack the triple into the JSON shape stored on `ai_run_preferences`.
+    """Pack the selection into the JSON shape stored on `ai_run_preferences`.
 
     Drops keys whose value is falsy so a cleared preference is stored as an
-    empty object rather than a triple of nulls.
+    empty object rather than a row of nulls. `runtime` rides along only with a model,
+    so clearing a preference leaves no harness behind for the next read to find.
     """
     payload = {
+        "runtime": runtime if model else None,
         "runtime_adapter": runtime_adapter,
         "model": model,
         "reasoning_effort": reasoning_effort,
@@ -291,13 +368,14 @@ def update_team_ai_run_preferences(
     runtime_adapter: str | None,
     model: str | None,
     reasoning_effort: str | None,
+    runtime: str | None = None,
 ) -> dict[str, str]:
-    """Validate and store the team-level preference triple; returns the stored payload.
+    """Validate and store the team-level preference; returns the stored payload.
 
-    Raises `django.core.exceptions.ValidationError` on an inconsistent triple.
+    Raises `django.core.exceptions.ValidationError` on an inconsistent selection.
     """
-    validate_ai_run_preferences(runtime_adapter, model, reasoning_effort)
-    payload = build_ai_run_preferences_payload(runtime_adapter, model, reasoning_effort)
+    validate_ai_run_preferences(runtime_adapter, model, reasoning_effort, runtime)
+    payload = build_ai_run_preferences_payload(runtime_adapter, model, reasoning_effort, runtime)
     team = Team.objects.get(id=_canonical_team_id(team_id))
     config = get_or_create_team_extension(team, TeamTasksConfig)
     config.ai_run_preferences = payload
@@ -324,12 +402,13 @@ def update_user_ai_run_preferences(
     runtime_adapter: str | None,
     model: str | None,
     reasoning_effort: str | None,
+    runtime: str | None = None,
 ) -> dict[str, str]:
-    """Validate and upsert the per-(user, project) preference triple; returns the stored
-    payload. Raises `django.core.exceptions.ValidationError` on an inconsistent triple.
+    """Validate and upsert the per-(user, project) preference; returns the stored payload.
+    Raises `django.core.exceptions.ValidationError` on an inconsistent selection.
     """
-    validate_ai_run_preferences(runtime_adapter, model, reasoning_effort)
-    payload = build_ai_run_preferences_payload(runtime_adapter, model, reasoning_effort)
+    validate_ai_run_preferences(runtime_adapter, model, reasoning_effort, runtime)
+    payload = build_ai_run_preferences_payload(runtime_adapter, model, reasoning_effort, runtime)
     canonical_team_id = _canonical_team_id(team_id)
     # team_id repeated in the lookup kwargs: for_team() only filters reads — creation
     # needs the value passed explicitly.

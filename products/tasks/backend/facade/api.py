@@ -66,7 +66,6 @@ from products.tasks.backend.constants import (
     DEV_STACK_PREVIEW_STATE_KEY,
     MAX_CUSTOM_IMAGES_PER_TEAM,
     MAX_CUSTOM_IMAGES_PER_USER,
-    PI_CLOUD_RUNTIME_FEATURE_FLAG,
     PR_LOOP_ENABLED_STATE_KEY,
     PR_STATES as PR_STATES,  # re-exported for presentation
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
@@ -80,7 +79,11 @@ from products.tasks.backend.constants import (
     is_same_run_resume_state,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
-from products.tasks.backend.feature_flags import get_model_access_error, is_workflow_dispatch_shadow_enabled
+from products.tasks.backend.feature_flags import (
+    get_model_access_error,
+    is_pi_cloud_runtime_enabled,
+    is_workflow_dispatch_shadow_enabled,
+)
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
 )
@@ -5352,22 +5355,10 @@ def get_conversation_task_dtos(
 
 
 def pi_cloud_runtime_enabled(team: Team, user: User) -> bool:
-    distinct_id = user.distinct_id or f"user_{user.id}"
-    organization_id = str(team.organization_id)
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                PI_CLOUD_RUNTIME_FEATURE_FLAG,
-                distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.exception("pi-harness flag check failed; treating as disabled")
-        return False
+    return is_pi_cloud_runtime_enabled(
+        distinct_id=user.distinct_id or f"user_{user.id}",
+        organization_id=str(team.organization_id),
+    )
 
 
 def task_analysis_enabled(team: Team, user: User) -> bool:

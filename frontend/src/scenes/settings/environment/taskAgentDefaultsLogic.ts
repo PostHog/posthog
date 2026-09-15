@@ -8,6 +8,7 @@ import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCa
 import { taskRunDefaultsLogic } from 'products/posthog_ai/frontend/logics/taskRunDefaultsLogic'
 import { getRuntimeAdapterForModel } from 'products/posthog_ai/frontend/utils/composerModels'
 import { tasksConfigCreate, tasksConfigList, tasksMeConfigCreate } from 'products/tasks/frontend/generated/api'
+import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 import type {
     ModelChoiceApi,
     TasksAIRunPreferencesApi,
@@ -19,9 +20,11 @@ import type {
 export interface AIRunPreferenceDraft {
     model: string | null
     reasoning_effort: string | null
+    /** Which harness the default runs on; null until a model is picked, since a harness alone is not a default. */
+    runtime: TaskRuntimeEnumApi | null
 }
 
-const EMPTY_DRAFT: AIRunPreferenceDraft = { model: null, reasoning_effort: null }
+const EMPTY_DRAFT: AIRunPreferenceDraft = { model: null, reasoning_effort: null, runtime: null }
 
 interface DraftState {
     draft: AIRunPreferenceDraft
@@ -29,20 +32,60 @@ interface DraftState {
 }
 
 function isDraftChanged(draft: AIRunPreferenceDraft, stored: AIRunPreferenceDraft): boolean {
-    return draft.model !== stored.model || draft.reasoning_effort !== stored.reasoning_effort
+    return (
+        draft.model !== stored.model ||
+        draft.reasoning_effort !== stored.reasoning_effort ||
+        draft.runtime !== stored.runtime
+    )
 }
 
 function draftFromStored(stored: TasksAIRunPreferencesApi | null | undefined): AIRunPreferenceDraft {
-    return { model: stored?.model ?? null, reasoning_effort: stored?.reasoning_effort ?? null }
+    return {
+        model: stored?.model ?? null,
+        reasoning_effort: stored?.reasoning_effort ?? null,
+        // A default stored before Pi was offered carries no harness, and runs on ACP.
+        runtime: stored?.model ? (stored.runtime ?? TaskRuntimeEnumApi.Acp) : null,
+    }
+}
+
+/**
+ * One option value per (harness, model) pair, because Pi and the ACP adapters serve some of the
+ * same model ids — `gpt-5.6-terra` is both Pi's default and a Codex model. Keyed on the model
+ * alone, the two options collide and picking the Codex one reads as "no change", which leaves a
+ * default on Pi that the person just moved off it.
+ */
+export function encodeModelChoice(draft: Pick<AIRunPreferenceDraft, 'model' | 'runtime'>): string | null {
+    return draft.model ? `${draft.runtime ?? TaskRuntimeEnumApi.Acp}:${draft.model}` : null
+}
+
+export function decodeModelChoice(value: string | null): Pick<AIRunPreferenceDraft, 'model' | 'runtime'> {
+    const separator = value ? value.indexOf(':') : -1
+    if (!value || separator < 0) {
+        return { model: null, runtime: null }
+    }
+    return {
+        runtime: value.slice(0, separator) as TaskRuntimeEnumApi,
+        model: value.slice(separator + 1),
+    }
 }
 
 // The adapter is a property of the model, so it comes off the catalogue rather than the model id's
 // spelling — the settings picker offers Codex models too, and a new harness must not be mislabelled.
+// A Pi default has no adapter at all, and its model may be one the ACP catalogue never lists, so it
+// is sent through untouched rather than run past the catalogue, which would relabel it as Claude.
 function payloadFromDraft(draft: AIRunPreferenceDraft, catalogue: ModelChoiceApi[]): TasksAIRunPreferencesApi {
+    const runtime = draft.model ? (draft.runtime ?? TaskRuntimeEnumApi.Acp) : null
+    const reasoning_effort = draft.model
+        ? (draft.reasoning_effort as TasksAIRunPreferencesApi['reasoning_effort'])
+        : null
+    if (runtime === TaskRuntimeEnumApi.Pi) {
+        return { runtime, runtime_adapter: null, model: draft.model, reasoning_effort }
+    }
     return {
+        runtime,
         runtime_adapter: draft.model ? getRuntimeAdapterForModel(catalogue, draft.model) : null,
         model: draft.model,
-        reasoning_effort: draft.model ? (draft.reasoning_effort as TasksAIRunPreferencesApi['reasoning_effort']) : null,
+        reasoning_effort,
     }
 }
 
