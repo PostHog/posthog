@@ -53,6 +53,62 @@ describe('PlayerFrame', () => {
         expect(iframe).toHaveAttribute('sandbox', 'allow-same-origin')
     })
 
+    // A load event that never arrives used to leave rrweb with nowhere to mount, so the player
+    // showed an empty rectangle for as long as the tab stayed open. The timeout feeds the same
+    // failure action as a load without a mount node, so the first timeout retries the frame and
+    // the retry flow (or the offline shortcut) reaches the app-document fallback.
+    it('retries the frame when the load event never arrives, then falls back', () => {
+        jest.useFakeTimers()
+        try {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const captureExceptionSpy = jest.spyOn(posthog, 'captureException')
+            const { container, iframe } = renderPlayerFrame()
+
+            // The load never fires. The 10s timeout reports the first failure, which schedules a retry.
+            act(() => {
+                jest.advanceTimersByTime(10000)
+            })
+            expect(container.querySelector('iframe')).toBe(iframe)
+            expect(captureSpy).toHaveBeenCalledWith(
+                'replay player frame load retried',
+                expect.objectContaining({ attempt: 1 })
+            )
+
+            // The retry changes the src, and the reloaded frame's load also never fires. The frame
+            // gets MAX_PLAYER_FRAME_LOAD_RETRIES retries, so failures 1 and 2 retry and failure 3
+            // takes the app-document fallback.
+            act(() => {
+                jest.advanceTimersByTime(1000)
+            })
+            expect(iframe).toHaveAttribute('src', '/replay_player_frame/index.html?retry=1')
+
+            act(() => {
+                jest.advanceTimersByTime(10000)
+            })
+            expect(captureSpy).toHaveBeenCalledWith(
+                'replay player frame load retried',
+                expect.objectContaining({ attempt: 2 })
+            )
+
+            act(() => {
+                jest.advanceTimersByTime(2000)
+            })
+            expect(iframe).toHaveAttribute('src', '/replay_player_frame/index.html?retry=2')
+
+            act(() => {
+                jest.advanceTimersByTime(10000)
+            })
+
+            expect(container.querySelector('iframe')).toBeNull()
+            const fallback = container.querySelector('div.PlayerFrame__content')
+            expect(fallback).not.toBeNull()
+            expect(sessionRecordingPlayerLogic(logicProps).values.rootFrame).toBe(fallback)
+            expect(captureExceptionSpy).toHaveBeenCalledTimes(1)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     // Firefox fires load for the frame's initial about:blank document, which has no mount node.
     // The shell document is still on its way, so the frame must keep its chance to load.
     it('keeps the frame and reports nothing when the blank first document loads', () => {
