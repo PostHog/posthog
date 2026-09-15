@@ -1,6 +1,6 @@
 import { APIScopeObject, AccessControlLevel, EffectiveAccessControlEntry } from '~/types'
 
-import { getAccessSummaryTags, inheritedReasonOf } from './helpers'
+import { describeAccessControlLevel, getAccessSummaryTags, inheritedReasonOf } from './helpers'
 import { AccessControlRoleEntry } from './types'
 
 const makeEffectiveEntry = (
@@ -16,6 +16,20 @@ const makeEffectiveEntry = (
 })
 
 describe('helpers', () => {
+    describe('describeAccessControlLevel', () => {
+        // The project default picker reads these out. A project level that falls through to the
+        // generic wording says only its own name back, which is how "Admin" got read as
+        // "admins only" and handed the whole organization project admin.
+        it.each([null, AccessControlLevel.None, AccessControlLevel.Member, AccessControlLevel.Admin])(
+            'says what %s grants on a project',
+            (level) => {
+                const description = describeAccessControlLevel(level, 'project' as APIScopeObject)
+                expect(description).not.toBe('No access.')
+                expect(description).not.toMatch(/^\w+ access\.$/)
+            }
+        )
+    })
+
     describe('inheritedReasonOf', () => {
         // The wire carries provenance; the settings copy only distinguishes three situations. A
         // wrong mapping here shows a member the wrong explanation and can unlock an admin's row.
