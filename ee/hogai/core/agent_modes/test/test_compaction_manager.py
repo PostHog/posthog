@@ -1,7 +1,8 @@
 from uuid import uuid4
 
-from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.test import SimpleTestCase
 
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
@@ -20,15 +21,112 @@ from posthog.schema import (
     HumanMessage,
 )
 
-from ee.hogai.utils.types.base import AssistantMessageUnion
+from ee.hogai.utils.anthropic import convert_to_anthropic_messages
+from ee.hogai.utils.helpers import convert_tool_messages_to_dict
+from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantMessageUnion
 
 from ..compaction_manager import AnthropicConversationCompactionManager
 
 
-class TestAnthropicConversationCompactionManager(BaseTest):
+class TestAnthropicConversationCompactionManager(SimpleTestCase):
     def setUp(self):
         super().setUp()
         self.window_manager = AnthropicConversationCompactionManager()
+
+    @parameterized.expand(["human_boundary", "assistant_boundary", "oversized_final_result"])
+    def test_compacted_model_input_keeps_task_and_progress(self, boundary: str) -> None:
+        request = HumanMessage(content="Compare the example cohorts", id="request")
+        progress = AssistantMessage(
+            id="progress",
+            content="",
+            tool_calls=[
+                AssistantToolCall(
+                    id="todo",
+                    name=AssistantTool.TODO_WRITE,
+                    args={"todos": [{"id": "1", "content": "Explain the comparison", "status": "in_progress"}]},
+                )
+            ],
+        )
+        messages: list[AssistantMessageUnion] = [
+            request,
+            progress,
+            AssistantToolCallMessage(id="todo-result", tool_call_id="todo", content="Updated"),
+            AssistantMessage(
+                id="large-call",
+                content="",
+                tool_calls=[AssistantToolCall(id="sql-large", name="execute_sql", args={"query": "SELECT 1"})],
+            ),
+            ArtifactRefMessage(id="artifact", artifact_id="example1", content_type="visualization", source="artifact"),
+            AssistantToolCallMessage(id="large-result", tool_call_id="sql-large", content="x" * 9000),
+        ]
+        if boundary == "human_boundary":
+            request = HumanMessage(content="Explain the comparison", id="follow-up")
+            messages.append(request)
+        if boundary != "oversized_final_result":
+            messages.extend(
+                [
+                    AssistantMessage(
+                        id="small-call",
+                        content="",
+                        tool_calls=[
+                            AssistantToolCall(id="sql-small", name="execute_sql", args={"query": "SELECT 2"}),
+                            AssistantToolCall(id="sql-other", name="execute_sql", args={"query": "SELECT 3"}),
+                        ],
+                    ),
+                    AssistantToolCallMessage(id="small-result", tool_call_id="sql-small", content="2"),
+                    AssistantToolCallMessage(id="other-result", tool_call_id="sql-other", content="3"),
+                ]
+            )
+        summary = ContextMessage(id="summary", content="Both cohorts were queried. Explain the difference.")
+        result = self.window_manager.update_window(messages, summary, AgentMode.PRODUCT_ANALYTICS, start_id=request.id)
+        window = self.window_manager.get_messages_in_window(result.messages, result.updated_window_start_id)
+        model_input = convert_to_anthropic_messages(window, convert_tool_messages_to_dict(window))
+        text = str([message.content for message in model_input])
+
+        self.assertEqual(window[0].id, summary.id)
+        self.assertIn(summary.content, text)
+        self.assertIn(request.content, text)
+        self.assertIn("Explain the comparison", text)
+        self.assertIn("product_analytics mode", text)
+        self.assertNotIn("x" * 9000, text)
+        self.assertTrue(all(message in result.messages for message in messages))
+        if boundary != "oversized_final_result":
+            tool_calls = [
+                call["id"]
+                for message in model_input
+                if isinstance(message, LangchainAIMessage)
+                for call in message.tool_calls
+            ]
+            self.assertEqual(tool_calls, ["sql-small", "sql-other"])
+            self.assertIn("sql-small", text)
+            self.assertIn("sql-other", text)
+
+    def test_repeated_compaction_stays_within_active_window(self) -> None:
+        messages: list[AssistantMessageUnion] = [
+            HumanMessage(id="request", content="Compare the cohorts"),
+            AssistantMessage(id="old-result", content="x" * 9000),
+        ]
+        first = self.window_manager.update_window(
+            messages,
+            ContextMessage(id="summary-one", content="First summary " * 1000),
+            AgentMode.PRODUCT_ANALYTICS,
+            start_id="request",
+        )
+        second = self.window_manager.update_window(
+            first.messages,
+            ContextMessage(id="summary-two", content="The comparison is complete"),
+            AgentMode.PRODUCT_ANALYTICS,
+            start_id=first.updated_start_id,
+            window_start_id=first.updated_window_start_id,
+        )
+        window = self.window_manager.get_messages_in_window(second.messages, second.updated_window_start_id)
+        self.assertEqual(window[0].id, "summary-two")
+        self.assertNotIn("summary-one", [message.id for message in window])
+        self.assertNotIn("old-result", [message.id for message in window])
+        self.assertTrue(
+            any(isinstance(message, HumanMessage) and message.content == "Compare the cohorts" for message in window)
+        )
+        self.assertTrue(all(message in second.messages for message in first.messages))
 
     def test_find_window_boundary_basic(self):
         """Test finding window boundary with basic messages"""
@@ -447,13 +545,13 @@ class TestAnthropicConversationCompactionManager(BaseTest):
             messages, summary_message, AgentMode.PRODUCT_ANALYTICS, start_id=start_id
         )
 
-        # The start message should NOT be in the result (only its copy)
-        start_messages = [msg for msg in result.messages if msg.id == start_id]
-        self.assertEqual(len(start_messages), 0, "Original start message should not be in result")
+        window = self.window_manager.get_messages_in_window(result.messages, result.updated_window_start_id)
+        self.assertTrue(any(msg.id == start_id for msg in result.messages))
+        self.assertFalse(any(msg.id == start_id for msg in window))
 
         # Find the copied start message (same content, different ID)
         copied_start = next(
-            (msg for msg in result.messages if isinstance(msg, HumanMessage) and msg.content == "Initial question"),
+            (msg for msg in window if isinstance(msg, HumanMessage) and msg.content == "Initial question"),
             None,
         )
         self.assertIsNotNone(copied_start, "Copied start message should exist")
@@ -838,7 +936,7 @@ class TestAnthropicConversationCompactionManager(BaseTest):
             if isinstance(msg, ContextMessage) and "session_replay" in msg.content
         )
         copied_start = next(
-            (msg for msg in result.messages if isinstance(msg, HumanMessage) and msg.content == "Initial question"),
+            (msg for msg in result.messages if isinstance(msg, HumanMessage) and msg.id == result.updated_start_id),
             None,
         )
         self.assertIsNotNone(copied_start)

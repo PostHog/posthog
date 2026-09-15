@@ -28,6 +28,7 @@ from ee.hogai.chat_agent.sql.prompts import (
 )
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.context.insight.context import InsightContext
+from ee.hogai.context.insight.format.sql import SQLResultsFormatter
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.prompt import format_prompt_string
@@ -154,6 +155,7 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
         )
 
         insight_context = InsightContext(
+            max_sql_result_chars=SQLResultsFormatter.MAX_RESULT_CHARS,
             team=self._team,
             query=artifact_query,
             name=viz_title,
