@@ -379,9 +379,21 @@ export const heatmapLogic = kea<heatmapLogicType>([
             block_consent_modals: values.blockConsentModals,
         })
 
-        // Awaiting the updateHeatmap action only awaits the dispatch, not the save, so callers that
-        // need the heatmap to be persisted before their next request call this directly.
-        const persistHeatmap = async (): Promise<{ ok: boolean; renderTriggered: boolean; error?: string }> => {
+        const persistCaptureMethod = async (type: HeatmapType): Promise<string | null> => {
+            actions.setLoading(true)
+            try {
+                await savedPartialUpdate(String(values.currentTeamIdStrict), String(props.id), { type })
+                return null
+            } catch (error: unknown) {
+                const message = getApiErrorMessage(error, 'Failed to update heatmap')
+                lemonToast.error(message)
+                return message
+            } finally {
+                actions.setLoading(false)
+            }
+        }
+
+        const persistHeatmap = async (): Promise<void> => {
             actions.setLoading(true)
             const previousSavedUrl = values.savedDisplayUrl
             const previousBlockConsentModals = values.savedBlockConsentModals
@@ -402,22 +414,18 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     actions.setScreenshotUrl(null)
                     actions.setScreenshotLoaded(false)
                 }
-                // A saved change of URL or consent handling makes the server re-render on its own.
-                const renderTriggered = values.type === 'screenshot' && renderInputChanged
-                if (renderTriggered) {
+                if (values.type === 'screenshot' && renderInputChanged) {
                     actions.setScreenshotError(null)
                     if (values.heatmapId) {
                         actions.pollScreenshotStatus(values.widthOverride)
                     }
                 }
-                return { ok: true, renderTriggered }
             } catch (error: unknown) {
                 if (values.displayUrl !== previousSavedUrl) {
                     actions.setDisplayUrl(previousSavedUrl)
                 }
                 const message = getApiErrorMessage(error, 'Failed to update heatmap')
                 lemonToast.error(message)
-                return { ok: false, renderTriggered: false, error: message }
             } finally {
                 actions.setLoading(false)
             }
@@ -437,7 +445,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     actions.regenerateScreenshot()
                     return
                 }
-                await persistHeatmap()
+                await persistCaptureMethod(type)
             },
             load: async () => {
                 if (!props.id || String(props.id) === 'new') {
@@ -588,14 +596,11 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 cache.regeneratingScreenshot = true
                 try {
                     // The server rejects a render request for a heatmap it still holds as an iframe one, so
-                    // the local edits must land first. This also lets Retry recover from a failed save.
-                    const saved = await persistHeatmap()
-                    if (!saved.ok) {
+                    // the capture method must land first. This also lets Retry recover from a failed save.
+                    const saveError = await persistCaptureMethod('screenshot')
+                    if (saveError) {
                         // Show the save error so Retry stays reachable; otherwise the switch leaves a blank pane.
-                        actions.setScreenshotError(saved.error ?? 'Failed to regenerate screenshot')
-                        return
-                    }
-                    if (saved.renderTriggered) {
+                        actions.setScreenshotError(saveError)
                         return
                     }
                     actions.setScreenshotError(null)

@@ -36,7 +36,7 @@ describe('heatmapLogic', () => {
         jest.resetAllMocks()
     })
 
-    it('waits for the capture method to be saved before it asks for a render', async () => {
+    it('saves only the capture method before it asks for one render', async () => {
         const order: string[] = []
         jest.mocked(savedPartialUpdate).mockImplementation(async () => {
             // The save must not resolve on the same microtask it is called on, or a caller that only
@@ -44,7 +44,7 @@ describe('heatmapLogic', () => {
             await Promise.resolve()
             await Promise.resolve()
             order.push('saved')
-            return { url: 'https://example.com/pricing', block_consent_modals: false } as any
+            return { url: 'https://example.com/changed-on-server', block_consent_modals: true } as any
         })
         const rendered = new Promise<void>((resolve) => {
             jest.mocked(savedRegenerateCreate).mockImplementation(async () => {
@@ -58,11 +58,20 @@ describe('heatmapLogic', () => {
         await rendered
 
         expect(order).toEqual(['saved', 'render requested'])
-        expect(savedPartialUpdate).toHaveBeenCalledWith(
-            expect.anything(),
-            expect.anything(),
-            expect.objectContaining({ type: 'screenshot' })
-        )
+        expect(savedPartialUpdate).toHaveBeenCalledWith(expect.anything(), expect.anything(), { type: 'screenshot' })
+        expect(savedRegenerateCreate).toHaveBeenCalledTimes(1)
+    })
+
+    it('saves only the capture method when switching to iframe', async () => {
+        logic.actions.setType('screenshot')
+        jest.mocked(savedPartialUpdate).mockResolvedValue({} as any)
+
+        await expectLogic(logic, () => {
+            logic.actions.changeCaptureMethod('iframe')
+        }).toFinishAllListeners()
+
+        expect(savedPartialUpdate).toHaveBeenCalledWith(expect.anything(), expect.anything(), { type: 'iframe' })
+        expect(savedRegenerateCreate).not.toHaveBeenCalled()
     })
 
     it('surfaces an error banner when the save fails on switching to screenshot', async () => {
