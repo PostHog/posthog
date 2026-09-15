@@ -200,7 +200,8 @@ Two families:
 
 **Time series** `ts_<collector>` — append-only, `PARTITION BY RANGE (collected_at)`,
 daily partitions created ahead by the collector's sink on startup and hourly,
-old partitions dropped by `retention_days` (default 14). Columns: `server_id`,
+old partitions dropped by `retention_days` (default 14, per-collector override
+via `[sink.retention]`). Columns: `server_id`,
 `instance`, `datname` (nullable for cluster scope), `collected_at`, `interval_seconds`, key
 columns, then metric columns. Index on `(server_id, collected_at)` and on key
 columns + time for the hot ones.
@@ -258,6 +259,8 @@ own stats; database-scoped ones run on the writer unless `per_instance: true`.
 [sink]
 database_url = "postgres://pgcollector@stats-host/pgcollector"
 retention_days = 14
+[sink.retention]
+query_durations = 7          # per-collector override
 
 [defaults]
 statement_timeout = "5s"

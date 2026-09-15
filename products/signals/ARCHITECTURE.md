@@ -532,19 +532,26 @@ Notes:
 
 Per-team singleton config for Signals settings, including the default autonomy priority threshold.
 
-| Field                        | Type            | Description                                                                  |
-| ---------------------------- | --------------- | ---------------------------------------------------------------------------- |
-| `id`                         | UUID (PK)       | Primary key (UUIDModel)                                                      |
-| `team`                       | OneToOne → Team | Owning team (`related_name="signal_team_config"`)                            |
-| `default_autostart_priority` | CharField       | Default severity threshold for auto-start (`P0`–`P4`, where `P0` is highest) |
-| `created_at`                 | DateTime        | Auto-set on creation                                                         |
-| `updated_at`                 | DateTime        | Auto-set on save                                                             |
+| Field                            | Type            | Description                                                                  |
+| -------------------------------- | --------------- | ---------------------------------------------------------------------------- |
+| `id`                             | UUID (PK)       | Primary key (UUIDModel)                                                      |
+| `team`                           | OneToOne → Team | Owning team (`related_name="signal_team_config"`)                            |
+| `default_autostart_priority`     | CharField       | Default severity threshold for auto-start (`P0`–`P4`, where `P0` is highest) |
+| `github_issue_writeback_enabled` | Boolean         | Opt-in public comments on source GitHub issues. Defaults to `false`.         |
+| `created_at`                     | DateTime        | Auto-set on creation                                                         |
+| `updated_at`                     | DateTime        | Auto-set on save                                                             |
 
 Notes:
 
 - Auto-created as a team extension via `register_team_extension_signal`
 - `default_autostart_priority` defaults to `P4` (every report priority auto-starts). The inbox UI exposes it as the "Project threshold" control on the PR generation card.
 - `SignalUserAutonomyConfig.autostart_priority` holds a per-user override (`null` = use the team default). The inbox UI exposes it as the "My threshold" control on the same card, where a "Default" segment maps to `null` and inherits the project threshold.
+- `github_issue_writeback_enabled` adds a report link to each source GitHub issue after the report notification completes. The comment contains no report title or research. The report requires project access.
+- GitHub comments run in a separate Temporal activity on every settle, including settles after the first notification. GitHub failures cannot prevent the report notification.
+- `SignalReportGithubComment` holds one claim per report and issue, with a lowercase repository name. Completed claims prevent repeat comments. Pending claims expire after ten minutes.
+- A later settle checks existing comments for a stable marker before it retries an expired claim. An incomplete comment read leaves the claim pending. GitHub provides no atomic comment idempotency key, so this is best-effort recovery.
+- The worker checks the current issue state immediately before posting. Closed issues, locked issues, and pull requests receive no comment.
+- See [GitHub issue comments](../../docs/internal/signals-github-writeback.md) for recovery limits and diagnostic logs.
 
 ### `SignalUserAutonomyConfig`
 
@@ -710,7 +717,7 @@ Defined in `products/error_tracking/backend/embedding.py`:
 | `product`       | LowCardinality(String) | Product bucket — signals uses `'signals'`                                                                                        |
 | `document_type` | LowCardinality(String) | Document type — `'signal'` for signals, `'report'` for report documents (see below)                                              |
 | `model_name`    | LowCardinality(String) | Embedding model name (e.g., `text-embedding-3-small-1536`)                                                                       |
-| `rendering`     | LowCardinality(String) | How content was rendered — signals use `'plain'`, report documents use `'title_summary_v1'`                                      |
+| `rendering`     | LowCardinality(String) | How content was rendered — signals use `'plain'`, report documents use `'title_summary_v1'` or `'title_v1'`                      |
 | `document_id`   | String                 | Unique signal ID (UUID)                                                                                                          |
 | `timestamp`     | DateTime64(3, 'UTC')   | Document creation time                                                                                                           |
 | `inserted_at`   | DateTime64(3, 'UTC')   | When the embedding was inserted (used for dedup)                                                                                 |
@@ -731,22 +738,37 @@ emit_embedding_request() → Kafka (document_embeddings_input topic)
 
 ### Report Documents
 
-Alongside the per-signal rows, each `SignalReport` gets one embedding of its own: `document_type = 'report'`, `document_id` = the report UUID, content rendered from the report's `title` and `summary`.
-This gives a report a single vector instead of only the cloud of constituent-signal vectors,
-and is the feature-side building block for the inbox ranking model,
+Alongside the per-signal rows, each `SignalReport` is embedded under `document_type = 'report'` with `document_id` = the report UUID.
+A report holds one row per _rendering_ of its text, all on that same `document_id`:
+
+| Rendering          | Content                                   | Emitted when         | Snapshotted by the dataset dag |
+| ------------------ | ----------------------------------------- | -------------------- | ------------------------------ |
+| `title_summary_v1` | Title and summary, joined by a blank line | Either field changes | Yes                            |
+| `title_v1`         | Title alone                               | The title changes    | No                             |
+
+`EMBEDDING_RENDERINGS` in `backend/report_embeddings.py` is the full list. Whoever adds a rendering adds it there, because the retraction path walks it.
+The title-only rendering exists because the title is the only text the inbox shows before someone opens a report,
+so the ranking model can measure what the summary adds to a prediction of an open instead of reading one vector that mixes the two.
+A report with a summary and no title yet holds only the composed document, since there is no title to embed.
+
+These vectors are the feature-side building block for the inbox ranking model,
 whose label stream is the `signal_report_status_changed` event emitted by `backend/receivers.py`.
+The dataset dag selects `title_summary_v1` alone (`dags/inbox_ranking/dataset/dag.py`); `title_v1` gets its own snapshot when the model is ready to compare the two.
 
 Emission lives in `backend/report_embeddings.py`,
 driven by a `post_save` receiver that fires whenever a report's `title` or `summary` actually changes.
 That covers the matcher writing text at creation, the summary workflow on `IN_PROGRESS -> READY`, re-research runs, and the scout channel's `update_authored_content`.
+The unchanged-text shortcut is applied per rendering, so a summary-only edit re-embeds the composed document and skips the title vector it would rewrite identically.
+Coverage of a newly added rendering is forward-only: there is no backfill, so an existing report gains its `title_v1` row when its title next changes.
 Two properties are load-bearing:
 
 - The row's `timestamp` is pinned to the report's `created_at`, never the emission time.
   The table partitions by `toMonday(timestamp)` and orders by `toDate(timestamp)`,
   so a re-emission stamped "now" would land in a different partition and sit alongside the earlier row rather than superseding it.
   The trade-off is that the 3-month TTL runs from report creation, so a report open longer than that loses its vector while still live.
-- `rendering` is versioned (`title_summary_v1`) rather than `'plain'`, because a report document is a composition of fields we expect to extend.
-  Bumping to a v2 lets both compositions coexist and be compared instead of silently replacing each other.
+- `rendering` is versioned rather than `'plain'`, because a report document is a composition of fields we expect to extend.
+  It is part of the table's `ORDER BY`, so several compositions sit in the table at once and can be compared instead of one silently replacing another.
+  `title_v1` and `title_summary_v1` already rely on that, and a later v2 of either works the same way.
 
 Metadata is deliberately limited to `report_id` plus the `deleted` tombstone flag.
 It only refreshes when the report's text changes or the report is deleted, so mutable state (status, priority, `signal_count`) would go stale there.
@@ -759,11 +781,18 @@ Emission is therefore gated on the durable `safety_judgment` artefact: when the 
 That read is pinned to the writer (`using("default")`), because it runs immediately after the transaction that wrote the verdict and `ReplicaRouter` documents replication lag on exactly that pattern.
 
 Withholding new emissions is not sufficient on its own, because a report can be embedded while safe and only later be judged unsafe.
-Three paths therefore **retract** an existing vector by re-emitting the row with `metadata.deleted = true`, preserving `created_at` so it replaces the live row in the same partition:
+Three paths therefore **retract** a report's vectors by re-emitting the rows with `metadata.deleted = true`, preserving `created_at` so each one replaces the live row in the same partition:
 
 - **Deletion**: the report-level counterpart to `soft_delete_report_signals`. Both the soft path, where `delete_report_activity` flips status to `DELETED`, and a hard `delete()` of the row, which is what `delete_team_reports_activity` and the `cleanup_signals` command issue. The hard path matters most: once the row is gone, no later write can retract the vector.
 - **A later unsafe verdict**: the summary workflow re-judges safety on every run, and a READY report re-researches whenever new signals join it.
 - **An unreviewed edit**: the `PATCH` endpoint and the scout `edit_report` channel supply text the judge has never seen, so the report is retracted and left unindexed until the pipeline writes judged text again.
+
+`emit_report_tombstone` writes one tombstone per rendering in `EMBEDDING_RENDERINGS`, not one per report.
+`rendering` is part of the `ReplacingMergeTree` key, so a tombstone retracts only its own rendering and leaves every other rendering's content live until the 3-month TTL expires it.
+A rendering that is emitted but missing from `EMBEDDING_RENDERINGS` therefore keeps unsafe text indexed.
+These retraction paths use the full list by default, so callers do not need to select each rendering.
+When a text edit removes a rendering, the receiver passes only the removed rendering to `emit_report_tombstone`.
+Clearing both fields retracts both renderings.
 
 Tombstones carry fixed placeholder content (`TOMBSTONE_CONTENT`) rather than the report's own text.
 Content is not part of the `ReplacingMergeTree` key, so a placeholder supersedes a live row just as well, and it means a tombstone can be emitted without first knowing whether a live row exists, which is the question none of these paths can answer cheaply.

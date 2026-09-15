@@ -27,14 +27,24 @@ const PLAYER_FRAME_LOAD_TIMEOUT_MS = 10000
 
 export const PlayerFrame = (): JSX.Element => {
     const replayDimensionRef = useRef<viewportResizeDimension>()
-    const { player, sessionRecordingId, maskingWindow, speed, resolution, playerFrameDocumentFailed } =
-        useValues(sessionRecordingPlayerLogic)
+    const {
+        player,
+        sessionRecordingId,
+        maskingWindow,
+        speed,
+        resolution,
+        playerFrameDocumentFailed,
+        playerFrameLoadRetries,
+    } = useValues(sessionRecordingPlayerLogic)
     const { setScale, setRootFrame, playerFrameDocumentLoadFailed } = useActions(sessionRecordingPlayerLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     // A frame that loaded without its mount node falls back to the container below, which is the
     // flag-off path. That path still works, so the player renders rather than staying blank.
     const ownDocument = !!featureFlags[FEATURE_FLAGS.REPLAY_PLAYER_OWN_DOCUMENT] && !playerFrameDocumentFailed
+
+    // A frame loads again only when its src changes, so each retry adds a query string the server ignores.
+    const frameSrc = playerFrameLoadRetries ? `${PLAYER_FRAME_SRC}?retry=${playerFrameLoadRetries}` : PLAYER_FRAME_SRC
 
     const iframeRef = useRef<HTMLIFrameElement | null>(null)
     // rrweb's mount point. Under the flag it lives in the player frame's document, not this one.
@@ -102,7 +112,7 @@ export const PlayerFrame = (): JSX.Element => {
             }
             // A same-origin error page, a login redirect, and a browser error page all fire load too,
             // so a load event does not prove the shell document arrived.
-            playerFrameDocumentLoadFailed()
+            playerFrameDocumentLoadFailed(iframeRef.current)
             return
         }
         frameRef.current = content as HTMLDivElement
@@ -118,7 +128,7 @@ export const PlayerFrame = (): JSX.Element => {
         }
         const timer = setTimeout(() => {
             if (!frameRef.current) {
-                playerFrameDocumentLoadFailed()
+                playerFrameDocumentLoadFailed(iframeRef.current)
             }
         }, PLAYER_FRAME_LOAD_TIMEOUT_MS)
         return () => clearTimeout(timer)
@@ -177,7 +187,7 @@ export const PlayerFrame = (): JSX.Element => {
                 <iframe
                     ref={iframeRef}
                     className="PlayerFrame__document"
-                    src={PLAYER_FRAME_SRC}
+                    src={frameSrc}
                     onLoad={handleFrameLoad}
                     title="Session replay player"
                     // Interaction belongs to the app's controls, not the recorded page.

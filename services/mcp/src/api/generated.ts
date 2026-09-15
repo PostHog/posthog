@@ -19292,7 +19292,7 @@ export namespace Schemas {
       name: string;
       /** Server-assigned version identity, e.g. v3. */
       version: string;
-      /** System prompt; {email} is replaced with the signup email domain at runtime. At most 20000 characters. */
+      /** System prompt; {email} is replaced with the signup email domain at runtime. When the prompt asks for it, the model may call web_search and fetch_page (run through Firecrawl) to look things up; each call costs Firecrawl credits. At most 20000 characters. */
       prompt_text: string;
       /** Gateway model id this version was authored against. */
       model: string;
@@ -49669,6 +49669,31 @@ export namespace Schemas {
       readonly first_version_created_at: string;
     }
 
+    export type LLMSkillMarkdownFrontmatterMetadata = {[key: string]: string};
+
+    /**
+     * The frontmatter block of content as a JSON object. Equal to yaml.safe_load of that block, so a listing can carry the same fields the file carries.
+     */
+    export type LLMSkillMarkdownFrontmatter = {
+      name: string;
+      description: string;
+      license?: string;
+      compatibility?: string;
+      metadata: LLMSkillMarkdownFrontmatterMetadata;
+      'allowed-tools'?: string;
+    };
+
+    export interface LLMSkillMarkdown {
+      /** Name of the skill, which is also its directory name. */
+      name: string;
+      /** Version of the skill that this SKILL.md was rendered from. */
+      version: number;
+      /** The complete SKILL.md file: the YAML frontmatter block, a blank line, then the skill body. Serve these bytes as the file; a digest must be taken over this exact string. */
+      content: string;
+      /** The frontmatter block of content as a JSON object. Equal to yaml.safe_load of that block, so a listing can carry the same fields the file carries. */
+      frontmatter: LLMSkillMarkdownFrontmatter;
+    }
+
     /**
      * * `absent` - absent
      * * `exists` - exists
@@ -49744,7 +49769,19 @@ export namespace Schemas {
       rotate?: boolean;
     }
 
+    export interface LLMSkillPublishConflict {
+      /** Reason that the reviewed skill version can no longer be published. */
+      detail: string;
+    }
+
     export interface LLMSkillPublishToCommunity {
+      /** Immutable ID of the skill version that the publisher reviewed. */
+      expected_skill_id: string;
+      /**
+         * Skill version that the publisher reviewed. The request returns 409 if the latest version changed.
+         * @minimum 1
+         */
+      expected_version: number;
       /** Human-friendly display name for the community listing. Defaults to a title-cased skill slug. Must be a single line: it is used as the pull request title and commit message. */
       display_name?: string;
       /**
@@ -58170,6 +58207,7 @@ export namespace Schemas {
       /** @nullable */
       readonly last_fired_at: string | null;
       readonly status: ReminderStatusEnum;
+      deleted?: boolean;
       readonly created_by: UserBasic;
       readonly created_at: string;
       /** @nullable */
@@ -60203,6 +60241,24 @@ export namespace Schemas {
       AiPrompt: 'ai_prompt',
     } as const;
 
+    export interface SubscriptionDashboardContext {
+      /** Dashboard ID used to open the context dashboard. */
+      dashboard_id: number;
+      /** Current display name of the context dashboard. */
+      dashboard_name: string;
+    }
+
+    export interface SubscriptionInsightContext {
+      /** Database ID of the context insight. */
+      insight_id: number;
+      /** Stable insight identifier used to open the context insight. */
+      insight_short_id: string;
+      /** Current display name of the context insight. */
+      insight_name: string;
+    }
+
+    export type SubscriptionContext = SubscriptionDashboardContext | SubscriptionInsightContext;
+
     /**
      * * `email` - Email
      * * `slack` - Slack
@@ -60273,6 +60329,8 @@ export namespace Schemas {
       prompt?: string | null;
       /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
       ai_prompt_config?: AIPromptConfig;
+      /** Dashboards and insights that ground this AI report. Deleted resources are omitted. */
+      readonly contexts: readonly SubscriptionContext[];
       /** Query plan reuse state for AI prompt subscriptions: frozen, not_frozen, or planner_updated. Null for other subscription types. */
       readonly ai_query_plan_status: AIQueryPlanStatusEnum | null;
       /** Delivery channel: email, slack, or teams.
@@ -68932,6 +68990,7 @@ export namespace Schemas {
       /** @nullable */
       readonly last_fired_at?: string | null;
       readonly status?: ReminderStatusEnum;
+      deleted?: boolean;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
       /** @nullable */
@@ -69667,6 +69726,14 @@ export namespace Schemas {
       trigger_label?: string;
     }
 
+    export type PatchedSubscriptionWriteContextsItem = {
+      /** @minimum 1 */
+      dashboard_id: number;
+    } | {
+      /** @minimum 1 */
+      insight_id: number;
+    };
+
     /**
      * * `monday` - Monday
      * * `tuesday` - Tuesday
@@ -69676,10 +69743,10 @@ export namespace Schemas {
      * * `saturday` - Saturday
      * * `sunday` - Sunday
      */
-    export type PatchedSubscriptionByweekdayItem = typeof PatchedSubscriptionByweekdayItem[keyof typeof PatchedSubscriptionByweekdayItem];
+    export type PatchedSubscriptionWriteByweekdayItem = typeof PatchedSubscriptionWriteByweekdayItem[keyof typeof PatchedSubscriptionWriteByweekdayItem];
 
 
-    export const PatchedSubscriptionByweekdayItem = {
+    export const PatchedSubscriptionWriteByweekdayItem = {
       Monday: 'monday',
       Tuesday: 'tuesday',
       Wednesday: 'wednesday',
@@ -69692,7 +69759,7 @@ export namespace Schemas {
     /**
      * Standard Subscription serializer.
      */
-    export interface PatchedSubscription {
+    export interface PatchedSubscriptionWrite {
       readonly id?: number;
       /** What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), or 'ai_prompt' (LLM-generated report). Read-only — derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt).
        *
@@ -69723,6 +69790,11 @@ export namespace Schemas {
       prompt?: string | null;
       /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
       ai_prompt_config?: AIPromptConfig;
+      /**
+         * Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.
+         * @maxItems 3
+         */
+      contexts?: PatchedSubscriptionWriteContextsItem[];
       /** Query plan reuse state for AI prompt subscriptions: frozen, not_frozen, or planner_updated. Null for other subscription types. */
       readonly ai_query_plan_status?: AIQueryPlanStatusEnum | null;
       /** Delivery channel: email, slack, or teams.
@@ -69750,7 +69822,7 @@ export namespace Schemas {
          * Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
          * @nullable
          */
-      byweekday?: PatchedSubscriptionByweekdayItem[] | null;
+      byweekday?: PatchedSubscriptionWriteByweekdayItem[] | null;
       /**
          * Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).
          * @minimum -2147483648
@@ -79113,7 +79185,7 @@ export namespace Schemas {
          */
       label: string;
       /**
-         * System prompt; {email} is replaced with the signup email domain at runtime. At most 20000 characters.
+         * System prompt; {email} is replaced with the signup email domain at runtime. When the prompt asks for it, the model may call web_search and fetch_page (run through Firecrawl) to look things up; each call costs Firecrawl credits. At most 20000 characters.
          * @maxLength 20000
          */
       prompt_text: string;
@@ -79458,7 +79530,7 @@ export namespace Schemas {
          */
       version?: string;
       /**
-         * System prompt; {email} is replaced with the signup email domain at runtime. At most 20000 characters.
+         * System prompt; {email} is replaced with the signup email domain at runtime. When the prompt asks for it, the model may call web_search and fetch_page (run through Firecrawl) to look things up; each call costs Firecrawl credits. At most 20000 characters.
          * @maxLength 20000
          */
       prompt_text: string;
@@ -79774,6 +79846,14 @@ export namespace Schemas {
       Custom: 'custom',
     } as const;
 
+    export type ScoutRoleEnum = typeof ScoutRoleEnum[keyof typeof ScoutRoleEnum];
+
+
+    export const ScoutRoleEnum = {
+      Specialist: 'specialist',
+      Operational: 'operational',
+    } as const;
+
     /**
      * * `active` - Active
      * * `pending_pause` - Pending pause
@@ -79829,6 +79909,8 @@ export namespace Schemas {
       display_name?: string;
       /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
       readonly scout_origin: ScoutOriginEnum;
+      /** What this scout is to the harness: `specialist` for one that watches a product surface, or `operational` for one PostHog ships to watch the self-driving system itself. An operational scout is exempt from the inactivity sweep and from the enabled-scout cap, and is not a scout a project should delete. Always `specialist` for a custom scout. */
+      readonly scout_role: ScoutRoleEnum;
       /** Who answers for this scout, seed-creator first. Ownership is recorded on the scout's skill rather than on this config, so editing the skill or toggling the scout leaves it unchanged. Reports the scout files suggest these people as reviewers. Prefer this over `created_by`-style fields, which only say who last flipped a switch. Empty when nobody owns the scout, when the owners are no longer members with access to the project, or when the caller is a scout sandbox token: owners are member PII, and a scout reads them through the skill API instead. */
       readonly owners: readonly UserBasic[];
       /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Derived from `status`: true for `active` and `pending_pause`, false for the paused statuses. */
@@ -86479,6 +86561,163 @@ export namespace Schemas {
       summary_bullets: SummaryBullet[];
       /** Interesting notes (0-2 for minimal, more for detailed) */
       interesting_notes: InterestingNote[];
+    }
+
+    export type SubscriptionWriteContextsItem = {
+      /** @minimum 1 */
+      dashboard_id: number;
+    } | {
+      /** @minimum 1 */
+      insight_id: number;
+    };
+
+    /**
+     * * `monday` - Monday
+     * * `tuesday` - Tuesday
+     * * `wednesday` - Wednesday
+     * * `thursday` - Thursday
+     * * `friday` - Friday
+     * * `saturday` - Saturday
+     * * `sunday` - Sunday
+     */
+    export type SubscriptionWriteByweekdayItem = typeof SubscriptionWriteByweekdayItem[keyof typeof SubscriptionWriteByweekdayItem];
+
+
+    export const SubscriptionWriteByweekdayItem = {
+      Monday: 'monday',
+      Tuesday: 'tuesday',
+      Wednesday: 'wednesday',
+      Thursday: 'thursday',
+      Friday: 'friday',
+      Saturday: 'saturday',
+      Sunday: 'sunday',
+    } as const;
+
+    /**
+     * Standard Subscription serializer.
+     */
+    export interface SubscriptionWrite {
+      readonly id: number;
+      /** What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), or 'ai_prompt' (LLM-generated report). Read-only — derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt).
+       *
+       * * `insight` - Insight
+       * * `dashboard` - Dashboard
+       * * `ai_prompt` - AI prompt */
+      readonly resource_type: SubscriptionResourceTypeEnum;
+      /**
+         * Dashboard ID to subscribe to (mutually exclusive with insight on create).
+         * @nullable
+         */
+      dashboard?: number | null;
+      /**
+         * Insight ID to subscribe to (mutually exclusive with dashboard on create).
+         * @nullable
+         */
+      insight?: number | null;
+      /** @nullable */
+      readonly insight_short_id: string | null;
+      /** @nullable */
+      readonly resource_name: string | null;
+      /** List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10. */
+      dashboard_export_insights?: number[];
+      /**
+         * Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters.
+         * @nullable
+         */
+      prompt?: string | null;
+      /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
+      ai_prompt_config?: AIPromptConfig;
+      /**
+         * Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.
+         * @maxItems 3
+         */
+      contexts?: SubscriptionWriteContextsItem[];
+      /** Query plan reuse state for AI prompt subscriptions: frozen, not_frozen, or planner_updated. Null for other subscription types. */
+      readonly ai_query_plan_status: AIQueryPlanStatusEnum | null;
+      /** Delivery channel: email, slack, or teams.
+       *
+       * * `email` - Email
+       * * `slack` - Slack
+       * * `teams` - Microsoft Teams */
+      target_type: SubscriptionTargetEnum;
+      /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. On update, omit the field to keep the stored URL, or send a full URL to replace it. */
+      target_value: string;
+      /** How often to deliver: daily, weekly, monthly, or yearly.
+       *
+       * * `daily` - Daily
+       * * `weekly` - Weekly
+       * * `monthly` - Monthly
+       * * `yearly` - Yearly */
+      frequency: RecurrenceIntervalEnum;
+      /**
+         * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
+         * @minimum 1
+         * @maximum 2147483647
+         */
+      interval: number;
+      /**
+         * Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
+         * @nullable
+         */
+      byweekday?: SubscriptionWriteByweekdayItem[] | null;
+      /**
+         * Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      bysetpos?: number | null;
+      /**
+         * Total number of deliveries before the subscription stops. Null for unlimited.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      count?: number | null;
+      /** When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute. */
+      start_date: string;
+      /**
+         * When to stop delivering (ISO 8601 datetime). Null for indefinite.
+         * @nullable
+         */
+      until_date?: string | null;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      /** Set to true to soft-delete. Subscriptions cannot be hard-deleted. */
+      deleted?: boolean;
+      /** Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid. */
+      enabled?: boolean;
+      /**
+         * Human-readable name for this subscription.
+         * @maxLength 100
+         * @nullable
+         */
+      title?: string | null;
+      /** Human-readable schedule summary, e.g. 'sent daily'. */
+      readonly summary: string;
+      /** @nullable */
+      readonly next_delivery_date: string | null;
+      /**
+         * ID of a connected Slack integration. Required when target_type is slack.
+         * @nullable
+         */
+      integration_id?: number | null;
+      /**
+         * Optional message included in the invitation email when adding new recipients.
+         * @nullable
+         */
+      invite_message?: string | null;
+      /** Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create. When omitted on update, a delivery is sent only if the edit changed what gets delivered (recipient, channel, source) or re-enabled the subscription. The recurring schedule is unaffected. */
+      send_test_now?: boolean;
+      /** Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated. */
+      summary_enabled?: boolean;
+      /**
+         * Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.
+         * @maxLength 500
+         */
+      summary_prompt_guide?: string;
+      /** Per-delivery rendering options. Each option documents which delivery targets it applies to. */
+      delivery_config?: DeliveryConfig;
     }
 
     /**
@@ -101586,6 +101825,14 @@ export namespace Schemas {
      * @minimum 1
      */
     base_version?: number;
+    };
+
+    export type LlmSkillsNameSkillMdRetrieveParams = {
+    /**
+     * Specific skill version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number;
     };
 
     export type LlmSkillsResolveNameRetrieveParams = {

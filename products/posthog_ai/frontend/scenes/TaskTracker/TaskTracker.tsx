@@ -15,6 +15,7 @@ import { taskTrackerSceneLogic } from './taskTrackerSceneLogic'
 export interface TaskTrackerProps {
     /** From the `/tasks/:taskId` route. A UUID selects a task; `new` or absent shows the composer. */
     taskId?: string
+    titleActions?: JSX.Element
 }
 
 export const scene: SceneExport<TaskTrackerProps> = {
@@ -24,7 +25,7 @@ export const scene: SceneExport<TaskTrackerProps> = {
     paramsToProps: ({ params: { taskId } }) => ({ taskId }),
 }
 
-export function TaskTracker({ taskId }: TaskTrackerProps): JSX.Element {
+export function TaskTracker({ taskId, titleActions }: TaskTrackerProps): JSX.Element {
     const { isWindowLessThan } = useWindowSize()
     const isMobile = isWindowLessThan('lg')
     const { activeCreation } = useValues(taskTrackerSceneLogic)
@@ -37,7 +38,7 @@ export function TaskTracker({ taskId }: TaskTrackerProps): JSX.Element {
                 <AllowTrainingCallout featureName={selectedTaskId ? 'PostHog Desktop' : 'Tasks'} />
                 <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
                     {selectedTaskId ? (
-                        <TaskDetailPage taskId={selectedTaskId} isMobile={isMobile} />
+                        <TaskDetailPage taskId={selectedTaskId} isMobile={isMobile} titleActions={titleActions} />
                     ) : (
                         <TaskCreateThread streamKey={activeCreation!.streamKey} isMobile={isMobile} />
                     )}

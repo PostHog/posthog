@@ -14,6 +14,7 @@ from django.db import transaction
 
 import structlog
 
+from posthog.models.github_integration_base import PullRequestRef
 from posthog.models.integration import GitHubIntegration
 
 from products.signals.backend.models import (
@@ -112,39 +113,29 @@ def opted_in_reviewer_logins(*, team_id: int, report_id: str) -> list[str]:
     return sorted(login for login, user in login_to_user.items() if user.id in opted_in_user_ids)
 
 
-def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: str) -> list[str]:
-    """Add the report's opted-in reviewers to its pull request. Returns the logins GitHub accepted.
-
-    Never unassigns: GitHub's add-assignees endpoint is additive, so a reviewer somebody assigned by
-    hand stays on the pull request. Returns an empty list when there is nothing to do or the call
-    failed, and raises nothing.
-    """
-    if not SignalReport.objects.filter(id=report_id, team_id=team_id).exists():
-        return []
-
-    logins = opted_in_reviewer_logins(team_id=team_id, report_id=report_id)
-    if not logins:
-        return []
-
-    parsed = GitHubIntegration.parse_pull_request_url(pr_url)
-    if parsed is None:
-        return []
-
+def _github_for_repository(*, team_id: int, report_id: str, repository: str) -> GitHubIntegration | None:
+    """The team's GitHub integration for a repository, or None when there is none to call."""
     try:
-        github = GitHubIntegration.first_for_team_repository(team_id, parsed.repository)
+        return GitHubIntegration.first_for_team_repository(team_id, repository)
     except Exception:
         logger.exception(
             "signals.reviewer_pr_assignment.integration_lookup_failed",
             team_id=team_id,
             report_id=report_id,
-            repository=parsed.repository,
+            repository=repository,
         )
-        return []
-    if github is None:
-        return []
+        return None
 
-    # A pull request closed or merged since the assignment was queued must not be reopened in
-    # somebody's assigned list, so re-read the state here rather than trusting the queued snapshot.
+
+def _pull_request_is_assignable(
+    github: GitHubIntegration, *, team_id: int, report_id: str, parsed: PullRequestRef
+) -> bool:
+    """Whether the pull request still accepts assignees.
+
+    A pull request closed or merged since the assignment was queued must not be reopened in
+    somebody's assigned list, so this reads the state from GitHub rather than trusting the queued
+    snapshot. A read that fails counts as not assignable.
+    """
     try:
         pr = github.get_pull_request(parsed.repository, parsed.number)
     except Exception:
@@ -155,7 +146,7 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
             repository=parsed.repository,
             pr_number=parsed.number,
         )
-        return []
+        return False
     if not pr.get("success"):
         logger.warning(
             "signals.reviewer_pr_assignment.pr_fetch_failed",
@@ -165,10 +156,14 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
             pr_number=parsed.number,
             error=pr.get("error"),
         )
-        return []
-    if pr.get("merged") or pr.get("state") == "closed":
-        return []
+        return False
+    return not pr.get("merged") and pr.get("state") != "closed"
 
+
+def _add_assignees(
+    github: GitHubIntegration, *, team_id: int, report_id: str, parsed: PullRequestRef, logins: list[str]
+) -> list[str]:
+    """Add the logins to the pull request. Returns the logins GitHub accepted, or none on failure."""
     try:
         result = github.add_pull_request_assignees(parsed.repository, parsed.number, logins)
     except Exception:
@@ -204,3 +199,31 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
         assigned=len(assigned),
     )
     return assigned
+
+
+def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: str) -> list[str]:
+    """Add the report's opted-in reviewers to its pull request. Returns the logins GitHub accepted.
+
+    Never unassigns: GitHub's add-assignees endpoint is additive, so a reviewer somebody assigned by
+    hand stays on the pull request. Returns an empty list when there is nothing to do or the call
+    failed, and raises nothing.
+    """
+    if not SignalReport.objects.filter(id=report_id, team_id=team_id).exists():
+        return []
+
+    logins = opted_in_reviewer_logins(team_id=team_id, report_id=report_id)
+    if not logins:
+        return []
+
+    parsed = GitHubIntegration.parse_pull_request_url(pr_url)
+    if parsed is None:
+        return []
+
+    github = _github_for_repository(team_id=team_id, report_id=report_id, repository=parsed.repository)
+    if github is None:
+        return []
+
+    if not _pull_request_is_assignable(github, team_id=team_id, report_id=report_id, parsed=parsed):
+        return []
+
+    return _add_assignees(github, team_id=team_id, report_id=report_id, parsed=parsed, logins=logins)
