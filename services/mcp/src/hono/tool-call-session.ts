@@ -2,10 +2,17 @@ import type { RequestContext } from '@/hono/request-context'
 
 /**
  * Per-session counters behind `$mcp_session_tool_call_index`, `$mcp_session_age_ms`
- * and `$mcp_schema_read_before_call`, kept as one JSON blob in the session Redis
- * cache next to the skills-first gate markers (same key scope, same 24 h TTL).
+ * and `$mcp_schema_read_before_call`, kept as one JSON value under its own key in the
+ * session Redis cache, a sibling of the skills-first gate markers (same key scope,
+ * same 24 h TTL).
  *
- * The blob is read, updated and written back once per request. Two requests on
+ * The three could be derived at query time from `$mcp_session_id` ordering. They are
+ * stamped at capture so they exist as real properties: a trends breakdown or a
+ * property-picker filter on "schema read before call" needs a column, not a window
+ * function over every event in the session, and the follow-up fallback session key
+ * lands here for free.
+ *
+ * The record is read, updated and written back once per request. Two requests on
  * one session that interleave can drop each other's update; the counters are
  * telemetry, so an off-by-one on a concurrent session is accepted over a lock.
  */

@@ -381,7 +381,7 @@ const TOOL_TARGETING_VERBS = new Set(['info', 'schema', 'call'])
  * reason (it echoes the caller's tool name); the rejection reason on the event says
  * which of the two failed, so the sentinel loses only the misspelling itself.
  */
-const UNRECOGNIZED_EXEC_TOKEN = 'unrecognized'
+export const UNRECOGNIZED_EXEC_TOKEN = 'unrecognized'
 
 export interface ExecCommandShape {
     /** The dispatcher verb, or `unrecognized` when it isn't one we accept. */
@@ -1249,16 +1249,33 @@ export function describeValidationError(
     return { fields, inputKeys: describeInputKeys(input) }
 }
 
+/** The `$mcp_input_keys` cap; separate from the validation-descriptor cap so tuning one does not move the other. */
+const MAX_INPUT_KEYS = 20
+
+/**
+ * Recorded in place of a key whose text is not identifier-shaped, so an argument name
+ * the caller invented cannot carry arbitrary text into analytics. Real parameter
+ * spellings, right or wrong, always match the pattern.
+ */
+const UNRECORDABLE_KEY = '*'
+const RECORDABLE_KEY_PATTERN = new RegExp(`^[A-Za-z0-9_.-]{1,${MAX_KEY_LENGTH}}$`)
+
 /**
  * The top-level keys a caller sent, sorted and capped, with no values. Shared by the
  * validation descriptors and the per-call `$mcp_input_keys` property so both record the
- * same shape of the same request.
+ * same shape of the same request. Only a plain object has argument names: a string or
+ * an array here is unvalidated caller input, and walking it would build one entry per
+ * character or element.
  */
-export function describeInputKeys(input: Record<string, unknown>): string[] {
+export function describeInputKeys(input: unknown, exclude?: ReadonlySet<string>): string[] {
+    if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+        return []
+    }
     return Object.keys(input)
+        .filter((key) => !exclude?.has(key))
         .sort()
-        .slice(0, MAX_VALIDATION_DESCRIPTORS)
-        .map((key) => key.slice(0, MAX_KEY_LENGTH))
+        .slice(0, MAX_INPUT_KEYS)
+        .map((key) => (RECORDABLE_KEY_PATTERN.test(key) ? key : UNRECORDABLE_KEY))
 }
 
 /** Whether the tool's input schema declares an `output_format` field. Unwraps

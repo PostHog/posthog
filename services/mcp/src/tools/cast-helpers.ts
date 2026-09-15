@@ -102,15 +102,20 @@ export const normalizeParamAliases = (aliasMap: Record<string, readonly string[]
  */
 const ALIAS_MAPS = new WeakMap<(input: unknown) => unknown, Record<string, readonly string[]>>()
 
+/** Deeper than any tool stacks `z.preprocess` today; bounds the walk over a malformed pipe chain. */
+const MAX_PREPROCESS_DEPTH = 8
+
 /**
  * The alias maps a schema applies, merged across nested `z.preprocess(normalizeParamAliases(...), ...)`
  * layers, or undefined when it applies none. Walks the pipe chain that `z.preprocess` builds
  * (`ZodPipe` with the transform on `.in`), the same way `schemaHasOutputFormat` walks `.out`.
+ * Only a `normalizeParamAliases(...)` closure passed straight to `z.preprocess` is found; a tool
+ * that calls it from inside its own preprocess function (`read-data-schema`) reads as alias-free.
  */
 export function readParamAliases(schema: z.ZodType): Record<string, readonly string[]> | undefined {
     let merged: Record<string, readonly string[]> | undefined
     let current: unknown = schema
-    for (let depth = 0; depth < 8 && current instanceof z.ZodPipe; depth++) {
+    for (let depth = 0; depth < MAX_PREPROCESS_DEPTH && current instanceof z.ZodPipe; depth++) {
         const transform = (current.in as { def?: { transform?: unknown } }).def?.transform
         const aliasMap =
             typeof transform === 'function' ? ALIAS_MAPS.get(transform as (input: unknown) => unknown) : undefined
@@ -123,8 +128,11 @@ export function readParamAliases(schema: z.ZodType): Record<string, readonly str
 }
 
 /**
- * Which aliases an input carried, as `alias->canonical` tokens. Both halves are names the
- * tool's own schema declares, never input values, so the list is safe to record.
+ * Which aliases the normaliser actually relied on, as `alias->canonical` tokens. Mirrors
+ * `normalizeParamAliases` exactly: a canonical the input already carries is never filled
+ * from an alias, and only the first alias in map order fills it; anything else was deleted
+ * unused and is not recorded. Both halves are names the tool's own schema declares, never
+ * input values, so the list is safe to record.
  */
 export function describeAliasesUsed(
     aliasMap: Record<string, readonly string[]> | undefined,
@@ -135,9 +143,13 @@ export function describeAliasesUsed(
     }
     const used: string[] = []
     for (const [canonical, aliases] of Object.entries(aliasMap)) {
+        if (input[canonical] !== undefined) {
+            continue
+        }
         for (const alias of aliases) {
-            if (alias in input) {
+            if (Object.prototype.hasOwnProperty.call(input, alias)) {
                 used.push(`${alias}->${canonical}`)
+                break
             }
         }
     }

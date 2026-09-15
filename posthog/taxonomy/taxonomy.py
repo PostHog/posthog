@@ -2488,7 +2488,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_evaluation_result": {
             "label": "AI Evaluation Result (LLM)",
             "description": "The boolean verdict of the evaluation (true = pass, false = fail).",
-            "examples": ["true", "false"],
+            "examples": [True, False],
         },
         "$ai_evaluation_reasoning": {
             "label": "AI Evaluation Reasoning (LLM)",
@@ -2871,12 +2871,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$mcp_validation_input_keys": {
             "label": "MCP validation input keys",
-            "description": "Top-level argument names the caller sent on a call the MCP server's input schema rejected, sorted and capped at 20. Shows which name an agent used for a parameter the schema spells differently. Only set on local schema rejections; see $mcp_input_keys for every call.",
+            "description": "Top-level argument names the caller sent on a call the MCP server's input schema rejected, sorted and capped at 20. Shows which name an agent used for a parameter the schema spells differently. Only set on local schema rejections; see $mcp_input_keys for every call, which additionally drops the SDK-injected `context` and `llm_model` keys.",
             "examples": ["experimentId", "flagKey, limit"],
         },
         "$mcp_input_keys": {
             "label": "MCP input keys",
-            "description": "Top-level argument names the caller sent, on every MCP tool call, success or failure, sorted and capped at 20. Names only, never values. In exec mode these are the inner tool's arguments parsed from the command string. Group by it with $mcp_param_aliases_used to see how agents spell a parameter.",
+            "description": "Top-level argument names the caller sent on a tool call, success or failure: every direct-mode call, `render-ui`, and an exec `call` (parsed from the command string). Exec discovery verbs (tools, search, info, schema) carry none, so rate against rows where it is set rather than every $mcp_tool_call. Sorted, capped at 20, a key that is not identifier-shaped recorded as `*`; names only, never values. Group by it with $mcp_param_aliases_used to see how agents spell a parameter.",
             "examples": ["id", "experimentId", "filters, key, name"],
         },
         "$mcp_param_aliases_used": {

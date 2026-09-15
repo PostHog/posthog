@@ -28,6 +28,31 @@ import {
 // A session's gate markers only need to outlive the session itself.
 const SESSION_CACHE_TTL_SECONDS = 24 * 60 * 60
 
+/**
+ * `hash` is PBKDF2 at 100,000 iterations, several milliseconds of blocked event loop,
+ * and the session cache is now read on every tool call that carries a session id.
+ * Each session pays it once per process; the map is bounded so a flood of fresh ids
+ * cannot grow it. Keys stay identical to before, so nothing in Redis moves.
+ */
+const MAX_CACHED_SESSION_KEYS = 10_000
+const sessionKeyCache = new Map<string, string>()
+
+function sessionCacheKey(mcpSessionId: string): string {
+    const cached = sessionKeyCache.get(mcpSessionId)
+    if (cached !== undefined) {
+        return cached
+    }
+    if (sessionKeyCache.size >= MAX_CACHED_SESSION_KEYS) {
+        const oldest = sessionKeyCache.keys().next().value
+        if (oldest !== undefined) {
+            sessionKeyCache.delete(oldest)
+        }
+    }
+    const key = hash(mcpSessionId)
+    sessionKeyCache.set(mcpSessionId, key)
+    return key
+}
+
 export class RequestContext {
     private tokenCacheInstance: RedisCache<State> | undefined
     private userCacheInstance: RedisCache<State> | undefined
@@ -71,7 +96,7 @@ export class RequestContext {
 
     /** State scoped to one MCP session, such as the skills-first gate markers. */
     getSessionCache(mcpSessionId: string): RedisCache<State> {
-        return new RedisCache<State>(hash(mcpSessionId), this.redis, 'session', SESSION_CACHE_TTL_SECONDS)
+        return new RedisCache<State>(sessionCacheKey(mcpSessionId), this.redis, 'session', SESSION_CACHE_TTL_SECONDS)
     }
 
     get cache(): RedisCache<State> {

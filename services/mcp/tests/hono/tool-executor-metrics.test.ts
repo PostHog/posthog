@@ -205,9 +205,17 @@ describe('ToolExecutor metrics', () => {
                 }) as any
             )
 
-            await executor.handleToolCall({ name: 'fail-tool', arguments: {} }, makeState([{ name: 'fail-tool' }]))
+            await executor.handleToolCall(
+                { name: 'fail-tool', arguments: { experimentId: 29 } },
+                makeState([{ name: 'fail-tool' }])
+            )
 
-            expect(trackToolCallExtras('fail-tool')).toMatchObject({ $mcp_error_type: 'internal' })
+            // The errored event carries the call's shape too; this is the path the
+            // property exists for.
+            expect(trackToolCallExtras('fail-tool')).toMatchObject({
+                $mcp_error_type: 'internal',
+                $mcp_input_keys: ['experimentId'],
+            })
         })
 
         // $mcp_error_message is readable by every analytics viewer in the project, not just
@@ -510,6 +518,21 @@ describe('ToolExecutor metrics', () => {
             expect(JSON.stringify(call[4])).not.toContain('29')
         })
 
+        // `params.arguments` is whatever JSON arrived. A string or array is rejected by
+        // the schema, and must not be walked as if it were an argument object first.
+        it('records no input keys when arguments is not an object', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(makeFakeTool('ok-tool') as any)
+
+            await executor.handleToolCall(
+                { name: 'ok-tool', arguments: 'x'.repeat(10_000) as unknown as Record<string, unknown> },
+                makeState([{ name: 'ok-tool' }])
+            )
+
+            const call = mockTrackToolCall.mock.calls.find((c) => c[0] === 'ok-tool')!
+            expect(call[2]).toBe(true)
+            expect(call[4]).not.toHaveProperty('$mcp_input_keys')
+        })
+
         it('stamps the input keys on a rejected direct call, without an alias property', async () => {
             vi.spyOn(catalog, 'getToolByName').mockReturnValue({
                 name: 'strict-tool',
@@ -556,6 +579,31 @@ describe('ToolExecutor metrics', () => {
                 await executor.handleToolCall({ name: 'ok-tool', arguments: {} }, makeState([{ name: 'ok-tool' }]))
 
                 expect(trackToolCallExtras('ok-tool')).not.toHaveProperty('$mcp_session_tool_call_index')
+            })
+
+            // A Redis that is slow rather than down must not hold the tool result: past
+            // the deadline the three session properties are dropped and the call returns.
+            it('gives up on a slow session cache and still returns the result', async () => {
+                vi.useFakeTimers()
+                try {
+                    const hanging = { get: vi.fn(() => new Promise(() => {})), set: vi.fn() }
+                    const tool = makeFakeTool('ok-tool')
+                    vi.spyOn(catalog, 'getToolByName').mockReturnValue(tool as any)
+
+                    const pending = executor.handleToolCall(
+                        { name: 'ok-tool', arguments: {} },
+                        withSession(makeState([{ name: 'ok-tool' }]), hanging)
+                    )
+                    await vi.advanceTimersByTimeAsync(150)
+                    const result = await pending
+
+                    expect((result as any).isError).not.toBe(true)
+                    const extras = trackToolCallExtras('ok-tool')
+                    expect(extras).toMatchObject({ $mcp_input_keys: [] })
+                    expect(extras).not.toHaveProperty('$mcp_session_tool_call_index')
+                } finally {
+                    vi.useRealTimers()
+                }
             })
 
             // Telemetry must never fail a call: an unreachable session cache drops the
