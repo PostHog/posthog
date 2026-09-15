@@ -114,17 +114,19 @@ describe('spanSessionErrorsLogic', () => {
         expect(logic.values.sessionIdsInView).toEqual([])
     })
 
-    // The cap bounds one query's IN list. Capping the page's sessions instead would mean a list
-    // that has already seen that many sessions never asks about the ones a new page brings.
-    it('keeps asking about new sessions once the lookup cap is reached', async () => {
+    // The cap bounds one query's IN list, not how many sessions ever get a badge. It has to keep
+    // going on its own, because the page event that would otherwise continue it may never come.
+    it('caps one query but keeps asking until every session is answered', async () => {
         const firstPage = Array.from({ length: 250 }, (_, i) => spanWithSession(`span-${i}`, `session-${i}`))
         await loadFirstPage(firstPage)
 
         expect(queriesRun()[0].match(/'session-\d+'/g)).toHaveLength(200)
+        const asked = queriesRun().join(' ')
+        expect(asked).toContain("'session-249'")
 
         await loadNextPage([...firstPage, spanWithSession('span-new', 'session-new')])
 
-        expect(queriesRun()[1]).toContain("'session-new'")
+        expect(queriesRun().join(' ')).toContain("'session-new'")
     })
 
     it('drops counts from the previous filters when a fresh query lands', async () => {

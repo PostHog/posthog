@@ -83,7 +83,6 @@ function TracingSceneContents(): JSX.Element {
         openTraceSpans,
         traceIdentity,
         traceSessionId,
-        traceSessionResolving,
         sessionErrorBadgesEnabled,
         errorCountByRow,
         inspectorTab,
@@ -320,7 +319,6 @@ function TracingSceneContents(): JSX.Element {
                 spans={openTraceSpans}
                 identity={traceIdentity}
                 sessionId={traceSessionId}
-                sessionResolving={traceSessionResolving}
                 showSessionErrors={sessionErrorBadgesEnabled}
                 inspectorTab={inspectorTab}
                 onSelectInspectorTab={selectInspectorTab}

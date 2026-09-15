@@ -43,8 +43,6 @@ export interface TraceDrawerProps {
     identity: TraceIdentity
     /** The trace's session for the Errors tab, or null when its spans resolve to no one session. */
     sessionId: string | null
-    /** The spans the session resolves from are still arriving, so a null session is not an answer. */
-    sessionResolving: boolean
     /** Show the Errors tab, which lists the issues the trace's session hit. */
     showSessionErrors: boolean
     /** Which inspector tab is open. Held in tracingViewerLogic so a caller can open one directly. */
@@ -72,7 +70,6 @@ export function TraceDrawer({
     spans,
     identity,
     sessionId,
-    sessionResolving,
     showSessionErrors,
     inspectorTab,
     onSelectInspectorTab,
@@ -243,7 +240,7 @@ export function TraceDrawer({
                                                       traceId={inspectedSpan.trace_id}
                                                       timestamp={rootSpan?.timestamp ?? ts}
                                                       sessionId={sessionId}
-                                                      resolving={sessionResolving}
+                                                      resolving={loading}
                                                   />
                                               ),
                                           }

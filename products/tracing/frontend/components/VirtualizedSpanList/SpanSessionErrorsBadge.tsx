@@ -19,6 +19,14 @@ export function SpanSessionErrorsBadge({ errorCount, onClick }: SpanSessionError
             aria-label={label}
             data-attr="tracing-row-session-errors"
             onMouseDown={(e) => e.stopPropagation()}
+            // The row behind this button activates on Enter and Space too, and it calls
+            // preventDefault, which would cancel the click this button is about to fire. Keep the
+            // key press here so the badge opens the Errors tab rather than the row's own target.
+            onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.stopPropagation()
+                }
+            }}
             onClick={(e) => {
                 e.stopPropagation()
                 onClick()

@@ -264,6 +264,19 @@ export const spanSessionErrorsLogic = kea<spanSessionErrorsLogicType>([
                 actions.loadSessionErrorCounts()
             }
         }
-        return { fetchSpansSuccess: lookUpNewSessions, fetchNextPageSuccess: lookUpNewSessions }
+        return {
+            fetchSpansSuccess: lookUpNewSessions,
+            fetchNextPageSuccess: lookUpNewSessions,
+            // One run caps its IN list. Pages that arrive faster than the debounce collapse into a
+            // single run, which can leave sessions over the cap unanswered, so run again rather
+            // than waiting for a page event that may never come. Each run answers every id it
+            // asks about, so the unanswered set shrinks and this terminates.
+            loadSessionErrorCountsSuccess: () => {
+                const known = values.sessionErrorCounts
+                if (values.sessionIdsInView.some((sessionId) => !Object.hasOwn(known, sessionId))) {
+                    lookUpNewSessions()
+                }
+            },
+        }
     }),
 ])

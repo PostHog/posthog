@@ -5,7 +5,10 @@ describe('sessionErrorsWindow', () => {
     // would put NaN into the query the badge lookup builds. The range is six hours either side.
     it.each([
         ['every timestamp parses', ['2026-09-03T10:00:00Z', '2026-09-03T12:00:00Z']],
-        ['one timestamp is missing or unparseable', ['2026-09-03T10:00:00Z', null, '2026-09-03T12:00:00Z']],
+        [
+            'one timestamp is missing and another unparseable',
+            ['2026-09-03T10:00:00Z', null, 'not-a-timestamp', '2026-09-03T12:00:00Z'],
+        ],
     ])('spans the earliest and latest timestamp when %s', (_name, timestamps) => {
         expect(sessionErrorsWindow(timestamps)).toEqual({
             date_from: '2026-09-03T04:00:00.000Z',
