@@ -12,6 +12,11 @@ function ThrowChunkError(): JSX.Element {
     throw new TypeError('Failed to fetch dynamically imported module: /static/chunk-App.js')
 }
 
+function ThrowNonStringifiableValue(): JSX.Element {
+    // A null-prototype object has no toString, so String(value) throws
+    throw Object.create(null)
+}
+
 describe('RootErrorBoundary', () => {
     let consoleErrorSpy: jest.SpyInstance
     let sendBeacon: jest.Mock
@@ -74,6 +79,16 @@ describe('RootErrorBoundary', () => {
 
         expect(screen.getByRole('alert')).toHaveTextContent('PostHog failed to load.')
         expect(JSON.parse(sendBeacon.mock.calls[0][1]).properties.chunk_load_error).toBe(true)
+    })
+
+    it('still shows the failure UI when the thrown value cannot be stringified', () => {
+        render(
+            <RootErrorBoundary>
+                <ThrowNonStringifiableValue />
+            </RootErrorBoundary>
+        )
+
+        expect(screen.getByRole('alert')).toHaveTextContent('PostHog crashed while starting.')
     })
 
     it('does not report when capture is opted out', () => {

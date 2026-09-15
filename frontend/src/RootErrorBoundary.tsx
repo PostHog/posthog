@@ -9,21 +9,26 @@ import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
  * and without this beacon a broken deploy would be invisible to error tracking.
  */
 function reportBootFailure(error: unknown): void {
-    const err = error instanceof Error ? error : new Error(String(error))
-    captureViaBeacon('$exception', {
-        // Personless event: don't create person profiles from anonymous boot beacons
-        $process_person_profile: false,
-        $exception_level: 'fatal',
-        $exception_list: [
-            {
-                type: err.name || 'Error',
-                value: err.message,
-                mechanism: { handled: true, synthetic: false },
-            },
-        ],
-        stack: err.stack,
-        chunk_load_error: isChunkLoadError(error),
-    })
+    try {
+        const err = error instanceof Error ? error : new Error(String(error))
+        captureViaBeacon('$exception', {
+            // Personless event: don't create person profiles from anonymous boot beacons
+            $process_person_profile: false,
+            $exception_level: 'fatal',
+            $exception_list: [
+                {
+                    type: err.name || 'Error',
+                    value: err.message,
+                    mechanism: { handled: true, synthetic: false },
+                },
+            ],
+            stack: err.stack,
+            chunk_load_error: isChunkLoadError(error),
+        })
+    } catch {
+        // A thrown value can resist stringification, and no boundary sits above this one to
+        // catch a second failure, so the user would get a blank page instead of the panel.
+    }
 }
 
 interface RootErrorBoundaryState {
