@@ -10,9 +10,8 @@ import { MaxErrorTrackingIssuePreview } from '~/queries/schema/schema-assistant-
 import { ErrorTrackingIssueCard } from 'products/posthog_ai/frontend/api/primitives'
 
 import { SESSION_ERRORS_WINDOW_HOURS } from '../../sessionErrors'
+import { TRACING_DOCS_URL } from '../../traceLinks'
 import { TraceErrorsLogicProps, traceErrorsLogic } from './traceErrorsLogic'
-
-const TRACING_DOCS_URL = 'https://posthog.com/docs/tracing'
 
 export interface TraceErrorsTabProps {
     traceId: string
@@ -70,11 +69,13 @@ function TraceErrorsTabContent(): JSX.Element {
 
     if (sessionIssues.length === 0) {
         return (
-            <EmptyMessage
-                title="No errors in this session"
-                description={`No exceptions were found in this session within ${SESSION_ERRORS_WINDOW_HOURS} hours of this trace.`}
-                size="small"
-            />
+            <div className="flex justify-center w-full py-8">
+                <EmptyMessage
+                    title="No errors in this session"
+                    description={`No exceptions were found in this session within ${SESSION_ERRORS_WINDOW_HOURS} hours of this trace.`}
+                    size="small"
+                />
+            </div>
         )
     }
 

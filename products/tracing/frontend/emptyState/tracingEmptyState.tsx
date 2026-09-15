@@ -6,6 +6,7 @@ import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/ty
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { TRACING_DOCS_URL } from '../traceLinks'
 import { TracingPreview } from './TracingPreview'
 import { tracingSetupLogic } from './tracingSetupLogic'
 
@@ -26,7 +27,7 @@ export const tracingEmptyState: SceneProductEmptyState = {
                 lead: 'Send spans from any OpenTelemetry-compatible client over OTLP. No PostHog-specific packages needed. Follow a request across services, find the span that slows it down, and watch latency over time.',
             },
         },
-        docsUrl: 'https://posthog.com/docs/tracing',
+        docsUrl: TRACING_DOCS_URL,
         previewLabel: 'Your traces, once connected',
         Preview: TracingPreview,
     },

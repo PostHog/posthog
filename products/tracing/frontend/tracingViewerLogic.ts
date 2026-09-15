@@ -1,7 +1,6 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
-import { spanSessionErrorsLogic } from './spanSessionErrorsLogic'
 import { EMPTY_TRACE_IDENTITY, resolveTraceIdentity, resolveTraceSessionId, type TraceIdentity } from './traceIdentity'
 import { tracingCorrelationConfigLogic } from './tracingCorrelationConfigLogic'
 import { PREFETCH_SPANS, tracingDataLogic } from './tracingDataLogic'
@@ -23,7 +22,6 @@ export interface tracingViewerLogicValues {
     configuredSessionIdKeys: string[] | undefined // tracingCorrelationConfigLogic
     correlationLinksEnabled: boolean // tracingCorrelationConfigLogic
     sessionErrorBadgesEnabled: boolean // tracingCorrelationConfigLogic
-    errorCountByRow: Map<string, number> // spanSessionErrorsLogic
     spans: Span[] // tracingDataLogic
     traceSpans: Span[] // tracingDataLogic
     traceSpansHasMore: boolean // tracingDataLogic
@@ -38,6 +36,7 @@ export interface tracingViewerLogicValues {
     isTraceOpen: boolean
     openTraceSpans: Span[]
     resolvableTraceSpans: Span[]
+    traceSessionResolving: boolean
     selectedSpanId: string | null
     selectedTraceId: string | null
     selectedTraceTs: string | null
@@ -121,11 +120,8 @@ export interface tracingViewerLogicMeta {
             traceSpans: Span[],
             selectedTraceId: string | null
         ) => boolean
-        resolvableTraceSpans: (
-            openTraceSpans: Span[],
-            canLoadMoreTraceSpans: boolean,
-            traceSpansLoading: boolean
-        ) => Span[]
+        traceSessionResolving: (canLoadMoreTraceSpans: boolean, traceSpansLoading: boolean) => boolean
+        resolvableTraceSpans: (openTraceSpans: Span[], traceSessionResolving: boolean) => Span[]
         traceIdentity: (
             resolvableTraceSpans: Span[],
             configuredDistinctIdKeys: string[] | undefined,
@@ -168,8 +164,6 @@ export const tracingViewerLogic = kea<tracingViewerLogicType>([
                 'correlationLinksEnabled',
                 'sessionErrorBadgesEnabled',
             ],
-            spanSessionErrorsLogic({ id }),
-            ['errorCountByRow'],
         ],
         actions: [
             tracingDataLogic({ id }),
@@ -223,6 +217,9 @@ export const tracingViewerLogic = kea<tracingViewerLogicType>([
         ],
         // Which inspector tab the drawer shows. It lives here rather than in the drawer so a
         // caller can open a trace straight onto a tab, which the span list's error badge does.
+        // Deliberately not a URL param, unlike the trace and span the drawer opens on. A shared
+        // link carries which trace to read, and the reader picks their own tab from there, so a
+        // reload lands on Attributes by design.
         inspectorTab: [
             'attributes' as SpanInspectorTab,
             {
@@ -280,13 +277,20 @@ export const tracingViewerLogic = kea<tracingViewerLogicType>([
                 !!selectedTraceId &&
                 traceSpans.some((span: Span) => span.trace_id === selectedTraceId),
         ],
-        // The spans an identity may be resolved from. Empty while more spans can arrive, because a
-        // second, conflicting value may sit on a page that has not loaded yet, and the prefetch
-        // fallback on screen during the first fetch may itself be truncated.
+        // More spans can still arrive, so no value read from the ones on screen is an answer yet.
+        // A second, conflicting value may sit on a page that has not loaded, and the prefetch
+        // fallback shown during the first fetch may itself be truncated. The drawer reads this to
+        // tell "no session" apart from "not resolved yet".
+        traceSessionResolving: [
+            (s) => [s.canLoadMoreTraceSpans, s.traceSpansLoading],
+            (canLoadMoreTraceSpans: boolean, traceSpansLoading: boolean): boolean =>
+                canLoadMoreTraceSpans || traceSpansLoading,
+        ],
+        // The spans an identity may be resolved from.
         resolvableTraceSpans: [
-            (s) => [s.openTraceSpans, s.canLoadMoreTraceSpans, s.traceSpansLoading],
-            (openTraceSpans: Span[], canLoadMoreTraceSpans: boolean, traceSpansLoading: boolean): Span[] =>
-                canLoadMoreTraceSpans || traceSpansLoading ? EMPTY_SPANS : openTraceSpans,
+            (s) => [s.openTraceSpans, s.traceSessionResolving],
+            (openTraceSpans: Span[], traceSessionResolving: boolean): Span[] =>
+                traceSessionResolving ? EMPTY_SPANS : openTraceSpans,
         ],
         // The person and session the open trace belongs to.
         traceIdentity: [
@@ -309,8 +313,9 @@ export const tracingViewerLogic = kea<tracingViewerLogicType>([
                 return resolveTraceIdentity(resolvableTraceSpans, configuredDistinctIdKeys, configuredSessionIdKeys)
             },
         ],
-        // The open trace's session for the Errors tab, which needs no person. It follows its own
-        // flag, so the tab works on a team that has the badges without the person and replay links.
+        // The open trace's session for the Errors tab, which needs no person. It follows the badge
+        // flag rather than the person and replay one, so the tab works for a team that has only the
+        // badges. The gate also keeps the span scan off a team that has neither.
         traceSessionId: [
             (s) => [s.resolvableTraceSpans, s.configuredSessionIdKeys, s.sessionErrorBadgesEnabled],
             (

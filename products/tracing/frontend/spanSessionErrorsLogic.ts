@@ -1,4 +1,4 @@
-import { MakeLogicType, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { MakeLogicType, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -6,20 +6,23 @@ import api from 'lib/api'
 import { hogql } from '~/queries/utils'
 
 import { sessionErrorsWindow } from './sessionErrors'
-import { resolveTraceSessionId } from './traceIdentity'
+import { resolveSpanSessionId } from './traceIdentity'
 import { tracingCorrelationConfigLogic } from './tracingCorrelationConfigLogic'
 import { tracingDataLogic } from './tracingDataLogic'
 import { TRACING_SCENE_VIEWER_ID } from './tracingFiltersLogic'
 import type { Span } from './types'
 
 // One page of spans can carry hundreds of distinct sessions. The lookup is a single query either
-// way, but the IN list ends up in the query text, so cap what a runaway page can put there.
+// way, but the IN list ends up in the query text, so cap how many one query can put there.
 const MAX_SESSIONS_PER_LOOKUP = 200
 
 // Scrolling the list pages in several batches in quick succession. A kea breakpoint cancels a
 // superseded lookup, and the one that survives asks about every session still unanswered, so this
 // wait coalesces fast paging into a single query.
 const LOOKUP_DEBOUNCE_MS = 300
+
+// One shared instance, so the selectors below keep their identity while the feature is off.
+const NO_SESSIONS: Map<string, string> = new Map()
 
 export interface SpanSessionErrorsLogicProps {
     id: string
@@ -57,9 +60,7 @@ export interface spanSessionErrorsLogicActions {
         spans: Span[]
         payload?: any
     } // tracingDataLogic
-    loadSessionErrorCounts: ({ reset }: { reset: boolean }) => {
-        reset: boolean
-    }
+    loadSessionErrorCounts: () => any
     loadSessionErrorCountsFailure: (
         error: string,
         errorObject?: any
@@ -69,14 +70,10 @@ export interface spanSessionErrorsLogicActions {
     }
     loadSessionErrorCountsSuccess: (
         sessionErrorCounts: Record<string, number>,
-        payload?: {
-            reset: boolean
-        }
+        payload?: any
     ) => {
         sessionErrorCounts: Record<string, number>
-        payload?: {
-            reset: boolean
-        }
+        payload?: any
     }
 }
 
@@ -84,7 +81,11 @@ export interface spanSessionErrorsLogicActions {
 export interface spanSessionErrorsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        sessionIdByRow: (listRows: Span[], configuredSessionIdKeys: string[] | undefined) => Map<string, string>
+        sessionIdByRow: (
+            listRows: Span[],
+            configuredSessionIdKeys: string[] | undefined,
+            sessionErrorBadgesEnabled: boolean
+        ) => Map<string, string>
         sessionIdsInView: (sessionIdByRow: Map<string, string>) => string[]
         errorCountByRow: (
             sessionIdByRow: Map<string, string>,
@@ -130,20 +131,20 @@ export const spanSessionErrorsLogic = kea<spanSessionErrorsLogicType>([
         sessionErrorCounts: [
             {} as Record<string, number>,
             {
-                loadSessionErrorCounts: async (
-                    { reset }: { reset: boolean },
-                    breakpoint
-                ): Promise<Record<string, number>> => {
+                loadSessionErrorCounts: async (_, breakpoint): Promise<Record<string, number>> => {
                     // Wait first, so a lookup a faster page supersedes pays for none of the work
                     // below. Everything after this reads one snapshot, which keeps the ids and the
                     // range in agreement.
                     await breakpoint(LOOKUP_DEBOUNCE_MS)
 
-                    // A fresh query replaces the result set, so drop what the previous filters answered.
-                    const known = reset ? {} : values.sessionErrorCounts
-                    // hasOwn, not `in`: `in` walks the prototype chain, so a session id that
-                    // collides with an Object member would read as already answered.
-                    const sessionIds = values.sessionIdsInView.filter((sessionId) => !Object.hasOwn(known, sessionId))
+                    const known = values.sessionErrorCounts
+                    // Two filters here. hasOwn, not `in`, because `in` walks the prototype chain, so
+                    // a session id that collides with an Object member would read as answered. And
+                    // the cap applies to the unanswered ids rather than the page's ids, so a list
+                    // that has already passed the cap still asks about what a new page brings.
+                    const sessionIds = values.sessionIdsInView
+                        .filter((sessionId) => !Object.hasOwn(known, sessionId))
+                        .slice(0, MAX_SESSIONS_PER_LOOKUP)
                     if (sessionIds.length === 0) {
                         return known
                     }
@@ -151,10 +152,11 @@ export const spanSessionErrorsLogic = kea<spanSessionErrorsLogicType>([
                     // instead would widen it with each page and re-scan the time the earlier pages
                     // already covered.
                     const asked = new Set(sessionIds)
+                    const sessionIdByRow = values.sessionIdByRow
                     const range = sessionErrorsWindow(
                         values.listRows
                             .filter((span) => {
-                                const sessionId = values.sessionIdByRow.get(span.uuid)
+                                const sessionId = sessionIdByRow.get(span.uuid)
                                 return !!sessionId && asked.has(sessionId)
                             })
                             .map((span) => span.timestamp)
@@ -192,18 +194,36 @@ export const spanSessionErrorsLogic = kea<spanSessionErrorsLogicType>([
         ],
     })),
 
+    reducers({
+        sessionErrorCounts: {
+            // A fresh page answers different filters, so the counts stop applying the moment it
+            // lands. Clearing here rather than inside the lookup keeps that true even when a next
+            // page supersedes the lookup before its debounce elapses.
+            fetchSpansSuccess: () => ({}),
+        },
+    }),
+
     selectors({
         // The one place a row's session is resolved, so the lookup and the badge can never read a
         // row differently.
         sessionIdByRow: [
-            (s) => [s.listRows, s.configuredSessionIdKeys],
-            (listRows: Span[], configuredSessionIdKeys: string[] | undefined): Map<string, string> => {
+            (s) => [s.listRows, s.configuredSessionIdKeys, s.sessionErrorBadgesEnabled],
+            (
+                listRows: Span[],
+                configuredSessionIdKeys: string[] | undefined,
+                sessionErrorBadgesEnabled: boolean
+            ): Map<string, string> => {
+                // The scan reads every attribute of every loaded row, so it must not run for a
+                // team that does not have the badges.
+                if (!sessionErrorBadgesEnabled) {
+                    return NO_SESSIONS
+                }
                 const byRow = new Map<string, string>()
                 for (const span of listRows) {
                     // One row at a time, not the trace's other loaded spans: the list prefetches a
                     // capped number of spans per trace, so scanning them could resolve a session
                     // that a span still to load contradicts.
-                    const sessionId = resolveTraceSessionId([span], configuredSessionIdKeys)
+                    const sessionId = resolveSpanSessionId(span, configuredSessionIdKeys)
                     if (sessionId) {
                         byRow.set(span.uuid, sessionId)
                     }
@@ -214,8 +234,7 @@ export const spanSessionErrorsLogic = kea<spanSessionErrorsLogicType>([
 
         sessionIdsInView: [
             (s) => [s.sessionIdByRow],
-            (sessionIdByRow: Map<string, string>): string[] =>
-                Array.from(new Set(sessionIdByRow.values())).slice(0, MAX_SESSIONS_PER_LOOKUP),
+            (sessionIdByRow: Map<string, string>): string[] => Array.from(new Set(sessionIdByRow.values())),
         ],
 
         // What each row badges. A row is absent until its session is looked up and comes back with
@@ -225,7 +244,7 @@ export const spanSessionErrorsLogic = kea<spanSessionErrorsLogicType>([
             (sessionIdByRow: Map<string, string>, sessionErrorCounts: Record<string, number>): Map<string, number> => {
                 const byRow = new Map<string, number>()
                 for (const [uuid, sessionId] of sessionIdByRow) {
-                    const count = Object.hasOwn(sessionErrorCounts, sessionId) ? sessionErrorCounts[sessionId] : 0
+                    const count = sessionErrorCounts[sessionId]
                     if (count > 0) {
                         byRow.set(uuid, count)
                     }
@@ -235,17 +254,14 @@ export const spanSessionErrorsLogic = kea<spanSessionErrorsLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
-        // A fresh page resets the counts; a next page keeps them and asks only about new sessions.
-        fetchSpansSuccess: () => {
+    listeners(({ actions, values }) => {
+        // Either way the lookup asks only about sessions with no count yet. A fresh page has none,
+        // because the reducer above cleared them.
+        const lookUpNewSessions = (): void => {
             if (values.sessionErrorBadgesEnabled) {
-                actions.loadSessionErrorCounts({ reset: true })
+                actions.loadSessionErrorCounts()
             }
-        },
-        fetchNextPageSuccess: () => {
-            if (values.sessionErrorBadgesEnabled) {
-                actions.loadSessionErrorCounts({ reset: false })
-            }
-        },
-    })),
+        }
+        return { fetchSpansSuccess: lookUpNewSessions, fetchNextPageSuccess: lookUpNewSessions }
+    }),
 ])

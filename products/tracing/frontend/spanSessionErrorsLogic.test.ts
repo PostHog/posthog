@@ -103,12 +103,28 @@ describe('spanSessionErrorsLogic', () => {
         expect(queriesRun()[0]).toContain('isNotNull(properties.$exception_issue_id)')
     })
 
-    it('queries nothing while the feature flag is off', async () => {
+    it('queries nothing and scans no rows while the feature flag is off', async () => {
         featureFlagLogic.actions.setFeatureFlags([], {})
         await loadFirstPage([spanWithSession('span-1', 'session-a')])
 
         expect(queriesRun()).toHaveLength(0)
         expect(logic.values.sessionErrorCounts).toEqual({})
+        // Empty because the resolve is skipped, not because the rows carry no session. Without
+        // that guard every team pays the per-row attribute scan for a feature they cannot see.
+        expect(logic.values.sessionIdsInView).toEqual([])
+    })
+
+    // The cap bounds one query's IN list. Capping the page's sessions instead would mean a list
+    // that has already seen that many sessions never asks about the ones a new page brings.
+    it('keeps asking about new sessions once the lookup cap is reached', async () => {
+        const firstPage = Array.from({ length: 250 }, (_, i) => spanWithSession(`span-${i}`, `session-${i}`))
+        await loadFirstPage(firstPage)
+
+        expect(queriesRun()[0].match(/'session-\d+'/g)).toHaveLength(200)
+
+        await loadNextPage([...firstPage, spanWithSession('span-new', 'session-new')])
+
+        expect(queriesRun()[1]).toContain("'session-new'")
     })
 
     it('drops counts from the previous filters when a fresh query lands', async () => {
@@ -118,5 +134,23 @@ describe('spanSessionErrorsLogic', () => {
         await loadFirstPage([])
 
         expect(logic.values.sessionErrorCounts).toEqual({})
+    })
+
+    // A first page shorter than the viewport asks for the next one immediately, which supersedes
+    // the fresh page's lookup before its debounce elapses. The counts still have to go, or the
+    // previous filters keep badging rows.
+    it('drops the previous counts even when the next page supersedes the lookup', async () => {
+        await loadFirstPage([spanWithSession('span-1', 'session-a')])
+        expect(logic.values.sessionErrorCounts).toEqual({ 'session-a': 3 })
+
+        // The fresh filters return no exceptions, so anything left over comes from the old page.
+        queryHogQLSpy.mockResolvedValue({ results: [] } as any)
+
+        const freshPage = [spanWithSession('span-2', 'session-b')]
+        dataLogic.actions.fetchSpansSuccess(freshPage)
+        dataLogic.actions.fetchNextPageSuccess(freshPage)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.sessionErrorCounts).not.toHaveProperty('session-a')
     })
 })

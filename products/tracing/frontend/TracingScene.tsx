@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 
 import { LemonBanner, LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
 
@@ -27,6 +27,7 @@ import { tracingEmptyState } from './emptyState/tracingEmptyState'
 import { OperationsTable } from './OperationsTable'
 import { TraceCompareFlame } from './TraceCompareFlame'
 import { TraceCompareTable } from './TraceCompareTable'
+import { TRACING_DOCS_URL } from './traceLinks'
 import { TracingAgentIntegration } from './TracingAgentIntegration'
 import { tracingConfigLogic } from './tracingConfigLogic'
 import { tracingDataLogic } from './tracingDataLogic'
@@ -39,7 +40,6 @@ import { tracingViewerLogic } from './tracingViewerLogic'
 import type { Span } from './types'
 
 const TRACING_FEEDBACK_SURVEY_ID = '019e6a26-4943-0000-24a0-dc46310f6b7c'
-const TRACING_DOCS_URL = 'https://posthog.com/docs/tracing'
 
 export const scene: SceneExport = {
     component: TracingScene,
@@ -83,6 +83,7 @@ function TracingSceneContents(): JSX.Element {
         openTraceSpans,
         traceIdentity,
         traceSessionId,
+        traceSessionResolving,
         sessionErrorBadgesEnabled,
         errorCountByRow,
         inspectorTab,
@@ -137,8 +138,23 @@ function TracingSceneContents(): JSX.Element {
     const { sparklineWindowMs } = useValues(tracingFiltersLogic)
     const operationsWindowMs = sparklineWindowMs.endMs - sparklineWindowMs.startMs
 
+    // react-window rebuilds its row memo from the shallow values of rowProps, so one unstable
+    // value there re-renders every visible row. This handler and `sessionErrors` below are both
+    // passed that way, so both hold their identity.
+    const onRowClick = useCallback(
+        (span: Span): void => {
+            // Clicking a row leaves the scrollable <main tabIndex="0"> as the active element;
+            // react-modal then scrolls it back into view when restoring focus on close. Blur so
+            // the restore target is <body>, which doesn't scroll.
+            ;(document.activeElement as HTMLElement | null)?.blur?.()
+            // Anchor the waterfall on the clicked span. In Spans mode this is often a child span,
+            // so without spanId the drawer would open unfocused at the root.
+            openTrace(span.trace_id, { spanId: span.span_id, ts: span.timestamp })
+        },
+        [openTrace]
+    )
+
     // Absent while the flag is off, which is how the list decides whether to keep a badge column.
-    // Memoized because the list hands it to every virtualized row.
     const sessionErrors = useMemo(
         () =>
             sessionErrorBadgesEnabled
@@ -291,15 +307,7 @@ function TracingSceneContents(): JSX.Element {
                                         </Link>
                                     </div>
                                 }
-                                onRowClick={(span: Span) => {
-                                    // Clicking a row leaves the scrollable <main tabIndex="0"> as the active
-                                    // element; react-modal then scrolls it back into view when restoring focus
-                                    // on close. Blur so the restore target is <body>, which doesn't scroll.
-                                    ;(document.activeElement as HTMLElement | null)?.blur?.()
-                                    // Anchor the waterfall on the clicked span — in Spans mode this is often a
-                                    // child span, so without spanId the drawer would open unfocused at the root.
-                                    openTrace(span.trace_id, { spanId: span.span_id, ts: span.timestamp })
-                                }}
+                                onRowClick={onRowClick}
                             />
                         )}
                     </div>
@@ -312,6 +320,7 @@ function TracingSceneContents(): JSX.Element {
                 spans={openTraceSpans}
                 identity={traceIdentity}
                 sessionId={traceSessionId}
+                sessionResolving={traceSessionResolving}
                 showSessionErrors={sessionErrorBadgesEnabled}
                 inspectorTab={inspectorTab}
                 onSelectInspectorTab={selectInspectorTab}

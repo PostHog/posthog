@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
 import { MaxErrorTrackingIssuePreview } from '~/queries/schema/schema-assistant-error-tracking'
-import { ErrorTrackingIssue, ErrorTrackingQuery, NodeKind } from '~/queries/schema/schema-general'
+import { ErrorTrackingQuery, NodeKind } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { sessionErrorsWindow } from '../../sessionErrors'
@@ -62,6 +62,10 @@ export type traceErrorsLogicType = MakeLogicType<
 // is the session, not the trace, because an exception event only carries a trace id when the SDK
 // propagated one. So these issues co-occurred with the trace; they were not necessarily caused
 // by it.
+//
+// This runs the query node rather than the generated issues-list client, because that endpoint
+// defaults to active issues and to excluding test accounts. The badge counts every exception the
+// session hit, so the tab has to answer over the same set or the two disagree.
 export const traceErrorsLogic = kea<traceErrorsLogicType>([
     props({} as TraceErrorsLogicProps),
     key((props) => props.traceId),
@@ -102,9 +106,8 @@ export const traceErrorsLogic = kea<traceErrorsLogicType>([
                 }
 
                 const response = await api.query(query)
-                const issues = response.results as ErrorTrackingIssue[]
 
-                return issues.map(
+                return response.results.map(
                     (issue): MaxErrorTrackingIssuePreview => ({
                         id: issue.id,
                         name: issue.name,

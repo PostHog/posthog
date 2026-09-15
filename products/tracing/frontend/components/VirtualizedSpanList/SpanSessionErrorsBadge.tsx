@@ -8,8 +8,6 @@ export interface SpanSessionErrorsBadgeProps {
     onClick: () => void
 }
 
-// The count answers the session, not the span it sits on, so the copy says "in this session"
-// rather than implying the span caused the errors.
 export function SpanSessionErrorsBadge({ errorCount, onClick }: SpanSessionErrorsBadgeProps): JSX.Element {
     const label = `${pluralize(errorCount, 'error occurrence')} in this session`
 

@@ -16,6 +16,7 @@ import type { AggregatedSpanRow, DateRange, SpanTreeNode } from '../../../fronte
 import type { UniversalFiltersGroup } from '../../../frontend/src/types'
 import type { TracingDurationHistogramData, VisibleDurationRange } from './durationBuckets'
 import type { TracingLatencyHeatmapData } from './durationBuckets'
+import { spanSessionErrorsLogic } from './spanSessionErrorsLogic'
 import type { TraceIdentity } from './traceIdentity'
 import { tracingDataLogic } from './tracingDataLogic'
 import type { TracingSparklineData, VisibleSpanTimeRange } from './tracingDataLogic'
@@ -101,8 +102,9 @@ export interface tracingSceneLogicValues {
     selectedTraceTs: string | null // tracingViewerLogic
     traceIdentity: TraceIdentity // tracingViewerLogic
     traceSessionId: string | null // tracingViewerLogic
+    traceSessionResolving: boolean // tracingViewerLogic
     sessionErrorBadgesEnabled: boolean // tracingViewerLogic
-    errorCountByRow: Map<string, number> // tracingViewerLogic
+    errorCountByRow: Map<string, number> // spanSessionErrorsLogic
     inspectorTab: SpanInspectorTab // tracingViewerLogic
     activeTracingTab: 'operations' | 'traces'
     breadcrumbs: Breadcrumb[]
@@ -299,6 +301,8 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             ],
             tracingFiltersLogic({ id: TRACING_SCENE_VIEWER_ID }),
             ['filters', 'utcDateRange', 'sparklineWindowMs', 'currentWindowMs', 'previousWindowMs', 'compareActive'],
+            spanSessionErrorsLogic({ id: TRACING_SCENE_VIEWER_ID }),
+            ['errorCountByRow'],
             tracingViewerLogic({ id: TRACING_SCENE_VIEWER_ID }),
             [
                 'selectedTraceId',
@@ -308,8 +312,8 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'openTraceSpans',
                 'traceIdentity',
                 'traceSessionId',
+                'traceSessionResolving',
                 'sessionErrorBadgesEnabled',
-                'errorCountByRow',
                 'inspectorTab',
                 'isLoadingFullTrace',
                 'canLoadMoreTraceSpans',
