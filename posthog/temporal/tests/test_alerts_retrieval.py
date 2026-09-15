@@ -66,8 +66,13 @@ async def test_retrieve_due_alerts_orders_fair_share_before_overflow(
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_retrieve_due_alerts_applies_the_documented_order_within_each_team(ateam: Team) -> None:
+async def test_retrieve_due_alerts_excludes_future_checks_and_applies_the_documented_order_within_each_team(
+    ateam: Team,
+) -> None:
     alert_specs = [
+        # These high-priority intervals would lead the result if due filtering regressed.
+        ("future_real_time", AlertCalculationInterval.REAL_TIME, datetime(2026, 9, 10, 12, 1, tzinfo=UTC)),
+        ("future_15_minutes", AlertCalculationInterval.EVERY_15_MINUTES, datetime(2026, 9, 10, 12, 15, tzinfo=UTC)),
         ("fresh_daily_tie_lower_id", AlertCalculationInterval.DAILY, datetime(2026, 9, 10, 11, 47, tzinfo=UTC)),
         ("fresh_hourly", AlertCalculationInterval.HOURLY, datetime(2026, 9, 10, 11, 46, tzinfo=UTC)),
         ("aged_real_time", AlertCalculationInterval.REAL_TIME, datetime(2026, 9, 10, 11, 40, tzinfo=UTC)),
@@ -111,7 +116,7 @@ async def test_retrieve_due_alerts_applies_the_documented_order_within_each_team
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_retrieve_due_alerts_keeps_active_cohort_in_fair_share(ateam: Team) -> None:
+async def test_retrieve_due_alerts_reselects_the_same_oldest_due_alerts_until_checks_advance(ateam: Team) -> None:
     due_alerts = [
         await _create_alert(
             ateam,
@@ -125,9 +130,13 @@ async def test_retrieve_due_alerts_keeps_active_cohort_in_fair_share(ateam: Team
         first_sweep = await ActivityEnvironment().run(retrieve_due_alerts, inputs)
         second_sweep = await ActivityEnvironment().run(retrieve_due_alerts, inputs)
 
-    expected_ids = [str(alert.id) for alert in due_alerts[:2]]
-    assert [alert.alert_id for alert in first_sweep] == expected_ids
-    assert [alert.alert_id for alert in second_sweep] == expected_ids
+    oldest_due_alert_ids = [str(alert.id) for alert in due_alerts[:2]]
+    first_sweep_ids = [alert.alert_id for alert in first_sweep]
+    second_sweep_ids = [alert.alert_id for alert in second_sweep]
+
+    assert first_sweep_ids == oldest_due_alert_ids
+    # Retrieval does not advance next_check_at, so the next sweep sees the same oldest cohort as due.
+    assert second_sweep_ids == first_sweep_ids
 
 
 @pytest.mark.asyncio
