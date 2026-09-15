@@ -45,10 +45,12 @@ class InsightContext:
         filters_override: dict | None = None,
         variables_override: dict | None = None,
         event_source: EventSource = EventSource.POSTHOG_AI,
-    ):
+        max_sql_result_chars: int | None = None,
+    ) -> None:
         self.team = team
         self.user = user
         self.event_source = event_source
+        self.max_sql_result_chars = max_sql_result_chars
         self.query = query
         self.name = name
         self.description = description
@@ -100,6 +102,7 @@ class InsightContext:
                 user=self.user,
                 include_prompt_framing=include_prompt_framing,
                 event_source=self.event_source,
+                max_sql_result_chars=self.max_sql_result_chars,
             )
         except Exception as e:
             error_message = f"Error executing query: {str(e)}"
