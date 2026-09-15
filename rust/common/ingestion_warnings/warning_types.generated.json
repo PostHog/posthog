@@ -164,7 +164,19 @@
       "captureProduced": false
     },
     {
+      "type": "invalid_group_key",
+      "category": "event",
+      "severity": "error",
+      "captureProduced": false
+    },
+    {
       "type": "invalid_group_set",
+      "category": "event",
+      "severity": "error",
+      "captureProduced": false
+    },
+    {
+      "type": "invalid_group_type",
       "category": "event",
       "severity": "error",
       "captureProduced": false
