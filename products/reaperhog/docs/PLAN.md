@@ -51,7 +51,7 @@ A root is the thing whose death drags a cluster with it: a flag key, a scene, a 
 | `experiments` | flag         | Concluded experiments whose flag key still has code references. `cleanup_plan` in the experiments product already names the variant to keep; an ambiguous outcome is marked not confident and goes to a human. |
 | `flags`       | flag         | Flag rows joined to the code's flag keys: deleted or archived rows with live references, flags disabled, uncalled, at 0% rollout or enabled for nobody who checked them, flags at 100% rollout.                |
 | `archaeology` | directory    | Last non-sweep commit per directory (commits touching 200+ files are skipped), committer no longer in the org, hackathon or spike commit subjects.                                                             |
-| `scenes`      | scene        | Product routes with zero `$pageview` traffic over 90 days on the configured project.                                                                                                                           |
+| `scenes`      | scene        | Product routes with zero `$pageview` traffic over 90 days on the configured project. Pathnames carry entity ids, so the read can fill a page; the scout then reports nothing, because an absent pathname would read as zero. |
 | `static`      | file, symbol | knip, where a workspace ships a `knip.json` (`products/desktop` today).                                                                                                                                        |
 
 Not built yet: `endpoints` (Prometheus request counts by view), `queries` (query log kinds vs `NodeKind`), `jobs` (Celery and Temporal names never executed).
