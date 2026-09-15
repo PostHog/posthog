@@ -22,6 +22,12 @@ describe('llmCheckWouldFire', () => {
         ['negative verdict, low confidence', { verdict_is_anomaly: false, confidence: 0.2 }, false],
         ['positive verdict at the threshold', { verdict_is_anomaly: true, confidence: 0.7 }, true],
         ['positive verdict below the threshold', { verdict_is_anomaly: true, confidence: 0.5 }, false],
+        // The backend suppresses a confident anomaly that names only older points.
+        [
+            'confident verdict that skipped the latest point',
+            { verdict_is_anomaly: true, confidence: 0.9, latest_point_not_flagged: true },
+            false,
+        ],
         ['check without a stored verdict', { rationale: 'older check' }, null],
         ['check without metadata', null, null],
     ])('%s', (_name, metadata, expected) => {

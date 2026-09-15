@@ -30,6 +30,7 @@ import {
 import {
     DEFAULT_ANOMALY_DETECTION_THRESHOLD,
     DEFAULT_LLM_DETECTION_CONFIDENCE,
+    DEFAULT_LLM_DETECTOR_WINDOW,
     MAX_LLM_DETECTOR_WINDOW,
     getDefaultLLMDetectorConfig,
     getDefaultZScoreDetectorConfig,
@@ -579,7 +580,7 @@ function LLMConfig({
                 onChange={onChange}
                 calculationInterval={calculationInterval}
                 max={MAX_LLM_DETECTOR_WINDOW}
-                defaultWindow={Math.min(getDefaultWindow(calculationInterval), MAX_LLM_DETECTOR_WINDOW)}
+                defaultWindow={DEFAULT_LLM_DETECTOR_WINDOW}
                 tooltip="How many recent data points the model is shown. Larger gives it more history to compare against, and costs more per check."
             />
             <p className="text-xs text-muted">

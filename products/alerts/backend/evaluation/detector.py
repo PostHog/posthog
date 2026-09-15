@@ -171,7 +171,7 @@ def _detection_metadata(detection: DetectionResult, detector_type_str: str) -> d
     metadata = detection.metadata or {}
     return {
         key: metadata[key]
-        for key in ("rationale", "kind", "verdict_is_anomaly", "confidence")
+        for key in ("rationale", "kind", "verdict_is_anomaly", "confidence", "latest_point_not_flagged")
         if metadata.get(key) is not None
     }
 

@@ -73,9 +73,10 @@ def render_series_chart(
 
         # A detector that does not score its points sends a list of nulls, which is the same
         # length as the values and so passes a plain emptiness check.
-        plotted_scores = (
-            scores if scores and len(scores) == len(values) and all(score is not None for score in scores) else None
-        )
+        plotted_scores: list[float] | None = None
+        if scores and len(scores) == len(values):
+            numeric = [score for score in scores if score is not None]
+            plotted_scores = numeric if len(numeric) == len(scores) else None
         if plotted_scores:
             ax2 = ax.twinx()
             ax2.plot(x, plotted_scores, color="#f59e0b", linewidth=1.0, linestyle="--", alpha=0.7, label="Score")

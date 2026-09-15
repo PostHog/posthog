@@ -8,6 +8,7 @@ import {
 } from 'products/alerts/frontend/components/AlertEvaluationHistoryChart'
 
 import type { AlertHistoryChartPoint } from '../logic/alertLogic'
+import { DEFAULT_LLM_DETECTION_CONFIDENCE } from '../logic/detectorConfigDefaults'
 import type { AlertType } from '../types'
 
 export type { AlertHistoryChartPoint }
@@ -41,17 +42,24 @@ function getChartThresholdContext(alert: AlertType, chartPlotsAnomalyScore: bool
             }
             return { lower, upper, boundType: 'absolute', lineMode: 'value' }
         }
-        if (
-            chartPlotsAnomalyScore &&
-            'threshold' in detectorConfig &&
-            typeof detectorConfig.threshold === 'number' &&
-            !Number.isNaN(detectorConfig.threshold)
-        ) {
-            return {
-                lower: null,
-                upper: detectorConfig.threshold,
-                boundType: 'absolute',
-                lineMode: detectorConfig.type === DetectorType.LLM ? 'model_confidence' : 'anomaly_probability',
+        if (chartPlotsAnomalyScore) {
+            const isLLM = detectorConfig.type === DetectorType.LLM
+            const configured =
+                'threshold' in detectorConfig &&
+                typeof detectorConfig.threshold === 'number' &&
+                !Number.isNaN(detectorConfig.threshold)
+                    ? detectorConfig.threshold
+                    : null
+            // An AI config saved through the API or MCP can omit the threshold, and evaluation
+            // then uses the same default. Draw the line the checks are actually judged against.
+            const threshold = configured ?? (isLLM ? DEFAULT_LLM_DETECTION_CONFIDENCE : null)
+            if (threshold !== null) {
+                return {
+                    lower: null,
+                    upper: threshold,
+                    boundType: 'absolute',
+                    lineMode: isLLM ? 'model_confidence' : 'anomaly_probability',
+                }
             }
         }
         return null
