@@ -218,7 +218,12 @@ describe('scannerRunTabLogic', () => {
         toast.mockRestore()
     })
 
-    it('keeps polling after a bulk scan whose refetch beats the new observation rows', async () => {
+    // `already_running` waits on a row the same way a start does: the backend reports it while the
+    // running workflow is still enqueued, so nothing has been written for the session yet.
+    test.each([
+        ['started', { started: 1, results: [{ session_id: 's9', scan_outcome: 'started' }] }],
+        ['already running', { started: 0, results: [{ session_id: 's9', scan_outcome: 'already_running' }] }],
+    ])('keeps polling after a bulk scan whose refetch beats the new observation rows: %s', async (_name, response) => {
         // toFinishAllListeners hangs under fake timers (msw resolves responses on the clock),
         // so the whole test advances fake time instead, which also flushes microtasks.
         jest.useFakeTimers()
@@ -236,10 +241,7 @@ describe('scannerRunTabLogic', () => {
                     },
                 },
                 post: {
-                    '/api/projects/:team/vision/scanners/:id/bulk_observe/': () => [
-                        202,
-                        { started: 1, results: [{ session_id: 's9', scan_outcome: 'started' }] },
-                    ],
+                    '/api/projects/:team/vision/scanners/:id/bulk_observe/': () => [202, response],
                 },
             })
 
@@ -251,7 +253,7 @@ describe('scannerRunTabLogic', () => {
 
             await jest.advanceTimersByTimeAsync(3_000)
             // Nothing is in progress and no row landed, so without a grace window the timer is
-            // disposed here and the started rows read "Not scanned" until the scene reloads.
+            // disposed here and the scanning rows read "Not scanned" until the scene reloads.
             expect(lookups).toBeGreaterThan(afterScan)
         } finally {
             jest.useRealTimers()

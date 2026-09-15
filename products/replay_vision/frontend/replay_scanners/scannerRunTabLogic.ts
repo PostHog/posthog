@@ -95,8 +95,12 @@ export interface scannerRunTabLogicActions {
     triggerOnDemandObservationSuccess: () => {
         value: true
     } // replayScannerLogic
-    bulkScanDone: (started: number) => {
+    bulkScanDone: (
+        started: number,
+        alreadyRunning: number
+    ) => {
         started: number
+        alreadyRunning: number
     }
     loadObservations: (background?: any) => {
         background: any
@@ -158,7 +162,7 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
         setVisibleSessionIds: (sessionIds: string[]) => ({ sessionIds }),
         startScan: (sessionId: string) => ({ sessionId }),
         startBulkScan: (sessionIds: string[]) => ({ sessionIds }),
-        bulkScanDone: (started: number) => ({ started }),
+        bulkScanDone: (started: number, alreadyRunning: number) => ({ started, alreadyRunning }),
         setPendingId: (sessionId: string) => ({ sessionId }),
         loadObservations: (background = false) => ({ background }),
         loadObservationsSuccess: (bySession: Record<string, RowObservation>) => ({ bySession }),
@@ -207,11 +211,15 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
         ],
         // A bulk trigger only starts the workflows; each row is inserted moments later. Nothing else
         // holds the poll open for them — unlike a single scan, which keeps `pendingId` until its row lands.
+        // An `already_running` session waits on a row the same way, because the backend reports it while
+        // the running workflow is still enqueued and has written nothing yet.
         pollUntil: [
             0,
             {
-                bulkScanDone: (state: number, { started }: { started: number }) =>
-                    started > 0 ? Date.now() + OBSERVE_POLL_GRACE_MS : state,
+                bulkScanDone: (
+                    state: number,
+                    { started, alreadyRunning }: { started: number; alreadyRunning: number }
+                ) => (started + alreadyRunning > 0 ? Date.now() + OBSERVE_POLL_GRACE_MS : state),
             },
         ],
     }),
@@ -258,7 +266,7 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
             startBulkScan: async ({ sessionIds }) => {
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId || sessionIds.length === 0) {
-                    actions.bulkScanDone(0)
+                    actions.bulkScanDone(0, 0)
                     return
                 }
                 // The backend scans what fits and reports the rest — surface the split so the user
@@ -348,7 +356,7 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
                     )
                 } finally {
                     // Arm the poll window before the refetch, which can beat the row inserts.
-                    actions.bulkScanDone(started)
+                    actions.bulkScanDone(started, alreadyRunning)
                     // Started scans create pending observations server-side — refetch to reflect them.
                     // Also on failure: an earlier batch can have started scans before a later one failed.
                     actions.loadObservations()
