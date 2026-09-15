@@ -218,6 +218,11 @@ class TestCanvasSharingApi(CanvasSharingTestBase):
         path = "/canvas-artifacts/" + artifact_url.split("/canvas-artifacts/", 1)[1]
         assert self.client.get(path, HTTP_IF_NONE_MATCH=f'"{"a" * 64}"').status_code == status.HTTP_304_NOT_MODIFIED
 
+        # The page names this member and the endpoint that turns the link back on, so no cache
+        # may keep it for whoever loads the link next.
+        page = self.client.get(f"/shared/{access_token}")
+        assert "no-store" in page["Cache-Control"]
+
         self.client.logout()
         assert self.client.get(f"/shared/{access_token}").status_code == status.HTTP_404_NOT_FOUND
 
