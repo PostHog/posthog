@@ -129,7 +129,8 @@ export type observationSearchLogicType = MakeLogicType<
     observationSearchLogicMeta
 >
 
-// The query text stays out of the event: it is free text that can carry customer names or emails.
+// This event carries no query property. The text is free and can hold customer names or emails.
+// The `q` URL parameter still reaches analytics through `$current_url`, as it does for every event on this page.
 function captureSearchOutcome(
     scannerId: string | null,
     outcome: { succeeded: boolean; result_count?: number; error_status?: number; error_code?: string }
