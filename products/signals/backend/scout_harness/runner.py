@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import time
 import asyncio
 import logging
@@ -116,6 +117,63 @@ _CRON_WINDOW_DST_SLACK_MINUTES = 120
 # that didn't opt in. `views._assert_report_tool_opted_in` is the matching fail-closed gate on the
 # write itself. `REPORT_CHANNEL_TOOLS` / `skill_uses_report_channel` live in `skill_loader` so the
 # runner, prompt builder, and viewset all resolve the same opt-in set.
+
+
+# `blocked_on` reaches an exception message, a worker log, and an analytics property, so the
+# model's list is bounded and shape-checked here rather than trusted. An unbounded list would push
+# the run-finished event over its property budget, and free prose in it would carry text the model
+# read inside the project out into fleet telemetry. `normalize_tags` holds an agent's tags to a
+# grammar for the same reason before they become a queryable value.
+MAX_BLOCKED_ON_TOOLS = 10
+MAX_BLOCKED_ON_TOOL_LENGTH = 80
+
+# What a tool name looks like on the interfaces a run reaches: kebab-case harness and PostHog tools
+# (`scout-runs-list`), snake_case sandbox tools (`emit_signal`), the `mcp__<server>__<tool>` form,
+# and the `posthog:<tool>` namespaced spelling. The grammar holds no whitespace, so no sentence can
+# pass it.
+_BLOCKED_ON_TOOL_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]*")
+
+# A model that writes a name into a list wraps it in markdown emphasis, or in the punctuation of the
+# sentence it lifted the name out of. That is still a name the run reported, so it is unwrapped
+# before the grammar test rather than dropped.
+_BLOCKED_ON_TOOL_WRAPPERS = " \t\r\n`'\"*()[]{}<>,.;:!?"
+
+# The stable `error_category` a tools-unavailable run is booked under. Named apart from the agent's
+# own categories (`_failure_properties`) because no agent turn failed: the turn succeeded and the
+# scout reported that it held none of the tools it needed.
+TOOLS_UNAVAILABLE_ERROR_CATEGORY = "tools_unavailable"
+
+
+class ScoutToolsUnavailable(Exception):
+    """The run closed out early because tools it needed were not callable.
+
+    Raised after the close-out is persisted, so the run is booked `failed` with the missing tools
+    named instead of `completed` with nothing to show. Without it a crippled run is indistinguishable
+    from a quiet one — same status, same empty emit tally — and the only trace of the cause is the
+    agent's own prose on the run row. That leaves the fault invisible to the fleet's failure rate and
+    to the breaker, so a lane whose tools are broken keeps taking a full sandbox lease every tick.
+    """
+
+    def __init__(self, tools: list[str]) -> None:
+        self.tools = tools
+        super().__init__(f"Scout closed out without the tools it needed: {', '.join(tools)}")
+
+
+def _blocked_on_tools(raw: list[str]) -> list[str]:
+    """The tools a close-out reported it could not call, held to the shape of a tool name.
+
+    An entry that names no tool resolves away rather than booking a failure whose message names
+    nothing the fleet can count, so a close-out that carries only those finishes the run as it would
+    have. That covers a blank entry and prose alike: the value is model output written after the run
+    read project content, and it reaches the run-finished event, so an entry the harness cannot read
+    as one tool name must not ride out on it.
+    """
+    tools: list[str] = []
+    for entry in raw:
+        name = entry.strip(_BLOCKED_ON_TOOL_WRAPPERS)
+        if _BLOCKED_ON_TOOL_NAME.fullmatch(name):
+            tools.append(name[:MAX_BLOCKED_ON_TOOL_LENGTH])
+    return tools[:MAX_BLOCKED_ON_TOOLS]
 
 
 @dataclass(frozen=True)
@@ -895,6 +953,14 @@ async def _spawn_and_run(
         # lost and the next run inherits a doubled scan delta.
         fallback_from_text=lambda text: SignalScoutRunSummary(summary=text),
     )
+    # `session.end()` writes the terminal `TaskRun` status, which is where the run API, the
+    # `scout-runs-*` tools, and the roster read a run's status and error from. Ending on the
+    # default would show a blocked run as `completed` to all of them while the breaker and
+    # `signals_scout_run_finished` book it `failed`, so the teardown carries what the body settled
+    # on. Only an `Exception` sets it, so a cancellation tears down on these defaults: the outer
+    # handler books that as `cancelled`, and wants nothing awaited while the loop collapses.
+    end_status = tasks_facade.TaskRunStatus.COMPLETED.value
+    end_error: str | None = None
     try:
         # Persist the agent's end-of-turn close-out so non-emitting runs leave a
         # discoverable trace for future-run dedupe. Failure paths skip this on
@@ -905,9 +971,19 @@ async def _spawn_and_run(
             team_id=team.parent_team_id or team.id,
             summary=result.summary,
         )
+        # Ordered after the finalize on purpose: the close-out is the only record of what the run
+        # could not reach, so it has to be on the row before the failure path (which never
+        # finalizes) takes over.
+        blocked_on = _blocked_on_tools(result.blocked_on)
+        if blocked_on:
+            raise ScoutToolsUnavailable(blocked_on)
         return result.summary, str(session.task_run.id)
+    except Exception as exc:
+        end_status = tasks_facade.TaskRunStatus.FAILED.value
+        end_error = str(exc)
+        raise
     finally:
-        await session.end()
+        await session.end(status=end_status, error=end_error)
 
 
 def _get_team(team_id: int) -> Team:
@@ -1281,11 +1357,16 @@ def _failure_properties(exc: BaseException) -> dict[str, Any] | None:
     A run the agent itself failed gets the agent's own classification, because `error_type` is
     `AgentTurnFailed` for all of them. A provider outage, a spend limit and a broken scout body
     raise the same exception, so only `error_category` separates the upstream failures worth
-    retrying from the defects that must keep feeding the failure breaker."""
+    retrying from the defects that must keep feeding the failure breaker.
+
+    A run blocked on missing tools gets its own category and the tools it named, so the class is
+    countable fleet-wide instead of hiding inside one team's run history."""
     if isinstance(exc, TurnPollTimeout):
         return exc.diagnostics()
     if isinstance(exc, AgentTurnFailed) and exc.category is not None:
         return {"error_category": exc.category}
+    if isinstance(exc, ScoutToolsUnavailable):
+        return {"error_category": TOOLS_UNAVAILABLE_ERROR_CATEGORY, "blocked_on": exc.tools}
     return None
 
 

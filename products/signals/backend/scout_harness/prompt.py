@@ -100,6 +100,14 @@ class SignalScoutRunSummary(BaseModel):
             "paragraph."
         )
     )
+    blocked_on: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Names of the tools this run needed and could not call, when a missing tool is "
+            "why the run closed out early. Leave it empty for every run that got to do its "
+            "work, including a run that looked and found nothing."
+        ),
+    )
 
 
 # Two scout personas share this module. A *signal* scout fires weak `emit_signal` findings and lets the
@@ -1351,7 +1359,7 @@ def build_run_prompt(
     return f"""{intro}
 # How to call tools
 
-Every tool named in this prompt, the `scout-*` harness tools and all PostHog MCP tools alike, is invoked through the `mcp__posthog__exec` interface as `call <tool_name> <json>`, never as a direct tool call. Bare names like `skill-get`, `scout-project-profile-get`, or `{emit_tool}` are how you *refer* to a tool, so don't burn opening moves trying to invoke them directly. For any tool you haven't already used, `search <regex>` to find it and `info <tool_name>` to read its schema on that same interface, then `call` it. If a `scout-*` tool comes back unknown, the server may still expose it under its legacy `signals-scout-*` name: `search scout` and call whichever name the catalog returns.
+Every tool named in this prompt, the `scout-*` harness tools and all PostHog MCP tools alike, is invoked through the `mcp__posthog__exec` interface as `call <tool_name> <json>`, never as a direct tool call. Bare names like `skill-get`, `scout-project-profile-get`, or `{emit_tool}` are how you *refer* to a tool, so don't burn opening moves trying to invoke them directly. For any tool you haven't already used, `search <regex>` to find it and `info <tool_name>` to read its schema on that same interface, then `call` it. If a `scout-*` tool comes back unknown, the server may still expose it under its legacy `signals-scout-*` name: `search scout` and call whichever name the catalog returns. A tool that is still unreachable after that is a blocked run, not a quiet one. Stop as soon as you are sure, rather than spending the rest of the budget around it, and close out with each such tool named in `blocked_on` and a sentence in `summary` saying what you could not do. The harness reads `blocked_on` and books the run as failed against those tools, so the fault reaches the team that can fix it; left in prose alone, the run looks like a quiet day.
 
 # First: read your skill
 
