@@ -715,12 +715,12 @@ class TestSummarizerScanner:
 
 
 class TestSummarizerScannerSteps:
-    def test_core_steps_are_a_single_required_summary_turn(self) -> None:
+    def test_core_steps_are_a_single_required_core_turn(self) -> None:
         scanner = scanner_from_db(
             _build_replay_scanner(scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p"})
         )
         steps = scanner.core_steps()
-        assert [s.name for s in steps] == ["summary"]
+        assert [s.name for s in steps] == ["core"]
         assert steps[0].response_model is SummarizerSummaryResponse
         assert steps[0].required is True
 
@@ -737,12 +737,12 @@ class TestSummarizerScannerSteps:
         (summary_step,) = scanner.core_steps()
         assert "(t " in summary_step.instruction
 
-    def test_assemble_builds_output_from_summary_turn(self) -> None:
+    def test_assemble_builds_output_from_core_turn(self) -> None:
         scanner = scanner_from_db(
             _build_replay_scanner(scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p"})
         )
         summary = SummarizerSummaryResponse(title="Onboarding", summary="Walked through demo", confidence=0.8)
-        out, signals = scanner.assemble({"summary": summary})
+        out, signals = scanner.assemble({"core": summary})
         assert isinstance(out, SummarizerOutput)
         assert (out.title, out.summary, out.confidence) == ("Onboarding", "Walked through demo", 0.8)
         assert signals == []
