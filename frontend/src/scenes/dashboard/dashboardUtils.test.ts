@@ -23,6 +23,7 @@ import {
     isWidgetTileVisibleOnPlacement,
     parseURLFilters,
     parseURLVariables,
+    runWithLimit,
     SEARCH_PARAM_FILTERS_KEY,
     SEARCH_PARAM_QUERY_VARIABLES_KEY,
     shouldSharedDashboardAutoForceForStaleTime,
@@ -326,5 +327,25 @@ describe('shouldSharedDashboardAutoForceForStaleTime', () => {
         ])('when %s, returns expected result', (_, isoTime, expected) => {
             expect(shouldSharedDashboardAutoForceForStaleTime(dayjs(isoTime))).toBe(expected)
         })
+    })
+})
+
+describe('runWithLimit', () => {
+    it('stops starting tasks once shouldStop turns true', async () => {
+        let stop = false
+        const started: number[] = []
+        const tasks = Array.from({ length: 6 }, (_, index) => async () => {
+            started.push(index)
+            await Promise.resolve()
+            if (started.length === 2) {
+                stop = true
+            }
+            return index
+        })
+
+        const results = await runWithLimit(tasks, 2, () => stop)
+
+        expect(started).toEqual([0, 1])
+        expect(results).toHaveLength(2)
     })
 })
