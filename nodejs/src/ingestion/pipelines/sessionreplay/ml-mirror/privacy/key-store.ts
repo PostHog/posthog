@@ -18,8 +18,9 @@ import {
     teamBlockId,
 } from './schema'
 
-// The month and team block markers are single items that every commit in the fleet checks, so DynamoDB cancels concurrent commits as TransactionConflict under normal load; the budget stays under the consumer's 60 s loop stall threshold.
+// The month and team block markers are single items that every commit in the fleet checks, so DynamoDB cancels concurrent commits as TransactionConflict under normal load. The budget counts the re-reads as well as the waits and stays under the consumer's 60 s loop stall threshold.
 const COMMIT_ATTEMPTS = 10
+const COMMIT_BUDGET_MS = 45_000
 const COMMIT_BACKOFF_BASE_MS = 100
 const COMMIT_BACKOFF_CAP_MS = 3_000
 
@@ -248,6 +249,7 @@ export class MlKeyBatch {
         if (this.committed) {
             throw new Error('ML batch already committed')
         }
+        const startedAt = Date.now()
         for (let attempt = 0; attempt < COMMIT_ATTEMPTS; attempt++) {
             try {
                 await this.persist()
@@ -257,15 +259,16 @@ export class MlKeyBatch {
                 this.committed = true
                 return
             } catch (error) {
-                if (attempt === COMMIT_ATTEMPTS - 1) {
+                const delayMs = commitRetryDelayMs(attempt)
+                if (attempt === COMMIT_ATTEMPTS - 1 || Date.now() - startedAt + delayMs > COMMIT_BUDGET_MS) {
                     throw error
                 }
                 logger.warn('🔑', 'ml_key_commit_retry', {
-                    attempt,
+                    attempt: attempt + 1,
                     codes: cancellationCodes(error),
                     error: String(error),
                 })
-                await new Promise((resolve) => setTimeout(resolve, commitRetryDelayMs(attempt)))
+                await new Promise((resolve) => setTimeout(resolve, delayMs))
                 await this.read()
             }
         }

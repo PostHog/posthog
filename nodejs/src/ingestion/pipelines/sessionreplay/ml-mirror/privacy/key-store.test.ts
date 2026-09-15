@@ -188,6 +188,36 @@ describe('ML session key batches', () => {
         expect(boundary.items.has(tableKeyString(sessionKeyId(session.teamId, session.sessionId)))).toBe(succeeds)
     })
 
+    it('gives up when the commit budget is spent before the attempts are', async () => {
+        const send = boundary.send.bind(boundary)
+        let remaining = 7
+        let slowReads = false
+        jest.spyOn(boundary, 'send').mockImplementation(async (command) => {
+            if (command instanceof TransactWriteItemsCommand && remaining > 0) {
+                remaining -= 1
+                throw new TransactionCanceledException({
+                    $metadata: {},
+                    message: 'Transaction cancelled',
+                    CancellationReasons: [{ Code: 'TransactionConflict' }],
+                })
+            }
+            if (command instanceof BatchGetItemCommand && slowReads) {
+                await new Promise((resolve) => setTimeout(resolve, 20_000))
+            }
+            return send(command)
+        })
+        const batch = await store.prepare([session])
+        slowReads = true
+        jest.useFakeTimers()
+        const settled = batch.commit().then(
+            () => 'committed',
+            () => 'failed'
+        )
+        await jest.runAllTimersAsync()
+        expect(await settled).toBe('failed')
+        expect(remaining).toBeGreaterThan(0)
+    })
+
     it('indexes monthly keys atomically and blocks a month during a competing batch', async () => {
         const october = { ...session, sessionId: '0199a13b-c000-7000-8000-000000000007' }
         const first = await store.prepare([session, october])
