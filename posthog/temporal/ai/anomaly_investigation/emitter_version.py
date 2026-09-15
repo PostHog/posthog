@@ -14,6 +14,10 @@ explanation out. Both answers are worth the query, so the block states either.
 A version field written into the payload by the producer's own body is not this
 measurement. That field says what the body believes about itself, so a body that
 changes without bumping it reads as stable — which is how a producer change hides.
+
+Deliberately unfiltered, like the sibling provenance block: this measures the event's
+producers, not the alerted series. A breakdown alert fires on one value, and the mix
+still covers them all.
 """
 
 from __future__ import annotations
@@ -63,7 +67,9 @@ _GUIDANCE = (
     "  different measurements rather than one series.\n"
     "- A flat mix rules the producer out, so spend no budget on it.\n"
     "- A version field named in the metric definition is not this measurement: that field is set\n"
-    "  by the producer's own body, so it stays flat across exactly the change that matters."
+    "  by the producer's own body, so it stays flat across exactly the change that matters.\n"
+    "- The mix above is unfiltered, so it covers every occurrence of the event. It can include\n"
+    "  traffic the alerted series filters out, and every breakdown value when the alert fired on one."
 )
 
 
