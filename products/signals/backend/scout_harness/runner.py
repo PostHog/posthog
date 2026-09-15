@@ -136,6 +136,9 @@ class RunResult:
     skill_name: str
     skill_version: int
     skip_reason: str | None = None
+    # The run failed on the upstream provider's side and emitted nothing, so re-running it is
+    # worth a try. The run workflow owns that retry; see `RunSignalsScoutWorkflow._run_attempts`.
+    retryable_upstream: bool = False
 
 
 def run_signals_scout(
@@ -452,6 +455,12 @@ async def arun_signals_scout(
             if row_persisted
             else (0, None)
         )
+        # Upstream refusals are not evidence about this lane. A provider rate limit or outage
+        # fails every due lane fleet-wide at once, so counting them would walk healthy scouts
+        # toward a pause for "repeated failures" whose cause was never theirs — and the pause
+        # then costs each one the probe cooldown. The breaker exists to stop a wedged lane from
+        # burning a lease per interval forever, which an upstream refusal is not.
+        retryable_upstream = isinstance(exc, AgentTurnFailed) and exc.retryable_upstream
         # Advance the breaker before the event so the failure that trips it is the one whose
         # `error_message` explains the pause. Scheduled failures only: the threshold is sized
         # on the schedule's cadence, so counting off-schedule "run now" retries would let a
@@ -459,7 +468,7 @@ async def arun_signals_scout(
         # on a lane whose schedule never failed.
         streak = (
             await database_sync_to_async(_record_failure_streak, thread_sensitive=False)(config.pk)
-            if triggered_by == TRIGGERED_BY_SCHEDULE
+            if triggered_by == TRIGGERED_BY_SCHEDULE and not retryable_upstream
             else None
         )
         _capture_run_finished(
@@ -499,6 +508,10 @@ async def arun_signals_scout(
             runtime_s=runtime_s,
             skill_name=skill.name,
             skill_version=skill.version,
+            # A partial run that already emitted is not offered for retry: the findings are
+            # written, so another attempt re-derives them against the dedupe layer instead of
+            # recovering a lost scan.
+            retryable_upstream=retryable_upstream and emitted_count == 0,
         )
     except BaseException as exc:
         # Cancellation / worker-shutdown / system-exit: re-raise so Temporal sees the

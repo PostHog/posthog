@@ -35,6 +35,26 @@ STALE_RUN_CUTOFF_S = 2 * WORKFLOW_HARD_CEILING_S
 # note to: steering meant for one run must not crowd out the run's own instructions.
 MAX_RUN_NOTE_CHARS = 1_000
 
+# Attempts a scheduled run gets when the agent's own classification says the upstream provider
+# refused the turn (a rate limit, a capacity refusal, a provider outage) rather than the scout
+# failing on its own merits. Without this a provider hiccup costs every due lane its whole tick:
+# the run goes quiet and the customer never gets that scan.
+#
+# Three total is sized on the shape of these events: they arrive as a burst of a few minutes
+# across the whole fleet, so a couple of spaced attempts recover the tick, while anything wider
+# would keep a lane occupied past the coordinator's next tick for a provider that is truly down.
+UPSTREAM_RETRY_MAX_ATTEMPTS = 3
+
+# Wait before the first retry, doubled for each one after it (60s, then 120s). Long enough that a
+# rate-limit window has moved on, short enough that the lane still reports within its own tick.
+UPSTREAM_RETRY_FIRST_BACKOFF_S = 60
+
+
+def upstream_retry_backoff_s(attempt: int) -> int:
+    """Seconds to wait after `attempt` (1-based) before the next one."""
+    return UPSTREAM_RETRY_FIRST_BACKOFF_S * 2 ** (attempt - 1)
+
+
 # Consecutive failed runs after which a scout config trips its circuit breaker and is
 # auto-paused (`SignalScoutConfig.auto_paused_at`). Nothing else in the harness notices a
 # scout that has never once succeeded: every dispatch takes a fresh sandbox lease for the

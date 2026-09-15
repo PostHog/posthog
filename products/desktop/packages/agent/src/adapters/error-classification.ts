@@ -5,6 +5,7 @@ export type AgentErrorClassification =
   | "upstream_connection_error"
   | "upstream_timeout"
   | "upstream_provider_failure"
+  | "upstream_rate_limit"
   | "content_block_rejection"
   | "turn_ended_without_response"
   | "subscription_usage_limit"
@@ -17,6 +18,7 @@ const RETRYABLE_UPSTREAM_ERROR_CLASSIFICATIONS =
     "upstream_connection_error",
     "upstream_timeout",
     "upstream_provider_failure",
+    "upstream_rate_limit",
   ]);
 
 export function isRetryableUpstreamErrorClassification(
@@ -30,6 +32,12 @@ const UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN = /API Error:\s*(?:429|5\d\d)\b/i;
 // "unexpected status <code> <reason>: <body>" instead of the "API Error:" wording.
 const CODEX_PROVIDER_ERROR_STATUS_PATTERN =
   /unexpected status\s*(?:429|5\d\d)\b/i;
+// A provider that refuses the request for shared capacity rather than for this run: a rate
+// limit, a "too many requests" refusal, or a model at capacity. The provider prose carries no
+// HTTP status, so the status patterns above miss it and it used to read as a generic
+// "agent_error" — indistinguishable from a broken agent body.
+const UPSTREAM_RATE_LIMIT_PATTERN =
+  /\brate[- ]?limit(?:ed|s|ing)?\b|\btoo many requests\b|\bis at capacity\b/i;
 const SANDBOX_TASK_SPEND_LIMIT_PATTERN =
   /This agent run reached its spend limit/i;
 const TURN_ENDED_WITHOUT_RESPONSE_PATTERN =
@@ -87,6 +95,11 @@ export function classifyAgentError(
   ) {
     return "upstream_provider_failure";
   }
+  // After the status patterns, so a 429 keeps its established provider-failure category, and
+  // after the spend limit, whose own wording quotes a rate limit.
+  if (UPSTREAM_RATE_LIMIT_PATTERN.test(text)) {
+    return "upstream_rate_limit";
+  }
   if (/API Error:\s*Content block\b/i.test(text)) {
     return "content_block_rejection";
   }
@@ -116,7 +129,8 @@ export function sanitizeAgentErrorCause(
     classification === "upstream_provider_failure" ||
     classification === "upstream_connection_error" ||
     classification === "upstream_stream_terminated" ||
-    classification === "upstream_timeout"
+    classification === "upstream_timeout" ||
+    classification === "upstream_rate_limit"
   ) {
     return classification;
   }

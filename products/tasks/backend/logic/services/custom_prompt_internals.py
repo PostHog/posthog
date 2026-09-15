@@ -222,6 +222,7 @@ UPSTREAM_RETRYABLE_ERROR_CATEGORIES = frozenset(
         "upstream_connection_error",
         "upstream_timeout",
         "upstream_provider_failure",
+        "upstream_rate_limit",
     }
 )
 
