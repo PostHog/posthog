@@ -1,5 +1,4 @@
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
-import { useEffect, useRef } from 'react'
 
 import { urls } from 'scenes/urls'
 
@@ -7,26 +6,6 @@ import { mswDecorator } from '~/mocks/browser'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { DataQualityOverview } from './DataQualityOverview'
-
-const grantWarehouseAccess: Decorator = function GrantWarehouseAccess(Story): JSX.Element {
-    const appContext = window.POSTHOG_APP_CONTEXT
-    const original = useRef(appContext ? { appContext, access: appContext.resource_access_control } : null)
-    if (appContext) {
-        appContext.resource_access_control = {
-            ...appContext.resource_access_control,
-            [AccessControlResourceType.WarehouseObjects]: AccessControlLevel.Editor,
-        }
-    }
-    useEffect(
-        () => () => {
-            if (original.current) {
-                original.current.appContext.resource_access_control = original.current.access
-            }
-        },
-        [appContext]
-    )
-    return <Story />
-}
 
 const LONG_SUBJECT_NAME = 'monthly_revenue_summary_by_region_and_channel_v2'
 
@@ -136,8 +115,18 @@ const narrowDecorators: Decorator[] = [
 const meta: Meta<typeof DataQualityOverview> = {
     title: 'Products/Data quality/Overview',
     component: DataQualityOverview,
+    beforeEach: () => {
+        const context = window.POSTHOG_APP_CONTEXT!
+        const previous = context.resource_access_control
+        context.resource_access_control = {
+            ...previous,
+            [AccessControlResourceType.WarehouseObjects]: AccessControlLevel.Editor,
+        }
+        return () => {
+            context.resource_access_control = previous
+        }
+    },
     decorators: [
-        grantWarehouseAccess,
         (Story) => (
             <div className="@container/main-content">
                 <Story />
