@@ -42,6 +42,17 @@ def _validate_target_event_value(value: str, *, error_key: str) -> None:
         )
 
 
+def validate_event_target(target_event: str, *, error_key: str) -> None:
+    """The rules creation applies to an event target: not the product's own event, and safe to
+    place in the training agent's prompt brief. Template resolution applies them to its result, so a
+    config it advertises as ready to create is one creation accepts."""
+    if target_event == api.PREDICTION_EVENT_NAME:
+        raise serializers.ValidationError(
+            {error_key: f"'{api.PREDICTION_EVENT_NAME}' is the event this product emits, so it cannot be a target."}
+        )
+    _validate_target_event_value(target_event, error_key=error_key)
+
+
 def resolve_target(
     *,
     team: Any,
@@ -100,13 +111,7 @@ def resolve_target(
                 )
             }
         )
-    if target_event == api.PREDICTION_EVENT_NAME:
-        raise serializers.ValidationError(
-            {
-                "target_event": f"'{api.PREDICTION_EVENT_NAME}' is the event this product emits, so it cannot be a target."
-            }
-        )
-    _validate_target_event_value(target_event, error_key="target_event")
+    validate_event_target(target_event, error_key="target_event")
     return target_event, {"type": "event"}
 
 
@@ -574,17 +579,19 @@ class ValidationWarningSerializer(serializers.Serializer):
     # `code` choices in drf-spectacular's enum naming and renames that product's generated type.
     code = serializers.CharField(
         help_text=(
-            "Machine-readable warning code, one of: 'low_volume', 'low_positives', 'low_negatives', "
-            "'population_too_large' and 'horizon_exceeds_lookback' (severity 'error'); 'moderate_volume', "
-            "'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' (severity 'warning')."
+            "Machine-readable warning code. 'population_too_large' and 'horizon_exceeds_lookback' mean a "
+            "training run would fail: fix the definition before creating. 'low_volume', 'low_positives' and "
+            "'low_negatives' mean the data is too thin for a reliable model (severity 'error', advisory). "
+            "'moderate_volume', 'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' are "
+            "severity 'warning'."
         ),
     )
     message = serializers.CharField(help_text="Human-readable warning description.")
     severity = serializers.ChoiceField(
         choices=["info", "warning", "error"],
         help_text=(
-            "Severity level. 'error' means the data is too thin or too large for a reliable model; "
-            "'warning' is worth acknowledging. Creation does not enforce either."
+            "Severity level. 'error' means training would fail or the data is too thin for a reliable model; "
+            "see 'code' for which. 'warning' is worth acknowledging. Creation enforces none of them."
         ),
     )
 
@@ -634,7 +641,10 @@ class ValidatePipelineRequestSerializer(serializers.Serializer):
 
 class ValidatePipelineResponseSerializer(serializers.Serializer):
     can_proceed = serializers.BooleanField(
-        help_text=("False when any warning has severity 'error'. Advisory: creation and training do not enforce it.")
+        help_text=(
+            "False when any warning has severity 'error'. Creation does not enforce it, but a definition with "
+            "'population_too_large' or 'horizon_exceeds_lookback' cannot train."
+        )
     )
     requires_acknowledgement = serializers.BooleanField(
         help_text="True if there are non-blocking warnings the user should acknowledge before proceeding."

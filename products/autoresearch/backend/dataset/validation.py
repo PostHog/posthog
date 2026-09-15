@@ -1,4 +1,5 @@
 from dataclasses import field
+from datetime import UTC, datetime, time
 from enum import StrEnum
 from typing import Any, Optional
 
@@ -18,12 +19,8 @@ from products.autoresearch.backend.dataset.labeling import (
     IDENTIFIED_USERS_ONLY,
     LABELER_QUERY_MODIFIERS,
     MATERIALIZE_ROW_LIMIT,
-    _build_population_conditions,
-    _build_population_kind_conditions,
-    _identified_users_and_clause,
-    _own_events_excluded_clause,
-    _target_condition_for,
     build_eligible_count_sql,
+    build_inference_anchors_sql,
     build_random_t0_labeler_sql,
 )
 from products.autoresearch.backend.query import run_hogql_rows
@@ -49,6 +46,12 @@ def inference_lookback_days(horizon_days: int) -> int:
     # The window the scorer binds when it builds inference anchors (4x horizon, min 30),
     # so the previewed population is the one that will actually be scored.
     return max(30, horizon_days * 4)
+
+
+def _scoring_cutoff_ts() -> int:
+    # A live scoring run anchors every query at the start of its prediction date in UTC
+    # (`ScoringWindow.for_date`), so the preview binds the same instant for today.
+    return int(datetime.combine(datetime.now(UTC).date(), time.min, tzinfo=UTC).timestamp())
 
 
 # One definition of every code the validator can emit. The API's help text lists the same
@@ -229,30 +232,19 @@ def _run_validation(
     positives = round(base_rate * total_users) if total_users > 0 else 0
     negatives = total_users - positives
 
-    # Inference population: distinct users matching the prediction filter over the
-    # window the scorer binds. Always counted, even with no filter, so the preview
-    # stays aligned with what `build_inference_anchors_sql` scores.
-    inference_properties = (inference_population or {}).get("properties", []) if inference_population else []
-    # Template populations carry a `kind` rather than raw properties, so compile it through
-    # the same helper scoring uses — counting every identified user would preview a
-    # population the pipeline will never score.
-    target_cond, target_values = _target_condition_for(
-        inference_population, target_event=target_event, target_definition=target_definition, team=team
+    # Inference population: the scorer's own anchor query, counted, at the cutoff a live run
+    # for today would bind. Anything built here instead would drift from what gets scored.
+    anchors_sql, anchors_values = build_inference_anchors_sql(
+        lookback_days=inference_lookback_days(horizon_days),
+        inference_population=inference_population,
+        cutoff_ts=_scoring_cutoff_ts(),
+        target_event=target_event,
+        target_definition=target_definition,
+        team=team,
     )
-    compiled_inference_kind = _build_population_kind_conditions(inference_population, target_cond=target_cond)
-    inf_parts, inf_values = _build_population_conditions(inference_properties)
-    inf_parts.extend(compiled_inference_kind.where_parts)
-    inf_values.update(target_values)
-    inf_values.update(compiled_inference_kind.values)
-    inference_clause = f" AND ({' AND '.join(inf_parts)})" if inf_parts else ""
     inference_query = HogQLQuery(
-        query=f"""
-            SELECT countDistinct(person_id) AS users
-            FROM events
-            WHERE timestamp >= now() - toIntervalDay({{lookback}})
-              AND timestamp < now(){_own_events_excluded_clause()}{inference_clause}{_identified_users_and_clause()}
-        """,
-        values={"lookback": inference_lookback_days(horizon_days), **inf_values},
+        query=f"SELECT count() FROM ({anchors_sql.strip()})",
+        values=anchors_values,
         modifiers=LABELER_QUERY_MODIFIERS,
     )
     inf_rows = run_hogql_rows(team=team, query=inference_query, user=user)
