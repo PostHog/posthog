@@ -178,6 +178,7 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
     # before spending any tool-call budget.
     anomaly_context = await sync_to_async(_build_multimodal_context, thread_sensitive=False)(
         alert=alert,
+        user=user,
         context_text=anomaly_context_text,
     )
 
@@ -707,7 +708,7 @@ async def _mark_failed(alert_check, reason: str) -> None:
     )
 
 
-def _build_multimodal_context(*, alert, context_text: str):
+def _build_multimodal_context(*, alert, user: User, context_text: str):
     """Return a LangChain HumanMessage content value — either a plain string or a
     list of content blocks with the text and a rendered chart PNG.
 
@@ -717,7 +718,7 @@ def _build_multimodal_context(*, alert, context_text: str):
     if alert.detector_config is None or alert.insight is None:
         return context_text
 
-    sim = _run_detector_simulation(alert=alert, team=alert.team, date_from=None)
+    sim = _run_detector_simulation(alert=alert, team=alert.team, user=user, date_from=None)
     if isinstance(sim, str) or not sim:
         logger.info("anomaly_investigation.chart_skipped", alert_id=str(alert.id), reason=str(sim)[:120])
         return context_text

@@ -97,6 +97,7 @@ def _run_detector_simulation(
     *,
     alert: AlertConfiguration,
     team: Team,
+    user: User,
     date_from: str | None,
 ) -> dict[str, Any] | str:
     """Thin wrapper around ``simulate_detector_on_insight`` that returns either the sim
@@ -122,7 +123,9 @@ def _run_detector_simulation(
             # series and no baseline.
             config=alert.config,
             date_from=date_from,
-            user=alert.created_by,
+            # The investigation's acting user, not alert.created_by: the simulation reads the same
+            # insight, so a null creator would deny it the warehouse table the agent came to check.
+            user=user,
         )
     except Exception as err:
         return str(err)
@@ -195,6 +198,7 @@ class InvestigationToolkit:
         sim = await sync_to_async(_run_detector_simulation, thread_sensitive=False)(
             alert=self.alert,
             team=self.team,
+            user=self.user,
             date_from=args.date_from,
         )
         if isinstance(sim, str):
@@ -220,6 +224,7 @@ class InvestigationToolkit:
         sim = await sync_to_async(_run_detector_simulation, thread_sensitive=False)(
             alert=self.alert,
             team=self.team,
+            user=self.user,
             date_from=args.date_from,
         )
         if isinstance(sim, str):

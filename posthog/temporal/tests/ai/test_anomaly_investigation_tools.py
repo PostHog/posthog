@@ -61,9 +61,8 @@ def test_run_detector_simulation_returns_the_alerts_configured_series(mock_calcu
     alert.insight = insight
     alert.config = {"type": "TrendsAlertConfig", "series_index": 2}
     alert.detector_config = {"type": "zscore", "threshold": 0.9, "window": 10}
-    alert.created_by = None
 
-    result = _run_detector_simulation(alert=alert, team=MagicMock(), date_from=None)
+    result = _run_detector_simulation(alert=alert, team=MagicMock(), user=MagicMock(), date_from=None)
 
     assert not isinstance(result, str)
     assert result["data"] == configured_series[:-1]
@@ -94,9 +93,8 @@ def test_run_detector_simulation_scores_the_configured_column_of_a_multi_numeric
     alert.insight = insight
     alert.config = {"type": "HogQLAlertConfig", "column": "failure_rate_pct", "evaluation": "last_row"}
     alert.detector_config = {"type": "zscore", "threshold": 0.9, "window": 7}
-    alert.created_by = None
 
-    result = _run_detector_simulation(alert=alert, team=MagicMock(), date_from=None)
+    result = _run_detector_simulation(alert=alert, team=MagicMock(), user=MagicMock(), date_from=None)
 
     assert not isinstance(result, str)
     # Scores failure_rate_pct, not run_count. The data is the tail of the configured column.
