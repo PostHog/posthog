@@ -17,12 +17,15 @@ class MaxToolError(Exception):
     - What can be done about it (for retryable errors)
     """
 
-    def __init__(self, message: str):
+    def __init__(self, message: str, *, summary_max_length: int = 500):
         """
         Args:
             message: Detailed, actionable error message that helps the LLM understand what went wrong
+            summary_max_length: How much of the message ``to_summary`` keeps. Raise it for a message
+                composed to be read whole, such as one that carries guidance the LLM has to act on.
         """
         super().__init__(message)
+        self.summary_max_length = summary_max_length
 
     @property
     def retry_strategy(self) -> Literal["never", "once", "adjusted"]:
@@ -46,20 +49,22 @@ class MaxToolError(Exception):
         }
         return retry_hints[self.retry_strategy]
 
-    def to_summary(self, max_length: int = 500) -> str:
+    def to_summary(self, max_length: int | None = None) -> str:
         """
         Create a truncated summary for context management.
 
         Args:
-            max_length: Maximum length of the error message before truncation
+            max_length: Maximum length of the error message before truncation. Defaults to the
+                error's ``summary_max_length``.
 
         Returns:
             Formatted string with exception class name and truncated message
         """
+        limit = self.summary_max_length if max_length is None else max_length
         exception_name = self.__class__.__name__
         exception_msg = str(self).strip()
-        if len(exception_msg) > max_length:
-            exception_msg = exception_msg[:max_length] + "…"
+        if len(exception_msg) > limit:
+            exception_msg = exception_msg[:limit] + "…"
         return f"{exception_name}: {exception_msg}"
 
 

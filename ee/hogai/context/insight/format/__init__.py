@@ -66,8 +66,9 @@ _QUERY_SCAN_SHORT_FORM = (
     "This query read {rows} rows in {secs} s. This is likely far more than needed; check the event "
     "filter and the start date before running it again."
 )
-# A killed run's block rides on an error message the agent framework caps at 500 characters, so it
-# carries the two findings most likely to explain the read and leaves the rest to the next run.
+# A killed run's block rides on a tool error the agent reads as a capped summary, and the executor
+# sizes that cap for two findings, so the block carries the two most likely to explain the read and
+# leaves the rest to the next run.
 _COMPACT_BLOCK_MESSAGES = 2
 
 

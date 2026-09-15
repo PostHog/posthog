@@ -63,8 +63,8 @@ _SCAN_FINDING = QueryScanWarning(
     fix="Add an event filter naming the events this question is about. Change nothing else.",
 )
 _SCAN_FLAG = QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
-# ClickHouse says why it stopped a query at this length, which is what makes the order of the
-# error and the scan block matter inside a capped summary.
+# ClickHouse says why it stopped a query at this length, and the capped summary has to carry it
+# along with the scan block.
 _KILLED_RUN_ERROR = (
     "Code: 241. DB::Exception: Memory limit (for query) exceeded: would use 58.31 GiB (attempt to "
     "allocate chunk of 4.00 MiB), maximum: 58.00 GiB. While executing AggregatingTransform. "
@@ -329,17 +329,15 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         with self.assertRaises(MaxToolRetryableError) as context:
             await self.query_runner.arun_and_format_query(AssistantTrendsQuery(series=[]))
 
-        message = str(context.exception)
-        # The exposed error strips the driver's code prefix, so the failure text the agent reads
-        # is that stripped form. It has to sit before the block: a block in front of it would push
-        # it past the summary cap.
+        # The agent reads the summary, not the message, so the failure and the findings both have
+        # to survive its cap. The exposed error strips the driver's code prefix, so the failure text
+        # the agent reads is that stripped form, and it sits before the block.
+        summary = context.exception.to_summary()
         failure_text = str(ExposedCHQueryError(_KILLED_RUN_ERROR))
-        self.assertIn(failure_text, message)
-        self.assertLess(message.index(failure_text), message.index("<query_scan_warning>"))
-        self.assertIn("ClickHouse stopped this query after 12.3 s", message)
-        self.assertIn("- no_event_filter: Add an event filter naming the events this question is about.", message)
-        # The agent reads the summary, not the message, and the summary is capped.
-        self.assertIn(failure_text, context.exception.to_summary())
+        self.assertIn(failure_text, summary)
+        self.assertLess(summary.index(failure_text), summary.index("<query_scan_warning>"))
+        self.assertIn("ClickHouse stopped this query after 12.3 s", summary)
+        self.assertIn("- no_event_filter: Add an event filter naming the events this question is about.", summary)
 
     @patch("ee.hogai.context.insight.query_executor.get_query_scan_flag", return_value=_SCAN_FLAG)
     @patch("ee.hogai.context.insight.query_executor.get_query_scan_slot")

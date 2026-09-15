@@ -104,6 +104,9 @@ from .prompts import (
 logger = structlog.get_logger(__name__)
 
 TIMING_LOG_PREFIX = "[QUERY_EXECUTOR]"
+# A killed run's error carries the compact scan block whole. The budget is sized for two findings
+# with the longest copy, the goal and the rules, with the ClickHouse error line above them.
+_KILLED_RUN_SUMMARY_CHARS = 3000
 
 
 @frozen
@@ -482,10 +485,15 @@ class AssistantQueryExecutor:
                     err_message = ", ".join(map(str, err.detail))
             if debug_timing:
                 logger.exception(f"{TIMING_LOG_PREFIX} Query execution failed after {elapsed:.3f}s: {err_message}")
-            # `MaxToolError.to_summary` caps the message at 500 characters, so the failure the
-            # agent has to act on goes first and the scan block takes whatever room is left.
             scan_block = await self._query_scan_block_for_error(err)
-            raise MaxToolRetryableError(f"{err_message}\n\n{scan_block}" if scan_block else err_message)
+            if scan_block:
+                # The failure the agent has to act on goes first, and the block after it says what
+                # to change. The summary budget covers both, where the default would cut the block
+                # before its first finding.
+                raise MaxToolRetryableError(
+                    f"{err_message}\n\n{scan_block}", summary_max_length=_KILLED_RUN_SUMMARY_CHARS
+                )
+            raise MaxToolRetryableError(err_message)
         except Exception as err:
             elapsed = time.time() - start_time
             # Catch-all for unexpected errors during query execution. Surface the underlying error
