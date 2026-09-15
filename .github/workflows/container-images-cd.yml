@@ -1076,10 +1076,17 @@ jobs:
                   BEFORE: ${{ github.event.before }}
               run: |
                   BASE="$BEFORE"
-                  if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] || ! git fetch --depth=1 --no-tags origin "$BASE"; then
-                      BASE="HEAD^"
+                  if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+                      BASE="$(git rev-list --max-parents=0 HEAD)"
+                  elif ! git fetch --depth=1 --no-tags origin "$BASE"; then
+                      echo "::error::Unable to fetch the workflow event base commit ($BASE)"
+                      exit 1
                   fi
-                  if git diff "$BASE" HEAD -- .github/workflows/container-images-cd.yml | grep -qE '^\+.*backend/temporal/health_checks'; then
+                  if ! DIFF="$(git diff "$BASE" HEAD -- .github/workflows/container-images-cd.yml)"; then
+                      echo "::error::Unable to inspect workflow changes between $BASE and HEAD"
+                      exit 1
+                  fi
+                  if grep -qE '^\+.*health_checks' <<< "$DIFF"; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
