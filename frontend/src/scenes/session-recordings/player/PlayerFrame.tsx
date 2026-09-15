@@ -122,6 +122,8 @@ export const PlayerFrame = (): JSX.Element => {
         setRootFrame(frameRef.current)
     }, [setRootFrame, applyFrameStyles, playerFrameDocumentLoadFailed])
 
+    // frameSrc is a dependency because a retry swaps the frame's document: the load of the
+    // retry needs its own timeout, not the stale one armed for the first document.
     useEffect(() => {
         if (!ownDocument) {
             return
@@ -132,7 +134,7 @@ export const PlayerFrame = (): JSX.Element => {
             }
         }, PLAYER_FRAME_LOAD_TIMEOUT_MS)
         return () => clearTimeout(timer)
-    }, [ownDocument, playerFrameDocumentLoadFailed])
+    }, [ownDocument, frameSrc, playerFrameDocumentLoadFailed])
 
     // Need useEffect to populate replayer on component paint. Under the flag the frame may still be
     // loading, in which case handleFrameLoad does this instead.

@@ -69,14 +69,31 @@ describe('PlayerFrame', () => {
                 jest.advanceTimersByTime(10000)
             })
             expect(container.querySelector('iframe')).toBe(iframe)
-            expect(captureSpy).toHaveBeenCalledWith('replay player frame load retried', expect.objectContaining({ attempt: 1 }))
+            expect(captureSpy).toHaveBeenCalledWith(
+                'replay player frame load retried',
+                expect.objectContaining({ attempt: 1 })
+            )
 
-            // The retry changes the src, and the reloaded frame's load also never fires. jsdom keeps the
-            // document URL, so the second failure takes the fallback (the frame failed once already).
+            // The retry changes the src, and the reloaded frame's load also never fires. The frame
+            // gets MAX_PLAYER_FRAME_LOAD_RETRIES retries, so failures 1 and 2 retry and failure 3
+            // takes the app-document fallback.
             act(() => {
                 jest.advanceTimersByTime(1000)
             })
             expect(iframe).toHaveAttribute('src', '/replay_player_frame/index.html?retry=1')
+
+            act(() => {
+                jest.advanceTimersByTime(10000)
+            })
+            expect(captureSpy).toHaveBeenCalledWith(
+                'replay player frame load retried',
+                expect.objectContaining({ attempt: 2 })
+            )
+
+            act(() => {
+                jest.advanceTimersByTime(2000)
+            })
+            expect(iframe).toHaveAttribute('src', '/replay_player_frame/index.html?retry=2')
 
             act(() => {
                 jest.advanceTimersByTime(10000)
