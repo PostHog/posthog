@@ -6,7 +6,7 @@ from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
 from products.reaperhog.backend.logic.artefacts import EvidenceValue
-from products.reaperhog.backend.logic.constants import FLAG_ENROLLMENT_LOOKBACK_DAYS
+from products.reaperhog.backend.logic.constants import FLAG_ENROLLMENT_LOOKBACK_DAYS, FLAG_ENROLLMENT_MIN_USERS
 
 
 @frozen
@@ -33,6 +33,8 @@ def enrollment_evidence(enrollment: FlagEnrollment | None) -> dict[str, Evidence
         "users": counts.users,
         "enabled_evaluations": counts.enabled_evaluations,
         "enabled_users": counts.enabled_users,
+        "sample_threshold_met": counts.users >= FLAG_ENROLLMENT_MIN_USERS,
+        "enabled_seen": counts.enabled_evaluations > 0,
     }
 
 

@@ -5,6 +5,7 @@ import pytest
 
 from products.experiments.backend.facade.contracts import ConcludedExperiment, FlagCleanupPlan
 from products.feature_flags.backend.facade.api import FlagSummary
+from products.reaperhog.backend.logic.constants import FLAG_ENROLLMENT_MIN_USERS
 from products.reaperhog.backend.logic.enrollment import FlagEnrollment
 from products.reaperhog.backend.logic.repo import CommitStamp, ReferenceCount
 from products.reaperhog.backend.logic.scouts.archaeology import classify_directory
@@ -114,9 +115,11 @@ def test_classify_flag_reads_observed_enrollment(
         return
     assert hit is not None
     assert hit.decisive is False
-    assert "checked by 500 users in 90 days and enabled for none" in hit.summary
+    assert f"checked by at least {FLAG_ENROLLMENT_MIN_USERS} users in 90 days and enabled for none" in hit.summary
     assert hit.evidence["users"] == 500
     assert hit.evidence["enabled_users"] == 0
+    assert hit.evidence["sample_threshold_met"] is True
+    assert hit.evidence["enabled_seen"] is False
 
 
 def _experiment(conclusion: str, plan: FlagCleanupPlan) -> ConcludedExperiment:
