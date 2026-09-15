@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Optional, cast
 
 from posthog.schema import (
@@ -11,7 +12,11 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -36,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.sh
     SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR,
     SHOPIFY_ACCESS_TOKEN_UNSUPPORTED_GRANT_ERROR,
     SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR,
+    SHOPIFY_GRAPHQL_NOT_FOUND_ERROR_MATCH,
     SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH,
     SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MESSAGE,
     SHOPIFY_MISSING_CREDENTIALS_ERROR,
@@ -57,6 +63,10 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
     supported_versions = (SHOPIFY_API_VERSION_2025_10, SHOPIFY_API_VERSION_2026_07)
     default_version = SHOPIFY_API_VERSION_2026_07
     api_docs_url = "https://shopify.dev/docs/api/release-notes"
+    # Shopify keeps each quarterly version accessible for about 12 months, then falls forward to
+    # the oldest accessible version instead of erroring — so a pin left on 2025-10 silently moves
+    # rather than failing loudly.
+    deprecated_versions = (VersionDeprecation(version=SHOPIFY_API_VERSION_2025_10, sunset_at=date(2026, 10, 16)),)
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -109,6 +119,10 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             # time but Shopify now rejects it. Retrying cannot recover; the user must
             # reconnect their integration.
             SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH: SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MESSAGE,
+            # 404 from the Admin API GraphQL endpoint — no live store answers at the configured
+            # address. Retrying cannot recover; the user must correct the store id, the same fix
+            # as the token endpoint's 404 above.
+            SHOPIFY_GRAPHQL_NOT_FOUND_ERROR_MATCH: SHOPIFY_STORE_NOT_FOUND_ERROR,
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -122,6 +136,10 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             "Shopify: rate limit exceeded",
             "Shopify: internal error",
             "Shopify: connection broken while reading response",
+            # `_get_shopify_access_token` raises this once its own tenacity retries (same 5-attempt
+            # budget) are exhausted for a 429/5xx from the OAuth token endpoint — the same
+            # self-recovering contract as the GraphQL messages above.
+            "Failed to retrieve Shopify access token:",
         }
 
     @property

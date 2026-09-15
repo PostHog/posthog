@@ -224,6 +224,7 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
                 exprs=[
                     self.conversion_condition,
                     *self._get_where_conditions(date_range, date_field="events.timestamp"),
+                    *self._test_account_conditions(),
                 ]
             ),
             group_by=[ast.Field(chain=["events", "person_id"])],
@@ -414,6 +415,9 @@ class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[Respon
                             ),
                         ]
                     ),
+                    # Outside the OR on purpose. Internal traffic is internal on both arms, and putting
+                    # this inside each branch would say the same thing twice.
+                    *self._test_account_conditions(),
                 ]
             ),
             group_by=[ast.Field(chain=["events", "person_id"])],

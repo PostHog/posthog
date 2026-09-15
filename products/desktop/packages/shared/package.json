@@ -24,6 +24,10 @@
       "types": "./dist/domain-types.d.ts",
       "import": "./dist/domain-types.js"
     },
+    "./model-catalog": {
+      "types": "./dist/model-catalog.d.ts",
+      "import": "./dist/model-catalog.js"
+    },
     "./types": {
       "types": "./dist/types.d.ts",
       "import": "./dist/types.js"

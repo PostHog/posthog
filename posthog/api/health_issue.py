@@ -1,6 +1,6 @@
 import re
 from datetime import datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
 from django.db.models import Case, Count, Q, QuerySet, When
@@ -18,16 +18,23 @@ from rest_framework import serializers
 from rest_framework.decorators import action
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
 from rest_framework.pagination import LimitOffsetPagination
+from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.status import HTTP_202_ACCEPTED, HTTP_400_BAD_REQUEST
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.health_issue import HealthIssue
+from posthog.models.team import Team
+from posthog.permissions import is_service_auth
 from posthog.rate_limit import HealthIssueRefreshThrottle
 from posthog.utils import relative_date_parse
+
+if TYPE_CHECKING:
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)
@@ -269,12 +276,89 @@ VALID_STATUSES = {choice.value for choice in HealthIssue.Status}
 VALID_SEVERITIES = {choice.value for choice in HealthIssue.Severity}
 
 
+def _kinds_hidden_by_access_control(request: Request, user_access_control: "UserAccessControl") -> set[str]:
+    """Check kinds whose declared access-controlled resource this user cannot view."""
+    # Lazy import: same reentrancy reason as HealthIssueDetailSerializer._content.
+    from posthog.temporal.health_checks.framework import access_controlled_resources_by_kind  # noqa: PLC0415
+
+    # Service credentials are gated by API scope + project membership (see
+    # AccessControlPermission); UserAccessControl can't evaluate their synthetic users.
+    if is_service_auth(request):
+        return set()
+
+    return {
+        kind
+        for kind, resource in access_controlled_resources_by_kind().items()
+        if not user_access_control.check_access_level_for_resource(resource, "viewer")
+    }
+
+
+class HealthIssueResourceAccessPermission(BasePermission):
+    """Denies an issue whose check declared an access-controlled resource the user cannot view.
+
+    `health_issue` is not itself an access-controlled resource, but issue payloads
+    and rendered titles/summaries embed metadata about resources that are (source
+    pipeline names, view names). List and summary hide such kinds in
+    `safely_get_queryset`; this covers retrieve and the object actions with the
+    same 403 that `AccessControlPermission` returns on the resource's own endpoints.
+    """
+
+    message = "You do not have viewer access to this resource."
+
+    def has_object_permission(self, request: Request, view, obj: HealthIssue) -> bool:
+        return obj.kind not in _kinds_hidden_by_access_control(request, view.user_access_control)
+
+
 def _issue_counts(queryset: QuerySet) -> dict[str, Any]:
     by_severity = {
         row["severity"]: row["count"] for row in queryset.order_by().values("severity").annotate(count=Count("id"))
     }
     by_kind = {row["kind"]: row["count"] for row in queryset.order_by().values("kind").annotate(count=Count("id"))}
     return {"total": sum(by_severity.values()), "by_severity": by_severity, "by_kind": by_kind}
+
+
+def _report_triage_actions(
+    request: Request,
+    issue: HealthIssue,
+    team: Team,
+    *,
+    was_dismissed: bool,
+    was_snoozed: bool,
+) -> None:
+    """Capture each triage decision the caller made on an issue, after the write succeeded.
+
+    Several Health scenes and any API or MCP caller reach the same PATCH, so this is the one
+    place every snooze and dismiss passes through. `report_user_action` adds the caller's
+    access method, which keeps UI triage separable from automated triage.
+    """
+    properties = {"issue_kind": issue.kind, "issue_severity": issue.severity}
+
+    if "dismissed" in request.data and issue.dismissed != was_dismissed:
+        report_user_action(
+            request.user,
+            "health issue dismissed" if issue.dismissed else "health issue undismissed",
+            properties,
+            team=team,
+            request=request,
+        )
+
+    if "snoozed_until" in request.data:
+        if issue.snoozed_until is not None:
+            report_user_action(
+                request.user,
+                "health issue snoozed",
+                {
+                    **properties,
+                    # The requested duration ("7d", "30d", ...) says more about intent than the
+                    # absolute time it resolved to.
+                    "snooze_duration": request.data["snoozed_until"],
+                    "snoozed_until": issue.snoozed_until.isoformat(),
+                },
+                team=team,
+                request=request,
+            )
+        elif was_snoozed:
+            report_user_action(request.user, "health issue unsnoozed", properties, team=team, request=request)
 
 
 @extend_schema(extensions={"x-product": "health_issues"})
@@ -328,6 +412,7 @@ class HealthIssueViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMi
     queryset = HealthIssue.objects.all()
     serializer_class = HealthIssueSerializer
     pagination_class = HealthIssuePagination
+    permission_classes = [HealthIssueResourceAccessPermission]
 
     def get_serializer_class(self):
         if self.action == "retrieve":
@@ -344,9 +429,12 @@ class HealthIssueViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMi
             raise serializers.ValidationError(dict.fromkeys(unknown_fields, "This field is read-only."))
 
         issue = self.get_object()
+        was_dismissed = issue.dismissed
+        was_snoozed = issue.snoozed_until is not None
         serializer = self.get_serializer(issue, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        _report_triage_actions(request, issue, self.team, was_dismissed=was_dismissed, was_snoozed=was_snoozed)
         return Response(serializer.data)
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
@@ -372,6 +460,15 @@ class HealthIssueViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMi
         dismissed_filter = self.request.query_params.get("dismissed")
         if dismissed_filter is not None:
             queryset = queryset.filter(dismissed=dismissed_filter.lower() == "true")
+
+        # Collection reads only: detail routes keep the issue loadable so
+        # HealthIssueResourceAccessPermission can deny them with a 403, mirroring
+        # how routing._filter_queryset_by_access_level defers non-list actions
+        # to the permission layer.
+        if not self.detail:
+            hidden_kinds = _kinds_hidden_by_access_control(self.request, self.user_access_control)
+            if hidden_kinds:
+                queryset = queryset.exclude(kind__in=hidden_kinds)
 
         return queryset
 

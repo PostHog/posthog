@@ -48,10 +48,10 @@ export function TaskHeaderActions({ task }: { task: Task }) {
 
   return (
     <div className="flex h-full max-w-[50%] shrink-0 items-center justify-end gap-1 overflow-hidden px-1">
-      <div className="no-drag">
+      <div className="no-drag flex">
         <AutoresearchHeaderButton taskId={task.id} />
       </div>
-      <div className="no-drag">
+      <div className="no-drag flex">
         <TaskAnalysisButton task={task} />
       </div>
       {workspace && (workspace.branchName || workspace.baseBranch) && (

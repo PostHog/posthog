@@ -62,6 +62,39 @@ class TestTaskUsageQueryTagging(SimpleTestCase):
 
         assert team_get.call_args.kwargs["pk"] == expected_team_id
 
+    def test_costs_are_unavailable_outside_a_billing_region(self) -> None:
+        with (
+            self.settings(CLOUD_DEPLOYMENT="DEV", TEST=False),
+            patch.object(task_usage.Team.objects, "get") as team_get,
+        ):
+            with self.assertRaises(task_usage.TaskTokenUsageUnavailable):
+                task_usage.get_local_task_run_token_costs(
+                    team_id=1,
+                    origin_product="signals_scout",
+                    generated_after=datetime(2026, 8, 1, tzinfo=UTC),
+                    product=Product.SIGNALS,
+                )
+
+        team_get.assert_not_called()
+
+    def test_window_costs_fail_when_the_safe_row_limit_is_exceeded(self) -> None:
+        # HogQL returns at most the configured limit. The window count still reports that a row was
+        # omitted, so the caller does not mistake a truncated result for the complete cost.
+        rows = [("run-1", 1, 3), ("run-2", 2, 3)]
+        with (
+            self.settings(CLOUD_DEPLOYMENT="US"),
+            patch.object(task_usage, "MAX_TASK_RUN_COST_ROWS", 2),
+            patch.object(task_usage.Team.objects, "get", return_value=object()),
+            patch.object(task_usage, "execute_hogql_query", return_value=SimpleNamespace(results=rows)),
+        ):
+            with self.assertRaises(task_usage.TaskTokenUsageUnavailable):
+                task_usage.get_local_task_run_token_costs(
+                    team_id=1,
+                    origin_product="signals_scout",
+                    generated_after=datetime(2026, 8, 1, tzinfo=UTC),
+                    product=Product.SIGNALS,
+                )
+
 
 class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
@@ -149,6 +182,47 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
         # The run with no generations of its own is absent rather than priced at zero, so a caller
         # can tell it from a run that really spent nothing.
         assert costs == {priced_run: Decimal("3.5"), second_run: Decimal("4")}
+
+    def test_run_token_costs_without_run_ids_price_every_run_of_the_origin_product(self) -> None:
+        # The per-scout read asks about a whole window rather than a known set of runs, because a
+        # per-team id list would be tens of thousands of ids on the largest fleets. The team filter
+        # and the window are what bound that read, so they still have to exclude another team's and
+        # another product's generations.
+        mine = "66666666-6666-6666-6666-666666666666"
+        also_mine = "77777777-7777-7777-7777-777777777777"
+        theirs = "88888888-8888-8888-8888-888888888888"
+        other_product = "99999999-9999-9999-9999-999999999999"
+        for team_id, task_run_id, origin_product, offset_seconds in (
+            (self.team.id, mine, "signals_scout", 1),
+            (self.team.id, also_mine, "signals_scout", 1),
+            (self.team.id + 1, theirs, "signals_scout", 1),
+            (self.team.id, other_product, "user_created", 1),
+            # Before the window opens, so it must not count.
+            (self.team.id, mine, "signals_scout", -60),
+        ):
+            _create_event(
+                event="$ai_generation",
+                team=self.team,
+                distinct_id=str(self.user.distinct_id),
+                timestamp=self.task.created_at + timedelta(seconds=offset_seconds),
+                properties={
+                    "team_id": team_id,
+                    "task_run_id": task_run_id,
+                    "task_origin_product": origin_product,
+                    "$ai_total_cost_usd": 1,
+                },
+            )
+        flush_persons_and_events()
+
+        with self.settings(LLM_ANALYTICS_INTERNAL_TEAM_ID=self.team.id):
+            costs = task_usage.get_local_task_run_token_costs(
+                team_id=self.team.id,
+                origin_product="signals_scout",
+                generated_after=self.task.created_at,
+                product=Product.SIGNALS,
+            )
+
+        assert costs == {mine: Decimal("1"), also_mine: Decimal("1")}
 
     def test_run_token_costs_price_a_full_batch_rather_than_the_default_row_limit(self) -> None:
         # `execute_hogql_query` caps a limit-less select at 100 rows, but the endpoint takes 200 run

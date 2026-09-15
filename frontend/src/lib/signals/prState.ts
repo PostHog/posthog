@@ -1,7 +1,15 @@
-import type { PullRequestCiStatusEnumApi } from 'products/signals/frontend/generated/api.schemas'
+import type {
+    PullRequestCiStatusEnumApi,
+    SignalReportAssignmentPrStateEnumApi,
+} from 'products/signals/frontend/generated/api.schemas'
 import { SignalReportStatus } from 'products/signals/frontend/inbox/types'
 
 export const PR_BADGE_STATE = {
+    draft: {
+        label: 'Draft',
+        className: 'border-primary bg-surface-secondary text-secondary',
+        hoverClassName: 'hover:text-primary',
+    },
     open: {
         label: 'Open',
         className: 'border-success bg-success-highlight text-success',
@@ -25,17 +33,22 @@ export const PR_BADGE_STATE = {
 
 export type PrBadgeState = keyof typeof PR_BADGE_STATE
 
-export function derivePrState(status: SignalReportStatus | string, prMerged: boolean): PrBadgeState {
-    if (prMerged) {
+export function derivePrState(
+    status: SignalReportStatus | string,
+    prMerged: boolean,
+    prState?: SignalReportAssignmentPrStateEnumApi | null
+): PrBadgeState {
+    if (prMerged || prState === 'merged') {
         return 'merged'
     }
-    // A terminal report no longer points at an open PR: dismiss and resolve close the report's open
-    // implementation PR, a report suppressed by its PR closing without merging is closed by
-    // definition, and a failed report's PR never landed. Only a live report still has an open PR.
+    if (prState === 'open' || prState === 'draft' || prState === 'closed') {
+        return prState
+    }
     if (
-        status === SignalReportStatus.FAILED ||
-        status === SignalReportStatus.SUPPRESSED ||
-        status === SignalReportStatus.RESOLVED
+        !prState &&
+        [SignalReportStatus.FAILED, SignalReportStatus.SUPPRESSED, SignalReportStatus.RESOLVED].includes(
+            status as SignalReportStatus
+        )
     ) {
         return 'closed'
     }
@@ -60,8 +73,9 @@ export function prCiGlyphStatus(
     state: PrBadgeState,
     ciStatus?: PullRequestCiStatusEnumApi | null
 ): PrCiGlyphStatus | null {
-    // Only an open pull request has CI a reader can act on; on a merged or closed one it is history.
-    if (state !== 'open' || !ciStatus || !(ciStatus in PR_CI_GLYPH)) {
+    // Only a pull request still in flight has CI a reader can act on; on a merged or closed one it is
+    // history. A draft still builds, so it keeps its glyph.
+    if ((state !== 'open' && state !== 'draft') || !ciStatus || !(ciStatus in PR_CI_GLYPH)) {
         return null
     }
     return ciStatus as PrCiGlyphStatus

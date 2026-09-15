@@ -1,17 +1,18 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { IconFilter, IconGear, IconLaptop, IconPhone, IconTabletLandscape, IconTabletPortrait } from '@posthog/icons'
 import { LemonBadge, LemonBanner, LemonButton, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import { HEATMAP_LOADING_DEBOUNCE_MS, heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
 import { SectionSetting } from 'lib/components/heatmaps/HeatMapsSettings'
 import { HeatmapEventFilter } from 'lib/components/heatmaps/types'
 import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -36,20 +37,6 @@ const propertyFiltersToCohortIds = (filters: AnyPropertyFilter[]): number[] =>
         .filter((f): f is CohortPropertyFilter => f.type === PropertyFilterType.Cohort)
         .map((f) => f.value)
         .filter((v): v is number => typeof v === 'number')
-
-const useDebounceLoading = (loading: boolean, delay = 200): boolean => {
-    const [debouncedLoading, setDebouncedLoading] = useState(false)
-
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            setDebouncedLoading(loading)
-        }, delay)
-
-        return () => clearTimeout(timer)
-    }, [loading, delay])
-
-    return debouncedLoading
-}
 
 export function ViewportChooser({ lockedWidth }: { lockedWidth?: number }): JSX.Element {
     const { widthOverride } = useValues(heatmapDataLogic({ context: 'in-app' }))
@@ -152,13 +139,13 @@ export function FilterPanel({
     const eventFilterEnabled = useFeatureFlag('HEATMAPS_EVENT_FILTER')
     const eventFilterCount = commonFilters?.events?.length ?? 0
 
-    const debouncedLoading = useDebounceLoading(rawHeatmapLoading ?? false)
+    const debouncedLoading = useDebouncedValue(rawHeatmapLoading, HEATMAP_LOADING_DEBOUNCE_MS)
 
     // KLUDGE: the loading bar flaps in visual regression tests,
     // for some reason our wait for loading to finish can't see it
     // this is ugly but better than stopping taking visual snapshots of it
     return (
-        <>
+        <div className="relative">
             {debouncedLoading && !inStorybook() && !inStorybookTestRunner() && (
                 <LoadingBar
                     wrapperClassName="absolute top-0 left-0 w-full overflow-hidden rounded-none my-0"
@@ -328,6 +315,6 @@ export function FilterPanel({
                     settings. A high value can hide data on pages with less traffic.
                 </LemonBanner>
             ) : null}
-        </>
+        </div>
     )
 }

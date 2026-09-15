@@ -3,7 +3,7 @@ from datetime import timedelta
 from functools import wraps
 from urllib.parse import quote
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, Mock, patch
 
@@ -139,7 +139,7 @@ class TestSharing(APIBaseTest):
             created_by=cls.user,
         )
 
-    @freeze_time("2022-01-01")
+    @time_machine.travel("2022-01-01", tick=False)
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_gets_sharing_config(self, patched_exporter_task: Mock):
         assert SharingConfiguration.objects.count() == 0
@@ -181,7 +181,7 @@ class TestSharing(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         mock_record_access.assert_called_once_with(expected_access_method)
 
-    @freeze_time("2022-01-01")
+    @time_machine.travel("2022-01-01", tick=False)
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_does_not_change_token_when_toggling_enabled_state(self, patched_exporter_task: Mock):
         assert SharingConfiguration.objects.count() == 0
@@ -492,7 +492,7 @@ class TestSharing(APIBaseTest):
 
         # Create an asset that's past its expiry (PNG assets expire after 180 days)
         time_in_the_past = now() - timedelta(days=181)
-        with freeze_time(time_in_the_past):
+        with time_machine.travel(time_in_the_past, tick=False):
             share_response = self.client.patch(
                 f"/api/projects/{self.team.id}/{type}/{target.pk}/sharing",
                 {"enabled": True},
@@ -574,7 +574,7 @@ class TestSharing(APIBaseTest):
         assert first is not None
         assert first.item_id == str(self.insight.id)
 
-    @freeze_time("2025-01-01 00:00:00")
+    @time_machine.travel("2025-01-01 00:00:00", tick=False)
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_refresh_token_grace_period(self, patched_exporter_task: Mock):
         # Enable sharing
@@ -600,17 +600,17 @@ class TestSharing(APIBaseTest):
 
         # Within grace period (4 minutes later), old token should still work
         # Note: Grace period is 5 minutes (SHARING_TOKEN_GRACE_PERIOD_SECONDS)
-        with freeze_time("2025-01-01 00:04:00"):
+        with time_machine.travel("2025-01-01 00:04:00", tick=False):
             response = self.client.get(f"/shared/{initial_token}")
             assert response.status_code == 200
 
         # After grace period (6 minutes later), old token should not work
-        with freeze_time("2025-01-01 00:06:00"):
+        with time_machine.travel("2025-01-01 00:06:00", tick=False):
             response = self.client.get(f"/shared/{initial_token}")
             assert response.status_code == 404
 
         # New token should still work after grace period
-        with freeze_time("2025-01-01 00:06:00"):
+        with time_machine.travel("2025-01-01 00:06:00", tick=False):
             response = self.client.get(f"/shared/{new_token}")
             assert response.status_code == 200
 

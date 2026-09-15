@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
     LemonBanner,
@@ -94,23 +94,25 @@ const withoutInaccessiblePrivateChannels = (
 ): LemonInputSelectOption[] => {
     return (options ?? []).filter((option) => {
         const channelId = slackChannelId(option.key)
-        return !isPrivateChannelWithoutAccess(channelId) || visibleIds.includes(channelId)
+        return (
+            !isPrivateChannelWithoutAccess(channelId) ||
+            visibleIds.some((visibleId) => visibleId && slackChannelId(visibleId) === channelId)
+        )
     })
 }
 
-// A saved channel beyond the loaded page has no option of its own, so add one labelled by name.
-// Without it the picker renders the raw composite value.
-const withSavedChannelOption = (
+// Saved channels beyond the loaded page need fallback options so their selections stay readable.
+const withSavedChannelOptions = (
     options: LemonInputSelectOption[],
-    savedValue: string | null | undefined
+    savedValues: string[]
 ): LemonInputSelectOption[] => {
-    if (!savedValue || options.some((option) => option.key === savedValue)) {
-        return options
-    }
-    return [
-        ...options,
-        { key: savedValue, label: savedValue.includes('|') ? savedValue.split('|')[1] : 'Slack channel' },
-    ]
+    const missingOptions = savedValues
+        .filter((savedValue) => !options.some((option) => option.key === savedValue))
+        .map((savedValue) => ({
+            key: savedValue,
+            label: savedValue.includes('|') ? savedValue.split('|')[1] : 'Slack channel',
+        }))
+    return [...options, ...missingOptions]
 }
 
 const getSlackUserOptions = (slackUsers: SlackUserApi[]): LemonInputSelectOption[] => {
@@ -305,15 +307,13 @@ export function SlackUserPicker({
     )
 }
 
-// Everything the picker reports about the current selection and the loaded list. Reads the same
-// keyed logic as the picker rather than taking eight props for values it can select itself.
 function SlackChannelPickerNotices({
     integration,
-    value,
+    values,
     showUnselectedSearchError,
 }: {
     integration: IntegrationType
-    value?: string
+    values: string[]
     showUnselectedSearchError: boolean
 }): JSX.Element {
     const logic = slackIntegrationLogic({ id: integration.id })
@@ -327,7 +327,8 @@ function SlackChannelPickerNotices({
     } = useValues(logic)
     const { loadAllSlackChannels } = useActions(logic)
 
-    const showSlackMembershipWarning = value && isMemberOfSlackChannel(value) === false
+    const showSlackMembershipWarning = values.some((value) => isMemberOfSlackChannel(value) === false)
+    const showPrivateChannelWarning = values.some((value) => isPrivateChannelWithoutAccess(value))
 
     return (
         <>
@@ -351,10 +352,11 @@ function SlackChannelPickerNotices({
                 <LemonBanner type="info">
                     <div className="flex gap-2 items-center">
                         <span>
-                            The PostHog Slack App is not in this channel. Please add it to the channel otherwise
-                            Subscriptions will fail to be delivered.{' '}
+                            {values.length > 1
+                                ? 'The PostHog Slack app is not in every selected channel. Add it to each channel before continuing. '
+                                : 'The PostHog Slack app is not in this channel. Add it to the channel before continuing. '}
                             <Link to="https://posthog.com/docs/webhooks/slack" target="_blank">
-                                See the Docs for more information
+                                See the docs for more information
                             </Link>
                         </span>
                         <LemonButton
@@ -367,10 +369,10 @@ function SlackChannelPickerNotices({
                         </LemonButton>
                     </div>
                 </LemonBanner>
-            ) : isPrivateChannelWithoutAccess(value ?? '') ? (
+            ) : showPrivateChannelWarning ? (
                 <LemonBanner type="info">
-                    This is a private Slack channel. Ask{' '}
-                    <ProfilePicture user={integration.created_by} showName size="sm" /> or connect your own Slack
+                    {values.length > 1 ? 'One or more selected Slack channels are' : 'This Slack channel is'} private.
+                    Ask <ProfilePicture user={integration.created_by} showName size="sm" /> or connect your own Slack
                     account to configure private channels.
                 </LemonBanner>
             ) : null}
@@ -378,20 +380,48 @@ function SlackChannelPickerNotices({
     )
 }
 
-export type SlackChannelPickerProps = {
+type SlackChannelPickerCommonProps = {
     integration: IntegrationType
-    value?: string
-    onChange?: (value: string | null) => void
     disabled?: boolean
 }
 
-export function SlackChannelPicker({ onChange, value, integration, disabled }: SlackChannelPickerProps): JSX.Element {
+export type SlackChannelPickerProps = SlackChannelPickerCommonProps &
+    (
+        | {
+              mode?: 'single'
+              value?: string
+              onChange?: (value: string | null) => void
+          }
+        | {
+              mode: 'multiple'
+              value?: string[]
+              onChange?: (value: string[]) => void
+          }
+    )
+
+export function SlackChannelPicker(props: SlackChannelPickerProps): JSX.Element {
+    const { integration, disabled } = props
+    const values = useMemo(
+        () => (props.mode === 'multiple' ? (props.value ?? []) : props.value ? [props.value] : []),
+        [props.mode, props.value]
+    )
+    const onValuesChange = useCallback(
+        (nextValues: string[]): void => {
+            if (props.mode === 'multiple') {
+                props.onChange?.(nextValues)
+            } else {
+                props.onChange?.(nextValues[0] ?? null)
+            }
+        },
+        [props.mode, props.onChange]
+    )
     const logic = slackIntegrationLogic({ id: integration.id })
     const {
         slackChannels,
         slackChannelsForPicker,
         allSlackChannelsLoading,
         slackChannelByIdLoading,
+        attemptedSlackChannelIds,
         isPrivateChannelWithoutAccess,
         getChannelRefreshButtonDisabledReason,
     } = useValues(logic)
@@ -426,19 +456,21 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
 
     // A pasted id that is still resolving is a pending selection, not a dropped search, so hold
     // the message until the lookup settles.
-    const showUnselectedSearchError = blurredWithoutSelection && !value && !pastedChannelId
+    const showUnselectedSearchError = blurredWithoutSelection && values.length === 0 && !pastedChannelId
 
-    const modifiedValue = useMemo(() => {
-        if (value?.split('|').length === 1) {
-            const channel = slackChannels.find((x: SlackChannelType) => x.id === value)
-
-            if (channel) {
-                return `${channel.id}|#${channel.name}`
-            }
-        }
-
-        return value
-    }, [value, slackChannels])
+    const modifiedValues = useMemo(
+        () =>
+            values.map((value) => {
+                if (value.split('|').length === 1) {
+                    const channel = slackChannels.find((x: SlackChannelType) => x.id === value)
+                    if (channel) {
+                        return `${channel.id}|#${channel.name}`
+                    }
+                }
+                return value
+            }),
+        [values, slackChannels]
+    )
 
     useEffect(() => {
         // Multiple pickers can mount for the same workspace (e.g. team + per-user channel), so skip
@@ -474,36 +506,43 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
         }
         setPastedChannelId(null)
         clearDroppedSearch()
-        if (slackChannelId(value ?? '') !== channel.id) {
-            onChange?.(`${channel.id}|#${channel.name}`)
+        if (!values.some((value) => slackChannelId(value) === channel.id)) {
+            const selectedChannel = `${channel.id}|#${channel.name}`
+            onValuesChange(props.mode === 'multiple' ? [...values, selectedChannel] : [selectedChannel])
         }
-    }, [pastedChannelId, slackChannels, slackChannelByIdLoading, value, onChange])
+    }, [pastedChannelId, slackChannels, slackChannelByIdLoading, values, props.mode, onValuesChange])
 
-    // Read-only pickers still need a direct lookup because the saved channel may not be on the first page.
+    // Read-only pickers still need direct lookups because saved channels may not be on the first page.
     useEffect(() => {
-        if (value) {
+        for (const value of values) {
             const channelId = value.split('|')[0]
-            if (channelId) {
+            if (
+                channelId &&
+                !slackChannels.some((channel: SlackChannelType) => channel.id === channelId) &&
+                !attemptedSlackChannelIds[channelId]
+            ) {
                 loadSlackChannelById(channelId)
             }
         }
-    }, [loadSlackChannelById, value])
+    }, [attemptedSlackChannelIds, loadSlackChannelById, slackChannels, values])
 
-    const options = withSavedChannelOption(
-        withoutInaccessiblePrivateChannels(rawSlackChannelOptions, isPrivateChannelWithoutAccess, [value, localValue]),
-        modifiedValue
+    const options = withSavedChannelOptions(
+        withoutInaccessiblePrivateChannels(rawSlackChannelOptions, isPrivateChannelWithoutAccess, [
+            ...values,
+            localValue,
+        ]),
+        modifiedValues
     )
 
     return (
         <>
             <LemonInputSelect
                 onChange={(val) => {
-                    const key = val[0] ?? null
                     // LemonInputSelect blurs the input before it reports a selection, so onBlur has
                     // already flagged the search as dropped by the time this runs. Both happen on
                     // one synchronous call stack, so this reset wins and no error renders.
                     clearDroppedSearch()
-                    if (key) {
+                    for (const key of val) {
                         // Pin into the by-id slot so the post-select bulk reload can't drop the
                         // channel from slackChannels and unresolve the label.
                         const [channelId] = key.split('|')
@@ -512,7 +551,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                             loadSlackChannelByIdSuccess(channel)
                         }
                     }
-                    onChange?.(key)
+                    onValuesChange(props.mode === 'multiple' ? val : val.slice(0, 1))
                 }}
                 onInputChange={(val) => {
                     if (val) {
@@ -524,7 +563,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                         if (SLACK_CHANNEL_ID_PATTERN.test(idCandidate)) {
                             loadSlackChannelById(idCandidate)
                             setPastedChannelId(idCandidate)
-                        } else if (val !== modifiedValue) {
+                        } else if (!modifiedValues.includes(val)) {
                             setPastedChannelId(null)
                             // LemonInputSelect auto-fills the input with the selected option's key on
                             // focus (see LemonInputSelect._onFocus). Don't treat that auto-fill as a
@@ -542,14 +581,14 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                         hasActiveSearchRef.current = false
                     }
                 }}
-                value={modifiedValue ? [modifiedValue] : []}
+                value={modifiedValues}
                 onFocus={() => !slackChannels.length && !allSlackChannelsLoading && loadAllSlackChannels()}
                 onBlur={() => setBlurredWithoutSelection(hasUnselectedSearchRef.current)}
                 status={showUnselectedSearchError ? 'danger' : 'default'}
                 disabled={disabled}
-                mode="single"
+                mode={props.mode ?? 'single'}
                 data-attr="select-slack-channel"
-                placeholder="Select a channel..."
+                placeholder={props.mode === 'multiple' ? 'Select channels...' : 'Select a channel...'}
                 action={{
                     children: <span className="Link">Refresh channels</span>,
                     onClick: () => loadAllSlackChannels(true),
@@ -572,7 +611,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
 
             <SlackChannelPickerNotices
                 integration={integration}
-                value={value}
+                values={values}
                 showUnselectedSearchError={showUnselectedSearchError}
             />
         </>

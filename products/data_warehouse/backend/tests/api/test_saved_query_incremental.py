@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, patch
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_warehouse.backend.presentation.views.saved_query import (
+    CHECK_INCREMENTAL_MAX_QUERY_LENGTH,
     CheckIncrementalThrottle,
     DataWarehouseSavedQueryViewSet,
 )
@@ -49,10 +50,7 @@ class TestSavedQueryIncremental(APIBaseTest):
 
         assert response.status_code == 201, response.json()
 
-    @patch(
-        "products.data_warehouse.backend.presentation.views.saved_query.saved_query_workflow_exists", return_value=False
-    )
-    def test_incremental_state_is_read_only(self, _workflow_exists):
+    def test_incremental_state_is_read_only(self):
         created = self._create(incremental=CONFIG)
         saved_query_id = created.json()["id"]
 
@@ -64,10 +62,7 @@ class TestSavedQueryIncremental(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert DataWarehouseSavedQuery.objects.get(id=saved_query_id).incremental_state is None
 
-    @patch(
-        "products.data_warehouse.backend.presentation.views.saved_query.saved_query_workflow_exists", return_value=False
-    )
-    def test_changing_the_query_alone_is_checked_against_the_stored_config(self, _workflow_exists):
+    def test_changing_the_query_alone_is_checked_against_the_stored_config(self):
         """Otherwise a query incremental cannot serve saves while the view stays incremental, and
         only fails at the next run."""
         created = self._create(incremental=CONFIG)
@@ -121,7 +116,8 @@ class TestSavedQueryIncremental(APIBaseTest):
     def test_check_incremental_rejects_an_oversized_query(self):
         # Parsing runs synchronously on an API worker, so the body has to be bounded before it
         # reaches the parser.
-        response = self.client.post(self._url("check_incremental/"), {"query": "SELECT 1 -- " + "x" * (64 * 1024)})
+        oversized = "SELECT 1 -- " + "x" * CHECK_INCREMENTAL_MAX_QUERY_LENGTH
+        response = self.client.post(self._url("check_incremental/"), {"query": oversized})
 
         assert response.status_code == 400
         assert response.json()["attr"] == "query"

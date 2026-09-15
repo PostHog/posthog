@@ -1233,7 +1233,7 @@ describe('experimentMetricsLogic', () => {
         })
     })
 
-    describe('feature flags unresolved on mount', () => {
+    describe('feature flag races on mount', () => {
         it('defers the latest fetch until flags arrive, then replays it', async () => {
             // Reinitialize kea so flags start unresolved (receivedFeatureFlags false). Reading the flag as
             // off here would clear loading and skip the fetch, hiding the recalculation results.
@@ -1263,6 +1263,39 @@ describe('experimentMetricsLogic', () => {
                     [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
                 })
             }).toDispatchActions(['setFeatureFlags', 'loadLatestRecalculation', 'setCurrentRecalculation'])
+            expect(latestMock).toHaveBeenCalledTimes(1)
+        })
+
+        it('re-runs the load when a later flag update contradicts the value the mount decision used', async () => {
+            // The first flag set of a page load can come from the server bootstrap, which omits
+            // org-targeted flags: flags count as received, but this flag reads off, so the mount load bails.
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            const latestMock = jest.fn(() => [200, completedRecalculation])
+            useMocks({
+                get: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': latestMock },
+            })
+            mountLogic()
+
+            await expectLogic(logic)
+                .toDispatchActions(['loadLatestRecalculation'])
+                .toNotHaveDispatchedActions(['setCurrentRecalculation'])
+            expect(latestMock).not.toHaveBeenCalled()
+
+            // The real flag response lands with the flag on. The load must re-run, or the recalculation
+            // UI waits forever for results that nothing fetches.
+            await expectLogic(logic, () => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
+                    [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
+                })
+            }).toDispatchActions(['setFeatureFlags', 'loadLatestRecalculation', 'setCurrentRecalculation'])
+            expect(latestMock).toHaveBeenCalledTimes(1)
+
+            // A repeated update with the same value must not re-run the load.
+            await expectLogic(logic, () => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
+                    [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
+                })
+            }).toNotHaveDispatchedActions(['loadLatestRecalculation'])
             expect(latestMock).toHaveBeenCalledTimes(1)
         })
     })

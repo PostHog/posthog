@@ -1,8 +1,10 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useContext, useEffect, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 
 import { useComponentPanelState } from './componentPanelContext'
+import { usePublishNotebookComponentRunHandler } from './componentRunHandlers'
 import { NotebookComponentRunStatusContext } from './componentRunStatus'
 import { NotebookComponentToolbarExtrasContext } from './componentToolbarExtras'
 import { NotebookComponentShell } from './NotebookComponentShell'
@@ -19,6 +21,86 @@ function PanelStateProbe(): JSX.Element {
         </div>
     )
 }
+
+type RunnableCellOptions = {
+    run?: jest.Mock
+    disabledReason?: string | null
+    moveFocusToAdjacentNode?: jest.Mock
+    insertParagraphAfterNode?: jest.Mock
+    /** 'native' mirrors an EditContext Monaco, which also renders an IME textarea the caret must
+     * not land in. 'textarea' mirrors an older build, where the textarea is the real input. */
+    withEditor?: false | 'native' | 'textarea'
+    runnable?: boolean
+    /** Renders the block's content through a portal, the way a modal or menu does. */
+    portalContent?: boolean
+}
+
+function renderCell({
+    run = jest.fn(),
+    disabledReason = null,
+    moveFocusToAdjacentNode = jest.fn(() => false),
+    insertParagraphAfterNode = jest.fn(),
+    withEditor = false,
+    runnable = true,
+    portalContent = false,
+}: RunnableCellOptions = {}): HTMLElement {
+    const registry = createMarkdownNotebookRegistry([
+        {
+            tagName: 'Cell',
+            label: 'Cell',
+            category: 'Test',
+            ViewComponent: () =>
+                portalContent ? (
+                    createPortal(<div data-attr="cell-portal">Portaled</div>, document.body)
+                ) : withEditor === 'native' ? (
+                    <div className="monaco-editor">
+                        <div className="native-edit-context" tabIndex={0} data-attr="cell-editor" />
+                        <textarea className="ime-text-area" data-attr="cell-ime" />
+                    </div>
+                ) : withEditor === 'textarea' ? (
+                    <div className="monaco-editor">
+                        <textarea className="inputarea" data-attr="cell-editor" />
+                    </div>
+                ) : (
+                    <div data-attr="cell-results">Results</div>
+                ),
+            ToolbarComponent: runnable
+                ? function CellToolbar(): JSX.Element {
+                      usePublishNotebookComponentRunHandler({ run, disabledReason })
+                      return <button type="button">Run</button>
+                  }
+                : undefined,
+        },
+    ])
+
+    const { container } = render(
+        <NotebookComponentShell
+            node={{ id: 'cell-node', type: 'component', tagName: 'Cell', props: {} }}
+            mode="edit"
+            componentPanels={{ filters: false, results: true }}
+            persistComponentPanelVisibility={false}
+            isSelected={false}
+            registry={registry}
+            toggleComponentPanel={jest.fn()}
+            setLocalComponentPanels={jest.fn()}
+            rememberComponentPanels={jest.fn()}
+            setBlockRef={jest.fn()}
+            updateNode={jest.fn()}
+            deleteNode={jest.fn()}
+            deleteSelectedNotebookBlocks={jest.fn(() => false)}
+            insertParagraphAfterNode={insertParagraphAfterNode}
+            moveFocusToAdjacentNode={moveFocusToAdjacentNode}
+        />
+    )
+
+    return container.querySelector('.MarkdownNotebook__component-shell') as HTMLElement
+}
+
+const RUN_SHORTCUTS: [string, { metaKey?: boolean; ctrlKey?: boolean; shiftKey?: boolean }, boolean][] = [
+    ['Cmd+Enter', { metaKey: true }, false],
+    ['Ctrl+Enter', { ctrlKey: true }, false],
+    ['Shift+Enter', { shiftKey: true }, true],
+]
 
 describe('NotebookComponentShell', () => {
     it('provides markdown component panel state to rendered components', () => {
@@ -666,5 +748,64 @@ describe('NotebookComponentShell', () => {
         rerender(buildShell({ filters: false, results: false }))
         expect(within(container).queryByText('Results')).toBeNull()
         expect(within(container).getByLabelText('More actions')).toBeTruthy()
+    })
+
+    test.each(RUN_SHORTCUTS)('%s runs the cell from anywhere inside it', (_name, modifiers, movesOn) => {
+        const run = jest.fn()
+        const moveFocusToAdjacentNode = jest.fn(() => false)
+        const shell = renderCell({ run, moveFocusToAdjacentNode })
+
+        // Fired on the results, not the shell: a run has to start with focus anywhere in the cell.
+        fireEvent.keyDown(within(shell).getByTestId('cell-results'), { key: 'Enter', ...modifiers })
+
+        expect(run).toHaveBeenCalledTimes(1)
+        expect(moveFocusToAdjacentNode.mock.calls).toEqual(movesOn ? [['cell-node', 'next', 0]] : [])
+    })
+
+    test.each(RUN_SHORTCUTS)('%s does not run a cell that published a disabled reason', (_name, modifiers) => {
+        // A run already in flight disables the button; a second one races the poller and strands
+        // the spinner, so the shortcut has to refuse it too.
+        const run = jest.fn()
+        const shell = renderCell({ run, disabledReason: 'This cell is already running' })
+
+        fireEvent.keyDown(within(shell).getByTestId('cell-results'), { key: 'Enter', ...modifiers })
+
+        expect(run).not.toHaveBeenCalled()
+    })
+
+    test.each([
+        ['EditContext Monaco', 'native'],
+        ['textarea Monaco', 'textarea'],
+    ] as const)('moves focus out of a %s cell on Escape and back in on Enter', (_name, withEditor) => {
+        const shell = renderCell({ withEditor })
+        const editor = within(shell).getByTestId('cell-editor')
+        editor.focus()
+
+        fireEvent.keyDown(editor, { key: 'Escape' })
+        expect(document.activeElement).toBe(shell)
+
+        fireEvent.keyDown(shell, { key: 'Enter' })
+        expect(document.activeElement).toBe(editor)
+    })
+
+    it("ignores run shortcuts from a block's portaled modal or menu", () => {
+        // React bubbles a portal's events through the component tree, so they reach this shell even
+        // though the portal's DOM sits outside it. A source editor in a modal must keep its own keys.
+        const run = jest.fn()
+        renderCell({ run, portalContent: true })
+
+        fireEvent.keyDown(screen.getByTestId('cell-portal'), { key: 'Enter', shiftKey: true })
+        fireEvent.keyDown(screen.getByTestId('cell-portal'), { key: 'Enter', metaKey: true })
+
+        expect(run).not.toHaveBeenCalled()
+    })
+
+    it('keeps Enter adding a paragraph below a block that cannot run', () => {
+        const insertParagraphAfterNode = jest.fn()
+        const shell = renderCell({ runnable: false, insertParagraphAfterNode })
+
+        fireEvent.keyDown(shell, { key: 'Enter' })
+
+        expect(insertParagraphAfterNode).toHaveBeenCalledTimes(1)
     })
 })

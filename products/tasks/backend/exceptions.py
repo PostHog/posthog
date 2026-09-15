@@ -1,11 +1,24 @@
+import random
 from datetime import timedelta
 from typing import Any, Optional
 
+from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
 
 from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
+
+SANDBOX_RATE_LIMIT_BASE_DELAY_SECONDS = 45
+SANDBOX_RATE_LIMIT_MAX_DELAY_SECONDS = 300
+
+
+def sandbox_rate_limit_retry_delay(attempt: int) -> float:
+    ceiling = min(
+        SANDBOX_RATE_LIMIT_BASE_DELAY_SECONDS * 2 ** max(attempt - 1, 0),
+        SANDBOX_RATE_LIMIT_MAX_DELAY_SECONDS,
+    )
+    return random.uniform(ceiling / 2, ceiling)
 
 
 class ProcessTaskError(ApplicationError):
@@ -129,6 +142,22 @@ class SandboxExecutionError(ProcessTaskTransientError):
     """Error during sandbox command execution."""
 
     pass
+
+
+class SandboxRateLimitedError(SandboxExecutionError):
+    """The egress proxy in front of the sandbox control plane shed the call."""
+
+    def __init__(self, message: str, context: dict[str, Any]):
+        attempt = activity.info().attempt if activity.in_activity() else 1
+        ProcessTaskError.__init__(
+            self,
+            message,
+            context,
+            None,
+            capture=False,
+            non_retryable=False,
+            next_retry_delay=timedelta(seconds=sandbox_rate_limit_retry_delay(attempt)),
+        )
 
 
 class SandboxMissingRepositoryError(ProcessTaskFatalError):

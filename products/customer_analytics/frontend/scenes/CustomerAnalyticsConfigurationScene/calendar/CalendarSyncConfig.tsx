@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconRefresh, IconTrash } from '@posthog/icons'
+import { IconRefresh, IconRewind, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -13,6 +13,7 @@ import { ICONS } from 'lib/integrations/utils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { CalendarSyncBackfillModal } from './CalendarSyncBackfillModal'
 import { calendarSyncLogic } from './calendarSyncLogic'
 
 const GMAIL_READONLY_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly'
@@ -20,8 +21,17 @@ const GMAIL_READONLY_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly'
 export function CalendarSyncConfig(): JSX.Element {
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
     const { deleteIntegration } = useActions(integrationsLogic)
-    const { statusByIntegrationId, triggeringIntegrationIds } = useValues(calendarSyncLogic)
-    const { syncNow } = useActions(calendarSyncLogic)
+    const {
+        statusByIntegrationId,
+        triggeringIntegrationIds,
+        backfillIntegrationId,
+        backfillStartDate,
+        backfillEndDate,
+        backfillDateError,
+        backfillSubmitting,
+    } = useValues(calendarSyncLogic)
+    const { syncNow, openBackfill, closeBackfill, setBackfillStartDate, setBackfillEndDate, submitBackfill } =
+        useActions(calendarSyncLogic)
     const { user } = useValues(userLogic)
     const adminRestrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -62,13 +72,22 @@ export function CalendarSyncConfig(): JSX.Element {
                 const syncStatus = statusByIntegrationId[integration.id]
                 const isSyncing = !!syncStatus?.is_syncing || triggeringIntegrationIds.includes(integration.id)
                 const restrictedReason = managementRestrictedReason(integration.created_by?.id)
+                const hasGmailScope = String(integration.config?.scope ?? '')
+                    .split(' ')
+                    .includes(GMAIL_READONLY_SCOPE)
+                const backfillDisabledReason = backfillSubmitting
+                    ? 'Another backfill request is starting'
+                    : isSyncing
+                      ? 'A sync is already running'
+                      : (adminRestrictedReason ??
+                        (!hasGmailScope ? 'Reconnect this Google account before you backfill email' : null))
                 return (
                     <IntegrationView
                         key={integration.id}
                         integration={integration}
                         // A custom suffix replaces IntegrationView's built-in Disconnect button, so it returns here.
                         suffix={
-                            <div className="flex flex-row items-center gap-2">
+                            <div className="flex flex-row flex-wrap items-center justify-end gap-2">
                                 <span className="text-xs text-secondary whitespace-nowrap">
                                     {isSyncing ? (
                                         'Syncing Google account...'
@@ -91,6 +110,15 @@ export function CalendarSyncConfig(): JSX.Element {
                                 </LemonButton>
                                 <LemonButton
                                     type="secondary"
+                                    icon={<IconRewind />}
+                                    disabledReason={backfillDisabledReason ?? undefined}
+                                    onClick={() => openBackfill(integration.id)}
+                                    data-attr="google-account-backfill-open"
+                                >
+                                    Backfill
+                                </LemonButton>
+                                <LemonButton
+                                    type="secondary"
                                     status="danger"
                                     icon={<IconTrash />}
                                     onClick={() => deleteIntegration(integration.id)}
@@ -103,6 +131,21 @@ export function CalendarSyncConfig(): JSX.Element {
                     />
                 )
             })}
+            <CalendarSyncBackfillModal
+                isOpen={backfillIntegrationId !== null}
+                startDate={backfillStartDate}
+                endDate={backfillEndDate}
+                dateError={backfillDateError}
+                isSubmitting={backfillSubmitting}
+                onStartDateChange={setBackfillStartDate}
+                onEndDateChange={setBackfillEndDate}
+                onSubmit={() => {
+                    if (backfillIntegrationId !== null && backfillStartDate && backfillEndDate) {
+                        submitBackfill(backfillIntegrationId, backfillStartDate, backfillEndDate)
+                    }
+                }}
+                onClose={closeBackfill}
+            />
             <div className="flex">
                 <LemonButton
                     type="primary"

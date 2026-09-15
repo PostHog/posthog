@@ -103,6 +103,15 @@ class TestBuildTaggerSystemPrompt:
             ("Test", [{"name": "a"}], 0, None, ["Select as many tags as apply"], []),
             # User prompt passthrough
             ("Which features are used?", [{"name": "a"}], 0, None, ["Which features are used?"], []),
+            # JSON contract for providers that do not enforce the response schema
+            (
+                "Test",
+                [{"name": "a"}],
+                0,
+                None,
+                ['"tags"', '"reasoning"', "Always include both keys"],
+                [],
+            ),
         ],
     )
     def test_build_tagger_system_prompt(

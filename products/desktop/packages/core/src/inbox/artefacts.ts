@@ -43,7 +43,12 @@ export function suggestedReviewerDisplayName(
     if (name) return name;
     if (reviewer.user.email) return reviewer.user.email;
   }
-  return reviewer.github_name ?? reviewer.github_login;
+  return (
+    reviewer.github_name ??
+    reviewer.github_login ??
+    reviewer.user?.email ??
+    "Reviewer"
+  );
 }
 
 export function extractSuggestedReviewers(
@@ -127,8 +132,9 @@ export function toSuggestedReviewerWriteContent(
 ): SuggestedReviewerWriteEntry[] {
   return reviewers
     .map((reviewer): SuggestedReviewerWriteEntry | null => {
+      const userUuid = reviewer.user_uuid ?? reviewer.user?.uuid;
+      if (userUuid) return { user_uuid: userUuid };
       if (reviewer.github_login) return { github_login: reviewer.github_login };
-      if (reviewer.user?.uuid) return { user_uuid: reviewer.user.uuid };
       return null;
     })
     .filter((entry): entry is SuggestedReviewerWriteEntry => entry !== null);

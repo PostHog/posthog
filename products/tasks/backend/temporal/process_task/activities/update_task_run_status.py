@@ -11,6 +11,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
 from products.tasks.backend.metrics import observe_prewarmed_unused_if_never_activated, observe_wizard_run_unbound
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.metrics import record_run_token_usage
@@ -117,6 +118,9 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
         )
 
     # Side effects run after commit, outside the row lock (repo convention: no side effects in atomic).
+    if input.status in _TERMINAL_STATUSES:
+        resume_workflow_step_for_run(task_run)
+
     task_run.publish_stream_state_event()
     observe_wizard_run_unbound(task_run)
 

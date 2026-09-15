@@ -105,7 +105,7 @@ from posthog.session_recordings.session_recording_v2_service import list_blocks,
 from posthog.session_recordings.utils import (
     clean_prompt_whitespace,
     filter_from_params_to_query,
-    gate_surfacing_score_order,
+    gate_replay_relevance,
     query_as_params_to_dict,
     recordings_query_has_event_filters,
 )
@@ -115,6 +115,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.ai_training.backend.facade.api import queue_training_deletion
 
 from ..models.product_intent.product_intent import ProductIntent
 from .queries.combine_session_ids_for_filtering import combine_session_id_filters
@@ -912,7 +913,7 @@ class SessionRecordingViewSet(
                 with tracer.start_as_current_span("convert_filters"):
                     query = filter_from_params_to_query(params)
 
-                gate_surfacing_score_order(query, cast(User, request.user))
+                gate_replay_relevance(query, cast(User, request.user))
 
                 if query.comment_text:
                     with tracer.start_as_current_span("search_comments"):
@@ -1622,6 +1623,8 @@ class SessionRecordingViewSet(
 
         Returns list of session IDs that failed to delete.
         """
+
+        queue_training_deletion(self.team.id, "session", session_ids)
 
         async def _delete_all() -> list[str]:
             async with recording_api_client() as storage:

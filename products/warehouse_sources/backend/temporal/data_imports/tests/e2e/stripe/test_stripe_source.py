@@ -14,6 +14,8 @@ from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from stripe._http_client import HTTPClient
 
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
@@ -29,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import WEBHOOK_ONLY_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import (
+    RATE_LIMIT_RETRIES,
     StripeAuthenticationError,
     StripeNestedResource,
     StripePermissionError,
@@ -45,7 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.str
 )
 from products.warehouse_sources.backend.temporal.data_imports.tests.e2e.conftest import run_external_data_job_workflow
 
-from .data import BALANCE_TRANSACTIONS, CUSTOMER_BALANCE_TRANSACTIONS, CUSTOMERS
+from .data import BALANCE_TRANSACTIONS, CUSTOMER_BALANCE_TRANSACTIONS, CUSTOMERS, INVOICES
 
 pytestmark = pytest.mark.usefixtures("minio_client")
 
@@ -83,6 +86,17 @@ def external_data_schema_full_refresh(external_data_source, team):
         sync_type_config={},
     )
     return schema
+
+
+@pytest.fixture
+def external_data_schema_invoice(external_data_source, team):
+    return ExternalDataSchema.objects.create(
+        name="Invoice",
+        team_id=team.pk,
+        source_id=external_data_source.pk,
+        sync_type="full_refresh",
+        sync_type_config={},
+    )
 
 
 @pytest.fixture
@@ -693,8 +707,8 @@ def test_call_stripe_passes_through_successful_result():
         # (status_code, num_retries, max_network_retries, expected)
         # 429 is now retried while budget remains — the SDK omits this on its own.
         ("rate_limit_retried", 429, 0, 2, True),
-        # ...but stops once the retry budget is exhausted, so we don't loop forever.
-        ("rate_limit_budget_exhausted", 429, 2, 2, False),
+        # ...on its own budget, and stops once that is exhausted, so we don't loop forever.
+        ("rate_limit_budget_exhausted", 429, RATE_LIMIT_RETRIES, 2, False),
         # 5xx keeps the SDK's built-in retry behavior.
         ("server_error_still_retried", 503, 0, 2, True),
         # Non-retryable 4xx (e.g. a bad request) must NOT be retried.
@@ -1387,3 +1401,25 @@ async def test_a_missing_parent_schema_keeps_the_api_path(team, mock_stripe_api,
 
     assert _listing_calls(mock_stripe_api), "with no parent table there is nothing to read but the API"
     assert sorted(_child_calls(mock_stripe_api)) == PROBED_CUSTOMERS
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_invoice_reads_relocated_fields_from_the_newer_payload_shape(
+    team, mock_stripe_api, external_data_source, external_data_schema_invoice
+):
+    # Rows rendered at a newer Stripe version carry `parent` and `status` instead of the flat
+    # `subscription` and `paid` columns. Those arrive empty, so the curated fields have to read the
+    # new locations or every subscription-billed invoice reads as unlinked and unpaid.
+    await run_external_data_job_workflow(
+        team=team,
+        external_data_source=external_data_source,
+        external_data_schema=external_data_schema_invoice,
+        table_name="stripe_invoice",
+        expected_rows_synced=len(INVOICES),
+        expected_total_rows=len(INVOICES),
+    )
+
+    res = await sync_to_async(execute_hogql_query)("SELECT subscription_id, paid FROM stripe_invoice", team)
+
+    assert res.results == [("sub_1SampleSubscriptionAA", True)]

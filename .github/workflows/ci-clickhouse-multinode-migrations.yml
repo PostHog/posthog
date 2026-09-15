@@ -15,6 +15,7 @@ on:
             - 'tools/infra-scripts/clickhouse-multinode/**'
             - 'posthog/clickhouse/hcl/**'
             - '.github/workflows/ci-clickhouse-multinode-migrations.yml'
+            - '.github/actions/setup-uv/**'
     workflow_dispatch:
 
 concurrency:
@@ -32,9 +33,6 @@ jobs:
     multinode-migration-smoke:
         name: Run ClickHouse migrations against per-cluster topology
         runs-on: ubuntu-24.04
-        # Skipped on trunk-merge/** heads: merge-queue PRs are ephemeral and every
-        # constituent PR already ran this in full.
-        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         # The common path primes Postgres from the master schema artifact. The
         # fallback applies every Django migration from scratch and grows with the
         # migration count, so the timeout is sized for the fallback. Raise it if
@@ -79,11 +77,7 @@ jobs:
                   python-version: 3.13.13
 
             - name: Install uv
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-              with:
-                  version: '0.11.28'
-                  enable-cache: true
-                  cache-dependency-glob: uv.lock
+              uses: ./.github/actions/setup-uv
 
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev

@@ -12,6 +12,7 @@ loses a field surfaces at the facade boundary instead of further down the caller
 (``facade.models``, ``facade.queries``); as they convert, their contracts land here too.
 """
 
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -33,3 +34,11 @@ class InsightVariableDefinition:
     type: str
     default_value: Any = None
     is_multi: bool = False
+
+
+@dataclass(frozen=True)
+class TrendsQueryRunResult:
+    """The response fields consumers need from a blocking cached Trends query."""
+
+    results: list[dict[str, Any]]
+    last_refresh: datetime | None = None

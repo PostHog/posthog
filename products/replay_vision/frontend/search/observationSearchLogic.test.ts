@@ -13,7 +13,10 @@ import { observationSearchLogic } from './observationSearchLogic'
 function searchResults(distances: number[]): ObservationSearchResultApi[] {
     return distances.map(
         (distance, index) =>
-            ({ observation: { id: `obs-${index}` }, distance }) as unknown as ObservationSearchResultApi
+            ({
+                observation: { id: `obs-${index}` },
+                distance,
+            }) as unknown as ObservationSearchResultApi
     )
 }
 
@@ -71,6 +74,25 @@ describe('observationSearchLogic', () => {
         logic.unmount()
     })
 
+    it.each([
+        ['a full page plus one leaves a single result on page 2', 11, 2, ['obs-10']],
+        ['an exact page fill has no second page', 10, 1, []],
+    ])('%s', async (_name, resultCount, expectedPageCount, expectedSecondPageIds) => {
+        const logic = observationSearchLogic({ scannerId: null, teamId: 1, userId: 'user-1' })
+        logic.mount()
+        logic.actions.setPage(3)
+        logic.actions.searchSuccess(searchResults(Array.from({ length: resultCount }, () => 0.1)), 'query', false)
+
+        expect(logic.values.page).toBe(1)
+        expect(logic.values.pageCount).toBe(expectedPageCount)
+        expect(logic.values.pageResults).toHaveLength(Math.min(resultCount, 10))
+        await expectLogic(logic, () => logic.actions.setPage(2)).toFinishAllListeners()
+        expect(logic.values.pageResults.map((r) => r.observation.id)).toEqual(expectedSecondPageIds)
+        // Paging slices the one ranked response, so a page change must not re-embed and re-rank.
+        expect(searchSpy).not.toHaveBeenCalled()
+        logic.unmount()
+    })
+
     it('a blank query never reaches the API', async () => {
         const logic = observationSearchLogic({ scannerId: null, teamId: 1, userId: 'user-1' })
         logic.mount()
@@ -85,11 +107,17 @@ describe('observationSearchLogic', () => {
     it('a deep-linked q runs the search once, not on every navigation', async () => {
         const logic = observationSearchLogic({ scannerId: null, teamId: 1, userId: 'user-1' })
         logic.mount()
-        router.actions.push(urls.replayVision(), { tab: 'search', q: 'rage clicks' })
+        router.actions.push(urls.replayVision(), {
+            tab: 'search',
+            q: 'rage clicks',
+        })
         await expectLogic(logic).toFinishAllListeners()
         expect(searchSpy).toHaveBeenCalledTimes(1)
 
-        router.actions.push(urls.replayVision(), { tab: 'search', q: 'rage clicks' })
+        router.actions.push(urls.replayVision(), {
+            tab: 'search',
+            q: 'rage clicks',
+        })
         await expectLogic(logic).toFinishAllListeners()
         expect(searchSpy).toHaveBeenCalledTimes(1)
         logic.unmount()
@@ -110,11 +138,18 @@ describe('observationSearchLogic', () => {
         searchSpy.mockImplementation(() => [500, { detail: 'embedding service down' }])
         const logic = observationSearchLogic({ scannerId: null, teamId: 1, userId: 'user-1' })
         logic.mount()
-        router.actions.push(urls.replayVision(), { tab: 'search', q: 'rage clicks' })
+        router.actions.push(urls.replayVision(), {
+            tab: 'search',
+            q: 'rage clicks',
+        })
         await expectLogic(logic).toFinishAllListeners()
         expect(searchSpy).toHaveBeenCalledTimes(1)
 
-        router.actions.push(urls.replayVision(), { tab: 'search', q: 'rage clicks', unrelated: '1' })
+        router.actions.push(urls.replayVision(), {
+            tab: 'search',
+            q: 'rage clicks',
+            unrelated: '1',
+        })
         await expectLogic(logic).toFinishAllListeners()
         expect(searchSpy).toHaveBeenCalledTimes(1)
         logic.unmount()

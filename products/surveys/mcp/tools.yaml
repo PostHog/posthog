@@ -14,7 +14,7 @@ ui_apps:
     survey-list:
         type: list
         detail_tool: survey-get
-        detail_args: '{ surveyId: item.id }'
+        detail_args: '{ id: item.id }'
     survey-stats:
         type: detail
         view_prop: data
@@ -36,7 +36,8 @@ tools:
         enrich_url: '{id}'
         title: Creates a new survey in the project.
         description: >
-            Creates a new survey in the project. Use this for both in-app surveys and hosted forms. Prefer draft
+            Creates a new survey in the project. For the draft, targeting, preview, and launch workflow, load the
+            creating-surveys skill when available. Use this for both in-app surveys and hosted forms. Prefer draft
             creation by default and do not set start_date unless the user explicitly asks to launch immediately. For
             in-app surveys, popover is the default unless the user asks for widget or api. For hosted forms, use
             external_survey. Keep surveys short unless the user asks for a longer flow. Survey content is public: anyone
@@ -62,6 +63,11 @@ tools:
             - translations
             - form_content
         param_overrides:
+            appearance:
+                description: >
+                    Optional appearance customization. Omit this to keep the default styling. whiteLabel=true requires
+                    the organization to have the white-labelling entitlement (Enterprise); leave it unset unless
+                    requested and available. surveyPopupDelaySeconds must be non-negative.
             type:
                 description: >
                     Survey type. Use popover for most in-app surveys, widget for always-available feedback entrypoints,
@@ -94,7 +100,9 @@ tools:
                 description: >
                     Target an in-app survey to a subset of users by person, group, or cohort properties. Pass one or
                     more rules in groups[].properties[], each with key, value, operator, and an optional type. Use this
-                    instead of conditions for property targeting. Do not use this for external_survey forms.
+                    instead of conditions for property targeting. Do not use this for external_survey forms. Cohorts
+                    with behavioral filters cannot be used directly. Use a supported static cohort snapshot only with
+                    user approval; never remove targeting rules to work around validation.
             enable_iframe_embedding:
                 description: >
                     Allows an external_survey form to be embedded in an iframe. Use only when the user explicitly asks
@@ -152,7 +160,8 @@ tools:
         description: >
             Launch a survey by setting `start_date` to the current time. Prefer this over `survey-update` with a manual
             `start_date` — it's an explicit lifecycle action and self-documenting in activity logs. No-op if the survey
-            is already launched.
+            is already launched. Archived surveys must be unarchived first. Surveys with an end_date in the past must
+            have that date cleared or extended before launch; do this only when the user asks to reopen the survey.
         ui_app: survey
     survey-stats:
         operation: surveys_stats_retrieve
@@ -229,6 +238,12 @@ tools:
             - translations
             - form_content
         param_overrides:
+            appearance:
+                description: >
+                    Optional appearance customization. Omit this to preserve current styling. When changing it, fetch
+                    the survey first and preserve existing appearance fields. whiteLabel=true requires the organization
+                    to have the white-labelling entitlement (Enterprise); leave it unset unless requested and available.
+                    surveyPopupDelaySeconds must be non-negative.
             questions:
                 description: >
                     Complete replacement question list. Existing question IDs are tied to response data and must be
@@ -247,7 +262,9 @@ tools:
                     groups[].properties[], each with key, value, operator, and an optional type. Use this instead of
                     conditions for property targeting. Complete replacement: fetch the survey first, start from
                     targeting_flag.filters, and send the full groups list — omitted groups are removed. Do not use this
-                    for external_survey forms.
+                    for external_survey forms. Cohorts with behavioral filters cannot be used directly. Use a supported
+                    static cohort snapshot only with user approval; never remove targeting rules to work around
+                    validation.
             translations:
                 description: >
                     Complete replacement survey-level translations object. Do not provide this field unless changing

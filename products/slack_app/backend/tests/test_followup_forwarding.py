@@ -26,6 +26,12 @@ from posthog.temporal.ai.slack_app.helpers import safe_react
 from products.slack_app.backend.api import SlackUserContext
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.services.run_preferences import SLACK_DEFAULT_MODEL
+from products.slack_app.backend.services.slack_messages import (
+    SlackFileRef,
+    SlackThreadMessage,
+    encode_slack_file_refs,
+    parse_slack_file_refs,
+)
 
 
 def _make_inputs(
@@ -40,6 +46,7 @@ def _make_inputs(
 
 
 def _make_slack_file(**overrides: object) -> dict[str, object]:
+    """A file as Slack puts it on an event payload."""
     file: dict[str, object] = {
         "id": "F123",
         "name": "debug.log",
@@ -50,6 +57,11 @@ def _make_slack_file(**overrides: object) -> dict[str, object]:
     }
     file.update(overrides)
     return file
+
+
+def _make_file_ref(**overrides: object) -> SlackFileRef:
+    """The same file as it reaches a thread snapshot."""
+    return parse_slack_file_refs([_make_slack_file(**overrides)])[0]
 
 
 def _assert_quota_denial_posted(mock_slack_instance: MagicMock, channel: str, thread_ts: str) -> None:
@@ -215,7 +227,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             "U_ALICE",
             self.user.id,
             inputs.event,
-            [{"user": "U_ALICE", "text": "run without repo"}],
+            [SlackThreadMessage(user="U_ALICE", text="run without repo")],
             None,
         )
 
@@ -281,7 +293,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
                 "U_ALICE",
                 self.user.id,
                 event,
-                [{"user": "U_ALICE", "text": "review this log", "ts": "1234.5678"}],
+                [SlackThreadMessage(user="U_ALICE", text="review this log", ts="1234.5678")],
                 None,
             )
 
@@ -300,6 +312,72 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         mock_write.assert_called_once()
         assert mock_write.call_args.args[1] == b"log bytes"
         mock_execute_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_initial_task_uploads_an_attachment_posted_earlier_in_the_thread(
+        self, mock_slack_cls, mock_execute_workflow
+    ) -> None:
+        # Somebody posts a chart, the discussion runs, and the ask lands several replies
+        # later. The mention carries no file of its own, so the chart only reaches the
+        # agent if the thread's own attachments are fetched too.
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.client.token = "xoxb-test"
+        mock_slack_instance.client.chat_getPermalink.return_value = {
+            "ok": True,
+            "permalink": "https://slack.example.com/thread",
+        }
+        mock_slack_cls.return_value = mock_slack_instance
+
+        event = {
+            "channel": "C123",
+            "ts": "1234.5678",
+            "user": "U_ALICE",
+            "text": "<@BOT> what is this telling us?",
+        }
+        inputs = PostHogCodeSlackMentionWorkflowInputs(
+            event=event,
+            integration_id=self.integration.id,
+            slack_team_id="T_SLACK",
+            user_id=self.user.id,
+        )
+        thread_messages = [
+            SlackThreadMessage(
+                user="U_ALICE",
+                text="",
+                ts="1234.0000",
+                files_json=encode_slack_file_refs(
+                    [_make_file_ref(name="costs.png", mimetype="image/png", filetype="png", size=9)]
+                ),
+            ),
+            SlackThreadMessage(user="U_ALICE", text="what is this telling us?", ts="1234.5678"),
+        ]
+
+        with (
+            patch("posthog.temporal.ai.slack_app.attachments._download_slack_file", return_value=b"png bytes"),
+            patch("posthog.storage.object_storage.write"),
+            patch("posthog.storage.object_storage.tag"),
+        ):
+            create_posthog_code_task_for_repo_activity(
+                inputs,
+                "C123",
+                "1234.5678",
+                "U_ALICE",
+                self.user.id,
+                event,
+                thread_messages,
+                None,
+            )
+
+        task = self.Task.objects.get(team=self.team)
+        run = self.TaskRun.objects.get(task=task)
+        assert run.artifacts[0]["name"] == "costs.png"
+        assert run.artifacts[0]["id"] in run.state["pending_user_artifact_ids"]
+        assert (
+            "Slack attachment(s) available to the agent as task files: costs.png." in run.state["pending_user_message"]
+        )
+        # The context block says which message it came from, so the agent can place it.
+        assert "[Attached file(s): costs.png]" in task.description
 
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
@@ -336,7 +414,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             "U_ALICE",
             self.user.id,
             inputs.event,
-            [{"user": "U_ALICE", "text": "do something"}],
+            [SlackThreadMessage(user="U_ALICE", text="do something")],
             None,
         )
 
@@ -372,7 +450,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             "U_ALICE",
             self.user.id,
             inputs.event,
-            [{"user": "U_ALICE", "text": "hi"}],
+            [SlackThreadMessage(user="U_ALICE", text="hi")],
             None,
         )
 
@@ -397,7 +475,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             "U_ALICE",
             self.user.id,
             inputs.event,
-            [{"user": "U_ALICE", "text": "investigate the flaky checkout test"}],
+            [SlackThreadMessage(user="U_ALICE", text="investigate the flaky checkout test")],
             None,
             "11111111-1111-1111-1111-111111111111",
             "22222222-2222-2222-2222-222222222222",
@@ -428,7 +506,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             "U_ALICE",
             self.user.id,
             inputs.event,
-            [{"user": "U_ALICE", "text": "just answer this, no repo needed"}],
+            [SlackThreadMessage(user="U_ALICE", text="just answer this, no repo needed")],
             None,
         )
 
@@ -455,7 +533,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             "U_ALICE",
             self.user.id,
             inputs.event,
-            [{"user": "U_ALICE", "text": "clone a repo later"}],
+            [SlackThreadMessage(user="U_ALICE", text="clone a repo later")],
             None,
         )
 
@@ -494,7 +572,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             "U_ALICE",
             self.user.id,
             inputs.event,
-            [{"user": "U_ALICE", "text": "clone a repo later"}],
+            [SlackThreadMessage(user="U_ALICE", text="clone a repo later")],
             None,
         )
 
@@ -530,7 +608,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             "U_ALICE",
             self.user.id,
             inputs.event,
-            [{"user": "U_ALICE", "text": "clone a repo later"}],
+            [SlackThreadMessage(user="U_ALICE", text="clone a repo later")],
             None,
         )
 
@@ -569,8 +647,8 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             self.user.id,
             inputs.event,
             [
-                {"user": "georgiy", "user_id": "U_GEORGIY", "text": "preamble", "ts": "1.000"},
-                {"user": "georgiy", "user_id": "U_GEORGIY", "text": "do something", "ts": "1234.5678"},
+                SlackThreadMessage(user="georgiy", user_id="U_GEORGIY", text="preamble", ts="1.000"),
+                SlackThreadMessage(user="georgiy", user_id="U_GEORGIY", text="do something", ts="1234.5678"),
             ],
             None,
         )
@@ -600,7 +678,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             "U_ALICE",
             self.user.id,
             inputs.event,
-            [{"user": "U_ALICE", "text": "do something"}],
+            [SlackThreadMessage(user="U_ALICE", text="do something")],
             None,
         )
 
@@ -1206,6 +1284,52 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         # applies the message twice.
         assert first_call.kwargs["message_id"] is not None
         assert first_call.kwargs["message_id"] == second_call.kwargs["message_id"]
+
+    def test_followup_forwards_an_attachment_posted_while_the_agent_was_quiet(self) -> None:
+        # The follow-up says "look at this" about an image somebody dropped in the thread
+        # since the agent last spoke. The reply carries no file, so the image reaches the
+        # agent only if the diff window's own attachments are fetched.
+        self._create_mapping()
+        inputs = _make_inputs(self.integration.id, self.user.id)
+        thread_messages = [
+            SlackThreadMessage(
+                user="mira",
+                user_id="U_MIRA",
+                text="",
+                ts="1234.5678999",
+                files_json=encode_slack_file_refs(
+                    [_make_file_ref(name="trace.png", mimetype="image/png", filetype="png", size=9)]
+                ),
+            ),
+        ]
+
+        with (
+            patch("posthog.models.integration.SlackIntegration") as mock_slack_cls,
+            patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=True) as mock_signal,
+            patch("posthog.temporal.ai.slack_app.attachments._download_slack_file", return_value=b"png bytes"),
+            patch(
+                "products.slack_app.backend.services.slack_messages.collect_thread_messages",
+                return_value=thread_messages,
+            ),
+            patch("posthog.storage.object_storage.write"),
+            patch("posthog.storage.object_storage.tag"),
+        ):
+            mock_slack_instance = MagicMock()
+            mock_slack_instance.client.token = "xoxb-test"
+            mock_slack_instance.client.auth_test.return_value = {"bot_id": "B123"}
+            mock_slack_cls.return_value = mock_slack_instance
+
+            result = forward_posthog_code_followup_activity(
+                inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> look at this", "1234.5679"
+            )
+
+        assert result is True
+        self.task_run.refresh_from_db()
+        assert [artifact["name"] for artifact in self.task_run.artifacts] == ["trace.png"]
+        content = mock_signal.call_args.kwargs["content"]
+        assert "[Attached file(s): trace.png]" in content
+        assert "Slack attachment(s) available to the agent as task files: trace.png." in content
+        assert mock_signal.call_args.kwargs["artifact_ids"] == [str(self.task_run.artifacts[0]["id"])]
 
     @parameterized.expand(
         [

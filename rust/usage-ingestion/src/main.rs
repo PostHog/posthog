@@ -22,6 +22,12 @@ use usage_ingestion_proto::usage_ingestion::v1::usage_ingestion_server::UsageIng
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Without this, the first TLS handshake to Valkey panics the task that made it, which
+    // takes the counter flush loop down before it reports anything.
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("failed to install rustls CryptoProvider");
+
     let log_layer = {
         let base = tracing_subscriber::fmt::layer()
             .with_target(true)
@@ -73,11 +79,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let producer = create_kafka_producer(&kafka_config, producer_liveness).await?;
     let grpc_max_connection_age = config.grpc_max_connection_age();
     let redis_counter_config = config.redis_counter_config();
-    let counters = (!config.redis_url.is_empty()).then(|| {
-        Arc::new(CounterAccumulator::new(
-            redis_counter_config.max_series_per_bucket,
-        ))
-    });
+    let counters = (!config.redis_url.is_empty()).then(|| Arc::new(CounterAccumulator::default()));
     let service = UsageIngestionService::new(
         producer,
         resolver,

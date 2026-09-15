@@ -9,6 +9,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import Throttled, ValidationError
 
+from posthog.hogql.constants import DEFAULT_DATA_CATALOG_RETURNED_ROWS
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.services.query import process_query_dict
@@ -53,7 +54,16 @@ class TestMetricRunExecution(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
 
         body = response.json()
-        assert set(body) >= {"status", "is_drifted", "unit", "kind", "results", "compiled_query", "query_status"}
+        assert set(body) >= {
+            "status",
+            "is_drifted",
+            "unit",
+            "kind",
+            "results",
+            "columns",
+            "compiled_query",
+            "query_status",
+        }
         assert body["kind"] == "HogQLQuery"
         assert body["is_drifted"] is False
         assert "/sql?open_query=" in body["posthog_url"]
@@ -65,6 +75,31 @@ class TestMetricRunExecution(ClickhouseTestMixin, APIBaseTest):
         direct_json = direct.model_dump(mode="json") if hasattr(direct, "model_dump") else direct
         assert body["results"] == direct_json["results"]
         assert body["results"] == [[3]]
+        assert body["columns"] == ["c"]
+
+    @parameterized.expand(
+        [
+            ("under_the_limit", 400, 400, False),
+            ("over_the_limit", 1500, DEFAULT_DATA_CATALOG_RETURNED_ROWS, True),
+        ]
+    )
+    def test_long_series_is_not_truncated_at_the_api_default(
+        self, _name: str, row_count: int, expected_rows: int, expected_has_more: bool
+    ) -> None:
+        metric = upsert_metric(
+            team=self.team,
+            user=self.user,
+            name="long_series",
+            description="d",
+            definition={"kind": "HogQLQuery", "query": f"select number from numbers({row_count})"},
+        )
+
+        envelope = run_metric(team=self.team, metric=metric, user=self.user)
+
+        assert envelope["results"] is not None
+        assert len(envelope["results"]) == expected_rows
+        assert envelope["has_more"] is expected_has_more
+        assert envelope["row_limit"] == DEFAULT_DATA_CATALOG_RETURNED_ROWS
 
     def test_run_events_node_executes_as_trends(self) -> None:
         # A bare EventsNode has no query runner; the run must still return the number by executing
@@ -76,6 +111,7 @@ class TestMetricRunExecution(ClickhouseTestMixin, APIBaseTest):
         body = response.json()
         assert body["kind"] == "EventsNode"
         assert body["results"][0]["count"] == 3
+        assert body["columns"] is None
 
 
 class TestMetricRunPreparation(APIBaseTest):
@@ -165,6 +201,24 @@ class TestMetricRunPreparation(APIBaseTest):
                 run_metric(team=self.team, metric=metric, user=self.user)
         metric.refresh_from_db()
         assert metric.last_run_at is None
+
+    @parameterized.expand(
+        [
+            ("truncated_rows", _HOGQL, {"results": [[1]], "limit": 1000, "hasMore": True}, True, 1000),
+            ("complete_rows", _HOGQL, {"results": [[1]], "limit": 1000, "hasMore": False}, False, 1000),
+            ("collapsed_breakdown", _EVENTS_NODE, {"results": [{"count": 1}], "hasMore": True}, False, None),
+        ]
+    )
+    def test_truncation_is_reported_only_from_row_paginator_metadata(
+        self, _name: str, definition: dict, payload: dict, expected_has_more: bool, expected_row_limit: int | None
+    ) -> None:
+        metric = upsert_metric(team=self.team, user=self.user, name="prep", description="d", definition=definition)
+
+        with patch(_PROCESS_QUERY, return_value=payload):
+            envelope = run_metric(team=self.team, metric=metric, user=self.user)
+
+        assert envelope["has_more"] is expected_has_more
+        assert envelope["row_limit"] == expected_row_limit
 
     @parameterized.expand(
         [

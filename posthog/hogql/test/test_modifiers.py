@@ -92,7 +92,12 @@ class TestModifiers(BaseTest):
             "customBotDefinitions": [
                 "not-a-rule",
                 {"pattern": "no name so invalid"},
-                {"id": "1", "name": "Acme", "key": "$raw_user_agent", "pattern": "AcmeBot", "matcher": "contains"},
+                {
+                    "id": "1",
+                    "name": "Acme",
+                    "combiner": "AND",
+                    "items": [{"id": "c1", "key": "$raw_user_agent", "pattern": "AcmeBot", "matcher": "contains"}],
+                },
             ]
         }
         self.team.save()

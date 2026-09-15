@@ -42,6 +42,7 @@ type TaskResponseDTO = Partial<
   latest_run?: Record<string, unknown> | null;
   runtime?: unknown;
   repositories?: string[];
+  description_preview?: string;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -230,6 +231,9 @@ export function normalizeTaskResponse(
       ? {}
       : { title_manually_set: dto.title_manually_set }),
     description: dto.description ?? "",
+    ...(dto.description_preview === undefined
+      ? {}
+      : { description_preview: dto.description_preview }),
     created_at: dto.created_at ?? "",
     updated_at: dto.updated_at ?? "",
     last_activity_at: dto.last_activity_at ?? dto.updated_at ?? "",

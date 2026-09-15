@@ -7,7 +7,8 @@ import {
 } from "@phosphor-icons/react";
 import type { GithubRepoAccessSummary } from "@posthog/core/settings/githubRepoSummary";
 import { formatRepoPreview } from "@posthog/core/settings/githubRepoSummary";
-import { Button, Spinner, Text } from "@posthog/quill";
+import { Button, Text } from "@posthog/quill";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import type { ReactNode } from "react";
 import { useState } from "react";
 
@@ -117,7 +118,7 @@ export function GithubRepoSummary({
               ) : null}
             </div>
             <div className="flex min-w-0 items-center gap-1 text-[12px] text-muted-foreground leading-snug">
-              {status === "loading" ? <Spinner /> : descriptionLine}
+              {status === "loading" ? <Spinner size="sm" /> : descriptionLine}
             </div>
           </div>
         </div>

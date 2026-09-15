@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   activeReports: [] as SignalReport[],
   setupStatusLoading: false,
   setupConfigured: true,
-  navigateToAgents: vi.fn(),
+  navigateToSettings: vi.fn(),
   navigateToInboxReportDetail: vi.fn(),
   prefetchReport: vi.fn(),
   prefetchRoute: vi.fn(),
@@ -149,7 +149,7 @@ vi.mock(
 );
 
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
-  navigateToAgents: mocks.navigateToAgents,
+  navigateToSettings: mocks.navigateToSettings,
   navigateToInboxReportDetail: mocks.navigateToInboxReportDetail,
 }));
 
@@ -190,6 +190,11 @@ vi.mock("@posthog/ui/features/inbox/components/InboxScopeSelect", () => ({
   InboxScopeSelect: () => null,
 }));
 
+vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
+  useChannelsLayout: () => false,
+}));
+
+import { InboxTriagePane } from "./InboxTriagePane";
 import { ReportsInboxView } from "./ReportsInboxView";
 
 function archivedReport(id: string, title: string): SignalReport {
@@ -266,7 +271,7 @@ describe("ReportsInboxView", () => {
     expect(screen.getByText("Ship fixes while you sleep")).toBeTruthy();
     expect(screen.getAllByText("Configure agents")).toHaveLength(1);
     await userEvent.click(screen.getByText("Configure agents"));
-    expect(mocks.navigateToAgents).toHaveBeenCalledOnce();
+    expect(mocks.navigateToSettings).toHaveBeenCalledWith("agents");
   });
 
   it("shows the plain empty state instead of the welcome when something is configured", () => {
@@ -371,7 +376,7 @@ describe("ReportsInboxView", () => {
     ).toBe(true);
   });
 
-  it("returns to the same report in triage mode", () => {
+  it("resumes triage on the report it opened", () => {
     mocks.activeReports = [
       {
         ...activeReport("merge-report", "Merge report"),
@@ -385,7 +390,7 @@ describe("ReportsInboxView", () => {
       inboxTriageOrigin: { reportId: "second-report" },
     };
 
-    render(<ReportsInboxView />);
+    render(<InboxTriagePane />);
 
     expect(mocks.triageProps?.initialReportId).toBe("second-report");
     expect(mocks.triageProps?.reports.map((report) => report.id)).toEqual([

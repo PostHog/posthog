@@ -1,12 +1,16 @@
-/** One anonymized block's metadata as a flat row for the ML Parquet dataset; ids are pseudonyms. */
+/** One block's metadata for the ML Parquet datasets. */
+import { ReplayIndexEntry } from '~/ingestion/pipelines/sessionreplay/shared/metadata/replay-index-entry'
 import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 
-import { PSEUDONYM_DISTINCT_ID, PSEUDONYM_SESSION, PSEUDONYM_TEAM, pseudonymize } from './pseudonymize'
+import { PSEUDONYM_SESSION, PSEUDONYM_TEAM, pseudonymize } from './pseudonymize'
 
 export interface MlBlockMetadataRow {
+    format_version?: 2
+    session_start_ts_ms?: number
+    replay_index_entries?: ReplayIndexEntry[]
+    replay_index_truncated?: boolean
     session_id: string
     team_id: string
-    distinct_id: string
     block_url: string
     block_s3_key: string
     block_byte_start: number | null
@@ -52,10 +56,17 @@ export function toBlockMetadataRow(block: SessionBlockMetadata, secret: string |
         return null
     }
     const { key, start, end } = parseBlockUrl(block.blockUrl)
+    const sessionStartTimestamp = sessionStartTimestampFromUuidV7(block.sessionId)
     return {
+        replay_index_entries: block.replayIndexEntries,
+        replay_index_truncated: block.replayIndexTruncated,
+        ...(sessionStartTimestamp === null
+            ? {}
+            : {
+                  session_start_ts_ms: sessionStartTimestamp,
+              }),
         session_id: pseudonymize(secret, PSEUDONYM_SESSION, block.sessionId),
         team_id: pseudonymize(secret, PSEUDONYM_TEAM, String(block.teamId)),
-        distinct_id: pseudonymize(secret, PSEUDONYM_DISTINCT_ID, block.distinctId),
         block_url: block.blockUrl,
         block_s3_key: key,
         block_byte_start: start,
@@ -79,4 +90,12 @@ export function toBlockMetadataRow(block: SessionBlockMetadata, secret: string |
         snapshot_library: block.snapshotLibrary,
         retention_period_days: block.retentionPeriodDays,
     }
+}
+
+export function sessionStartTimestampFromUuidV7(sessionId: string): number | null {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sessionId)) {
+        return null
+    }
+    const timestamp = Number.parseInt(sessionId.slice(0, 8) + sessionId.slice(9, 13), 16)
+    return timestamp > 0 ? timestamp : null
 }
