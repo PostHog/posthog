@@ -38,6 +38,7 @@ a check that would have fired.
 
 Because the fold is not reversible, the check also stores the verdict itself, and the history
 classification reads that rather than the folded score.
+History with both statistical and AI scores uses a neutral score label.
 
 ## When a check fires
 
@@ -74,9 +75,11 @@ AI evaluations use a dedicated thread pool. The routing decision and evaluation 
 alert configuration snapshot.
 Before saving, evaluation locks the current alert, insight, and threshold rows and compares the snapshot.
 If the alert changed or was deleted, it discards the result without sending a notification.
-The workflow carries the prepared input fingerprint into evaluation and failure recording.
-Retries stop if those inputs changed. Exhausted failures and timeouts also check the fingerprint
-under the same locks before writing, so they cannot delay an edited alert's first check.
+The workflow carries the prepared input fingerprint into failure recording.
+Exhausted failures and timeouts check it under the same locks before writing,
+so they cannot delay an edited alert's first check.
+Successful retries retain the shared alert behavior. Durable recovery after a committed activity
+loses its completion remains separate work for all detector types.
 The next scheduler tick handles an edited alert at its current due time.
 
 ## Gating
@@ -117,6 +120,7 @@ The preview judges the whole window in one call, which is not the same shape as 
 A live check judges only whether the latest point is anomalous.
 The preview describes the date range of the extracted points, including any added history.
 Below-threshold anomaly verdicts retain their scores but do not count as triggered anomalies.
+Negative verdicts ignore any reported indices. Unscored preview points appear as gaps.
 
 ## Where the code lives
 

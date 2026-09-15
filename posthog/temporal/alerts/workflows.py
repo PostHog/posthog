@@ -158,7 +158,6 @@ class CheckAlertWorkflow(PostHogWorkflow):
                         alert_id=inputs.alert_id,
                         uses_llm_detector=prepare_result.uses_llm_detector,
                         team_id=inputs.team_id,
-                        evaluation_fingerprint=prepare_result.evaluation_fingerprint,
                     ),
                     start_to_close_timeout=timeouts.evaluate_start_to_close,
                     schedule_to_close_timeout=timeouts.activity_schedule_to_close,

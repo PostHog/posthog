@@ -1,7 +1,7 @@
-import { AlertState } from '~/queries/schema/schema-general'
+import { AlertState, DetectorType } from '~/queries/schema/schema-general'
 
 import type { AlertCheck } from '../types'
-import { llmCheckWouldFire } from './alertLogic'
+import { getAlertHistoryScoreName, llmCheckWouldFire } from './alertLogic'
 
 function check(triggered_metadata: Record<string, unknown> | null): AlertCheck {
     return {
@@ -32,5 +32,17 @@ describe('llmCheckWouldFire', () => {
         ['check without metadata', null, null],
     ])('%s', (_name, metadata, expected) => {
         expect(llmCheckWouldFire(check(metadata), 0.7)).toBe(expected)
+    })
+})
+
+describe('getAlertHistoryScoreName', () => {
+    const modelCheck = check({ verdict_is_anomaly: true, confidence: 0.8 })
+    it.each<[string, AlertCheck[], string]>([
+        ['AI checks', [modelCheck], 'Anomaly confidence'],
+        ['mixed checks', [modelCheck, check(null)], 'Anomaly score'],
+        ['statistical checks', [check(null)], 'Anomaly score'],
+        ['threshold checks', [modelCheck, { ...check(null), anomaly_scores: null }], 'Anomaly score'],
+    ])('%s', (_name, checks, expected) => {
+        expect(getAlertHistoryScoreName(true, { detector_config: { type: DetectorType.LLM }, checks })).toBe(expected)
     })
 })

@@ -796,15 +796,6 @@ class TestRecordFailedEvaluation:
             assert before.state == alert.state
             assert before.next_check_at == due_before
             assert not await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert).exists)()
-            with patch("posthog.temporal.alerts.activities.check_alert_for_insight") as check:
-                retry = await env.run(
-                    evaluate_alert,
-                    EvaluateAlertActivityInputs(
-                        alert_id=str(alert.id), evaluation_fingerprint=prepared.evaluation_fingerprint
-                    ),
-                )
-            assert retry.alert_check_id is None
-            check.assert_not_called()
 
     async def test_skips_disabled_alert_without_recording_or_notifying(self, alert_with_user) -> None:
         # Disabling an alert mid-check makes evaluate_alert raise into this activity. A normal

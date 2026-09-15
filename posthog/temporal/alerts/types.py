@@ -71,7 +71,6 @@ class EvaluateAlertActivityInputs:
     uses_llm_detector: bool = False
     # Scopes the evaluation lookup. None on a workflow that started before this field existed.
     team_id: int | None = None
-    evaluation_fingerprint: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)

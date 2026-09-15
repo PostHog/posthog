@@ -305,7 +305,7 @@ class LLMDetector(BaseDetector):
 
         index_offset = max(0, len(data) - window)
         reported_indices = [index + index_offset for index in verdict.triggered_indices]
-        score_indices = self._clamp_indices(reported_indices, length=len(data))
+        score_indices = self._clamp_indices(reported_indices, length=len(data)) if verdict.is_anomaly else []
         indices = score_indices
         latest_point_flagged = (len(data) - 1) in indices
         if not judge_every_point:

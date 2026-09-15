@@ -293,8 +293,6 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
     def _evaluate(alert: AlertConfiguration) -> EvaluateAlertResult:
         evaluated_alert = alert
         evaluated_fingerprint = _evaluation_fingerprint(alert)
-        if inputs.evaluation_fingerprint is not None and inputs.evaluation_fingerprint != evaluated_fingerprint:
-            return EvaluateAlertResult(alert_check_id=None, should_notify=False, new_state=AlertState(alert.state))
         # CH workload management keys off these tags to isolate alert queries from other tenants.
         # calculation_interval / config_type also let query_log cost be grouped by alert cadence
         # (real_time vs every_15_minutes vs ...) and query shape (trends vs HogQL) without a join.

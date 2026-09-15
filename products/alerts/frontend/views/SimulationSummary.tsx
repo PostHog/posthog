@@ -90,7 +90,7 @@ function SimulationChart({
         ? subScores.map((sub, i) => ({
               key: `score-${i}`,
               label: sub.type,
-              data: sub.scores.map((s) => s ?? 0),
+              data: sub.scores.map((s) => s ?? NaN),
               color: SCORE_COLORS[i % SCORE_COLORS.length],
               yAxisId: 'yScore',
               meta: { isScore: true },
@@ -99,7 +99,8 @@ function SimulationChart({
               {
                   key: 'score',
                   label: 'Score',
-                  data: result.scores.map((s) => s ?? 0),
+                  data: result.scores.map((s) => s ?? NaN),
+                  points: detectorConfig?.type === DetectorType.LLM ? { radius: 3 } : undefined,
                   color: 'rgba(245, 158, 11, 0.8)',
                   yAxisId: 'yScore',
                   fill: { opacity: 0.1 },

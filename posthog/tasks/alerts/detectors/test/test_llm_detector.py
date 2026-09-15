@@ -172,13 +172,23 @@ class TestLLMDetectorVerdictMapping:
 
         assert result.triggered_indices == expected
 
-    @parameterized.expand([("above_threshold", 0.9, [6]), ("below_threshold", 0.6, [])])
-    def test_batch_scores_only_the_flagged_points(self, _name: str, confidence: float, triggered: list[int]) -> None:
+    @parameterized.expand(
+        [
+            ("above_threshold", True, 0.9, [6], 0.9),
+            ("below_threshold", True, 0.6, [], 0.6),
+            ("negative_verdict_with_indices", False, 0.1, [], None),
+        ]
+    )
+    def test_batch_scores_only_the_flagged_points(
+        self, _name: str, is_anomaly: bool, confidence: float, triggered: list[int], score: float | None
+    ) -> None:
         result = _detect(
-            LLMDetector({"type": "llm"}), _verdict(triggered_indices=[6], confidence=confidence), batch=True
+            LLMDetector({"type": "llm"}),
+            _verdict(triggered_indices=[6], confidence=confidence, is_anomaly=is_anomaly),
+            batch=True,
         )
 
-        assert result.all_scores == [None] * 6 + [confidence]
+        assert result.all_scores == [None] * 6 + [score]
         assert result.triggered_indices == triggered
 
     def test_batch_offsets_indices_from_the_truncated_prompt(self) -> None:

@@ -182,10 +182,11 @@ export function AlertHistorySection({
         ]
         if (alertHistoryIsAnomalyDetection) {
             columns.push({
-                title: isLLMDetectorAlert ? 'Anomaly confidence' : 'Score',
-                tooltip: isLLMDetectorAlert
-                    ? "How sure the model was that the latest point is an anomaly. This is the model's own estimate, not a measured probability."
-                    : undefined,
+                title: alertHistoryChartSeriesName === 'Anomaly confidence' ? 'Anomaly confidence' : 'Score',
+                tooltip:
+                    alertHistoryChartSeriesName === 'Anomaly confidence'
+                        ? "How sure the model was that the latest point is an anomaly. This is the model's own estimate, not a measured probability."
+                        : undefined,
                 align: 'right',
                 render: (_value, check) => {
                     const scores = check.anomaly_scores
@@ -272,7 +273,13 @@ export function AlertHistorySection({
             },
         })
         return columns
-    }, [alertHistoryIsAnomalyDetection, investigationAgentEnabled, isAnyRowSqlAlert, isLLMDetectorAlert, showWhyColumn])
+    }, [
+        alertHistoryIsAnomalyDetection,
+        investigationAgentEnabled,
+        isAnyRowSqlAlert,
+        alertHistoryChartSeriesName,
+        showWhyColumn,
+    ])
 
     if (!alert) {
         return null

@@ -67,6 +67,24 @@ export function llmCheckWouldFire(check: AlertCheck, threshold: number): boolean
     return verdictIsAnomaly && confidence >= threshold
 }
 
+export function getAlertHistoryScoreName(
+    usesAnomalyScores: boolean,
+    alert: Pick<AlertType, 'detector_config' | 'checks'> | null
+): 'Anomaly confidence' | 'Anomaly score' | 'Value' {
+    if (!usesAnomalyScores) {
+        return 'Value'
+    }
+    const hasOnlyModelScores = (alert?.checks ?? []).every(
+        (check) =>
+            getCheckPlotValue(check, true) === null ||
+            (typeof check.triggered_metadata?.verdict_is_anomaly === 'boolean' &&
+                typeof check.triggered_metadata?.confidence === 'number')
+    )
+    return alert?.detector_config?.type === DetectorType.LLM && hasOnlyModelScores
+        ? 'Anomaly confidence'
+        : 'Anomaly score'
+}
+
 function getCheckPlotValue(check: AlertCheck, isAnomalyDetection: boolean): number | null {
     if (isAnomalyDetection) {
         const scores = check.anomaly_scores
@@ -272,12 +290,8 @@ export const alertLogic = kea<alertLogicType>([
         ],
         alertHistoryChartSeriesName: [
             (s) => [s.alertHistoryUsesAnomalyScores, s.alert],
-            (usesAnomalyScores: boolean, alert: AlertType | null): 'Anomaly confidence' | 'Anomaly score' | 'Value' => {
-                if (!usesAnomalyScores) {
-                    return 'Value'
-                }
-                return alert?.detector_config?.type === DetectorType.LLM ? 'Anomaly confidence' : 'Anomaly score'
-            },
+            (usesAnomalyScores: boolean, alert: AlertType | null): 'Anomaly confidence' | 'Anomaly score' | 'Value' =>
+                getAlertHistoryScoreName(usesAnomalyScores, alert),
         ],
         alertHistoryHasHistory: [
             (s) => [s.alert],
