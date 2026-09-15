@@ -118,7 +118,7 @@ class AlertsProductSourceTickWorkflow(PostHogWorkflow):
             try:
                 await workflow.start_child_workflow(
                     binding.workflow_name,
-                    SourceCycleInputs(source_kind=binding.source_kind, tick_started_at=tick_started_at),
+                    SourceCycleInputs(source_kind=binding.source_kind),
                     id=f"alerts-cycle-{binding.source_kind}-{tick_started_at}",
                     task_queue=binding.task_queue,
                     parent_close_policy=workflow.ParentClosePolicy.ABANDON,

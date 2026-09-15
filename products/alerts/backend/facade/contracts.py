@@ -152,15 +152,11 @@ class SourceCycleInputs:
     """What the orchestrator hands one source's cycle."""
 
     source_kind: SourceKind
-    # ISO-8601. The cycle must not read the clock to name its occasion, because a
-    # replayed workflow would then name a different one.
-    tick_started_at: str
 
 
 @frozen
 class SourceCycleResult:
     source_kind: SourceKind
-    alerts_evaluated: int
     notifications_dispatched: int
 
 

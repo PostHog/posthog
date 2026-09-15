@@ -3,13 +3,13 @@ from datetime import UTC, datetime, timedelta
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from products.logs.backend.alert_check_query import BatchedBucketedResult, BucketedCount
-from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
-from products.logs.backend.temporal.alert_cycle import _evaluate_due_logs_alerts_sync
+from parameterized import parameterized
 
-# The cycle imports the query layer inside its function body to keep Django models
-# out of Temporal's workflow sandbox, so patches must target the source module.
-_QUERY_MODULE = "products.logs.backend.alert_check_query"
+from products.logs.backend.alert_check_query import BatchedBucketedResult, BucketedCount
+from products.logs.backend.alert_source_cycle import evaluate_due_logs_alerts
+from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
+
+_MODULE = "products.logs.backend.alert_source_cycle"
 _PERSISTED_FIELDS = (
     "state",
     "consecutive_failures",
@@ -20,35 +20,49 @@ _PERSISTED_FIELDS = (
 
 
 class TestLogsAlertSourceCycle(APIBaseTest):
-    def _breaching_alert(self) -> LogsAlertConfiguration:
-        return LogsAlertConfiguration.objects.create(
-            team=self.team,
-            name="API errors",
-            threshold_count=10,
-            threshold_operator="above",
-            window_minutes=5,
-            filters={},
-            next_check_at=datetime.now(UTC) - timedelta(minutes=1),
-        )
+    def _breaching_alert(self, **kwargs) -> LogsAlertConfiguration:
+        defaults = {
+            "team": self.team,
+            "name": "API errors",
+            "threshold_count": 10,
+            "threshold_operator": "above",
+            "window_minutes": 5,
+            "filters": {},
+            "next_check_at": datetime.now(UTC) - timedelta(minutes=1),
+        }
+        defaults.update(kwargs)
+        return LogsAlertConfiguration.objects.create(**defaults)
 
-    def test_a_breaching_alert_previews_a_notification_and_stays_untouched(self) -> None:
-        alert = self._breaching_alert()
-        before = LogsAlertConfiguration.objects.values(*_PERSISTED_FIELDS).get(id=alert.id)
-
+    def _run(self, alert: LogsAlertConfiguration):
         with (
-            patch(f"{_QUERY_MODULE}.fetch_live_logs_checkpoint", return_value=None),
-            patch(f"{_QUERY_MODULE}.BatchedAlertCheckQuery") as query,
+            patch(f"{_MODULE}.fetch_live_logs_checkpoint", return_value=None),
+            patch(f"{_MODULE}.BatchedAlertCheckQuery") as query,
         ):
             query.return_value.execute_rolling_checks.return_value = BatchedBucketedResult(
                 per_alert={str(alert.id): [BucketedCount(timestamp=datetime.now(UTC), count=500)]},
                 query_duration_ms=1,
             )
-            evaluation = _evaluate_due_logs_alerts_sync()
+            return evaluate_due_logs_alerts(), query
 
-        assert [preview.notification for preview in evaluation.previews] == ["fire"]
-        assert evaluation.alerts_evaluated == 1
+    def test_a_breaching_alert_previews_a_notification_and_stays_untouched(self) -> None:
+        alert = self._breaching_alert()
+        before = LogsAlertConfiguration.objects.values(*_PERSISTED_FIELDS).get(id=alert.id)
 
+        previews, _ = self._run(alert)
+
+        assert [preview.notification for preview in previews] == ["fire"]
         # The production logs fleet owns this alert's state. A write here would advance its
         # schedule or transition it, and the person watching it would be notified twice.
         assert LogsAlertConfiguration.objects.values(*_PERSISTED_FIELDS).get(id=alert.id) == before
         assert not LogsAlertEvent.objects.filter(alert=alert).exists()
+
+    @parameterized.expand([("single_period", 1, 5), ("three_periods", 3, 25)])
+    def test_the_scanned_range_covers_every_rolling_window(
+        self, _name: str, evaluation_periods: int, expected_lookback_minutes: int
+    ) -> None:
+        alert = self._breaching_alert(evaluation_periods=evaluation_periods, check_interval_minutes=10)
+
+        _, query = self._run(alert)
+
+        kwargs = query.call_args.kwargs
+        assert kwargs["date_to"] - kwargs["date_from"] == timedelta(minutes=expected_lookback_minutes)
