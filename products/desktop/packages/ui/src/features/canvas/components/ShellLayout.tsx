@@ -177,26 +177,59 @@ function FreeformEditControls({
 
   return (
     <div className="no-drag flex items-center gap-2">
+      <Button
+        variant="outline"
+        size="sm"
+        className="relative"
+        aria-label={
+          linkNeedsPublish
+            ? "Share, changes ready to publish to the public link"
+            : undefined
+        }
+        onClick={openShare}
+        data-attr="canvas-share-open"
+      >
+        <ShareNetworkIcon size={14} />
+        Share
+        {linkNeedsPublish && (
+          <span
+            aria-hidden
+            className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-red-9 ring-2 ring-background"
+          />
+        )}
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        data-selected={editing}
+        onClick={() => {
+          track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
+            action_type: "edit_toggle",
+            surface: "canvas",
+            channel_id: channelId,
+            dashboard_id: dashboardId,
+            editing: !editing,
+          });
+          if (!editing) openChat();
+          setEditing(dashboardId, !editing);
+        }}
+      >
+        {editing ? (
+          <XIcon size={14} />
+        ) : (
+          <PencilSimpleIcon size={14} weight="regular" />
+        )}
+        {editing ? "Done" : "Edit"}
+      </Button>
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
             <Button
               variant="outline"
               size="icon-sm"
-              className="relative"
-              aria-label={
-                linkNeedsPublish
-                  ? "Canvas options, changes ready to publish to the public link"
-                  : "Canvas options"
-              }
+              aria-label="Canvas options"
             >
               <DotsThreeIcon size={16} weight="bold" />
-              {linkNeedsPublish && (
-                <span
-                  aria-hidden
-                  className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-red-9 ring-2 ring-background"
-                />
-              )}
             </Button>
           }
         />
@@ -211,16 +244,6 @@ function FreeformEditControls({
           <DropdownMenuItem onClick={onRefresh}>
             <ArrowClockwiseIcon size={14} />
             Refresh
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={openShare} data-attr="canvas-share-open">
-            <ShareNetworkIcon size={14} />
-            Share…
-            {linkNeedsPublish && (
-              <span
-                aria-hidden
-                className="ml-2 size-1.5 rounded-full bg-red-9"
-              />
-            )}
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={() =>
@@ -284,29 +307,6 @@ function FreeformEditControls({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      <Button
-        variant="outline"
-        size="sm"
-        data-selected={editing}
-        onClick={() => {
-          track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
-            action_type: "edit_toggle",
-            surface: "canvas",
-            channel_id: channelId,
-            dashboard_id: dashboardId,
-            editing: !editing,
-          });
-          if (!editing) openChat();
-          setEditing(dashboardId, !editing);
-        }}
-      >
-        {editing ? (
-          <XIcon size={14} />
-        ) : (
-          <PencilSimpleIcon size={14} weight="regular" />
-        )}
-        {editing ? "Done" : "Edit"}
-      </Button>
     </div>
   );
 }
