@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 
 import { PersonClaimedByLifecycleOpError } from '~/common/persons/repositories/person-repository'
 import { parseJSON } from '~/common/utils/json-parse'
+import { captureException } from '~/common/utils/posthog'
 import { defaultRetryConfig } from '~/common/utils/retries'
 import { IngestionWarningLimiter } from '~/common/utils/token-bucket'
 import { ingestionWarningCounter } from '~/ingestion/common/ingestion-warnings'
@@ -30,6 +31,10 @@ import {
 } from './person-merge-types'
 import { MergePersonsOutcome, MergePersonsResult } from './persons-store'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
+
+jest.mock('~/common/utils/posthog')
+
+const mockCaptureException = captureException as jest.MockedFunction<typeof captureException>
 
 const counterTotal = async (counter: { get: () => Promise<{ values: { value: number }[] }> }): Promise<number> =>
     (await counter.get()).values.reduce((sum, entry) => sum + entry.value, 0)
@@ -152,6 +157,20 @@ describe('PersonMergeService store-owned merges', () => {
             .filter((entry: any) => entry?.value)
             .map((entry: any) => parseJSON(Buffer.from(entry.value).toString()).type)
         expect(warned).toContain('merge_settled_failure')
+    })
+
+    it('reports an unexpected database failure under a key of its own', async () => {
+        store.mergePersons.mockRejectedValue(
+            Object.assign(new Error('value too long for type character varying(400)'), { code: '22001' })
+        )
+        const service = makeService()
+
+        await service.handleIdentifyOrAlias()
+
+        expect(mockCaptureException).toHaveBeenCalledWith(
+            expect.any(Error),
+            expect.objectContaining({ fingerprint: expect.stringContaining('22001') })
+        )
     })
 
     it('attributes a multi-result answer to its own source', async () => {

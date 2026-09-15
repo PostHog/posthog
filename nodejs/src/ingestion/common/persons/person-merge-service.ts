@@ -7,6 +7,7 @@ import {
     PersonClaimedByLifecycleOpError,
     PersonTombstoneBlockedError,
 } from '~/common/persons/repositories/person-repository'
+import { postgresErrorFingerprint } from '~/common/utils/db/postgres'
 import { timeoutGuard } from '~/common/utils/db/utils'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
@@ -223,10 +224,12 @@ export class PersonMergeService {
                 }).then(() => undefined)
                 return mergeSuccess(undefined, warningAck, true)
             } else {
+                const location = 'handleIdentifyOrAlias'
                 captureException(e, {
+                    fingerprint: postgresErrorFingerprint(location, e),
                     tags: { team_id: this.context.team.id, pipeline_step: 'processPersonsStep' },
                     extra: {
-                        location: 'handleIdentifyOrAlias',
+                        location,
                         distinctId: this.context.distinctId,
                         anonId: String(this.context.eventProperties['$anon_distinct_id']),
                         alias: String(this.context.eventProperties['alias']),
