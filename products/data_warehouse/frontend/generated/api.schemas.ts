@@ -1496,7 +1496,7 @@ export interface DataWarehouseSavedQueryApi {
      */
     edited_history_id?: string | null
     /** @nullable */
-    readonly latest_history_id: number | null
+    readonly latest_history_id: string | null
     /**
      * If true, skip column inference and validation. For saving drafts.
      * @nullable
@@ -1620,7 +1620,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
      */
     edited_history_id?: string | null
     /** @nullable */
-    readonly latest_history_id?: number | null
+    readonly latest_history_id?: string | null
     /**
      * If true, skip column inference and validation. For saving drafts.
      * @nullable

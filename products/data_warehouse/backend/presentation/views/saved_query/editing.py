@@ -1,5 +1,6 @@
 """The writable saved-query serializer: validation, create, and update."""
 
+import uuid
 from typing import Any, cast
 
 from django.conf import settings
@@ -220,8 +221,8 @@ class DataWarehouseSavedQuerySerializer(
                 saved_query=view, column_name=""
             ).delete()
 
-    @extend_schema_field(serializers.IntegerField(allow_null=True))
-    def get_latest_history_id(self, view: DataWarehouseSavedQuery):
+    @extend_schema_field(serializers.UUIDField(allow_null=True))
+    def get_latest_history_id(self, view: DataWarehouseSavedQuery) -> uuid.UUID | None:
         # First check if we have an activity log from a recent creation/update
         if (
             "activity_log" in self.context
@@ -231,10 +232,7 @@ class DataWarehouseSavedQuerySerializer(
             return self.context["activity_log"].id
 
         # Otherwise check for annotated field from queryset
-        if hasattr(view, "latest_activity_id"):
-            return view.latest_activity_id
-
-        return None
+        return cast(uuid.UUID | None, getattr(view, "latest_activity_id", None))
 
     @extend_schema_field(
         serializers.DictField(

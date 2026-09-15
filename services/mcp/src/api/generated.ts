@@ -23890,7 +23890,7 @@ export namespace Schemas {
          */
       edited_history_id?: string | null;
       /** @nullable */
-      readonly latest_history_id: number | null;
+      readonly latest_history_id: string | null;
       /**
          * If true, skip column inference and validation. For saving drafts.
          * @nullable
@@ -65384,7 +65384,7 @@ export namespace Schemas {
          */
       edited_history_id?: string | null;
       /** @nullable */
-      readonly latest_history_id?: number | null;
+      readonly latest_history_id?: string | null;
       /**
          * If true, skip column inference and validation. For saving drafts.
          * @nullable
