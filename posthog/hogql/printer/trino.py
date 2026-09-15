@@ -2145,10 +2145,12 @@ class TrinoPrinter(PostgresPrinter):
 
     def _visit_json_path(self, source: str, keys: Iterable[ast.Expr]) -> str:
         extracted = source
+        is_json = False
         for key in keys:
             if self._is_json_array_index(key):
                 index = str(key.value) if isinstance(key, ast.Constant) else f"CAST({self.visit(key)} AS INTEGER)"
-                extracted = f"TRY(element_at(CAST(json_parse(CAST({extracted} AS VARCHAR)) AS ARRAY(JSON)), {index}))"
+                value = extracted if is_json else f"json_parse(CAST({extracted} AS VARCHAR))"
+                extracted = f"TRY(element_at(CAST({value} AS ARRAY(JSON)), {index}))"
             else:
                 path = (
                     self._json_path([key.value])
@@ -2156,6 +2158,7 @@ class TrinoPrinter(PostgresPrinter):
                     else self._dynamic_json_key_path(key)
                 )
                 extracted = f"json_extract({extracted}, {path})"
+            is_json = True
         return extracted
 
     def _json_path(self, members: Iterable[str | int]) -> str:

@@ -47,6 +47,7 @@ Trino lowering supports keyed `JSONExtractArrayRaw` as an array of serialized JS
 values, numeric epoch arguments to `toDateTime`, array literal membership, and shared
 CTEs across UNION branches. Day-time intervals use native interval arithmetic.
 `JSONExtractRaw` also accepts dynamic string keys with JSON-escaped path construction.
+Nested array indexes preserve JSON values between path steps, including after an object key.
 Numeric JSON path components use Trino `element_at` so one-based and negative indexes
 retain ClickHouse array semantics.
 
@@ -85,6 +86,14 @@ Leading CTEs stay in scope across all operands of a set operation. Trino prints 
 For ordinary `GROUP BY`, an expression that matches a selected expression uses that output's ordinal. This keeps property paths, date conversions, and other bound expressions identical for Trino's grouping checks. An alias for an integer constant uses the selected expression's position; the constant's value does not become an ordinal. Explicit source ordinals remain unchanged. Alias references inside larger expressions expand to their expressions, not ordinals. Complex grouping modes retain their expressions. These rewrites apply to both pure and Django-expanded compilation.
 
 A top-level `ORDER BY` reference to a selected alias also uses that output's ordinal. This avoids repeating bound parameters from the selected expression and keeps grouped queries valid. Ordering direction and explicit source ordinals remain unchanged; aliases inside larger sort expressions still expand normally.
+
+Scalar `WITH` expressions share a budget of 10,000 copied expression nodes per normalization pass.
+Queries that exceed it fail with `TRINO_SCALAR_CTE_EXPANSION_LIMIT`; simplify the scalar expressions or use subqueries.
+`arraySlice` binds its arguments once so nesting does not multiply the generated SQL.
+
+`PIVOT` accepts explicit field grouping keys.
+`LIMIT PERCENT` resolves ordinal sort keys to projected fields before ranking rows.
+`RIGHT ANY`, `RIGHT SEMI`, and `RIGHT ANTI` support two-table queries; longer join chains return `TRINO_RIGHT_JOIN_CHAIN_UNSUPPORTED`.
 
 ## Why some shared integration is necessary
 

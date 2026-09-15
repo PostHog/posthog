@@ -32,10 +32,14 @@ class TrinoPivotLowerer:
         finder.visit(key)
         finder.visit(aggregate)
         groups: list[ast.Expr] = (
-            node.group_by
+            list(node.group_by)
             if node.group_by is not None
             else [ast.Field(chain=[name]) for name in source_columns if name not in consumed]
         )
+        for index, group in enumerate(groups):
+            while isinstance(group, ast.Alias) and group.hidden:
+                group = group.expr
+            groups[index] = group
         if not all(isinstance(group, ast.Field) for group in groups):
             raise TrinoLoweringError("TRINO_PIVOT_GROUP_UNSUPPORTED", "PIVOT with a computed grouping key", node)
         names = {str(group.chain[-1]).casefold() for group in groups if isinstance(group, ast.Field)}

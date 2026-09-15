@@ -372,7 +372,7 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("ceil(-1.234, 2)", "(ceil(-1.234 * power(10, 2)) / power(10, 2))"),
         ("md5(user_id AS TEXT)", 'to_hex(md5(to_utf8(CAST("users"."user_id" AS VARCHAR))))'),
         ("splitByString(',', user_id, 2)", 'ELSE slice(split("users"."user_id", %(hogql_val_0)s), 1, 2) END'),
-        ("arraySlice([1, 2, 3], -2, -1)", "slice(ARRAY[1, 2, 3], greatest(1, IF(-2 < 0,"),
+        ("arraySlice([1, 2, 3], -2, -1)", "element_at(transform(ARRAY[ROW(ARRAY[1, 2, 3], -2, -1)]"),
         ("arraySort(x -> -x, [1, 3, 2])", 'transform(array_sort(transform(ARRAY[1, 3, 2], "x" -> ROW('),
         ("toStartOfInterval(created_at, INTERVAL 10 MINUTE)", " / 600e0) AS BIGINT) * 600"),
         ("toStartOfInterval(created_at, INTERVAL 2 MONTH)", "date_diff('month', TIMESTAMP '1900-01-01"),
@@ -677,17 +677,20 @@ def test_preserves_clickhouse_json_array_indexing() -> None:
             "JSONExtractRaw(properties, length(user_id)), "
             "JSONExtract(properties, 1, 'Map(String, String)'), "
             "JSONHas(properties, 1), JSONLength(properties, 1), "
-            "JSONExtractKeys(properties, 1) FROM users"
+            "JSONExtractKeys(properties, 1), JSONExtractRaw(properties, 'items', 1), "
+            "JSONExtractRaw(properties, 1, 1) FROM users"
         ),
         context,
         "trino",
     )
 
-    assert "element_at(CAST(json_parse(CAST(json_extract(" in sql
+    assert "element_at(CAST(json_extract(" in sql
     assert "AS ARRAY(JSON)), 2)" in sql
     assert 'AS ARRAY(JSON)), CAST(length("users"."user_id") AS INTEGER))' in sql
-    assert sql.count("element_at(") == 6
-    assert context.values == {"hogql_val_0": '$["key.with.dot"]'}
+    assert sql.count("element_at(") == 9
+    assert 'CAST(json_extract("users"."properties", %(hogql_val_1)s) AS ARRAY(JSON))' in sql
+    assert "CAST(TRY(element_at(" in sql
+    assert context.values == {"hogql_val_0": '$["key.with.dot"]', "hogql_val_1": '$["items"]'}
 
 
 def test_lowers_event_property_backed_fields_to_the_physical_json_column() -> None:
@@ -774,6 +777,32 @@ def test_lowers_clickhouse_select_alias_references_to_expressions(
     sql, values = convert_pyformat_placeholders(sql, context.values)
     assert sql.endswith(f"ORDER BY {expected_order}")
     assert values == expected_values
+
+
+@pytest.mark.parametrize("depth", [1, 4])
+def test_scalar_cte_chains_preserve_results(depth: int) -> None:
+    ctes = ["1 AS c0", *[f"c{i - 1} + c{i - 1} AS c{i}" for i in range(1, depth + 1)]]
+    sql, _ = prepare_and_print_ast(
+        parse_select(f"WITH {', '.join(ctes)} SELECT c{depth}"), _context_with_trino_table(), "trino"
+    )
+    with duckdb.connect(":memory:") as connection:
+        assert connection.execute(sql).fetchall() == [(2**depth,)]
+
+
+def test_rejects_excessive_scalar_cte_expansion() -> None:
+    ctes = ["1 AS c0", *[f"c{i - 1} + c{i - 1} AS c{i}" for i in range(1, 15)]]
+    with pytest.raises(TrinoLoweringError, match="TRINO_SCALAR_CTE_EXPANSION_LIMIT"):
+        prepare_and_print_ast(parse_select(f"WITH {', '.join(ctes)} SELECT c14"), _context_with_trino_table(), "trino")
+
+
+@pytest.mark.parametrize("length", ["", ", -1"])
+def test_nested_array_slices_have_bounded_sql_size(length: str) -> None:
+    expression = "[1, 2, 3]"
+    for _ in range(4):
+        expression = f"arraySlice({expression}, 1{length})"
+    sql, _ = prepare_and_print_ast(parse_select(f"SELECT {expression}"), _context_with_trino_table(), "trino")
+    assert len(sql) < 10_000
+    assert sql.count("ARRAY[1, 2, 3]") == 1
 
 
 def test_inlines_scalar_ctes_for_trino() -> None:
@@ -1146,6 +1175,19 @@ def test_lowers_filter_joins(join: str) -> None:
 
 
 @pytest.mark.parametrize("join", ["RIGHT ANY JOIN", "RIGHT SEMI JOIN", "RIGHT ANTI JOIN"])
+@pytest.mark.parametrize("position", [1, 2])
+def test_rejects_right_modes_in_join_chains(join: str, position: int) -> None:
+    joins = ["INNER JOIN", "INNER JOIN"]
+    joins[position - 1] = join
+    query = (
+        f"SELECT third.user_id FROM users {joins[0]} users AS other ON users.user_id = other.user_id "
+        f"{joins[1]} users AS third ON other.user_id = third.user_id"
+    )
+    with pytest.raises(TrinoLoweringError, match="TRINO_RIGHT_JOIN_CHAIN_UNSUPPORTED"):
+        prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
+
+
+@pytest.mark.parametrize("join", ["RIGHT ANY JOIN", "RIGHT SEMI JOIN", "RIGHT ANTI JOIN"])
 def test_lowers_right_join_by_reversing_inputs(join: str) -> None:
     sql, _ = prepare_and_print_ast(
         parse_select(f"SELECT other.user_id FROM users {join} users AS other ON users.user_id = other.user_id"),
@@ -1276,10 +1318,14 @@ def test_qualify_uses_the_resolved_field_not_a_matching_output_name() -> None:
 
 
 @pytest.mark.parametrize("aggregate", ["count()", "sum(id)", "avg(id)", "min(id)", "max(id)"])
-def test_lowers_static_pivot(aggregate: str) -> None:
+@pytest.mark.parametrize("group_by", ["", " GROUP BY created_at"])
+def test_lowers_static_pivot(aggregate: str, group_by: str) -> None:
     context = _context_with_trino_table()
     sql, node = prepare_and_print_ast(
-        parse_select(f"SELECT * FROM (SELECT user_id, id FROM users) PIVOT({aggregate} FOR user_id IN ('a', 'b'))"),
+        parse_select(
+            f"SELECT * FROM (SELECT user_id, id, created_at FROM users) "
+            f"PIVOT({aggregate} FOR user_id IN ('a', 'b'){group_by})"
+        ),
         context,
         "trino",
     )
@@ -1302,17 +1348,19 @@ def test_lowers_static_pivot(aggregate: str) -> None:
         (100, 0, [(1,), (2,), (3,), (4,), (5,)]),
     ],
 )
-def test_percentage_limit_rounds_up(percentage: int, offset: int, expected: list[tuple[int]]) -> None:
+@pytest.mark.parametrize("order_by", ["id", "1"])
+def test_percentage_limit_rounds_up(percentage: int, offset: int, expected: list[tuple[int]], order_by: str) -> None:
     context = _context_with_trino_table()
     query = parse_select(
-        f"WITH rows AS (SELECT 1 AS id UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5) "
-        f"SELECT id FROM rows ORDER BY id LIMIT {percentage} OFFSET {offset}"
+        f"WITH rows AS (SELECT 3 AS id UNION ALL SELECT 1 UNION ALL SELECT 5 UNION ALL SELECT 2 UNION ALL SELECT 4) "
+        f"SELECT id FROM rows ORDER BY {order_by} LIMIT {percentage} OFFSET {offset}"
     )
     assert isinstance(query, ast.SelectQuery)
     query.limit_percent = True
     sql, _ = prepare_and_print_ast(query, context, "trino")
     sql, values = convert_pyformat_placeholders(sql, context.values)
     assert "PERCENT" not in sql
+    assert "OVER (ORDER BY 1" not in sql
     with duckdb.connect(":memory:") as connection:
         assert connection.execute(sql, values).fetchall() == expected
 

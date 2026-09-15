@@ -216,10 +216,27 @@ class TrinoSemanticCallLowerer(CloningVisitor):
         )
 
 
+class _ScalarCTEExpansionBudget(TraversingVisitor):
+    def __init__(self) -> None:
+        self.remaining_nodes = 10_000
+
+    def visit(self, node: ast.AST | None) -> None:
+        if node is not None:
+            self.remaining_nodes -= 1
+            if self.remaining_nodes < 0:
+                raise TrinoLoweringError(
+                    "TRINO_SCALAR_CTE_EXPANSION_LIMIT",
+                    "scalar WITH expressions that expand beyond the compilation limit; simplify the WITH expressions",
+                    node if isinstance(node, ast.Expr) else None,
+                )
+        super().visit(node)
+
+
 class TrinoScalarCTELowerer(CloningVisitor):
     def __init__(self) -> None:
         super().__init__(clear_types=False)
         self.scalar_ctes: dict[str, ast.Expr] = {}
+        self.expansion_budget = _ScalarCTEExpansionBudget()
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         outer_scalar_ctes = self.scalar_ctes
@@ -239,6 +256,7 @@ class TrinoScalarCTELowerer(CloningVisitor):
 
     def visit_field(self, node: ast.Field) -> ast.Expr:
         if len(node.chain) == 1 and isinstance(node.chain[0], str) and node.chain[0] in self.scalar_ctes:
+            self.expansion_budget.visit(self.scalar_ctes[node.chain[0]])
             return clone_expr(self.scalar_ctes[node.chain[0]], clear_types=False)
         return super().visit_field(node)
 

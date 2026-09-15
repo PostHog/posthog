@@ -66,7 +66,13 @@ class TrinoQueryWrapperLowerer(CloningVisitor):
         node.offset = None
         node.limit_percent = False
         staged = self._wrap(node, ast.Constant(value=True))
-        row_number = ast.WindowFunction(name="row_number", exprs=[], over_expr=ast.WindowExpr(order_by=staged.order_by))
+        window_order = [
+            ast.OrderExpr(expr=self._input_expression(order.expr, staged.select), order=order.order)
+            for order in staged.order_by or []
+        ]
+        row_number = ast.WindowFunction(
+            name="row_number", exprs=[], over_expr=ast.WindowExpr(order_by=window_order or None)
+        )
         count = ast.WindowFunction(name="count", exprs=[], over_expr=ast.WindowExpr())
         upper_bound = ast.ArithmeticOperation(
             left=ast.Constant(value=offset),

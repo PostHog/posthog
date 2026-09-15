@@ -22,6 +22,13 @@ class TrinoAnyJoinLowerer(CloningVisitor):
             "RIGHT SEMI JOIN": "LEFT SEMI JOIN",
             "RIGHT ANTI JOIN": "LEFT ANTI JOIN",
         }
+        later_join = second.next_join if second is not None else None
+        while later_join is not None:
+            if later_join.join_type in right_modes:
+                raise TrinoLoweringError(
+                    "TRINO_RIGHT_JOIN_CHAIN_UNSUPPORTED", "RIGHT ANY, SEMI, or ANTI in a join chain", later_join
+                )
+            later_join = later_join.next_join
         if first is not None and second is not None and second.join_type in right_modes:
             if second.next_join is not None:
                 raise TrinoLoweringError(

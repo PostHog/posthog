@@ -446,13 +446,20 @@ def _float_or_null(args: list[str]) -> str:
 def _array_slice(args: list[str]) -> str:
     if len(args) not in {2, 3}:
         raise _invalid_arguments("arraySlice", "arraySlice expects an array, offset, and optional length.")
-    array, offset = args[:2]
+    array, offset, requested_length = "__hogql_slice[1]", "__hogql_slice[2]", "__hogql_slice[3]"
     size = f"cardinality({array})"
     start = f"IF({offset} < 0, {size} + {offset} + 1, {offset})"
-    end = size if len(args) == 2 else f"IF({args[2]} < 0, {size} + {args[2]}, {start} + {args[2]} - 1)"
+    end = (
+        size
+        if len(args) == 2
+        else f"IF({requested_length} < 0, {size} + {requested_length}, {start} + {requested_length} - 1)"
+    )
     clipped_start = f"greatest(1, {start})"
     length = f"IF({offset} = 0, 0, greatest(0, {end} - {clipped_start} + 1))"
-    return f"slice({array}, {clipped_start}, {length})"
+    return (
+        f"element_at(transform(ARRAY[ROW({', '.join(args)})], "
+        f"__hogql_slice -> slice({array}, {clipped_start}, {length})), 1)"
+    )
 
 
 def _array_intersect(args: list[str]) -> str:
