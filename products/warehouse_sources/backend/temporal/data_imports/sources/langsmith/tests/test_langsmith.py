@@ -665,6 +665,7 @@ class TestValidateCredentials:
         if expected_fragment is None:
             assert message is None
         else:
+            assert message is not None
             assert expected_fragment in message
             # The wizard shows this message verbatim, so no status code may reach it.
             assert str(status_code) not in message
