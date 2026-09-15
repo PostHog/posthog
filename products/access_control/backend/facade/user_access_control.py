@@ -1580,7 +1580,7 @@ class UserAccessControl:
             object_row = self._object_rows_decision(resource, object_access_controls)
             if object_row.access_level == NO_ACCESS_LEVEL:
                 return ResolvedAccess(
-                    access_level=NO_ACCESS_LEVEL,
+                    access_level=cast(AccessControlLevel, NO_ACCESS_LEVEL),
                     source="object",
                     source_subject=self._row_subject(object_row),
                     source_resource=resource,

@@ -664,7 +664,7 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
         # The random strategy does not reliably draw an object default rule and a resource rule
         # together, so the security interaction is pinned here: a private object (object default
         # "none") stays denied even when the org grants a broader resource-level level.
-        resource = "dashboard"
+        resource: APIScopeObject = "dashboard"
         model_cls = next(model for r, model in OBJECT_MODELS if r == resource)
         obj = build_instance(model_cls, self.team, self.other_user)
         specs = [
