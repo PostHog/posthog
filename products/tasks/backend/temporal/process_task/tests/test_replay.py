@@ -1,10 +1,10 @@
 """Replay guard for `ProcessTaskWorkflow`.
 
 Temporal replays a running workflow's recorded history against the deployed definition, so a
-change that adds, moves, or resizes a command fails every in-flight run with `[TMPRL1100]`. The
-histories in `histories/` are recordings of runs the workflow has already produced, and CI
-replays them against the current definition. A new command, or a changed timer duration, has to
-sit behind a `workflow.patched` gate to keep them replayable.
+change that adds, removes, or reorders a command fails every in-flight run with `[TMPRL1100]`.
+The histories in `histories/` are recordings of runs the workflow has already produced, and CI
+replays them against the current definition. A new command has to sit behind a
+`workflow.patched` gate to keep them replayable.
 
 Regenerate the recordings only for an intentional, gated change, and review the diff:
 
