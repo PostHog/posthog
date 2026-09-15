@@ -2200,6 +2200,49 @@
                         }
                     },
                     "type": "object"
+                },
+                {
+                    "properties": {
+                        "instructions": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "What counts as unusual or interesting for this metric, in your own words. Optional."
+                        },
+                        "threshold": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)"
+                        },
+                        "type": {
+                            "default": "llm",
+                            "enum": ["llm"],
+                            "type": "string"
+                        },
+                        "window": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "How many recent points the model is shown (default: based on calculation interval)"
+                        }
+                    },
+                    "type": "object"
                 }
             ],
             "description": "Detector configuration to simulate. Omit it to use the default daily z-score detector (threshold 0.95, window 90, first-difference preprocessing)."
