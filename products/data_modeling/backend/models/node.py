@@ -37,6 +37,7 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         blank=True, default="", help_text="File path in the source control repository for synced nodes"
     )
     properties = models.JSONField(default=dict)
+    last_demand_at = models.DateTimeField(null=True, blank=True)
 
     def save(self, *args, **kwargs):
         # always inherit name from saved_query when one exists

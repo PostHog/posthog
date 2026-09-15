@@ -527,7 +527,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         DirectTrinoTable,
     ]:
         if self.table is not None and self.is_materialized and modifiers is not None and modifiers.useMaterializedViews:
-            return self.table.hogql_definition(modifiers)
+            table = self.table.hogql_definition(modifiers)
+            table.saved_query_id = str(self.id)
+            return table
 
         query = self.query or {}
         if not isinstance(query, dict) or "query" not in query:

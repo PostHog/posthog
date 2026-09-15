@@ -222,6 +222,7 @@ class FieldTraverser(FieldOrTable):
 
 class Table(FieldOrTable):
     name: str | None = None
+    saved_query_id: str | None = PydanticField(default=None, exclude=True, repr=False)
     fields: dict[str, FieldOrTable]
     top_level_settings: Optional[HogQLQuerySettings] = None
     workload: Optional[Workload] = None
