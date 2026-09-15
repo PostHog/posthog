@@ -11,7 +11,7 @@ from django.db.models.functions import Cast, Coalesce
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
@@ -527,6 +527,8 @@ class DataWarehouseSavedQuerySerializerMixin:
     def get_columns(self, view: DataWarehouseSavedQuery) -> list[SerializedField]:
         # `hogql_fields` rather than `hogql_definition`, which would read the SQL body the list
         # page defers.
+        if not cast(serializers.BaseSerializer, self).context.get("include_columns", True):
+            return []
         hogql_fields = view.hogql_fields()
         if not hogql_fields:
             return []
@@ -1531,6 +1533,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
+        context["include_columns"] = (
+            self.action != "list" or self.request.query_params.get("include_columns", "true").lower() != "false"
+        )
         request_data = getattr(self.request, "data", {})
         # Read actions stay out: building a database selects every view in the team, SQL body
         # included, and neither serializer reads it. Only the write paths below do, to check a
@@ -1542,6 +1547,18 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         if should_include_database:
             context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
         return context
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "include_columns",
+                bool,
+                description="Include column definitions. Set to false for table-only lists.",
+            )
+        ]
+    )
+    def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        return super().list(request, *args, **kwargs)
 
     def get_serializer_class(self):
         if self.action == "list":
@@ -1577,6 +1594,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             base_queryset = base_queryset.exclude(origin=DataWarehouseSavedQuery.Origin.ENDPOINT).defer(
                 "query", "external_tables", "incremental_state"
             )
+
+        if self.action == "list" and self.request.query_params.get("include_columns", "true").lower() == "false":
+            base_queryset = base_queryset.defer("columns")
 
         # Detect whether we should include managed views in the queryset
         is_managed_viewset_enabled = posthoganalytics.feature_enabled(

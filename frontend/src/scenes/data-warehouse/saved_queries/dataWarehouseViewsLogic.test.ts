@@ -24,7 +24,7 @@ describe('dataWarehouseViewsLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/environments/:team_id/warehouse_saved_queries/': { results: [] },
+                '/api/projects/:team_id/warehouse_saved_queries/': { results: [] },
             },
             delete: {
                 '/api/environments/:team_id/warehouse_saved_queries/:id/': [204],
@@ -68,7 +68,8 @@ describe('dataWarehouseViewsLogic', () => {
         let listCalls = 0
         useMocks({
             get: {
-                '/api/environments/:team_id/warehouse_saved_queries/': () => {
+                '/api/projects/:team_id/warehouse_saved_queries/': ({ request }) => {
+                    expect(new URL(request.url).searchParams.get('include_columns')).toBe('false')
                     listCalls += 1
                     return [200, { results: [{ id: 'view-123', name: 'v' }] }]
                 },
@@ -97,7 +98,7 @@ describe('dataWarehouseViewsLogic', () => {
 
         useMocks({
             get: {
-                '/api/environments/:team_id/warehouse_saved_queries/': () => [
+                '/api/projects/:team_id/warehouse_saved_queries/': () => [
                     200,
                     { results: [{ id: 'view-404', name: 'v' }] },
                 ],
@@ -126,7 +127,7 @@ describe('dataWarehouseViewsLogic', () => {
         let listCalls = 0
         useMocks({
             get: {
-                '/api/environments/:team_id/warehouse_saved_queries/': () => {
+                '/api/projects/:team_id/warehouse_saved_queries/': () => {
                     listCalls += 1
                     return [200, { results: [{ id: 'view-1', name: 'v1', is_materialized: isMaterialized }] }]
                 },
@@ -212,7 +213,7 @@ describe('dataWarehouseViewsLogic', () => {
         jest.useFakeTimers()
         useMocks({
             get: {
-                '/api/environments/:team_id/warehouse_saved_queries/': () => [
+                '/api/projects/:team_id/warehouse_saved_queries/': () => [
                     200,
                     {
                         results: [

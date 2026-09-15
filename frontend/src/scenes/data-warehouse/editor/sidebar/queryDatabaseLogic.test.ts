@@ -520,7 +520,10 @@ describe('queryDatabaseLogic', () => {
             dbLogic = databaseTableListLogic.findMounted()! as ReturnType<typeof databaseTableListLogic.build>
             await expectLogic(dbLogic).toFinishAllListeners()
             dbLogic.actions.loadDatabaseSuccess({
-                tables: { events: { id: 'events', name: 'events', type: 'posthog', fields: {} } },
+                tables: {
+                    events: { id: 'events', name: 'events', type: 'posthog', fields: {} },
+                    persons: { id: 'persons', name: 'persons', type: 'posthog', fields: {} },
+                },
                 joins: [],
             })
             dbLogic.actions.setDatabaseFieldsComplete(false)
@@ -531,11 +534,12 @@ describe('queryDatabaseLogic', () => {
             jest.clearAllMocks()
         })
 
-        it('renders a hydration placeholder, hydrates on expand, then shows the columns', async () => {
+        it('loads table fields on expansion and defers joined fields until the join expands', async () => {
             const placeholder = findTableNode()?.children?.[0]
             expect(placeholder?.type).toEqual('loading-indicator')
             expect(placeholder?.record?.pendingTableName).toEqual('events')
 
+            expect(performQuery).not.toHaveBeenCalled()
             logic.actions.toggleFolderOpen('table-events', false)
             await expectLogic(dbLogic).toFinishAllListeners()
 
@@ -546,12 +550,27 @@ describe('queryDatabaseLogic', () => {
                     id: 'events',
                     name: 'events',
                     type: 'posthog',
-                    fields: { uuid: { name: 'uuid', hogql_value: 'uuid', type: 'string', schema_valid: true } },
+                    fields: {
+                        uuid: { name: 'uuid', hogql_value: 'uuid', type: 'string', schema_valid: true },
+                        person: {
+                            name: 'person',
+                            hogql_value: 'person',
+                            type: 'lazy_table',
+                            table: 'persons',
+                            schema_valid: true,
+                        },
+                    },
                 } as any,
             })
 
             const columnNames = findTableNode()?.children?.map((child: any) => child.name)
-            expect(columnNames).toEqual(['uuid'])
+            expect(columnNames).toEqual(['uuid', 'person'])
+            expect(performQuery).toHaveBeenCalledTimes(1)
+            const joinNode = findTableNode()?.children?.find((child: any) => child.record?.type === 'lazy-table')
+            expect(joinNode).toBeTruthy()
+            logic.actions.toggleFolderOpen(joinNode.id, false)
+            await expectLogic(dbLogic).toFinishAllListeners()
+            expect(performQuery).toHaveBeenLastCalledWith(expect.objectContaining({ tables: ['persons'] }))
         })
 
         it('shows an error node when hydrating a table failed', () => {

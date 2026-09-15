@@ -80,7 +80,6 @@ import {
     DataWarehouseSavedQueryIncremental,
     DataWarehouseSavedQueryIncrementalCheck,
     ExportContext,
-    ExternalDataSource,
     QueryBasedInsightModel,
 } from '~/types'
 
@@ -95,11 +94,9 @@ import {
     dataCatalogMetricsPartialUpdate,
     dataCatalogMetricsRetrieve,
 } from 'products/data_catalog/frontend/generated/api'
-import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 import { validateEndpointName } from 'products/endpoints/frontend/common'
 
 import type { ExternalDataSourceConnectionOptionApi } from '../../../../../products/warehouse_sources/frontend/generated/api.schemas'
-import type { PaginatedResponse } from '../../../lib/api'
 
 // Mirrors MANAGED_WAREHOUSE_SOURCE_PREFIX in products/warehouse_sources/backend/models/external_data_source.py.
 export const MANAGED_WAREHOUSE_SOURCE_PREFIX = 'managed_warehouse'
@@ -554,7 +551,6 @@ export interface sqlEditorLogicValues {
     drafts: DataWarehouseSavedQueryDraft[] // draftsLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     outputActiveTab: OutputTab // outputPaneLogic
-    dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null // sourcesDataLogic
     user: UserType | null // userLogic
     acceptText: string
     accessControlModalOpen: boolean
@@ -599,7 +595,7 @@ export interface sqlEditorLogicValues {
     rejectText: string
     selectedConnectionId: string | undefined
     selectedConnectionSupportsHogQL: boolean
-    selectedDirectSource: ExternalDataSource | undefined
+    selectedDirectSource: ExternalDataSourceConnectionOptionApi | undefined
     selectedQueryColumns: Record<string, boolean>
     selectedQueryTablesAndColumns: Record<string, Record<string, boolean>>
     sendRawQueryEnabled: boolean
@@ -1134,9 +1130,9 @@ export interface sqlEditorLogicMeta {
         exportContext: (sourceQuery: DataVisualizationNode) => ExportContext
         selectedConnectionId: (sourceQuery: DataVisualizationNode) => string | undefined
         selectedDirectSource: (
-            dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
+            connectionOptions: ExternalDataSourceConnectionOptionApi[] | null,
             selectedConnectionId: string | undefined
-        ) => ExternalDataSource | undefined
+        ) => ExternalDataSourceConnectionOptionApi | undefined
         sendRawQueryEnabled: (sourceQuery: DataVisualizationNode, selectedConnectionId: string | undefined) => boolean
         selectedConnectionSupportsHogQL: (
             connectionOptions: ExternalDataSourceConnectionOptionApi[] | null,
@@ -1189,18 +1185,8 @@ function releaseConnectionScope(tabId: string, scopedConnectionId: string | null
     return scopedConnectionId !== null && ![...connectionScopeOwners.values()].includes(scopedConnectionId)
 }
 
-// With the lazy schema flag on, the editor first loads only table names and metadata; the schema
-// tree hydrates each table's columns on expansion.
-function schemaLoadOptions(
-    featureFlags: FeatureFlagsSet,
-    force = false
-): { force?: boolean; shallow?: boolean } | undefined {
-    const shallow = !!featureFlags[FEATURE_FLAGS.SQL_EDITOR_LAZY_SCHEMA]
-    if (!shallow) {
-        // With the flag off, emit exactly the payloads this logic emitted before lazy loading.
-        return force ? { force } : undefined
-    }
-    return { force, shallow }
+function schemaLoadOptions(force = false): { force: boolean; shallow: boolean } {
+    return { force, shallow: true }
 }
 
 export const sqlEditorLogic = kea<sqlEditorLogicType>([
@@ -1217,8 +1203,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ['drafts'],
             featureFlagLogic,
             ['featureFlags'],
-            sourcesDataLogic,
-            ['dataWarehouseSources'],
             connectionSelectorLogic,
             ['connectionOptions'],
             databaseTableListLogic,
@@ -3122,7 +3106,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             cache.lastSelectedConnectionId = selectedConnectionId
             claimConnectionScope(props.tabId, selectedConnectionId)
             actions.setConnection(selectedConnectionId ?? null)
-            actions.loadDatabase(schemaLoadOptions(values.featureFlags))
+            actions.loadDatabase(schemaLoadOptions())
             if (selectedConnectionId) {
                 // Capability data must load wherever a connection is in play — including
                 // surfaces that never render the connection selector.
@@ -3218,12 +3202,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         ],
         selectedDirectSource: [
-            (s) => [s.dataWarehouseSources, s.selectedConnectionId],
+            (s) => [s.connectionOptions, s.selectedConnectionId],
             (
-                dataWarehouseSources: null | import('lib/api').PaginatedResponse<ExternalDataSource>,
+                connectionOptions: ExternalDataSourceConnectionOptionApi[] | null,
                 selectedConnectionId: string | undefined
-            ): ExternalDataSource | undefined => {
-                return dataWarehouseSources?.results.find((source) => source.id === selectedConnectionId)
+            ): ExternalDataSourceConnectionOptionApi | undefined => {
+                return connectionOptions?.find((source) => source.id === selectedConnectionId)
             },
         ],
         sendRawQueryEnabled: [
@@ -3394,7 +3378,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ) {
                 if (shouldSyncDatabaseConnection && !values.databaseLoading) {
                     actions.setConnection(expectedDatabaseConnectionId)
-                    actions.loadDatabase(schemaLoadOptions(values.featureFlags))
+                    actions.loadDatabase(schemaLoadOptions())
                 }
                 return
             }
@@ -3736,7 +3720,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
             if (connectionIdFromHash === undefined && shouldSyncDatabaseConnection && !values.databaseLoading) {
                 actions.setConnection(expectedDatabaseConnectionId)
-                actions.loadDatabase(schemaLoadOptions(values.featureFlags))
+                actions.loadDatabase(schemaLoadOptions())
             }
         },
     })),
@@ -3950,7 +3934,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             // stuck true (a load that never settled), the plain guard would skip the reload and the
             // editor would sit on "Loading..." forever. On remount we still need data, so force a
             // fresh request to bypass any hung in-flight load.
-            actions.loadDatabase(schemaLoadOptions(values.featureFlags, values.databaseLoading))
+            actions.loadDatabase(schemaLoadOptions(values.databaseLoading))
         }
     }),
     beforeUnmount(({ actions, values, cache, props }) => {

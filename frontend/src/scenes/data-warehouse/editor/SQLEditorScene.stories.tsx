@@ -224,3 +224,65 @@ export const MaterializationSettings: StoryObj = {
         }),
     ],
 }
+
+export const LazySchema: Story = {
+    parameters: {
+        msw: {
+            mocks: {
+                get: {
+                    '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                    '/api/projects/:team_id/query_tab_state/user/': { tabs: [] },
+                },
+                post: {
+                    '/api/environments/:team_id/query/DatabaseSchemaQuery/': async ({
+                        request,
+                    }: {
+                        request: Request
+                    }) => {
+                        const { query } = (await request.json()) as {
+                            query: { kind: string; includeFields?: boolean; tables?: string[] }
+                        }
+                        const tables = {
+                            events: {
+                                id: 'events',
+                                name: 'events',
+                                type: 'posthog',
+                                fields: {
+                                    uuid: { name: 'uuid', hogql_value: 'uuid', type: 'string', schema_valid: true },
+                                    person: {
+                                        name: 'person',
+                                        hogql_value: 'person',
+                                        type: 'lazy_table',
+                                        schema_valid: true,
+                                        table: 'persons',
+                                    },
+                                },
+                            },
+                            persons: {
+                                id: 'persons',
+                                name: 'persons',
+                                type: 'posthog',
+                                fields: {
+                                    id: { name: 'id', hogql_value: 'id', type: 'string', schema_valid: true },
+                                },
+                            },
+                        }
+                        return [
+                            200,
+                            {
+                                tables: Object.fromEntries(
+                                    Object.entries(tables)
+                                        .filter(([name]) => !query.tables || query.tables.includes(name))
+                                        .map(([name, table]) => [
+                                            name,
+                                            { ...table, fields: query.includeFields === false ? {} : table.fields },
+                                        ])
+                                ),
+                            },
+                        ]
+                    },
+                },
+            },
+        },
+    },
+}

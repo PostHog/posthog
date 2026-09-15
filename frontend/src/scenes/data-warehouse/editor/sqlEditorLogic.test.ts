@@ -250,7 +250,7 @@ describe('sqlEditorLogic', () => {
                     }
                     return [200, { results: [] }]
                 },
-                '/api/environments/:team_id/warehouse_saved_queries/': { results: [MOCK_VIEW] },
+                '/api/projects/:team_id/warehouse_saved_queries/': { results: [MOCK_VIEW] },
                 '/api/environments/:team_id/warehouse_saved_queries/:id/': ({ params }) => {
                     if (params.id === MOCK_VIEW.id) {
                         return [
@@ -3035,7 +3035,9 @@ describe('sqlEditorLogic', () => {
             })
             logic.mount()
 
-            await expectLogic(logic).toDispatchActions([logic.actionCreators.loadDatabase({ force: true })])
+            await expectLogic(logic).toDispatchActions([
+                logic.actionCreators.loadDatabase({ force: true, shallow: true }),
+            ])
         })
     })
 
