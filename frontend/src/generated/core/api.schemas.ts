@@ -700,7 +700,7 @@ export type LogsSettingsApi = { [key: string]: unknown } & {
     json_parse_logs?: boolean
     /**
      * Literal log attribute key to parse as JSON, at most 200 characters after trimming whitespace. An empty string disables parsing.
-     * @pattern ^[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*(?:[\uD800-\uDBFF][\uDC00-\uDFFF]|[^\uD800-\uDFFF]){0,200}[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*$
+     * @pattern ^(?:[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*|[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*(?:[\uD800-\uDBFF][\uDC00-\uDFFF]|[^\uD800-\uDFFF\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000])(?:(?:[\uD800-\uDBFF][\uDC00-\uDFFF]|[^\uD800-\uDFFF]){0,198}(?:[\uD800-\uDBFF][\uDC00-\uDFFF]|[^\uD800-\uDFFF\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]))?[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*)$
      */
     json_parse_logs_attribute_key?: string
     /** Redact supported PII patterns before storing new logs. */

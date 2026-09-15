@@ -20,6 +20,8 @@ describe('project settings update logs schema', () => {
         ['\u001c\u001d\u001e\u001f\u0085' + '😀'.repeat(200) + '\u3000\u00a0', true],
         ['\ufeff' + 'a'.repeat(199), true],
         ['\ufeff' + 'a'.repeat(200), false],
+        // Padding this long outruns the test timeout if the pattern can backtrack between padding and key.
+        [' '.repeat(10000) + 'a'.repeat(201), false],
     ])('validates attribute key case %# after excluding surrounding whitespace', (key, accepted) => {
         const result = schema.safeParse({ logs_settings: { json_parse_logs_attribute_key: key } })
         expect(result.success).toBe(accepted)
