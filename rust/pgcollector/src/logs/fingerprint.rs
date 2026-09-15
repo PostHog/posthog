@@ -38,6 +38,13 @@ pub fn redact_literals(sql: &str) -> String {
     STRING.replace_all(sql, "'?'").into_owned()
 }
 
+/// The representative text for a fingerprint. Comments are dropped like the
+/// fingerprint drops them: they do not change the shape, so any client could
+/// otherwise rewrite the text shown for every statement of that shape.
+pub fn representative_text(sql: &str) -> String {
+    redact_literals(COMMENT.replace_all(sql, " ").trim())
+}
+
 /// Bump when `normalize` changes so stored query fingerprints are recomputed.
 pub const FINGERPRINT_VERSION: u32 = 2;
 
