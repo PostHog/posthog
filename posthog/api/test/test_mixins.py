@@ -41,6 +41,14 @@ class RaisingResponseSerializer(serializers.Serializer):
         raise RuntimeError("boom")
 
 
+class RequiresFlavorSerializer(serializers.Serializer):
+    value = serializers.CharField()
+
+    def __init__(self, *args, flavor: str, **kwargs):
+        self.flavor = flavor
+        super().__init__(*args, **kwargs)
+
+
 class TestValidatedRequestDecorator(SimpleTestCase):
     def test_request_validation_with_valid_event_data(self):
         """All valid data, should return 200 OK"""
@@ -217,6 +225,48 @@ class TestValidatedRequestDecorator(SimpleTestCase):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.data == response_data
+
+    @override_settings(DEBUG=True)
+    def test_declared_serializer_instance_keeps_its_constructor_options(self):
+        declared = EventCaptureResponseSerializer(many=True, allow_empty=False)
+
+        @validated_request(responses={200: OpenApiResponse(response=declared)})
+        def mock_endpoint(view_self, request):
+            return Response([], status=status.HTTP_200_OK)
+
+        view_instance = Mock()
+        view_instance.get_serializer_context = Mock(return_value={})
+        mock_request = Mock()
+        mock_request._full_data = {}
+        mock_request.data = {}
+
+        with patch("posthog.api.mixins.logger") as mock_logger:
+            response = mock_endpoint(view_instance, mock_request)
+
+            mock_logger.warning.assert_called_once()
+            assert "Response data does not match declared serializer" in mock_logger.warning.call_args[0][0]
+
+        assert response.status_code == status.HTTP_200_OK
+        assert not hasattr(declared, "initial_data")
+
+    def test_declared_serializer_instance_with_a_required_constructor_argument(self):
+        @validated_request(
+            responses={200: OpenApiResponse(response=RequiresFlavorSerializer(flavor="vanilla"))},
+            strict_response_validation=True,
+        )
+        def mock_endpoint(view_self, request):
+            return Response({"value": "ok"}, status=status.HTTP_200_OK)
+
+        view_instance = Mock()
+        view_instance.get_serializer_context = Mock(return_value={})
+        mock_request = Mock()
+        mock_request._full_data = {}
+        mock_request.data = {}
+
+        response = mock_endpoint(view_instance, mock_request)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["value"] == "ok"
 
     def test_response_serializer_that_raises_while_parsing_logs_warning(self):
         @validated_request(

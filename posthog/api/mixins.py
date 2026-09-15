@@ -1,3 +1,4 @@
+import copy
 from collections.abc import Callable
 from functools import wraps
 from typing import Any, Generic, TypeVar, cast
@@ -5,7 +6,6 @@ from typing import Any, Generic, TypeVar, cast
 from django.conf import settings
 
 import structlog
-from drf_spectacular.plumbing import get_class
 from drf_spectacular.utils import OpenApiResponse, PolymorphicProxySerializer, extend_schema
 from pydantic import BaseModel, ValidationError
 from rest_framework import serializers
@@ -204,11 +204,17 @@ class _ResponseValidator:
     @staticmethod
     def _instantiate(response_serializer: Any, data: Any, context: dict[str, Any]) -> serializers.BaseSerializer[Any]:
         # drf-spectacular accepts a serializer class or an instance, so handle both.
-        if isinstance(response_serializer, serializers.ListSerializer):
-            # ListSerializer wraps the real serializer - reconstruct with child
-            child = get_class(response_serializer.child)
-            return type(response_serializer)(data=data, child=child(), context=context)
-        return get_class(response_serializer)(data=data, context=context)
+        if not isinstance(response_serializer, serializers.BaseSerializer):
+            return response_serializer(data=data, context=context)
+
+        # A declared instance can carry constructor arguments that rebuilding from its class drops,
+        # such as `allow_empty` on a `many=True` list or a keyword the serializer requires. DRF's
+        # deepcopy replays the original constructor call, including for the child of a
+        # ListSerializer, so copy the declared instance and bind only the response data to the copy.
+        serialized = copy.deepcopy(response_serializer)
+        serialized.initial_data = data
+        serialized._context = context
+        return serialized
 
 
 def validated_request(
