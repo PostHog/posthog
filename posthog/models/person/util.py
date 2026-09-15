@@ -195,16 +195,15 @@ def _paginated_get_distinct_ids_for_person(
     """Fetch all distinct IDs for a single person using keyset pagination."""
     client = _get_client()
     all_dids: list[DistinctIdForPerson] = []
-    cursor_id: int | None = None
+    cursor_id: int = 0
 
     while True:
         request = GetDistinctIdsForPersonRequest(
             team_id=team_id,
             person_id=person_id,
             limit=page_size,
+            cursor_id=cursor_id,
         )
-        if cursor_id is not None:
-            request.cursor_id = cursor_id
 
         resp = client.get_distinct_ids_for_person(request)
         for d in resp.distinct_ids:
