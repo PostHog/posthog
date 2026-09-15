@@ -12,7 +12,11 @@ export const template: HogFunctionTemplate = {
     code_language: 'hog',
     code: `
 if(inputs.debug) {
-  print('Incoming request:', request.body)
+  let headers := {}
+  for (let key, value in request.headers) {
+    headers[key] := if(key == 'authorization', '<redacted>', value)
+  }
+  print('Incoming request:', request.method, 'query:', request.query, 'headers:', headers, 'body:', request.body)
 }
 
 if(request.method != inputs.method) {
@@ -67,6 +71,8 @@ postHogCapture({
             key: 'event',
             type: 'string',
             label: 'Event name',
+            description:
+                'The name of the event to capture. For a GET request such as a tracking pixel, read it from a query parameter with {request.query.event}.',
             default: '{request.body.event}',
             secret: false,
             required: true,
@@ -75,7 +81,8 @@ postHogCapture({
             key: 'distinct_id',
             type: 'string',
             label: 'Distinct ID',
-            description: 'The distinct ID this event should be associated with',
+            description:
+                'The distinct ID this event should be associated with. For a GET request, read it from a query parameter with {request.query.distinct_id}.',
             default: '{request.body.distinct_id}',
             secret: false,
             required: true,
@@ -84,11 +91,13 @@ postHogCapture({
             key: 'properties',
             type: 'json',
             label: 'Event properties',
-            description: 'A mapping of the incoming webhook body to the PostHog event properties',
+            description:
+                'A mapping of the incoming request to the PostHog event properties. Use {request.body.x} for body values and {request.query.x} for query parameters.',
             default: {
                 $ip: '{request.ip}',
                 $lib: 'posthog-webhook',
                 $source_url: '{source.url}',
+                query_params: '{request.query}',
             },
             secret: false,
             required: false,
