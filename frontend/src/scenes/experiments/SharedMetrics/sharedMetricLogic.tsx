@@ -17,6 +17,8 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { AccessControlLevel, ActivityScope, Breadcrumb, ExperimentsTabs } from '~/types'
 import type { UserBasicType } from '~/types'
 
+import type { ExperimentSavedMetricLinkedExperimentApi } from 'products/experiments/frontend/generated/api.schemas'
+
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { ExperimentMetricUnion } from '../../../queries/schema/schema-general'
 import type { BillingType } from '../../../types'
@@ -26,12 +28,6 @@ import { sharedMetricsLogic } from './sharedMetricsLogic'
 export interface SharedMetricLogicProps {
     sharedMetricId?: number | null
     action: 'create' | 'update' | 'duplicate'
-}
-
-export interface SharedMetricLinkedExperiment {
-    id: number
-    name: string
-    is_running: boolean
 }
 
 export interface SharedMetric {
@@ -46,7 +42,7 @@ export interface SharedMetric {
     metadata?: Record<string, any>
     user_access_level: AccessControlLevel
     // Populated only when the metric is fetched by id; empty in list responses
-    linked_experiments?: SharedMetricLinkedExperiment[]
+    linked_experiments?: readonly ExperimentSavedMetricLinkedExperimentApi[]
 }
 
 export const NEW_SHARED_METRIC: Partial<SharedMetric> = {

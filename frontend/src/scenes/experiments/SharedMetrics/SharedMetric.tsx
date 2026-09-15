@@ -31,12 +31,13 @@ import { tagsModel } from '~/models/tagsModel'
 import { ExperimentMetric, NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ExperimentsTabs } from '~/types'
 
+import type { ExperimentSavedMetricLinkedExperimentApi } from 'products/experiments/frontend/generated/api.schemas'
 import { LegacySharedFunnelsMetricForm } from 'products/experiments/frontend/legacy/sharedMetrics/LegacySharedFunnelsMetricForm'
 import { LegacySharedTrendsMetricForm } from 'products/experiments/frontend/legacy/sharedMetrics/LegacySharedTrendsMetricForm'
 
 import { ExperimentMetricForm } from '../ExperimentMetricForm'
 import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../utils'
-import { SharedMetricLinkedExperiment, SharedMetricLogicProps, sharedMetricLogic } from './sharedMetricLogic'
+import { SharedMetricLogicProps, sharedMetricLogic } from './sharedMetricLogic'
 
 export const scene: SceneExport<SharedMetricLogicProps> = {
     component: SharedMetric,
@@ -48,7 +49,7 @@ export const scene: SceneExport<SharedMetricLogicProps> = {
 }
 
 function openSaveWithRunningExperimentsDialog(
-    runningExperiments: SharedMetricLinkedExperiment[],
+    runningExperiments: readonly ExperimentSavedMetricLinkedExperimentApi[],
     onSave: () => void
 ): void {
     LemonDialog.open({
