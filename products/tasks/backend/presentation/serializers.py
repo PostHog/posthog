@@ -284,7 +284,9 @@ class TaskRunUpdateSerializer(serializers.Serializer):
         required=False, allow_null=True, help_text="Current stage of the run (e.g. research, plan, build)"
     )
     output = serializers.JSONField(required=False, allow_null=True, help_text="Output from the run")
-    state = serializers.JSONField(required=False, help_text="State of the run")
+    state = serializers.DictField(
+        child=serializers.JSONField(allow_null=True), required=False, help_text="Object of run state values to merge."
+    )
     state_remove_keys = serializers.ListField(
         child=serializers.CharField(),
         required=False,
@@ -292,6 +294,7 @@ class TaskRunUpdateSerializer(serializers.Serializer):
         help_text="State keys to remove atomically before applying any state updates.",
     )
     state_append = serializers.DictField(
+        child=serializers.JSONField(),
         required=False,
         allow_empty=False,
         help_text=(

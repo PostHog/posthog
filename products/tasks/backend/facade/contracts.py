@@ -87,6 +87,16 @@ class WizardCloudRunDTO:
 
 
 @dataclass(frozen=True)
+class TaskRunSpend:
+    token_spend: int | None
+    compute_spend: int | None
+
+    @classmethod
+    def unavailable(cls) -> "TaskRunSpend":
+        return cls(token_spend=None, compute_spend=None)
+
+
+@dataclass(frozen=True)
 class TaskRunDTO:
     """A single execution of a task.
 

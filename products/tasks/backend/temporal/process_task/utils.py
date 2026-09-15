@@ -5,6 +5,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, Optional
+from uuid import UUID
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -35,6 +36,7 @@ from products.tasks.backend.constants import (
 )
 from products.tasks.backend.exceptions import CredentialUnavailableError
 from products.tasks.backend.feature_flags import is_mcp_exec_skills_enabled
+from products.tasks.backend.logic.services.gateway_usage import enable_gateway_usage
 from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS
 from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url as _resolve_mcp_url
 
@@ -1324,6 +1326,8 @@ def run_gateway_env_vars(ctx, task) -> dict[str, str]:
     if ctx.claude_model_access == "own-subscription":
         return {}
     return ai_gateway_env_vars(
+        run_id=ctx.run_id,
+        task_runtime=ctx.task_runtime,
         team_id=ctx.team_id,
         origin_product=ctx.origin_product,
         ai_stage=(ctx.state or {}).get("ai_stage"),
@@ -1334,6 +1338,8 @@ def run_gateway_env_vars(ctx, task) -> dict[str, str]:
 
 def ai_gateway_env_vars(
     *,
+    run_id: str | None = None,
+    task_runtime: str | None = None,
     team_id: int | None = None,
     origin_product: str | None = None,
     ai_stage: str | None = None,
@@ -1371,6 +1377,8 @@ def ai_gateway_env_vars(
                 env_vars["AI_GATEWAY_PRODUCT"] = ai_product
                 if ai_stage:
                     env_vars["AI_GATEWAY_AI_STAGE"] = ai_stage
+                if run_id is not None and task_runtime != "pi":
+                    enable_gateway_usage(run_id=UUID(run_id), team_id=team_id)
     return env_vars
 
 

@@ -247,6 +247,7 @@ describe("AgentServer.configureEnvironment", () => {
       "x-posthog-property-team_id": "1",
       "x-posthog-property-$ai_session_id": "task-abc",
       "X-PostHog-Project-Id": "1",
+      "X-PostHog-Task-Run-Id": "run-xyz",
     });
   });
 
@@ -287,6 +288,7 @@ describe("AgentServer.configureEnvironment", () => {
         "x-posthog-property-task_snapshot_kind: filesystem",
         "x-posthog-property-task_prewarmed: false",
         "x-posthog-property-task_execution_environment: cloud",
+        "X-PostHog-Task-Run-Id: run-xyz",
         "X-PostHog-Project-Id: 1",
       ].join("\n"),
     );
@@ -482,7 +484,7 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
   const parseBlob = (headerLines: string): Record<string, unknown> => {
     const prefix = "X-PostHog-Properties: ";
     expect(headerLines.startsWith(prefix)).toBe(true);
-    return JSON.parse(headerLines.slice(prefix.length));
+    return JSON.parse(headerLines.slice(prefix.length).split("\n")[0]);
   };
 
   it("drops the product slug from the base URLs", () => {
@@ -555,6 +557,12 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
     expect(
       JSON.parse(env.openaiCustomHeaders?.["X-PostHog-Properties"] ?? "{}"),
     ).toMatchObject(expected);
+    expect(env.anthropicCustomHeaders).toContain(
+      "X-PostHog-Task-Run-Id: run-1",
+    );
+    expect(env.openaiCustomHeaders).toMatchObject({
+      "X-PostHog-Task-Run-Id": "run-1",
+    });
   });
 
   it("emits attribution as one X-PostHog-Properties blob, not per-property headers", () => {

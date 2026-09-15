@@ -84,6 +84,7 @@ from products.tasks.backend.feature_flags import get_model_access_error, is_work
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
 )
+from products.tasks.backend.logic.services.gateway_usage import gateway_usage_enabled, refresh_task_run_spend
 from products.tasks.backend.logic.services.image_builder import (
     ensure_image_builder_task,
     is_custom_images_enabled,
@@ -466,6 +467,9 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "slack_artifact_delivery",
         "slack_chart_delivery",
         "slack_thread_url",
+        "token_spend",
+        "compute_spend",
+        "unprocessed_request_ids",
     }
 )
 
@@ -2233,6 +2237,9 @@ def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
         "github_credential_source",
+        "token_spend",
+        "compute_spend",
+        "unprocessed_request_ids",
         TASK_OWNERSHIP_VERSION_STATE_KEY,
         "pr_authorship_mode",
         "repositories",
@@ -2785,9 +2792,8 @@ def update_task_run(
     has_output_merge = "output" in validated_data and isinstance(validated_data["output"], dict)
     has_state_merge = "state" in validated_data and isinstance(validated_data["state"], dict)
     if has_state_merge:
-        validated_data["state"] = {
-            k: v for k, v in validated_data["state"].items() if k not in _PROTECTED_RUN_STATE_KEYS
-        }
+        state = validated_data["state"]
+        validated_data["state"] = {k: v for k, v in state.items() if k not in _PROTECTED_RUN_STATE_KEYS}
     state_remove_keys = [
         k for k in (validated_data.get("state_remove_keys") or []) if k not in _PROTECTED_RUN_STATE_KEYS
     ]
@@ -2882,6 +2888,8 @@ def update_task_run(
     # (consecutive_failures would double-count). The workflow's status-update activity
     # applies the same guard on its side.
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
+        if gateway_usage_enabled(run_id=run.id, team_id=run.team_id):
+            refresh_task_run_spend(run_id=run.id, team_id=run.team_id)
         handle_loop_run_terminal(run)
 
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:

@@ -1,0 +1,274 @@
+import re
+import time
+from collections.abc import Iterable
+from decimal import ROUND_HALF_EVEN, Decimal
+from typing import Any
+from uuid import UUID
+
+from django.conf import settings
+from django.db import transaction
+from django.utils import timezone
+
+import requests
+import structlog
+
+from posthog.dataclasses import frozen
+
+from products.tasks.backend.facade.contracts import TaskRunSpend
+from products.tasks.backend.logic.services.sandbox_pricing import (
+    COMPUTE_RATE_CARDS,
+    calculate_sandbox_compute_cost as calculate_sandbox_compute_spend,
+)
+from products.tasks.backend.models import SandboxSession, TaskRun
+
+logger = structlog.get_logger(__name__)
+_REQUEST_ID = re.compile(r"[a-zA-Z0-9_-]{1,255}\Z")
+_USD_AMOUNT = re.compile(r"[0-9]{1,12}(?:\.[0-9]{1,6})?\Z")
+_PROCESSING_SECONDS = 10
+
+
+@frozen
+class GatewayRequestSpend:
+    model: str
+    provider: str
+    spend_microusd: int
+
+
+@frozen
+class SpendSources:
+    token_spend_microusd: int | None
+    compute_spend_usd: Decimal | None
+
+    def as_contract(self) -> TaskRunSpend:
+        return TaskRunSpend(
+            token_spend=_cents(Decimal(self.token_spend_microusd) / 1_000_000)
+            if self.token_spend_microusd is not None
+            else None,
+            compute_spend=_cents(self.compute_spend_usd) if self.compute_spend_usd is not None else None,
+        )
+
+
+def _locked_run(run_id: UUID, team_id: int) -> TaskRun:
+    return TaskRun.objects.select_for_update().get(id=run_id, team_id=team_id)
+
+
+def gateway_usage_enabled(*, run_id: UUID, team_id: int) -> bool:
+    return TaskRun.objects.filter(
+        id=run_id,
+        team_id=team_id,
+        environment=TaskRun.Environment.CLOUD,
+        state__has_keys=["unprocessed_request_ids", "token_spend"],
+    ).exists()
+
+
+def enable_gateway_usage(*, run_id: UUID, team_id: int) -> None:
+    with transaction.atomic():
+        run = _locked_run(run_id, team_id)
+        if run.environment != TaskRun.Environment.CLOUD:
+            raise ValueError("Gateway spend requires a cloud run")
+        state = dict(run.state or {})
+        state.setdefault("unprocessed_request_ids", [])
+        state.setdefault("token_spend", {})
+        run.state = state
+        run.save(update_fields=["state", "updated_at"])
+
+
+def _spend_buckets(state: dict[str, Any]) -> Iterable[dict[str, Any]]:
+    models = state.get("token_spend")
+    if not isinstance(models, dict):
+        return
+    for providers in models.values():
+        if isinstance(providers, dict):
+            for bucket in providers.values():
+                if isinstance(bucket, dict):
+                    yield bucket
+
+
+def processed_gateway_request_ids(state: dict[str, Any]) -> set[str]:
+    return {
+        request_id
+        for bucket in _spend_buckets(state)
+        for request_id in bucket.get("request_ids", [])
+        if isinstance(request_id, str)
+    }
+
+
+def record_generation_request(*, team_id: int, run_id: UUID, request_id: str) -> None:
+    with transaction.atomic():
+        run = _locked_run(run_id, team_id)
+        state = dict(run.state or {})
+        pending = state.get("unprocessed_request_ids")
+        if not isinstance(pending, list):
+            pending = []
+        if request_id not in pending and request_id not in processed_gateway_request_ids(state):
+            pending = [*pending, request_id]
+        state["unprocessed_request_ids"] = pending
+        state.setdefault("token_spend", {})
+        run.state = state
+        run.save(update_fields=["state", "updated_at"])
+
+
+def _pending_ids(state: dict[str, Any]) -> list[str]:
+    return list(
+        dict.fromkeys(
+            value
+            for value in state.get("unprocessed_request_ids", [])
+            if isinstance(value, str) and _REQUEST_ID.fullmatch(value)
+        )
+    )
+
+
+def process_pending_gateway_usage(*, run_id: UUID, team_id: int, limit: int = 20) -> TaskRunSpend:
+    with transaction.atomic():
+        run = _locked_run(run_id, team_id)
+        state = run.state or {}
+        if not _has_spend_state(run):
+            return _persist_spend(run).as_contract()
+        pending = _pending_ids(state)[:limit]
+    deadline = time.monotonic() + _PROCESSING_SECONDS
+    for request_id in pending:
+        if time.monotonic() >= deadline:
+            break
+        request_spend = _fetch_gateway_spend(request_id)
+        with transaction.atomic():
+            run = _locked_run(run_id, team_id)
+            state = dict(run.state or {})
+            remaining = _pending_ids(state)
+            if request_id not in remaining:
+                continue
+            remaining.remove(request_id)
+            processed = processed_gateway_request_ids(state)
+            if request_id not in processed:
+                if request_spend is None:
+                    # A missing response must not block the rest of the queue.
+                    remaining.append(request_id)
+                else:
+                    models = dict(state["token_spend"])
+                    providers = dict(models.get(request_spend.model, {}))
+                    bucket = dict(providers.get(request_spend.provider, {}))
+                    bucket["spend_microusd"] = bucket.get("spend_microusd", 0) + request_spend.spend_microusd
+                    bucket["request_ids"] = [*bucket.get("request_ids", []), request_id]
+                    providers[request_spend.provider] = bucket
+                    models[request_spend.model] = providers
+                    state["token_spend"] = models
+            state["unprocessed_request_ids"] = remaining
+            run.state = state
+            _persist_spend(run)
+    return refresh_task_run_spend(run_id=run_id, team_id=team_id)
+
+
+def refresh_sandbox_run_spend(*, sandbox_id: str) -> TaskRunSpend | None:
+    session = SandboxSession.objects.unscoped().filter(sandbox_id=sandbox_id).only("task_run_id", "team_id").first()
+    if session is None:
+        return None
+    return refresh_task_run_spend(run_id=session.task_run_id, team_id=session.team_id)
+
+
+def refresh_task_run_spend(*, run_id: UUID, team_id: int) -> TaskRunSpend:
+    with transaction.atomic():
+        return _persist_spend(_locked_run(run_id, team_id)).as_contract()
+
+
+def get_task_run_spend(*, run: TaskRun) -> TaskRunSpend:
+    return refresh_task_run_spend(run_id=run.id, team_id=run.team_id)
+
+
+def get_task_spend(*, team_id: int, task_id: UUID) -> TaskRunSpend:
+    run_ids = list(TaskRun.objects.filter(team_id=team_id, task_id=task_id).order_by("id").values_list("id", flat=True))
+    if not run_ids:
+        return TaskRunSpend.unavailable()
+    sources = []
+    for run_id in run_ids:
+        with transaction.atomic():
+            sources.append(_persist_spend(_locked_run(run_id, team_id)))
+    return SpendSources(
+        token_spend_microusd=None
+        if any(s.token_spend_microusd is None for s in sources)
+        else sum(s.token_spend_microusd or 0 for s in sources),
+        compute_spend_usd=None
+        if any(s.compute_spend_usd is None for s in sources)
+        else sum((s.compute_spend_usd or Decimal(0) for s in sources), Decimal(0)),
+    ).as_contract()
+
+
+def _fetch_gateway_spend(request_id: str) -> GatewayRequestSpend | None:
+    base_url = (settings.SANDBOX_AI_GATEWAY_URL or "").rstrip("/").removesuffix("/v1")
+    mint_key = settings.SANDBOX_AI_GATEWAY_MINT_KEY
+    if not base_url or not mint_key:
+        return None
+    try:
+        response = requests.get(
+            f"{base_url}/v1/usage/{request_id}",
+            headers={"Authorization": f"Bearer {mint_key}"},
+            timeout=(2, 3),
+            allow_redirects=False,
+        )
+        if response.status_code != 200:
+            logger.warning("task_gateway_usage.spend_pending", status_code=response.status_code)
+            return None
+        body = response.json()
+        if not isinstance(body, dict) or body.get("request_id") != request_id:
+            return None
+        amount = body.get("cost_usd")
+        model, provider = body.get("model") or "unknown", body.get("provider") or "unknown"
+        if (
+            not isinstance(amount, str)
+            or not _USD_AMOUNT.fullmatch(amount)
+            or not isinstance(model, str)
+            or len(model) > 255
+            or not isinstance(provider, str)
+            or len(provider) > 255
+        ):
+            return None
+        return GatewayRequestSpend(model=model, provider=provider, spend_microusd=int(Decimal(amount) * 1_000_000))
+    except (requests.RequestException, ValueError, TypeError):
+        logger.warning("task_gateway_usage.lookup_failed")
+        return None
+
+
+def _has_spend_state(run: TaskRun) -> bool:
+    state = run.state or {}
+    return (
+        run.environment == TaskRun.Environment.CLOUD
+        and isinstance(state.get("unprocessed_request_ids"), list)
+        and isinstance(state.get("token_spend"), dict)
+    )
+
+
+def _persist_spend(run: TaskRun) -> SpendSources:
+    state = dict(run.state or {})
+    sources = SpendSources(
+        token_spend_microusd=sum(bucket.get("spend_microusd", 0) for bucket in _spend_buckets(state))
+        if _has_spend_state(run)
+        else None,
+        compute_spend_usd=_compute_spend_source(run),
+    )
+    state["compute_spend"] = sources.as_contract().compute_spend
+    run.state = state
+    run.save(update_fields=["state", "updated_at"])
+    return sources
+
+
+def _compute_spend_source(run: TaskRun) -> Decimal | None:
+    if run.environment != TaskRun.Environment.CLOUD or not COMPUTE_RATE_CARDS:
+        return None
+    sessions = list(SandboxSession.objects.for_team(run.team_id).filter(task_run=run))
+    if not sessions:
+        return None
+    now = timezone.now()
+    try:
+        return sum(
+            (
+                calculate_sandbox_compute_spend(
+                    session, COMPUTE_RATE_CARDS[0].effective_at, now, calculated_at=now, rate_cards=COMPUTE_RATE_CARDS
+                ).total_cost_usd
+                for session in sessions
+            ),
+            Decimal(0),
+        )
+    except ValueError:
+        return None
+
+
+def _cents(value: Decimal) -> int:
+    return int((value * 100).to_integral_value(rounding=ROUND_HALF_EVEN))
