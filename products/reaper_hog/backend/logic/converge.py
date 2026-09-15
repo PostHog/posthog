@@ -6,6 +6,7 @@ from posthog.dataclasses import frozen
 from products.reaper_hog.backend.facade.enums import BlockedReason, ClusterRank, RootKind
 from products.reaper_hog.backend.logic.artefacts import Hit
 from products.reaper_hog.backend.logic.constants import MAX_DIRECTORY_LINES, MAX_REFERENCE_FILES
+from products.reaper_hog.backend.logic.owners import OwnerRule, dominant_owner
 
 
 @frozen
@@ -19,6 +20,7 @@ class ClusterDraft:
     files: tuple[str, ...]
     reference_count: int
     line_count: int
+    owner: str | None
     hits: tuple[Hit, ...]
 
     @property
@@ -30,15 +32,16 @@ def cluster_hash(root_kind: RootKind, root: str) -> str:
     return hashlib.sha256(f"{root_kind}:{root}".encode()).hexdigest()[:16]
 
 
-def converge(hits: Iterable[Hit]) -> list[ClusterDraft]:
+def converge(hits: Iterable[Hit], *, owner_rules: Iterable[OwnerRule] = ()) -> list[ClusterDraft]:
+    rules = tuple(owner_rules)
     grouped: dict[tuple[RootKind, str], list[Hit]] = {}
     for hit in hits:
         grouped.setdefault((hit.root_kind, hit.root), []).append(hit)
-    drafts = [_draft(root_kind, root, group) for (root_kind, root), group in grouped.items()]
+    drafts = [_draft(root_kind, root, group, rules) for (root_kind, root), group in grouped.items()]
     return sorted(drafts, key=lambda d: (d.rank != ClusterRank.STRONG, d.blocked_reason is not None, d.root))
 
 
-def _draft(root_kind: RootKind, root: str, hits: list[Hit]) -> ClusterDraft:
+def _draft(root_kind: RootKind, root: str, hits: list[Hit], rules: tuple[OwnerRule, ...]) -> ClusterDraft:
     scouts = tuple(sorted({hit.scout.value for hit in hits}))
     files = tuple(sorted({file for hit in hits for file in hit.files}))
     reference_count = max(hit.reference_count for hit in hits)
@@ -60,5 +63,6 @@ def _draft(root_kind: RootKind, root: str, hits: list[Hit]) -> ClusterDraft:
         files=files,
         reference_count=reference_count,
         line_count=line_count,
+        owner=dominant_owner(files, rules) if rules else None,
         hits=tuple(hits),
     )

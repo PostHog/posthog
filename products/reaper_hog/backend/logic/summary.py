@@ -40,7 +40,8 @@ def _section(title: str, drafts: Sequence[ClusterDraft]) -> list[str]:
         return lines
     for draft in drafts[:_LISTED_PER_SECTION]:
         size = f"{draft.line_count} lines" if draft.root_kind == "directory" else f"{len(draft.files)} files"
-        lines.append(f"- `{draft.root}` ({draft.root_kind}, {size}, scouts: {', '.join(draft.scouts)})")
+        owner = f", owner {draft.owner}" if draft.owner else ""
+        lines.append(f"- `{draft.root}` ({draft.root_kind}, {size}, scouts: {', '.join(draft.scouts)}{owner})")
         for hit in draft.hits:
             lines.append(f"  - {hit.scout}: {hit.summary}")
     if len(drafts) > _LISTED_PER_SECTION:
