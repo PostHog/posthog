@@ -950,6 +950,26 @@ describe('insightVizDataLogic', () => {
                 } as Record<string, any>)
             }).toMatchValues({ hasRenderableResults: false })
         })
+
+        it.each([
+            ['blocks time series rows under a donut chart', ChartDisplayType.ActionsDonut, { data: [1, 2, 3] }, false],
+            [
+                'renders total value rows under a donut chart',
+                ChartDisplayType.ActionsDonut,
+                { aggregated_value: 6 },
+                true,
+            ],
+            [
+                'blocks breakdown rows once the breakdown is removed',
+                ChartDisplayType.ActionsLineGraph,
+                { data: [1, 2, 3], breakdown_value: 'US' },
+                false,
+            ],
+        ])('%s', (_, display, row, expected) => {
+            builtInsightVizDataLogic.actions.updateQuerySource({ ...trendsQueryDefault, trendsFilter: { display } })
+            builtInsightDataLogic.actions.loadDataSuccess({ results: [row] })
+            expect(builtInsightVizDataLogic.values.hasRenderableResults).toBe(expected)
+        })
     })
 
     describe('isSingleSeriesOutput', () => {

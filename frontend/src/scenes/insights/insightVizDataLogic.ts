@@ -23,6 +23,7 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { trendsResultsMatchQuery } from 'scenes/insights/utils/queryUtils'
 import { AggregationType } from 'scenes/insights/views/InsightsTable/insightsTableDataLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
@@ -1208,7 +1209,20 @@ export interface insightVizDataLogicMeta {
         validationError: (insightDataError: Record<string, any> | null) => string | null
         validationErrorCode: (insightDataError: Record<string, any> | null) => string | null
         timezone: (insightData: Record<string, any>) => any
-        hasRenderableResults: (insightData: Record<string, any>) => boolean
+        hasRenderableResults: (
+            insightData: Record<string, any>,
+            querySource:
+                | FunnelsQuery
+                | LifecycleQuery
+                | PathsQuery
+                | PathsV2Query
+                | RetentionQuery
+                | StickinessQuery
+                | TrendsQuery
+                | WebOverviewQuery
+                | WebStatsTableQuery
+                | null
+        ) => boolean
         allEventNames: (
             querySource:
                 | FunnelsQuery
@@ -2446,8 +2460,20 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         timezone: [(s) => [s.insightData], (insightData: Record<string, any>) => insightData?.timezone || 'UTC'],
 
         hasRenderableResults: [
-            (s) => [s.insightData],
-            (insightData: Record<string, any>): boolean => insightData?.result != null || insightData?.results != null,
+            (s) => [s.insightData, s.querySource],
+            (
+                insightData: Record<string, any>,
+                querySource: FunnelsQuery | LifecycleQuery | RetentionQuery | StickinessQuery | TrendsQuery | null
+            ): boolean => {
+                const results = insightData?.results ?? insightData?.result
+                if (results == null) {
+                    return false
+                }
+                if (!querySource || !isTrendsQuery(querySource) || !Array.isArray(results)) {
+                    return true
+                }
+                return trendsResultsMatchQuery(results, querySource)
+            },
         ],
 
         // all events used in the insight (useful for fetching only relevant property definitions)

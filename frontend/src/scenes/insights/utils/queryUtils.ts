@@ -1,3 +1,4 @@
+import { DISPLAY_TYPES_TO_CATEGORIES } from 'lib/constants'
 import { objectCleanWithEmpty, objectsEqual, removeUndefinedAndNull } from 'lib/utils/objects'
 import { isValidRE2 } from 'lib/utils/regexp'
 
@@ -17,21 +18,22 @@ import {
     filterForQuery,
     filterKeyForQuery,
     getMathTypeWarning,
+    hasBreakdownFilter,
     isEventsNode,
     isFunnelsQuery,
     isHogQLQuery,
-    isLifecycleQuery,
     isInsightQueryNode,
     isInsightQueryWithDisplay,
     isInsightQueryWithSeries,
     isInsightVizNode,
+    isLifecycleQuery,
     isPathsQuery,
     isRetentionQuery,
     isStickinessQuery,
     isTrendsQuery,
     isWebAnalyticsInsightQuery,
 } from '~/queries/utils'
-import { BaseMathType, ChartDisplayType } from '~/types'
+import { BaseMathType, ChartDisplayCategory, ChartDisplayType } from '~/types'
 
 import {
     isFunnelWithEnoughSteps,
@@ -366,4 +368,40 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
     }
 
     return cleanedQuery
+}
+
+// A stale result rendered under a query it was not computed for shows nothing or a 0, so it is not renderable.
+export const trendsResultsMatchQuery = (results: unknown[], query: TrendsQuery): boolean => {
+    const display = query.trendsFilter?.display ?? ChartDisplayType.ActionsLineGraph
+    const first = results[0] as
+        | {
+              data?: unknown
+              aggregated_value?: unknown
+              calendar_heatmap_data?: unknown
+              median?: unknown
+              breakdown_value?: unknown
+          }
+        | undefined
+    if (!first) {
+        return true
+    }
+    if ((first.breakdown_value !== undefined) !== hasBreakdownFilter(query.breakdownFilter)) {
+        return false
+    }
+    if (first.calendar_heatmap_data) {
+        return display === ChartDisplayType.CalendarHeatmap
+    }
+    if (typeof first.median === 'number' && !Array.isArray(first.data)) {
+        return display === ChartDisplayType.BoxPlot
+    }
+    if (display === ChartDisplayType.CalendarHeatmap || display === ChartDisplayType.BoxPlot) {
+        return false
+    }
+    if (Array.isArray(first.data) && first.data.length > 0) {
+        return DISPLAY_TYPES_TO_CATEGORIES[display] !== ChartDisplayCategory.TotalValue
+    }
+    if (first.aggregated_value != null) {
+        return DISPLAY_TYPES_TO_CATEGORIES[display] === ChartDisplayCategory.TotalValue
+    }
+    return true
 }
