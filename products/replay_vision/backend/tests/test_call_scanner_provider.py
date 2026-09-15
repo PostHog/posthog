@@ -205,6 +205,17 @@ async def test_step_runs_a_tool_call_then_answers() -> None:
             1,
             id="flagged_answer_without_a_lookup_is_re_prompted",
         ),
+        pytest.param(
+            [
+                _Resp(function_call=_fc("get_events_around", {"rec_t": "bad"})),
+                _Resp(text='{"verdict":"yes"}'),
+                _Resp(function_call=_fc("get_events_around", {"rec_t": 5})),
+                _Resp(text='{"verdict":"yes"}'),
+            ],
+            4,
+            1,
+            id="errored_call_is_not_a_lookup",
+        ),
         pytest.param([_Resp(text='{"verdict":"no"}')], 1, 0, id="unflagged_answer_needs_no_lookup"),
     ],
 )
@@ -221,7 +232,11 @@ async def test_requires_lookup_gates_a_flagged_answer(
     ]
     client = _FakeClient(responses)
     lookups_by_step: dict[str, int] = {}
-    await _run(client, steps, dispatch=lambda fc: {"events": []}, lookups_by_step=lookups_by_step)
+
+    def dispatch(fc: Any) -> dict[str, Any]:
+        return {"error": "bad rec_t"} if fc.args["rec_t"] == "bad" else {"events": []}
+
+    await _run(client, steps, dispatch=dispatch, lookups_by_step=lookups_by_step)
     assert len(client.models.calls) == expected_calls
     # Only recorded on success, so this also proves the re-prompted answer was accepted.
     assert lookups_by_step == {"core": expected_lookups}

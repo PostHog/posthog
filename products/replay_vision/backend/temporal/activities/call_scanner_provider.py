@@ -730,13 +730,16 @@ async def _run_step(
             posthog_groups={"project": str(team_id)},
         )
 
-    # Counted in the forced final round-trip too, not just the tool loop.
+    # Counted in the forced final round-trip too, not just the tool loop. A malformed call gets an error
+    # response back and is not a lookup.
     lookups = 0
 
     def counting_dispatch(call: Any) -> dict[str, Any]:
         nonlocal lookups
-        lookups += 1
-        return dispatch(call)
+        response = dispatch(call)
+        if "events" in response:
+            lookups += 1
+        return response
 
     last_error: str | None = None
     # Whether the final attempt came back with no candidate at all, which reads as a provider refusal rather
