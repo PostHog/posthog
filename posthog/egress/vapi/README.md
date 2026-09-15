@@ -7,8 +7,8 @@ A 16-character SHA-256 fingerprint of the API token, so the token never reaches 
 ## Budget
 
 None: Vapi calls are recorded, never gated (`RecordedEgressClient`).
-Vapi documents no REST request limit.
-The limit it enforces is concurrent call slots, which a request-rate budget cannot model.
+Vapi's docs state no REST request limit.
+The limit they describe is [concurrent call slots](https://docs.vapi.ai/calls/call-concurrency), which a request-rate budget cannot model.
 Add a gate only if Vapi publishes a request limit or starts billing per API call.
 
 ## Lanes and callers

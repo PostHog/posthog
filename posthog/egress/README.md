@@ -155,7 +155,7 @@ A caller with no identity in scope passes no scope: it records the counter only 
 ## Adding a new egress domain
 
 Add a `<domain>/` subpackage and work through this list.
-The `/routing-outbound-api-calls` agent skill carries the file templates and the decisions behind each step.
+The `/routing-outbound-api-calls` agent skill names the reference domain to copy and carries the decisions behind each step.
 
 1. **Choose the base.** `EgressClient` when the API publishes a limit or bills per call, `RecordedEgressClient` when only telemetry is useful, `AsyncEgressClient` for an aiohttp client.
 2. **Pick the identity** in the external API's id space (see [The one identity rule](#the-one-identity-rule)).

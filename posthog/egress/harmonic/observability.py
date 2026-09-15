@@ -2,9 +2,9 @@
 
 Every Harmonic call records through ``harmonic_egress``, attributed by the ``source`` label.
 
-Harmonic's API reference documents ``X-Ratelimit-Limit-Second`` and ``X-Ratelimit-Remaining-Second``
-on every response, so the parser reads only those. Harmonic documents no reset header, so this domain
-declares no reset gauge.
+The parser reads ``X-Ratelimit-Limit-Second`` and ``X-Ratelimit-Remaining-Second``, the header names
+cited from Harmonic's API reference. Production responses from the endpoints PostHog calls carry
+neither, so the gauges stay empty. No reset header is cited, so this domain declares no reset gauge.
 """
 
 from collections.abc import Mapping

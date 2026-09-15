@@ -8,7 +8,8 @@ Every call draws from one budget under the key `harmonic:account:default`.
 ## Budget
 
 A single per-second ceiling read from settings at acquire time: `HARMONIC_EGRESS_PER_SECOND_BUDGET` (default 15).
-Harmonic documents 10 requests per second for most endpoints and answers 429 above it.
+[#96708](https://github.com/PostHog/posthog/pull/96708) cites Harmonic's API reference for a limit of 10 requests per second on most endpoints, with a 429 above it.
+The reference renders only inside Harmonic's console, so this README does not re-check the number.
 The default sits above that on purpose. The `BATCH` reserve floors to 4 of 15 units, so the bulk lane is admitted up to 11 calls a second, next to the documented rate.
 
 ## Lanes and callers
@@ -24,7 +25,8 @@ A denied call raises `HarmonicEgressBudgetExhausted`. A caller that folds except
 
 ## Rate-limit headers
 
-`X-Ratelimit-Limit-Second` and `X-Ratelimit-Remaining-Second` feed the `harmonic_api_rate_limit_{limit,remaining}` gauges, with `account` as `resource`.
+The parser reads `X-Ratelimit-Limit-Second` and `X-Ratelimit-Remaining-Second`, the header names #96708 cites, into the `harmonic_api_rate_limit_{limit,remaining}` gauges, with `account` as `resource`.
+Production responses from the endpoints PostHog calls carry neither header, so the gauges stay empty. Do not tune the budget from them.
 Harmonic documents no reset header, so the domain declares no reset gauge.
 The counter is `harmonic_api_requests_total`.
 

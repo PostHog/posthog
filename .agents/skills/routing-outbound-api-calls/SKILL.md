@@ -5,7 +5,7 @@ description: >
   REST call, a vendor SDK client, a scraping or enrichment service), and before adding or changing a
   domain under posthog/egress/: its budget, priority lanes, identity, metrics, or rate-limit headers.
   Routes the call to an existing egress domain, a new gated domain, a record-only domain, or no domain
-  at all, and carries the domain file templates plus the tests that catch a missing priority reserve.
+  at all, names the reference domain to copy, and lists the tests that catch a missing priority reserve.
   Trigger terms: egress, outbound API, third-party API, vendor client, rate limit, 429, Retry-After,
   budget, priority lane, BATCH, reserve, EgressClient, RecordedEgressClient, github_request.
 ---
@@ -42,9 +42,17 @@ Take each answer from the vendor's documentation or from production traffic, nev
 ## Build a new domain
 
 Work through "Adding a new egress domain" in the egress README.
-[references/domain-templates.md](references/domain-templates.md) has the file skeletons and the README template.
+Copy the closest reference domain for the file layout:
 
-- **Start from the template, never from a sibling domain.** A copy carries the sibling's lane and budget decisions with it. Two domains shipped with priority lanes that did nothing this way.
+| Shape                                | Reference                        |
+| ------------------------------------ | -------------------------------- |
+| Sync, gated, with rate-limit headers | `posthog/egress/firecrawl/`      |
+| Sync, gated, no rate-limit headers   | `posthog/egress/logodev/`        |
+| Record-only, secret identity         | `posthog/egress/vapi/`           |
+| Async (aiohttp)                      | `posthog/egress/harmonic/`       |
+| Vendor SDK                           | `posthog/egress/slack/client.py` |
+
+- **Copy the layout, not the numbers.** Redo the four decisions above for the new API. A copy keeps the reference's settings defaults, lane defaults, and header names.
 - **Let the base client record.** The client sets `observability = <domain>_egress`. Do not add `record_<domain>_response` wrappers.
 - **Keep metric names explicit and stable.** Dashboards and alerts query them by name.
 - **Keep `posthog.models` imports out of the domain package.**
@@ -76,6 +84,8 @@ These do not:
 ## Traps this package already hit
 
 - **A fake gate.** `CRITICAL` plus a huge budget, or `_consume` that always returns `True`. Use `RecordedEgressClient` instead.
+- **A missing scope.** A scope of `None` or `""` skips the gate. A single-account domain passes a constant scope such as `"default"`, or every call goes through ungated.
+- **The base lane.** `EgressClient.request` defaults to `CRITICAL`. The `<domain>_request` helper sets its own sheddable default.
 - **Header names guessed from another vendor.**
 - **A caller from an unmerged PR documented as if it exists.**
 - **A domain added as a side effect of a product PR, with no README.** `test_domains.py` fails it. Write the README rather than skipping the test.
