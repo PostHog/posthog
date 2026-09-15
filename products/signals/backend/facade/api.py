@@ -502,7 +502,7 @@ _MAX_TELEMETRY_STR_LEN = 256
 # Keys that name a person rather than attribute a signal. A source may carry one on `extra` because
 # triage needs it (a GitHub issue's `author_login` separates a maintainer's report from a stranger's),
 # but no lifecycle event needs the identity, so the scalar passthrough drops it.
-_TELEMETRY_EXCLUDED_EXTRA_KEYS = frozenset({"author_login"})
+_TELEMETRY_EXCLUDED_EXTRA_KEYS = frozenset({"author_login", "assignee_name"})
 
 
 def _telemetry_props_from_extra(extra: dict | None) -> dict:
