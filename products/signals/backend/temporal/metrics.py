@@ -68,6 +68,16 @@ def increment_safety_blocked(source_product: str = "unknown") -> None:
     ).add(1)
 
 
+def increment_prep_deferred(reason: str, count: int = 1) -> None:
+    """Count signals whose batch failed preparation and is queued again, which is a delay, not a loss."""
+    if not _in_temporal_context() or count <= 0:
+        return
+    get_metric_meter({"reason": reason}).create_counter(
+        "signals_prep_deferred_total",
+        "Signals deferred by a retryable grouping preparation failure",
+    ).add(count)
+
+
 def increment_dropped(stage: str, reason: str, count: int = 1) -> None:
     """Count signals lost to an error, attributed to a stage and reason."""
     if not _in_temporal_context() or count <= 0:
