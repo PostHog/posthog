@@ -1,9 +1,9 @@
 import {
     AttributeValue,
     BatchGetItemCommand,
+    ConditionalCheckFailedException,
     DynamoDBClient,
-    TransactWriteItem,
-    TransactWriteItemsCommand,
+    PutItemCommand,
 } from '@aws-sdk/client-dynamodb'
 import pLimit from 'p-limit'
 
@@ -67,33 +67,39 @@ export class MlPrivacyDynamoDB {
         return result
     }
 
-    public async write(transactions: TransactWriteItem[][]): Promise<void> {
-        await Promise.all(
-            transactions.map((items) =>
-                this.concurrency(async () => {
-                    if (!items.length || items.length > 100) {
-                        throw new Error('Invalid ML privacy transaction size')
-                    }
-                    await this.client.send(new TransactWriteItemsCommand({ TransactItems: items }), {
-                        abortSignal: AbortSignal.timeout(this.requestTimeoutMs),
-                    })
-                })
+    public async putIfAbsent(key: TableKey, attributes: DynamoItem): Promise<boolean> {
+        return this.concurrency(async () => {
+            try {
+                await this.client.send(
+                    new PutItemCommand({
+                        TableName: this.tableName,
+                        Item: { ...encodeKey(key), ...attributes },
+                        ConditionExpression: 'attribute_not_exists(pk)',
+                    }),
+                    { abortSignal: AbortSignal.timeout(this.requestTimeoutMs) }
+                )
+                return true
+            } catch (error) {
+                if (error instanceof ConditionalCheckFailedException) {
+                    return false
+                }
+                throw error
+            }
+        })
+    }
+
+    public async put(key: TableKey, attributes: DynamoItem): Promise<void> {
+        await this.concurrency(() =>
+            this.client.send(
+                new PutItemCommand({ TableName: this.tableName, Item: { ...encodeKey(key), ...attributes } }),
+                {
+                    abortSignal: AbortSignal.timeout(this.requestTimeoutMs),
+                }
             )
         )
     }
 
     public async backoff(attempt: number): Promise<void> {
         await new Promise((resolve) => setTimeout(resolve, Math.min(1000, 50 * 2 ** attempt) + Math.random() * 50))
-    }
-
-    public check(key: TableKey, condition: string, values?: DynamoItem): TransactWriteItem {
-        return {
-            ConditionCheck: {
-                TableName: this.tableName,
-                Key: encodeKey(key),
-                ConditionExpression: condition,
-                ...(values ? { ExpressionAttributeValues: values } : {}),
-            },
-        }
     }
 }

@@ -1,10 +1,8 @@
-import { TransactWriteItem, TransactionCanceledException } from '@aws-sdk/client-dynamodb'
-
 import { logger } from '~/common/utils/logger'
 import { sessionStartMonth } from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format'
 
 import { MlDataKey, MlKeyEncryption } from './crypto'
-import { DynamoItem, MlPrivacyDynamoDB, encodeKey } from './dynamodb'
+import { DynamoItem, MlPrivacyDynamoDB } from './dynamodb'
 import {
     MlKeyIdentity,
     MlSessionIdentity,
@@ -17,7 +15,7 @@ import {
     teamBlockId,
 } from './schema'
 
-// Every commit for a team checks the same team block marker, so DynamoDB cancels concurrent commits for one team as TransactionConflict under normal load. The budget counts the re-reads as well as the waits and stays under the consumer's 60 s loop stall threshold.
+// Commits retry transient DynamoDB and KMS failures; the budget counts the re-reads as well as the waits and stays under the consumer's 60 s loop stall threshold.
 const COMMIT_ATTEMPTS = 10
 const COMMIT_BUDGET_MS = 45_000
 const COMMIT_BACKOFF_BASE_MS = 100
@@ -25,15 +23,6 @@ const COMMIT_BACKOFF_CAP_MS = 3_000
 
 function commitRetryDelayMs(attempt: number): number {
     return Math.random() * Math.min(COMMIT_BACKOFF_CAP_MS, COMMIT_BACKOFF_BASE_MS * 2 ** attempt)
-}
-
-function cancellationCodes(error: unknown): string[] {
-    if (!(error instanceof TransactionCanceledException)) {
-        return []
-    }
-    return (error.CancellationReasons ?? []).flatMap((reason) =>
-        reason.Code && reason.Code !== 'None' ? [reason.Code] : []
-    )
 }
 
 export interface MlSessionKeys {
@@ -45,47 +34,6 @@ function storedKeyId(identity: MlKeyIdentity): TableKey {
     return identity.sessionId
         ? sessionKeyId(identity.teamId, identity.sessionId)
         : imageKeyId(identity.teamId, keySessionMonth(identity))
-}
-
-function actionId(action: TransactWriteItem): string {
-    const operation = action.ConditionCheck ?? action.Put ?? action.Update ?? action.Delete
-    if (!operation) {
-        throw new Error('Empty ML privacy transaction action')
-    }
-    const key = 'Item' in operation ? operation.Item : 'Key' in operation ? operation.Key : undefined
-    if (!key?.pk?.S || !key.sk?.S) {
-        throw new Error('Missing ML privacy transaction key')
-    }
-    return JSON.stringify([key.pk.S, key.sk.S])
-}
-
-export function groupTransactions(units: TransactWriteItem[][]): TransactWriteItem[][] {
-    const transactions: TransactWriteItem[][] = []
-    let current = new Map<string, TransactWriteItem>()
-    for (const unit of units) {
-        const next = new Map(current)
-        for (const action of unit) {
-            const id = actionId(action)
-            const existing = next.get(id)
-            if (existing && JSON.stringify(existing) !== JSON.stringify(action)) {
-                throw new Error('Conflicting ML privacy transaction actions')
-            }
-            next.set(id, action)
-        }
-        if (next.size > 100 || Buffer.byteLength(JSON.stringify([...next.values()])) > 3_500_000) {
-            if (!current.size) {
-                throw new Error('ML privacy transaction unit exceeds limits')
-            }
-            transactions.push([...current.values()])
-            current = new Map(unit.map((action) => [actionId(action), action]))
-        } else {
-            current = next
-        }
-    }
-    if (current.size) {
-        transactions.push([...current.values()])
-    }
-    return transactions
 }
 
 export class MlSessionKeyStore {
@@ -183,61 +131,31 @@ export class MlKeyBatch {
         return image ? { session, image } : undefined
     }
 
-    // The pipeline drops sessions older than the month deletion grace period, so a commit fences on the team marker alone; a month marker would be one item every commit in the fleet contends on.
-    private guards(identity: MlKeyIdentity): TransactWriteItem[] {
-        return [this.db.check(teamBlockId(identity.teamId), 'attribute_not_exists(pk)')]
-    }
-
-    private put(key: TableKey, attributes: DynamoItem, condition?: string): TransactWriteItem {
-        return {
-            Put: {
-                TableName: this.db.tableName,
-                Item: { ...encodeKey(key), ...attributes },
-                ...(condition ? { ConditionExpression: condition } : {}),
-            },
-        }
-    }
-
+    // A key and its month index entry are two plain writes instead of one transaction, so no commit in the fleet waits on another; the re-read afterwards adopts a competing writer's key and drops sessions or teams blocked during the batch.
     private async persist(): Promise<void> {
-        const creations: TransactWriteItem[][] = []
-        for (const [id, key] of this.keys) {
-            if (this.state.has(id)) {
-                continue
-            }
-            creations.push([
-                ...this.guards(key.identity),
-                this.put(
-                    storedKeyId(key.identity),
-                    {
-                        wrapped_key: { B: key.wrapped },
-                        organization_id: { S: key.identity.organizationId },
-                        team_id: { N: String(key.identity.teamId) },
-                        session_month: { S: keySessionMonth(key.identity) },
-                    },
-                    'attribute_not_exists(pk)'
-                ),
-                this.put(monthKeyIndexId(key.identity, storedKeyId(key.identity)), {
-                    key_pk: { S: storedKeyId(key.identity).pk },
-                    key_sk: { S: storedKeyId(key.identity).sk },
-                }),
-            ])
-        }
-        await this.db.write(groupTransactions(creations))
-        const validations: TransactWriteItem[][] = []
-        for (const identity of this.identities) {
-            const key = this.get(identity.teamId, identity.sessionId)?.session
-            if (!key) {
-                continue
-            }
-            validations.push([
-                ...this.guards(key.identity),
-                this.db.check(
-                    sessionKeyId(identity.teamId, identity.sessionId),
-                    'attribute_exists(wrapped_key) AND attribute_not_exists(deleted)'
-                ),
-            ])
-        }
-        await this.db.write(groupTransactions(validations))
+        await Promise.all(
+            [...this.keys].map(async ([id, key]) => {
+                if (this.state.has(id)) {
+                    return
+                }
+                const location = storedKeyId(key.identity)
+                const created = await this.db.putIfAbsent(location, {
+                    wrapped_key: { B: key.wrapped },
+                    organization_id: { S: key.identity.organizationId },
+                    team_id: { N: String(key.identity.teamId) },
+                    session_month: { S: keySessionMonth(key.identity) },
+                })
+                if (!created) {
+                    return
+                }
+                this.encryption.rememberCommitted(key)
+                await this.db.put(monthKeyIndexId(key.identity, location), {
+                    key_pk: { S: location.pk },
+                    key_sk: { S: location.sk },
+                })
+            })
+        )
+        await this.read()
     }
 
     public async commit(): Promise<void> {
@@ -260,7 +178,7 @@ export class MlKeyBatch {
                 }
                 logger.warn('🔑', 'ml_key_commit_retry', {
                     attempt: attempt + 1,
-                    codes: cancellationCodes(error),
+                    code: error instanceof Error ? error.name : undefined,
                     error: String(error),
                 })
                 await new Promise((resolve) => setTimeout(resolve, delayMs))

@@ -46,12 +46,12 @@ Ingestion processes privacy state in batches:
 
 1. Bulk-read session keys, team blocks, and image keys.
 2. Resolve keys in memory while processing the batch.
-3. Commit bounded DynamoDB transactions before publishing replay blocks or image messages.
-4. On a competing write, bulk-read the winning state and retry with its keys.
+3. Write new keys with conditional puts, re-read the batch, and only then publish replay blocks or image messages.
+4. The re-read adopts a competing writer's keys and drops sessions or teams that were blocked during the batch.
 
 Conditional writes prevent a deletion from being undone by an in-flight batch.
 Kafka offsets advance only after the required writes and publication succeed.
-DynamoDB transactions have at most 100 actions and stay below the request size limit.
+Bulk reads use batches of at most 100 keys; each new key is one conditional put, so no commit in the fleet waits on another.
 Reads use strongly consistent `BatchGetItem` requests with bounded retries for unprocessed keys.
 
 KMS plaintext caches reduce repeated decrypt calls.
@@ -102,7 +102,8 @@ Legacy dataset retirement needs a separate storage operation before claiming del
 
 ## Monthly key deletion
 
-Key creation writes a month index entry in the same DynamoDB transaction as the wrapped key.
+Key creation writes the wrapped key with a conditional put, then its month index entry with a plain put.
+The two writes are not atomic: a key whose index write failed is not swept by month deletion, but it can only decrypt objects in that month's folders.
 The index uses 32 partitions named `month:<YYYY-MM>:shard:<0..31>` and stores key locations, without copying wrapped keys.
 Session keys and image keys appear in this index.
 
