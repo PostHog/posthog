@@ -319,6 +319,12 @@ class TestPropertyTypes(BaseTest):
             name="group_boolean",
             defaults={"property_type": "Boolean", "group_type_index": 0},
         )
+        PropertyDefinition.objects.get_or_create(
+            team=self.team,
+            type=PropertyDefinition.Type.GROUP,
+            name="ts_like_group_prop",
+            defaults={"property_type": "DateTime", "group_type_index": 0},
+        )
 
     def _events_schema_snapshot(self):
         self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
@@ -598,6 +604,26 @@ class TestPropertyTypes(BaseTest):
         overridden = _print({"ts_like_id": "String"})
         assert "parseDateTime64BestEffortOrNull" not in overridden, overridden
         assert "toDateTime" not in overridden, overridden
+
+    @parameterized.expand(
+        [
+            ("empty_string", "''", False),
+            ("non_date_string", "'unknown'", False),
+            ("date_string", "'2024-01-01'", True),
+            ("number", "0", True),
+        ]
+    )
+    def test_datetime_property_against_non_date_constant(self, _name: str, constant: str, keeps_cast: bool) -> None:
+        # One timestamp-shaped value promotes a whole string property to DateTime, and the cast
+        # then makes ClickHouse reject a comparison the user could write before.
+        printed = self._print_select(
+            f"select count() from events where organization.properties.ts_like_group_prop != {constant}"
+        )
+        assert ("parseDateTime64BestEffortOrNull" in printed) is keeps_cast, printed
+
+    def test_datetime_property_keeps_cast_outside_comparisons(self) -> None:
+        printed = self._print_select("select organization.properties.ts_like_group_prop from events")
+        assert "parseDateTime64BestEffortOrNull" in printed, printed
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_property_types_person_raw(self):

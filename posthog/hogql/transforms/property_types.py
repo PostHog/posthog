@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import Literal, Optional
 
+from dateutil.parser import parse as dateutil_parse
+
 from posthog.hogql import ast
 from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES
 from posthog.hogql.context import HogQLContext
@@ -35,6 +37,10 @@ _JSON_EXTRACT_SCALAR_CASTS: dict[str, tuple[str, object]] = {
     "JSONExtractFloat": ("Float64", 0.0),
     "JSONExtractBool": ("Bool", 0),
 }
+
+
+def _unwrap_alias(expr: ast.Expr) -> ast.Expr:
+    return expr.expr if isinstance(expr, ast.Alias) else expr
 
 
 def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
@@ -525,7 +531,7 @@ class PropertySwapper(CloningVisitor):
         return requested_type.family != "unknown" and requested_type == materialized_type
 
     def visit_compare_operation(self, node: ast.CompareOperation):
-        result = super().visit_compare_operation(node)
+        result = self._keep_string_comparison(node, super().visit_compare_operation(node))
 
         if (
             not self.setTimeZones
@@ -536,6 +542,53 @@ class PropertySwapper(CloningVisitor):
             return result
 
         return self._move_timezone_from_field_to_constant(result) or result
+
+    def _keep_string_comparison(self, node: ast.CompareOperation, result: ast.CompareOperation) -> ast.CompareOperation:
+        """Keep a comparison against a non-date constant a string comparison.
+
+        Type detection calls a property DateTime as soon as one stored value looks like a
+        timestamp, so a plain string property can carry the cast for a whole team. ClickHouse
+        then coerces the other side to DateTime64 and raises CANNOT_PARSE_DATETIME on a value
+        such as the empty string.
+
+        Only a side that entered as a bare field is unwrapped, so the cast is always ours: a
+        toDateTime() the user wrote arrives here as a Call, not a Field.
+        """
+        left, right = _unwrap_alias(node.left), _unwrap_alias(node.right)
+        for field_first in (True, False):
+            field_side, constant_side = (left, right) if field_first else (right, left)
+            if not isinstance(field_side, ast.Field):
+                continue
+            stripped = self._strip_datetime_cast(result.left if field_first else result.right)
+            if stripped is None or not self._is_non_date_constant(constant_side):
+                continue
+            new_left, new_right = (stripped, result.right) if field_first else (result.left, stripped)
+            return ast.CompareOperation(left=new_left, right=new_right, op=result.op)
+
+        return result
+
+    @staticmethod
+    def _strip_datetime_cast(expr: ast.Expr) -> ast.Expr | None:
+        inner = _unwrap_alias(expr)
+        if not (isinstance(inner, ast.Call) and inner.name == "toDateTime" and len(inner.args) == 1):
+            return None
+        # A lazy join refers to the alias, so keep it.
+        if isinstance(expr, ast.Alias):
+            return ast.Alias(alias=expr.alias, expr=inner.args[0])
+        return inner.args[0]
+
+    @staticmethod
+    def _is_non_date_constant(expr: ast.Expr) -> bool:
+        # A value we are unsure about counts as a date, so the cast survives every comparison
+        # that works today. The parser is the permissive one for that reason: ClickHouse reads
+        # more shapes than ISO 8601, and treating one of those as a non-date would change results.
+        if not isinstance(expr, ast.Constant) or not isinstance(expr.value, str):
+            return False
+        try:
+            dateutil_parse(expr.value)
+        except (ValueError, OverflowError):
+            return True
+        return False
 
     def _move_timezone_from_field_to_constant(self, node: ast.CompareOperation) -> ast.CompareOperation | None:
         """Move toTimeZone() from the field side to the constant side of a range comparison.
