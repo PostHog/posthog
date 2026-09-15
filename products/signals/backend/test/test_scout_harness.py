@@ -59,6 +59,7 @@ from products.signals.backend.scout_harness.prompt import (
     _METRICS_CATALOG_SUPERSEDES_CACHE as _SUPERSEDES_CACHED_ENTRIES,
     _REPORT_CHARTS,
     HARNESS_PROMPT_VERSION,
+    _checkout_section,
     build_run_prompt,
 )
 from products.signals.backend.scout_harness.runner import (
@@ -86,6 +87,7 @@ from products.signals.backend.temporal.agentic.scout_scheduler import (
 )
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile, LLMSkillOwner
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.agents import AgentTurnFailed
 from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable
 
 if TYPE_CHECKING:
@@ -435,6 +437,7 @@ class TestPromptCacheablePrefix(SimpleTestCase):
             write_scopes=["dashboard:write"],
             structured_output_schema={"type": "object", "properties": {"verdict": {"type": "string"}}},
             mcp_server_names=["Datadog (EU)"],
+            repositories=["acme-co/service"],
         )
 
         offsets = [
@@ -443,6 +446,7 @@ class TestPromptCacheablePrefix(SimpleTestCase):
                 "# Governed metrics",
                 "# External MCP servers",
                 "# Write access",
+                "# Your checkout",
                 "# Structured output",
                 "# Your run identity",
             )
@@ -459,9 +463,21 @@ class TestPromptCacheablePrefix(SimpleTestCase):
             "signals-scout-prefix-probe",
             "mrr_probe_metric",
             "Datadog",
+            "acme-co/service",
             '"verdict"',
         ):
             assert value not in head, f"{value} interpolated above the per-run block"
+
+
+class TestCheckoutSection(SimpleTestCase):
+    def test_it_states_that_the_tree_carries_full_history(self) -> None:
+        # Provisioning clones a pinned repository with its history, but a skill body that cannot
+        # read that from the prompt probes the tree and pays an unshallow fetch of minutes and
+        # gigabytes on every scheduled run.
+        section = _checkout_section(["acme-co/service"])
+
+        assert "full commit history" in section
+        assert "git blame" in section
 
 
 class TestPromptCrossReferences(SimpleTestCase):
@@ -774,6 +790,10 @@ class TestWriteAccessPromptSection(SimpleTestCase):
         # scout bodies it was never granted.
         assert "Skills include the scouts themselves" not in granted
         assert "Skills include the scouts themselves" in _prompt(write_scopes=["llm_skill:write"])
+        # A scout holding the scanner grant has to learn the credit cost and the delete refusal
+        # from the prompt, not from a refused call.
+        assert "Scanners spend credits" not in granted
+        assert "Scanners spend credits" in _prompt(write_scopes=["replay_scanner:write"])
 
         ungranted = _prompt(write_scopes=[])
         assert "# Write access" not in ungranted
@@ -1520,6 +1540,78 @@ async def test_run_passes_the_per_scout_server_selection_and_no_credential_owner
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
+    "can_mint_token,repository_override,expected",
+    [
+        pytest.param(True, None, ("posthog/posthog", "posthog/posthog-js"), id="mintable_pins_clone"),
+        pytest.param(False, None, (), id="unmintable_pins_drop"),
+        # The public allowlist clones without a token, so the management command's
+        # `--repository posthog/.github` still works on a team that never connected GitHub.
+        pytest.param(False, "posthog/.github", ("posthog/.github",), id="public_override_without_mint"),
+    ],
+)
+async def test_run_clones_the_scouts_pinned_repositories_when_a_token_can_be_minted(
+    ateam, aerrors_skill, can_mint_token, repository_override, expected
+):
+    # The pin only buys a checkout if the sandbox has a credential to clone with, and a scout
+    # clones with the read-only mint. Without a mintable installation the pin must be dropped and
+    # the run go ahead repo-less, so a disconnected GitHub can't wedge the lane on clone failures.
+    # The prompt reads the same list, so the agent is never sent to a tree that was not cloned.
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+    captured: dict = {}
+
+    def _seed_config() -> None:
+        SignalScoutConfig.objects.unscoped().create(
+            team_id=ateam.id,
+            skill_name="signals-scout-errors",
+            repositories=["posthog/posthog", "posthog/posthog-js"],
+        )
+
+    await database_sync_to_async(_seed_config, thread_sensitive=False)()
+
+    async def _capture_start(*args, on_task_run_created=None, **kwargs):
+        captured.update(kwargs)
+        if on_task_run_created is not None:
+            await on_task_run_created(session.task_run)
+        return session, result
+
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            return_value=42,
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.tasks_facade.can_mint_readonly_github_token",
+            return_value=can_mint_token,
+        ),
+    ):
+        run = await arun_signals_scout(
+            team_id=ateam.id, skill_name="signals-scout-errors", repository=repository_override
+        )
+
+    assert captured["context"].repositories == expected
+    # The token stays read-only either way: a pin buys a checkout, never the ability to push.
+    assert captured["context"].github_read_access is True
+    assert ("# Your checkout" in captured["prompt"]) is bool(expected)
+    assert all(repository in captured["prompt"] for repository in expected)
+
+    assert run.run_id is not None
+    run_id = run.run_id
+
+    def _stamped() -> dict:
+        return SignalScoutRun.objects.unscoped().get(id=run_id).metadata or {}
+
+    stamped = await database_sync_to_async(_stamped, thread_sensitive=False)()
+    assert stamped.get("repositories") == (list(expected) or None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
     "emit,acting_user_resolves,expected_grant,expected_mcp_scopes",
     [
         pytest.param(
@@ -2098,15 +2190,50 @@ async def test_successful_run_captures_run_started_event(ateam, aerrors_skill):
     assert props["scout_config_id"] == str(config.id)
 
 
+@pytest.mark.parametrize(
+    "failure,expected_error_type,expected_error_message,expected_error_category",
+    [
+        (
+            RuntimeError("sandbox refused to start"),
+            "RuntimeError",
+            "sandbox refused to start",
+            None,
+        ),
+        # Without `error_category` a provider outage and a broken scout body read as one population.
+        (
+            AgentTurnFailed(
+                "TaskRun reached terminal status=failed (cause: upstream_provider_failure: API Error: 429)",
+                category="upstream_provider_failure",
+                agent_message="API Error: 429",
+            ),
+            "AgentTurnFailed",
+            "TaskRun reached terminal status=failed (cause: upstream_provider_failure: API Error: 429)",
+            "upstream_provider_failure",
+        ),
+        # Older agent build: no classification to carry, so the event stays as it is today.
+        (
+            AgentTurnFailed(
+                "TaskRun reached terminal status=failed (cause: API Error: 429)",
+                category=None,
+                agent_message="API Error: 429",
+            ),
+            "AgentTurnFailed",
+            "TaskRun reached terminal status=failed (cause: API Error: 429)",
+            None,
+        ),
+    ],
+)
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_failed_run_captures_run_finished_event(ateam, aerrors_skill):
+async def test_failed_run_captures_run_finished_event(
+    ateam, aerrors_skill, failure, expected_error_type, expected_error_message, expected_error_category
+):
     TaskRun = apps.get_model("tasks", "TaskRun")
     with (
         patch(
             "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
             new_callable=AsyncMock,
-            side_effect=RuntimeError("sandbox refused to start"),
+            side_effect=failure,
         ),
         # A routed model must survive onto the failed event too — timeouts and crashes are
         # exactly the outcomes a model trial slices by.
@@ -2142,8 +2269,9 @@ async def test_failed_run_captures_run_finished_event(ateam, aerrors_skill):
     # Failure reason rides on the event so the failure rate is breakable down by cause
     # without digging into worker logs — the bulk of scout failures fail here, before the
     # process-task workflow's own task_run_failed event fires.
-    assert props["error_type"] == "RuntimeError"
-    assert props["error_message"] == "sandbox refused to start"
+    assert props["error_type"] == expected_error_type
+    assert props["error_message"] == expected_error_message
+    assert props.get("error_category") == expected_error_category
 
 
 @contextmanager

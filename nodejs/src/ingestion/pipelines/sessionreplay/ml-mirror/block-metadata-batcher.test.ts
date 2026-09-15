@@ -1,13 +1,21 @@
+import { S3Client } from '@aws-sdk/client-s3'
+import { ParquetReader } from '@dsnp/parquetjs'
+import sodium from 'libsodium-wrappers'
 import { Message } from 'node-rdkafka'
+
+import { parseJSON } from '~/common/utils/json-parse'
 
 import { BlockMetadataBatcher, OffsetStore } from './block-metadata-batcher'
 import { BlockMetadataParquetStore } from './block-metadata-parquet-store'
 import { MlBlockMetadataRow } from './block-metadata-row'
+import { MlDataKey, decryptEnvelope } from './privacy/crypto'
+import { MlKeyReader } from './privacy/reader'
+import { sessionKeyId, tableKeyString } from './privacy/schema'
+import { MlKafkaEncryption, encryptedKafkaValue } from './privacy/transport'
 
 const row = (sessionId: string): MlBlockMetadataRow => ({
     session_id: sessionId,
     team_id: 't1',
-    distinct_id: 'd1',
     block_url: 's3://b/k?range=bytes=0-9',
     block_s3_key: 's3://b/k',
     block_byte_start: 0,
@@ -99,6 +107,65 @@ describe('BlockMetadataBatcher', () => {
         const batcher = makeBatcher(60_000, 1)
         await expect(batcher.handleBatch([msg(0)], 0)).rejects.toThrow('s3 down')
         expect(offsets.offsetsStore).not.toHaveBeenCalled()
+    })
+
+    it('keeps v2 offsets pending until the encrypted eval index upload succeeds', async () => {
+        await sodium.ready
+        const sessionId = '01a0a4f0-3200-7000-8000-000000000001'
+        const timestamp = Date.parse('2026-09-15T12:00:01Z')
+        const key: MlDataKey = {
+            identity: { teamId: 7, organizationId: 'test-org', sessionId },
+            plaintext: Buffer.alloc(32, 7),
+            wrapped: Buffer.from('wrapped'),
+        }
+        const reader = {
+            read: jest.fn(() => Promise.resolve(new Map([[tableKeyString(sessionKeyId(7, sessionId)), key]]))),
+        } as unknown as MlKeyReader
+        const metadata: MlBlockMetadataRow = {
+            ...row(sessionId),
+            team_id: '7',
+            format_version: 2,
+            first_ts_ms: timestamp,
+            last_ts_ms: timestamp,
+            replay_index_entries: [
+                { kind: 'json_ld', eventIndex: 0, eventTimestamp: timestamp, windowId: 'w1', rootTypes: ['Product'] },
+            ],
+        }
+        const encrypted = encryptedKafkaValue(
+            key,
+            'metadata',
+            Buffer.from(JSON.stringify({ ...metadata, distinct_id: 'legacy-user', distinctId: 'unexpected-user' }))
+        )
+        const message = {
+            ...msg(0),
+            value: encrypted.value,
+            headers: Object.entries(encrypted.headers).map(([name, value]) => ({ [name]: Buffer.from(value) })),
+        }
+        const s3 = {
+            send: jest.fn().mockRejectedValueOnce(new Error('index upload failed')).mockResolvedValue({}),
+        } as unknown as S3Client
+        const batcher = new BlockMetadataBatcher(
+            new BlockMetadataParquetStore(s3, 'bucket', 'block-metadata'),
+            offsets,
+            { flushIntervalMs: 1000, maxRows: 1 },
+            0,
+            new MlKafkaEncryption(reader)
+        )
+        await expect(batcher.handleBatch([message], 0)).rejects.toThrow('index upload failed')
+        expect(offsets.offsetsStore).not.toHaveBeenCalled()
+        await batcher.flush(1)
+        expect(offsets.offsetsStore).toHaveBeenCalledWith([{ topic: 'ml_block_metadata', partition: 0, offset: 1 }])
+        const body = (jest.mocked(s3.send).mock.calls.at(-1)![0].input as { Body: Buffer }).Body
+        const parquet = await ParquetReader.openBuffer(body)
+        const stored = (await parquet.getCursor().next()) as { payload: Buffer }
+        const payload = parseJSON(decryptEnvelope(key, parseJSON(stored!.payload.toString()), 'metadata').toString())
+        expect(payload).toEqual(metadata)
+        await parquet.close()
+        expect(jest.mocked(s3.send).mock.calls.map(([command]) => (command.input as { Key: string }).Key)).toEqual([
+            expect.stringContaining('block-metadata-replay-index/v2/2026-09/kind=json_ld/'),
+            expect.stringContaining('block-metadata-replay-index/v2/2026-09/kind=json_ld/'),
+            expect.stringContaining('block-metadata/v2/2026-09/'),
+        ])
     })
 
     it('starts a fresh window after flushing', async () => {

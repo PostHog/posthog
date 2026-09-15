@@ -844,6 +844,31 @@ function composeToolSchema(
         schemaExpr = `(${schemaExpr}).extend({ ${overrideEntries.join(', ')} })`
     }
 
+    // normalizeParamAliases deletes alias keys after copying them onto the canonical
+    // param, so an alias that is also a real parameter of this operation, or an alias
+    // two params both claim, would silently drop a value. Checked after every override
+    // has run, because input_schema overrides add body fields inside the loop above.
+    const declaredParamNames = new Set([...pathParamNames, ...queryParamNames, ...bodyFieldNames])
+    const aliasOwners = new Map<string, string>()
+    for (const [paramName, aliases] of Object.entries(paramAliases)) {
+        for (const alias of aliases) {
+            if (alias === paramName || declaredParamNames.has(alias)) {
+                throw new Error(
+                    `${config.operation}: alias "${alias}" for param "${paramName}" is also a declared parameter ` +
+                        'of this operation, so normalizeParamAliases would drop its value. Rename or remove the alias.'
+                )
+            }
+            const owner = aliasOwners.get(alias)
+            if (owner !== undefined) {
+                throw new Error(
+                    `${config.operation}: alias "${alias}" is declared by both "${owner}" and "${paramName}", ` +
+                        'so normalizeParamAliases would drop one of them. Keep it on one param.'
+                )
+            }
+            aliasOwners.set(alias, paramName)
+        }
+    }
+
     return {
         orvalImports,
         toolInputsImports,

@@ -23,9 +23,9 @@ interface AcpFrame {
 
 interface StreamMock {
     // 'body' delivers the frames then EOFs (a clean-EOF live drop); 'hang' never responds so the SSE open
-    // stalls short of `sseOpened` — used when a different signal (terminal status, exhausted history) should
+    // stalls short of `sseOpened` — used when a different signal (terminal status) should
     // drive the surface state without the reconnect loop flapping.
-    mode: 'body' | 'hang'
+    mode: 'body' | 'hang' | 'open'
     body?: string
 }
 
@@ -132,8 +132,26 @@ async function routeTasksApi(page: Page, mock: TasksApiMock): Promise<void> {
         (route) => route.fulfill({ status: mock.logs.status, contentType: 'application/jsonl', body: mock.logs.body })
     )
 
-    if (mock.stream.mode === 'hang') {
-        // Leave the request pending forever; the bootstrap aborts it once the history retries exhaust.
+    if (mock.stream.mode === 'open') {
+        await page.addInitScript((streamPattern) => {
+            const originalFetch = window.fetch.bind(window)
+            window.fetch = async (input, init): Promise<Response> => {
+                const url = input instanceof Request ? input.url : input.toString()
+                if (!new RegExp(streamPattern).test(new URL(url, window.location.href).pathname)) {
+                    return originalFetch(input, init)
+                }
+                const signal = init?.signal ?? (input instanceof Request ? input.signal : undefined)
+                return new Response(
+                    new ReadableStream<Uint8Array>({
+                        start(controller): void {
+                            signal?.addEventListener('abort', () => controller.error(signal.reason), { once: true })
+                        },
+                    }),
+                    { headers: { 'Content-Type': 'text/event-stream' } }
+                )
+            }
+        }, streamRe.source)
+    } else if (mock.stream.mode === 'hang') {
         await page.route(
             (url) => streamRe.test(url.pathname),
             () => new Promise<void>(() => {})
@@ -630,8 +648,7 @@ test.describe('Task run surface', () => {
         await routeTasksApi(page, {
             runStatus: 'in_progress',
             logs: { status: 500, body: '' },
-            // Stall the SSE open so only the exhausted history drives the terminal state (no reconnect flapping).
-            stream: { mode: 'hang' },
+            stream: { mode: 'open' },
         })
 
         await openRunDeepLink(page, workspace!.team_id)

@@ -5,9 +5,8 @@ from typing import ClassVar
 
 from unittest.mock import MagicMock, patch
 
-from django.conf import settings
 from django.core.cache import cache
-from django.db import OperationalError, connection
+from django.db import OperationalError
 from django.test import TestCase
 
 from parameterized import parameterized
@@ -15,7 +14,6 @@ from prometheus_client import REGISTRY
 from rest_framework.test import APIClient
 from social_django.models import UserSocialAuth
 
-from posthog.api.github_webhooks.attribution import _attribution_db_aliases, _bounded_attribution_lookup
 from posthog.api.github_webhooks.integrations import _installation_team_ids
 from posthog.api.github_webhooks.pull_requests import _PR_BODY_MAX_CHARS, _account_type
 from posthog.models.integration import Integration
@@ -1229,7 +1227,7 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
                 team=self.team, report=self.report, actor_kind=actor_kind, actor_agent="test-agent"
             )
 
-        with patch("products.signals.backend.receivers.close_dismissed_report_pr") as close_task:
+        with patch("products.signals.backend.tasks.close_dismissed_report_pr") as close_task:
             with self.captureOnCommitCallbacks(execute=True):
                 response = self._post_pr_webhook(action="closed", merged=merged)
 
@@ -1238,11 +1236,38 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         self.assertEqual(self.report.status, expected_status)
         close_task.delay.assert_not_called()
         if relationship == "implementation":
-            assignment = SignalReportAssignment.objects.for_team(self.team.id).get(report=self.report)
-            self.assertEqual(assignment.actor_kind, actor_kind or SignalActorKind.TASK)
-            pr = fetch_implementation_pr_state_for_reports([str(self.report.id)])[str(self.report.id)]
+            assignment = SignalReportAssignment.objects.for_team(self.team.id).filter(report=self.report).first()
+            self.assertEqual(assignment.actor_kind if assignment else None, actor_kind)
+            pr = fetch_implementation_pr_state_for_reports([str(self.report.id)], team_id=self.team.id)[
+                str(self.report.id)
+            ]
             self.assertEqual(pr.state, "merged" if merged else "closed")
             self.assertIs(pr.merged, merged)
+
+    @patch("posthog.api.github_webhooks.views.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_secondary_task_pr_webhook_persists_only_matching_link_and_reads_the_stack(self, _capture, get_secret):
+        from products.signals.backend.models import SignalReportPullRequest
+
+        get_secret.return_value = self.webhook_secret
+        self.assignment.delete()
+        first = "https://github.com/posthog/posthog/pull/42"
+        second = "https://github.com/PostHog/posthog/pull/43"
+        run = self._link_task_pr(self.report, first)
+        TaskRun.objects.filter(id=run.id).update(output={"pr_url": first, "pr_urls": [first, second]})
+        assert self._post_pr_webhook("closed", True, second).status_code == 200
+        run.refresh_from_db()
+        assert isinstance(run.output, dict)
+
+        assert not run.output.get("pr_merged", False)
+        assert run.output["pr_url"] == first
+        self.report.refresh_from_db()
+        assert self.report.status == SignalReport.Status.READY
+        assert SignalReportPullRequest.objects.for_team(self.team.id).count() == 1
+        assert SignalReportPullRequest.objects.for_team(self.team.id).get(number=43).state == "merged"
+        assert self._post_pr_webhook("closed", False, first).status_code == 200
+        self.report.refresh_from_db()
+        assert self.report.status == SignalReport.Status.RESOLVED
 
     def _post_pr_webhook(self, action: str, merged: bool, pr_url: str = "https://github.com/posthog/posthog/pull/42"):
         payload = {
@@ -1320,8 +1345,18 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         self.report.refresh_from_db()
         self.assignment.refresh_from_db()
         self.assertEqual(self.report.status, expected_status)
-        self.assertEqual(self.assignment.pr_state, expected_pr_state)
-        self.assertIs(self.assignment.pr_merged, merged)
+        self.assertEqual(
+            fetch_implementation_pr_state_for_reports([str(self.report.id)], team_id=self.team.id)[
+                str(self.report.id)
+            ].state,
+            expected_pr_state,
+        )
+        self.assertIs(
+            fetch_implementation_pr_state_for_reports([str(self.report.id)], team_id=self.team.id)[
+                str(self.report.id)
+            ].merged,
+            merged,
+        )
 
     @patch("posthog.api.github_webhooks.views.get_github_webhook_secret")
     @patch("posthog.api.github_webhooks.pull_requests.posthoganalytics.capture")
@@ -1374,10 +1409,30 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         second_assignment.refresh_from_db()
         self.assertEqual(self.report.status, expected_status)
         self.assertEqual(second_report.status, expected_status)
-        self.assertEqual(self.assignment.pr_state, expected_pr_state)
-        self.assertEqual(second_assignment.pr_state, expected_pr_state)
-        self.assertIs(self.assignment.pr_merged, merged)
-        self.assertIs(second_assignment.pr_merged, merged)
+        self.assertEqual(
+            fetch_implementation_pr_state_for_reports([str(self.report.id)], team_id=self.team.id)[
+                str(self.report.id)
+            ].state,
+            expected_pr_state,
+        )
+        self.assertEqual(
+            fetch_implementation_pr_state_for_reports([str(second_report.id)], team_id=self.team.id)[
+                str(second_report.id)
+            ].state,
+            expected_pr_state,
+        )
+        self.assertIs(
+            fetch_implementation_pr_state_for_reports([str(self.report.id)], team_id=self.team.id)[
+                str(self.report.id)
+            ].merged,
+            merged,
+        )
+        self.assertIs(
+            fetch_implementation_pr_state_for_reports([str(second_report.id)], team_id=self.team.id)[
+                str(second_report.id)
+            ].merged,
+            merged,
+        )
         legacy_report.refresh_from_db()
         self.assertEqual(legacy_report.status, expected_status)
 
@@ -1432,7 +1487,12 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         self.assignment.refresh_from_db()
         other_assignment.refresh_from_db()
         self.assertEqual(self.report.status, SignalReport.Status.RESOLVED)
-        self.assertEqual(self.assignment.pr_state, SignalReportAssignment.PrState.MERGED)
+        self.assertEqual(
+            fetch_implementation_pr_state_for_reports([str(self.report.id)], team_id=self.team.id)[
+                str(self.report.id)
+            ].state,
+            "merged",
+        )
         self.assertEqual(other_report.status, SignalReport.Status.READY)
         self.assertEqual(other_assignment.pr_state, SignalReportAssignment.PrState.OPEN)
         legacy_other_report.refresh_from_db()
@@ -1458,8 +1518,17 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         self.report.refresh_from_db()
         self.assignment.refresh_from_db()
         self.assertEqual(self.report.status, SignalReport.Status.RESOLVED)
-        self.assertEqual(self.assignment.pr_state, SignalReportAssignment.PrState.MERGED)
-        self.assertTrue(self.assignment.pr_merged)
+        self.assertEqual(
+            fetch_implementation_pr_state_for_reports([str(self.report.id)], team_id=self.team.id)[
+                str(self.report.id)
+            ].state,
+            "merged",
+        )
+        self.assertTrue(
+            fetch_implementation_pr_state_for_reports([str(self.report.id)], team_id=self.team.id)[
+                str(self.report.id)
+            ].merged
+        )
 
 
 class TestExternalPRWebhook(TestCase):
@@ -2481,53 +2550,3 @@ class TestFindSignalImplementationRun(TestCase):
 
         assert found is not None
         assert found.run_id == legitimate.id
-
-
-class TestAttributionDbAliases(TestCase):
-    def _with_replica_configured(self):
-        return self.settings(DATABASES={**settings.DATABASES, "replica": settings.DATABASES["default"]})
-
-    def test_default_only_when_no_replica_is_configured(self):
-        self.assertEqual(_attribution_db_aliases(), ["default"])
-
-    @patch("posthog.api.github_webhooks.attribution.router.db_for_read", return_value="default")
-    def test_skips_a_configured_replica_the_router_would_not_read_from(self, _mock_db_for_read):
-        # Bounding an alias means opening it, and connection setup is itself unbounded (these
-        # aliases carry no connect_timeout), so a replica the router never reads from must not
-        # be dialled just to install a cap on it.
-        with self._with_replica_configured():
-            self.assertEqual(_attribution_db_aliases(), ["default"])
-
-    @patch("posthog.api.github_webhooks.attribution.router.db_for_read", return_value="replica")
-    def test_skips_the_primary_when_every_model_reads_from_the_replica(self, _mock_db_for_read):
-        # Symmetric to the above: a fully replica-opted deployment must not be made to wait on
-        # the primary either, since opening it is just as unbounded.
-        with self._with_replica_configured():
-            self.assertEqual(_attribution_db_aliases(), ["replica"])
-
-    @patch("posthog.api.github_webhooks.attribution.router.db_for_read")
-    def test_covers_every_alias_the_models_read_from(self, mock_db_for_read):
-        mock_db_for_read.side_effect = lambda model: "replica" if model is User else "default"
-        with self._with_replica_configured():
-            self.assertEqual(sorted(_attribution_db_aliases()), ["default", "replica"])
-
-
-class TestBoundedAttributionLookup(TestCase):
-    def _statement_timeout(self) -> str:
-        with connection.cursor() as cursor:
-            cursor.execute("SHOW statement_timeout")
-            row = cursor.fetchone()
-        assert row is not None
-        return row[0]
-
-    def test_caps_statements_and_restores_the_previous_value(self):
-        # Django's TestCase runs each test inside a transaction, which is exactly the case
-        # the restore exists for: joining a transaction we did not open (a future caller's
-        # atomic block, or ATOMIC_REQUESTS) must not leave the 800 ms cap behind.
-        before = self._statement_timeout()
-
-        with _bounded_attribution_lookup():
-            inside = self._statement_timeout()
-
-        self.assertEqual(inside, "800ms")
-        self.assertEqual(self._statement_timeout(), before)

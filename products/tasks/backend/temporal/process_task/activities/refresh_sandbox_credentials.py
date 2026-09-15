@@ -11,6 +11,7 @@ from products.tasks.backend.exceptions import (
     SandboxExecutionError,
     SandboxNotFoundError,
     SandboxNotRunningError,
+    SandboxRateLimitedError,
 )
 from products.tasks.backend.logic.services.sandbox import SandboxBase, get_sandbox_class_for_sandbox_id
 from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, Task, TaskRun
@@ -229,6 +230,8 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
                 increment_credential_refresh(credential.kind, "orphaned")
                 orphaned_kinds.append(credential.kind)
                 continue
+            except SandboxRateLimitedError:
+                raise
             except SandboxExecutionError as error:
                 if "path" in error.context and ctx.sandbox_backend == "modal":
                     verdict, probe = _probe_sandbox_wedge(sandbox)

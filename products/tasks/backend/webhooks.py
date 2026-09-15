@@ -284,7 +284,7 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         # Only trust the merge for the run that actually claims this PR URL. The pr_url backstop
         # above already covers branch-matched internal PRs, so requiring equality here keeps a
         # same-branch webhook for a different PR from marking this run's PR as merged.
-        if task_run and pr_url in claimed_pr_urls:
+        if task_run and isinstance(task_run.output, dict) and task_run.output.get("pr_url") == pr_url:
             _record_run_pr_merged(task_run)
 
     if action == "closed" and not merged:

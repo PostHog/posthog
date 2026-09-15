@@ -4,6 +4,7 @@ from typing import Any, TypeVar
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 
 import structlog
 import temporalio
@@ -25,7 +26,7 @@ from products.signals.backend.agent_runtime import STEP_RESEARCH, resolve_agent_
 from products.signals.backend.artefact_schemas import ArtefactContent, RelatedTo, SuggestedReviewers
 from products.signals.backend.auto_start import ReviewerContent
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
-from products.signals.backend.repo_corrections import WRONG_REPO_CONTENT_NEEDLE
+from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_CONTENT_NEEDLE, WRONG_REPO_CONTENT_NEEDLE
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
@@ -89,6 +90,10 @@ class RunAgenticReportOutput:
     # Resolved impact-metric payload, with the same replay-safe replace/clear/preserve semantics as
     # charts. The transition activity writes it with the matching title and summary.
     metrics: list[dict[str, Any]] | None = None
+    # Whether the rollout let this run author charts at all. Carried so telemetry can tell a run
+    # that chose not to chart apart from one that was never allowed to, which would otherwise read
+    # as the agent's charting rate moving on every rollout step. `None` predates the field.
+    charts_enabled: bool | None = None
 
 
 _ArtefactContentT = TypeVar("_ArtefactContentT", bound=BaseModel)
@@ -331,10 +336,11 @@ def _report_has_live_suggested_reviewers(report_id: str) -> bool:
 
 
 def _reviewer_selection_written_since(team_id: int, report_id: str, since: datetime) -> bool:
-    """Whether a reviewer superseded the run's repo selection after `since` — a wrong-repo
-    dismissal's correction or clear that landed while the run was in flight.
+    """Whether someone superseded the run's repo selection after `since` — a wrong-repo
+    dismissal's correction or clear, or a scout's `edit_report` correction, that landed while the
+    run was in flight.
 
-    Two shapes count. A person editing the selection directly (a repo_selection artefact through
+    Three shapes count. A person editing the selection directly (a repo_selection artefact through
     the artefacts API) carries a non-null `created_by`. A wrong-repo dismissal filed through the
     state API records its correction on a `dismissal` artefact under the request's attribution —
     which is null-`created_by` for an agent call, since the forwarded task id attributes the row and
@@ -343,14 +349,22 @@ def _reviewer_selection_written_since(team_id: int, report_id: str, since: datet
     false-positive on the activity's own retry (whose `repo_selection_as_of` does not advance past
     its first attempt) because the pipeline never writes `dismissal` artefacts — only the
     state-transition path does.
+
+    A scout repointing a live report through `edit_report` writes a repo_selection artefact under
+    its own task, so it carries a null `created_by` too and files no dismissal. It is matched on the
+    reason its content records, which only that write path sets. The run's own selection cannot
+    false-positive on it, because the pipeline never writes that reason.
     """
-    reviewer_edited_selection = SignalReportArtefact.objects.filter(
-        team_id=team_id,
-        report_id=report_id,
-        type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
-        created_at__gt=since,
-        created_by__isnull=False,
-    ).exists()
+    reviewer_edited_selection = (
+        SignalReportArtefact.objects.filter(
+            team_id=team_id,
+            report_id=report_id,
+            type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
+            created_at__gt=since,
+        )
+        .filter(Q(created_by__isnull=False) | Q(content__contains=SCOUT_REPOSITORY_CONTENT_NEEDLE))
+        .exists()
+    )
     if reviewer_edited_selection:
         return True
     return SignalReportArtefact.objects.filter(
@@ -472,19 +486,22 @@ async def _persist_agentic_report_artefacts(
         else ArtefactAttribution.system()
     )
     # Everything the run flagged as new gets persisted; the artefact type derives from each content
-    # model. Reviewers are derived from findings, so they're only re-persisted when a finding changed.
+    # model. The verification note is fresh output from the final turn of every actionable research
+    # run, so it is appended as a log entry rather than folded into the latest-wins research state.
+    # Reviewers are derived from findings, so they're only re-persisted when a finding changed.
     has_new_finding = any(isinstance(content, SignalFinding) for content in result.new_artefacts)
 
-    # A reviewer can rewrite the selection while this run is in flight (a wrong-repo dismissal
-    # correcting or clearing it). The run's value predates that decision, so persisting it would
-    # bury the reviewer's row (latest-wins), handing the rejected repository to the next run and
-    # to settle-time auto-start, which reads the report's current artefacts.
-    superseded_by_reviewer = repo_selection_as_of is not None and await database_sync_to_async(
+    # A reviewer or a scout can rewrite the selection while this run is in flight (a wrong-repo
+    # dismissal correcting or clearing it, or a scout repointing the report). The run's value
+    # predates that decision, so persisting it would bury the newer row (latest-wins), handing the
+    # rejected repository to the next run and to settle-time auto-start, which reads the report's
+    # current artefacts.
+    superseded_mid_run = repo_selection_as_of is not None and await database_sync_to_async(
         _reviewer_selection_written_since, thread_sensitive=False
     )(team_id, report_id, repo_selection_as_of)
-    if superseded_by_reviewer:
+    if superseded_mid_run:
         logger.info(
-            "signals repo selection persist skipped: a reviewer rewrote the selection mid-run",
+            "signals repo selection persist skipped: the selection was rewritten mid-run",
             report_id=report_id,
             team_id=team_id,
             repository=repo_selection.repository,
@@ -493,11 +510,13 @@ async def _persist_agentic_report_artefacts(
     artefacts = [
         *(
             []
-            if superseded_by_reviewer
+            if superseded_mid_run
             else [ArtefactDraft(content=repo_selection, attribution=repo_selection_attribution)]
         ),
         *(ArtefactDraft(content=content, attribution=research_attribution) for content in result.new_artefacts),
     ]
+    if result.verification_note is not None:
+        artefacts.append(ArtefactDraft(content=result.verification_note, attribution=research_attribution))
     if reviewers_content and has_new_finding:
         artefacts.append(
             ArtefactDraft(
@@ -764,6 +783,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             repository=repository,
             charts=charts_payload,
             metrics=metrics_payload,
+            charts_enabled=charts_enabled,
         )
     except Exception as error:
         logger.exception(

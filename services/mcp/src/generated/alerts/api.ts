@@ -140,7 +140,7 @@ export const AlertsCreateBody = () => zod.object({
         .string()
         .nullish()
         .describe(
-            "Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time. The current next_check_at stays unchanged. Future checks use the alert interval's existing scheduling behavior."
+            'Local time that starts alert checks in HH:MM format. Updating this value recalculates the next check. Set null to remove the custom start time.'
         ),
     config: zod
         .union([
@@ -1453,7 +1453,7 @@ export const AlertsPartialUpdateBody = () => zod.object({
         .string()
         .nullish()
         .describe(
-            "Local time that starts alert checks in HH:MM format. Updating this value changes checks after the already scheduled next_check_at. Set null to remove the custom start time. The current next_check_at stays unchanged. Future checks use the alert interval's existing scheduling behavior."
+            'Local time that starts alert checks in HH:MM format. Updating this value recalculates the next check. Set null to remove the custom start time.'
         ),
     config: zod
         .union([

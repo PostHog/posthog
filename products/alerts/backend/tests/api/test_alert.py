@@ -23,14 +23,12 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.alerts.backend.destinations import AlertDelivery, count_active_alert_destinations
-from products.alerts.backend.insight_alert_destinations import (
-    INSIGHT_ALERT_EVENT_IDS,
-    MAX_DESTINATIONS_PER_ALERT,
-    SLACK_TEMPLATE_ID,
-)
+from products.alerts.backend.facade.api import INSIGHT_ALERT_EVENT_IDS
+from products.alerts.backend.facade.contracts import AlertDelivery
+from products.alerts.backend.facade.destinations import MAX_DESTINATIONS_PER_ALERT, count_active_alert_destinations
+from products.alerts.backend.logic.insight_alert_destinations import SLACK_TEMPLATE_ID
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
-from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.facade.models import HogFunction
 from products.product_analytics.backend.facade.models import Insight
 
 TEST_DESTINATION_DELIVERY = AlertDelivery(
@@ -1276,17 +1274,13 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("real_time", "real_time"),
-            ("every_15_minutes", "every_15_minutes"),
-            ("hourly", "hourly"),
-            ("daily", "daily"),
-            ("weekly", "weekly"),
-            ("monthly", "monthly"),
+            ("every_15_minutes", "every_15_minutes", "2026-03-18T09:05:00+00:00"),
+            ("hourly", "hourly", "2026-03-18T09:35:00+00:00"),
         ]
     )
     @time_machine.travel("2026-03-18T09:00:00Z", tick=False)
-    def test_patch_schedule_start_time_keeps_the_current_next_check(
-        self, _name: str, calculation_interval: str
+    def test_patch_schedule_start_time_recalculates_the_next_check(
+        self, _name: str, calculation_interval: str, expected_next_check_at: str
     ) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.HIGH_FREQUENCY_ALERTS, "name": "High-frequency alerts"},
@@ -1318,10 +1312,12 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert response.json()["schedule_start_time"] == "08:35"
-        assert datetime.fromisoformat(response.json()["next_check_at"].replace("Z", "+00:00")) == scheduled_check
+        assert datetime.fromisoformat(
+            response.json()["next_check_at"].replace("Z", "+00:00")
+        ) == datetime.fromisoformat(expected_next_check_at)
 
     @time_machine.travel("2026-03-18T09:00:00Z", tick=False)
-    def test_patch_schedule_start_time_with_schedule_restriction_keeps_the_current_next_check(self) -> None:
+    def test_patch_schedule_start_time_with_schedule_restriction_recalculates_the_next_check(self) -> None:
         alert = self.client.post(
             f"/api/projects/{self.team.id}/alerts",
             {
@@ -1349,7 +1345,9 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         )
 
         assert response.status_code == status.HTTP_200_OK, response.content
-        assert datetime.fromisoformat(response.json()["next_check_at"].replace("Z", "+00:00")) == scheduled_check
+        assert datetime.fromisoformat(response.json()["next_check_at"].replace("Z", "+00:00")) == datetime(
+            2026, 3, 18, 9, 35, tzinfo=UTC
+        )
 
     def test_create_alert_with_schedule_restriction(self) -> None:
         creation_request = {
@@ -1935,7 +1933,7 @@ class TestAlertTestDelivery(APIBaseTest):
         assert AlertCheck.objects.filter(alert_configuration_id=self.alert["id"]).count() == 0
 
     @mock.patch("products.alerts.backend.presentation.views.alert.trigger_alert_hog_functions")
-    @mock.patch("products.alerts.backend.email_notifications.EmailMessage")
+    @mock.patch("products.alerts.backend.facade.email.EmailMessage")
     def test_sends_test_delivery_to_subscribed_users_without_a_destination(
         self, mock_email_message, mock_trigger
     ) -> None:
