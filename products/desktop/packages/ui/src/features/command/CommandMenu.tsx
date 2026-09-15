@@ -4,6 +4,7 @@ import {
   CaretLeftIcon,
   CaretRightIcon,
   ChartLineIcon,
+  ChatCircleDotsIcon,
   CubeIcon,
   DesktopIcon,
   EnvelopeSimpleIcon,
@@ -106,6 +107,7 @@ import { useSearchRows } from "@posthog/ui/features/command/useSearchRows";
 import { useTaskSearch } from "@posthog/ui/features/command/useTaskSearch";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
+import { useFeedbackStore } from "@posthog/ui/features/feedback/feedbackStore";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { useProvisioningStore } from "@posthog/ui/features/provisioning/store";
 import {
@@ -246,6 +248,7 @@ function PaletteQueryMirror({
   );
 }
 
+// oxlint-disable-next-line react-doctor/no-giant-component -- This PR only adds the feedback command.
 export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   const spacesLayout = useChannelsLayout();
   const openSettingsDialog = openSettings;
@@ -261,6 +264,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   const openBrowserTab = useOpenBrowserTab();
   const { theme, setTheme } = useThemeStore();
   const toggleLeftSidebar = useSidebarStore((state) => state.toggle);
+  const openFeedback = useFeedbackStore((state) => state.open);
   const view = useAppView();
   const setReviewMode = useReviewNavigationStore(
     (state) => state.setReviewMode,
@@ -337,12 +341,23 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   });
 
   useEffect(() => {
-    if (open) {
-      track(ANALYTICS_EVENTS.COMMAND_MENU_OPENED);
-    } else {
-      setQuery("");
-    }
+    if (open) track(ANALYTICS_EVENTS.COMMAND_MENU_OPENED);
   }, [open]);
+
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (!nextOpen) setQuery("");
+      onOpenChange(nextOpen);
+    },
+    [onOpenChange],
+  );
+
+  // The Dialog is not the only thing that closes the palette, so every internal
+  // close path goes through here and gets the same query reset.
+  const closeMenu = useCallback(
+    () => handleOpenChange(false),
+    [handleOpenChange],
+  );
 
   const themeOptions = useMemo<Command[]>(() => {
     const options: Command[] = [];
@@ -537,6 +552,15 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         shortcut: SHORTCUTS.TOGGLE_LEFT_SIDEBAR,
         onRun: toggleLeftSidebar,
       },
+      {
+        id: "send-feedback",
+        label: "Send feedback",
+        keywords: "report issue bug screenshot logs",
+        icon: <ChatCircleDotsIcon size={12} className="text-gray-11" />,
+        action: "send-feedback",
+        shortcut: SHORTCUTS.SEND_FEEDBACK,
+        onRun: () => openFeedback(),
+      },
       ...(reviewTaskId
         ? [
             {
@@ -683,6 +707,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     openSettingsDialog,
     closeSettingsDialog,
     toggleLeftSidebar,
+    openFeedback,
     openReviewPanel,
     reviewTaskId,
     openedTask,
@@ -812,10 +837,10 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   const [feedModalQuery, setFeedModalQuery] = useState<string | null>(null);
   const onSaveAsFeed = useCallback(
     (feedQuery: string) => {
-      onOpenChange(false);
+      closeMenu();
       setFeedModalQuery(feedQuery);
     },
-    [onOpenChange],
+    [closeMenu],
   );
 
   const [caret, setCaret] = useState(0);
@@ -941,15 +966,17 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
       (command) => currentCommands.get(command.id) ?? command,
     );
     const recentIds = new Set(recentItems.map((command) => command.id));
-    return [
-      { label: "Recent", items: recentItems },
-      ...baseSections
-        .map((section) => ({
-          ...section,
-          items: section.items.filter((command) => !recentIds.has(command.id)),
-        }))
-        .filter((section) => section.items.length > 0),
-    ];
+    const remainingSections = baseSections.reduce<CommandSection[]>(
+      (sections, section) => {
+        const items = section.items.filter(
+          (command) => !recentIds.has(command.id),
+        );
+        if (items.length > 0) sections.push({ ...section, items });
+        return sections;
+      },
+      [],
+    );
+    return [{ label: "Recent", items: recentItems }, ...remainingSections];
   }, [baseSections, query, recentCommands]);
 
   const paletteFilter = useCallback(
@@ -979,8 +1006,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
       channel_id: cmd.channelId,
     });
     openBrowserTab(cmd.href);
-    onOpenChange(false);
-    setQuery("");
+    closeMenu();
     return true;
   };
 
@@ -998,8 +1024,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     }
     cmd.onRun();
     if (cmd.keepOpen) return;
-    onOpenChange(false);
-    setQuery("");
+    closeMenu();
   };
 
   const onInputKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
@@ -1040,7 +1065,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent
           className="w-[720px] max-w-[90vw] gap-0 p-0"
           showCloseButton={false}

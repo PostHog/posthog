@@ -36,6 +36,10 @@
       "types": "./dist/file-icon.d.ts",
       "import": "./dist/file-icon.js"
     },
+    "./feedback-context": {
+      "types": "./dist/feedback-context.d.ts",
+      "import": "./dist/feedback-context.js"
+    },
     "./secure-storage": {
       "types": "./dist/secure-storage.d.ts",
       "import": "./dist/secure-storage.js"

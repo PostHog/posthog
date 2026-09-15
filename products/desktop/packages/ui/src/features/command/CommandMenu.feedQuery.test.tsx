@@ -149,6 +149,42 @@ describe("CommandMenu feed queries", () => {
     expect(
       await screen.findByText("Save search", { selector: "h2" }),
     ).toBeTruthy();
+    expect(
+      screen.getByPlaceholderText(/Search commands and tasks/),
+    ).toHaveValue("");
+  });
+
+  it("clears the query after a save closes the palette", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    const { rerender } = render(
+      <Theme>
+        <CommandMenu open onOpenChange={onOpenChange} />
+      </Theme>,
+    );
+
+    await user.type(
+      screen.getByPlaceholderText(/Search commands and tasks/),
+      "created-by:@me ",
+    );
+    await user.keyboard("{Meta>}s{/Meta}");
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+
+    // The parent owns `open`, so the Dialog never runs its own close handler.
+    rerender(
+      <Theme>
+        <CommandMenu open={false} onOpenChange={onOpenChange} />
+      </Theme>,
+    );
+    rerender(
+      <Theme>
+        <CommandMenu open onOpenChange={onOpenChange} />
+      </Theme>,
+    );
+
+    expect(
+      await screen.findByPlaceholderText(/Search commands and tasks/),
+    ).toHaveValue("");
   });
 
   it("shows a selected command in the recent section", async () => {
