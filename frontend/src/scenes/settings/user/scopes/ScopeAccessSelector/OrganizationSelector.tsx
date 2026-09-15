@@ -12,6 +12,7 @@ export const OrganizationSelector = ({
     <LemonInputSelect
         mode={mode}
         data-attr="organizations"
+        showChevron
         value={value}
         onChange={onChange}
         options={organizations.map((org) => createOrganizationOption(org)) ?? []}
