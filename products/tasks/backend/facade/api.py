@@ -1000,7 +1000,7 @@ def get_signal_report_implementation_runs(
             task__origin_product=Task.OriginProduct.SIGNAL_REPORT,
             task__deleted=False,
         )
-        .select_related("task")
+        .select_related("task", "task__created_by")
         .order_by("-created_at", "-id")
     ]
 
