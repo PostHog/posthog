@@ -110,10 +110,11 @@ class DrainConfig(dagster.Config):
         "call and returns the rest as pending, so more only adds re-sends.",
     )
     max_rows_per_request: int = pydantic.Field(
-        default=2000,
+        default=1000,
         description=f"Most dependent rows one personhog request may delete, between {STEP_FLOOR_ROWS} and "
         f"{REPLICA_MAX_ROWS}. Requests start at {STEP_START_ROWS} rows and grow toward this after runs of "
-        "successes; a timeout halves the step.",
+        "successes; a timeout halves the step. 1000 rows is the largest step that fits the router's 5 s "
+        "deadline at the measured tail cost per row.",
     )
     pause_ms: int = pydantic.Field(default=200, description="Pause after every personhog request.")
     latency_multiplier: float = pydantic.Field(
