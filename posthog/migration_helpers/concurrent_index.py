@@ -122,6 +122,24 @@ def _create_index_if_not_exists(schema_editor) -> Iterator[None]:
         schema_editor.sql_create_index_concurrently = original
 
 
+def _require_valid_index(schema_editor, index_name: str, op_name: str) -> None:
+    """Fail the migration when the CREATE did not leave a valid index behind.
+
+    `IF NOT EXISTS` matches on the relation name alone, so a relation that takes
+    the name after the pre-check turns the CREATE into a silent no-op. Django
+    would then record the migration while the index is missing or invalid, and
+    no later run would rebuild it. The raise leaves the migration unrecorded, so
+    the next run goes through the invalid-leftover recovery instead.
+    """
+    validity = _index_validity(schema_editor, index_name)
+    if validity != "valid":
+        raise RuntimeError(
+            f"[{op_name}] index {index_name!r} is {validity or 'missing'} after the concurrent build. "
+            "Another writer most likely took the name between the check and the create. "
+            "The migration is not recorded; run it again to rebuild the index."
+        )
+
+
 def _log_and_drop_invalid_index(schema_editor, index_name: str, op_name: str) -> None:
     """Drop an index left invalid by a prior interrupted CONCURRENTLY build.
 
@@ -348,6 +366,9 @@ class SafeAddIndexConcurrently(AddIndexConcurrently):
     - skips when a valid index of that name already exists, and emits
       `IF NOT EXISTS` so a retry is safe even when the index appears between
       the check and the CREATE,
+    - reads the catalog again after the CREATE and fails the migration when the
+      name does not hold a valid index, so a build that `IF NOT EXISTS` skipped
+      cannot be recorded as applied,
     - drops and rebuilds an indisvalid = false leftover from a prior
       interrupted build, logging a breadcrumb so the recovery is visible.
 
@@ -377,6 +398,7 @@ class SafeAddIndexConcurrently(AddIndexConcurrently):
             _log_and_drop_invalid_index(schema_editor, self.index.name, type(self).__name__)
         with _create_index_if_not_exists(schema_editor):
             schema_editor.add_index(model, self.index, concurrently=True)
+        _require_valid_index(schema_editor, self.index.name, type(self).__name__)
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state) -> None:
         self._ensure_not_in_transaction(schema_editor)
@@ -425,3 +447,4 @@ class SafeRemoveIndexConcurrently(RemoveIndexConcurrently):
         index = to_model_state.get_index_by_name(self.name)
         with _create_index_if_not_exists(schema_editor):
             schema_editor.add_index(model, index, concurrently=True)
+        _require_valid_index(schema_editor, self.name, type(self).__name__)
