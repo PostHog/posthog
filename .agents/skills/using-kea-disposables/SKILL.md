@@ -29,7 +29,7 @@ cache.disposables.add(
 )
 ```
 
-Canonical example (`frontend/src/layout/navigation/noEventsBannerLogic.ts:14-21`):
+Canonical example — the `afterMount` poll timer in `frontend/src/layout/navigation/noEventsBannerLogic.ts`:
 
 ```ts
 afterMount(({ actions, cache }) => {
@@ -113,9 +113,9 @@ A callback that already fired, or one whose cleanup cannot stop it (an in-flight
 
 ## Examples in the codebase
 
-**Unnamed `setInterval` poller** — see the canonical example in [The pattern](#the-pattern) (`frontend/src/layout/navigation/noEventsBannerLogic.ts:14-21`).
+**Unnamed `setInterval` poller** — see the canonical example in [The pattern](#the-pattern).
 
-**Keyed intervals with `dispose()` on hover-end / pause** — `frontend/src/lib/components/LiveUserCount/liveUserCountLogic.ts:94-118`
+**Keyed intervals with `dispose()` on hover-end / pause** — `frontend/src/lib/components/LiveUserCount/liveUserCountLogic.ts`, search `'nowInterval'`
 
 ```ts
 setIsHovering: ({ isHovering }) => {
@@ -141,7 +141,7 @@ resumeStream: () => {
 },
 ```
 
-**`setTimeout` with key for spam-replacement** — `frontend/src/scenes/session-recordings/player/sessionRecordingPlayerLogic.ts:1837-1846`
+**`setTimeout` with key for spam-replacement** — `frontend/src/scenes/session-recordings/player/sessionRecordingPlayerLogic.ts`, search `'seekIndicatorTimer'`
 
 ```ts
 showSeekIndicator: () => {
@@ -153,7 +153,7 @@ showSeekIndicator: () => {
 },
 ```
 
-**Multiple keyed window listeners in one `afterMount`** — `frontend/src/toolbar/bar/toolbarLogic.ts:655-688`
+**Multiple keyed window listeners in one `afterMount`** — `frontend/src/toolbar/bar/toolbarLogic.ts`, search `'clickListener'`
 
 ```ts
 cache.disposables.add(() => {
@@ -174,7 +174,7 @@ cache.disposables.add(() => {
 }, 'popstateListener')
 ```
 
-**`visibilitychange` listener with `pauseOnPageHidden: false`** — `frontend/src/scenes/product-tours/productTourLogic.ts:647-663`
+**`visibilitychange` listener with `pauseOnPageHidden: false`** — `frontend/src/scenes/product-tours/productTourLogic.ts`, search `'toolbarModalVisibility'`
 
 ```ts
 openToolbarModal: () => {
@@ -197,7 +197,7 @@ closeToolbarModal: () => {
 },
 ```
 
-**`MediaQueryList` listener in `events(afterMount)`** — `frontend/src/layout/navigation-3000/themeLogic.ts:108-118`
+**`MediaQueryList` listener in `events(afterMount)`** — `frontend/src/lib/logic/themeLogic.ts`, search `'prefersColorSchemeListener'`
 
 ```ts
 events(({ cache, actions }) => ({
@@ -217,7 +217,7 @@ events(({ cache, actions }) => ({
 
 Bare `cache.<thing>` + `beforeUnmount` cleanup is the pattern this plugin replaces. Convert these on sight.
 
-**Before** (`frontend/src/lib/components/HedgehogMode/hedgehogModeLogic.ts:205-215`):
+**Before** (`frontend/src/lib/components/HedgehogMode/hedgehogModeLogic.ts`, search `cache.syncInterval`):
 
 ```ts
 afterMount(({ actions, cache }) => {
@@ -244,5 +244,4 @@ afterMount(({ actions, cache }) => {
 
 Other open conversion targets:
 
-- `frontend/src/scenes/welcome/welcomeDialogLogic.ts:325-345` — bare `window.addEventListener('storage', ...)` with `cache.storageHandler` stashed manually
-- `products/signals/frontend/inbox/inboxSceneLogic.ts:260-267` — bare `setInterval` cleared by hand on every state change
+- `frontend/src/scenes/welcome/welcomeDialogLogic.ts` — bare `window.addEventListener('storage', ...)` with `cache.storageHandler` stashed manually
