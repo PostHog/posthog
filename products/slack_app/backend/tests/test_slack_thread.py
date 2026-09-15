@@ -61,6 +61,35 @@ class TestSlackThreadHandler(SimpleTestCase):
         assert "<@U094TR1E59V>" in streamed
         assert "Radu Raicea" not in streamed
 
+    @parameterized.expand(
+        [
+            ("surrounding_prose", 'The <insight id="9pQx3">checkout funnel</insight> dropped.', "The  dropped."),
+            ("only_element", '<hogql title="Hidden">SELECT 1</hogql>', ""),
+        ]
+    )
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_stop_status_stream_strips_object_tags(
+        self, _name: str, text: str, expected: str, mock_get_client: MagicMock
+    ) -> None:
+        client = mock_get_client.return_value
+        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
+        SlackThreadHandler(context).stop_status_stream(ts="1234.9999", final_markdown=text)
+        chunks = [chunk for call in client.chat_appendStream.call_args_list for chunk in call.kwargs["chunks"]]
+        assert "".join(chunk.get("text", "") for chunk in chunks) == expected
+        if not expected:
+            client.chat_appendStream.assert_not_called()
+        client.chat_stopStream.assert_called_once()
+
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_streamed_label_cannot_create_mentions(self, mock_get_client: MagicMock) -> None:
+        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
+        SlackThreadHandler(context).stop_status_stream(
+            ts="1234.9999",
+            final_markdown='<insight title="&lt;!channel&gt;">Example</insight> and <!here>',
+        )
+        chunks = mock_get_client.return_value.chat_appendStream.call_args.kwargs["chunks"]
+        assert "".join(chunk.get("text", "") for chunk in chunks) == " and <!here>"
+
     @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value=None)
     @patch.object(SlackThreadHandler, "_get_client")
     def test_progress_message_carries_only_the_logs_button(self, mock_get_client, _mock_find_progress):
@@ -660,8 +689,8 @@ class TestMarkdownAnswerBlocks(SimpleTestCase):
     def test_a_rejected_markdown_block_falls_back_to_plain_text_without_looping(
         self, error_code: str, mock_get_client, mock_get_integration
     ) -> None:
-        # Under the gate every answer carries a block, and the relay has already claimed the
-        # message, so a rejection code this branch does not know loses the answer for good.
+        # Every answer carries a block, and the relay has already claimed the message, so a
+        # rejection code this branch does not know loses the answer for good.
         # Recovering by calling post_thread_message again would rebuild the same markdown
         # block, so a rejection Slack repeats would recurse until the stack ran out.
         mock_client = MagicMock()
@@ -675,9 +704,3 @@ class TestMarkdownAnswerBlocks(SimpleTestCase):
         retry = mock_client.chat_postMessage.call_args_list[1].kwargs
         assert retry["text"] == "the answer"
         assert not retry.get("blocks")
-
-    @patch.object(SlackThreadHandler, "_get_integration", side_effect=Integration.DoesNotExist)
-    def test_the_gate_closes_rather_than_raising_when_the_integration_is_gone(self, _mock_get_integration) -> None:
-        # The relay reads this gate outside any try block of its own, so a raise here would fail
-        # the activity and make Temporal replay a relay that can never succeed.
-        assert self._handler().renders_markdown() is False

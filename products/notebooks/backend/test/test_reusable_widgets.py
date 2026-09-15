@@ -1020,6 +1020,7 @@ class TestReusableWidgets(APIBaseTest):
             patch("products.tasks.backend.facade.api.ensure_personal_channel_id", return_value=uuid4()),
             patch(
                 "products.canvas.backend.notebook_integration.create_notebook_canvas",
+                autospec=True,
                 return_value=forked_canvas_id,
             ),
             patch(

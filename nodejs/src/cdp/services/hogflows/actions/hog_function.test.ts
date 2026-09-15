@@ -1,6 +1,7 @@
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime } from 'luxon'
+import { register } from 'prom-client'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
@@ -28,6 +29,7 @@ import { EmailService } from '../../messaging/email.service'
 import { EmailTrackingCodeSigner } from '../../messaging/helpers/tracking-code'
 import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
 import { RecipientTokensService } from '../../messaging/recipient-tokens.service'
+import { CdpUsageReporterService } from '../../usage/cdp-usage-reporter.service'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
 import { findActionByType } from '../hogflow-utils'
 import { HogFunctionHandler } from './hog_function'
@@ -476,14 +478,23 @@ describe('HogFunctionHandler', () => {
     // The billing kind is the whole point of the per-channel handlers: push bills at its own rate
     // (roughly half of email), so a completed invocation must emit exactly one billable_invocation
     // carrying the handler's billing type — never fall back to another channel's kind.
-    it.each(['fetch', 'email', 'push'] as const)(
+    it.each([
+        ['fetch', 'workflow_billable_invocations'],
+        ['email', 'workflow_emails_sent'],
+        ['push', 'workflow_push_sent'],
+        ['sms', 'workflow_sms_sent'],
+    ] as const)(
         'emits a single billable_invocation with %s kind matching the handler billing type',
-        async (billingType) => {
+        async (billingType, usageKey) => {
+            const usageReporter: Pick<CdpUsageReporterService, 'reportBillableInvocation'> = {
+                reportBillableInvocation: jest.fn(),
+            }
             const handler = new HogFunctionHandler(
                 mockHogFlowFunctionsService,
                 mockRecipientPreferencesService,
                 mockEmailValidationService,
-                billingType
+                billingType,
+                usageReporter
             )
 
             const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
@@ -507,6 +518,9 @@ describe('HogFunctionHandler', () => {
                 metric_name: 'billable_invocation',
                 count: 1,
             })
+            expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith(
+                expect.objectContaining({ teamId: team.id, usageKey })
+            )
         }
     )
 
@@ -834,7 +848,13 @@ describe('HogFunctionHandler', () => {
             let executeSpy: jest.SpyInstance
             const deadlineAt = DateTime.now().plus({ hours: 1 }).toISO()!
 
+            const finishedCount = async (outcome: string): Promise<number> => {
+                const metric = await register.getSingleMetric('cdp_hogflow_awaited_step_finished')!.get()
+                return metric.values.find((v) => v.labels.outcome === outcome)?.value ?? 0
+            }
+
             beforeEach(() => {
+                register.resetMetrics()
                 executeSpy = jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions')
                 invocation.state.currentAction!.awaitingResume = {
                     key: dispatchKey,
@@ -891,6 +911,7 @@ describe('HogFunctionHandler', () => {
                 })
                 expect(invocationResult.invocation.state.currentAction?.awaitingResume).toBeUndefined()
                 expect(invocationResult.invocation.state.currentAction?.resumeResult).toBeUndefined()
+                expect(await finishedCount('completed')).toBe(1)
             })
 
             it.each([4000, 4700])('fits the resumed result with %s bytes of existing variables', async (usedBytes) => {
@@ -947,6 +968,7 @@ describe('HogFunctionHandler', () => {
                     error_message: 'sandbox crashed',
                 })
                 expect(executeSpy).not.toHaveBeenCalled()
+                expect(await finishedCount('failed')).toBe(1)
             })
 
             it('ignores a wake for an earlier visit and keeps waiting', async () => {
@@ -969,6 +991,7 @@ describe('HogFunctionHandler', () => {
                     .toISO()!
 
                 await expect(execute()).rejects.toThrow('Timed out waiting for the task to finish')
+                expect(await finishedCount('timed_out')).toBe(1)
             })
         })
     })

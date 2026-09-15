@@ -115,6 +115,43 @@ def resolve_user_mentions_text(
     return resolved
 
 
+# A `&lt;` that would begin a mention (`<@`) or broadcast (`<!`) token stays escaped:
+# decoded user text must never mint a token that downstream mention handling or the
+# outbound relay could turn into a real ping.
+_RE_DECODABLE_LT = re.compile(r"&lt;(?![@!])")
+
+
+def decode_slack_entities(text: str) -> str:
+    """Decode the three entities Slack escapes in message text: `&`, `<`, `>`.
+
+    Slack escapes only these three
+    (https://docs.slack.dev/messaging/formatting-message-text#escaping), so three
+    targeted replaces rather than `html.unescape`, which would also decode entities
+    the user typed literally. `&amp;` decodes last so a user-typed literal `&lt;`
+    (wire form `&amp;lt;`) comes out as `&lt;` instead of double-decoding to `<`.
+    """
+    text = _RE_DECODABLE_LT.sub("<", text)
+    return text.replace("&gt;", ">").replace("&amp;", "&")
+
+
+def _resolve_and_decode(
+    slack: SlackIntegration,
+    integration: Integration,
+    text: str,
+    *,
+    strip_bot_user_id: str | None = None,
+) -> str:
+    """Resolve mentions, then decode escaped entities: the one order that is safe.
+
+    Mention resolution must run first so its regex only ever sees genuine
+    wire-format tokens; the decode guard then keeps user-typed text from minting
+    new ones behind it. Every inbound path goes through here so no path can
+    apply one step without the other.
+    """
+    resolved = resolve_user_mentions_text(slack, integration, text, strip_bot_user_id=strip_bot_user_id)
+    return decode_slack_entities(resolved)
+
+
 def decode_slack_event_text(slack: SlackIntegration, integration: Integration, text: str) -> str:
     """Strip the bot's own self-mention from a Slack event and label the rest for the agent.
 
@@ -123,9 +160,13 @@ def decode_slack_event_text(slack: SlackIntegration, integration: Integration, t
     `<@U…>` reference with a `|displayname` label so the agent can echo the
     token verbatim to ping the user back. Centralised here so a new trigger
     handler can't drift back into the original mention-eating bug.
+
+    Also decodes Slack's escaped entities, because this text feeds task titles and
+    descriptions that render in the PostHog UI, where an undecoded `&gt;` shows up
+    literally.
     """
     bot_user_id = get_cached_bot_user_id(slack, integration)
-    return resolve_user_mentions_text(slack, integration, text, strip_bot_user_id=bot_user_id).strip()
+    return _resolve_and_decode(slack, integration, text, strip_bot_user_id=bot_user_id).strip()
 
 
 def labeled_mentions_to_display_names(text: str) -> str:
@@ -153,6 +194,70 @@ def normalize_labeled_mentions_to_bare(text: str) -> str:
     broadcast/subteam refs (`<!…>`), and URL links (`<https://…|label>`) keep their labels.
     """
     return _RE_LABELED_USER_MENTION.sub(r"<@\1>", text)
+
+
+# Object tags are the agent's way of citing a PostHog object inline:
+# `<insight id="9pQx3">checkout funnel</insight>`, `<hogql label="signups today">SELECT …</hogql>`,
+# `<replay id="…" display="block"/>`. The desktop app turns them into chips and chart cards.
+# Slack has no renderer for them, so the markup reaches the reader as literal text.
+# Kinds and aliases mirror `OBJECT_KINDS` in
+# products/desktop/packages/ui/src/utils/objectKinds.ts — an unlisted tag name stays literal,
+# the same way the desktop parser leaves it alone.
+_OBJECT_TAG_KINDS = frozenset(
+    {
+        "insight",
+        "hogql",
+        "dashboard",
+        "error",
+        "replay",
+        "flag",
+        "experiment",
+        "survey",
+        "ticket",
+        "report",
+        "trace",
+        "eval",
+        "event",
+        "cohort",
+        "action",
+        "person",
+        "session-replay",
+        "recording",
+        "feature-flag",
+        "feature_flag",
+        "sql",
+    }
+)
+_RE_OBJECT_TAG = re.compile(r"""<(\/?)([a-z][\w-]*)(?:\s+[a-z][\w-]*\s*=\s*(?:"[^"]*"|'[^']*'))*\s*(\/?)>""")
+
+
+def strip_object_tags(text: str) -> str:
+    pieces: list[str] = []
+    cursor = 0
+    active_kind: str | None = None
+    depth = 0
+    for tag in _RE_OBJECT_TAG.finditer(text):
+        closing, kind, self_closing = tag.groups()
+        if kind not in _OBJECT_TAG_KINDS:
+            continue
+        if active_kind is not None:
+            if kind == active_kind:
+                if closing:
+                    depth -= 1
+                elif not self_closing:
+                    depth += 1
+                if depth == 0:
+                    active_kind = None
+                    cursor = tag.end()
+            continue
+        pieces.append(text[cursor : tag.start()])
+        cursor = tag.end()
+        if not closing and not self_closing:
+            active_kind = kind
+            depth = 1
+    if active_kind is None:
+        pieces.append(text[cursor:])
+    return "".join(pieces)
 
 
 def flatten_block_text(node: Any) -> list[str]:
@@ -543,7 +648,7 @@ def collect_thread_messages(
             SlackThreadMessage(
                 user=username,
                 user_id=user_id or "",
-                text=resolve_user_mentions_text(slack, integration, extract_message_text(msg)),
+                text=_resolve_and_decode(slack, integration, extract_message_text(msg)),
                 ts=msg.get("ts") or "",
                 files_json=encode_slack_file_refs(parse_slack_file_refs(msg.get("files"))),
             )

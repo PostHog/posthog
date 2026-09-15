@@ -546,7 +546,6 @@ def fork_reusable_widget(
             user_id=user.id,
             channel_id=channel_id,
             name=fork_name,
-            context=f"Forked from reusable widget {instance.widget.id}",
         )
         prepared_source = canvas_facade.prepare_notebook_canvas_source(
             team_id=notebook.team_id,

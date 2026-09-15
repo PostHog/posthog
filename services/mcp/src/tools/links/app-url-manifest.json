@@ -189,6 +189,11 @@
         "params": [],
         "scope": "project"
     },
+    "aiTask": {
+        "template": "/ai",
+        "params": [],
+        "scope": "project"
+    },
     "alert": {
         "template": "/alerts",
         "params": [],
@@ -282,6 +287,11 @@
     "codeChannelLink": {
         "template": "/code/channel/{channelId}",
         "params": ["channelId"],
+        "scope": "project"
+    },
+    "codeLoopLink": {
+        "template": "/code/loop/{loopId}",
+        "params": ["loopId"],
         "scope": "project"
     },
     "codeReview": {

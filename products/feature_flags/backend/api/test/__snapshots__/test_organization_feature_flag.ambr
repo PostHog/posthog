@@ -1038,7 +1038,8 @@
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.5
   '''
   SELECT "posthog_team"."id",
-         "posthog_team"."organization_id"
+         "posthog_team"."organization_id",
+         "posthog_team"."project_id"
   FROM "posthog_team"
   WHERE "posthog_team"."organization_id" IN ('00000000-0000-0000-0000-000000000000'::uuid)
   '''
@@ -1906,7 +1907,8 @@
 # name: TestOrganizationFeatureFlagGet.test_get_feature_flag_success.5
   '''
   SELECT "posthog_team"."id",
-         "posthog_team"."organization_id"
+         "posthog_team"."organization_id",
+         "posthog_team"."project_id"
   FROM "posthog_team"
   WHERE "posthog_team"."organization_id" IN ('00000000-0000-0000-0000-000000000000'::uuid)
   '''
