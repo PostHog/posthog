@@ -17,7 +17,7 @@ export function ModelNameLink({ node }: { node: DataModelingNode }): JSX.Element
             to={endpointModelUrl(node.name)}
             title={
                 <>
-                    {endpointModel.endpointName}
+                    <span className="whitespace-nowrap">{endpointModel.endpointName}</span>
                     <Tooltip title={`Version ${endpointModel.version} of this endpoint`}>
                         <LemonTag type="muted" size="small">
                             v{endpointModel.version}
