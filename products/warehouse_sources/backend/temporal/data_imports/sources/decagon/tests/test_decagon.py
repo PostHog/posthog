@@ -574,18 +574,40 @@ class TestArticleTables:
         assert len(sent_params) == 3
         assert [[r["id"] for r in b] for b in batches] == [[1, 2], [3], [4]]
 
-    def test_page_contributing_nothing_new_ends_the_walk(self) -> None:
+    @parameterized.expand(
+        [
+            ("identical_rows", [{"id": 1}, {"id": 2}]),
+            ("same_ids_edited_bodies", [{"id": 1, "content": "edited"}, {"id": 2, "content": "edited"}]),
+        ]
+    )
+    def test_repeated_page_ends_the_walk(self, _name: str, repeat: list[dict[str, Any]]) -> None:
         # A server that ignores the page param would otherwise repeat the same page
-        # forever without the kept-row count ever reaching the total.
+        # forever without the kept-row count ever reaching the total. An article edited
+        # between the two fetches is still the same page.
         manager = _fresh_manager()
         responses = [
             _make_response({"articles": [{"id": 1}, {"id": 2}], "total": 10}),
-            _make_response({"articles": [{"id": 1}, {"id": 2}], "total": 10}),
+            _make_response({"articles": repeat, "total": 10}),
         ]
         sent_params, batches = _drive_rows(manager, responses, endpoint="articles")
 
         assert len(sent_params) == 2
         assert [[r["id"] for r in b] for b in batches] == [[1, 2]]
+
+    def test_duplicate_only_page_does_not_end_the_walk(self) -> None:
+        # Rows shift pages as the catalog mutates mid-walk, so a whole page can carry only
+        # articles an earlier page already yielded. Ending there drops every later page
+        # while the sync still reports success.
+        manager = _fresh_manager()
+        responses = [
+            _make_response({"articles": [{"id": 1}, {"id": 2}], "total": 3}),
+            _make_response({"articles": [{"id": 2}, {"id": 1}], "total": 3}),
+            _make_response({"articles": [{"id": 3}], "total": 3}),
+        ]
+        sent_params, batches = _drive_rows(manager, responses, endpoint="articles")
+
+        assert len(sent_params) == 3
+        assert [[r["id"] for r in b] for b in batches] == [[1, 2], [3]]
 
     def test_rows_are_read_from_the_response_only_list_when_the_configured_key_is_absent(self) -> None:
         # A renamed envelope key otherwise reads as an empty page: the walk ends on the

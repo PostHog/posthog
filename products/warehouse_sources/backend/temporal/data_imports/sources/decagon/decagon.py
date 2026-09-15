@@ -312,6 +312,8 @@ def get_rows(
 
     saw_rows = False
     reported_total: Any = None
+    # Identity of the page fetched last ("page" mode), for the repeat guard in that branch.
+    previous_page_identity: Optional[list[Any]] = None
 
     while True:
         params: dict[str, str] = dict(config.extra_params)
@@ -392,15 +394,39 @@ def get_rows(
             # shifted pages mid-walk arrives twice but counts once toward the server's
             # unique total, so counting raw items could reach the total a page early and
             # drop the final page. Counting kept rows also stays exact if the server caps
-            # the requested page size. A page that contributes nothing new cannot make
-            # progress against the total, so it ends the walk rather than spinning on a
-            # server that ignores the page param. A missing or malformed total falls back
-            # to short-page termination, the only end signal left besides an empty page.
+            # the requested page size. A missing or malformed total falls back to
+            # short-page termination, the only end signal left besides an empty page.
             rows_walked += len(fresh)
+            # A server that ignores the `page` param serves page 1 forever, so the total
+            # alone cannot end the walk. The guard compares page identity, not whether the
+            # page kept new rows: a page whose rows were all seen earlier can still be
+            # followed by pages of new rows, and stopping there truncates the table while
+            # the sync reports success. Primary keys identify a page where the endpoint has
+            # them, so a repeat with a row edited in place still reads as a repeat.
+            page_identity = (
+                [tuple(item[k] for k in config.primary_keys) for item in items]
+                if config.primary_keys is not None
+                else items
+            )
+            served_same_page = page_identity == previous_page_identity
+            previous_page_identity = page_identity
+            if served_same_page:
+                # The guard ends the walk here, so the table can come out short while the
+                # sync reports success. A warning rather than a raise, because the repeat
+                # also happens on a complete walk: a server that clamps an out-of-range
+                # page to the last page repeats that page whenever rows were deleted
+                # mid-walk, and failing the sync there would lose a table that is correct.
+                logger.warning(
+                    f"Decagon: {endpoint} served page {page} with the same rows as the page before it, so the "
+                    f"walk ended after {rows_walked} kept rows (reported total: {total}). If the synced row "
+                    f"count looks truncated, check the export pagination contract."
+                )
             if isinstance(total, int | float):
-                exhausted = not fresh or rows_walked >= total
+                exhausted = not items or served_same_page or rows_walked >= total
             else:
-                exhausted = not items or (config.page_size is not None and len(items) < config.page_size)
+                exhausted = (
+                    not items or served_same_page or (config.page_size is not None and len(items) < config.page_size)
+                )
             if fresh:
                 yield fresh
                 if not exhausted:
