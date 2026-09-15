@@ -11,7 +11,7 @@ from temporalio.testing import ActivityEnvironment
 from posthog.schema import AlertCalculationInterval
 
 from posthog.models import Team
-from posthog.temporal.alerts.activities import retrieve_due_alerts
+from posthog.temporal.alerts.activities import _RetrievedAlerts, retrieve_due_alerts
 from posthog.temporal.alerts.types import ScheduleDueAlertChecksWorkflowInputs
 from posthog.temporal.tests.test_alerts_activities import _create_alert
 
@@ -142,8 +142,8 @@ async def test_retrieve_due_alerts_records_capacity_and_selected_alert_counters(
     environment = ActivityEnvironment()
     polled_at = datetime(2026, 9, 10, 12, 0, tzinfo=UTC)
 
-    async def fake_get_alerts() -> tuple[list[MagicMock], int, datetime | None, datetime]:
-        return [MagicMock()] * 9, 9, None, polled_at
+    async def fake_get_alerts() -> _RetrievedAlerts:
+        return _RetrievedAlerts(alerts=[MagicMock()] * 9, due_count=9, oldest_due_at=None, polled_at=polled_at)
 
     with (
         patch(
@@ -178,8 +178,8 @@ async def test_retrieve_due_alerts_succeeds_when_metric_recording_fails(failing_
     expected_alerts = [MagicMock()]
     polled_at = datetime(2026, 9, 10, 12, 0, tzinfo=UTC)
 
-    async def fake_get_alerts() -> tuple[list[MagicMock], int, datetime | None, datetime]:
-        return expected_alerts, 1, None, polled_at
+    async def fake_get_alerts() -> _RetrievedAlerts:
+        return _RetrievedAlerts(alerts=expected_alerts, due_count=1, oldest_due_at=None, polled_at=polled_at)
 
     record_due_metrics = MagicMock()
     get_metric_meter = MagicMock(return_value=MagicMock(spec=MetricMeter))
