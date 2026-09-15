@@ -881,6 +881,31 @@ class TestGitHubIntegrationModel(BaseTest):
         assert result["success"] is False
         assert result["status_code"] == 422
 
+    @parameterized.expand(
+        [
+            ("assignable", 204, {"success": True, "assignable": True}),
+            ("not_assignable", 404, {"success": True, "assignable": False}),
+        ]
+    )
+    def test_is_assignable_reads_the_assignees_endpoint(self, _name: str, status_code: int, expected: dict):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        with patch.object(
+            github, "_installation_authenticated_get", return_value=MagicMock(status_code=status_code)
+        ) as mock_get:
+            result = github.is_assignable("PostHog/posthog", "alice")
+        assert result == expected
+        assert mock_get.call_args.args[0] == "https://api.github.com/repos/PostHog/posthog/assignees/alice"
+
+    def test_is_assignable_reports_a_github_error(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=403, text="Resource not accessible by integration")
+        with patch.object(github, "_installation_authenticated_get", return_value=mock_response):
+            result = github.is_assignable("PostHog/posthog", "alice")
+        assert result["success"] is False
+        assert result["status_code"] == 403
+
     def test_add_pull_request_assignees_from_url_parses_and_posts(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         github = GitHubIntegration(integration)

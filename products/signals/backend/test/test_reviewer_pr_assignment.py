@@ -17,6 +17,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.report_assignments import (
     claim_report,
+    claim_report_for_task,
     sync_task_pull_request_to_assignments,
     update_assignments_for_pull_request,
 )
@@ -31,6 +32,12 @@ from products.signals.backend.task_run_artefacts import record_implementation_ta
 from products.tasks.backend.models import Task, TaskRun
 
 PR_URL = "https://github.com/PostHog/posthog/pull/123"
+
+
+@pytest.fixture(autouse=True)
+def dri_flag():
+    with patch("products.signals.backend.reviewer_pr_assignment.feature_enabled_or_false", return_value=False) as flag:
+        yield flag
 
 
 @pytest.fixture
@@ -375,3 +382,134 @@ class TestPullRequestLinkingQueuesAssignment:
         )
 
         self.mock_delay.assert_called_once_with(team_id=team.id, report_id=str(report.id), pr_url=PR_URL)
+
+
+class TestDirectlyResponsibleIndividual:
+    @pytest.fixture(autouse=True)
+    def _flag_on(self, dri_flag):
+        dri_flag.return_value = True
+
+    def _setup(self, org, team, reviewers: list[str], *, opted_in: tuple[str, ...] = ()) -> tuple[SignalReport, dict]:
+        users = {
+            login: _make_reviewer(org, login, opted_in=login in opted_in) for login in ("alice", "bob", "carol", "dave")
+        }
+        report = _make_report(team)
+        rows = [
+            {"user_uuid": str(users[entry.removeprefix("uuid:")].uuid), "github_login": None}
+            if entry.startswith("uuid:")
+            else {"github_login": entry}
+            for entry in reviewers
+        ]
+        SignalReportArtefact.objects.create(
+            team=team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps(rows),
+        )
+        return report, users
+
+    def _assign(self, team, report, github: MagicMock) -> list[list[str]]:
+        with patch(
+            "products.signals.backend.reviewer_pr_assignment.GitHubIntegration.first_for_team_repository",
+            return_value=github,
+        ):
+            assign_reviewers_to_pull_request(team_id=team.id, report_id=str(report.id), pr_url=PR_URL)
+        return [call.args[2] for call in github.add_pull_request_assignees.call_args_list]
+
+    def _github(self, *, existing_assignees: list[str], assignable: set[str] | None) -> MagicMock:
+        github = _open_pr_github()
+        github.get_pull_request.return_value = {
+            "success": True,
+            "state": "open",
+            "merged": False,
+            "assignees": existing_assignees,
+        }
+        github.is_assignable.side_effect = lambda _repo, login: {
+            "success": True,
+            "assignable": assignable is None or login in assignable,
+        }
+        return github
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        ("reviewers", "claimant", "expected_owner"),
+        [
+            (["alice", "bob"], None, "alice"),
+            (["alice"], "user", "carol"),
+            (["alice"], "task", "carol"),
+            (["uuid:bob", "alice"], None, "bob"),
+            (["stranger", "bob"], None, "bob"),
+            ([], None, None),
+        ],
+        ids=[
+            "top_reviewer",
+            "user_claimant_first",
+            "task_claimant_is_its_creator",
+            "reviewer_stored_by_uuid",
+            "non_member_skipped",
+            "nobody_to_assign",
+        ],
+    )
+    def test_the_owner_is_the_most_responsible_member(
+        self, org_and_team, reviewers: list[str], claimant: str | None, expected_owner: str | None
+    ):
+        org, team = org_and_team
+        report, users = self._setup(org, team, reviewers)
+        if claimant == "user":
+            claim_report(
+                report=report,
+                actor=ArtefactAttribution.from_user(users["carol"].id),
+                user=users["carol"],
+                was_impersonated=False,
+            )
+        elif claimant == "task":
+            task = Task.objects.create(
+                team=team, title="Implementation", description="", origin_product="signals", created_by=users["carol"]
+            )
+            claim_report_for_task(team_id=team.id, report_id=str(report.id), task_id=str(task.id))
+
+        calls = self._assign(team, report, self._github(existing_assignees=[], assignable=None))
+
+        assert calls == ([[expected_owner]] if expected_owner else [])
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        ("opted_in", "existing_assignees", "assignable", "expected_calls"),
+        [
+            ((), [], {"bob"}, [["bob"]]),
+            ((), [], set(), []),
+            (("bob",), [], None, [["bob"]]),
+            ((), ["someone"], None, []),
+        ],
+        ids=[
+            "unassignable_candidate_moves_on",
+            "nobody_assignable",
+            "opted_in_reviewer_is_enough",
+            "already_assigned",
+        ],
+    )
+    def test_a_pull_request_never_gets_a_second_owner(
+        self,
+        org_and_team,
+        opted_in: tuple[str, ...],
+        existing_assignees: list[str],
+        assignable: set[str] | None,
+        expected_calls: list[list[str]],
+    ):
+        org, team = org_and_team
+        report, _ = self._setup(org, team, ["alice", "bob"], opted_in=opted_in)
+
+        calls = self._assign(team, report, self._github(existing_assignees=existing_assignees, assignable=assignable))
+
+        assert calls == expected_calls
+
+    @pytest.mark.django_db
+    def test_a_failed_assignee_check_stops_the_walk(self, org_and_team):
+        org, team = org_and_team
+        report, _ = self._setup(org, team, ["alice", "bob"])
+        github = self._github(existing_assignees=[], assignable=None)
+        github.is_assignable.side_effect = None
+        github.is_assignable.return_value = {"success": False, "error": "Failed to check assignee"}
+
+        assert self._assign(team, report, github) == []
+        assert github.is_assignable.call_count == 1
