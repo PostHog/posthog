@@ -206,7 +206,7 @@ This drives whatever profile is signed into `~/.posthog-code`; do not mutate pro
 
 Every story is screenshot in Chromium in both themes (`<story-id>--dark.png` and `--light.png`) using `@storybook/test-runner`, following posthog/posthog's setup. The harness lives in `apps/code/.storybook/test-runner.ts`.
 
-PNGs are never committed. CI for this suite was removed after the monorepo import: the committed `apps/code/snapshots.yml` baseline is signed for the PostHog/code Visual Review registration, so every submission from posthog/posthog flagged all stories as new. To bring it back: re-register Visual Review against posthog/posthog first, then restore `desktop-storybook.yml` (plus its `storybook` job in `desktop-ci.yml` and the Playwright cache warming in `desktop-warm-caches.yml`) from git history and let the VR bot commit a posthog-signed baseline. The local capture workflow below still works.
+PNGs are never committed. `desktop-storybook.yml` runs independently from the main Storybook workflow when Desktop code changes. It captures every Desktop story in Chromium and submits it as the `desktop-storybook` Visual Review run type. The first run after a repository registration marks the old signed baseline as new; approve it in Visual Review so the bot writes a baseline signed for this repository.
 
 Run locally to debug a story (local PNGs are gitignored):
 
