@@ -871,9 +871,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                         // shelf on one that has stopped enrolling, so the age of the run is read
                         // next to `empty_reason` rather than inferred from the event's timestamp.
                         experiment_ended: hasEnded(props.experiment),
-                        days_since_start: props.experiment.start_date
-                            ? dayjs().diff(dayjs(props.experiment.start_date), 'day')
-                            : null,
+                        days_since_start: daysSince(props.experiment.start_date),
                     })
                     return response
                 },
