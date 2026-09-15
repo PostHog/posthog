@@ -68,6 +68,15 @@ class CanvasAPIBaseTest(APIBaseTest):
         with team_scope(self.team.id):
             self.channel = Channel.objects.create(team=self.team, name="general", created_by=self.user)
 
+    def _enable_access_control(self) -> None:
+        """Put the org on the access-control feature and demote the caller, so per-object rules apply."""
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+
     def _create_canvas(self, **overrides) -> str:
         body = {"name": "My canvas", "channel_id": str(self.channel.id), **overrides}
         response = self.client.post(f"/api/projects/{self.team.id}/canvases/", body, format="json")
@@ -1343,12 +1352,7 @@ class TestCanvasActivityVisibility(CanvasAPIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
 
     def test_team_visible_ids_apply_object_access_control(self):
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
-        ]
-        self.organization.save(update_fields=["available_product_features"])
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save(update_fields=["level"])
+        self._enable_access_control()
         owner = self._create_user("canvas-owner-acl@example.com")
         with team_scope(self.team.id):
             denied = Canvas.objects.create(team=self.team, channel=self.channel, name="Denied", created_by=owner)

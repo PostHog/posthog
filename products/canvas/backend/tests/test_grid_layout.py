@@ -7,9 +7,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.constants import AvailableFeature
 from posthog.models.integration import Integration
-from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
@@ -362,12 +360,7 @@ class TestGridLayoutApi(GridLayoutAPIBaseTest):
         assert any(entry["code"] == "component_not_found" for entry in response.json()["diagnostics"])
 
     def test_component_denied_by_access_control_is_not_placeable(self):
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
-        ]
-        self.organization.save(update_fields=["available_product_features"])
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save(update_fields=["level"])
+        self._enable_access_control()
         owner = self._create_user("component-owner-acl@example.com")
         component_id = self._create_component()
         with team_scope(self.team.id):
@@ -388,12 +381,7 @@ class TestGridLayoutApi(GridLayoutAPIBaseTest):
 
     @parameterized.expand([("view",), ("layout/?include_components=1",)])
     def test_component_denied_by_access_control_is_not_returned(self, endpoint: str):
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
-        ]
-        self.organization.save(update_fields=["available_product_features"])
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save(update_fields=["level"])
+        self._enable_access_control()
         owner = self._create_user("component-owner-read-acl@example.com")
         component_id = self._create_component()
         grid_id = self._create_grid()
