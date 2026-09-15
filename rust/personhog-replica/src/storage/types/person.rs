@@ -13,6 +13,7 @@ pub struct DistinctIdMapping {
 pub struct DistinctIdWithVersion {
     pub distinct_id: String,
     pub version: Option<i64>,
+    pub id: i64,
 }
 
 #[derive(Debug, Clone)]
