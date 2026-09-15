@@ -76,7 +76,7 @@ def get_query_scan_flag(team: Team) -> QueryScanFlag | None:
                 "project": {
                     "id": str(team.id),
                     "created_at": team.created_at.isoformat() if team.created_at else None,
-                    "uuid": team.uuid,
+                    "uuid": str(team.uuid),
                 },
             },
             only_evaluate_locally=True,
