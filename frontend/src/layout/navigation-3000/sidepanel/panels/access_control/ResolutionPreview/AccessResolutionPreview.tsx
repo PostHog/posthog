@@ -152,9 +152,7 @@ export function AccessResolutionPreview(): JSX.Element {
             </LemonBanner>
         )
     }
-    const footer = alreadyEnabled ? (
-        <LemonBanner type="success">Migration completed.</LemonBanner>
-    ) : (
+    const footer = alreadyEnabled ? null : (
         <div className="flex items-center gap-2">
             <LemonButton
                 type="primary"
@@ -184,8 +182,9 @@ export function AccessResolutionPreview(): JSX.Element {
             <div className="flex flex-col gap-4">
                 <WhyExplainer />
                 <LemonBanner type="success">
-                    No access rules resolve differently in the projects you administer. Nothing changes when the new
-                    resolution takes effect.
+                    {alreadyEnabled
+                        ? 'Migration completed. No access rules resolved differently in the projects you administer, so nothing changed.'
+                        : 'No access rules resolve differently in the projects you administer. Nothing changes when the new resolution takes effect.'}
                 </LemonBanner>
                 {footer}
             </div>
@@ -264,16 +263,29 @@ export function AccessResolutionPreview(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
+            {alreadyEnabled && (
+                <LemonBanner
+                    type="success"
+                    action={{
+                        children: 'Contact support',
+                        onClick: () => openSupportForm({ kind: 'support' }),
+                        'data-attr': 'access-resolution-enabled-support',
+                    }}
+                >
+                    Migration completed. Below is what changed when it took effect. Contact support if any of these
+                    should be different.
+                </LemonBanner>
+            )}
             <WhyExplainer />
             <div className="flex items-center gap-2">
                 {preview.summary.loses > 0 && (
                     <LemonTag type="danger" className="bg-surface-primary">
-                        ▼ {preview.summary.loses} rules resolve lower
+                        ▼ {preview.summary.loses} rules {alreadyEnabled ? 'resolved' : 'resolve'} lower
                     </LemonTag>
                 )}
                 {preview.summary.gains > 0 && (
                     <LemonTag type="warning" className="bg-surface-primary">
-                        ▲ {preview.summary.gains} rules resolve higher
+                        ▲ {preview.summary.gains} rules {alreadyEnabled ? 'resolved' : 'resolve'} higher
                     </LemonTag>
                 )}
             </div>
