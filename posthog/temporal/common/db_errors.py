@@ -47,7 +47,11 @@ _TRANSIENT_SQLSTATE_PREFIXES = ("57P",)
 # rather than by class prefix, because SQLSTATE class 25 (invalid transaction state) also covers
 # codes that are real transaction-handling bugs, not infra hiccups. psycopg raises this under
 # InternalError, not OperationalError, hence the wider isinstance check below.
-_TRANSIENT_SQLSTATES = ("25006",)
+#
+# deadlock_detected: Postgres picked one side of a lock-ordering race and rolled back our
+# transaction so the other side could proceed. The query itself isn't at fault, and retrying
+# resolves it because the race that caused it essentially never repeats identically.
+_TRANSIENT_SQLSTATES = ("25006", "40P01")
 
 
 def is_transient_db_error(error: BaseException) -> bool:

@@ -57,6 +57,7 @@ def test_is_transient_db_error_by_message(error: BaseException, expected: bool) 
         # in the same transaction already failed — a real defect, not a self-healing infra blip.
         # Guards against widening the match to the whole class-25 prefix instead of the exact code.
         (InternalError, "25P02", False),
+        (OperationalError, "40P01", True),  # deadlock_detected — a lock-ordering race, retry resolves it
     ],
 )
 def test_is_transient_db_error_by_sqlstate(error_cls: type[Exception], sqlstate: str, expected: bool) -> None:
