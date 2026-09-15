@@ -246,6 +246,7 @@ export function AgentPromptButton({
                         variant={variant}
                         size={size === 'default' ? 'icon' : `icon-${size}`}
                         className="border-0"
+                        aria-label="Choose prompt and destination"
                     >
                         <IconChevronDown className="size-4 text-current" />
                     </QuillButton>

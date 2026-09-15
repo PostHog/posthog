@@ -47,6 +47,7 @@ describe('ImplementButton', () => {
 
     beforeEach(() => {
         initKeaTests()
+        window.localStorage.removeItem('inbox-report-implementation-prompt:combo')
         inboxTaskKickoffLogic.mount()
         createPrFromReport = jest.fn()
         jest.spyOn(inboxTaskKickoffLogic.actions, 'createPrFromReport').mockImplementation(createPrFromReport)
@@ -107,7 +108,7 @@ describe('ImplementButton', () => {
         await openMenu()
 
         expect(screen.getByText('Implement with PostHog')).toBeInTheDocument()
-        expect(screen.getByText('Copy prompt for your agent')).toBeInTheDocument()
+        expect(screen.getByText('Copy implementation prompt')).toBeInTheDocument()
         expect(createPrFromReport).not.toHaveBeenCalled()
         expect(copyToClipboard).not.toHaveBeenCalled()
     })
@@ -148,7 +149,27 @@ describe('ImplementButton', () => {
         expect(prompt).toContain('release=true')
         expect(copyToClipboard).toHaveBeenCalledWith(prompt, 'implementation prompt')
         expect(captureInboxReportAction).toHaveBeenCalledWith(
-            expect.objectContaining({ actionType: 'copy_implementation_prompt' })
+            expect.objectContaining({
+                actionType: 'copy_implementation_prompt',
+                extra: { agent: 'clipboard' },
+            })
+        )
+    })
+
+    it('opens the implementation prompt in the selected agent', async () => {
+        const user = await openMenu()
+        const open = jest.spyOn(window, 'open').mockImplementation()
+
+        await user.click(screen.getByLabelText('Choose prompt and destination'))
+        await user.click(screen.getByText('Claude Code'))
+        await user.click(screen.getByText('Open implementation prompt'))
+
+        expect(open).toHaveBeenCalledWith(expect.stringMatching(/^claude-cli:\/\/open\?q=/), '_blank')
+        expect(captureInboxReportAction).toHaveBeenCalledWith(
+            expect.objectContaining({
+                actionType: 'copy_implementation_prompt',
+                extra: { agent: 'claude-code' },
+            })
         )
     })
 })

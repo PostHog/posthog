@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconCopy, IconPullRequest } from '@posthog/icons'
+import { IconPullRequest } from '@posthog/icons'
 import { LemonButton, lemonToast } from '@posthog/lemon-ui'
 
+import { AgentPromptButton } from 'lib/components/AgentPromptButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
@@ -50,20 +50,6 @@ export function ImplementButton({ report }: { report: SignalReport }): JSX.Eleme
             extra: { has_feedback: trimmed.length > 0 },
         })
         createPrFromReport(report, trimmed || undefined)
-    }
-
-    const copyImplementationPrompt = async (): Promise<void> => {
-        const copied = await copyToClipboard(
-            buildReportImplementationPrompt(report, reportUrl),
-            'implementation prompt'
-        )
-        if (copied) {
-            captureInboxReportAction({
-                report,
-                actionType: 'copy_implementation_prompt',
-                surface: 'detail_pane',
-            })
-        }
     }
 
     if (reportTaskToOpen?.task.latest_run) {
@@ -124,14 +110,27 @@ export function ImplementButton({ report }: { report: SignalReport }): JSX.Eleme
                                 ]}
                             />
                             <div className="flex flex-wrap items-center justify-between gap-2">
-                                <LemonButton
-                                    type="secondary"
-                                    icon={<IconCopy />}
-                                    onClick={() => void copyImplementationPrompt()}
+                                <AgentPromptButton
+                                    storageKey="inbox-report-implementation-prompt"
+                                    defaultAgentKey="clipboard"
+                                    size="sm"
                                     data-attr="inbox-report-copy-implementation-prompt"
-                                >
-                                    Copy prompt for your agent
-                                </LemonButton>
+                                    actions={[
+                                        {
+                                            key: 'implementation',
+                                            label: 'implementation prompt',
+                                            buildPrompt: () => buildReportImplementationPrompt(report, reportUrl),
+                                        },
+                                    ]}
+                                    onRun={({ agentKey }) =>
+                                        captureInboxReportAction({
+                                            report,
+                                            actionType: 'copy_implementation_prompt',
+                                            surface: 'detail_pane',
+                                            extra: { agent: agentKey },
+                                        })
+                                    }
+                                />
                                 <LemonButton
                                     type="primary"
                                     icon={<IconPullRequest />}
