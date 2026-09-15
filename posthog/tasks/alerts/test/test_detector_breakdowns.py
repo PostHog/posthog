@@ -88,6 +88,31 @@ ANOMALOUS_DATA = [10.0, 11.0, 10.0, 9.0, 10.0, 11.0, 10.0, 9.0, 10.0, 11.0, 100.
 
 ZSCORE_DETECTOR_CONFIG = {"type": "zscore", "threshold": 0.9, "window": 10}
 
+# A quiet baseline long enough for the detector to score more than its newest interval, so a
+# deviation spanning several intervals can be told apart from one confined to the newest.
+QUIET_BASELINE = [
+    10.3, 9.2, 9.4, 6.3, 12.7, 11.7, 9.5, 11.2, 10.4, 9.2, 11.5, 9.5,
+    9.5, 8.8, 10.7, 9.9, 10.8, 9.1, 10.2, 8.7, 11.3, 10.3, 10.5, 10.6,
+]  # fmt: skip
+# The trailing value is the incomplete interval the extractor drops, so the outage ends on the
+# newest complete interval — 2024-06-25 to 2024-06-27.
+THREE_DAY_OUTAGE = [*QUIET_BASELINE, 0.0, 0.0, 0.0, 0.0]
+
+
+def _check_single_series(mock_calc: MagicMock, data: list[float]) -> Any:
+    """Run the detector alert path over one non-breakdown series."""
+    mock_calc.return_value = InsightResult(
+        result=[_make_trend_result("signed_up", data, "")],
+        columns=[],
+        timezone="UTC",
+        last_refresh=None,
+        cache_key="",
+        is_cached=False,
+    )
+    return check_detector_alert(
+        _make_alert(MagicMock(), ZSCORE_DETECTOR_CONFIG), MagicMock(spec=Insight), _make_query_without_breakdown()
+    )
+
 
 class TestCheckTrendsAlertWithDetectorBreakdowns:
     @patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
@@ -268,6 +293,35 @@ class TestCheckTrendsAlertWithDetectorBreakdowns:
         result = evaluate_with_detector(extraction, ZSCORE_DETECTOR_CONFIG)
         assert result.value == 0
         assert result.breaches == []
+
+    @patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
+    def test_reports_every_interval_of_a_multi_interval_deviation(self, mock_calc: MagicMock) -> None:
+        # Regression: the evaluation path scored only the newest point, so the indices it stored
+        # were the newest point by construction and the notification could only ever name the
+        # interval the check ran on. A deviation that began three intervals earlier must report
+        # where it began, not just where the check landed.
+        result = _check_single_series(mock_calc, THREE_DAY_OUTAGE)
+
+        assert result.breaches
+        assert result.triggered_dates == ["2024-06-25", "2024-06-26", "2024-06-27"]
+
+    @patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
+    def test_stores_a_score_for_every_interval(self, mock_calc: MagicMock) -> None:
+        # Regression: a fire stored one score — the newest interval's — so the alert history chart
+        # and the investigation agent had no view of the surrounding window and had to rebuild it.
+        result = _check_single_series(mock_calc, THREE_DAY_OUTAGE)
+
+        assert result.anomaly_scores is not None
+        assert len(result.anomaly_scores) == len(THREE_DAY_OUTAGE) - 1  # the incomplete interval is dropped
+
+    @patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
+    def test_an_old_anomaly_alone_does_not_fire(self, mock_calc: MagicMock) -> None:
+        # Scoring every interval must not make the alert re-fire on anomalies it has already seen:
+        # a check is about the interval that just closed, so an isolated older one stays silent.
+        result = _check_single_series(mock_calc, [*QUIET_BASELINE[:12], 0.0, *QUIET_BASELINE[12:], 10.4])
+
+        assert result.breaches == []
+        assert result.triggered_dates is None
 
     @parameterized.expand(
         [
