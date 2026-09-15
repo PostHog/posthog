@@ -173,7 +173,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         hasEarlyAccessFeatures,
         alsoCreateInProjects,
         alsoCreateInProjectOptions,
-        isSavingFeatureFlag,
+        isSaveInProgress,
     } = useValues(featureFlagLogic)
     const {
         setMultivariateEnabled,
@@ -418,7 +418,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                 data-attr="cancel-feature-flag"
                                 type="secondary"
                                 size="small"
-                                disabledReason={isSavingFeatureFlag ? 'Saving…' : undefined}
+                                disabledReason={isSaveInProgress ? 'Saving…' : undefined}
                                 onClick={() => {
                                     if (isEditingFlag) {
                                         editFeatureFlag(false)
@@ -436,7 +436,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                 htmlType="submit"
                                 form="feature-flag"
                                 size="small"
-                                loading={isSavingFeatureFlag}
+                                loading={isSaveInProgress}
                             >
                                 Save
                             </LemonButton>

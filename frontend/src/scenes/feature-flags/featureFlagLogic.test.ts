@@ -504,6 +504,32 @@ describe('featureFlagLogic', () => {
                 updateSpy.mockRestore()
             }
         })
+
+        it('stops a second submit while the pre-save checks still run', async () => {
+            // The checks can wait on a confirmation dialog or on the dependent flags before the
+            // request starts. The request-level guard is false for that whole wait, so a second
+            // submit used to start a second check run and a second write.
+            const dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            const updateSpy = jest.spyOn(api, 'update').mockResolvedValue(MOCK_FEATURE_FLAG)
+            try {
+                logic.actions.setFeatureFlagValue('key', 'renamed-flag')
+
+                await expectLogic(logic, () => {
+                    logic.actions.submitFeatureFlag()
+                }).toDispatchActions(['submitFeatureFlagWithValidation'])
+                expect(logic.values.isSaveInProgress).toBe(true)
+                expect(logic.values.isSavingFeatureFlag).toBe(false)
+
+                await expectLogic(logic, () => {
+                    logic.actions.submitFeatureFlag()
+                }).toNotHaveDispatchedActions(['submitFeatureFlagWithValidation'])
+                expect(dialogOpenSpy).toHaveBeenCalledTimes(1)
+                expect(updateSpy).not.toHaveBeenCalled()
+            } finally {
+                dialogOpenSpy.mockRestore()
+                updateSpy.mockRestore()
+            }
+        })
     })
 
     describe('setMultivariateEnabled functionality', () => {
