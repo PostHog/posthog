@@ -1325,12 +1325,19 @@ class TestUserAPI(APIBaseTest):
         assert self.user.is_email_verified is True
         mock_login.assert_not_called()
 
-    @parameterized.expand([("email_configured", True), ("no_email_configured", False)])
+    @parameterized.expand(
+        [
+            ("email_configured", True, "alpha@example.com"),
+            ("no_email_configured", False, "alpha@example.com"),
+            # A legacy row holds the address in the case it was typed in years ago.
+            ("legacy_stored_uppercase", True, "Alpha@Example.com"),
+        ]
+    )
     @patch("posthog.tasks.email.send_email_change_emails.delay")
     def test_no_notifications_when_user_email_is_changed_and_only_case_differs(
-        self, _name, email_available, mock_send_email_change_emails
+        self, _name, email_available, stored_email, mock_send_email_change_emails
     ):
-        self.user.email = "alpha@example.com"
+        self.user.email = stored_email
         self.user.save()
 
         with patch("posthog.api.user.is_email_available", return_value=email_available) as mock_is_email_available:
@@ -1344,8 +1351,8 @@ class TestUserAPI(APIBaseTest):
         self.user.refresh_from_db()
 
         assert response.status_code == status.HTTP_200_OK
-        assert response_data["email"] == "alpha@example.com"
-        assert self.user.email == "alpha@example.com"
+        assert response_data["email"] == stored_email
+        assert self.user.email == stored_email
         assert self.user.pending_email is None
         mock_is_email_available.assert_not_called()
         mock_send_email_change_emails.assert_not_called()
