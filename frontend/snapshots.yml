@@ -5640,6 +5640,10 @@ snapshots:
         hash: v1.k794b7964.30f9f54de7be7442005c8c331928461a8b9f35c39a83879d512d43fc760805a7.HejGI_ne5ckT89F7KRuBZl8cHd8yxdCvDbU10jo9Zoo
     products-data-modeling-lineage-graph--full--light:
         hash: v1.k794b7964.5dad2ad87a0457c985581810013a0fa058bb4bb8f0596932bb829bfb46a2e18c.p9m_GryZwVUwkGgah-EvQZUyu1-1-I3sN8Tlu3kSYM4
+    products-data-modeling-lineage-graph--search-focus--dark:
+        hash: v1.k794b7964.4fb56362fec2b7af59c737389abdfc6e01b3971b08fcc4c2bbc706e2c55fcd91.8jHcM2nb1Otah1aJRj4AgXagv9q_uhbn6yRFNMWBTgo
+    products-data-modeling-lineage-graph--search-focus--light:
+        hash: v1.k794b7964.482002621af8d75dbee2f842b6bb21b814b5494f52dfbeb83db882b4f51ae22f.qEI8JmfvdHP4tQWt0USqKRQxlfoArtQY0PqnQE9Vxvw
     products-data-modeling-lineage-graph--single-node--dark:
         hash: v1.k794b7964.4344045fc1bada8b4f2067de9f83cdb38b5dbe14719e7b4d332c2a7689a5d8cd.NvfJs1mb9VLArjiQdsrspse5hcopmjfyz4HXvwD_MZA
     products-data-modeling-lineage-graph--single-node--light:
@@ -5716,6 +5720,22 @@ snapshots:
         hash: v1.k794b7964.727a524bea080ccdd40b9d0d0d24fa11124956af6de43b8d1c7c55ecac8396fe.65eGhlez_kvcvkBca8RfUE_Vaw5E2KlZeBOB4vTHpgE
     products-data-modeling-model-view-summary--one-dependent-model--light:
         hash: v1.k794b7964.dfec6463b360d4256744023dcd168e8d00f4a15b49d0ab102389e63b73a16365.u5HZ_NMmZXGGMkfZG2ggcYyw--1BmBQ3OINd9m_arTE
+    products-data-modeling-models-overview--narrow--dark:
+        hash: v1.k794b7964.b05ce52737a3aafe04e7bf7219f0cf117abe1ddf8e4324032638a2217275e8b0.l_KcmfKVER-Bg-A4q9C7tT6boC18cfFhdQ5LuoPYpH0
+    products-data-modeling-models-overview--narrow--light:
+        hash: v1.k794b7964.8de8341c1349f8cb5552472ba0e31c9a3056aa38d8b0d080ddf6b3926df163ad.dnf-HokaWWpeRhejbFuoAtanPjQrZt8Siu89-G1BHCg
+    products-data-modeling-models-overview--narrow-partial-last-page--dark:
+        hash: v1.k794b7964.d7b4e0ddd20acfa6b10cef2ec04ed2b9aa0fbd21e4c78ce4a2056ea60c104228.mNhLlTtZzkVmNDmMyf4IFbB3NDvTp_ZoRThjwrdEts4
+    products-data-modeling-models-overview--narrow-partial-last-page--light:
+        hash: v1.k794b7964.d337628955e3ce769a33f45d97ce51958a8db287b1a4344fbf06bd72f172248b.CKw4zIA6QRuweF82g9IMxGqJYkFkxMG-6rAeJ-FExW0
+    products-data-modeling-models-overview--paginated--dark:
+        hash: v1.k794b7964.8cac888d0fad47cbd5c4c4092010e2b62ceee02dfd1fed95f577498577cb6474.xae-ilaOzklSJOP6aVJJZKIHqNNukIpgMDve-n1XZUE
+    products-data-modeling-models-overview--paginated--light:
+        hash: v1.k794b7964.f80388b1c73a52fb6412a33a4666f8f2df1bab209232a313c306a0990c9a3fca.8If9Zb3m9t5VtbIk5BMEGJ3uvzP5pGRsPFV_PIm_wjA
+    products-data-modeling-models-overview--partial-last-page--dark:
+        hash: v1.k794b7964.1a4ce304197dd14d4151ca1083e7ae7039f9908200c34f7378465025b79d7e08.94Li-jYAcO0uRnZLtl2_PHZpM-CXBrx24-RLOofaY_E
+    products-data-modeling-models-overview--partial-last-page--light:
+        hash: v1.k794b7964.0a510efc77afae6a02c52831583c4c38870a6e9c1a1dcd78c2905ff05933c085.KSDQ61iPt91mJjAozciHJ7_p5ed-dd3IkN5KPYxR204
     products-data-modeling-node-detail-scene--materialized-view--dark:
         hash: v1.k794b7964.9c8663e101f08c4bd2578b787402053a1bd7e930f06fad0ee6f5f1d728b0b14c.hV26Y05ssUiKJQPOBYVX6EXXkVSkd9rCOQvnA3PRPBY
     products-data-modeling-node-detail-scene--materialized-view--light:
@@ -5740,6 +5760,10 @@ snapshots:
         hash: v1.k794b7964.c3a0122ed3c944fd0036bf07405b2e09e14f7f218660863779a3587da606f3aa.HS-n7WOMbDZm10kaWIku0Y01udvSaEeEdFoDzUBLlrk
     products-data-modeling-node-detail-scene--view--light:
         hash: v1.k794b7964.36643c2fa6800cf361c623fca665343f8b4a2708afd3cd46ed9abb19cfd1db5f.mqGLSD5Sce2yBSvIXIS7PajSjOdXlLIoEjGEK4iwYEc
+    products-data-modeling-views-list--actions--dark:
+        hash: v1.k794b7964.eceb80b180d692b6f616365ea7269d24bb6f084128cbfafc661cf6159dc281ec.FagEpfMfYMDwAJaH7ctNLBVSS-sThFgcTnQ8Ghwk8wI
+    products-data-modeling-views-list--actions--light:
+        hash: v1.k794b7964.72724e994dcffa8f4d3914d5e9f87d9c6ad7ddfe0ffd28a02897129354ba956d.Vu7BhdcTI1yxaNzfgaW9gFoiBIScbrYMw9RN8FmP1ms
     products-mcp-analytics-routingbar--all-variants--dark:
         hash: v1.k794b7964.769a69526cf676447319f587f24ed0d2670a137098867f8d3ee87ebda3415a70.3FGS0pbxxcrZUSto8SNCNHEkxaFXH6T8shqpdg5zzlQ
     products-mcp-analytics-routingbar--all-variants--light:
