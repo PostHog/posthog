@@ -57,7 +57,7 @@ import {
 } from 'products/data_warehouse/frontend/utils'
 
 import { DirectQuerySchemasTab } from './DirectQuerySchemasTab'
-import { sourceSettingsLogic } from './sourceSettingsLogic'
+import { BulkSyncMethod, bulkSyncMethodDisabledReason, sourceSettingsLogic } from './sourceSettingsLogic'
 
 const frequencyRank = (frequency: DataWarehouseSyncInterval | null | undefined): number =>
     frequency ? SYNC_FREQUENCY_ORDER.indexOf(frequency) : -1
@@ -657,6 +657,7 @@ function SchemaBulkActions({
         bulkEnable,
         bulkDisable,
         bulkSetFrequency,
+        bulkSetSyncMethod,
         bulkSyncNow,
         bulkResync,
         bulkDeleteData,
@@ -698,6 +699,22 @@ function SchemaBulkActions({
         })
     }
 
+    const onSetSyncMethod = (syncType: BulkSyncMethod): void => {
+        LemonDialog.open({
+            title: `Set ${pluralize(count, 'table', 'tables')} to ${SyncTypeLabelMap[syncType]}?`,
+            description:
+                syncType === 'full_refresh'
+                    ? 'Every sync re-reads the whole table, and every row counts towards your bill. Best for tables that are small, or that have no unique primary key to sync incrementally on.'
+                    : 'New rows are added without matching them against what is already synced. Rows that change in the source arrive again as duplicates, so this suits tables that are only ever inserted into.',
+            primaryButton: {
+                children: 'Set sync method',
+                type: 'primary',
+                onClick: () => run(() => bulkSetSyncMethod(selected, syncType)),
+            },
+            secondaryButton: { children: 'Cancel', type: 'tertiary' },
+        })
+    }
+
     const onDisable = (): void => {
         const hasDataLossType = selected.some((schema) => schema.sync_type === 'cdc' || schema.sync_type === 'webhook')
         if (!hasDataLossType) {
@@ -733,6 +750,24 @@ function SchemaBulkActions({
             >
                 <LemonButton type="secondary" size="small">
                     Set frequency
+                </LemonButton>
+            </LemonMenu>
+            <LemonMenu
+                items={[
+                    {
+                        label: SyncTypeLabelMap.full_refresh,
+                        disabledReason: bulkSyncMethodDisabledReason(selected, 'full_refresh'),
+                        onClick: () => onSetSyncMethod('full_refresh'),
+                    },
+                    {
+                        label: SyncTypeLabelMap.append,
+                        disabledReason: bulkSyncMethodDisabledReason(selected, 'append'),
+                        onClick: () => onSetSyncMethod('append'),
+                    },
+                ]}
+            >
+                <LemonButton type="secondary" size="small">
+                    Set sync method
                 </LemonButton>
             </LemonMenu>
             <LemonButton type="secondary" size="small" onClick={() => run(() => bulkSyncNow(selected))}>

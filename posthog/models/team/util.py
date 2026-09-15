@@ -11,6 +11,7 @@ from posthog.cache_utils import cache_for
 from posthog.models.async_migration import is_async_migration_complete
 from posthog.temporal.common.client import sync_connect
 
+from products.ai_training.backend.facade.api import queue_training_deletion
 from products.batch_exports.backend.service import BatchExportServiceScheduleNotFound, batch_export_delete_schedule
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
@@ -351,7 +352,10 @@ def delete_team_records(team_ids: list[int]) -> None:
     from posthog.models.team import Team
 
     with transaction.atomic():
-        list(Team.objects.select_for_update().filter(id__in=team_ids))
+        # nosemgrep: hot-parent-row-select-for-update -- Team deletion must block concurrent child inserts.
+        teams = list(Team.objects.select_for_update().filter(id__in=team_ids))
+        for team in teams:
+            queue_training_deletion(team.pk, "team")
         Team.objects.filter(id__in=team_ids).delete()
 
 

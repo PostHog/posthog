@@ -76,6 +76,21 @@ class TestExtractFailingChecks(SimpleTestCase):
         assert (failing == [{"key": "CI/unit tests", "details_url": "https://ci/1"}]) is expected_reported
 
 
+class TestParseRepoItemUrl(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("a superscript digit", "²"),
+            ("more digits than int converts", "1" * 4301),
+        ]
+    )
+    def test_a_number_int_rejects_reads_as_no_reference(self, _name, number_str):
+        pr_url = f"https://github.com/acme/widgets/pull/{number_str}"
+        issue_url = f"https://github.com/acme/widgets/issues/{number_str}"
+
+        assert GitHubIntegrationBase.parse_pull_request_url(pr_url) is None
+        assert GitHubIntegrationBase.parse_issue_url(issue_url) is None
+
+
 class TestGitHubIntegrationModel(BaseTest):
     def setUp(self):
         super().setUp()
