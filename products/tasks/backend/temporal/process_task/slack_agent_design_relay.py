@@ -3,9 +3,10 @@
 Three stream surfaces, chosen by ``stream_mode`` on the input:
 
 - ``timeline`` — narrative streams as markdown_text and every tool call is its
-  own live step in one plan rail (``task_display_mode="plan"``): opened
-  in_progress with the args in details, closed by its outcome with the result
-  preview in output ("Failed:" prefixed on errors), or by the next step.
+  own live task card, interleaved in arrival order (``task_display_mode=
+  "timeline"``): opened in_progress with the args in details, closed by its
+  outcome with the result preview in output ("Failed:" prefixed on errors), or
+  by the next step.
 - ``final_only`` — nothing streams while the turn runs; when the turn completes
   the final answer posts in one batch through the same start/stop lifecycle.
 - unset — the legacy plan-block surface, kept for relays whose start was
@@ -367,9 +368,7 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
                 StartSlackAgentDesignStreamInput(
                     slack_thread_context=input.slack_thread_context,
                     ordered_chunks=chunks,
-                    # Bursts render as steps of one plan rail; "timeline" names the
-                    # relay's interleaving surface, not Slack's display mode.
-                    task_display_mode="plan",
+                    task_display_mode=STREAM_MODE_TIMELINE,
                     run_id=input.run_id,
                 ),
                 **_ACTIVITY_OPTIONS,

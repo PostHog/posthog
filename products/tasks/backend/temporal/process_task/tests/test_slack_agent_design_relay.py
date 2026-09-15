@@ -121,7 +121,7 @@ async def test_timeline_interleaves_prose_and_task_cards_in_arrival_order():
 
     start_input = relay.rec.calls[0][1]
     assert isinstance(start_input, StartSlackAgentDesignStreamInput)
-    assert start_input.task_display_mode == "plan"
+    assert start_input.task_display_mode == STREAM_MODE_TIMELINE
     assert start_input.run_id == "run-1"
 
     stop_kind, stop_input = relay.rec.calls[-1]
