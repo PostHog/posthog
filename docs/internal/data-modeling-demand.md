@@ -16,7 +16,7 @@ The worker uses the graph at flush time; a dependency edited between execution a
 Database updates never move this timestamp backward.
 The worker acknowledges a team's Redis entries only after that team persists, and only if no newer demand has replaced them.
 Retries can repeat writes safely; failed flushes leave entries pending.
-A team that fails to persist does not hold back the other teams or the later shards.
+A team that fails to persist or acknowledge its entries does not hold back the other teams or the later shards.
 The worker reports the first failure after it reads every shard, so monitoring still detects it.
 Buffer failures do not fail consumer queries, but Redis data loss can lose unflushed observations.
 

@@ -111,10 +111,9 @@ class ModelDemand:
                 # re-raised once every shard is read.
                 try:
                     cls.persist_team(team_id, demand)
+                    client.eval(ACKNOWLEDGE, 1, key, *acknowledgements_by_team[team_id])
                 except Exception as error:
-                    logger.exception("Failed to persist model demand", team_id=team_id)
+                    logger.exception("Failed to flush model demand", team_id=team_id)
                     failure = failure or error
-                    continue
-                client.eval(ACKNOWLEDGE, 1, key, *acknowledgements_by_team[team_id])
         if failure is not None:
             raise failure

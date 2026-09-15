@@ -3,7 +3,7 @@ from datetime import timedelta
 
 import time_machine
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import DEFAULT, patch
 
 from django.db import OperationalError, connection, transaction
 from django.utils import timezone
@@ -196,26 +196,38 @@ class TestModelDemand(BaseTest):
             raise OperationalError("database unavailable")
         return execute(sql, params, many, context)
 
-    def test_one_team_failure_does_not_withhold_the_other_teams(self) -> None:
+    @parameterized.expand(["persist", "acknowledge"])
+    def test_one_team_failure_does_not_withhold_the_other_teams(self, failure_stage: str) -> None:
         stalled_team_id = self.team.pk + SHARD_COUNT
         # The older timestamp puts the stalled team first in the shard's flush order.
         with time_machine.travel(self.now - timedelta(minutes=1), tick=False):
             ModelDemand.record(stalled_team_id, [str(self.view.pk)])
         ModelDemand.record(self.team.pk, [str(self.view.pk)])
-        persist_team = ModelDemand.persist_team
+        failing_operation = (
+            patch.object(
+                ModelDemand,
+                "persist_team",
+                side_effect=[OperationalError("database unavailable"), DEFAULT],
+                wraps=ModelDemand.persist_team,
+            )
+            if failure_stage == "persist"
+            else patch.object(
+                self.redis_client,
+                "eval",
+                side_effect=[ConnectionError("redis unavailable"), DEFAULT],
+                wraps=self.redis_client.eval,
+            )
+        )
 
-        def fail_one_team(team_id: int, demand: dict[str, float]) -> None:
-            if team_id == stalled_team_id:
-                raise OperationalError("database unavailable")
-            persist_team(team_id, demand)
-
-        with patch.object(ModelDemand, "persist_team", side_effect=fail_one_team):
-            with self.assertRaisesRegex(OperationalError, "database unavailable"):
+        with failing_operation:
+            with self.assertRaisesRegex((OperationalError, ConnectionError), "unavailable"):
                 ModelDemand.flush()
 
         self.node.refresh_from_db()
         self.assertEqual(self.node.last_demand_at, self.now)
         self.assertEqual(self.redis_client.zrange(self.key, 0, -1), [f"{stalled_team_id}:{self.view.pk}".encode()])
+        ModelDemand.flush()
+        self.assertEqual(self.redis_client.zcard(self.key), 0)
 
     def test_redis_failure_does_not_fail_the_query(self) -> None:
         with (
