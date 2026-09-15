@@ -393,6 +393,7 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                     if (loading && !healthIssues) {
                         return {
                             id: config.id,
+                            kind: config.kind,
                             category: config.category,
                             title: config.title,
                             description: 'Checking...',
@@ -404,6 +405,7 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                     if (!issue) {
                         return {
                             id: config.id,
+                            kind: config.kind,
                             category: config.category,
                             title: config.title,
                             description: config.passingDescription,
@@ -418,6 +420,7 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                     const status: HealthCheckStatus = issue.severity === 'critical' ? 'error' : 'warning'
                     return {
                         id: config.id,
+                        kind: config.kind,
                         category: config.category,
                         title: config.title,
                         description: config.failingDescription,
