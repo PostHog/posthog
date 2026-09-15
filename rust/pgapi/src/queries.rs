@@ -217,10 +217,12 @@ pub async fn query_detail(
     };
     let slow_samples = opt(
         db,
-        "SELECT log_time, log_stream, datname, usename, duration_ms, left(query, 500) AS query
-         FROM ts_query_durations WHERE server_id = $1 AND collected_at >= $3 AND collected_at < $4
-           AND (query_id = $2 OR fingerprint = $5) AND kind NOT IN ('parse', 'bind')
-         ORDER BY duration_ms DESC LIMIT 10",
+        "SELECT d.log_time, d.log_stream, d.datname, d.usename, d.duration_ms, left(t.query, 500) AS query
+         FROM ts_query_durations d
+         LEFT JOIN cur_query_texts t ON t.server_id = d.server_id AND t.instance = d.instance AND t.datname = coalesce(d.datname, '') AND t.fingerprint = d.fingerprint
+         WHERE d.server_id = $1 AND d.collected_at >= $3 AND d.collected_at < $4
+           AND (d.query_id = $2 OR d.fingerprint = $5) AND d.kind NOT IN ('parse', 'bind')
+         ORDER BY d.duration_ms DESC LIMIT 10",
         &[&server, &queryid, &from, &to, &fingerprint],
     )
     .await?;
