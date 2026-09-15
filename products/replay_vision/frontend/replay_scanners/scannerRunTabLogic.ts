@@ -40,6 +40,13 @@ const BULK_SKIP_MESSAGES: Record<BulkSkipOutcome, string> = {
     skipped_scanner_limit: 'No scans started. This scanner reached its credit limit for this billing period.',
 }
 
+// The same reasons as a fragment, for the toast that also has scans to report.
+const BULK_SKIP_REASONS: Record<BulkSkipOutcome, string> = {
+    skipped_limit: 'too many scans already running',
+    skipped_quota: "your organization's credit limit is used up",
+    skipped_scanner_limit: "this scanner's credit limit is used up",
+}
+
 // Headroom per visible session for the observations a retry stacks on top of the original scan.
 const OBSERVATIONS_PER_SESSION_ALLOWANCE = 4
 
@@ -274,7 +281,7 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
                     const limited =
                         skipCounts.skipped_limit + skipCounts.skipped_quota + skipCounts.skipped_scanner_limit
                     const extras = [
-                        limited ? `${limited} skipped (limit reached)` : null,
+                        limited ? `${limited} skipped (${BULK_SKIP_REASONS[dominantSkip(skipCounts)]})` : null,
                         failed ? `${failed} failed to start` : null,
                     ]
                         .filter(Boolean)
