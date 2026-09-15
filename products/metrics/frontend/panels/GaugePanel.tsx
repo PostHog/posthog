@@ -63,7 +63,7 @@ export function GaugePanel({ series, display, fallbackName }: MetricsPanelProps)
     return (
         <div className="flex h-full w-full flex-wrap content-center items-center justify-center gap-4 overflow-auto p-2">
             {rows.map((row, index) => {
-                const value = row.values[reducer]
+                const value = row.values[reducer] ?? null
                 const unit = row.series.unit ?? undefined
                 const { min, max } = gaugeBounds(value ?? 0, display)
                 const fraction = value === null ? 0 : Math.min(Math.max((value - min) / (max - min), 0), 1)

@@ -22,7 +22,7 @@ export function StatPanel({ series, display, fallbackName }: MetricsPanelProps):
     const rows = flattenSeriesRows(series, [reducer]).filter((row) => row.values[reducer] !== null)
 
     const cards = rows.slice(0, MAX_STAT_CARDS).map((row, index) => {
-        const value = row.values[reducer]
+        const value = row.values[reducer] ?? null
         const name =
             Object.entries(row.labels)
                 .map(([k, v]) => `${k}=${v}`)

@@ -50,7 +50,7 @@ export function TablePanel({ series, display, fallbackName }: MetricsPanelProps)
             key: `reducer-${r}`,
             align: 'right' as const,
             render: (_: unknown, row: MetricsSeriesRow) => {
-                const value = row.values[r]
+                const value = row.values[r] ?? null
                 const color = thresholdColor(value, display.thresholds, FALLBACK_COLOR)
                 return value === null ? (
                     <span className="text-secondary">—</span>

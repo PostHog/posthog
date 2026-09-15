@@ -36,7 +36,7 @@ export function BarGaugePanel({ series, display, fallbackName }: MetricsPanelPro
                 color: getColorVar(FALLBACK_COLOR),
                 // Per-bar threshold colors.
                 bars: rows.map((row) => ({
-                    color: getColorVar(thresholdColor(row.values[reducer], display.thresholds, FALLBACK_COLOR)),
+                    color: getColorVar(thresholdColor(row.values[reducer] ?? null, display.thresholds, FALLBACK_COLOR)),
                 })),
             },
         ],
