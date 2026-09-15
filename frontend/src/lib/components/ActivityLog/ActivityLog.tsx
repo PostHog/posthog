@@ -78,7 +78,7 @@ const Loading = (): JSX.Element => {
     )
 }
 
-export type ActivityLogTabs = 'extended description' | 'diff' | 'raw'
+export type ActivityLogTabs = 'details' | 'extended description' | 'diff' | 'raw'
 
 const ActivityLogDiff = ({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Element => {
     const changes = logItem.unprocessed?.detail.changes
@@ -143,7 +143,7 @@ export const ActivityLogRow = ({
     highlighted?: boolean
 }): JSX.Element => {
     const [isExpanded, setIsExpanded] = useState(false)
-    const [activeTab, setActiveTab] = useState<ActivityLogTabs>('diff')
+    const [activeTab, setActiveTab] = useState<ActivityLogTabs>(logItem.expandedView ? 'details' : 'diff')
     const rowRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
@@ -178,15 +178,27 @@ export const ActivityLogRow = ({
             <div
                 className={clsx('ActivityLogRow flex deprecated-space-x-2', logItem.unread && 'ActivityLogRow--unread')}
             >
-                <ProfilePicture
-                    showName={false}
-                    user={{
-                        first_name: logItem.isSystem || logItem.wasImpersonated ? logItem.name : undefined,
-                        email: logItem.email ?? undefined,
-                    }}
-                    type={logItem.isSystem || logItem.wasImpersonated ? 'system' : 'person'}
-                    size="xl"
-                />
+                {/* Tooltip merges the trigger props onto its child element, and ProfilePicture drops props
+                    it does not declare, so the trigger must land on the span instead of the avatar. */}
+                <Tooltip
+                    title={
+                        logItem.emailToReveal ? (
+                            <span className="ph-no-capture">{logItem.emailToReveal}</span>
+                        ) : undefined
+                    }
+                >
+                    <span className="flex shrink-0">
+                        <ProfilePicture
+                            showName={false}
+                            user={{
+                                first_name: logItem.isSystem || logItem.wasImpersonated ? logItem.name : undefined,
+                                email: logItem.email ?? undefined,
+                            }}
+                            type={logItem.isSystem || logItem.wasImpersonated ? 'system' : 'person'}
+                            size="xl"
+                        />
+                    </span>
+                </Tooltip>
                 <div className="ActivityLogRow__details flex-grow">
                     <div className="ActivityLogRow__description">{logItem.description}</div>
                     {logItem.extendedDescription && (
@@ -225,6 +237,13 @@ export const ActivityLogRow = ({
                         activeKey={activeTab}
                         onChange={(key) => setActiveTab(key as ActivityLogTabs)}
                         tabs={[
+                            logItem.expandedView
+                                ? {
+                                      key: 'details',
+                                      label: logItem.expandedView.label,
+                                      content: logItem.expandedView.content,
+                                  }
+                                : false,
                             logItem.extendedDescription
                                 ? {
                                       key: 'extended description',

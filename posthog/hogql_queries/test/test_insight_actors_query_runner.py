@@ -1,7 +1,7 @@
 import re
 from typing import Any, Optional
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -54,7 +54,7 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def _create_events(self, data, event="$pageview"):
         for id, timestamps in data:
-            with freeze_time(timestamps[0]):
+            with time_machine.travel(timestamps[0], tick=False):
                 _create_person(
                     team_id=self.team.pk,
                     distinct_ids=[id],

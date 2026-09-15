@@ -51,9 +51,22 @@ class TestAppsignalSource:
 
         assert {schema.name for schema in schemas} == set(ENDPOINTS)
         incremental = {schema.name for schema in schemas if schema.supports_incremental}
-        # Only the REST endpoints expose a server-side time filter; the GraphQL incident
-        # lists don't, so they stay full refresh.
-        assert incremental == {"deploy_markers", "error_samples", "performance_samples"}
+        # Only endpoints with a server-side time filter are incremental. The GraphQL incident
+        # and app lists have none, and neither does the metric-name catalog.
+        assert incremental == {
+            "deploy_markers",
+            "deploy_stats",
+            "error_samples",
+            "performance_samples",
+            "log_lines",
+            "metric_timeseries",
+            "performance_actions",
+            "performance_traces",
+            "service_edges",
+            "slow_events",
+            "slow_event_actions",
+            "trace_spans",
+        }
 
     def test_only_immutable_sample_tables_support_append(self):
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
@@ -63,6 +76,9 @@ class TestAppsignalSource:
         # Deploy markers mutate after creation (exception counts accumulate) — merge only.
         assert schemas["deploy_markers"].supports_append is False
         assert schemas["exception_incidents"].supports_append is False
+        # The newest bucket of an aggregate is still filling when it syncs, so it must merge.
+        assert schemas["performance_actions"].supports_append is False
+        assert schemas["slow_events"].supports_append is False
 
     def test_incremental_schemas_advertise_their_fields(self):
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}

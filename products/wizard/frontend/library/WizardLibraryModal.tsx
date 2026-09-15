@@ -1,4 +1,11 @@
-import { LemonModal } from '@posthog/lemon-ui'
+import {
+    Dialog,
+    DialogBody,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+} from '@posthog/quill-primitives'
 
 import type { RunEnvironmentEnumApi, WizardProgramApi } from '../generated/api.schemas'
 import { WizardProgramDetails } from './WizardProgramDetails'
@@ -10,7 +17,6 @@ export function WizardLibraryModal({
     loading,
     failed,
     selectedProgram,
-    requiredPrograms,
     search,
     command,
     environment,
@@ -30,14 +36,12 @@ export function WizardLibraryModal({
     onRepositoryChange,
     onCreate,
     onCopyCommand,
-    onCommandCopied,
 }: {
     isOpen: boolean
     filteredPrograms: WizardProgramApi[]
     loading: boolean
     failed: boolean
     selectedProgram: WizardProgramApi | null
-    requiredPrograms: WizardProgramApi[]
     search: string
     command: string
     environment: RunEnvironmentEnumApi
@@ -57,50 +61,49 @@ export function WizardLibraryModal({
     onRepositoryChange: (repository: string) => void
     onCreate: () => void
     onCopyCommand: () => void
-    onCommandCopied: () => void
 }): JSX.Element {
     return (
-        <LemonModal
-            isOpen={isOpen}
-            onClose={onClose}
-            title="Wizard Library"
-            description="Choose what you want the setup agent to do."
-            width={1000}
-            maxWidth="95vw"
-        >
-            <div className="@container">
-                <div className="flex h-[min(680px,75vh)] min-h-0 flex-col gap-5 @3xl:flex-row">
-                    <WizardProgramList
-                        programs={filteredPrograms}
-                        selectedProgram={selectedProgram}
-                        search={search}
-                        loading={loading}
-                        failed={failed}
-                        onSearch={onSearch}
-                        onSelect={onSelect}
-                    />
-                    <WizardProgramDetails
-                        program={selectedProgram}
-                        requiredPrograms={requiredPrograms}
-                        command={command}
-                        environment={environment}
-                        repository={repository}
-                        githubIntegrationId={githubIntegrationId}
-                        githubConnected={githubConnected}
-                        githubIntegrationLoading={githubIntegrationLoading}
-                        connectGitHubUrl={connectGitHubUrl}
-                        creating={creating}
-                        createError={createError}
-                        commandCopied={commandCopied}
-                        selectionInvalidated={selectionInvalidated}
-                        onEnvironmentChange={onEnvironmentChange}
-                        onRepositoryChange={onRepositoryChange}
-                        onCreate={onCreate}
-                        onCopyCommand={onCopyCommand}
-                        onCommandCopied={onCommandCopied}
-                    />
-                </div>
-            </div>
-        </LemonModal>
+        <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+            <DialogContent size="wide" className="max-w-[1000px]">
+                <DialogHeader>
+                    <DialogTitle>Wizard Library</DialogTitle>
+                    <DialogDescription>Choose what you want the setup agent to do.</DialogDescription>
+                </DialogHeader>
+                <DialogBody viewportClassName="p-0">
+                    <div className="@container">
+                        <div className="flex h-[min(680px,78vh)] min-h-0 flex-col @3xl:flex-row">
+                            <WizardProgramList
+                                programs={filteredPrograms}
+                                selectedProgram={selectedProgram}
+                                search={search}
+                                loading={loading}
+                                failed={failed}
+                                onSearch={onSearch}
+                                onSelect={onSelect}
+                            />
+                            <WizardProgramDetails
+                                loading={loading}
+                                program={selectedProgram}
+                                command={command}
+                                environment={environment}
+                                repository={repository}
+                                githubIntegrationId={githubIntegrationId}
+                                githubConnected={githubConnected}
+                                githubIntegrationLoading={githubIntegrationLoading}
+                                connectGitHubUrl={connectGitHubUrl}
+                                creating={creating}
+                                createError={createError}
+                                commandCopied={commandCopied}
+                                selectionInvalidated={selectionInvalidated}
+                                onEnvironmentChange={onEnvironmentChange}
+                                onRepositoryChange={onRepositoryChange}
+                                onCreate={onCreate}
+                                onCopyCommand={onCopyCommand}
+                            />
+                        </div>
+                    </div>
+                </DialogBody>
+            </DialogContent>
+        </Dialog>
     )
 }

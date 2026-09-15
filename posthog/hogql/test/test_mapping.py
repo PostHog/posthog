@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 from posthog.hogql import ast
@@ -125,7 +125,7 @@ class TestMappings(ClickhouseTestMixin, BaseTest):
         )
         assert "overloadSuccess" in sql
 
-    @freeze_time("2023-01-01T12:00:00Z")
+    @time_machine.travel("2023-01-01T12:00:00Z", tick=False)
     def test_postgres_functions(self):
         response = execute_hogql_query(
             """

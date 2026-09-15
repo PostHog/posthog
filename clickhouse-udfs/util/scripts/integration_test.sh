@@ -5,6 +5,7 @@ ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 COMPOSE_FILE="$ROOT_DIR/docker-compose.yml"
 TEMP_DIR=$(mktemp -d)
 UDFS=(
+    decompress
     json_drop_keys
     json_clean_posthog_event_properties
     json_clean_posthog_person_properties
@@ -21,6 +22,9 @@ trap cleanup EXIT
 query_for() {
     local input="file('$1/stateless/$2', 'TabSeparated', 'x String')"
     case "$1" in
+        decompress)
+            echo "SELECT hex(decompress(unhex(data), codec)) FROM file('$1/stateless/$2', 'TabSeparated', 'codec String, data String') SETTINGS max_block_size = 2, max_threads = 1 FORMAT TabSeparated"
+            ;;
         json_drop_keys)
             echo "SELECT JSONDropKeys(['a'])(x) FROM $input FORMAT TabSeparated"
             ;;
@@ -71,6 +75,25 @@ for udf in "${UDFS[@]}"; do
         echo "Passed $udf/$test_name."
     done
 done
+
+query=$(cat <<'SQL'
+WITH
+    number % 2 = 0 AS compressed,
+    if(compressed, unhex('170000006068656c6c6f200600d06f2068656c6c6f2068656c6c6f'), 'plain') AS data
+SELECT countIf(
+    if(compressed, decompress(data, 'LZ4SizePrefixed'), data)
+        != if(compressed, 'hello hello hello hello', 'plain')
+)
+FROM numbers(10000)
+SETTINGS short_circuit_function_evaluation = 'force_enable', max_block_size = 128, max_threads = 2
+SQL
+)
+output=$(docker compose -f "$COMPOSE_FILE" exec -T clickhouse clickhouse-client --query "$query")
+if [[ "$output" != "0" ]]; then
+    echo "Expected mixed compressed/plain rows to round-trip across pool chunks, got: $output" >&2
+    exit 1
+fi
+echo "Passed mixed compressed/plain pool chunks."
 
 query=$(cat <<'SQL'
 WITH concat('{"x":', repeat('[', 24), '[0]', repeat(',null]', 24), '}') AS raw

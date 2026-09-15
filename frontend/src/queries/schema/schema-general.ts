@@ -198,6 +198,7 @@ export enum NodeKind {
     MCPToolCallBreakdownQuery = 'MCPToolCallBreakdownQuery',
     MCPToolCallsAndErrorsQuery = 'MCPToolCallsAndErrorsQuery',
     MCPHarnessBreakdownQuery = 'MCPHarnessBreakdownQuery',
+    MCPModelBreakdownQuery = 'MCPModelBreakdownQuery',
     MCPToolTopUsersQuery = 'MCPToolTopUsersQuery',
     MCPToolFailuresQuery = 'MCPToolFailuresQuery',
     MCPToolFailureOccurrencesQuery = 'MCPToolFailureOccurrencesQuery',
@@ -284,6 +285,7 @@ export type AnyDataNode =
     | MCPToolCallBreakdownQuery
     | MCPToolCallsAndErrorsQuery
     | MCPHarnessBreakdownQuery
+    | MCPModelBreakdownQuery
     | MCPToolTopUsersQuery
     | MCPToolFailuresQuery
     | MCPToolFailureOccurrencesQuery
@@ -417,6 +419,7 @@ export type QuerySchema =
     | MCPToolCallBreakdownQuery
     | MCPToolCallsAndErrorsQuery
     | MCPHarnessBreakdownQuery
+    | MCPModelBreakdownQuery
     | MCPToolTopUsersQuery
     | MCPToolFailuresQuery
     | MCPToolFailureOccurrencesQuery
@@ -521,7 +524,7 @@ export interface HogQLQueryModifiers {
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
     customChannelTypeRules?: CustomChannelRule[]
-    customBotDefinitions?: CustomBotDefinition[]
+    customBotDefinitions?: CustomBotRule[]
     useWebAnalyticsPreAggregatedTables?: boolean
     /** Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients. */
     webAnalyticsFirstPageviewFilters?: boolean
@@ -2916,6 +2919,8 @@ export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     assignedToUserIds?: integer[]
     /** Match accounts with no active relationship of any definition. */
     allRolesUnassigned?: boolean
+    /** Match accounts with at least one active relationship of any definition. */
+    assignedOnly?: boolean
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: HogQLExpression
     /** Include ignored accounts. Ignored accounts are hidden by default. */
@@ -3241,9 +3246,11 @@ export type WebAnalyticsPropertyFilter =
     | CohortPropertyFilter
 export type WebAnalyticsPropertyFilters = WebAnalyticsPropertyFilter[]
 export type ActionConversionGoal = {
+    properties?: WebAnalyticsPropertyFilters
     actionId: integer
 }
 export type CustomEventConversionGoal = {
+    properties?: WebAnalyticsPropertyFilters
     customEventName: string
 }
 export type WebAnalyticsConversionGoal = ActionConversionGoal | CustomEventConversionGoal
@@ -3412,6 +3419,41 @@ export interface MCPHarnessBreakdownQuery extends DataNode<MCPHarnessBreakdownQu
 }
 
 export type CachedMCPHarnessBreakdownQueryResponse = CachedQueryResponse<MCPHarnessBreakdownQueryResponse>
+
+/** One model's share of MCP tool calls. */
+export interface MCPModelBreakdownItem {
+    model: string
+    total_calls: integer
+}
+
+export interface MCPModelBreakdownQueryResponse extends AnalyticsQueryResponseBase {
+    /** Whether another page of individual model identifiers is available. */
+    hasMore?: boolean
+    results: MCPModelBreakdownItem[]
+}
+
+/** MCP tool-call activity grouped by captured model identity. */
+export interface MCPModelBreakdownQuery extends DataNode<MCPModelBreakdownQueryResponse> {
+    kind: NodeKind.MCPModelBreakdownQuery
+    dateRange?: DateRange
+    properties?: AnyPropertyFilter[]
+    filterTestAccounts?: boolean
+    /** Return individual reported models, excluding Unknown, instead of the top-six grouping. */
+    includeAllModels?: boolean
+    /**
+     * Page size when includeAllModels is enabled.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: integer
+    /**
+     * Number of individual models to skip when includeAllModels is enabled.
+     * @minimum 0
+     */
+    offset?: integer
+}
+
+export type CachedMCPModelBreakdownQueryResponse = CachedQueryResponse<MCPModelBreakdownQueryResponse>
 
 /** One row of the per-tool "Top users" table: a user and their activity on a tool. */
 export interface MCPToolTopUserItem {
@@ -3833,6 +3875,7 @@ export enum WebStatsBreakdown {
     FrustrationMetrics = 'FrustrationMetrics',
 }
 export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQueryResponse> {
+    includeTrafficMetrics?: boolean
     kind: NodeKind.WebStatsTableQuery
     breakdownBy: WebStatsBreakdown
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
@@ -5185,15 +5228,6 @@ export interface FileSystemViewLogEntry {
     type: string
     ref: string
     viewed_at: string
-}
-
-export interface PersistedFolder {
-    id: string
-    type: string
-    protocol: string
-    path: string
-    created_at: string
-    updated_at: string
 }
 
 export type DataWarehouseManagedViewsetKind = 'revenue_analytics'
@@ -6848,22 +6882,32 @@ export enum CustomBotField {
 export enum CustomBotMatcher {
     Contains = 'contains',
     Regex = 'regex',
+    /** Case-sensitive equality against the whole property value. */
+    Exact = 'exact',
     /** Matches an IP against a network range, e.g. `192.0.2.0/24`. Only valid with `$ip`. */
     Cidr = 'cidr',
 }
 
-/** A bot a project defines itself, on top of PostHog's built-in bot list. */
-export interface CustomBotDefinition {
-    /** Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches. */
-    name: string
-    /** The event property this rule reads. */
+/** One condition of a project's bot rule. */
+export interface CustomBotCondition {
+    /** The event property this condition reads. */
     key: CustomBotField
     /** Matched against the property named by `key`. */
     pattern: string
     matcher: CustomBotMatcher
+    id: string // the ID is only needed for the settings editor, so only needs to be unique within one rule
+}
+
+/** A bot a project defines itself, on top of PostHog's built-in bot list. */
+export interface CustomBotRule {
+    /** Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches. */
+    name: string
     /** Reported by `$virt_traffic_category`. Defaults to `custom`. */
     category?: string
-    id: string // the ID is only needed for the settings editor, so only needs to be unique within one set of definitions
+    /** Whether every condition must match (AND) or any one of them (OR). */
+    combiner: FilterLogicalOperator
+    items: CustomBotCondition[]
+    id: string // the ID is only needed for the settings editor, so only needs to be unique within one set of rules
 }
 
 export enum DefaultChannelTypes {
@@ -8548,6 +8592,7 @@ export const externalDataSources = [
     'Freshchat',
     'Freshservice',
     'Fulcrum',
+    'GainsightCs',
     'GainsightPx',
     'GitBook',
     'Glassfrog',
@@ -9550,6 +9595,12 @@ export const externalDataSources = [
     'Tenjin',
     'Folk',
     'Cybersource',
+    'GoogleAdSense',
+    'Sequenzy',
+    'Skio',
+    'Smartlead',
+    'Substack',
+    'ElectricityMaps',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -9802,6 +9853,11 @@ export enum SubscriptionFreeTierLimit {
 /** Maximum length, in characters, of an AI subscription prompt. */
 export enum SubscriptionAIPromptMaxLength {
     CHARACTERS = 4000,
+}
+
+/** Maximum number of dashboards and insights an AI subscription may use as context. */
+export enum SubscriptionAIContextLimit {
+    COUNT = 3,
 }
 
 export type UsageMetricFormat = 'numeric' | 'currency'
@@ -10151,12 +10207,22 @@ export enum ProductIntentContext {
     // Session Replay
     SESSION_REPLAY_SET_FILTERS = 'session_replay_set_filters',
     SESSION_REPLAY_EXPERIMENT_LINK_CLICKED = 'session_replay_experiment_link_clicked',
+    SESSION_REPLAY_SAVE_FILTERS_AS_SCANNER = 'session_replay_save_filters_as_scanner',
+
+    // Replay Vision
+    // Shallow: dwelled on the scanner list long enough to have read it. Deliberately not a bare
+    // pageview — a mount-and-bounce must not start the activation clock for the team.
+    REPLAY_VISION_VIEWED = 'replay_vision_viewed',
+    // Deep, both registered server-side so agent/API callers count too, not just the app.
+    REPLAY_VISION_SCANNER_CREATED = 'replay_vision_scanner_created',
+    REPLAY_VISION_SCAN_TRIGGERED = 'replay_vision_scan_triggered',
 
     // Error Tracking
     ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED = 'error_tracking_exception_autocapture_enabled',
     ERROR_TRACKING_ISSUE_SORTING = 'error_tracking_issue_sorting',
     ERROR_TRACKING_DOCS_VIEWED = 'error_tracking_docs_viewed',
     ERROR_TRACKING_ISSUE_EXPLAINED = 'error_tracking_issue_explained',
+    ERROR_TRACKING_SCAN_WITH_VISION = 'error_tracking_scan_with_vision',
 
     // LLM Analytics
     LLM_ANALYTICS_VIEWED = 'llm_analytics_viewed',

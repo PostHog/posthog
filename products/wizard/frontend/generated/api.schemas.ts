@@ -46,6 +46,17 @@ export interface PaginatedWizardProgramListApi {
     results: WizardProgramApi[]
 }
 
+export interface WizardRunCreatorApi {
+    /** Unique ID of the user who created the Wizard run. */
+    readonly id: number
+    /** First name of the user who created the Wizard run. */
+    readonly first_name: string
+    /** Last name of the user who created the Wizard run. */
+    readonly last_name: string
+    /** Email address of the user who created the Wizard run. */
+    readonly email: string
+}
+
 /**
  * Selects a folder on the user's machine as the workspace.
  */
@@ -131,6 +142,8 @@ export interface WizardRunApi {
      * @nullable
      */
     readonly created_by_id: number | null
+    /** User who created the Wizard run, or null if that user no longer exists. */
+    readonly created_by: WizardRunCreatorApi | null
     /** Where the setup agent runs.
      *
      * * `local` - local

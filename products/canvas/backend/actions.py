@@ -22,11 +22,20 @@ from rest_framework import serializers
 from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
+    from rest_framework.response import Response
+
     from posthog.models import Team
 
     from products.canvas.backend.models import Canvas
 
 logger = structlog.get_logger(__name__)
+
+
+class CanvasActionDenied(Exception):
+    def __init__(self, response: "Response") -> None:
+        super().__init__(str(response.data))
+        self.response = response
+
 
 # Kill switch: enabling this flag for a team turns every action verb off at
 # once. Evaluation failure leaves actions on — the switch is for emergencies,
@@ -70,6 +79,10 @@ class TaskCreatePayloadSerializer(serializers.Serializer):
     )
 
 
+class TaskCreateAndRunPayloadSerializer(TaskCreatePayloadSerializer):
+    idempotency_key = serializers.UUIDField(help_text="Reuse this UUID when retrying the same cloud task request.")
+
+
 def _create_annotation(team_id: int, user_id: int, canvas: "Canvas", payload: dict[str, Any]) -> dict[str, Any]:
     from products.annotations.backend.facade import api as annotations_facade  # noqa: PLC0415 — load on execute
 
@@ -86,6 +99,31 @@ def _create_task(team_id: int, user_id: int, canvas: "Canvas", payload: dict[str
         team_id, user_id, canvas.channel_id, title=payload["title"], description=payload["description"]
     )
     return {"task_id": str(task_id)}
+
+
+def _create_and_run_task(team_id: int, user_id: int, canvas: "Canvas", payload: dict[str, Any]) -> dict[str, Any]:
+    from posthog.models.user import User  # noqa: PLC0415
+
+    from products.tasks.backend.facade.access import usage_limit_response  # noqa: PLC0415
+    from products.tasks.backend.facade.canvas_tasks import (  # noqa: PLC0415 - keeps task runtime imports off canvas validation
+        create_and_run_channel_task,
+    )
+
+    def check_usage() -> None:
+        if response := usage_limit_response(User.objects.get(id=user_id), team_id):
+            raise CanvasActionDenied(response)
+
+    run = create_and_run_channel_task(
+        team_id,
+        user_id,
+        canvas.channel_id,
+        canvas_id=canvas.id,
+        title=payload["title"],
+        description=payload["description"],
+        idempotency_key=payload["idempotency_key"],
+        before_create=check_usage,
+    )
+    return {"task_id": str(run.task_id), "run_id": str(run.id), "status": run.status}
 
 
 @frozen
@@ -107,6 +145,7 @@ class CanvasAction:
     # warrants. Agents build against the deployed registry rather than a skill
     # file, so a verb's docs ship (and stay current) with the verb itself.
     usage: str
+    starts_cloud_run: bool = False
 
 
 CANVAS_ACTIONS: dict[str, CanvasAction] = {
@@ -143,6 +182,26 @@ CANVAS_ACTIONS: dict[str, CanvasAction] = {
                 'never "an agent is on it". Keep the title short and put full context in '
                 "`description` (markdown) — whoever picks the task up sees only those two fields, "
                 "not the canvas."
+            ),
+        ),
+        CanvasAction(
+            verb="tasks.create_and_run",
+            summary="Create and start a cloud task in this space with default settings.",
+            destructive=False,
+            payload_serializer=TaskCreateAndRunPayloadSerializer,
+            execute=_create_and_run_task,
+            required_scopes=("task:write",),
+            starts_cloud_run=True,
+            usage=(
+                "Payload `{title, description?, idempotency_key}` returns `{task_id, run_id, status}`. "
+                "Creates a task in the canvas's space as the viewer and queues its cloud run. "
+                "Inherits the space's repositories and the viewer's default run settings. "
+                "The standard cloud access and usage limits apply. This action uses paid compute. "
+                "Use a 'Start cloud task' button and disable it while the request is pending. "
+                "Generate a UUID for idempotency_key once per intended task and reuse it on retries; "
+                "a retry returns the existing task and latest run without starting another run. "
+                "Use the returned status in the result message. A queued run has not finished. "
+                "Declare this verb separately from tasks.create, which still creates a task without a run."
             ),
         ),
     ]

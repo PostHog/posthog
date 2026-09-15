@@ -19,6 +19,7 @@ describe('posthog create task template', () => {
         skills: ['error-triage', 'db-runbook'],
         posthog_mcp_scopes: 'full',
         max_parallel_tasks: 3,
+        channel: '0198c9f1-bbbb-0000-0000-000000000001|growth',
     }
     // Mirrors the default event in createGlobals; the request must always carry the trigger event.
     const defaultEventBody = {
@@ -81,8 +82,9 @@ describe('posthog create task template', () => {
             skills: ['error-triage', 'db-runbook'],
             posthog_mcp_scopes: 'full',
             max_parallel_tasks: 3,
+            channel: '0198c9f1-bbbb-0000-0000-000000000001|growth',
             event: defaultEventBody,
-            idempotency_key: `${invocation.id}:action_1`,
+            idempotency_key: `${invocation.id}:action_1:0`,
         })
 
         const token = (params.headers?.['Authorization'] ?? '').replace('Bearer ', '')
@@ -105,7 +107,29 @@ describe('posthog create task template', () => {
             posthog_mcp_scopes: 'read_only',
             max_parallel_tasks: 5,
             event: defaultEventBody,
-            idempotency_key: `${invocation.id}:action_1`,
+            idempotency_key: `${invocation.id}:action_1:0`,
+        })
+    })
+
+    it('asks the agent for the fields the output variables read from the output', async () => {
+        const hogFlow = {
+            ...workflowOptions.hogFlow,
+            actions: [
+                {
+                    id: 'action_1',
+                    output_variable: [
+                        { key: 'verdict', result_path: 'output.verdict' },
+                        { key: 'run', result_path: 'run_id' },
+                    ],
+                },
+            ],
+            variables: [{ key: 'verdict', type: 'string', label: 'Verdict', description: 'ship or hold' }],
+        } as any
+        const response = await tester.invoke({ prompt: 'Judge the PR' }, undefined, { ...workflowOptions, hogFlow })
+
+        expect(response.error).toBeUndefined()
+        expect(parseJSON((response.invocation.queueParameters as any).body).output_fields).toEqual({
+            verdict: 'string',
         })
     })
 
@@ -178,7 +202,21 @@ describe('posthog create task template', () => {
 
         expect(response.error).toBeUndefined()
         expect(response.finished).toBe(true)
-        expect(response.execResult).toEqual({ id: 'task-1', run_id: 'run-1' })
+        expect(response.execResult).toEqual({
+            id: 'task-1',
+            run_id: 'run-1',
+            await: { max_wait: '190m', label: 'task' },
+        })
+    })
+
+    it('asks for no wait when no run started', async () => {
+        let response = await tester.invoke(fullInputs, undefined, workflowOptions)
+        response = await tester.invokeFetchResponse(response.invocation, {
+            status: 201,
+            body: { id: 'task-1', run_id: null },
+        })
+
+        expect(response.execResult).toEqual({ id: 'task-1', run_id: null })
     })
 
     it('fails with the limit reason when the parallel task limit is hit', async () => {

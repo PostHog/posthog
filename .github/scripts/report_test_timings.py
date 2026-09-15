@@ -321,7 +321,7 @@ def normalize_pytest_file(file: str) -> str:
     """Keep a pytest JUnit ``file`` attribute only when it stays inside the repo.
 
     pytest reports the decorator's own source file for tests wrapped in ``mock.patch``,
-    ``freeze_time``, or ``parameterized``, which arrives as a path into site-packages
+    ``time_machine``, or ``parameterized``, which arrives as a path into site-packages
     (``../../../opt/.../unittest/mock.py``). Such a path can never resolve an owner, so it is
     discarded here and the caller falls back to inferring the file from the JUnit classname.
     """

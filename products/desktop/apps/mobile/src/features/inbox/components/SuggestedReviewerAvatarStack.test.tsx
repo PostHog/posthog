@@ -116,7 +116,7 @@ describe("SuggestedReviewerAvatarStack", () => {
 
     expect(mocks.mutate).toHaveBeenCalledWith({
       artefactId: "reviewers-1",
-      content: [{ github_login: "bob" }],
+      content: [{ user_uuid: "user-bob" }],
       optimisticReviewers: [teammate],
     });
     expect(mocks.track).toHaveBeenCalledWith(

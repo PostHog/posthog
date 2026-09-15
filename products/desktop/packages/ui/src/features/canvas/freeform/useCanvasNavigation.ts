@@ -39,6 +39,14 @@ export function useCanvasNavigation(
           // Via openTaskInput so a stale prefill can't leak into the composer.
           openTaskInput({ channelId });
           break;
+        case "compose-task":
+          openTaskInput({
+            channelId,
+            initialPrompt: intent.prompt,
+            initialCloudRepository: intent.repository,
+            newTab: true,
+          });
+          break;
         case "canvas":
           navigateToChannelDashboard(channelId, intent.dashboardId);
           break;

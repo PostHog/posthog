@@ -7,6 +7,8 @@ export const PROJECT_API_CLIENT = Symbol.for(
 );
 
 const MAX_PAGES = 50;
+// Bounded per-path store for ETag revalidation (see `revalidatedJson`).
+const MAX_ETAG_ENTRIES = 64;
 
 /** An API call that failed with an HTTP status (so callers can branch on it). */
 export class ProjectApiError extends Error {
@@ -83,6 +85,46 @@ export class ProjectApiClient {
         res.status,
       );
     return (await res.json()) as T;
+  }
+
+  // Last-seen ETag + body per (project, path), for `revalidatedJson`.
+  private readonly etagCache = new Map<
+    string,
+    { etag: string; body: unknown }
+  >();
+
+  /**
+   * GET a JSON resource with ETag revalidation. This process's fetch has no
+   * HTTP cache, so polled endpoints that answer 304 (canvas builds/layout/view)
+   * are revalidated by hand: send the last ETag, and on 304 return the body it
+   * validated. Endpoints without an ETag behave exactly like `json`.
+   */
+  async revalidatedJson<T>(path: string, errorLabel: string): Promise<T> {
+    const projectId = this.authService.getState().currentProjectId;
+    const cacheKey = `${projectId}:${path}`;
+    const cached = this.etagCache.get(cacheKey);
+    const res = await this.fetch(
+      path,
+      cached ? { headers: { "If-None-Match": cached.etag } } : undefined,
+    );
+    if (res.status === 304 && cached) return cached.body as T;
+    if (!res.ok)
+      throw new ProjectApiError(
+        `Failed to ${errorLabel} (${res.status})${await errorBodyDetail(res)}`,
+        res.status,
+      );
+    const body = (await res.json()) as T;
+    const etag = res.headers.get("ETag");
+    if (etag) {
+      // Refresh recency (Map preserves insertion order), then bound the size.
+      this.etagCache.delete(cacheKey);
+      this.etagCache.set(cacheKey, { etag, body });
+      if (this.etagCache.size > MAX_ETAG_ENTRIES) {
+        const oldest = this.etagCache.keys().next().value;
+        if (oldest !== undefined) this.etagCache.delete(oldest);
+      }
+    }
+    return body;
   }
 
   /**

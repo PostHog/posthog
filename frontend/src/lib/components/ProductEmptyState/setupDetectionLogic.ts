@@ -19,11 +19,11 @@ export interface SetupDetectionLogicOptions {
     path: string[]
     /**
      * Resolve the product's current setup status. Runs on mount and on every poll
-     * tick. Return `unknown` for "cannot tell" (e.g. no access) - the gate fails
-     * open. Throwing counts as a detection failure: the gate fails open if nothing
-     * has answered yet, and a later blip never downgrades an existing answer.
+     * tick. Return `unknown` to show the scene (e.g. its access-denied screen).
+     * Return `null` when the check cannot answer. Like throwing, this fails the
+     * gate open if nothing has answered yet and preserves an existing answer.
      */
-    detect: () => Promise<ProductSetupStatus>
+    detect: () => Promise<ProductSetupStatus | null>
     /**
      * Re-check cadence while the product has no data yet, so the empty state flips
      * to the real scene on its own once events land. Polling stops for good on the
@@ -132,7 +132,7 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
         loaders({
             detectedStatus: {
                 __default: null as ProductSetupStatus | null,
-                detectStatus: async (_: void, breakpoint: BreakPointFunction): Promise<ProductSetupStatus> => {
+                detectStatus: async (_: void, breakpoint: BreakPointFunction): Promise<ProductSetupStatus | null> => {
                     const status = await detect()
                     breakpoint()
                     return status
@@ -152,6 +152,9 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
             ),
             detectStatusSuccess: ({ detectedStatus }) => {
                 if (!detectedStatus) {
+                    if (values.setupStatus === 'loading') {
+                        actions.setDetectedStatus('unknown')
+                    }
                     return
                 }
                 actions.setDetectedStatus(detectedStatus)

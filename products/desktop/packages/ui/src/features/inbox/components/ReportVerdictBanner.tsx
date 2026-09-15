@@ -12,13 +12,9 @@ import {
   canResolveReport,
 } from "@posthog/core/inbox/reportActions";
 import { parsePrUrl } from "@posthog/core/inbox/reportPresentation";
-import {
-  deriveReportVerdict,
-  type ReportVerdictTone,
-} from "@posthog/core/inbox/reportVerdict";
+import { deriveReportVerdict } from "@posthog/core/inbox/reportVerdict";
 import {
   Button,
-  cn,
   Field,
   FieldDescription,
   FieldLabel,
@@ -30,6 +26,7 @@ import {
 import type { InboxReportActionSurface } from "@posthog/shared/analytics-events";
 import type { SignalReport, Task } from "@posthog/shared/types";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { ReportVerdictCallout } from "@posthog/ui/features/inbox/components/ReportVerdictCallout";
 import { useCreatePrReport } from "@posthog/ui/features/inbox/hooks/useCreatePrReport";
 import { useDiscussReport } from "@posthog/ui/features/inbox/hooks/useDiscussReport";
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
@@ -57,20 +54,53 @@ const isMac =
 // Same sizing as PrDecisionBlock: the decision is the page's one ask.
 const BIG_BUTTON = "h-9 gap-2 px-4 text-[14px]";
 
-const TONE_CLASS: Record<ReportVerdictTone, string> = {
-  decision: "border-(--amber-6) bg-(--amber-2)",
-  danger: "border-(--red-6) bg-(--red-2)",
-  progress: "border-(--gray-5) bg-(--gray-1)",
-  info: "border-(--gray-5) bg-(--gray-1)",
-};
-
 type ReportVerdictBannerVariant = "full" | "header-actions" | "triage-actions";
+
+const TYPING_TAGS = new Set(["INPUT", "TEXTAREA", "SELECT"]);
+
+/**
+ * An open dialog owns the keyboard because its buttons are not typing targets
+ * and actions must not open underneath it.
+ */
+function isHotkeyBlocked(event: KeyboardEvent): boolean {
+  if (event.metaKey || event.ctrlKey || event.altKey) return true;
+  const target = event.target;
+  if (
+    target instanceof HTMLElement &&
+    (target.isContentEditable || TYPING_TAGS.has(target.tagName))
+  ) {
+    return true;
+  }
+  return (
+    document.querySelector('[role="dialog"], [role="alertdialog"]') !== null
+  );
+}
+
+/**
+ * Bind one banner action to a window-level shortcut. Shortcuts use the same
+ * guards as their buttons, so pass `undefined` while the action is unavailable.
+ */
+function useActionHotkey(
+  key: string | undefined,
+  run: (event: KeyboardEvent) => void,
+): void {
+  useEffect(() => {
+    if (!key) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== key || isHotkeyBlocked(event)) return;
+      run(event);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [key, run]);
+}
 
 interface ReportVerdictBannerProps {
   report: SignalReport;
   variant?: ReportVerdictBannerVariant;
   prHotkey?: string;
   resolveHotkey?: string;
+  dismissHotkey?: string;
   /** Hide the full banner after the reader starts or resumes report work. */
   initialEngagementOnly?: boolean;
   /** Called after an action opens the report's conversation dock. */
@@ -90,6 +120,7 @@ export function ReportVerdictBanner({
   variant = "full",
   prHotkey,
   resolveHotkey,
+  dismissHotkey,
   initialEngagementOnly = false,
   onEngaged,
   surface = "detail_pane",
@@ -317,27 +348,8 @@ export function ReportVerdictBanner({
   const shouldComposeImplementation =
     variant === "full" && !hasExistingPr && canCreatePr;
 
-  // Keyboard actions use the same guards as their buttons so shortcuts cannot
-  // bypass loading, disabled, or duplicate-work states.
-  useEffect(() => {
-    if (!prHotkey) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      const matchesPr = event.key === prHotkey;
-      if (!matchesPr) return;
-      if (event.metaKey || event.ctrlKey || event.altKey) return;
-      const target = event.target;
-      if (
-        target instanceof HTMLElement &&
-        (target.isContentEditable ||
-          ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))
-      ) {
-        return;
-      }
-      // An open dialog owns the keyboard because its buttons are not typing
-      // targets and actions must not open underneath it.
-      if (document.querySelector('[role="dialog"], [role="alertdialog"]')) {
-        return;
-      }
+  const runPrHotkey = useCallback(
+    (event: KeyboardEvent) => {
       if (report.status !== "ready" || isCreatingPr) return;
       if (externalPrUrl) {
         event.preventDefault();
@@ -346,44 +358,30 @@ export function ReportVerdictBanner({
         event.preventDefault();
         setPrOpen(true);
       }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [
-    prHotkey,
-    report.status,
-    isCreatingPr,
-    externalPrUrl,
-    canCreatePr,
-    handleOpenPr,
-  ]);
-
-  useEffect(() => {
-    if (!resolveHotkey || !canResolveReport(report)) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (
-        event.key !== resolveHotkey ||
-        event.metaKey ||
-        event.ctrlKey ||
-        event.altKey
-      ) {
-        return;
-      }
-      const target = event.target;
-      if (
-        (target instanceof HTMLElement &&
-          (target.isContentEditable ||
-            ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))) ||
-        document.querySelector('[role="dialog"], [role="alertdialog"]')
-      ) {
-        return;
-      }
+    },
+    [report.status, isCreatingPr, externalPrUrl, canCreatePr, handleOpenPr],
+  );
+  const runResolveHotkey = useCallback(
+    (event: KeyboardEvent) => {
       event.preventDefault();
       openResolveDialog();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [openResolveDialog, report, resolveHotkey]);
+    },
+    [openResolveDialog],
+  );
+  const runDismissHotkey = useCallback(
+    (event: KeyboardEvent) => {
+      event.preventDefault();
+      openDismissDialog();
+    },
+    [openDismissDialog],
+  );
+
+  useActionHotkey(prHotkey, runPrHotkey);
+  useActionHotkey(
+    canResolveReport(report) ? resolveHotkey : undefined,
+    runResolveHotkey,
+  );
+  useActionHotkey(dismissHotkey, runDismissHotkey);
 
   if (
     initialEngagementOnly &&
@@ -628,19 +626,11 @@ export function ReportVerdictBanner({
   }
 
   return (
-    <div
-      className={cn(
-        "flex select-none flex-col gap-3 rounded-lg border p-4",
-        TONE_CLASS[verdict.tone],
-      )}
-    >
-      <div className="flex flex-col gap-1">
-        <span className="flex items-center gap-2 font-semibold text-[15px] text-gray-12">
-          {verdict.tone === "progress" && <Spinner />}
-          {verdict.title}
-        </span>
-        <span className="text-[14px] text-gray-11">{verdict.body}</span>
-        {mergedPr && report.implementation_pr_url && (
+    <ReportVerdictCallout
+      verdict={verdict}
+      details={
+        mergedPr &&
+        report.implementation_pr_url && (
           <a
             href={report.implementation_pr_url}
             target="_blank"
@@ -651,11 +641,11 @@ export function ReportVerdictBanner({
             An earlier fix (#{mergedPr.number}) merged, but evidence kept
             arriving afterwards
           </a>
-        )}
-      </div>
-
+        )
+      }
+    >
       {actionsRow}
       {dismissDialog}
-    </div>
+    </ReportVerdictCallout>
   );
 }

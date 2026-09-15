@@ -1,7 +1,7 @@
 import time
 from datetime import timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -146,7 +146,7 @@ class TestFirebaseIntegration(BaseTest):
         with self.assertRaisesMessage(Exception, "FirebaseIntegration init called with Integration with wrong 'kind'"):
             FirebaseIntegration(integration)
 
-    @freeze_time("2024-01-01T00:00:00Z")
+    @time_machine.travel("2024-01-01T00:00:00Z", tick=False)
     def test_access_token_not_expired_initially(self):
         integration = Integration.objects.create(
             team=self.team,
@@ -163,7 +163,7 @@ class TestFirebaseIntegration(BaseTest):
 
         assert wrapper.access_token_expired() is False
 
-    @freeze_time("2024-01-01T00:00:00Z")
+    @time_machine.travel("2024-01-01T00:00:00Z", tick=False)
     def test_access_token_expired_after_half_expiry(self):
         integration = Integration.objects.create(
             team=self.team,
@@ -180,7 +180,7 @@ class TestFirebaseIntegration(BaseTest):
 
         assert wrapper.access_token_expired() is True
 
-    @freeze_time("2024-01-01T00:00:00Z")
+    @time_machine.travel("2024-01-01T00:00:00Z", tick=False)
     def test_access_token_expired_custom_threshold(self):
         integration = Integration.objects.create(
             team=self.team,

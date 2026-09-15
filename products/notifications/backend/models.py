@@ -16,8 +16,8 @@ def priority_choices() -> list[tuple[str, str | Promise]]:
 
 
 class NotificationEvent(UUIDModel):
-    organization = models.ForeignKey("posthog.Organization", on_delete=models.CASCADE)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True, blank=True)
+    organization = models.ForeignKey("posthog.Organization", on_delete=models.CASCADE, related_name="+")
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True, blank=True, related_name="+")
     notification_type = models.CharField(max_length=32, choices=notification_type_choices)
     priority = models.CharField(max_length=16, choices=priority_choices, default=Priority.NORMAL)
     title = models.CharField(max_length=255)

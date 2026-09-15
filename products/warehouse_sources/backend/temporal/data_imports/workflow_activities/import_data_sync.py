@@ -67,6 +67,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.byte_bounded_extraction_flag import (
     is_byte_bounded_extraction_enabled,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.errors import (
+    is_transient_egress_proxy_error,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_reuse_flag import (
     is_fanout_warehouse_reuse_enabled,
 )
@@ -74,6 +77,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.his
     history_start_for_schema,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import bind_job_context
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import TemporaryHostResolutionError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
     RESTClientRetryableError,
@@ -441,7 +445,8 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
         if delta_rebuild_pending:
             await logger.adebug("Ignoring the incremental cursor: a corrupt-delta revive rebuilds the table this run")
 
-        if reset_pipeline is not True and not delta_rebuild_pending:
+        use_stored_cursors = reset_pipeline is not True and not delta_rebuild_pending
+        if use_stored_cursors:
             processed_incremental_last_value = process_incremental_value(
                 schema.sync_type_config.get("incremental_field_last_value"),
                 schema.sync_type_config.get("incremental_field_type"),
@@ -520,6 +525,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 else None,
                 db_incremental_field_last_value_before_lookback=incremental_last_value_before_lookback,
                 history_start=history_start,
+                last_synced_at=schema.last_synced_at if use_stored_cursors else None,
                 logger=logger,
                 job_id=inputs.run_id,
                 reset_pipeline=reset_pipeline,
@@ -806,6 +812,24 @@ async def _handle_import_error(
         await logger.awarning(error_msg)
         await logger.adebug("REST client exhausted its retries - re-raising for Temporal retry")
         raise error
+
+    # The host policy's own lookup answered "try again" rather than a verdict on the host, so the
+    # source is fine and a fresh attempt recovers. Classify it by type: every SQL source reaches
+    # this through the shared tunnel layer, and the message carries the host, so no source could
+    # list it in get_retryable_errors.
+    if isinstance(error, TemporaryHostResolutionError):
+        await logger.awarning(error_msg)
+        await logger.adebug("Temporary host resolution failure - re-raising for Temporal retry")
+        raise NonReportableError(error_msg) from error
+
+    # PostHog's own egress proxy throttled or refused the connection, whichever source was talking.
+    # The next attempt recovers and there is nothing on the customer's side to fix, so classify it
+    # here rather than in each source's get_retryable_errors. The original text carries through so
+    # `external_data_job.Transient_Error_Messages` still rewrites it for the customer.
+    if is_transient_egress_proxy_error(error_msg):
+        await logger.awarning(error_msg)
+        await logger.adebug("Transient egress-proxy error - re-raising for Temporal retry")
+        raise NonReportableError(error_msg) from error
 
     # A transient S3/object-store hiccup talking to our own data-warehouse bucket (IMDS/STS
     # blip, SlowDown throttling) that surfaced during this run — e.g. resetting or opening the

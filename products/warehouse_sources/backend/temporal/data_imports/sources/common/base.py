@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Any, Generic, Optional, TypeVar, Union, cast
 
 import structlog
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 if TYPE_CHECKING:
@@ -224,7 +226,8 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         Returns `dict[str, str | None]`:
             key = a partial error message to match on
-            value = a friendly error message to show to users. We fallback to displaying the key when this is missing
+            value = a friendly error message to show to users. `None` keeps the raised error message,
+                which is what a source wants when that message carries detail no fixed string could
         """
 
         return {}
@@ -241,6 +244,27 @@ class _BaseSource(ABC, Generic[ConfigType]):
         """
 
         return set()
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        """Customer-facing messages for retryable failures that survived the whole retry budget.
+
+        Entries here do NOT change retryability — a matching failure keeps retrying and the schema
+        stays enabled. They only replace the raw driver text the job would otherwise store once
+        Temporal's retries run out, so `latest_error` names the failure class and a next action
+        instead of leaking connection internals.
+
+        Keys are partial error messages matched against `str(error)`, and should be drawn from
+        `get_retryable_errors` — a class the source never retries has no exhaustion to describe.
+        `get_non_retryable_errors` is consulted first, so a message matching both keeps the
+        non-retryable wording. The finalizer's generic `Transient_Error_Messages` map is consulted
+        next, so entries here only apply to classes that map does not name.
+
+        Returns `dict[str, str]`:
+            key = a partial error message to match on
+            value = the message to store on the failed job
+        """
+
+        return {}
 
     def get_required_parent_schemas(self, schema_name: str) -> list[str]:
         """Sibling schemas `schema_name` reads from the warehouse instead of re-fetching.
@@ -428,6 +452,14 @@ class _BaseSource(ABC, Generic[ConfigType]):
         redirect the row's injected token. Default: no row-backed credentials."""
         return False
 
+    def get_server_metadata(self, config: ConfigType, team_id: int) -> dict[str, Any]:
+        """Version facts probed from the upstream server, which the schema-discovery pass merges
+        onto the source's ``connection_metadata``. Distinct from ``get_connection_metadata``, which
+        the API calls for direct-query sources only and which returns that mode's connection
+        config, so a source that implements one does not implement the other by accident. The keys
+        vary per source, so the shape is a dict and not a fixed contract. No-op by default."""
+        return {}
+
     def on_source_created(self, source_model: "ExternalDataSource", team_id: int) -> None:
         """Post-create hook. Custom claims its OAuth2 integration row here. No-op by default."""
         return None
@@ -483,7 +515,7 @@ class WebhookDeletionResult:
     error: str | None = None
 
 
-@dataclasses.dataclass
+@frozen
 class ExternalWebhookInfo:
     """Info about an external webhook on the source (e.g. Stripe webhook endpoint)."""
 
@@ -493,6 +525,11 @@ class ExternalWebhookInfo:
     status: str | None = None
     description: str | None = None
     created_at: str | None = None
+    # The vendor API version the endpoint delivers at, for the providers that pin one per
+    # endpoint. None means the provider has no such concept or the endpoint carries no pin, in
+    # which case the provider renders payloads at the account default and the shape can drift
+    # away from the version this source reads.
+    api_version: str | None = None
     error: str | None = None
 
 

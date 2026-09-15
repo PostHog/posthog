@@ -57,6 +57,7 @@ const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'query_wait_timeout', // Waiting on PG bouncer to give us a slot
     'server login has been failing', // PgBouncer cannot authenticate with upstream PG
     'pooler is shutting down', // PgBouncer terminating client connections during a restart
+    'Cannot use a pool after calling end on the pool', // Shutdown ended the pool while work was still in flight
 ]
 
 export function isTransientPgError(err: unknown): boolean {
