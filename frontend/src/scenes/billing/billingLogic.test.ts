@@ -121,6 +121,42 @@ describe('billingLogic', () => {
         }
     )
 
+    it('marks billing unavailable when the API reports a transient failure', async () => {
+        useMocks({
+            get: {
+                '/api/billing': () => [
+                    503,
+                    { type: 'server_error', code: 'billing_service_unavailable', detail: 'Try again in a moment.' },
+                ],
+            },
+        })
+        billingLogic.mount()
+        await expectLogic(preflightLogic).toFinishAllListeners()
+
+        await expectLogic(billingLogic, () => {
+            billingLogic.actions.loadBilling()
+        }).toFinishAllListeners()
+
+        expect(billingLogic.values.billing).toBe(null)
+        expect(billingLogic.values.isBillingUnavailable).toBe(true)
+    })
+
+    it('does not mark billing unavailable when the API rejects the request', async () => {
+        useMocks({
+            get: {
+                '/api/billing': () => [400, { type: 'validation_error', code: 'invalid_request' }],
+            },
+        })
+        billingLogic.mount()
+        await expectLogic(preflightLogic).toFinishAllListeners()
+
+        await expectLogic(billingLogic, () => {
+            billingLogic.actions.loadBilling()
+        }).toFinishAllListeners()
+
+        expect(billingLogic.values.isBillingUnavailable).toBe(false)
+    })
+
     it('treats exactly 100% usage as a reached limit alert', async () => {
         billingState = billingWithProducts([productWithUsage(1)])
         billingLogic.mount()
