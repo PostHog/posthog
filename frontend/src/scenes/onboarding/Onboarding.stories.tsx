@@ -174,6 +174,27 @@ export const AIObservabilitySDKInstallWithCloudRunFlag: Story = {
     },
 }
 
+// The flag swaps the base install command for the dedicated `error-tracking` subcommand.
+export const ErrorTrackingSDKInstallNewWizard: Story = {
+    render: () => {
+        useMountedLogic(onboardingLogic)
+        const { setProduct } = useActions(onboardingLogic)
+
+        useDelayedOnMountEffect(() => {
+            setProduct(availableOnboardingProducts[ProductKey.ERROR_TRACKING])
+            router.actions.push(
+                urls.onboarding({ productKey: ProductKey.ERROR_TRACKING, stepKey: OnboardingStepKey.INSTALL })
+            )
+        })
+
+        return <App />
+    },
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_NEW_WIZARD],
+        testOptions: { waitForSelector: '[data-attr="sdk-continue"]' },
+    },
+}
+
 // ==========================================
 // Product Configuration Steps
 // ==========================================

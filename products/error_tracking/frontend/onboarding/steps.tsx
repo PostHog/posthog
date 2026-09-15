@@ -1,4 +1,5 @@
 import { SetupTaskId } from 'lib/components/ProductSetup'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { OnboardingErrorTrackingAlertsStep } from 'scenes/onboarding/legacy/error-tracking/OnboardingErrorTrackingAlertsStep'
 import { OnboardingErrorTrackingSourceMapsStep } from 'scenes/onboarding/legacy/error-tracking/OnboardingErrorTrackingSourceMapsStep'
 import {
@@ -6,6 +7,7 @@ import {
     ErrorTrackingSDKInstructions,
 } from 'scenes/onboarding/legacy/sdks/error-tracking/ErrorTrackingSDKInstructions'
 import { OnboardingInstallStep } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep'
+import type { WizardOverrides } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep/types'
 import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/legacy/types'
 import { urls } from 'scenes/urls'
 
@@ -14,6 +16,16 @@ import { OnboardingStepKey } from '~/types'
 
 export const errorTrackingOnboarding: ProductOnboardingProvider = {
     steps: (ctx) => {
+        // The `error-tracking` wizard subcommand is still rolling out, so the install step keeps the
+        // base SDK install command until its flag is on.
+        const wizardOverrides: WizardOverrides | undefined = ctx.featureFlags[FEATURE_FLAGS.ERROR_TRACKING_NEW_WIZARD]
+            ? {
+                  subcommand: 'error-tracking',
+                  intro: 'The setup agent detects your framework, installs the SDK if needed, and adds exception capture and source map upload.',
+                  description:
+                      "Detects your framework, installs the SDK if needed, and adds exception capture and source map upload so errors arrive with readable stack traces. Commit the changes and open a PR when you're ready.",
+              }
+            : undefined
         const installStep = {
             id: `${OnboardingStepKey.INSTALL}:${ProductKey.ERROR_TRACKING}`,
             productKey: ProductKey.ERROR_TRACKING,
@@ -29,6 +41,7 @@ export const errorTrackingOnboarding: ProductOnboardingProvider = {
                 <OnboardingInstallStep
                     sdkInstructionMap={ErrorTrackingSDKInstructions}
                     sdkDocsLinkOverrides={ErrorTrackingSDKDocsLinkOverrides}
+                    wizardOverrides={wizardOverrides}
                 />
             ),
         }

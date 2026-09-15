@@ -158,6 +158,23 @@ export interface ProductEmptyStateConfig {
      * has nothing to reveal and the primary action is the only next step.
      */
     skippable?: boolean
+    /**
+     * Overrides applied while a feature flag is on, to roll out a change to this screen (a new
+     * wizard subcommand, a different call to action) without a second config. Each field
+     * replaces the base value, so `primaryAction: undefined` removes the action. `text` merges
+     * per mode, so a field left out keeps its base value. When several flags are on, later
+     * entries win.
+     */
+    featureFlagOverrides?: Partial<Record<FeatureFlagKey, ProductEmptyStateOverride>>
+}
+
+/** Per-mode text fields to replace; fields left out keep the base value. */
+export type ProductEmptyStateTextOverride = Partial<Record<ProductEmptyStateMode, Partial<ProductEmptyStateText>>>
+
+export type ProductEmptyStateOverride = Partial<
+    Omit<ProductEmptyStateConfig, 'productKey' | 'text' | 'featureFlagOverrides'>
+> & {
+    text?: ProductEmptyStateTextOverride
 }
 
 /**
