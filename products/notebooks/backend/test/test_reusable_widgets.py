@@ -4,7 +4,7 @@ from threading import Barrier
 from uuid import UUID, uuid4
 
 from posthog.test.base import APIBaseTest, NonAtomicBaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.core.cache import cache
 from django.db import close_old_connections, transaction
@@ -1005,9 +1005,9 @@ class TestReusableWidgets(APIBaseTest):
         self.instance.refresh_from_db()
         assert self.instance.widget_id == self.widget.id
 
-    @parameterized.expand([("current", False), ("selected_history", True)])
+    @parameterized.expand([("current", False, False), ("selected_history", True, False), ("rollback", False, True)])
     def test_fork_replaces_the_placement_with_an_independent_private_widget(
-        self, _name: str, selected_history: bool
+        self, _name: str, selected_history: bool, fail_placement: bool
     ) -> None:
         self._publish()
         if selected_history:
@@ -1018,6 +1018,20 @@ class TestReusableWidgets(APIBaseTest):
             self.widget.save(update_fields=["current_version"])
         forked_canvas_id = uuid4()
         forked_source_version_id = uuid4()
+        enqueue_build = Mock()
+
+        def publish_source(**kwargs: object) -> UUID:
+            transaction.on_commit(enqueue_build)
+            return forked_source_version_id
+
+        def reject_placement(
+            sender: type[NotebookWidgetInstance], instance: NotebookWidgetInstance, **kwargs: object
+        ) -> None:
+            if fail_placement and instance.widget_id != self.widget.id:
+                raise RuntimeError("Placement write failed")
+
+        pre_save.connect(reject_placement, sender=NotebookWidgetInstance)
+        self.addCleanup(pre_save.disconnect, reject_placement, sender=NotebookWidgetInstance)
         state = CanvasGenerationState(
             current_source_version_id=forked_source_version_id,
             artifact_url="https://example.com/forked-widget.html",
@@ -1047,16 +1061,27 @@ class TestReusableWidgets(APIBaseTest):
             ),
             patch(
                 "products.canvas.backend.notebook_integration.publish_prepared_notebook_canvas_source",
-                return_value=forked_source_version_id,
+                side_effect=publish_source,
             ),
             patch(
                 "products.canvas.backend.notebook_integration.get_canvas_generation_state",
                 return_value=state,
             ),
+            self.captureOnCommitCallbacks(execute=True),
         ):
             response = self.client.post(
                 url, {"version_id": str(self.version.id)} if selected_history else {}, format="json"
             )
+
+        if fail_placement:
+            assert response.status_code == 500
+            enqueue_build.assert_not_called()
+            self.instance.refresh_from_db()
+            assert self.instance.widget_id == self.widget.id
+            assert not GeneratedWidget.objects.for_team(self.team.id).filter(canvas_id=forked_canvas_id).exists()
+            return
+
+        enqueue_build.assert_called_once()
 
         read_source.assert_called_once_with(
             team_id=self.team.id, canvas_id=self.widget.canvas_id, version_id=self.version.canvas_source_version_id

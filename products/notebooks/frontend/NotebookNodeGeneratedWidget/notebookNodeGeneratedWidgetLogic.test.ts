@@ -225,7 +225,8 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
                     String(MOCK_TEAM_ID),
                     props.notebookShortId,
                     props.nodeId,
-                    { widget_id: widgetId, version_id: null, input_bindings: inputBindings ?? {} }
+                    { widget_id: widgetId, version_id: null, input_bindings: inputBindings ?? {} },
+                    expect.objectContaining({ signal: expect.anything() })
                 )
             } else {
                 expect(notebooksWidgetAttach).not.toHaveBeenCalled()
@@ -271,24 +272,39 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         expect(logic.values.statusLoading).toBe(false)
     })
 
-    it.each(['timeout', 'unmount'])('cancels a pending publish on %s', async (reason) => {
+    it.each([
+        { operation: 'publish', reason: 'timeout' },
+        { operation: 'publish', reason: 'unmount' },
+        { operation: 'attach', reason: 'timeout' },
+        { operation: 'attach', reason: 'unmount' },
+    ])('cancels a pending $operation on $reason', async ({ operation, reason }) => {
         jest.mocked(notebooksWidgetStatus).mockResolvedValue(status())
         let requestSignal: AbortSignal | undefined
-        jest.mocked(notebooksWidgetPublish).mockImplementation(
+        jest.mocked(operation === 'publish' ? notebooksWidgetPublish : notebooksWidgetAttach).mockImplementation(
             (_projectId, _shortId, _nodeId, _body, options) =>
-                new Promise((_resolve, reject) => {
+                new Promise<never>((_resolve, reject) => {
                     requestSignal = options?.signal ?? undefined
                     requestSignal?.addEventListener('abort', () => reject(requestSignal?.reason), { once: true })
                 })
         )
-        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic = notebookNodeGeneratedWidgetLogic({
+            ...props,
+            reusableWidgetId: operation === 'attach' ? '00000000-0000-4000-8000-000000000042' : undefined,
+        })
+        jest.mocked(notebooksWidgetStatus).mockResolvedValueOnce(status({ instance_id: 'existing' }))
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         jest.useFakeTimers()
-        const publishFailed = jest.spyOn(logic.actions, 'publishFailed')
-        logic.actions.setPublishName('Revenue chart')
-        logic.actions.publishReusableWidget()
-        expect(logic.values.publishInFlight).toBe(true)
+        const requestFailed = jest.spyOn(logic.actions, operation === 'publish' ? 'publishFailed' : 'statusFailed')
+        if (operation === 'publish') {
+            logic.actions.setPublishName('Revenue chart')
+            logic.actions.publishReusableWidget()
+            expect(logic.values.publishInFlight).toBe(true)
+        } else {
+            logic.actions.loadStatus()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(logic.values.statusLoading).toBe(true)
+        }
 
         if (reason === 'unmount') {
             logic.unmount()
@@ -300,10 +316,10 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
 
         expect(requestSignal?.aborted).toBe(true)
         if (reason === 'unmount') {
-            expect(publishFailed).not.toHaveBeenCalled()
+            expect(requestFailed).not.toHaveBeenCalled()
         } else {
-            expect(publishFailed).toHaveBeenCalledWith('The widget request timed out.')
-            expect(logic.values.publishInFlight).toBe(false)
+            expect(requestFailed).toHaveBeenCalledWith('The widget request timed out.')
+            expect(operation === 'publish' ? logic.values.publishInFlight : logic.values.statusLoading).toBe(false)
         }
     })
 

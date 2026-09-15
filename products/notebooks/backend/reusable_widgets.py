@@ -572,51 +572,50 @@ def fork_reusable_widget(
                 user_id=user_id,
                 prepared=prepared_source,
             )
+            locked_instance = (
+                NotebookWidgetInstance.objects.for_team(notebook.team_id).select_for_update().get(id=instance.id)
+            )
+            locked_source_version = locked_instance.pinned_version or locked_instance.widget.current_version
+            if locked_instance.widget_id != instance.widget_id or (
+                version_id is None and (locked_source_version is None or locked_source_version.id != source_version.id)
+            ):
+                raise WidgetConflictError("This widget changed before it could be forked.", "fork_conflict")
+            widget = GeneratedWidget.objects.for_team(notebook.team_id).create(
+                team_id=notebook.team_id,
+                name=fork_name,
+                canvas_id=canvas_id,
+                created_by_id=user_id,
+            )
+            version = GeneratedWidgetVersion.objects.for_team(notebook.team_id).create(
+                team_id=notebook.team_id,
+                widget=widget,
+                canvas_source_version_id=publication,
+                title=source_version.title,
+                operation=GeneratedWidgetVersion.Operation.INITIAL,
+                prompt_delta="Forked from a reusable widget.",
+                prompt_history=source_version.prompt_history,
+                model=source_version.model,
+                generator_version=source_version.generator_version,
+                input_contract=source_version.input_contract,
+                schema_hash=source_version.schema_hash,
+                security_review_severity=source_version.security_review_severity,
+                security_review_summary=source_version.security_review_summary,
+                security_review_findings=source_version.security_review_findings,
+                security_review_model=source_version.security_review_model,
+                security_review_version=source_version.security_review_version,
+                security_reviewed_at=source_version.security_reviewed_at,
+                created_by_id=user_id,
+            )
+            widget.current_version = version
+            widget.save(update_fields=["current_version"])
+            locked_instance.widget = widget
+            locked_instance.pinned_version = None
+            locked_instance.save(update_fields=["widget", "pinned_version"])
     except canvas_facade.NotebookCanvasBuildCapacityError as error:
         raise WidgetRateLimitError("Widget build capacity is full. Try again shortly.", "build_capacity") from error
     except canvas_facade.NotebookCanvasError as error:
         raise WidgetError("The reusable widget could not be forked. Try again.", "fork_failed") from error
 
-    with transaction.atomic():
-        locked_instance = (
-            NotebookWidgetInstance.objects.for_team(notebook.team_id).select_for_update().get(id=instance.id)
-        )
-        locked_source_version = locked_instance.pinned_version or locked_instance.widget.current_version
-        if locked_instance.widget_id != instance.widget_id or (
-            version_id is None and (locked_source_version is None or locked_source_version.id != source_version.id)
-        ):
-            raise WidgetConflictError("This widget changed before it could be forked.", "fork_conflict")
-        widget = GeneratedWidget.objects.for_team(notebook.team_id).create(
-            team_id=notebook.team_id,
-            name=fork_name,
-            canvas_id=canvas_id,
-            created_by_id=user_id,
-        )
-        version = GeneratedWidgetVersion.objects.for_team(notebook.team_id).create(
-            team_id=notebook.team_id,
-            widget=widget,
-            canvas_source_version_id=publication,
-            title=source_version.title,
-            operation=GeneratedWidgetVersion.Operation.INITIAL,
-            prompt_delta="Forked from a reusable widget.",
-            prompt_history=source_version.prompt_history,
-            model=source_version.model,
-            generator_version=source_version.generator_version,
-            input_contract=source_version.input_contract,
-            schema_hash=source_version.schema_hash,
-            security_review_severity=source_version.security_review_severity,
-            security_review_summary=source_version.security_review_summary,
-            security_review_findings=source_version.security_review_findings,
-            security_review_model=source_version.security_review_model,
-            security_review_version=source_version.security_review_version,
-            security_reviewed_at=source_version.security_reviewed_at,
-            created_by_id=user_id,
-        )
-        widget.current_version = version
-        widget.save(update_fields=["current_version"])
-        locked_instance.widget = widget
-        locked_instance.pinned_version = None
-        locked_instance.save(update_fields=["widget", "pinned_version"])
     return get_widget_status(notebook=notebook, node_id=node_id)
 
 

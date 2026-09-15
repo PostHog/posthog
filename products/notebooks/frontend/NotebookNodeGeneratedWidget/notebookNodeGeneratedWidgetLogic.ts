@@ -1315,23 +1315,27 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                             loadedStatus = await requestStatus()
                         }
                         if (!loadedStatus.instance_id && props.isEditable && props.reusableWidgetId) {
+                            const widgetId = props.reusableWidgetId
                             await props.persistNotebook()
-                            loadedStatus = await notebooksWidgetAttach(
-                                String(props.projectId),
-                                props.notebookShortId,
-                                props.nodeId,
-                                {
-                                    widget_id: props.reusableWidgetId,
-                                    version_id: props.reusableVersionId ?? null,
-                                    input_bindings: props.inputBindings ?? {},
-                                }
+                            loadedStatus = await requestWithTimeout((signal) =>
+                                notebooksWidgetAttach(
+                                    String(props.projectId),
+                                    props.notebookShortId,
+                                    props.nodeId,
+                                    {
+                                        widget_id: widgetId,
+                                        version_id: props.reusableVersionId ?? null,
+                                        input_bindings: props.inputBindings ?? {},
+                                    },
+                                    { signal }
+                                )
                             )
                         }
                         if (isCurrentStatusRequest(requestId)) {
                             actions.statusReceived(loadedStatus)
                         }
                     } catch (error) {
-                        if (isCurrentStatusRequest(requestId)) {
+                        if (!isAbortError(error) && isCurrentStatusRequest(requestId)) {
                             actions.statusFailed(errorMessage(error))
                         }
                     } finally {

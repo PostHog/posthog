@@ -65,6 +65,7 @@ Inline AI receives a bounded, project-scoped catalog of saved widget metadata an
 The catalog follows the generated-widgets feature flag independently of SQL V2.
 A new `<Widget id="…" inputs={{…}} />` in an editable notebook attaches that catalog widget after saving the notebook.
 Widgets without inputs also attach when the `inputs` attribute is omitted.
+Attachment requests time out after 30 seconds and are canceled when the widget unmounts.
 The server remains authoritative for existing placements. The inline response handler also unwraps complete enabled component tags accidentally fenced as unlabeled, Markdown, MDX, or JSX code; disabled tags and other code examples stay fenced.
 
 Catalog pages resume polling an active update when reopened, including during source generation. Failed or canceled updates preserve the change prompt and report the failure even when the published preview still works. Status follows the shared widget's job; generation can use another live placement after the original block is removed.
@@ -73,6 +74,7 @@ Prepared Canvas source uploads are removed if generation is abandoned or the not
 The first prepared draft for a legacy Canvas keeps the original source as its parent version without moving the live head. Promoting the draft preserves that history for restoration.
 Pinning the displayed version keeps its preview available. Updated input bindings refresh the preview, including bindings changed through **Match with AI**. Failed Hog compilation can be retried without reloading the page.
 Fork requests accept an optional `version_id`, so forking copies the version selected in history. Omitting it copies the placement's pinned or latest version. Concurrent attachments to the same node reuse one placement.
+Fork publication and placement replacement commit together. If either fails, both roll back and the build is not queued.
 
 Reusable widgets remain behind the `notebook-generated-widgets` feature flag and preserve the generated-code trust gate described below. Catalog access requires resource-level notebook permissions, rather than an access grant to one notebook. Reading or editing demo rows also requires query viewer access and the `query:read` token scope. Demo inputs start empty. Authors must use invented sample rows because saved demos are shared with catalog viewers and do not carry notebook or source access restrictions. Catalog demo approval applies only to the open preview and never grants consent to run the build against notebook data. Editing the demo or switching versions clears this approval.
 
