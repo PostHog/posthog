@@ -190,7 +190,7 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
                 const maps = buildAdjacencyMaps(edges)
 
                 const rows = affected.map((node): AttentionModel => {
-                    const suspension = servingSuspension(node.suspended)
+                    const suspension = suspendedIds.has(node.id) ? servingSuspension(node.suspended) : undefined
                     // The cone includes the node itself, which is not something it blocks.
                     const downstream = [...traverseLineage(node.id, maps, 'downstream')].filter((id) => id !== node.id)
                     return {
