@@ -25,7 +25,7 @@ def resolve_sandbox_context_for_local_dev(repository: str) -> CustomPromptSandbo
         raise RuntimeError(
             f"No GitHub integration found for team {team.id}. "
             "Set up a GitHub App installation first: "
-            "go to /settings/integrations in your local PostHog."
+            "go to /settings/environment-integrations in your local PostHog."
         )
     return CustomPromptSandboxContext(
         team_id=team.id,
