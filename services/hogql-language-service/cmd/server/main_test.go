@@ -152,6 +152,30 @@ func TestRequestLogIncludesMetadataWithoutRequestContents(t *testing.T) {
 	if strings.Contains(logs.String(), "do-not-log-query") || strings.Contains(logs.String(), "do-not-log-token") {
 		t.Fatalf("request contents leaked into log: %s", logs.String())
 	}
+
+	logs.Reset()
+	request = httptest.NewRequest(http.MethodGet, "/unknown", nil)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("unknown route returned %d: %s", response.Code, response.Body.String())
+	}
+	entry = map[string]any{}
+	if err := json.Unmarshal(bytes.TrimSpace(logs.Bytes()), &entry); err != nil {
+		t.Fatalf("decode unmatched request log: %v\n%s", err, logs.String())
+	}
+	for key, expected := range map[string]any{
+		"level":       "WARN",
+		"msg":         "http_request",
+		"operation":   "unmatched",
+		"method":      http.MethodGet,
+		"status_code": float64(http.StatusNotFound),
+		"result":      "error",
+	} {
+		if entry[key] != expected {
+			t.Errorf("%s = %#v, want %#v", key, entry[key], expected)
+		}
+	}
 }
 
 func TestPrincipalRateLimitRunsBeforeBodyDecodeAndDoesNotCrossScopes(t *testing.T) {

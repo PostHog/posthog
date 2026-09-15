@@ -30,6 +30,7 @@ type server struct {
 }
 
 type requestLogDetails struct {
+	operation         string
 	authorization     *serviceauth.Authorization
 	result            string
 	catalogTables     int
@@ -133,18 +134,18 @@ func main() {
 
 func (s *server) handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("GET /health", s.logRequests("health", http.HandlerFunc(s.health)))
-	mux.Handle("PUT /teams/{teamID}/users/{userID}/catalog", s.logRequests("publish", s.authorized(serviceauth.OperationPublish, s.putCatalog)))
-	mux.Handle("DELETE /teams/{teamID}/users/{userID}/catalog", s.logRequests("delete", s.authorized(serviceauth.OperationDelete, s.deleteCatalog)))
-	mux.Handle("POST /teams/{teamID}/users/{userID}/autocomplete", s.logRequests("complete", s.authorized(serviceauth.OperationComplete, s.autocomplete)))
-	mux.Handle("POST /teams/{teamID}/users/{userID}/validate", s.logRequests("validate", s.authorized(serviceauth.OperationValidate, s.validate)))
-	return securityHeaders(mux)
+	mux.Handle("GET /health", requestOperation("health", http.HandlerFunc(s.health)))
+	mux.Handle("PUT /teams/{teamID}/users/{userID}/catalog", requestOperation("publish", s.authorized(serviceauth.OperationPublish, s.putCatalog)))
+	mux.Handle("DELETE /teams/{teamID}/users/{userID}/catalog", requestOperation("delete", s.authorized(serviceauth.OperationDelete, s.deleteCatalog)))
+	mux.Handle("POST /teams/{teamID}/users/{userID}/autocomplete", requestOperation("complete", s.authorized(serviceauth.OperationComplete, s.autocomplete)))
+	mux.Handle("POST /teams/{teamID}/users/{userID}/validate", requestOperation("validate", s.authorized(serviceauth.OperationValidate, s.validate)))
+	return securityHeaders(s.logRequests(mux))
 }
 
-func (s *server) logRequests(operation string, next http.Handler) http.Handler {
+func (s *server) logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
-		details := &requestLogDetails{}
+		details := &requestLogDetails{operation: "unmatched"}
 		response := &loggingResponseWriter{ResponseWriter: w}
 		next.ServeHTTP(response, r.WithContext(context.WithValue(r.Context(), requestLogDetailsKey{}, details)))
 
@@ -161,7 +162,7 @@ func (s *server) logRequests(operation string, next http.Handler) http.Handler {
 			}
 		}
 		attributes := []any{
-			"operation", operation,
+			"operation", details.operation,
 			"method", r.Method,
 			"status_code", statusCode,
 			"duration_ms", float64(time.Since(started).Microseconds()) / 1000,
@@ -180,7 +181,7 @@ func (s *server) logRequests(operation string, next http.Handler) http.Handler {
 			logger = slog.Default()
 		}
 		switch {
-		case operation == "health" && statusCode < http.StatusBadRequest:
+		case details.operation == "health" && statusCode < http.StatusBadRequest:
 			logger.Debug("http_request", attributes...)
 		case statusCode >= http.StatusInternalServerError:
 			logger.Error("http_request", attributes...)
@@ -189,6 +190,15 @@ func (s *server) logRequests(operation string, next http.Handler) http.Handler {
 		default:
 			logger.Info("http_request", attributes...)
 		}
+	})
+}
+
+func requestOperation(operation string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if details := requestDetails(r); details != nil {
+			details.operation = operation
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 
