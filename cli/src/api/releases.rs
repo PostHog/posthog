@@ -50,7 +50,7 @@ impl Release {
 
         if let Err(err) = response {
             if let ClientError::ApiError(404, _, _) = err {
-                warn!("release {}@{} not found", name, version);
+                info!("release {}@{} not found", name, version);
                 return Ok(None);
             }
             warn!("failed to get release from hash: {}", err);
