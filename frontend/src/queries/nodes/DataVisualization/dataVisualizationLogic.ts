@@ -58,6 +58,7 @@ import type {
     TraceSpansAttributeBreakdownQueryResponse,
     TraceSpansQueryResponse,
 } from '../../schema/schema-general'
+import type { TraceSpansTreeQueryResponse } from '../../schema/schema-general'
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { QueryFeature, getQueryFeatures } from '../DataTable/queryFeatures'
 import { getAutoBoxPlotSettings } from './Components/Charts/sqlBoxPlotAdapter'
@@ -642,6 +643,7 @@ export interface dataVisualizationLogicValues {
         | TraceSpansAggregationQueryResponse
         | TraceSpansAttributeBreakdownQueryResponse
         | TraceSpansQueryResponse
+        | TraceSpansTreeQueryResponse
         | null // dataNodeLogic
     responseError: string | null // dataNodeLogic
     responseLoading: boolean // dataNodeLogic
@@ -835,6 +837,7 @@ export interface dataVisualizationLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null
         ) => Column[]
         numericalColumns: (columns: Column[]) => Column[]
@@ -862,6 +865,7 @@ export interface dataVisualizationLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null,
             columns: Column[],
             chartSettings: ChartSettings,
@@ -883,6 +887,7 @@ export interface dataVisualizationLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null,
             columns: Column[]
         ) => AxisSeries<string> | null
@@ -902,6 +907,7 @@ export interface dataVisualizationLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null,
             columns: Column[]
         ) => AxisSeries<any>[]
@@ -921,6 +927,7 @@ export interface dataVisualizationLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null,
             chartSettings: ChartSettings
         ) => TableDataCell<any>[][]
@@ -955,6 +962,7 @@ export interface dataVisualizationLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null
         ) => ChartDisplayType
         isTableVisualization: (effectiveVisualizationType: ChartDisplayType) => boolean

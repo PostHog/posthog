@@ -324,6 +324,7 @@ export interface insightVizDataLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
             | undefined,
         payload?:
@@ -355,6 +356,7 @@ export interface insightVizDataLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
             | undefined
     } // insightDataLogic

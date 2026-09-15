@@ -310,6 +310,7 @@ export interface dataNodeLogicValues {
         | TraceSpansAggregationQueryResponse
         | TraceSpansAttributeBreakdownQueryResponse
         | TraceSpansQueryResponse
+        | TraceSpansTreeQueryResponse
         | null
     responseError: string | null
     responseErrorObject: Record<string, any> | null
@@ -408,6 +409,7 @@ export interface dataNodeLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
             | undefined,
         payload?: {
@@ -431,6 +433,7 @@ export interface dataNodeLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
             | undefined
         payload?: {
@@ -484,6 +487,7 @@ export interface dataNodeLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null,
         payload?: any
     ) => {
@@ -501,6 +505,7 @@ export interface dataNodeLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
         payload?: any
     }
@@ -527,6 +532,7 @@ export interface dataNodeLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null,
         payload?: any
     ) => {
@@ -544,6 +550,7 @@ export interface dataNodeLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
         payload?: any
     }
@@ -723,6 +730,7 @@ export interface dataNodeLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null
         ) => DataNode | null
         canLoadNewData: (newQuery: DataNode<Record<string, any>> | null, isShowingCachedResults: boolean) => boolean
@@ -742,6 +750,7 @@ export interface dataNodeLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null,
             responseError: string | null,
             dataLoading: boolean,
@@ -765,6 +774,7 @@ export interface dataNodeLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null
         ) => boolean
         dataLimit: (
@@ -782,6 +792,7 @@ export interface dataNodeLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null
         ) => number | null
         backToSourceQuery: (query: DataNode<Record<string, any>>) => InsightVizNode | null
@@ -801,6 +812,7 @@ export interface dataNodeLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null
         ) => string | null
         nextAllowedRefresh: (
@@ -819,6 +831,7 @@ export interface dataNodeLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null
         ) => string | null
         getInsightRefreshButtonDisabledReason: (
@@ -840,6 +853,7 @@ export interface dataNodeLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null
         ) => QueryTiming[] | null
         numberOfRows: (
@@ -857,6 +871,7 @@ export interface dataNodeLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null
         ) => number | null
         hasActiveFilters: (query: DataNode<Record<string, any>>) => boolean
