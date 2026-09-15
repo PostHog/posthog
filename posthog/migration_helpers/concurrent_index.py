@@ -56,6 +56,9 @@ can't model):
 The Migration class still needs `atomic = False`.
 """
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+
 from django.contrib.postgres.operations import AddIndexConcurrently, RemoveIndexConcurrently
 from django.db import migrations
 
@@ -70,21 +73,71 @@ def _disable_timeouts(schema_editor) -> None:
 
 
 def _index_validity(schema_editor, index_name: str) -> str | None:
-    """None if no index of this name exists, else "valid" or "invalid" (indisvalid)."""
+    """None if no relation of this name exists, else "valid" or "invalid" (indisvalid).
+
+    Postgres checks a new index name against every relation in pg_class, not
+    only the indexes, so the lookup starts there and joins pg_index on the
+    outside. A table, view or sequence of that name collides with the CREATE
+    just the same, and must not read here as "nothing exists yet".
+    """
     with schema_editor.connection.cursor() as cursor:
         cursor.execute(
             """
-            SELECT i.indisvalid
+            SELECT c.relkind, i.indisvalid
             FROM pg_class c
-            JOIN pg_index i ON c.oid = i.indexrelid
-            WHERE c.relname = %s
+            LEFT JOIN pg_index i ON c.oid = i.indexrelid
+            WHERE c.relname = %s AND pg_catalog.pg_table_is_visible(c.oid)
             """,
             [index_name],
         )
         row = cursor.fetchone()
         if row is None:
             return None
-        return "valid" if row[0] else "invalid"
+        relkind, indisvalid = row
+        if indisvalid is None:
+            raise RuntimeError(
+                f"relation {index_name!r} already exists and is not an index "
+                f"(pg_class.relkind = {relkind!r}). Drop or rename it, then run the migration again."
+            )
+        return "valid" if indisvalid else "invalid"
+
+
+@contextmanager
+def _create_index_if_not_exists(schema_editor) -> Iterator[None]:
+    """Make `schema_editor.add_index(..., concurrently=True)` emit IF NOT EXISTS.
+
+    Django has no hook for it, so the validity check and the CREATE are two
+    separate autocommit statements with a race window between them. The
+    replacement keeps Django's own template and rewrites only the prefix, so a
+    future Django that renames the prefix falls back to the old behavior
+    instead of emitting broken SQL.
+    """
+    original = schema_editor.sql_create_index_concurrently
+    schema_editor.sql_create_index_concurrently = original.replace(
+        "CREATE INDEX CONCURRENTLY ", "CREATE INDEX CONCURRENTLY IF NOT EXISTS ", 1
+    )
+    try:
+        yield
+    finally:
+        schema_editor.sql_create_index_concurrently = original
+
+
+def _require_valid_index(schema_editor, index_name: str, op_name: str) -> None:
+    """Fail the migration when the CREATE did not leave a valid index behind.
+
+    `IF NOT EXISTS` matches on the relation name alone, so a relation that takes
+    the name after the pre-check turns the CREATE into a silent no-op. Django
+    would then record the migration while the index is missing or invalid, and
+    no later run would rebuild it. The raise leaves the migration unrecorded, so
+    the next run goes through the invalid-leftover recovery instead.
+    """
+    validity = _index_validity(schema_editor, index_name)
+    if validity != "valid":
+        raise RuntimeError(
+            f"[{op_name}] index {index_name!r} is {validity or 'missing'} after the concurrent build. "
+            "Another writer most likely took the name between the check and the create. "
+            "The migration is not recorded; run it again to rebuild the index."
+        )
 
 
 def _log_and_drop_invalid_index(schema_editor, index_name: str, op_name: str) -> None:
@@ -310,7 +363,12 @@ class SafeAddIndexConcurrently(AddIndexConcurrently):
 
     - disables lock_timeout / statement_timeout so a deploy-time timeout can't
       cancel the build,
-    - skips when a valid index of that name already exists (idempotent retry),
+    - skips when a valid index of that name already exists, and emits
+      `IF NOT EXISTS` so a retry is safe even when the index appears between
+      the check and the CREATE,
+    - reads the catalog again after the CREATE and fails the migration when the
+      name does not hold a valid index, so a build that `IF NOT EXISTS` skipped
+      cannot be recorded as applied,
     - drops and rebuilds an indisvalid = false leftover from a prior
       interrupted build, logging a breadcrumb so the recovery is visible.
 
@@ -338,7 +396,9 @@ class SafeAddIndexConcurrently(AddIndexConcurrently):
             return  # already built; a bin/migrate retry is a no-op
         if validity == "invalid":
             _log_and_drop_invalid_index(schema_editor, self.index.name, type(self).__name__)
-        schema_editor.add_index(model, self.index, concurrently=True)
+        with _create_index_if_not_exists(schema_editor):
+            schema_editor.add_index(model, self.index, concurrently=True)
+        _require_valid_index(schema_editor, self.index.name, type(self).__name__)
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state) -> None:
         self._ensure_not_in_transaction(schema_editor)
@@ -385,4 +445,6 @@ class SafeRemoveIndexConcurrently(RemoveIndexConcurrently):
             _log_and_drop_invalid_index(schema_editor, self.name, type(self).__name__)
         to_model_state = to_state.models[app_label, self.model_name_lower]
         index = to_model_state.get_index_by_name(self.name)
-        schema_editor.add_index(model, index, concurrently=True)
+        with _create_index_if_not_exists(schema_editor):
+            schema_editor.add_index(model, index, concurrently=True)
+        _require_valid_index(schema_editor, self.name, type(self).__name__)

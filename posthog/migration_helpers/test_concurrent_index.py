@@ -7,6 +7,7 @@ with anything else in the schema.
 """
 
 import uuid
+import itertools
 
 import pytest
 
@@ -18,6 +19,7 @@ from posthog.migration_helpers import (
     DropIndexConcurrently,
     SafeAddIndexConcurrently,
     SafeRemoveIndexConcurrently,
+    concurrent_index,
 )
 
 
@@ -440,3 +442,96 @@ def test_safe_ops_deconstruct_round_trips(op):
     assert args == []
     rebuilt = type(op)(**kwargs)
     assert rebuilt.deconstruct() == op.deconstruct()
+
+
+def _force_first_lookup_to_miss(monkeypatch):
+    """Open the window between the pre-check and the CREATE.
+
+    The helper looks the index name up twice, once before the CREATE and once
+    after it. Only the first lookup must report "nothing exists yet" to put the
+    op into the race. The second lookup reads the real catalog, because that
+    lookup is the behavior under test.
+    """
+    real_index_validity = concurrent_index._index_validity
+    lookups = itertools.count()
+
+    def _miss_first(*args, **kwargs):
+        if next(lookups) == 0:
+            return None
+        return real_index_validity(*args, **kwargs)
+
+    monkeypatch.setattr(concurrent_index, "_index_validity", _miss_first)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_safe_add_index_concurrently_survives_index_created_after_the_check(temp_model, monkeypatch):
+    """Forcing the check to miss reproduces the window between the check and the CREATE."""
+    table, state = temp_model
+    idx_name = f"{table}_col_idx"
+    with connection.cursor() as cursor:
+        cursor.execute(f'CREATE INDEX "{idx_name}" ON "{table}" (col)')
+    _force_first_lookup_to_miss(monkeypatch)
+
+    op = SafeAddIndexConcurrently(model_name=MODEL_NAME, index=models.Index(fields=["col"], name=idx_name))
+    _apply_forwards(op, state)
+
+    assert _index_is_valid(idx_name)
+
+
+@pytest.mark.parametrize(
+    "winner,expected_error",
+    [
+        ("invalid_index", "is invalid after the concurrent build"),
+        ("view", "already exists and is not an index"),
+    ],
+)
+@pytest.mark.django_db(transaction=True)
+def test_safe_add_index_concurrently_rejects_a_race_winner_that_is_not_a_valid_index(
+    temp_model, monkeypatch, winner, expected_error
+):
+    """A relation that wins the race makes the CREATE a silent no-op.
+
+    Without the post-check the op returns normally, so Django records the
+    migration although no valid index exists.
+    """
+    table, state = temp_model
+    idx_name = f"{table}_col_idx"
+    with connection.cursor() as cursor:
+        if winner == "view":
+            cursor.execute(f'CREATE VIEW "{idx_name}" AS SELECT 1 AS col')
+        else:
+            cursor.execute(f'CREATE INDEX "{idx_name}" ON "{table}" (col)')
+            cursor.execute(
+                """
+                UPDATE pg_index SET indisvalid = false
+                WHERE indexrelid = (SELECT oid FROM pg_class WHERE relname = %s)
+                """,
+                [idx_name],
+            )
+    _force_first_lookup_to_miss(monkeypatch)
+
+    op = SafeAddIndexConcurrently(model_name=MODEL_NAME, index=models.Index(fields=["col"], name=idx_name))
+    try:
+        with pytest.raises(RuntimeError, match=expected_error):
+            _apply_forwards(op, state)
+    finally:
+        if winner == "view":
+            with connection.cursor() as cursor:
+                cursor.execute(f'DROP VIEW IF EXISTS "{idx_name}"')
+
+
+@pytest.mark.django_db(transaction=True)
+def test_safe_add_index_concurrently_reports_non_index_name_collision(temp_model):
+    """A same-named relation that is not an index collides with the CREATE too."""
+    table, state = temp_model
+    idx_name = f"{table}_col_idx"
+    with connection.cursor() as cursor:
+        cursor.execute(f'CREATE VIEW "{idx_name}" AS SELECT 1 AS col')
+
+    op = SafeAddIndexConcurrently(model_name=MODEL_NAME, index=models.Index(fields=["col"], name=idx_name))
+    try:
+        with pytest.raises(RuntimeError, match="already exists and is not an index"):
+            _apply_forwards(op, state)
+    finally:
+        with connection.cursor() as cursor:
+            cursor.execute(f'DROP VIEW IF EXISTS "{idx_name}"')
