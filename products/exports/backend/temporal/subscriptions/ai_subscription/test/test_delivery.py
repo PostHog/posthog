@@ -899,7 +899,7 @@ class TestFreezePlanPersistence:
             start_date=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
-    def _context(self, sub: MagicMock, *, creator_can_query: bool = True) -> SubscriptionReportContext:
+    def _context(self, sub: Subscription, *, creator_can_query: bool = True) -> SubscriptionReportContext:
         end = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
         window = ReportWindow(start=end - timedelta(days=1), end=end)
         return SubscriptionReportContext(

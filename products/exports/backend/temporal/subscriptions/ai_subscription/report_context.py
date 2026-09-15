@@ -26,10 +26,13 @@ from posthog.sync import database_sync_to_async
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.exports.backend.facade.auth import creator_can_query
 from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.models.subscription_context import SubscriptionContext
 from products.product_analytics.backend.facade.api import (
+    insight_variables_for_team,
     insights_including_soft_deleted_for_team,
+    map_stale_to_latest,
     recent_unique_viewer_counts_by_insight_for_project,
 )
 from products.product_analytics.backend.facade.models import Insight
@@ -78,11 +81,14 @@ class InsightReportProvenance:
 @frozen
 class InsightReportEvidence(InsightReportProvenance):
     content: str
+    has_usable_result: bool
 
     def __post_init__(self) -> None:
         InsightReportProvenance.__post_init__(self)
         if len(self.content) > DASHBOARD_CONTEXT_CHAR_BUDGET:
             raise ValueError("Insight report evidence exceeds its character budget")
+        if self.has_usable_result and self.status == "failed":
+            raise ValueError("Failed insight evidence cannot contain a usable result")
 
 
 @frozen
@@ -92,6 +98,7 @@ class DashboardReportEvidence:
     status: ReportContextStatus
     insights: tuple[InsightReportProvenance, ...]
     content: str
+    has_usable_result: bool
 
     def __post_init__(self) -> None:
         if self.status not in ("success", "failed", "truncated"):
@@ -102,6 +109,8 @@ class DashboardReportEvidence:
             raise ValueError("Dashboard report provenance exceeds its insight bound")
         if len(self.content) > DASHBOARD_CONTEXT_CHAR_BUDGET:
             raise ValueError("Dashboard report evidence exceeds its character budget")
+        if self.has_usable_result and self.status == "failed":
+            raise ValueError("Failed dashboard evidence cannot contain a usable result")
 
 
 @frozen
@@ -125,8 +134,9 @@ class ReportContextEvidence:
 
     @property
     def has_successful_evidence(self) -> bool:
-        dashboard_insights = (insight for dashboard in self.dashboards for insight in dashboard.insights)
-        return any(insight.status != "failed" for insight in (*dashboard_insights, *self.insights))
+        return any(dashboard.has_usable_result for dashboard in self.dashboards) or any(
+            insight.has_usable_result for insight in self.insights
+        )
 
 
 @frozen
@@ -237,11 +247,10 @@ def creator_can_access_report_context(
 ) -> bool:
     expected_dashboard_ids = set(dashboard_ids)
     expected_insight_ids = set(insight_ids)
-    if subscription.created_by is None:
+    if not creator_can_query(user=subscription.created_by, team=subscription.team):
         return False
+    assert subscription.created_by is not None
     access_control = UserAccessControl(user=subscription.created_by, team=subscription.team)
-    if not access_control.check_access_level_for_resource("query", "viewer"):
-        return False
     if not expected_dashboard_ids and not expected_insight_ids:
         return True
 
@@ -351,6 +360,9 @@ def _load_dashboard(
             insight__deleted=False,
         ).select_related("insight", "insight__created_by")
     )
+    dashboard_variables = cast(JsonObject, dashboard.variables) if isinstance(dashboard.variables, dict) else {}
+    current_variables = insight_variables_for_team(context_team_id) if dashboard_variables else []
+    variables_override = cast(JsonObject, map_stale_to_latest(dashboard_variables, current_variables))
     candidates: list[_DashboardTile] = []
     for tile in tile_rows:
         insight = tile.insight
@@ -361,9 +373,7 @@ def _load_dashboard(
             filters_override=(
                 cast(JsonObject, tile.filters_overrides) if isinstance(tile.filters_overrides, dict) else None
             ),
-            variables_override=(
-                cast(JsonObject, dashboard.variables) if isinstance(dashboard.variables, dict) else None
-            ),
+            variables_override=variables_override or None,
         )
         if saved_insight.query is None:
             continue
@@ -431,12 +441,8 @@ def _load_report_context(
         )
 
     user = subscription.created_by
-    if user is None:
-        query_access = False
-        access_control = None
-    else:
-        access_control = UserAccessControl(user=user, team=subscription.team)
-        query_access = access_control.check_access_level_for_resource("query", "viewer")
+    query_access = creator_can_query(user=user, team=subscription.team)
+    access_control = UserAccessControl(user=user, team=subscription.team) if user is not None and query_access else None
 
     context_team_id = subscription.team.parent_team_id or team_id
     dashboards_by_id = (
@@ -610,6 +616,7 @@ def _bound_dashboard(
             status="truncated" if truncated else "failed",
             insights=(),
             content=content,
+            has_usable_result=False,
         )
 
     provenance = tuple(_to_insight_provenance(insight) for insight in dashboard.insights)
@@ -621,6 +628,9 @@ def _bound_dashboard(
             status=_dashboard_status(provenance),
             insights=provenance,
             content=full_content,
+            has_usable_result=any(
+                insight.status != "failed" and bool(insight.content) for insight in dashboard.insights
+            ),
         )
 
     truncation_item = _TRUNCATED_CONTEXT_MARKER.strip()
@@ -639,6 +649,9 @@ def _bound_dashboard(
             status="truncated",
             insights=bounded_provenance,
             content=bounded_content,
+            has_usable_result=any(
+                insight.status != "failed" and bool(insight.content) for insight in dashboard.insights[:included_count]
+            ),
         )
 
     marker_only_content = _format_dashboard_content(dashboard, [truncation_item])
@@ -649,6 +662,7 @@ def _bound_dashboard(
         status="truncated",
         insights=tuple(replace(item, status=_status_after_evidence_truncation(item.status)) for item in provenance),
         content=bounded_content,
+        has_usable_result=False,
     )
 
 
@@ -670,7 +684,8 @@ def _bound_evidence(
 
     for executed_insight in insights:
         separator_length = 2 if has_content and executed_insight.content else 0
-        bounded_content, truncated = _truncate_content(executed_insight.content, max(0, remaining - separator_length))
+        content_budget = max(0, remaining - separator_length)
+        bounded_content, truncated = _truncate_content(executed_insight.content, content_budget)
         if bounded_content:
             remaining -= separator_length + len(bounded_content)
             has_content = True
@@ -682,6 +697,11 @@ def _bound_evidence(
                     _status_after_evidence_truncation(executed_insight.status) if truncated else executed_insight.status
                 ),
                 content=bounded_content,
+                has_usable_result=(
+                    executed_insight.status != "failed"
+                    and bool(bounded_content)
+                    and (not truncated or content_budget > len(_TRUNCATED_CONTEXT_MARKER))
+                ),
             )
         )
 
@@ -707,6 +727,7 @@ async def resolve_report_context(
                     status="failed",
                     insights=(),
                     content=_CONTEXT_LIMIT_EXCEEDED_MARKER,
+                    has_usable_result=False,
                 )
                 for dashboard in loaded.dashboards
             ),
@@ -716,6 +737,7 @@ async def resolve_report_context(
                     name=insight.name,
                     status="failed",
                     content=_CONTEXT_LIMIT_EXCEEDED_MARKER,
+                    has_usable_result=False,
                 )
                 for insight in loaded.insights
             ),

@@ -107,22 +107,6 @@ def recent_viewers_by_insight(
     return viewers_by_insight
 
 
-def recent_unique_viewer_counts_by_insight(
-    *, team_id: int, insight_ids: Collection[int], since: datetime
-) -> dict[int, int]:
-    return dict(
-        InsightViewed.objects.filter(
-            team_id=team_id,
-            insight_id__in=insight_ids,
-            last_viewed_at__gte=since,
-            user_id__isnull=False,
-        )
-        .values("insight_id")
-        .annotate(viewer_count=Count("user_id", distinct=True))
-        .values_list("insight_id", "viewer_count")
-    )
-
-
 def recent_unique_viewer_counts_by_insight_for_project(
     *, project_id: int, insight_ids: Collection[int], since: datetime
 ) -> dict[int, int]:

@@ -282,6 +282,42 @@ async def test_degraded_report_still_synthesizes(
     assert props["query_coverage"] == 0.0
 
 
+@patch(_SLO_CAPTURE)
+@patch(f"{_RP}.MaxChatOpenAI")
+@patch(f"{_RP}._run_steps", new_callable=AsyncMock, return_value=_ALL_FAILED_RUN)
+@patch(f"{_RP}.build_enriched_prompt", return_value=_spec(steps=1))
+async def test_successful_context_keeps_all_failed_supplemental_queries_deliverable(
+    _mock_bep: MagicMock,
+    _mock_run: AsyncMock,
+    mock_chat: MagicMock,
+    _mock_capture: MagicMock,
+) -> None:
+    mock_chat.return_value.invoke.return_value = MagicMock(content="# Context-backed report")
+    report_context = ReportContextEvidence(
+        dashboards=(),
+        insights=(
+            InsightReportEvidence(
+                id=1,
+                name="Signups",
+                status="success",
+                content="42 signups",
+                has_usable_result=True,
+            ),
+        ),
+    )
+
+    result = await generate_ai_report(
+        team=MagicMock(),
+        user=MagicMock(),
+        prompt="x",
+        window=_test_window(),
+        report_context=report_context,
+    )
+
+    assert result.markdown == "# Context-backed report"
+    assert result.has_usable_context is True
+
+
 @parameterized.expand(
     [
         ("manage_link_shown", True, True),
@@ -323,6 +359,17 @@ async def test_synthesis_failure_wrapped_with_stage(
 
 
 @patch(_SLO_CAPTURE)
+@patch(f"{_RP}._plan", new_callable=AsyncMock, side_effect=asyncio.CancelledError)
+async def test_cancelled_generation_emits_slo_failure(_mock_plan: AsyncMock, mock_capture: MagicMock) -> None:
+    with pytest.raises(asyncio.CancelledError):
+        await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
+
+    props = _slo_completed(mock_capture)
+    assert props["outcome"] == "failure"
+    assert props["error_type"] == "CancelledError"
+
+
+@patch(_SLO_CAPTURE)
 @patch(f"{_RP}.build_enriched_prompt", side_effect=PromptRejectedError("empty"))
 async def test_prompt_rejected_marks_slo_success_not_failure(_mock_bep: MagicMock, mock_capture: MagicMock) -> None:
     # A rejected prompt is the input guard working — it must not count against the error budget.
@@ -342,6 +389,7 @@ async def test_request_hogql_fix_returns_fixed_query(mock_chat: MagicMock) -> No
         error_message="boom",
         step_description="d",
         context_blob="c",
+        computed_context="",
         team=MagicMock(),
         user=MagicMock(),
         trace_correlation_id=None,
@@ -358,6 +406,7 @@ async def test_request_hogql_fix_returns_none_on_wrong_type(mock_chat: MagicMock
         error_message="boom",
         step_description="d",
         context_blob="c",
+        computed_context="",
         team=MagicMock(),
         user=MagicMock(),
         trace_correlation_id=None,
@@ -380,6 +429,7 @@ async def test_request_hogql_fix_grounds_prompt_in_project_schema(
         error_message="Unable to resolve field: properties.made_up",
         step_description="d",
         context_blob="EVENTS: export_created (properties: file_size)",
+        computed_context="saved schema: group_3.plan",
         team=MagicMock(),
         user=MagicMock(),
         trace_correlation_id=None,
@@ -387,6 +437,7 @@ async def test_request_hogql_fix_grounds_prompt_in_project_schema(
     (messages,) = structured.invoke.call_args.args
     system_prompt = messages[0][1]
     assert "export_created (properties: file_size)" in system_prompt
+    assert "<computed_context>\nsaved schema: group_3.plan\n</computed_context>" in system_prompt
 
 
 @patch(f"{_RP}.AssistantQueryExecutor")
@@ -450,9 +501,11 @@ async def test_run_steps_forwards_exposed_query_error_message_to_fix(
         ]
     )
     mock_fix.return_value = "SELECT fixed"
-    await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True)
+    spec = _spec(steps=1).model_copy(update={"formatted_context": "saved schema: group_3.plan"})
+    await _run_steps(spec, MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True)
     assert mock_fix.await_args is not None
     assert mock_fix.await_args.kwargs["error_message"] == "Unable to resolve field 'operaton'"
+    assert mock_fix.await_args.kwargs["computed_context"] == "saved schema: group_3.plan"
 
 
 @patch(_SLO_CAPTURE)
@@ -693,7 +746,9 @@ async def test_computed_context_replans_without_freezing_a_stale_plan(
     context = AiReportContexts(insights=(AiReportInsightContext(id=1, name="Signups", status="success"),))
     report_context = ReportContextEvidence(
         dashboards=(),
-        insights=(InsightReportEvidence(id=1, name="Signups", status="success", content="42 signups"),),
+        insights=(
+            InsightReportEvidence(id=1, name="Signups", status="success", content="42 signups", has_usable_result=True),
+        ),
         relevant_events=("user signed up",),
         authorized_context_refs=("insight:1",),
     )
@@ -728,7 +783,11 @@ async def test_all_failed_context_is_visible_and_marks_report_degraded(
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
     report_context = ReportContextEvidence(
         dashboards=(),
-        insights=(InsightReportEvidence(id=1, name="Signups", status="failed", content="Context unavailable"),),
+        insights=(
+            InsightReportEvidence(
+                id=1, name="Signups", status="failed", content="Context unavailable", has_usable_result=False
+            ),
+        ),
     )
 
     result = await generate_ai_report(

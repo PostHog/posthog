@@ -112,6 +112,7 @@ AI_REPORT_QUERY_FAILURE_TYPE = "AIReportQueryFailure"
 # (exactly gap-free); rows written before this key existed fall back to finished_at.
 AI_REPORT_WINDOW_END_KEY = "ai_report_window_end"
 AI_REPORT_CHARTS_KEY = "ai_report_charts"
+AI_REPORT_HAS_USABLE_CONTEXT_KEY = "ai_report_has_usable_context"
 # Immutable plan outcome for this delivery. Historical rows written before this key existed omit it.
 AI_REPORT_QUERY_PLAN_STATUS_KEY = "ai_report_query_plan_status"
 
@@ -274,14 +275,15 @@ class GenerateAIReportResult:
     the credit reset and notified the owner — the workflow records SKIPPED (not FAILED,
     the sub isn't broken) and skips delivery.
 
-    The query-failure counts let the workflow flag a fully-degraded report (every query failed →
-    FAILED, not COMPLETED) without re-reading the per-query detail from content_snapshot."""
+    The query-failure counts and usable-context flag let the workflow identify a fully-degraded
+    report without re-reading detailed evidence from content_snapshot."""
 
     aborted: bool = False
     skipped: bool = False
     recipient_results: list[RecipientResult] = dataclasses.field(default_factory=list)
     failed_step_count: int = 0
     total_step_count: int = 0
+    has_usable_context: bool = False
     # Kept for Temporal histories written before query_errors existed. New results derive it in
     # __post_init__ so callers only provide the richer representation.
     query_error_types: list[str] = dataclasses.field(default_factory=list)
@@ -294,8 +296,11 @@ class GenerateAIReportResult:
 
     @property
     def all_queries_failed(self) -> bool:
-        # Single source of truth for the "fully degraded" judgement, so callers don't re-derive it.
-        return bool(self.total_step_count) and self.failed_step_count >= self.total_step_count
+        return (
+            not self.has_usable_context
+            and bool(self.total_step_count)
+            and self.failed_step_count >= self.total_step_count
+        )
 
     def failure_error(self) -> dict[str, typing.Any]:
         all_error_types = set(self.query_error_types)
@@ -325,9 +330,6 @@ class GenerateAIReportResult:
         return error
 
     def delivered_status(self) -> tuple[str, typing.Optional[dict[str, typing.Any]]]:
-        # Status to record once the report shipped: a fully-degraded report (every query failed) is FAILED
-        # with its failure detail — recording it COMPLETED would misrepresent an empty report. Partial
-        # failures stay COMPLETED. Owns this mapping so the workflow can't diverge from the judgement above.
         if self.all_queries_failed:
             return DeliveryStatus.FAILED, self.failure_error()
         return DeliveryStatus.COMPLETED, None

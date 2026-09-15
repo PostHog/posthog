@@ -38,12 +38,14 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.report_cont
     creator_can_access_report_context,
     resolve_report_context,
 )
+from products.product_analytics.backend.facade.api import create_insight_variable
 from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.context.insight.format import TRUNCATED_MARKER
 
 _MODULE = "products.exports.backend.temporal.subscriptions.ai_subscription.report_context"
 _EXECUTOR = "ee.hogai.context.insight.context.execute_and_format_query"
+_QUERY_ACCESS = "products.exports.backend.facade.auth.UserAccessControl.check_access_level_for_resource"
 
 
 def _trends_query(
@@ -146,7 +148,9 @@ class TestReportContextPureFunctions(SimpleTestCase):
 
     def test_evidence_contract_counts_separators_in_the_shared_budget(self) -> None:
         insights = tuple(
-            InsightReportEvidence(id=insight_id, name="Insight", status="success", content="12345")
+            InsightReportEvidence(
+                id=insight_id, name="Insight", status="success", content="12345", has_usable_result=True
+            )
             for insight_id in (1, 2)
         )
 
@@ -250,12 +254,25 @@ class TestReportContextPureFunctions(SimpleTestCase):
                     name="Unavailable insight",
                     status="failed",
                     content="Insight context unavailable.",
+                    has_usable_result=False,
                 ),
             ),
         )
 
         assert evidence.formatted_evidence
         assert evidence.has_successful_evidence is False
+
+    def test_creator_without_project_membership_cannot_access_report_context(self) -> None:
+        subscription = MagicMock()
+        subscription.created_by = MagicMock(id=42)
+        subscription.created_by_id = 42
+        subscription.team.all_users_with_access.return_value.filter.return_value.exists.return_value = False
+
+        with patch("products.exports.backend.facade.auth.UserAccessControl") as access_control:
+            allowed = creator_can_access_report_context(subscription, dashboard_ids=(), insight_ids=())
+
+        assert allowed is False
+        access_control.assert_not_called()
 
     def test_saved_query_events_come_from_precomputed_metadata(self) -> None:
         insight = MagicMock(query_metadata={"events": ["signup", "purchase", "signup"]})
@@ -536,14 +553,20 @@ class TestResolveReportContext(NonAtomicBaseTest):
 
     def test_dashboard_applies_filters_tile_overrides_and_saved_variables_without_replacing_dates(self) -> None:
         subscription = self._subscription()
+        latest_variable = create_insight_variable(
+            team_id=self.team.id,
+            name="Report event",
+            type="String",
+            code_name="report_event",
+        )
         dashboard = Dashboard.objects.create(
             team=self.team,
             created_by=self.user,
             name="Configured",
             filters={"properties": [{"key": "$geoip_country_code", "operator": "exact", "value": ["US"]}]},
             variables={
-                "dashboard-variable": {
-                    "variableId": "dashboard-variable",
+                "stale-dashboard-variable": {
+                    "variableId": "stale-dashboard-variable",
                     "code_name": "report_event",
                     "value": None,
                     "isNull": True,
@@ -561,7 +584,7 @@ class TestResolveReportContext(NonAtomicBaseTest):
             team=self.team,
             created_by=self.user,
             name="Variable",
-            query=_hogql_query("dashboard-variable", value="insight value"),
+            query=_hogql_query(str(latest_variable.id), value="insight value"),
         )
         DashboardTile.objects.create(
             dashboard=dashboard,
@@ -587,8 +610,8 @@ class TestResolveReportContext(NonAtomicBaseTest):
             "$geoip_country_code",
             "$browser",
         }
-        assert calls_by_id[variable.id]["variables"]["dashboard-variable"]["value"] is None
-        assert calls_by_id[variable.id]["variables"]["dashboard-variable"]["isNull"] is True
+        assert calls_by_id[variable.id]["variables"][str(latest_variable.id)]["value"] is None
+        assert calls_by_id[variable.id]["variables"][str(latest_variable.id)]["isNull"] is True
 
     def test_dashboard_tile_can_ignore_dashboard_filters(self) -> None:
         subscription = self._subscription()
@@ -757,7 +780,7 @@ class TestResolveReportContext(NonAtomicBaseTest):
         self._add_insight_context(subscription, insight)
 
         with (
-            patch(f"{_MODULE}.UserAccessControl.check_access_level_for_resource", return_value=True) as query_access,
+            patch(_QUERY_ACCESS, return_value=True) as query_access,
             patch(f"{_MODULE}.UserAccessControl.check_access_level_for_object", return_value=False) as object_access,
             patch(_EXECUTOR, new_callable=AsyncMock) as execute,
         ):
@@ -770,7 +793,7 @@ class TestResolveReportContext(NonAtomicBaseTest):
         execute.assert_not_called()
 
         with (
-            patch(f"{_MODULE}.UserAccessControl.check_access_level_for_resource", return_value=False),
+            patch(_QUERY_ACCESS, return_value=False),
             patch(f"{_MODULE}.UserAccessControl.check_access_level_for_object") as object_access,
             patch(_EXECUTOR, new_callable=AsyncMock) as execute,
         ):
@@ -792,7 +815,7 @@ class TestResolveReportContext(NonAtomicBaseTest):
 
         with (
             patch(
-                f"{_MODULE}.UserAccessControl.check_access_level_for_resource",
+                _QUERY_ACCESS,
                 side_effect=RuntimeError("permission service unavailable"),
             ),
             self.assertRaisesRegex(RuntimeError, "permission service unavailable"),
@@ -828,7 +851,7 @@ class TestResolveReportContext(NonAtomicBaseTest):
         )
 
         with (
-            patch(f"{_MODULE}.UserAccessControl.check_access_level_for_resource", return_value=True),
+            patch(_QUERY_ACCESS, return_value=True),
             patch(f"{_MODULE}.UserAccessControl.check_access_level_for_object", return_value=True),
             patch(_EXECUTOR, new_callable=AsyncMock, return_value="formatted rows") as execute,
         ):
@@ -869,7 +892,7 @@ class TestResolveReportContext(NonAtomicBaseTest):
         )
 
         with (
-            patch(f"{_MODULE}.UserAccessControl.check_access_level_for_resource", return_value=True),
+            patch(_QUERY_ACCESS, return_value=True),
             patch(f"{_MODULE}.UserAccessControl.check_access_level_for_object", return_value=True),
             patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight_for_project", return_value={}) as popularity,
             patch(_EXECUTOR, new_callable=AsyncMock, return_value="formatted rows"),
@@ -885,7 +908,7 @@ class TestResolveReportContext(NonAtomicBaseTest):
         )
 
         with (
-            patch(f"{_MODULE}.UserAccessControl.check_access_level_for_resource", return_value=True),
+            patch(_QUERY_ACCESS, return_value=True),
             patch(f"{_MODULE}.UserAccessControl.check_access_level_for_object", return_value=False),
         ):
             allowed = creator_can_access_report_context(
@@ -933,7 +956,7 @@ class TestResolveReportContext(NonAtomicBaseTest):
         self._add_insight_context(subscription, local_insight)
 
         with (
-            patch(f"{_MODULE}.UserAccessControl.check_access_level_for_resource", return_value=True),
+            patch(_QUERY_ACCESS, return_value=True),
             patch(f"{_MODULE}.UserAccessControl.check_access_level_for_object", return_value=True) as object_access,
             patch(_EXECUTOR, new_callable=AsyncMock, return_value="formatted rows") as execute,
         ):
@@ -968,7 +991,7 @@ class TestResolveReportContext(NonAtomicBaseTest):
         DashboardTile.objects.create(dashboard=dashboard, insight=local_insight)
 
         with (
-            patch(f"{_MODULE}.UserAccessControl.check_access_level_for_resource", return_value=True),
+            patch(_QUERY_ACCESS, return_value=True),
             patch(f"{_MODULE}.UserAccessControl.check_access_level_for_object", return_value=True) as object_access,
             patch(f"{_MODULE}.recent_unique_viewer_counts_by_insight_for_project", return_value={}) as popularity,
             patch(_EXECUTOR, new_callable=AsyncMock, return_value="formatted rows") as execute,
@@ -1000,7 +1023,7 @@ class TestResolveReportContext(NonAtomicBaseTest):
             self._add_insight_context(subscription, insight)
 
         with (
-            patch(f"{_MODULE}.UserAccessControl.check_access_level_for_resource", return_value=True) as query_access,
+            patch(_QUERY_ACCESS, return_value=True) as query_access,
             patch(_EXECUTOR, new_callable=AsyncMock) as execute,
         ):
             evidence = async_to_sync(resolve_report_context)(subscription)
@@ -1041,7 +1064,7 @@ class TestResolveReportContext(NonAtomicBaseTest):
             return not isinstance(resource, Insight) or resource.id != inaccessible.id
 
         with (
-            patch(f"{_MODULE}.UserAccessControl.check_access_level_for_resource", return_value=True),
+            patch(_QUERY_ACCESS, return_value=True),
             patch(f"{_MODULE}.UserAccessControl.check_access_level_for_object", side_effect=can_view),
             patch(_EXECUTOR, new_callable=AsyncMock, return_value="formatted rows") as execute,
         ):
@@ -1154,6 +1177,7 @@ class TestResolveReportContext(NonAtomicBaseTest):
         assert [item.status for item in dashboard_evidence.insights] == ["truncated", "failed"]
         assert "Insight context unavailable." not in dashboard_evidence.content
         assert len(evidence.formatted_evidence) <= budget
+        assert evidence.has_successful_evidence is False
 
     def test_budget_omission_preserves_failed_standalone_status(self) -> None:
         subscription = self._subscription()

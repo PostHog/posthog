@@ -3812,7 +3812,7 @@ class TestAISubscriptionAPI(APILicensedTest):
             return not (access_control._user == original_creator and resource == "query" and required_level == "viewer")
 
         with patch(
-            "ee.api.subscription.UserAccessControl.check_access_level_for_resource",
+            "products.exports.backend.facade.auth.UserAccessControl.check_access_level_for_resource",
             autospec=True,
             side_effect=has_query_access,
         ):
@@ -3823,6 +3823,28 @@ class TestAISubscriptionAPI(APILicensedTest):
 
         assert patch_resp.status_code == status.HTTP_400_BAD_REQUEST, patch_resp.json()
         assert "query access" in str(patch_resp.json()).lower(), patch_resp.json()
+
+    def test_re_enabling_ai_sub_without_ai_processing_approval_is_rejected(
+        self, mock_is_cloud: MagicMock, mock_flag: MagicMock, mock_sync: MagicMock
+    ) -> None:
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        create_resp = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(),
+        )
+        sub_id = create_resp.json()["id"]
+        Subscription.objects.filter(pk=sub_id).update(enabled=False)
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+
+        patch_resp = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+            {"enabled": True},
+        )
+
+        assert patch_resp.status_code == status.HTTP_400_BAD_REQUEST, patch_resp.json()
+        assert "has not approved AI data processing" in str(patch_resp.json())
 
     @parameterized.expand(
         [

@@ -28,6 +28,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipe
 from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_CHARTS_KEY,
     AI_REPORT_DIAGNOSTICS_KEY,
+    AI_REPORT_HAS_USABLE_CONTEXT_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_QUERY_PLAN_STATUS_KEY,
     AI_REPORT_SNAPSHOT_KEY,
@@ -105,6 +106,7 @@ async def test_persist_ai_report_writes_markdown_query_diagnostics_and_prompt(te
                 ),
             ),
             query_plan_status=AIQueryPlanStatus.FROZEN,
+            has_usable_context=True,
         ),
         prompt="weekly adoption + reliability report",
     )
@@ -112,6 +114,7 @@ async def test_persist_ai_report_writes_markdown_query_diagnostics_and_prompt(te
     snapshot = await _snapshot(delivery.id)
     assert snapshot[AI_REPORT_SNAPSHOT_KEY] == "# Weekly report"
     assert snapshot[AI_REPORT_QUERY_PLAN_STATUS_KEY] == AIQueryPlanStatus.FROZEN.value
+    assert snapshot[AI_REPORT_HAS_USABLE_CONTEXT_KEY] is True
     assert snapshot[AI_REPORT_DIAGNOSTICS_KEY] == [
         {
             "description": "adoption",

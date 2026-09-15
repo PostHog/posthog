@@ -23,8 +23,8 @@ from posthog.models.integration import Integration
 from posthog.sync import database_sync_to_async
 from posthog.utils import absolute_uri
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.exports.backend.facade.api import get_delivery_image_url
+from products.exports.backend.facade.auth import creator_can_query
 from products.exports.backend.models.subscription import (
     AIQueryPlanStatus,
     Subscription,
@@ -246,12 +246,7 @@ def _resolve_subscription_context(subscription: Subscription) -> SubscriptionRep
             window=window,
             ai_query_plan=current.ai_query_plan,
             context_selection=selection,
-            creator_can_query=(
-                current.created_by is not None
-                and UserAccessControl(user=current.created_by, team=current.team).check_access_level_for_resource(
-                    "query", "viewer"
-                )
-            ),
+            creator_can_query=creator_can_query(user=current.created_by, team=current.team),
         )
 
 

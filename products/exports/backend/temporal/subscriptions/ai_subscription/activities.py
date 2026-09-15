@@ -43,6 +43,7 @@ from products.exports.backend.temporal.subscriptions.delivery_webhook import del
 from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_CHARTS_KEY,
     AI_REPORT_DIAGNOSTICS_KEY,
+    AI_REPORT_HAS_USABLE_CONTEXT_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_QUERY_PLAN_STATUS_KEY,
     AI_REPORT_SNAPSHOT_KEY,
@@ -128,6 +129,10 @@ def _snapshot_report(snapshot: dict | None) -> str | None:
     return report if isinstance(report, str) and report else None
 
 
+def _snapshot_has_usable_context(snapshot: dict | None) -> bool:
+    return snapshot is not None and snapshot.get(AI_REPORT_HAS_USABLE_CONTEXT_KEY) is True
+
+
 @frozen
 class DiagnosticCounts:
     failed_step_count: int
@@ -210,6 +215,7 @@ async def _persist_ai_report(delivery_id: uuid.UUID, result: AiReportResult, pro
             AI_REPORT_WINDOW_END_KEY: result.window_end_utc,
             AI_REPORT_CHARTS_KEY: strip_null_bytes([dataclasses.asdict(chart) for chart in result.charts]),
             AI_REPORT_CONTEXT_KEY: strip_null_bytes(dataclasses.asdict(result.context)),
+            AI_REPORT_HAS_USABLE_CONTEXT_KEY: result.has_usable_context,
             AI_REPORT_QUERY_PLAN_STATUS_KEY: result.query_plan_status.value,
             # prompt is None for non-AI subs; "" if cleared — omit either.
             **({AI_REPORT_PROMPT_SNAPSHOT_KEY: strip_null_bytes(prompt)} if prompt else {}),
@@ -321,6 +327,7 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
             aborted=False,
             failed_step_count=counts.failed_step_count,
             total_step_count=counts.total_step_count,
+            has_usable_context=_snapshot_has_usable_context(snapshot),
             query_errors=counts.query_errors,
             target_type=subscription.target_type,
         )
@@ -410,6 +417,17 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
         return GenerateAIReportResult(
             aborted=True, recipient_results=aborted.recipient_results, target_type=subscription.target_type
         )
+    except TimeoutError as exc:
+        LOGGER.warning(
+            "generate_ai_subscription_report.timed_out",
+            subscription_id=subscription.id,
+            timeout_seconds=AI_REPORT_GENERATION_TIMEOUT_SECONDS,
+        )
+        raise ApplicationError(
+            f"AI report generation timed out for subscription {subscription.id}",
+            type="AIReportGenerationTimeout",
+            non_retryable=False,
+        ) from exc
 
     await _persist_ai_report(inputs.delivery_id, report_result, report_result.prompt)
     counts = _report_diagnostic_counts(report_result)
@@ -417,6 +435,7 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
         aborted=False,
         failed_step_count=counts.failed_step_count,
         total_step_count=counts.total_step_count,
+        has_usable_context=report_result.has_usable_context,
         query_errors=counts.query_errors,
         target_type=subscription.target_type,
     )
