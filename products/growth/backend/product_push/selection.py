@@ -52,15 +52,25 @@ BLESSED_PRODUCT_ORDER: list[ProductKey] = [
 # unreleased in the catalog, since the promo card would link to a product most
 # users can't open. Gated products can still be pushed to a specific org via a
 # TAM-scheduled row once the flag is enabled for them.
+# A product also needs a ProductIntent registered somewhere in the app, or its
+# campaign can never close as adopted and every push counts as skipped. That
+# rules out Data catalog, Early access features, Heatmaps, Skills and Web
+# scripts, which are released and unflagged but never record an intent.
+# `flag` is stripped from products.json, so no test can check the gating half of
+# this; keep it in mind when adding a product below.
 FALLBACK_PRODUCT_ORDER: list[ProductKey] = [
     ProductKey.CONVERSATIONS,
     ProductKey.DATA_WAREHOUSE,
+    ProductKey.ENDPOINTS,
     ProductKey.LLM_ANALYTICS,
     ProductKey.LLM_CLUSTERS,
     ProductKey.LLM_EVALUATIONS,
     ProductKey.LLM_PROMPTS,
     ProductKey.LOGS,
-    ProductKey.MARKETING_ANALYTICS,
+    ProductKey.NOTEBOOKS,
+    ProductKey.REPLAY_VISION,
+    ProductKey.SURVEYS,
+    ProductKey.TOOLBAR,
     ProductKey.WORKFLOWS,
     ProductKey.POSTHOG_DESKTOP,
     ProductKey.POSTHOG_GITHUB,
@@ -81,12 +91,19 @@ PUSH_PRODUCT_PATHS: dict[ProductKey, str] = {
     ProductKey.CONVERSATIONS: "Support",
     # The 'Data warehouse' catalog item is unreleased; SQL editor is the shipped surface.
     ProductKey.DATA_WAREHOUSE: "SQL editor",
+    ProductKey.ENDPOINTS: "Endpoints",
     ProductKey.LLM_ANALYTICS: "LLM analytics",
     ProductKey.LLM_CLUSTERS: "Clusters",
     ProductKey.LLM_EVALUATIONS: "Evaluations",
     ProductKey.LLM_PROMPTS: "Prompts",
     ProductKey.LOGS: "Logs",
+    # Marketing analytics sits behind a feature flag, so it stays out of the pools
+    # above. The entry is here for a TAM-scheduled push to an org that has the flag.
     ProductKey.MARKETING_ANALYTICS: "Marketing analytics",
+    ProductKey.NOTEBOOKS: "Notebooks",
+    ProductKey.REPLAY_VISION: "Replay vision",
+    ProductKey.SURVEYS: "Surveys",
+    ProductKey.TOOLBAR: "Toolbar",
     ProductKey.WORKFLOWS: "Workflows",
 }
 

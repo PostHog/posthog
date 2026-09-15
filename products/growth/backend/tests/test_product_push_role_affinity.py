@@ -18,7 +18,7 @@ from products.growth.backend.product_push.role_affinity import (
     weights_for_roles,
 )
 
-CANDIDATES = [ProductKey.DATA_WAREHOUSE, ProductKey.MARKETING_ANALYTICS, ProductKey.LOGS]
+CANDIDATES = [ProductKey.DATA_WAREHOUSE, ProductKey.SURVEYS, ProductKey.LOGS]
 
 
 class TestWeightsForRoles(SimpleTestCase):

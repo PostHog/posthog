@@ -26,38 +26,47 @@ from posthog.schema_enums import ProductKey
 ROLE_PRODUCT_AFFINITIES: dict[str, frozenset[ProductKey]] = {
     "engineering": frozenset(
         {
+            ProductKey.ENDPOINTS,
             ProductKey.LOGS,
             ProductKey.POSTHOG_GITHUB,
             ProductKey.POSTHOG_DESKTOP,
             ProductKey.LLM_ANALYTICS,
             ProductKey.LLM_PROMPTS,
             ProductKey.LLM_EVALUATIONS,
+            ProductKey.TOOLBAR,
         }
     ),
     "data": frozenset(
         {
             ProductKey.DATA_WAREHOUSE,
+            ProductKey.ENDPOINTS,
             ProductKey.LLM_CLUSTERS,
             ProductKey.LLM_EVALUATIONS,
+            ProductKey.NOTEBOOKS,
         }
     ),
     "product": frozenset(
         {
             ProductKey.CONVERSATIONS,
-            ProductKey.WORKFLOWS,
             ProductKey.LLM_CLUSTERS,
+            ProductKey.NOTEBOOKS,
+            ProductKey.REPLAY_VISION,
+            ProductKey.SURVEYS,
+            ProductKey.WORKFLOWS,
         }
     ),
     "marketing": frozenset(
         {
-            ProductKey.MARKETING_ANALYTICS,
+            ProductKey.SURVEYS,
+            ProductKey.TOOLBAR,
             ProductKey.WORKFLOWS,
         }
     ),
     "sales": frozenset(
         {
             ProductKey.CONVERSATIONS,
-            ProductKey.MARKETING_ANALYTICS,
+            ProductKey.DATA_WAREHOUSE,
+            ProductKey.SURVEYS,
         }
     ),
 }

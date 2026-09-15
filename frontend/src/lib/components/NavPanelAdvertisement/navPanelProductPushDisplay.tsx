@@ -1,4 +1,6 @@
 import * as chart from '@posthog/brand/hoggies/png/chart'
+import * as codeBubble from '@posthog/brand/hoggies/png/code-bubble'
+import * as construction from '@posthog/brand/hoggies/png/construction-1'
 import * as cursor from '@posthog/brand/hoggies/png/cursor'
 import * as director from '@posthog/brand/hoggies/png/director'
 import * as experiment from '@posthog/brand/hoggies/png/experiment'
@@ -8,11 +10,14 @@ import * as noir from '@posthog/brand/hoggies/png/noir-1'
 import * as officeWorker from '@posthog/brand/hoggies/png/office-worker'
 import * as panic from '@posthog/brand/hoggies/png/panic'
 import * as phoneCall from '@posthog/brand/hoggies/png/phone-call'
+import * as reading from '@posthog/brand/hoggies/png/reading'
 import * as research from '@posthog/brand/hoggies/png/research'
 import * as robot from '@posthog/brand/hoggies/png/robot'
+import * as survey from '@posthog/brand/hoggies/png/survey'
 import * as trafficController from '@posthog/brand/hoggies/png/traffic-controller'
 import * as wizard from '@posthog/brand/hoggies/png/wizard-1'
 import * as workflows from '@posthog/brand/hoggies/png/workflows'
+import * as xRay from '@posthog/brand/hoggies/png/x-ray'
 import { IconAI, IconGithub } from '@posthog/icons'
 
 import { Logomark } from 'lib/brand'
@@ -25,6 +30,8 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import type { ProductPushDisplay } from './navPanelAdShared'
 
 const HedgehogChart = pngHoggie(chart)
+const HedgehogCodeBubble = pngHoggie(codeBubble)
+const HedgehogConstruction = pngHoggie(construction)
 const HedgehogCursor = pngHoggie(cursor)
 const HedgehogDirector = pngHoggie(director)
 const HedgehogExperiment = pngHoggie(experiment)
@@ -34,11 +41,14 @@ const HedgehogNoir = pngHoggie(noir)
 const HedgehogOfficeWorker = pngHoggie(officeWorker)
 const HedgehogPanic = pngHoggie(panic)
 const HedgehogPhoneCall = pngHoggie(phoneCall)
+const HedgehogReading = pngHoggie(reading)
 const HedgehogResearch = pngHoggie(research)
 const HedgehogRobot = pngHoggie(robot)
+const HedgehogSurvey = pngHoggie(survey)
 const HedgehogTrafficController = pngHoggie(trafficController)
 const HedgehogWizard = pngHoggie(wizard)
 const HedgehogWorkflows = pngHoggie(workflows)
+const HedgehogXRay = pngHoggie(xRay)
 
 export const DEFAULT_PRODUCT_PUSH_DISPLAY: ProductPushDisplay = {
     Hoggie: HedgehogMegaphone,
@@ -140,11 +150,38 @@ export const PRODUCT_PUSH_DISPLAY: Partial<Record<ProductKey, ProductPushDisplay
         tagline: 'Search every log line alongside your product data - no mystery goes unsolved.',
         hoggieOffset: { x: 75 },
     },
+    [ProductKey.SURVEYS]: {
+        Hoggie: HedgehogSurvey,
+        accentColor: 'var(--color-product-surveys-light)',
+        tagline:
+            'Ask users what they think inside your product, and read the answers next to the sessions behind them.',
+    },
+    [ProductKey.REPLAY_VISION]: {
+        Hoggie: HedgehogXRay,
+        accentColor: 'var(--color-product-session-replay-light)',
+        tagline: 'AI watches your recordings and turns what happens in them into data you can query.',
+    },
+    [ProductKey.NOTEBOOKS]: {
+        Hoggie: HedgehogReading,
+        accentColor: 'var(--color-product-notebooks-light)',
+        tagline: 'Collect insights, replays, and notes on one page, so an investigation still reads well next month.',
+    },
+    [ProductKey.ENDPOINTS]: {
+        Hoggie: HedgehogCodeBubble,
+        accentColor: 'var(--color-product-endpoints-light)',
+        tagline: 'Turn a saved query into an API your app can call, with caching and no infrastructure to run.',
+    },
+    [ProductKey.TOOLBAR]: {
+        Hoggie: HedgehogConstruction,
+        accentColor: 'var(--color-accent)',
+        tagline: 'Click any element on your own site to see how it performs, then turn it into an action.',
+    },
+    // Marketing analytics is feature-flag gated, so it only reaches the card through a
+    // TAM-scheduled push to an org that has the flag.
     [ProductKey.MARKETING_ANALYTICS]: {
         Hoggie: HedgehogMegaphone,
         accentColor: 'var(--color-product-marketing-analytics-light)',
-        tagline:
-            'Track ad spend next to the signups it produced, so you can see which channels are worth the money.',
+        tagline: 'Track ad spend next to the signups it produced, so you can see which channels are worth the money.',
         hoggieOffset: { x: 70 },
     },
     [ProductKey.WORKFLOWS]: {
