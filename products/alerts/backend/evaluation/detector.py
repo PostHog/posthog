@@ -155,8 +155,8 @@ def evaluate_with_detector(result: ExtractionResult, detector_config: dict[str, 
 
     Scoring uses ``detect_batch`` so every interval in the lookback window gets its own score.
     ``detect`` scores only the newest point, so the indices it reports are the newest point by
-    construction — they cannot name the interval that deviated, and they leave the stored scores a
-    single number instead of a series the alert history chart and the investigation agent can read.
+    construction. It therefore cannot name the interval that deviated, and it leaves the stored
+    scores a single number rather than the series the history chart and the agent read.
 
     Breakdown alerts fire on the first anomalous breakdown value; non-breakdown alerts score the
     single selected series.
