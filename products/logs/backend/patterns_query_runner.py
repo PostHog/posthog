@@ -1,7 +1,11 @@
 import datetime as dt
+from dataclasses import replace
 from functools import cached_property
 from math import ceil
+from time import monotonic
 from typing import TYPE_CHECKING
+
+import posthoganalytics
 
 from posthog.schema import CachedLogsQueryResponse, LogsQuery
 
@@ -11,15 +15,26 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.utils import get_instance_region
 
-from products.logs.backend.log_patterns import LogSample, MinedPattern, _env, mine_patterns
+from products.logs.backend.log_patterns import (
+    ERROR_SEVERITIES,
+    LogSample,
+    MinedPattern,
+    _env,
+    encoded_pattern_member_size,
+    group_stored_patterns,
+    mine_patterns,
+)
 from products.logs.backend.logs_query_runner import LogsQueryResponse, LogsQueryRunnerMixin
 
 if TYPE_CHECKING:
     from posthog.models import User
 
 _TimeSlice = tuple[dt.datetime, dt.datetime]
+STORED_PATTERN_HEAD_MAX_BYTES = 65536
 
 
 class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMixin):
@@ -50,6 +65,8 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
 
     query: LogsQuery
     cached_response: CachedLogsQueryResponse
+    use_stored_patterns: bool = True
+    _query_deadline: float | None = None
 
     @cached_property
     def settings(self) -> HogQLGlobalSettings:
@@ -89,8 +106,48 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         raise UserAccessControlError("logs", "viewer")
 
     def _calculate(self) -> LogsQueryResponse:
-        total = self._count()
+        reason = "comparison" if not self.use_stored_patterns else "flag_disabled"
+        if self.use_stored_patterns and self._stored_patterns_enabled:
+            self._query_deadline = monotonic() + max(1, self.settings.max_execution_time or 60)
+            versions = self._execute(
+                parse_select(
+                    "SELECT pattern_version, count(), countIf(trim(pattern) != '') FROM logs WHERE {where} GROUP BY pattern_version",
+                    placeholders={"where": self._where_with_timestamp()},
+                )
+            ).results
+            total = sum(int(row[1]) for row in versions)
+            candidates = [(int(row[2]), int(row[0])) for row in versions if int(row[0]) > 0]
+            covered, version = max(candidates, default=(0, 0))
+            if total and covered * 100 >= total * 99:
+                return self._calculate_stored_patterns(total, version, covered)
+            reason = "insufficient_version_coverage" if total else "empty_window"
+        else:
+            total = self._count()
+        return self._calculate_body_patterns(total, reason)
 
+    @cached_property
+    def _stored_patterns_enabled(self) -> bool:
+        # only_evaluate_locally keeps this check off the network: it gates an interactive query, so
+        # a flags-service round trip (plus its retry) would delay every patterns request. An
+        # inconclusive local evaluation therefore means "off", which is body mining as before.
+        # `group_properties` carries the organization id so an org-level rollout still resolves locally.
+        team_id = str(self.team.pk)
+        person_properties = {"team_id": team_id, "region": get_instance_region() or "DEV"}
+        if self.user:
+            person_properties["email"] = self.user.email
+        return bool(
+            posthoganalytics.feature_enabled(
+                "logs_patterns_query_v2",
+                str(self.user.distinct_id) if self.user else team_id,
+                person_properties=person_properties,
+                groups={"organization": str(self.team.organization_id)},
+                group_properties={"organization": {"id": str(self.team.organization_id)}},
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+        )
+
+    def _calculate_body_patterns(self, total: int, reason: str) -> LogsQueryResponse:
         slices = _time_slices(
             self.query_date_range.date_from(),
             self.query_date_range.date_to(),
@@ -136,8 +193,124 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                 "sampled": scanned < total,
                 "sample_coverage_pct": round(pool / total * 100, 2) if total else 100.0,
                 "sparkline_buckets": [{"start": start.isoformat(), "end": end.isoformat()} for start, end in buckets],
+                "source": "body_mining",
+                "pattern_version": None,
+                "fallback_reason": reason,
+                "pattern_coverage_pct": None,
+                "represented_count": None,
+                "remainder_count": None,
             }
         )
+
+    def _stored_where(self, version: int) -> ast.Expr:
+        return parse_expr(
+            "{where} AND pattern_version = {version} AND trim(pattern) != ''",
+            placeholders={"where": self._where_with_timestamp(), "version": ast.Constant(value=version)},
+        )
+
+    def _calculate_stored_patterns(self, total: int, version: int, covered: int) -> LogsQueryResponse:
+        head_limit = min(10000, max(1, _env("LOGS_PATTERNS_HEAD_LIMIT", 10000, int)))
+        head = self._execute(
+            parse_select(
+                "SELECT topK({head_limit})(pattern) FROM logs WHERE {where}",
+                placeholders={"head_limit": ast.Constant(value=head_limit), "where": self._stored_where(version)},
+            )
+        ).results[0][0]
+        bounded_head = []
+        head_bytes = 3
+        for member in head:
+            member_bytes = encoded_pattern_member_size(member)
+            if head_bytes + member_bytes <= STORED_PATTERN_HEAD_MAX_BYTES:
+                bounded_head.append(member)
+                head_bytes += member_bytes
+        buckets = _uniform_buckets(
+            self.query_date_range.date_from(), self.query_date_range.date_to(), self._sparkline_bucket_count
+        )
+        placeholders: dict[str, ast.Expr] = {
+            "where": self._stored_where(version),
+            "head": ast.Constant(value=bounded_head),
+            "services_limit": ast.Constant(value=_env("LOGS_PATTERNS_MAX_SERVICES", 4, int)),
+            "head_limit": ast.Constant(value=head_limit),
+        }
+        bucket_sql = []
+        for index, (start, end) in enumerate(buckets):
+            placeholders[f"start_{index}"] = ast.Constant(value=start)
+            placeholders[f"end_{index}"] = ast.Constant(value=end)
+            bucket_sql.append(f"countIf(timestamp >= {{start_{index}}} AND timestamp < {{end_{index}}})")
+        rows = self._execute(
+            parse_select(
+                "SELECT pattern, count(), min(timestamp), max(timestamp), "
+                "sumMap([lower(severity_text)], [1]), "
+                "groupUniqArrayArray({services_limit})([service_name]), "
+                f"[{', '.join(bucket_sql)}] "
+                "FROM logs WHERE {where} AND pattern IN {head} GROUP BY pattern "
+                "ORDER BY count() DESC, pattern LIMIT {head_limit}",
+                placeholders=placeholders,
+            )
+        ).results
+        patterns = group_stored_patterns([_stamped_pattern(row, version) for row in rows], total_count=total)
+        patterns = self._stored_examples(patterns, version)
+        represented = sum(pattern.count for pattern in patterns)
+        return LogsQueryResponse(
+            results={
+                "patterns": [_serialize(pattern, total_count=total, scanned_count=total) for pattern in patterns],
+                "total_count": total,
+                "scanned_count": total,
+                "sampled": False,
+                "sample_coverage_pct": 100.0,
+                "sparkline_buckets": [{"start": start.isoformat(), "end": end.isoformat()} for start, end in buckets],
+                "source": "stored_patterns",
+                "pattern_version": version,
+                "fallback_reason": None,
+                "pattern_coverage_pct": round(covered / total * 100, 2),
+                "represented_count": represented,
+                "remainder_count": max(0, total - represented),
+            }
+        )
+
+    def _stored_examples(self, patterns: list[MinedPattern], version: int) -> list[MinedPattern]:
+        if not patterns:
+            return []
+        max_examples = _env("LOGS_PATTERNS_MAX_EXAMPLES", 10, int)
+        if max_examples <= 0:
+            return patterns
+        member_groups = {
+            member: group_id for group_id, pattern in enumerate(patterns, start=1) for member in pattern.match_patterns
+        }
+        # `LIMIT n BY` caps rows, not distinct bodies, and the table's sort order puts the rows of a
+        # repeated line next to each other, so one body can fill a group's whole quota. Read a
+        # bounded multiple of the quota and keep the distinct bodies here. Grouping on `body` in the
+        # query would decompress it for every matching row instead of stopping at the rows read
+        # first, which is the cost this query is shaped to avoid.
+        fetch_per_group = max_examples * 4
+        rows = self._execute(
+            parse_select(
+                "SELECT transform(pattern, {patterns}, {group_ids}, 0) AS pattern_group, "
+                "substringUTF8(body, 1, 4096), severity_text, service_name, timestamp "
+                "FROM logs WHERE {where} AND pattern IN {patterns} "
+                "LIMIT {fetch_per_group} BY pattern_group LIMIT {limit}",
+                placeholders={
+                    "where": self._stored_where(version),
+                    "patterns": ast.Constant(value=list(member_groups)),
+                    "group_ids": ast.Constant(value=list(member_groups.values())),
+                    "fetch_per_group": ast.Constant(value=fetch_per_group),
+                    "limit": ast.Constant(value=len(patterns) * fetch_per_group),
+                },
+            )
+        ).results
+        examples: dict[int, list[LogSample]] = {}
+        for row in rows:
+            group = examples.setdefault(row[0], [])
+            if len(group) >= max_examples or any(example.body == row[1] for example in group):
+                continue
+            group.append(
+                LogSample(
+                    body=row[1], severity_text=row[2], service_name=row[3], timestamp=row[4].replace(tzinfo=dt.UTC)
+                )
+            )
+        return [
+            replace(pattern, examples=examples.get(group_id, [])) for group_id, pattern in enumerate(patterns, start=1)
+        ]
 
     def run(self, *args, **kwargs) -> LogsQueryResponse | CachedLogsQueryResponse:
         response = super().run(*args, **kwargs)
@@ -150,7 +323,13 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         return self._sample_query(divisor=1, slices=None)
 
     def _execute(self, query: ast.SelectQuery | ast.SelectSetQuery):
-        return execute_hogql_query(
+        settings = self.settings.model_copy()
+        if self._query_deadline is not None:
+            remaining = int(self._query_deadline - monotonic())
+            if remaining < 1:
+                raise ClickHouseQueryTimeOut()
+            settings.max_execution_time = remaining
+        response = execute_hogql_query(
             query_type="LogsQuery",
             query=query,
             modifiers=self.modifiers,
@@ -158,8 +337,11 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             workload=Workload.LOGS,
             timings=self.timings,
             limit_context=self.limit_context,
-            settings=self.settings,
+            settings=settings,
         )
+        if self._query_deadline is not None and monotonic() >= self._query_deadline:
+            raise ClickHouseQueryTimeOut()
+        return response
 
     def _count(self, slices: list[_TimeSlice] | None = None) -> int:
         response = self._execute(
@@ -305,4 +487,26 @@ def _serialize(pattern: MinedPattern, *, total_count: int, scanned_count: int) -
         "severity_counts": pattern.severity_counts,
         "match_regex": pattern.match_regex,
         "match_literal": pattern.match_literal,
+        "match_patterns": pattern.match_patterns,
+        "pattern_version": pattern.pattern_version,
     }
+
+
+def _stamped_pattern(row: list, version: int) -> MinedPattern:
+    severities = dict(zip(row[4][0], row[4][1]))
+    return MinedPattern(
+        pattern=row[0],
+        count=int(row[1]),
+        volume_share_pct=0,
+        error_count=sum(count for severity, count in severities.items() if severity in ERROR_SEVERITIES),
+        first_seen=row[2].replace(tzinfo=dt.UTC),
+        last_seen=row[3].replace(tzinfo=dt.UTC),
+        examples=[],
+        services=sorted(service for service in row[5] if service),
+        bucket_counts=row[6],
+        severity_counts=severities,
+        match_regex=None,
+        match_literal=None,
+        match_patterns=[row[0]],
+        pattern_version=version,
+    )

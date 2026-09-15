@@ -1,57 +1,15 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonSkeleton, LemonTable } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton, LemonTable } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaField } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType, DataModelingNode, DataWarehouseSavedQuery } from '~/types'
 
 import { nodeDetailSceneLogic } from '../nodeDetailSceneLogic'
 
-function QueryAction({
-    node,
-    savedQuery,
-}: {
-    node: DataModelingNode
-    savedQuery: DataWarehouseSavedQuery
-}): JSX.Element {
-    if (node.type === 'endpoint') {
-        // An endpoint node carries the versioned view name (`my_endpoint_v3`), but the endpoint
-        // route resolves the plain name and takes the version as a search param.
-        const versionMatch = node.name.match(/^(.+)_v(\d+)$/)
-        const to = versionMatch
-            ? urls.endpoint(versionMatch[1], parseInt(versionMatch[2], 10))
-            : urls.endpoint(node.name)
-        return (
-            <LemonButton type="secondary" size="small" to={to}>
-                Open endpoint
-            </LemonButton>
-        )
-    }
-
-    return (
-        <AccessControlAction
-            resourceType={AccessControlResourceType.WarehouseObjects}
-            minAccessLevel={AccessControlLevel.Editor}
-            userAccessLevel={savedQuery.user_access_level}
-        >
-            <LemonButton
-                type="secondary"
-                size="small"
-                to={urls.sqlEditor({ view_id: savedQuery.id })}
-                data-attr="node-detail-edit-in-sql-editor"
-            >
-                Edit in SQL editor
-            </LemonButton>
-        </AccessControlAction>
-    )
-}
-
 export function NodeDetailQuery({ id }: { id: string }): JSX.Element {
-    const { node, savedQuery, savedQueryLoading, savedQueryError } = useValues(nodeDetailSceneLogic({ id }))
+    const { savedQuery, savedQueryLoading, savedQueryError } = useValues(nodeDetailSceneLogic({ id }))
     const { loadSavedQuery } = useActions(nodeDetailSceneLogic({ id }))
 
     if (savedQueryLoading && !savedQuery) {
@@ -72,12 +30,12 @@ export function NodeDetailQuery({ id }: { id: string }): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <h3 className="mb-0">SQL</h3>
-                    {node && savedQuery && <QueryAction node={node} savedQuery={savedQuery} />}
-                </div>
                 {queryString ? (
-                    <CodeSnippet language={Language.SQL} maxLinesWithoutExpansion={20} compact thing="query">
+                    <CodeSnippet
+                        language={Language.SQL}
+                        className="[&_pre]:max-h-96 [&_pre]:overflow-auto"
+                        thing="query"
+                    >
                         {queryString}
                     </CodeSnippet>
                 ) : (
@@ -86,7 +44,7 @@ export function NodeDetailQuery({ id }: { id: string }): JSX.Element {
             </div>
 
             <div className="flex flex-col gap-2">
-                <h3 className="mb-0">Columns ({columns.length})</h3>
+                <h3 className="mb-0">Columns</h3>
                 <LemonTable
                     size="small"
                     dataSource={columns}

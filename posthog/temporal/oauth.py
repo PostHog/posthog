@@ -608,13 +608,11 @@ class WizardIdentityBlockedError(Exception):
     a transient token failure must not retry this one."""
 
 
-def create_wizard_oauth_access_token_for_user(user, team_id: int, *, scopes: list[str] | None = None) -> str:
+def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
     """Mint an OAuth access token under the wizard's own app for a cloud wizard run.
 
     Deliberately separate from the sandbox/agent token (`create_oauth_access_token_for_user`) so the
-    wizard's scopes stay independent of the agent's. Defaults to the wizard app's
-    configured scope ceiling; `scopes` narrows within it, for a credential whose
-    purpose needs less than the whole ceiling.
+    wizard's scopes stay independent of the agent's. Uses the wizard app's configured scope ceiling.
 
     Gated here rather than only at the HTTP kickoff, which a workflow retry or
     resume reaches with no request in front of it.
@@ -635,11 +633,4 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int, *, scopes: lis
     if ceiling is None or len(ceiling) == 0:
         raise RuntimeError("Wizard app has no scope ceiling. Must be configured in the database.")
 
-    if scopes is None:
-        return _mint_oauth_access_token(user, team_id, app=app, scopes=sorted(ceiling))
-    if not scopes:
-        raise RuntimeError("Refusing to mint a wizard token with no scopes.")
-    outside = sorted(set(scopes) - set(ceiling))
-    if outside:
-        raise RuntimeError(f"Wizard app cannot grant {', '.join(outside)}.")
-    return _mint_oauth_access_token(user, team_id, app=app, scopes=sorted(set(scopes)))
+    return _mint_oauth_access_token(user, team_id, app=app, scopes=sorted(ceiling))

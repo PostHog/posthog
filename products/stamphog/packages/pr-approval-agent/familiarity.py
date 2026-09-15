@@ -59,6 +59,9 @@ class AuthorFamiliarity:
     files_prev_count: int
     files_total: int
     capped: bool
+    # Files whose blame failed. Their lines count as not owned, so a non-zero value means
+    # blame_overlap_pct is a floor rather than a reading.
+    blame_incomplete_files: int
     # Display-only hint: top prior authors of the modified lines, by git author
     # name (not login) - used to suggest reviewers when the LLM escalates.
     top_prior_authors: tuple[str, ...]
@@ -78,6 +81,7 @@ def familiarity_evidence(fam: AuthorFamiliarity | None) -> dict | None:
         "files_prev_count": fam.files_prev_count,
         "files_total": fam.files_total,
         "capped": fam.capped,
+        "blame_incomplete_files": fam.blame_incomplete_files,
         "top_prior_authors": list(fam.top_prior_authors),
     }
 
@@ -288,12 +292,27 @@ def _blame_file(
     return _parse_blame_porcelain(result.stdout)
 
 
-def _blame_overlap(
-    considered: list[_FileDiff], blame_sha: str, author_prs: set[int], repo_root: Path
-) -> tuple[int, int, tuple[str, ...]]:
-    """(owned lines, total blamed lines, top prior author names)."""
+@dataclass(frozen=True)
+class _BlameOverlap:
+    """How much of the code a PR changes was written by its author.
+
+    The two line counts share a type, so they are named rather than returned as a pair: swapping
+    them silently inverts the signal the STRONG band reads.
+    """
+
+    owned_lines: int
+    total_lines: int
+    # Files whose blame failed. Their lines count towards total_lines and never towards
+    # owned_lines, so the percentage is a floor whenever this is non-zero.
+    incomplete_files: int
+    # Display-only: top prior authors of the lines the PR author does not own.
+    top_prior_authors: tuple[str, ...]
+
+
+def _blame_overlap(considered: list[_FileDiff], blame_sha: str, author_prs: set[int], repo_root: Path) -> _BlameOverlap:
     owned = 0
     total = 0
+    incomplete = 0
     author_line_counts: Counter[str] = Counter()
     for file_diff in considered:
         blame_path = file_diff.old_path
@@ -304,6 +323,11 @@ def _blame_overlap(
             continue
         entries = _blame_file(blame_sha, blame_path, ranges, repo_root)
         if entries is None:
+            # A file whose blame fails still owes its lines to the denominator. Dropping it from
+            # both sides would let unread evidence raise the percentage; charging the lines as
+            # unowned can only lower it, which is the direction the signal may safely be wrong in.
+            total += sum(end - start + 1 for start, end in ranges)
+            incomplete += 1
             continue
         for author_name, summary in entries:
             total += 1
@@ -314,8 +338,12 @@ def _blame_overlap(
                 # Reviewer-suggestion hint: count only lines the PR author does
                 # NOT own, since suggesting the author to themselves is noise.
                 author_line_counts[author_name] += 1
-    top_authors = tuple(name for name, _ in author_line_counts.most_common(_TOP_PRIOR_AUTHORS))
-    return owned, total, top_authors
+    return _BlameOverlap(
+        owned_lines=owned,
+        total_lines=total,
+        incomplete_files=incomplete,
+        top_prior_authors=tuple(name for name, _ in author_line_counts.most_common(_TOP_PRIOR_AUTHORS)),
+    )
 
 
 # ── prior PRs / last touch / previously-modified files ───────────
@@ -375,13 +403,17 @@ def _files_previously_modified(considered: list[_FileDiff], author_prs: set[int]
     of a renamed file, since `git log --name-only -- <new_path>` alone misses
     commits recorded under the pre-rename name - the file itself still counts
     once towards the total either way.
+
+    ``--no-renames``: rename detection compares blob contents, and on a blobless checkout that is a
+    fetch per commit. The old/new path union above already covers renames, so the detection only
+    buys latency.
     """
     if not considered:
         return 0, 0
     all_paths = sorted({p for f in considered for p in (f.old_path, f.new_path) if p})
     if not all_paths:
         return 0, len(considered)
-    cmd = ["git", "log", f"--since={_LOG_SINCE}", "--format=%x01%s", "--name-only", "--", *all_paths]
+    cmd = ["git", "log", f"--since={_LOG_SINCE}", "--format=%x01%s", "--name-only", "--no-renames", "--", *all_paths]
     try:
         result = subprocess.run(cmd, cwd=repo_root, capture_output=True, text=True, timeout=_GIT_TIMEOUT_SECONDS)
     except (OSError, subprocess.SubprocessError):
@@ -462,11 +494,12 @@ def compute_familiarity(
     considered_paths = [f.path for f in considered if f.path]
 
     blame_sha = _merge_base(base_sha, head_sha, repo_root)
-    if blame_sha is not None:
-        owned, total, top_authors = _blame_overlap(considered, blame_sha, author_prs, repo_root)
-    else:
-        owned, total, top_authors = 0, 0, ()
-    blame_overlap_pct = (100.0 * owned / total) if total else 0.0
+    overlap = (
+        _blame_overlap(considered, blame_sha, author_prs, repo_root)
+        if blame_sha is not None
+        else _BlameOverlap(owned_lines=0, total_lines=0, incomplete_files=0, top_prior_authors=())
+    )
+    blame_overlap_pct = (100.0 * overlap.owned_lines / overlap.total_lines) if overlap.total_lines else 0.0
 
     prior_prs, days_since = _prior_prs_in_paths(considered_paths, author_prs, repo_root, now)
     files_prev_count, files_total = _files_previously_modified(considered, author_prs, repo_root)
@@ -476,12 +509,13 @@ def compute_familiarity(
     return AuthorFamiliarity(
         band=band,
         blame_overlap_pct=blame_overlap_pct,
-        modified_lines_owned=owned,
-        modified_lines_total=total,
+        modified_lines_owned=overlap.owned_lines,
+        modified_lines_total=overlap.total_lines,
         prior_prs_in_paths=prior_prs,
         days_since_last_touch=days_since,
         files_prev_count=files_prev_count,
         files_total=files_total,
         capped=capped,
-        top_prior_authors=top_authors,
+        blame_incomplete_files=overlap.incomplete_files,
+        top_prior_authors=overlap.top_prior_authors,
     )

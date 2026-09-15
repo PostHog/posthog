@@ -3,12 +3,13 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
-import { metricsValuesRetrieve } from '../generated/api'
+import { metricsNamesRetrieve, metricsValuesRetrieve } from '../generated/api'
 import { metricsCatalogLogic } from './metricsCatalogLogic'
 import { metricsFundamentalsLogic } from './metricsFundamentalsLogic'
 
 jest.mock('../generated/api', () => ({
     ...jest.requireActual('../generated/api'),
+    metricsNamesRetrieve: jest.fn(),
     metricsValuesRetrieve: jest.fn(),
     metricsQueryCreate: jest.fn(),
     metricsExplainCreate: jest.fn(),
@@ -28,6 +29,7 @@ describe('metrics cross-tab handoffs', () => {
         } as unknown as AppContext
         initKeaTests()
         jest.mocked(metricsValuesRetrieve).mockResolvedValue({ results: [] } as any)
+        jest.mocked(metricsNamesRetrieve).mockResolvedValue({ results: [] } as any)
     })
 
     it('explainMetric state survives the viewer tab unmounting', async () => {
@@ -54,8 +56,8 @@ describe('metrics cross-tab handoffs', () => {
     })
 
     it('a loaded catalog survives the explore tab unmounting', async () => {
-        const items = [{ name: 'jobs.processed', metric_type: 'sum', unit: '', last_seen: null, sparkline: [1] }]
-        jest.mocked(metricsValuesRetrieve).mockResolvedValue({ results: items } as any)
+        const items = [{ name: 'jobs.processed', metric_type: 'sum' }]
+        jest.mocked(metricsNamesRetrieve).mockResolvedValue({ results: items } as any)
 
         const sceneHold = metricsCatalogLogic()
         sceneHold.mount()

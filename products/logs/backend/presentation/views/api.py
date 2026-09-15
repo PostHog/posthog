@@ -173,7 +173,12 @@ class _DateRangeSerializer(serializers.Serializer):
 
 class _LogPropertyFilterSerializer(serializers.Serializer):
     key = serializers.CharField(
-        help_text='Attribute key. For type "log", use "message". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name").',
+        help_text=(
+            'Attribute key. For type "log", use "message" for the body text, or a log column: '
+            '"pattern" and "pattern_version" (the patterns pivot), "severity_level", "service_name", '
+            '"trace_id", "span_id". For "log_attribute"/"log_resource_attribute", use the attribute '
+            'key (e.g. "k8s.container.name").'
+        ),
     )
     type = serializers.ChoiceField(
         choices=_LOG_PROPERTY_TYPE_CHOICES,
@@ -843,9 +848,9 @@ class _LogsPatternsRequestSerializer(serializers.Serializer):
 class _LogPatternExampleSerializer(serializers.Serializer):
     body = serializers.CharField(
         help_text=(
-            "Log body as the miner saw it: whitespace-collapsed and truncated to the mining "
-            "length cap, with the message field extracted from JSON bodies. This is not the "
-            "raw stored line."
+            "Original-message example. Body mining normalizes whitespace, extracts JSON message fields "
+            "and truncates to the mining cap. Stored-pattern aggregation returns the raw body prefix, "
+            "limited to 4096 Unicode characters."
         ),
     )
     severity_text = serializers.CharField(help_text='Severity of the sampled line, e.g. "info", "error".')
@@ -856,8 +861,11 @@ class _LogPatternExampleSerializer(serializers.Serializer):
 class _LogPatternSerializer(serializers.Serializer):
     pattern = serializers.CharField(
         help_text=(
-            'Mined log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". '
-            "Tokens: <timestamp>, <uuid>, <ip>, <hex>, <num>, plus <*> for word positions Drain found to vary."
+            'Log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". '
+            "Body mining masks <timestamp>, <uuid>, <ip>, <hex>, <num>, plus <*> for word positions "
+            "Drain found to vary. Stored patterns use the ingestion vocabulary instead: <N>, "
+            "<TIMESTAMP>, <KLOGTIME>, <UUID>, <IP>, <HOST>, <HEX>, <ID>, <EMAIL>, <JSON_ARRAY>, and "
+            "<JSON:keys> for a JSON body reduced to its key set."
         ),
     )
     count = serializers.IntegerField(
@@ -873,10 +881,16 @@ class _LogPatternSerializer(serializers.Serializer):
         ),
     )
     volume_share_pct = serializers.FloatField(
-        help_text="Share of the sampled log volume this pattern represents (0–100).",
+        help_text=(
+            "Share of the log volume this pattern represents (0–100). Measured over the sample when "
+            "`sampled` is true, over every matching row otherwise."
+        ),
     )
     error_count = serializers.IntegerField(
-        help_text='Sampled occurrences at severity "error" or "fatal". Prefer `estimated_error_count` for display.',
+        help_text=(
+            'Occurrences at severity "error" or "fatal". A sample count when `sampled` is true, so '
+            "prefer `estimated_error_count` for display."
+        ),
     )
     estimated_error_count = serializers.IntegerField(
         help_text=(
@@ -884,8 +898,18 @@ class _LogPatternSerializer(serializers.Serializer):
             "Equals `error_count` when the window was not sampled."
         ),
     )
-    first_seen = serializers.CharField(help_text="ISO 8601 timestamp of the earliest sampled occurrence.")
-    last_seen = serializers.CharField(help_text="ISO 8601 timestamp of the latest sampled occurrence.")
+    first_seen = serializers.CharField(
+        help_text=(
+            "ISO 8601 timestamp of the earliest occurrence. Taken from the sample when `sampled` is "
+            "true, from every matching row otherwise."
+        )
+    )
+    last_seen = serializers.CharField(
+        help_text=(
+            "ISO 8601 timestamp of the latest occurrence. Taken from the sample when `sampled` is "
+            "true, from every matching row otherwise."
+        )
+    )
     examples = _LogPatternExampleSerializer(
         many=True,
         help_text=(
@@ -900,16 +924,18 @@ class _LogPatternSerializer(serializers.Serializer):
     sparkline = serializers.ListField(
         child=serializers.IntegerField(),
         help_text=(
-            "Estimated occurrences per time bucket, aligned index-for-index with the response's "
-            "`sparkline_buckets`. Extrapolated from the sample like `estimated_count`, so it shows "
-            "the volume shape over the window, not exact per-bucket tallies."
+            "Occurrences per time bucket, aligned index-for-index with the response's "
+            "`sparkline_buckets`. When `sampled` is true these are extrapolated like `estimated_count` "
+            "and show the volume shape over the window rather than exact tallies. Otherwise they are "
+            "exact per-bucket counts."
         ),
     )
     severity_counts = serializers.DictField(
         child=serializers.IntegerField(),
         help_text=(
-            'Sampled occurrences keyed by lowercased severity ("trace" through "fatal"). Raw sample '
-            "counts, not extrapolated — severity dominance is a proportion, so scaling would not change it."
+            'Occurrences keyed by lowercased severity ("trace" through "fatal"). Never extrapolated, '
+            "because severity dominance is a proportion that scaling would not change. Sample counts "
+            "when `sampled` is true, counts over every matching row otherwise."
         ),
     )
     match_regex = serializers.CharField(
@@ -929,6 +955,16 @@ class _LogPatternSerializer(serializers.Serializer):
             "`match_regex` is null. Null when the template has no usable literal content."
         ),
     )
+    match_patterns = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Exact canonical members of a stored-pattern group. Filter pattern IN these values AND pattern_version equals this group's version. Empty for body mining.",
+    )
+    pattern_version = serializers.IntegerField(
+        allow_null=True,
+        required=False,
+        help_text="Version required by match_patterns. Null for body mining.",
+    )
 
 
 class _LogsPatternsSparklineBucketSerializer(serializers.Serializer):
@@ -936,13 +972,47 @@ class _LogsPatternsSparklineBucketSerializer(serializers.Serializer):
     end = serializers.CharField(help_text="Bucket end (ISO 8601, exclusive).")
 
 
-class _LogsPatternsResponseSerializer(serializers.Serializer):
+class _LogsPatternsSourceSerializer(serializers.Serializer):
+    source = serializers.ChoiceField(  # type: ignore[assignment]
+        choices=["stored_patterns", "body_mining"],
+        required=False,
+        help_text="Whether counts come from stored-pattern aggregation or body masking and Drain3 mining.",
+    )
+    pattern_version = serializers.IntegerField(
+        allow_null=True,
+        required=False,
+        help_text="Stored pattern version used. Null for body mining.",
+    )
+    fallback_reason = serializers.ChoiceField(
+        choices=["flag_disabled", "insufficient_version_coverage", "empty_window", "comparison"],
+        allow_null=True,
+        required=False,
+        help_text="Why body mining was used. Null for stored-pattern aggregation.",
+    )
+    pattern_coverage_pct = serializers.FloatField(
+        allow_null=True,
+        required=False,
+        help_text="Percentage of all matching rows with a nonempty pattern at the selected version. Null for body mining.",
+    )
+    represented_count = serializers.IntegerField(
+        allow_null=True,
+        required=False,
+        help_text="Exact rows represented by the returned stored-pattern groups. Null for body mining.",
+    )
+    remainder_count = serializers.IntegerField(
+        allow_null=True,
+        required=False,
+        help_text="Matching rows outside returned groups, including other versions, unstamped rows and the long tail. Null for body mining.",
+    )
+
+
+class _LogsPatternsResponseSerializer(_LogsPatternsSourceSerializer):
     patterns = _LogPatternSerializer(
         many=True,
-        help_text="Mined patterns ordered by `count` descending.",
+        help_text="Pattern groups ordered by count. Stored-pattern counts are exact; body-mining counts describe the sample.",
     )
     scanned_count = serializers.IntegerField(
-        help_text="Number of log rows fed to the miner (the sample size, capped at the sample limit).",
+        help_text="Rows scanned: the sample size for body mining, or the full matching count for stored-pattern aggregation.",
     )
     total_count = serializers.IntegerField(
         help_text=(
@@ -1031,7 +1101,7 @@ class _LogPatternDiffEntrySerializer(serializers.Serializer):
     )
 
 
-class _LogsPatternsDiffWindowSerializer(serializers.Serializer):
+class _LogsPatternsDiffWindowSerializer(_LogsPatternsSourceSerializer):
     scanned_count = serializers.IntegerField(help_text="Log rows fed to the miner for this window (sample size).")
     total_count = serializers.IntegerField(help_text="Total log rows matching the filters in this window.")
     sampled = serializers.BooleanField(
@@ -1656,7 +1726,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         query = self._filtered_logs_query(query_data)
 
-        runner = PatternsQueryRunner(team=self.team, query=query)
+        runner = PatternsQueryRunner(
+            team=self.team, query=query, user=request.user if isinstance(request.user, User) else None
+        )
         response = runner.run(
             ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             analytics_props=get_request_analytics_properties(request),
@@ -1671,6 +1743,13 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 if isinstance(response.results, dict)
                 else 0,
                 "sampled": response.results.get("sampled") if isinstance(response.results, dict) else None,
+                "source": response.results.get("source") if isinstance(response.results, dict) else None,
+                "pattern_version": response.results.get("pattern_version")
+                if isinstance(response.results, dict)
+                else None,
+                "fallback_reason": response.results.get("fallback_reason")
+                if isinstance(response.results, dict)
+                else None,
                 "has_search_term": bool(query_data.get("searchTerm")),
                 "severity_levels_count": len(query_data.get("severityLevels") or []),
                 "service_names_count": len(query_data.get("serviceNames") or []),

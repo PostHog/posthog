@@ -519,6 +519,19 @@ class TestGetRowsToSync:
             assert impl.get_rows_to_sync(cursor, self._inner(), None, logger) == 0
         mock_capture.assert_not_called()
 
+    def test_undefined_table_is_not_reported(self, impl, cursor, logger):
+        # The table can be dropped or renamed between schema discovery and this count query
+        # running. That's an expected, already-known customer/upstream condition (the overall
+        # sync's `get_non_retryable_errors` already stops retrying on "does not exist"), not an
+        # actionable bug — row-count estimation is best-effort (the caller defaults to 0), so skip
+        # gracefully without reporting it to error tracking.
+        cursor.execute.side_effect = psycopg.errors.UndefinedTable('relation "public.apps" does not exist')
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.capture_exception"
+        ) as mock_capture:
+            assert impl.get_rows_to_sync(cursor, self._inner(), None, logger) == 0
+        mock_capture.assert_not_called()
+
     def test_remote_request_timeout_is_not_reported(self, impl, cursor, logger):
         # A `Remote request timeout` (code 29150) is Redshift's leader node losing internal RPC
         # contact with a compute node mid-query — a transient cluster-side hiccup, the same
@@ -1527,6 +1540,33 @@ class TestBuildPipeline:
         list(response.items())  # type: ignore[arg-type]
         # streaming cursor.execute should have been invoked for the streaming query
         assert streaming_cursor.execute.called
+
+    def test_sync_all_names_the_columns_rediscovered_before_streaming(self, build_pipeline_mocks, mocker):
+        # A role holding column grants instead of table grants cannot run `SELECT *`, because the
+        # star expands to columns it may not read. The cluster drops `nickname` between setup and
+        # the read here: naming it would fail the read as a permanent error, which disables the
+        # schema.
+        def table_with(*columns: str) -> Table:
+            return Table(
+                name="messages",
+                parents=("public",),
+                columns=[RedshiftColumn(name=name, data_type="varchar", nullable=True) for name in columns],
+                type="table",
+            )
+
+        mocker.patch.object(
+            RedshiftImplementation,
+            "get_table_metadata",
+            side_effect=[table_with("id", "email", "nickname"), table_with("id", "email")],
+        )
+        _, streaming_cursor = build_pipeline_mocks
+        impl = RedshiftImplementation()
+
+        response = impl.build_pipeline(_make_config(), _make_inputs())
+        list(response.items())  # type: ignore[arg-type]
+
+        streaming_query = streaming_cursor.stream.call_args.args[0]
+        assert streaming_query.as_string().startswith('SELECT "id", "email" FROM')
 
     def test_chunk_size_override_skips_probe(self, build_pipeline_mocks, mocker):
         mocked_chunk_size = mocker.patch.object(RedshiftImplementation, "get_chunk_size")
