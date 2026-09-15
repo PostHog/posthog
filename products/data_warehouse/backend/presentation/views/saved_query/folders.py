@@ -11,6 +11,7 @@ from rest_framework import request, response, serializers, status, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.permissions import is_service_auth
 
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
@@ -64,21 +65,25 @@ class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControl
         return (
             queryset.filter(team_id=self.team_id)
             .select_related("created_by")
-            .annotate(
-                view_count=Coalesce(
-                    Subquery(
-                        DataWarehouseSavedQuery.objects.filter(folder=OuterRef("pk"))
-                        .exclude(deleted=True)
-                        .order_by()
-                        .values("folder")
-                        .annotate(c=Count("id"))
-                        .values("c"),
-                        output_field=IntegerField(),
-                    ),
-                    0,
-                )
-            )
+            .annotate(view_count=Coalesce(self._visible_view_count(), 0))
             .order_by(self.ordering)
+        )
+
+    def _visible_view_count(self) -> Subquery:
+        """Counts only the views this caller may list.
+
+        Access control applies to the folder rows, never to what a folder annotation counts, so an
+        unfiltered count answers "a view you may not read is in here" - the thing the grant is there
+        to withhold. Service credentials skip the filter for the same reason the list path skips it:
+        their synthetic user cannot be compared against `created_by`.
+        """
+        views = DataWarehouseSavedQuery.objects.filter(folder=OuterRef("pk")).exclude(deleted=True)
+        if not is_service_auth(self.request):
+            # The resource is passed rather than inferred: an unmapped model name filters nothing.
+            views = self.user_access_control.filter_queryset_by_access_level(views, resource="warehouse_view")
+        return Subquery(
+            views.order_by().values("folder").annotate(c=Count("id")).values("c"),
+            output_field=IntegerField(),
         )
 
     def perform_create(self, serializer):

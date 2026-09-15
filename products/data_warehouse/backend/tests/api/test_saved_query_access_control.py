@@ -315,6 +315,26 @@ class TestDataWarehouseSavedQueryFolderAccessControl(WarehouseAccessControlTestM
         self.client.force_login(self.viewer_user)
         self.assertEqual(self.client.get(self._detail_url()).status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_folder_view_count_omits_a_view_the_caller_is_denied(self):
+        for name in ("visible_view", "denied_view"):
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=name,
+                query={"kind": "HogQLQuery", "query": "select 1"},
+                created_by=self.user,
+                folder=self.folder,
+            )
+        denied = DataWarehouseSavedQuery.objects.get(team=self.team, name="denied_view")
+        self._create_access_control(
+            self.viewer_user, resource="warehouse_view", resource_id=str(denied.id), access_level="none"
+        )
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.get(self._list_url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()[0]["view_count"], 1)
+
     def test_folder_delete_is_refused_when_it_holds_a_denied_view(self):
         denied = DataWarehouseSavedQuery.objects.create(
             team=self.team,
