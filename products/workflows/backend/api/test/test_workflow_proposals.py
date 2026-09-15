@@ -593,6 +593,52 @@ class TestWorkflowProposals(APIBaseTest):
         assert [action["id"] for action in draft["actions"]] == ["trigger_node", "action_1"]
         assert draft["actions"][1]["config"]["inputs"]["url"]["value"] == "https://proposed.example.com"
 
+    def test_a_step_carries_only_the_fields_it_changes(self, _mock_flag):
+        # A producer that rewrites one input must not have to resend the rest of the step: a step that
+        # arrived with only a subject line used to lose its sender, recipient and body at approval,
+        # and publish refused the draft where the reviewer could do nothing about it.
+        flow_id = self._create_active_flow()
+        proposal = self._propose(
+            flow_id,
+            content={
+                "actions": [
+                    {"id": "action_1", "config": {"inputs": {"url": {"value": "https://proposed.example.com"}}}}
+                ]
+            },
+        )
+
+        approve = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {}
+        )
+
+        assert approve.status_code == 200, approve.json()
+        draft = HogFlow.objects.get(id=flow_id).draft
+        assert draft is not None
+        step = draft["actions"][1]
+        assert step["config"]["inputs"]["url"]["value"] == "https://proposed.example.com"
+        assert step["name"] == "action_1"
+        assert step["type"] == "function"
+        assert step["config"]["template_id"] == "template-webhook"
+
+    def test_a_change_publish_would_refuse_is_refused_at_create(self, _mock_flag):
+        flow_id = self._create_active_flow()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
+            {
+                "title": "Drop the webhook's url",
+                "rationale": "A null field deletes it, and a webhook step without a url cannot be published.",
+                "content": {"actions": [{"id": "action_1", "config": {"inputs": {"url": None}}}]},
+                "base_version": 1,
+                "source_type": "scout",
+            },
+            format="json",
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "Publishing this change would be refused" in str(response.json())
+        assert WorkflowProposal.objects.for_team(self.team.id).filter(hog_flow_id=flow_id).count() == 0
+
     def test_a_suggestion_survives_an_edit_to_a_different_step(self, _mock_flag):
         flow_id = self._create_active_flow()
         proposal = self._propose(

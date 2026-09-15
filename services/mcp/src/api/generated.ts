@@ -92934,7 +92934,7 @@ export namespace Schemas {
     }
 
     /**
-     * Only the workflow content fields this proposal changes. Approving merges them over the live content to build the staged draft, so unrelated parts of the workflow stay as they are. In `actions`, send only the steps you change, each with its `id`.
+     * Only the workflow content fields this proposal changes. Approving merges them over the live content to build the staged draft, so unrelated parts of the workflow stay as they are. In `actions`, send each step you change with its `id` and only the fields you change; they merge into the live step, and a null field deletes it.
      */
     export type WorkflowProposalCreateContent = { [key: string]: unknown };
 
@@ -92951,7 +92951,7 @@ export namespace Schemas {
       title: string;
       /** Why this change is worth making, in prose a human reads. */
       rationale: string;
-      /** Only the workflow content fields this proposal changes. Approving merges them over the live content to build the staged draft, so unrelated parts of the workflow stay as they are. In `actions`, send only the steps you change, each with its `id`. */
+      /** Only the workflow content fields this proposal changes. Approving merges them over the live content to build the staged draft, so unrelated parts of the workflow stay as they are. In `actions`, send each step you change with its `id` and only the fields you change; they merge into the live step, and a null field deletes it. */
       content: WorkflowProposalCreateContent;
       /** The metric numbers behind the proposal, so a human can judge it without re-deriving them. */
       evidence?: WorkflowProposalCreateEvidence;

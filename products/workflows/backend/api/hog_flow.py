@@ -1,4 +1,5 @@
 import re
+import copy
 import json
 import uuid as uuid_mod
 import hashlib
@@ -3885,7 +3886,8 @@ class WorkflowProposalCreateSerializer(serializers.Serializer):
         help_text=(
             "Only the workflow content fields this proposal changes. Approving merges them over the live "
             "content to build the staged draft, so unrelated parts of the workflow stay as they are. "
-            "In `actions`, send only the steps you change, each with its `id`."
+            "In `actions`, send each step you change with its `id` and only the fields you change; they "
+            "merge into the live step, and a null field deletes it."
         )
     )
     evidence = WorkflowProposalEvidenceField(
@@ -4115,8 +4117,9 @@ EVIDENCE_UNITS = ("rate", "count")
 
 
 def merge_proposal_content(live_content: dict, proposal_content: dict) -> dict:
-    """Live content with the proposal applied. Whole-list fields replace; `actions` merges per step,
-    so a proposal that rewrites one email leaves the rest of the graph exactly as it is now."""
+    """Live content with the proposal applied. Whole-list fields replace; `actions` merges per step
+    and, within a step, per field, so a proposal that rewrites one subject line leaves the rest of
+    that email and the rest of the graph exactly as they are now."""
     merged = {**live_content, **proposal_content}
     for field in PROPOSAL_MERGE_BY_ID_FIELDS:
         if field in proposal_content:
@@ -4125,9 +4128,15 @@ def merge_proposal_content(live_content: dict, proposal_content: dict) -> dict:
 
 
 def _merge_by_id(live_items: list, changed_items: list) -> list:
+    """Merge each changed step into the live step with the same id, field by field, the way the
+    graph API's `update_action` does: a producer sends the fields it changes and nothing else, so a
+    step can never lose its template inputs to a payload that only carried a subject line."""
     changed_by_id = {item["id"]: item for item in changed_items if isinstance(item, dict) and "id" in item}
-    merged = [changed_by_id.pop(item["id"], item) if _item_id(item) in changed_by_id else item for item in live_items]
-    # Anything left names a step the workflow does not have yet, so the proposal is adding it.
+    merged = []
+    for item in live_items:
+        patch = changed_by_id.pop(_item_id(item), None) if _item_id(item) in changed_by_id else None
+        merged.append(_deep_merge(copy.deepcopy(item), patch) if patch is not None else item)
+    # Anything left names a step the workflow does not have yet, so the proposal is adding it whole.
     merged.extend(changed_by_id.values())
     return merged
 
@@ -5560,6 +5569,19 @@ class HogFlowViewSet(
                             "by `id` while `edges` replaces the whole list, so an edge to a step that no longer "
                             "exists is the usual cause.",
                             *_flatten_graph_errors(error),
+                        ]
+                    }
+                )
+            # Publish revalidates the staged draft with the workflow serializer, and a person cannot
+            # fix what it refuses from the suggestion card. Run the same validation here, where the
+            # producer can.
+            draft_serializer = self.get_serializer(instance, data=dict(merged), partial=True)
+            if not draft_serializer.is_valid():
+                raise exceptions.ValidationError(
+                    {
+                        "content": [
+                            "Publishing this change would be refused, so it cannot be suggested as it is.",
+                            *_flatten_graph_errors(serializers.ValidationError(dict(draft_serializer.errors))),
                         ]
                     }
                 )
