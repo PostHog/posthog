@@ -64,6 +64,7 @@ from products.signals.backend.signal_metadata import (
     fetch_source_references_for_report,
 )
 from products.signals.backend.supersession import (
+    TargetVerificationUnavailable,
     decision_is_current,
     pending_replacement,
     schedule_report_replacements,
@@ -442,6 +443,10 @@ def _resolve_supersede(report: SignalReport, decision: ImplementationDecision | 
     try:
         if any(not verify_target(report.team_id, target) for target in decision.targets):
             return NO_SUPERSEDE
+    except TargetVerificationUnavailable:
+        # Nothing else re-asks this question in the current pass, so an unreachable GitHub must
+        # reach the settle-point activity and use its retries instead of reading as "not eligible".
+        raise
     except Exception:
         logger.exception("signals_supersede_verification_failed", report_id=str(report.id))
         return NO_SUPERSEDE

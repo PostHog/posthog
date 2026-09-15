@@ -29,6 +29,7 @@ from products.signals.backend.report_claims import ReportClaim, get_active_claim
 from products.signals.backend.report_generation.research import ActionabilityAssessment, ActionabilityChoice
 from products.signals.backend.supersession import (
     MAX_HANDOVER_ATTEMPTS,
+    TargetVerificationUnavailable,
     append_handover,
     automated_targets,
     latest_handover,
@@ -247,6 +248,12 @@ class TestSupersedeHandover(BaseTest):
         assert OLD_PR not in {
             target.pr_url for target in research_implementation_context(self.team.id, str(self.report.id)).candidates
         }
+
+    def test_unreachable_github_does_not_read_as_an_ineligible_target(self) -> None:
+        decision = self.decision()
+        self.prs[1] = {"success": False, "status_code": 502}
+        with self.assertRaises(TargetVerificationUnavailable):
+            _resolve_supersede(self.report, decision)
 
     def test_human_claim_blocks_replacement(self) -> None:
         decision = self.decision()

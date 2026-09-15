@@ -50,6 +50,10 @@ class ReplacementPullRequestUnverified(RuntimeError):
     pass
 
 
+class TargetVerificationUnavailable(RuntimeError):
+    """GitHub could not answer whether a target is still eligible, which is not the same as "no"."""
+
+
 def _verify_replacement_prs(replacement: SignalReportArtefact, run_id: UUID, urls: list[str]) -> None:
     targets = {
         target.pr_url: target
@@ -192,10 +196,10 @@ def verify_target(team_id: int, target: ImplementationTarget, *, check_sha: bool
         return None
     github = GitHubIntegration.first_for_team_repository(team_id, parsed.repository)
     if github is None:
-        raise RuntimeError("GitHub integration unavailable")
+        raise TargetVerificationUnavailable("GitHub integration unavailable")
     pr = github.get_pull_request(parsed.repository, parsed.number)
     if not pr.get("success"):
-        raise RuntimeError("Could not verify pull request")
+        raise TargetVerificationUnavailable("Could not verify pull request")
     sha = pr.get("head_sha")
     if (
         pr.get("state") != "open"
