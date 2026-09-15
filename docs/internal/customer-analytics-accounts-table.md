@@ -20,6 +20,10 @@ Restoration uses this order:
 3. Without a draft, the list restores the last selected saved view, if available.
 4. Otherwise, the list uses its defaults and the shared My accounts preference.
 
+On a fresh tab, restoring the My accounts preference does not create a draft or mark default columns as a restored selection.
+Draft and URL writes wait while the last selected saved view loads, then store the resolved view.
+Relationship definitions can load before or after saved views without replacing saved columns.
+
 Selecting a saved view replaces the draft.
 Clearing filters keeps them cleared on return, even when a saved view remains selected.
 Saving or updating a view still requires an explicit action.
@@ -55,3 +59,5 @@ Automatic sizing uses the existing resized-table layout and does not change scro
 
 The `ManyColumns` story in `AccountsTab.stories.tsx` covers six added custom properties alongside native and relationship columns.
 Its browser assertions check content-dependent widths, the 200px cap, horizontal scrolling, and the row expansion control.
+At narrow widths, it also covers custom-property inline editing: the input fits the available column width, and Save and Cancel stay together below it when needed, aligned to the right.
+The row grows without widening the column.
