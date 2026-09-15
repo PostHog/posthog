@@ -32,7 +32,7 @@ A consumer registers against an app name, so the two apps share no consumers.
 
 The status codes are the defaults: 403 on a bad signature, 500 when unconfigured, 202 on success.
 The installation lifecycle is a core consumer rather than a product one, because it keeps PostHog's own integration rows in step with GitHub.
-The `posthog` app takes a pre-dispatch callable: Conversations forwards a delivery for an installation this region does not own to the other region, before the fan-out, because the forward replays the signed bytes a consumer never sees. The consumers in this region still run.
+The `posthog` app's conversations consumer declares ownership by installation, so a delivery for an installation the other region holds is forwarded there before local dispatch. The consumers in this region still run — see [Regional forwarding](../README.md#regional-forwarding).
 
 ## Consumers
 

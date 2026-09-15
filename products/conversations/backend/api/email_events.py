@@ -20,6 +20,7 @@ from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.regions import is_primary_region
 
 from products.conversations.backend.mailgun import validate_webhook_signature
 from products.conversations.backend.models import (
@@ -50,7 +51,6 @@ from products.conversations.backend.services.email_thread_ingestion import (
     ingest_customer_email,
 )
 from products.conversations.backend.services.region_routing import (
-    is_primary_region,
     proxy_to_secondary_region,
     request_secondary_region_status,
 )

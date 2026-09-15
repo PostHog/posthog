@@ -43,7 +43,6 @@ from posthog.web_bot_auth import http_message_signatures_directory
 from products.ai_observability.backend.api.personal_spend import PersonalSpendEUProxyViewSet
 from products.canvas.backend.artifacts import canvas_artifact
 from products.cdp.backend.api import hog_function_template
-from products.conversations.backend.api.github_events import proxy_github_event_to_owning_region
 from products.conversations.backend.api.internal import InternalTicketView as ConversationsInternalTicketView
 from products.customer_analytics.backend.presentation.views.internal import (
     InternalAccountCustomPropertiesView as CustomerAnalyticsInternalAccountCustomPropertiesView,
@@ -100,9 +99,7 @@ from .views import (
 )
 
 # One view for both paths, so the provider is built once per process rather than once per route.
-github_app_webhook = build_webhook_view(
-    build_github_provider("posthog", pre_dispatch=proxy_github_event_to_owning_region)
-)
+github_app_webhook = build_webhook_view(build_github_provider("posthog"))
 
 # Stamphog runs on its own GitHub App, with its own signing secret and its own consumers, so it
 # gets its own view rather than sharing the customer-facing App's endpoint.

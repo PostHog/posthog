@@ -2,9 +2,18 @@
 
 from collections.abc import Callable, Mapping
 from datetime import datetime
+from enum import Enum
 from typing import Any
 
 from posthog.dataclasses import frozen
+
+
+class DeliveryOwnership(Enum):
+    """Where the resource a delivery is about lives, as the consumer that owns it sees it."""
+
+    LOCAL = "local"  # this region holds the resource; dispatch here
+    ELSEWHERE = "elsewhere"  # the resource lives in the other region; forward the request
+    UNDECIDED = "undecided"  # nothing in the delivery says; dispatch here, forward nothing
 
 
 @frozen
@@ -41,6 +50,10 @@ class WebhookConsumer:
     # Off for a consumer that already keys its own recovery on the provider's delivery id: the
     # 24 h mark would otherwise stop a redelivery from ever reaching that recovery path.
     dedup: bool = True
+    # A consumer whose resources are split by region answers where this delivery's resource lives,
+    # and ingress forwards the signed request when the answer is elsewhere. A lookup inside must be
+    # bounded (`bounded_statement_timeout`): it runs in the request, before dispatch.
+    ownership: Callable[[WebhookDelivery], DeliveryOwnership] | None = None
 
 
 @frozen

@@ -45,6 +45,7 @@ Rules that decide whether this works:
 - The handler runs synchronously inside the request. Enqueue a task for real work, the way stamphog and conversations do.
 - A handler that reads the database wraps the read in `bounded_statement_timeout(ms, models=...)` from `posthog.ingress.dispatch.database`, passing only the models the read actually uses. Opening an alias is itself unbounded, so naming one the read never touches can stall the delivery on connection setup.
 - An import-linter contract (`webhook consumers must only import facade`) holds the module to its own product's `facade/`. Reach product internals through the facade.
+- A consumer whose resources are split across regions declares `ownership=`, pointing at a facade function that returns a `DeliveryOwnership`. Ingress forwards the signed request when the answer is `ELSEWHERE`, and dispatches locally either way. The lookup runs inside the request, so bound it with `bounded_statement_timeout(ms, models=...)`.
 
 Tests: extend the product's existing webhook test module rather than starting a parallel one.
 `products/stamphog/backend/tests/test_webhook_consumers.py` is the shape: drive the real view with a signed `RequestFactory` request and assert the enqueue, plus the event type the app does not register, the bad signature, the unparseable body, the non-POST, and the missing secret.
