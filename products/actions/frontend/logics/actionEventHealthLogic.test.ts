@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { dayjs } from 'lib/dayjs'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -23,6 +24,7 @@ describe('actionEventHealthLogic', () => {
                     const results = [
                         { id: '1', name: 'fresh_event', last_seen_at: dayjs().subtract(1, 'hour').toISOString() },
                         { id: '2', name: 'stale_event', last_seen_at: dayjs().subtract(90, 'day').toISOString() },
+                        { id: '5', name: 'quiet_event', last_seen_at: dayjs().subtract(10, 'day').toISOString() },
                         { id: '3', name: 'constructor', last_seen_at: dayjs().subtract(1, 'hour').toISOString() },
                         { id: '4', name: '__proto__', last_seen_at: dayjs().subtract(1, 'hour').toISOString() },
                     ].filter((definition) => names.includes(definition.name))
@@ -46,6 +48,22 @@ describe('actionEventHealthLogic', () => {
         logic.actions.requestEventNames([event])
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.eventHealthIssues[event]?.status).toEqual(status)
+    })
+
+    // A daily event that dies stayed unflagged for the fixed 30 days, so a project can shorten the wait.
+    it.each([
+        [30, undefined],
+        [7, 'stale'],
+    ])('reports an event quiet for 10 days at a %s day threshold as %s', async (staleEventDays, status) => {
+        teamLogic.actions.loadCurrentTeamSuccess({
+            id: 1,
+            data_management_config: { stale_event_days: staleEventDays },
+        } as any)
+
+        logic.actions.requestEventNames(['quiet_event'])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.eventHealthIssues['quiet_event']?.status).toEqual(status)
     })
 
     // A page of actions asks row by row. Without batching that is one request per row.

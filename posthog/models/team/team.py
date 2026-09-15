@@ -790,6 +790,12 @@ class Team(UUIDTClassicModel):
         return get_or_create_team_extension(self, TeamWorkflowsConfig)
 
     @cached_property
+    def data_management_config(self):
+        from .team_data_management_config import TeamDataManagementConfig
+
+        return get_or_create_team_extension(self, TeamDataManagementConfig)
+
+    @cached_property
     def feature_flag_policy_config(self):
         from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
 

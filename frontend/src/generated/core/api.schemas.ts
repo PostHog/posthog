@@ -1826,6 +1826,15 @@ export interface TeamFeatureFlagPolicyConfigApi {
     require_tags?: boolean
 }
 
+export interface TeamDataManagementConfigApi {
+    /**
+     * How many days an event can go without arriving before PostHog shows a stale tag on the actions that use it. Event search is not affected and keeps a fixed 30 day window. Defaults to 30 days.
+     * @minimum 1
+     * @maximum 365
+     */
+    stale_event_days?: number
+}
+
 /**
  * * `0` - Disabled
  * * `1` - Stateless
@@ -2649,6 +2658,7 @@ export interface ProjectBackwardCompatApi {
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
     workflows_config?: TeamWorkflowsConfigApi
     feature_flag_policy_config?: TeamFeatureFlagPolicyConfigApi
+    data_management_config?: TeamDataManagementConfigApi
     base_currency?: BaseCurrencyEnumApi
     /**
      * Enables capturing clicks that had no effect (rage-click detection).
@@ -3506,6 +3516,7 @@ export interface PatchedProjectBackwardCompatApi {
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
     workflows_config?: TeamWorkflowsConfigApi
     feature_flag_policy_config?: TeamFeatureFlagPolicyConfigApi
+    data_management_config?: TeamDataManagementConfigApi
     base_currency?: BaseCurrencyEnumApi
     /**
      * Enables capturing clicks that had no effect (rage-click detection).

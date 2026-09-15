@@ -1162,6 +1162,24 @@ def team_api_test_factory():
             assert self.team.workflows_config.workflow_task_rate_limit_per_day is None
             assert self.team.workflows_config.workflow_task_team_rate_limit_per_day == 1000
 
+        def test_stale_event_days_is_writable_and_bounded(self) -> None:
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {"data_management_config": {"stale_event_days": 7}},
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert response.json()["data_management_config"] == {"stale_event_days": 7}
+            self.team.refresh_from_db()
+            assert self.team.data_management_config.stale_event_days == 7
+
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {"data_management_config": {"stale_event_days": 0}},
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            self.team.refresh_from_db()
+            assert self.team.data_management_config.stale_event_days == 7
+
         def test_support_raised_limit_survives_an_echoed_update(self) -> None:
             TeamWorkflowsConfig.objects.update_or_create(
                 team=self.team, defaults={"workflow_task_rate_limit_per_day": 600}

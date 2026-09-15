@@ -68764,6 +68764,15 @@ export namespace Schemas {
       require_tags?: boolean;
     }
 
+    export interface TeamDataManagementConfig {
+      /**
+         * How many days an event can go without arriving before PostHog shows a stale tag on the actions that use it. Event search is not affected and keeps a fixed 30 day window. Defaults to 30 days.
+         * @minimum 1
+         * @maximum 365
+         */
+      stale_event_days?: number;
+    }
+
     /**
      * A project and its settings, including the settings that live on its passthrough Team.
      *
@@ -69573,6 +69582,7 @@ export namespace Schemas {
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
       workflows_config?: TeamWorkflowsConfig;
       feature_flag_policy_config?: TeamFeatureFlagPolicyConfig;
+      data_management_config?: TeamDataManagementConfig;
       base_currency?: BaseCurrencyEnum;
       /**
          * Enables capturing clicks that had no effect (rage-click detection).
@@ -73934,6 +73944,7 @@ export namespace Schemas {
       customer_analytics_config?: TeamCustomerAnalyticsConfig;
       workflows_config?: TeamWorkflowsConfig;
       feature_flag_policy_config?: TeamFeatureFlagPolicyConfig;
+      data_management_config?: TeamDataManagementConfig;
       base_currency?: BaseCurrencyEnum;
       /**
          * Enables capturing clicks that had no effect (rage-click detection).

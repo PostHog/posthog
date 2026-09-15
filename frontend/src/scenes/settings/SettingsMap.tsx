@@ -37,6 +37,7 @@ import { PreAggregatedTablesSetting } from 'scenes/settings/environment/PreAggre
 import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
 import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/SessionsV2JoinModeSettings'
+import { StaleEventThreshold } from 'scenes/settings/environment/StaleEventThreshold'
 import {
     TaskAgentMyPreferenceSettings,
     TaskAgentProjectDefaultSettings,
@@ -1054,6 +1055,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/data/persons',
                 component: <PersonLastSeenAtEnabled />,
                 keywords: ['person', 'last seen', 'activity', 'tracking'],
+            },
+            {
+                id: 'stale-event-threshold',
+                title: 'Stale event threshold',
+                description:
+                    'PostHog tags an action as stale when the event it points at has not arrived for this many days. Lower it if your events arrive every day, so an event that dies shows up in days instead of a month. Event search is not affected and keeps a fixed 30 day window.',
+                component: <StaleEventThreshold />,
+                keywords: ['stale', 'event', 'threshold', 'last seen', 'data management'],
             },
             {
                 id: 'path-cleaning',
