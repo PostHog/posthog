@@ -358,7 +358,9 @@ def query_vector_for(team: Team, text: str) -> list[float]:
         return cached
     try:
         vector = _embed_once(team, text)
-    except (requests.ConnectionError, requests.Timeout):
+    # `ChunkedEncodingError` is what requests raises when the response body stops part way, so a worker that
+    # dies mid-transfer belongs with the other transport failures despite the name.
+    except (requests.ConnectionError, requests.Timeout, requests.exceptions.ChunkedEncodingError):
         logger.warning("replay_vision.search.embedding_retry", team_id=team.id, exc_info=True)
         time.sleep(_EMBEDDING_RETRY_BACKOFF_S)
         vector = _embed_once(team, text)

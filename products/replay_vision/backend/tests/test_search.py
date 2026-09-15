@@ -255,7 +255,13 @@ class TestQueryVectorCache(APIBaseTest):
         query_vector_for(self.team, "happy users")
         self.assertEqual(mock_embed.call_count, 2)
 
-    @parameterized.expand([("unreachable", requests.ConnectionError), ("slow", requests.Timeout)])
+    @parameterized.expand(
+        [
+            ("unreachable", requests.ConnectionError),
+            ("slow", requests.Timeout),
+            ("dropped mid-response", requests.exceptions.ChunkedEncodingError),
+        ]
+    )
     @patch("products.replay_vision.backend.search.time.sleep")
     @patch("products.replay_vision.backend.search.generate_embedding")
     def test_a_transport_failure_is_retried_once(
