@@ -13,6 +13,13 @@ import { Breadcrumb } from '~/types'
 
 export const RESULTS_PER_PAGE = 20
 
+// The `search` query parameter goes through DRF's `ProhibitNullCharactersValidator`, which rejects
+// the whole listing request with a 400. A person can paste a control character without seeing it,
+// so drop them before they reach the input value.
+export function stripControlCharacters(value: string): string {
+    return value.replace(/[\u0000-\u001f\u007f-\u009f]/g, '')
+}
+
 export type ErrorTrackingSymbolSetResponse = CountedPaginatedResponse<ErrorTrackingSymbolSet>
 export type SymbolSetOrder = 'created_at' | '-created_at' | 'last_used' | '-last_used'
 
@@ -29,6 +36,7 @@ export interface symbolSetLogicValues {
     symbolSetOrder: SymbolSetOrder
     symbolSetResponse: ErrorTrackingSymbolSetResponse | null
     symbolSetResponseLoading: boolean
+    symbolSetsLoadFailed: boolean
     symbolSetStatusFilter: SymbolSetStatusFilter
 }
 
@@ -132,6 +140,7 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
         deleteSymbolSetResponse: null as null,
         shiftKeyHeld: false as boolean,
         previouslyCheckedIndex: null as number | null,
+        symbolSetsLoadFailed: false as boolean,
     }),
 
     reducers({
@@ -148,7 +157,12 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
             setSymbolSetOrder: (_, { order }) => order,
         },
         searchQuery: {
-            setSearchQuery: (_, { search }) => search,
+            setSearchQuery: (_, { search }) => stripControlCharacters(search),
+        },
+        symbolSetsLoadFailed: {
+            loadSymbolSets: () => false,
+            loadSymbolSetsSuccess: () => false,
+            loadSymbolSetsFailure: () => true,
         },
         selectedSymbolSetIds: {
             setSelectedSymbolSetIds: (_, { ids }) => ids,
