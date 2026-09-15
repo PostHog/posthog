@@ -193,7 +193,11 @@ function primaryScrollNode(events: eventWithTime[]): { nodeId: number | null; co
 
 // The scroll offset of the main container at the first frame the viewer sees. This is the visible
 // symptom: a viewer whose playhead starts at the top reads y≈0, one that starts scrolled reads a large y.
-function scrollOffsetAt(events: eventWithTime[], nodeId: number | null, anchorMs: number | null): {
+function scrollOffsetAt(
+    events: eventWithTime[],
+    nodeId: number | null,
+    anchorMs: number | null
+): {
     x: number | null
     y: number | null
 } {
