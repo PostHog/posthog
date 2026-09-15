@@ -99,20 +99,23 @@ export function InsightLegendRow({ item, readOnly = false }: InsightLegendRowPro
                     fullWidth
                     label={
                         <Tooltip title={nullBreakdownNotes?.explanation}>
-                            <InsightLabel
-                                key={item.id}
-                                seriesColor={mainColor}
-                                action={item.action}
-                                fallbackName={item.breakdown_value === '' ? 'None' : item.label}
-                                hasMultipleSeries={!isSingleSeriesDefinition}
-                                breakdownValue={formattedBreakdownValue}
-                                compareValue={isPrevious ? formatCompareLabel(item) : undefined}
-                                pillMidEllipsis={breakdownFilter?.breakdown === '$current_url'} // TODO: define set of breakdown values that would benefit from mid ellipsis truncation
-                                showPathCleaningHighlight={showPathCleaningHighlight}
-                                hideIcon
-                                showSingleName
-                                hideHogQLTagWhenCustomName
-                            />
+                            {/* InsightLabel takes no DOM props, so the tooltip needs an element of its own to hover */}
+                            <div>
+                                <InsightLabel
+                                    key={item.id}
+                                    seriesColor={mainColor}
+                                    action={item.action}
+                                    fallbackName={item.breakdown_value === '' ? 'None' : item.label}
+                                    hasMultipleSeries={!isSingleSeriesDefinition}
+                                    breakdownValue={formattedBreakdownValue}
+                                    compareValue={isPrevious ? formatCompareLabel(item) : undefined}
+                                    pillMidEllipsis={breakdownFilter?.breakdown === '$current_url'} // TODO: define set of breakdown values that would benefit from mid ellipsis truncation
+                                    showPathCleaningHighlight={showPathCleaningHighlight}
+                                    hideIcon
+                                    showSingleName
+                                    hideHogQLTagWhenCustomName
+                                />
+                            </div>
                         </Tooltip>
                     }
                     disabledReason={!canEditInsight ? 'You need editor access to modify this insight.' : undefined}
