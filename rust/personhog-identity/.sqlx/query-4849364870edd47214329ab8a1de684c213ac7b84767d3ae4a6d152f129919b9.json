@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH colliding AS (\n            SELECT cp.id\n            FROM posthog_cohortpeople cp\n            WHERE cp.person_id = ANY($1)\n              AND EXISTS (\n                  SELECT 1 FROM posthog_cohortpeople other\n                  WHERE other.cohort_id = cp.cohort_id\n                    AND other.id <> cp.id\n                    AND (\n                        other.person_id = $2\n                        OR (other.person_id = ANY($1) AND other.id < cp.id)\n                    )\n              )\n        ),\n        dropped AS (\n            DELETE FROM posthog_cohortpeople WHERE id IN (SELECT id FROM colliding)\n        )\n        UPDATE posthog_cohortpeople SET person_id = $2\n        WHERE person_id = ANY($1) AND id NOT IN (SELECT id FROM colliding)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4849364870edd47214329ab8a1de684c213ac7b84767d3ae4a6d152f129919b9"
+}

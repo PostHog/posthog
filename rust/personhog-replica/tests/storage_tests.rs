@@ -357,12 +357,39 @@ async fn test_insert_cohort_members_idempotent(
         .await
         .expect("insert cohort members");
 
-    // Only the not-yet-present members are inserted; NOT EXISTS skips the rest.
+    // Only the not-yet-present members are inserted; the unique index skips the rest.
     assert_eq!(inserted, expected_inserted);
     // Exactly one row per person — no duplicates, regardless of prior state or chunk fan-out.
     assert_eq!(
         cohort_row_count(&ctx.pool, cohort_id, &person_ids).await,
         120
+    );
+
+    ctx.cleanup().await.ok();
+}
+
+// A person id repeated inside one call must still produce one row. The pre-statement
+// snapshot a NOT EXISTS subquery reads cannot see the row the same statement is inserting,
+// so only the unique index catches this.
+#[tokio::test]
+async fn test_insert_cohort_members_dedups_repeated_ids() {
+    let ctx = TestContext::new().await;
+    let cohort_id: i64 = 7701;
+    let person = ctx
+        .insert_person("cohort_repeat@example.com", None)
+        .await
+        .expect("insert person");
+
+    let inserted = ctx
+        .storage
+        .insert_cohort_members(cohort_id, &[person.id, person.id, person.id], Some(1))
+        .await
+        .expect("insert cohort members");
+
+    assert_eq!(inserted, 1);
+    assert_eq!(
+        cohort_row_count(&ctx.pool, cohort_id, &[person.id]).await,
+        1
     );
 
     ctx.cleanup().await.ok();
