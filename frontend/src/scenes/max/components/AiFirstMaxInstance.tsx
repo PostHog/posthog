@@ -117,14 +117,16 @@ export function AiFirstMaxInstance({ tabId, taskId, chatId }: AiFirstMaxInstance
     if (aiSceneView({ taskId, chatId, effectivePhaiView }) === 'runner') {
         return (
             <div className="flex flex-col grow overflow-hidden h-full">
-                <div className="flex w-full items-center justify-end gap-2 py-2 px-2 border-b border-primary">
-                    {/* The new view is the runner, which is always the sandbox runtime — no runtime check needed. */}
-                    <DebugLogsMenu variant="lemon" />
-                    {!taskId && <PhaiViewToggle variant="lemon" />}
-                </div>
+                {!taskId && (
+                    <div className="flex w-full items-center justify-end gap-2 py-2 px-2 border-b border-primary">
+                        {/* The new view is the runner, which is always the sandbox runtime — no runtime check needed. */}
+                        <DebugLogsMenu variant="lemon" />
+                        <PhaiViewToggle variant="lemon" />
+                    </div>
+                )}
                 <div className="flex flex-col flex-1 min-h-0">
                     <BindLogic logic={phaiAiComposerSeedLogic} props={{}}>
-                        <EmbeddedRunner taskId={taskId} />
+                        <EmbeddedRunner taskId={taskId} titleActions={<DebugLogsMenu variant="lemon" />} />
                     </BindLogic>
                 </div>
             </div>

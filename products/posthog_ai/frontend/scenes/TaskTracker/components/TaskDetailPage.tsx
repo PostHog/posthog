@@ -16,9 +16,10 @@ import { TaskRunSceneShell } from './TaskRunSceneShell'
 export interface TaskDetailPageProps {
     taskId: string
     isMobile: boolean
+    titleActions?: JSX.Element
 }
 
-export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.Element {
+export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPageProps): JSX.Element {
     const sceneLogic = taskDetailSceneLogic({ taskId })
     const { task, taskNotFound, taskError, latestRun, selectedRun, isTaskPending, isHeaderLoading, runTaskInFlight } =
         useValues(sceneLogic)
@@ -39,13 +40,13 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
     const runButtonText = latestRun ? 'Retry task' : 'Run task'
 
     const prUrl = selectedRun?.output?.pr_url as string | undefined
-    const titleActions =
+    const taskActions =
         isHeaderLoading || !task ? (
             isActiveCreation ? undefined : (
                 <TaskHeaderActionsSkeleton />
             )
         ) : (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
                 {hasDesktopAccess && (
                     <LemonButton
                         type="secondary"
@@ -94,7 +95,12 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
             task={task}
             selectedRun={selectedRun}
             isHeaderLoading={isHeaderLoading && !isActiveCreation}
-            titleActions={titleActions}
+            titleActions={
+                <div className="flex flex-wrap items-center gap-2">
+                    {taskActions}
+                    {titleActions}
+                </div>
+            }
             onArchive={deleteTask}
             taskError={taskError}
             onRetry={loadTask}
