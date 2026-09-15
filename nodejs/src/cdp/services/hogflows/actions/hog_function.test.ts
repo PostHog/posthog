@@ -914,8 +914,10 @@ describe('HogFunctionHandler', () => {
                 expect(invocationResult.invocation.state.currentAction?.resumeResult).toBeUndefined()
                 expect(await finishedCount('completed')).toBe(1)
                 const waited = await register.getSingleMetric('cdp_hogflow_awaited_step_wait_seconds')!.get()
+                // prom-client types histogram values without metricName, but the runtime sets it.
                 const sum = waited.values.find(
-                    (v) => v.metricName?.endsWith('_sum') && v.labels.outcome === 'completed'
+                    (v) =>
+                        (v as { metricName?: string }).metricName?.endsWith('_sum') && v.labels.outcome === 'completed'
                 )
                 expect(sum?.value).toBeGreaterThanOrEqual(300)
             })
