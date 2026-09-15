@@ -178,6 +178,33 @@ describe('observationSearchLogic', () => {
         logic.unmount()
     })
 
+    it('a superseded failure is dropped, so the rate counts only the searches a person waited for', async () => {
+        searchSpy.mockImplementation(() => [500, { detail: 'embedding service down' }])
+        const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+        const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+        const logic = observationSearchLogic({ scannerId: null, teamId: 1, userId: 'user-1' })
+        logic.mount()
+        router.actions.push(urls.replayVision(), { tab: 'search' })
+
+        logic.actions.setQuery('rage clicks')
+        logic.actions.search()
+        // The second search starts while the first request is in flight, which supersedes the first.
+        logic.actions.setQuery('coupon rejected at checkout')
+        logic.actions.search()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(searchSpy).toHaveBeenCalledTimes(2)
+        const outcomes = captureSpy.mock.calls.filter(
+            ([event]) => event === 'replay vision observation search completed'
+        )
+        expect(outcomes).toHaveLength(1)
+        expect(outcomes[0][1]).toMatchObject({ succeeded: false, error_status: 500 })
+        expect(toastSpy).toHaveBeenCalledTimes(1)
+        captureSpy.mockRestore()
+        toastSpy.mockRestore()
+        logic.unmount()
+    })
+
     it('an AI consent error points the user at the organization setting', async () => {
         searchSpy.mockImplementation(() => [400, { code: 'ai_data_processing_not_approved', detail: 'off' }])
         const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')

@@ -307,6 +307,9 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
                 if (error instanceof Error && isBreakpoint(error)) {
                     throw error
                 }
+                // Drop out-of-order failures, like the success path above. A newer search owns the outcome,
+                // so an older failure must not skew the capture, raise a toast, or stop the spinner.
+                breakpoint()
                 captureSearchOutcome(props.scannerId, {
                     succeeded: false,
                     error_status: error?.status,
