@@ -8,6 +8,7 @@ from posthog.models.utils import UUIDT
 
 from products.notebooks.backend.models import Notebook, NotebookNodeRun, NotebookRun
 from products.notebooks.backend.notebook_run import node_run_request_for
+from products.notebooks.backend.temporal.notebook_run import NotebookRunCellInput, dispatch_notebook_cell_activity
 
 _RUN_CELLS = (
     '<SQLV2 nodeId="s1" code="select 1" returnVariable="first" />\n\n'
@@ -178,6 +179,21 @@ class TestNotebookRunEndpoints(APIBaseTest):
         assert withheld["cells"][0]["status"] == "failed"
         assert withheld["cells"][0]["error"] is None
         assert allowed["cells"][0]["error"] == 'relation "secret_table" does not exist'
+
+    @patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
+    def test_a_retried_dispatch_reuses_the_cell_it_already_started(self, mock_enqueue, _start, _flag) -> None:
+        # The worker can die between handing the cell off and Temporal recording the result, so
+        # the activity runs again. It must recover the run it already started rather than
+        # execute the cell a second time, which for a Python cell repeats its side effects.
+        run_id = self.client.post(self.runs_url, data={}, format="json").json()["run_id"]
+        cell = NotebookRunCellInput(notebook_run_id=run_id, team_id=self.team.id, index=0)
+
+        first = dispatch_notebook_cell_activity(cell)
+        second = dispatch_notebook_cell_activity(cell)
+
+        assert first == second
+        assert mock_enqueue.call_count == 1
+        assert NotebookNodeRun.objects.for_team(self.team.id).filter(notebook_run_id=run_id).count() == 1
 
     def test_interrupt_stops_the_run_and_is_idempotent(self, _start, _flag) -> None:
         run_id = self.client.post(self.runs_url, data={}, format="json").json()["run_id"]
