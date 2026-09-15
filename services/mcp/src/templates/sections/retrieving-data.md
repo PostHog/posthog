@@ -4,7 +4,7 @@ Choose the query method from the requested result and calculation rules, after a
 
 - Use a typed query when standard PostHog calculation rules or native insight controls matter. Do not replace standard funnels or retention with approximate SQL.
 - Use `execute-sql` for record inspection, custom calculations, joins, existing SQL, or requests for SQL. It also supports entity search through `system.*` tables.
-- For a new query, prefer a typed query when both methods preserve the requested calculation and output, including simple aggregates.
+- For a new event-analytics query, prefer a typed query when both methods preserve the requested calculation and output, including simple aggregates.
 
 SQL can also prepare data for a typed query. Reassess the method when the task changes, regardless of the previous tool call. A chart or table alone does not determine the method: both typed queries and SQL can support saved visualizations.
 
