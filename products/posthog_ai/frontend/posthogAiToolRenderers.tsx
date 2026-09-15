@@ -38,7 +38,7 @@ const QueryRenderer = lazyWithRetry(() =>
 
 const DATA_TOOLS = [
     {
-        keys: ['insight-create', 'insight-update', 'insight-get'],
+        keys: ['insight-create', 'insight-get'],
         displayName: 'Insight',
         icon: <IconGraph />,
         Renderer: InsightRenderer,

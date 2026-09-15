@@ -5,7 +5,7 @@ import { extractVisualizationArtifact } from './extractors'
 import { VisualizationWidget, getArtifactOpenTarget } from './VisualizationWidget'
 
 /**
- * Renders insight create / update / read tool calls through `VisualizationWidget`. Until the
+ * Renders insight create / read tool calls through `VisualizationWidget`. Until the
  * artifact lands (pending / in-progress / malformed output) we fall back to the generic card so
  * the call still renders something.
  */

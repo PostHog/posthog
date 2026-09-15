@@ -454,6 +454,8 @@ client when the remaining event fits; events that remain oversized are dropped.
 
 Native widgets read app data, existing `structuredContent`, or a direct result object.
 They never decode TOON or JSON from result text.
+`insight-create` and `insight-get` show the insight widget.
+`insight-update` uses the generic tool card, with its output available in the expandable details.
 The `execute-sql` backend returns the executed query in `structured_content` alongside its formatted text.
 The MCP handler forwards that query as widget metadata, preserving resolved saved-variable definitions, `connectionId`, and `sendRawQuery`.
 The widget renders it through the shared Query component in a `DataVisualizationNode`.
