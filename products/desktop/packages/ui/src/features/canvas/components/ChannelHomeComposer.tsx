@@ -126,6 +126,7 @@ export const ChannelHomeComposer = forwardRef<
     lastUsedInitialTaskMode,
     setLastUsedReasoningEffort,
     setLastUsedModel,
+    _hasHydrated: settingsHydrated,
   } = useSettingsStore();
 
   const adapter = lastUsedAdapter;
@@ -161,9 +162,14 @@ export const ChannelHomeComposer = forwardRef<
   );
 
   useEffect(() => {
-    // Latching before the stored default arrives would open every composer on ACP and
-    // never look again.
-    if (didResolveRuntimeRef.current || !flagsLoaded || !runDefaultsSettled) {
+    // Latch only after every input arrives. The stored default decides the harness, and the
+    // persisted picks below decide whether it applies. Both read as absent until they land.
+    if (
+      didResolveRuntimeRef.current ||
+      !settingsHydrated ||
+      !flagsLoaded ||
+      !runDefaultsSettled
+    ) {
       return;
     }
 
@@ -179,6 +185,7 @@ export const ChannelHomeComposer = forwardRef<
     piHarnessEnabled,
     runDefaults,
     runDefaultsSettled,
+    settingsHydrated,
   ]);
 
   const { hasGithubIntegration, isLoadingIntegrations } =

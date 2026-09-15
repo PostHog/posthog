@@ -135,6 +135,9 @@ describe("useWarmTask", () => {
       props: { githubIntegrationId: undefined },
     },
     { name: "the editor is empty", props: { editorIsEmpty: true } },
+    // A warm run is provisioned on an ACP adapter and the server refuses to hand one to a
+    // Pi task, so warming here only leaks a sandbox nobody claims.
+    { name: "the composer sits on Pi", props: { agentRuntime: "pi" } },
   ])("does not fire when $name", async ({ props, flagEnabled }) => {
     if (flagEnabled === false) {
       flagState.enabled = false;
