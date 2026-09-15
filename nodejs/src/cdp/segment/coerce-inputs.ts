@@ -54,7 +54,10 @@ const coerceSingleValue = (value: unknown, field: SegmentInputField): unknown =>
 }
 
 const coerceField = (value: unknown, field: SegmentInputField): unknown => {
-    if (value === null || value === undefined) {
+    // An optional input that renders to nothing arrives as an empty string, and `multiple` would
+    // wrap it into a one-element array. A destination that gates on an empty check then reads the
+    // field as set, so an empty value is left as it is.
+    if (value === null || value === undefined || value === '') {
         return value
     }
 

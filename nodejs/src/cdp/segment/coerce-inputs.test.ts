@@ -35,6 +35,7 @@ describe('coerceFields', () => {
         ['leaves an unparseable number alone', { value: 'lots' }, { value: 'lots' }],
         ['leaves a fractional integer alone', { num_items: '2.5' }, { num_items: '2.5' }],
         ['leaves a word that is not a boolean alone', { guest: 'yes' }, { guest: 'yes' }],
+        ['leaves an empty string out of a declared array', { email: '' }, { email: '' }],
         ['leaves null alone', { value: null }, { value: null }],
         // The same object carries the destination settings and any key a customer added to a
         // dictionary input, so nothing the schema does not declare may be touched.
