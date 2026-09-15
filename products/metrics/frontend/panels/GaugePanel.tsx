@@ -24,21 +24,37 @@ function arcPath(cx: number, cy: number, r: number, fromDeg: number, toDeg: numb
     return `M ${x0} ${y0} A ${r} ${r} 0 ${largeArc} 1 ${x1} ${y1}`
 }
 
-/** Bounds for the arc: explicit yAxis min/max first, else the threshold extremes, else 0..value. */
+/** The extreme of a threshold list, computed iteratively: thresholds are persisted
+ * user input, so spreading them into `Math.max` could exceed the argument limit. */
+function thresholdExtreme(thresholds: { value: number }[], pick: (a: number, b: number) => number): number | undefined {
+    let extreme: number | undefined
+    for (const step of thresholds) {
+        extreme = extreme === undefined ? step.value : pick(extreme, step.value)
+    }
+    return extreme
+}
+
+/** Bounds for the arc: explicit yAxis min/max first, else the threshold extremes, else 0..value.
+ * The bounds always contain the value — a threshold ladder that ends below it is a color
+ * scale, not the range, so the max extends to the value rather than capping the arc. */
 function gaugeBounds(value: number, display: MetricsPanelProps['display']): { min: number; max: number } {
-    const min = display.yAxis?.min ?? display.thresholds?.[0]?.value ?? 0
+    const thresholds = display.thresholds ?? []
+    const min = display.yAxis?.min ?? thresholdExtreme(thresholds, Math.min) ?? 0
     const max =
         display.yAxis?.max ??
-        (display.thresholds?.length ? Math.max(...display.thresholds.map((t) => t.value)) : undefined) ??
-        Math.max(value, min + 1)
+        Math.max(thresholdExtreme(thresholds, Math.max) ?? Number.NEGATIVE_INFINITY, value, min + 1)
     return max > min ? { min, max } : { min, max: min + 1 }
 }
 
 /** A single-series radial gauge: the reduced value drawn as an arc between a min and a max,
  * colored by threshold. Grouped queries render one gauge per series, capped. */
-export function GaugePanel({ series, display, unit, fallbackName }: MetricsPanelProps): JSX.Element {
+export function GaugePanel({ series, display, fallbackName }: MetricsPanelProps): JSX.Element {
     const reducer = resolveReducer(display)
-    const rows = flattenSeriesRows(series, [reducer]).slice(0, 12)
+    // A series with no non-null point has nothing to draw; drop it like the other
+    // scalar panels rather than render a dash gauge.
+    const rows = flattenSeriesRows(series, [reducer])
+        .filter((row) => row.values[reducer] !== null)
+        .slice(0, 12)
 
     if (rows.length === 0) {
         return <div className="flex h-full items-center justify-center text-secondary text-sm">No data</div>
@@ -48,6 +64,7 @@ export function GaugePanel({ series, display, unit, fallbackName }: MetricsPanel
         <div className="flex h-full w-full flex-wrap content-center items-center justify-center gap-4 overflow-auto p-2">
             {rows.map((row, index) => {
                 const value = row.values[reducer]
+                const unit = row.series.unit ?? undefined
                 const { min, max } = gaugeBounds(value ?? 0, display)
                 const fraction = value === null ? 0 : Math.min(Math.max((value - min) / (max - min), 0), 1)
                 const color = getColorVar(thresholdColor(value, display.thresholds, FALLBACK_COLOR))

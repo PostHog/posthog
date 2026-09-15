@@ -44,7 +44,6 @@ import { MetricsStarterDashboardModal } from './MetricsStarterDashboardModal'
 import { metricsUsageTrackingLogic } from './metricsUsageTrackingLogic'
 import { LIVE_REFRESH_MS, MAX_CLAUSES, metricsViewerLogic, sanitizeFormulaInput } from './metricsViewerLogic'
 
-// `stat` is in the schema but has no renderer yet, so the picker doesn't offer it.
 const BASE_DISPLAY_TYPES: MetricsDisplayType[] = ['line', 'area', 'bar']
 const PANEL_DISPLAY_TYPES: MetricsDisplayType[] = ['stat', 'gauge', 'bargauge', 'table']
 
@@ -139,8 +138,7 @@ export const MetricsViewer = (): JSX.Element => {
         const types = dashboardPanelsEnabled ? [...BASE_DISPLAY_TYPES, ...PANEL_DISPLAY_TYPES] : BASE_DISPLAY_TYPES
         return types.map((value) => {
             const def = METRICS_PANELS[value]
-            const disabledReason =
-                def.needsGroupBy && !resultIsGrouped ? 'Add a group-by to use this panel' : undefined
+            const disabledReason = def.needsGroupBy && !resultIsGrouped ? 'Add a group-by to use this panel' : undefined
             return { value, label: def.label, disabledReason }
         })
     }, [dashboardPanelsEnabled, resultIsGrouped])

@@ -24,11 +24,9 @@ const AREA_FILL_OPACITY = 0.2
 /** Multi-series metric time-series chart (line / area / bar). Every series shares one time grid
  * (the backend zero-fills), so the x-axis comes from the first series.
  *
- * Null buckets are gaps. quill's `Series.data` is `number[]` (no null), so the gap policy is:
- *  - `gap` / `connect`: render as a gap when quill supports it, else fall back to 0 (see note).
- *  - `zero`: render as 0.
- * The full `gap` draw (breaking the path) lands with the quill null-data change; until then a
- * null renders as 0 for `gap`/`connect` too, which matches the pre-existing behavior. */
+ * A null bucket is a gap (a non-representable aggregate). quill's `Series.data` is `number[]`
+ * (no null), so a gap renders as 0 until quill takes null data; `display.nullMode` is read by
+ * the chart config only, not here. */
 export function TimeSeriesPanel({
     series,
     display,
@@ -39,7 +37,6 @@ export function TimeSeriesPanel({
     const theme = useChartTheme()
     const isBar = display?.type === 'bar'
     const isArea = display?.type === 'area'
-    const nullMode = display?.nullMode ?? 'gap'
 
     const chartSeries = useMemo<Series[]>(() => {
         const names = formatSeriesNames(
@@ -49,14 +46,11 @@ export function TimeSeriesPanel({
         return series.map((s, index) => ({
             key: `${index}`,
             label: names[index],
-            // A null value is a gap (non-representable aggregate). quill draws only numbers, so a
-            // gap collapses to 0 here until quill takes null data; `zero` mode is explicit about it.
             data: s.points.map((p) => p.value ?? 0),
             color: getColorVar(seriesColor(index)),
             ...(isArea ? { fill: { opacity: AREA_FILL_OPACITY } } : {}),
         }))
-        // nullMode currently only documents intent; the quill null-data change makes it live.
-    }, [series, fallbackName, isArea, nullMode])
+    }, [series, fallbackName, isArea])
     const labels = useMemo(() => (series[0]?.points ?? []).map((p) => p.time), [series])
 
     const sharedConfig = useChartConfig<TimeSeriesLineChartConfig>(

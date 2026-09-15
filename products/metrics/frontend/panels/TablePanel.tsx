@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
-import { flattenSeriesRows, MetricsSeriesRow } from './metricsReduce'
+import { capReducers, flattenSeriesRows, MetricsSeriesRow } from './metricsReduce'
 import { thresholdColor } from './metricsThresholds'
 import { formatMetricValue } from './metricsUnits'
 import type { MetricsPanelProps } from './registry'
@@ -22,10 +22,10 @@ function labelKeys(rows: MetricsSeriesRow[]): string[] {
 }
 
 /** Rows = series (one per label set); columns = label keys plus the chosen reducers. */
-export function TablePanel({ series, display, unit, fallbackName }: MetricsPanelProps): JSX.Element {
+export function TablePanel({ series, display, fallbackName }: MetricsPanelProps): JSX.Element {
     const reducer = resolveReducer(display)
     const reducers = useMemo(
-        () => (display.legendCalcs?.length ? display.legendCalcs : [reducer]),
+        () => (display.legendCalcs?.length ? capReducers(display.legendCalcs) : [reducer]),
         [display.legendCalcs, reducer]
     )
     const rows = useMemo(() => flattenSeriesRows(series, reducers), [series, reducers])
@@ -55,7 +55,9 @@ export function TablePanel({ series, display, unit, fallbackName }: MetricsPanel
                 return value === null ? (
                     <span className="text-secondary">—</span>
                 ) : (
-                    <span style={{ color: `var(--${color})` }}>{formatMetricValue(value, unit)}</span>
+                    <span className={`text-(--${color})`}>
+                        {formatMetricValue(value, row.series.unit ?? undefined)}
+                    </span>
                 )
             },
         })),

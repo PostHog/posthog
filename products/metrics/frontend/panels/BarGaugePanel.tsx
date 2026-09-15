@@ -15,7 +15,7 @@ const FALLBACK_COLOR = 'data-color-1'
 
 /** One horizontal bar per series, sorted descending, colored by threshold. Grafana's
  * "top N by value". Needs a groupBy to be meaningful; the picker gates on that. */
-export function BarGaugePanel({ series, display, unit, fallbackName }: MetricsPanelProps): JSX.Element {
+export function BarGaugePanel({ series, display, fallbackName }: MetricsPanelProps): JSX.Element {
     const theme = useChartTheme()
     const reducer = resolveReducer(display)
 
@@ -70,7 +70,7 @@ export function BarGaugePanel({ series, display, unit, fallbackName }: MetricsPa
                     if (!row) {
                         return null
                     }
-                    return <span>{formatMetricValue(row.values[reducer] ?? 0, unit)}</span>
+                    return <span>{formatMetricValue(row.values[reducer] ?? 0, row.series.unit ?? undefined)}</span>
                 }}
             />
         </div>

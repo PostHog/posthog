@@ -15,7 +15,7 @@ const MAX_STAT_CARDS = 12
 
 /** A headline number with a sparkline, colored by threshold. One card per series when the
  * query groups, capped at `MAX_STAT_CARDS`. */
-export function StatPanel({ series, display, unit, fallbackName }: MetricsPanelProps): JSX.Element {
+export function StatPanel({ series, display, fallbackName }: MetricsPanelProps): JSX.Element {
     const theme = useChartTheme()
     const reducer = resolveReducer(display)
     // A series with no non-null point has nothing to headline; drop it rather than render a "—" card.
@@ -39,7 +39,7 @@ export function StatPanel({ series, display, unit, fallbackName }: MetricsPanelP
                 labels={row.series.points.map((p) => p.time)}
                 theme={theme}
                 color={color}
-                formatValue={(v) => formatMetricValue(v, unit)}
+                formatValue={(v) => formatMetricValue(v, row.series.unit ?? undefined)}
                 sparklineFill
             />
         )

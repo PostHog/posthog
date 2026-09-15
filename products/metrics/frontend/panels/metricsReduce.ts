@@ -62,3 +62,22 @@ export function flattenSeriesRows(series: ReducibleSeries[], reducers: MetricsRe
         series: s,
     }))
 }
+
+/** The unit a panel renders with. The explicit display override always wins;
+ * without one, the shared ingested unit applies — but only when every series
+ * that carries a unit agrees. A mixed-unit result gets no unit rather than
+ * one series' values mislabeled with another's. */
+export function seriesUnit(series: ReducibleSeries[], displayUnit: string | undefined): string | undefined {
+    if (displayUnit) {
+        return displayUnit
+    }
+    const units = new Set(series.map((s) => s.unit).filter((u): u is string => !!u))
+    return units.size === 1 ? [...units][0] : undefined
+}
+
+/** A persisted `legendCalcs` list is user input from a saved insight: it can
+ * repeat entries or run long. Dedup and cap it to the reducers that exist so
+ * an old or hand-edited insight cannot render an unbounded column set. */
+export function capReducers(reducers: MetricsReducer[]): MetricsReducer[] {
+    return [...new Set(reducers)].slice(0, 6)
+}
