@@ -122,6 +122,27 @@ class TestExportedAssetModel(APIBaseTest):
         assert ExportedAsset.objects_including_ttl_deleted.filter(id=stuck.id).exists()
         assert not ExportedAsset.objects_including_ttl_deleted.filter(id=following.id).exists()
 
+    def test_delete_expired_assets_keeps_a_row_repointed_after_the_snapshot(self) -> None:
+        # A render finishing mid-sweep repoints the row at a new object; dropping the row here would
+        # strand it.
+        expired = ExportedAsset.objects_including_ttl_deleted.create(
+            team=self.team,
+            created_by=self.user,
+            content_location="exports/mp4/team-1/old.mp4",
+            expires_after=datetime.now() - timedelta(days=1),
+        )
+
+        def repoint(keys: list[str]) -> list[str]:
+            ExportedAsset.objects_including_ttl_deleted.filter(id=expired.id).update(
+                content_location="exports/mp4/team-1/new.mp4"
+            )
+            return []
+
+        with patch("posthog.storage.object_storage.delete_objects", side_effect=repoint):
+            ExportedAsset.delete_expired_assets()
+
+        assert ExportedAsset.objects_including_ttl_deleted.filter(id=expired.id).exists()
+
     def test_delete_expired_assets_keeps_the_row_when_the_object_delete_fails(self) -> None:
         # Losing the row here would leave the file unreachable, so the row waits for the next run.
         expired = ExportedAsset.objects_including_ttl_deleted.create(

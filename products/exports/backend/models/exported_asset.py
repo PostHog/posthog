@@ -280,9 +280,14 @@ class ExportedAsset(models.Model):
             if failed:
                 logger.warning("deleting_expired_assets_object_failures", count=len(failed))
             # A row whose object survived waits for the next run rather than stalling this one.
-            deletable = [asset_id for asset_id, location in chunk if location not in failed]
+            deletable = [(asset_id, location) for asset_id, location in chunk if location not in failed]
             if deletable:
-                ExportedAsset.objects_including_ttl_deleted.filter(id__in=deletable).delete()
+                # Matched on location as well as id: a render that finished after the snapshot has
+                # already repointed the row at a new object, which this must not drop.
+                ExportedAsset.objects_including_ttl_deleted.filter(
+                    id__in=[asset_id for asset_id, _ in deletable],
+                    content_location__in=[location for _, location in deletable],
+                ).delete()
 
         expired_assets.filter(Q(content_location=None) | Q(content_location="")).delete()
 
