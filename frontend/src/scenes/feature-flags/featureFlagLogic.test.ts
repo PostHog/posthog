@@ -489,6 +489,12 @@ describe('featureFlagLogic', () => {
                 router.actions.push(urls.featureFlags())
                 expect(confirmSpy).not.toHaveBeenCalled()
 
+                // A tab close or reload cancels the request, unlike an in-app route change, so
+                // the browser has to keep its own leave-site prompt for the same in-flight save.
+                const unload = new Event('beforeunload', { cancelable: true })
+                window.dispatchEvent(unload)
+                expect(unload.defaultPrevented).toBe(true)
+
                 // Pressing Enter in a field still submits the form, so the in-flight guard has to
                 // sit on the submit handler too, not only on the disabled button.
                 await expectLogic(logic, () => {

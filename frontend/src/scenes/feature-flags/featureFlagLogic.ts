@@ -5082,8 +5082,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return false
             }
 
-            // The save is already persisting these changes, so warning about losing them is wrong.
-            if (logic.values.isSavingFeatureFlag) {
+            // Only an in-app route change leaves the request running, and kea-router passes the
+            // new location for that case alone. A browser unload cancels the request, so it keeps
+            // its leave-site prompt.
+            if (newLocation && logic.values.isSavingFeatureFlag) {
                 return false
             }
 
