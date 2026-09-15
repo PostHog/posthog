@@ -922,7 +922,9 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 actions.setScopes(oauthMcpConsent.scopes ?? DEFAULT_OAUTH_SCOPES)
             } else {
                 actions.setIsMcpResource(false)
-                actions.setScopes(scopeResolution?.scopes ?? requestedScopes)
+                actions.setScopes(
+                    scopeResolution?.scopes ?? (requestedScopes.length ? requestedScopes : DEFAULT_OAUTH_SCOPES)
+                )
             }
         }
 

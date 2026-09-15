@@ -688,11 +688,12 @@ def _build_template_context(
                     home_settings = UserHomeSettings.objects.filter(team=user.team, user=user).first()
                     posthog_app_context["homepage"] = (home_settings.homepage or None) if home_settings else None
 
-    # Merge caller-provided keys into posthog_app_context (e.g. oauth_application from the authorize view)
-    if "oauth_application" in context:
-        posthog_app_context["oauth_application"] = context.pop("oauth_application")
-    if "oauth_mcp_consent" in context:
-        posthog_app_context["oauth_mcp_consent"] = context.pop("oauth_mcp_consent")
+    # Merge caller-provided keys into posthog_app_context (e.g. oauth_application from the authorize view).
+    # A key absent from this list never reaches `window.POSTHOG_APP_CONTEXT`, so the scene that reads it
+    # silently falls back.
+    for caller_key in ("oauth_application", "oauth_mcp_consent", "oauth_scope_resolution"):
+        if caller_key in context:
+            posthog_app_context[caller_key] = context.pop(caller_key)
 
     # JSON dumps here since there may be objects like Queries
     # that are not serializable by Django's JSON serializer
