@@ -189,7 +189,14 @@ const cdpFunctionsInvocationsCreate = (): ToolBase<
 
 const CdpFunctionsListSchema = () => {
     const HogFunctionsListQueryParams = orvalSchemas.HogFunctionsListQueryParams()
-    return HogFunctionsListQueryParams
+    return HogFunctionsListQueryParams.extend({
+        filters: z
+            .union([z.string(), z.record(z.string(), z.unknown())])
+            .optional()
+            .describe(
+                'Object (or pre-encoded JSON string) matched against each function\'s stored `filters` by JSON containment, so a partial value matches. Use it to select functions by trigger instead of reading every row: `{"events": [{"id": "$error_tracking_issue_created"}]}` returns only the functions that trigger on that event. Combines with the other query params.'
+            ),
+    })
 }
 
 const cdpFunctionsList = (): ToolBase<
@@ -207,6 +214,7 @@ const cdpFunctionsList = (): ToolBase<
                 created_at: params.created_at,
                 created_by: params.created_by,
                 enabled: params.enabled,
+                filters: params.filters,
                 id: params.id,
                 limit: params.limit,
                 offset: params.offset,

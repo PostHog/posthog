@@ -12,6 +12,7 @@ import structlog
 import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from opentelemetry import trace
 from rest_framework import exceptions, serializers, status, viewsets
@@ -24,6 +25,7 @@ from posthog.api.app_metrics2 import AppMetricsMixin
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.hog_invocation_rerun import HogInvocationRerunRequestSerializer, HogInvocationRerunResponseSerializer
 from posthog.api.log_entries import LogEntryMixin
+from posthog.api.openapi_parameters import ACCEPTS_STRINGIFIED_JSON
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action, log_activity_from_viewset
@@ -1040,6 +1042,23 @@ class HogFunctionViewSet(
             return HogFunctionMinimalSerializer
         return HogFunctionSerializer
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "filters",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                description=(
+                    "Object (or pre-encoded JSON string) matched against each function's stored `filters` by JSON "
+                    "containment, so a partial value matches. Use it to select functions by trigger instead of "
+                    "reading every row: "
+                    '`{"events": [{"id": "$error_tracking_issue_created"}]}` returns only the functions that trigger '
+                    "on that event. Combines with the other query params."
+                ),
+                extensions=ACCEPTS_STRINGIFIED_JSON,
+            )
+        ]
+    )
     @tracer.start_as_current_span("HogFunctionViewSet.list")
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         response = super().list(request, *args, **kwargs)

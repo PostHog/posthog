@@ -862,6 +862,10 @@ export type HogFunctionsListParams = {
     created_at?: string
     created_by?: number
     enabled?: boolean
+    /**
+     * Object (or pre-encoded JSON string) matched against each function's stored `filters` by JSON containment, so a partial value matches. Use it to select functions by trigger instead of reading every row: `{"events": [{"id": "$error_tracking_issue_created"}]}` returns only the functions that trigger on that event. Combines with the other query params.
+     */
+    filters?: string
     id?: string
     /**
      * Number of results to return per page.

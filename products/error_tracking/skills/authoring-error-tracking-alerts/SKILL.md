@@ -35,7 +35,7 @@ actually act on.
 
 | Tool                                           | Job                                                              | Where it fits                |
 | ---------------------------------------------- | ---------------------------------------------------------------- | ---------------------------- |
-| `posthog:error-tracking-alerts-list`           | List existing alerts (paginated); dedupe before creating.        | Step 2 — dedupe.             |
+| `posthog:error-tracking-alerts-list`           | List alerts on one trigger event (paginated); dedupe.            | Step 2 — dedupe.             |
 | `posthog:integrations-list`                    | Find the user's Slack workspace id (filter by `kind=slack`).     | Step 3 — pick channel.       |
 | `posthog:integrations-channels-retrieve`       | List Slack channels for a workspace.                             | Step 3 — pick channel.       |
 | `posthog:error-tracking-alerts-create`         | Create the alert (HogFunction with `type=internal_destination`). | Step 4 — ship.               |
@@ -70,17 +70,28 @@ You need three things from the user before creating anything:
 
 ### 2. Dedupe against existing alerts
 
-Scan **every** destination before you decide. The endpoint is paginated and defaults to 100 rows per
-page, so a single default call misses older alerts on a project with hundreds of destinations.
+`posthog:error-tracking-alerts-list` returns every destination in the project, not only the alerts, so
+select the alerts server-side. A project with hundreds of destinations makes an unfiltered scan too large
+to read.
 
-Call `posthog:error-tracking-alerts-list` with `type: ["internal_destination"]` and `limit: 1000`. If the
-response still carries a non-null `next`, keep paging with `offset` until `next` is null. Then filter the
-collected rows client-side by `filters.events[].id` and by any per-issue scope in `filters.properties`.
+Call the tool once per lifecycle event you are about to use, with `type: ["internal_destination"]` and a
+`filters` value that names the event:
 
-The list response carries no `inputs`, so it does not tell you which channel or URL a row delivers to.
-Read the destination off `name` and `description` instead — the naming convention below puts the channel
-in the name. When a row matches on event and scope but its name does not say where it delivers, do not
-guess: show the user the matching names and ask whether one of them is the alert they mean.
+```json
+"filters": { "events": [{ "id": "$error_tracking_issue_created" }] }
+```
+
+The value is matched by JSON containment, so this partial object returns only the alerts on that event.
+Keep paging with `offset` until `next` is null. The default page size is 100, which one lifecycle event
+rarely exceeds. If a response still comes back too large to read in full, say that the dedupe is
+incomplete and ask the user before you create anything — never report a complete scan you did not do.
+
+The response carries `name`, `description`, `enabled`, the trigger event ids, and any per-issue
+`filters.properties` scope. It carries no `inputs`, so it does not tell you which channel or URL a row
+delivers to. Read the destination off `name` and `description` instead — the naming convention below puts
+the channel in the name. When a row matches on event and scope but its name does not say where it
+delivers, do not guess: show the user the matching names and ask whether one of them is the alert they
+mean.
 
 - If an alert exists for the **same event** delivering to the **same channel** with the **same scope**,
   stop. Tell the user it already exists and ask whether they want to change anything (in which case use
@@ -169,9 +180,9 @@ the issue evolves.
 
 ## Token-economy rules
 
-- One complete `posthog:error-tracking-alerts-list` scan up front, not per candidate. The scan is
+- One `posthog:error-tracking-alerts-list` scan per trigger event up front, not per candidate. A scan is
   complete only when `next` is null — page through it once and reuse the collected rows for every
-  candidate.
+  candidate on that event.
 - Reuse a single integration lookup for multiple alerts going to the same workspace.
 - Confirm the channel / URL with the user **before** creating each alert. Never batch-create alerts to a
   destination the user has not explicitly named.

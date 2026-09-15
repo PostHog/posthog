@@ -12,6 +12,21 @@
         "enabled": {
             "type": "boolean"
         },
+        "filters": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "additionalProperties": {},
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                }
+            ],
+            "description": "Object (or pre-encoded JSON string) matched against each function's stored `filters` by JSON containment, so a partial value matches. Use it to select functions by trigger instead of reading every row: `{\"events\": [{\"id\": \"$error_tracking_issue_created\"}]}` returns only the functions that trigger on that event. Combines with the other query params."
+        },
         "id": {
             "type": "string"
         },

@@ -51,11 +51,15 @@ tools:
                channel without explicit confirmation.
 
 
-            3. Dedupe. Call `error-tracking-alerts-list` and check whether an alert for the same trigger
-               event already exists. Skip creation if one is present and enabled — call
-               `error-tracking-alerts-partial-update` to adjust an existing alert instead of creating a
-               duplicate. Several alerts on the same event for the same channel produce duplicate
-               notifications.
+            3. Dedupe. Call `error-tracking-alerts-list` with `type=["internal_destination"]` and
+               `filters={"events": [{"id": "<trigger event>"}]}`. A row is a duplicate only when all three
+               match: the same trigger event, the same delivery target (channel or webhook URL), and the
+               same per-issue `filters.properties` scope. The same event on a different channel, or with a
+               different scope, is a separate alert — create it. The response carries no `inputs`, so read
+               the delivery target from `name` and `description`. When a matching row does not name its
+               target, show the user the matching names and ask which alert they mean instead of guessing.
+               For a duplicate that is present and enabled, skip creation and call
+               `error-tracking-alerts-partial-update` to adjust the existing alert.
 
 
             4. Create. Use `type=internal_destination`, the integration's `template_id`
@@ -205,11 +209,18 @@ tools:
         list: true
         title: List error tracking alerts
         description: >
-            List error tracking alerts in the project. Pass `type=internal_destination` and inspect each entry's
-            `filters.events` for one of `$error_tracking_issue_created`, `$error_tracking_issue_reopened`, or
-            `$error_tracking_issue_spiking` to identify alerts. The same endpoint backs `cdp-functions-list`, so
-            non-error-tracking destinations are also returned — filter client-side by event id. Pagination defaults to
-            100 per page; pass a higher `limit` (e.g. 1000) when scanning for an existing alert by trigger and channel.
+            List error tracking alerts in the project. The same endpoint backs `cdp-functions-list`, so every
+            destination is a candidate row — select the alerts server-side with `filters` instead of reading the whole
+            list. Pass `type=internal_destination` and `filters={"events": [{"id": "<lifecycle event>"}]}`, one call for
+            each lifecycle event you check (`$error_tracking_issue_created`, `$error_tracking_issue_reopened`,
+            `$error_tracking_issue_spiking`). Each call returns only the alerts on that event, so the response stays
+            small in a project with hundreds of destinations. Pagination defaults to 100 per page — keep paging with
+            `offset` while `next` is set.
+
+
+            The response carries the fields a dedupe check needs: `name`, `description`, `enabled`, the trigger event
+            ids, and any per-issue `filters.properties` scope. It carries no `inputs`, so the delivery channel is
+            readable only from the name and description.
         response:
             include:
                 - id
@@ -217,13 +228,9 @@ tools:
                 - name
                 - description
                 - enabled
-                - icon_url
                 - template.id
-                - status
-                - created_at
-                - updated_at
-                - created_by
-                - filters
+                - filters.events.*.id
+                - filters.properties
     error-tracking-alerts-partial-update:
         operation: hog_functions_partial_update
         enabled: true
