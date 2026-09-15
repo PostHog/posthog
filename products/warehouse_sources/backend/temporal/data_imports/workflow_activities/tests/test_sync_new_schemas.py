@@ -3,6 +3,8 @@ import contextlib
 import pytest
 from unittest import mock
 
+from django.db import OperationalError
+
 from posthog.models.integration import UndecryptedIntegrationSecretError
 from posthog.temporal.common.errors import NonReportableError
 
@@ -14,11 +16,12 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 )
 
 
-def _patch_common(source_mock, schemas_created=None, source_api_version=None):
+def _patch_common(source_mock, schemas_created=None, source_api_version=None, merge_error=None):
     """Patch DB + registry so the activity runs without a database or real source."""
     existing_source = mock.MagicMock(
         source_type="GoogleAds", job_inputs={"k": "v"}, deleted=False, api_version=source_api_version
     )
+    existing_source.merge_connection_metadata.side_effect = merge_error
     objects = mock.MagicMock()
     objects.filter.return_value.exclude.return_value.exists.return_value = True
     objects.get.return_value = existing_source
@@ -38,8 +41,10 @@ def _patch_common(source_mock, schemas_created=None, source_api_version=None):
     }
 
 
-def _run_activity(source_mock, schemas_created=None, source_api_version=None):
-    patches = _patch_common(source_mock, schemas_created, source_api_version=source_api_version)
+def _run_activity(source_mock, schemas_created=None, source_api_version=None, merge_error=None):
+    patches = _patch_common(
+        source_mock, schemas_created, source_api_version=source_api_version, merge_error=merge_error
+    )
     with contextlib.ExitStack() as stack:
         entered = {name: stack.enter_context(patcher) for name, patcher in patches.items()}
         sync_new_schemas_activity(SyncNewSchemasActivityInputs(source_id="src", team_id=1))
@@ -169,15 +174,26 @@ def test_probed_metadata_goes_through_the_locked_merge():
     source.save.assert_not_called()
 
 
-def test_failed_server_metadata_probe_leaves_discovery_successful():
-    # The probe opens its own connection. Without the guard, one unreachable server would fail every
-    # discovery pass and the schemas discovered just above would never be reconciled.
+@pytest.mark.parametrize(
+    "probe_error,merge_error,expected_merge_calls",
+    [
+        (Exception("connection refused"), None, 0),
+        (None, OperationalError("canceling statement due to lock timeout"), 1),
+    ],
+    ids=["the_probe_fails", "the_locked_merge_fails"],
+)
+def test_a_failed_metadata_write_leaves_discovery_successful(probe_error, merge_error, expected_merge_calls):
+    # Recording the version is incidental to discovery, and each step fails on its own terms: the
+    # probe reaches an unreachable server, and the merge waits on a row lock the backfill command can
+    # hold. Either one escaping would fail every discovery pass for that source, and the schemas
+    # found just above would never reconcile.
     source_mock = mock.MagicMock()
     source_mock.parse_config.return_value = {}
     source_mock.get_schemas.return_value = []
-    source_mock.get_server_metadata.side_effect = Exception("connection refused")
+    source_mock.get_server_metadata.return_value = {"engine": "mongodb", "wire_version": 7}
+    source_mock.get_server_metadata.side_effect = probe_error
 
-    mocks = _run_activity(source_mock)
+    mocks = _run_activity(source_mock, merge_error=merge_error)
 
     mocks["sync_old_schemas_with_new_schemas"].assert_called_once()
-    mocks["objects"].get.return_value.merge_connection_metadata.assert_not_called()
+    assert mocks["objects"].get.return_value.merge_connection_metadata.call_count == expected_merge_calls
