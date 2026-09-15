@@ -79,10 +79,6 @@ class AITrainingPrivacyStore:
     def delete_month(self, session_month: str) -> int:
         if re.fullmatch(r"[0-9]{4}-(0[1-9]|1[0-2])", session_month) is None:
             raise ValueError("Session month must use YYYY-MM")
-        self.client.put_item(
-            TableName=self.table_name,
-            Item={**item_key(f"month:{session_month}", "deleted"), "deleted": {"BOOL": True}},
-        )
         count = 0
         for shard in range(KEY_SHARDS):
             cursor = None

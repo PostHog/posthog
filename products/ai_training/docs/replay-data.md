@@ -44,7 +44,7 @@ The authenticated payload also binds the dataset kind and, for images, the objec
 
 Ingestion processes privacy state in batches:
 
-1. Bulk-read session keys, team blocks, month blocks, and image keys.
+1. Bulk-read session keys, team blocks, and image keys.
 2. Resolve keys in memory while processing the batch.
 3. Commit bounded DynamoDB transactions before publishing replay blocks or image messages.
 4. On a competing write, bulk-read the winning state and retry with its keys.
@@ -106,10 +106,10 @@ Key creation writes a month index entry in the same DynamoDB transaction as the 
 The index uses 32 partitions named `month:<YYYY-MM>:shard:<0..31>` and stores key locations, without copying wrapped keys.
 Session keys and image keys appear in this index.
 
-Run `python manage.py delete_ai_training_month YYYY-MM` to permanently block that UTC session month and remove its keys.
+Run `python manage.py delete_ai_training_month YYYY-MM` to remove the keys of that UTC session month.
+Delete a month only after its data has stopped arriving: ingestion does not check a month block, because a block item shared by every commit in the fleet serialises them on one DynamoDB item.
 The command uses strongly consistent queries and bounded writes.
-Rerun the command after an interrupted run; it preserves the month block and safely repeats completed pages.
-Readers reject blocked months even when a wrapped key remains during deletion.
+Rerun the command after an interrupted run; it safely repeats completed pages.
 Existing read leases expire within five minutes.
 The matching monthly S3 folders can then be removed from each dataset.
 Deleting a month does not affect another month's image keys.

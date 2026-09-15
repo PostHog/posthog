@@ -30,7 +30,7 @@ class TestAITrainingPrivacyStore(SimpleTestCase):
             self.assertEqual(store.called, enabled)
             self.assertEqual(store.return_value.drain.called, enabled)
 
-    def test_month_deletion_blocks_before_querying_and_shreds_all_index_pages(self) -> None:
+    def test_month_deletion_shreds_all_index_pages_without_writing_a_block(self) -> None:
         client = MagicMock()
         cursor = item_key("month:2026-09:shard:0", "key:cursor")
         targets = [session_key(7, "01a09f92-e780-7000-8000-000000000001"), item_key("team:7", "image:1:2026-09")]
@@ -43,13 +43,13 @@ class TestAITrainingPrivacyStore(SimpleTestCase):
         pages.extend({"Items": []} for _ in range(31))
 
         def query(**kwargs: object) -> DynamoResponse:
-            self.assertEqual(client.put_item.call_args.kwargs["Item"]["pk"]["S"], "month:2026-09")
             self.assertTrue(kwargs["ConsistentRead"])
             return pages.pop(0)
 
         client.query.side_effect = query
         store = AITrainingPrivacyStore(client, "table")
         self.assertEqual(store.delete_month("2026-09"), 2)
+        client.put_item.assert_not_called()
         self.assertEqual(
             [call.kwargs["TransactItems"][0]["Update"]["Key"] for call in client.transact_write_items.call_args_list],
             targets,

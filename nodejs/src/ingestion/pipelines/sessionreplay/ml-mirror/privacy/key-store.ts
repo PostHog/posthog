@@ -11,7 +11,6 @@ import {
     TableKey,
     imageKeyId,
     keySessionMonth,
-    monthBlockId,
     monthKeyIndexId,
     sessionKeyId,
     tableKeyString,
@@ -125,7 +124,6 @@ export class MlKeyBatch {
     public async read(): Promise<void> {
         this.keys.clear()
         const initial = this.identities.flatMap((identity) => [
-            monthBlockId(sessionStartMonth(identity.sessionId)),
             teamBlockId(identity.teamId),
             sessionKeyId(identity.teamId, identity.sessionId),
         ])
@@ -135,7 +133,6 @@ export class MlKeyBatch {
             const id = tableKeyString(sessionKeyId(identity.teamId, identity.sessionId))
             if (
                 this.state.has(tableKeyString(teamBlockId(identity.teamId))) ||
-                this.state.has(tableKeyString(monthBlockId(sessionStartMonth(identity.sessionId)))) ||
                 this.state.get(id)?.deleted?.BOOL === true
             ) {
                 continue
@@ -186,11 +183,9 @@ export class MlKeyBatch {
         return image ? { session, image } : undefined
     }
 
+    // A month is only deleted after its data has stopped arriving, so a commit fences on the team marker alone; a month marker would be one item every commit in the fleet contends on.
     private guards(identity: MlKeyIdentity): TransactWriteItem[] {
-        return [
-            this.db.check(monthBlockId(keySessionMonth(identity)), 'attribute_not_exists(pk)'),
-            this.db.check(teamBlockId(identity.teamId), 'attribute_not_exists(pk)'),
-        ]
+        return [this.db.check(teamBlockId(identity.teamId), 'attribute_not_exists(pk)')]
     }
 
     private put(key: TableKey, attributes: DynamoItem, condition?: string): TransactWriteItem {
