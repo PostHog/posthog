@@ -261,7 +261,9 @@ async function withTestContext(
   }
 }
 
-describe("ArchiveService integration", () => {
+// Each test builds a real git repository and worktree with child processes, which
+// outruns the 5s default when CI runs every package suite at once.
+describe("ArchiveService integration", { timeout: 20_000 }, () => {
   beforeEach(() => {
     recoverArchiveDetailsFromLogs.mockReset();
     recoverArchiveDetailsFromLogs.mockResolvedValue([]);

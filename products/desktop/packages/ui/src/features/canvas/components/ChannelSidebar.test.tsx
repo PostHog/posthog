@@ -153,8 +153,8 @@ describe("ChannelSidebar", () => {
   });
 
   it.each([
-    ["task", "Sessions", "/code/channel/channel-1/tasks/item-1"],
-    ["canvas", "Canvases", "/code/canvas/channel-1/item-1"],
+    ["task", "Sessions", "/desktop/channel/channel-1/tasks/item-1"],
+    ["canvas", "Canvases", "/desktop/canvas/channel-1/item-1"],
   ] as const)(
     "copies the %s link from its context menu",
     async (kind, tab, path) => {

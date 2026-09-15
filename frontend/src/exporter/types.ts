@@ -39,6 +39,37 @@ export interface InterviewExportPayload {
      */
 }
 
+/** A publicly shared desktop canvas: the published build renders in a sandboxed iframe. */
+export interface SharedCanvasPayload {
+    id: string
+    name: string
+    kind: 'freeform' | 'grid' | 'component'
+    description: string
+    /** Whether the build captured when sharing was turned on still exists. False leaves `artifact_url` null. */
+    published: boolean
+    /**
+     * Signed URL of the shared build's entry HTML, minted for this page load. Null when that build is
+     * gone, or when artifact delivery is not configured on this instance.
+     */
+    artifact_url: string | null
+    /** Whether the owner lets anyone with the link copy the canvas into their own project. */
+    allow_forking: boolean
+}
+
+/** A publicly shared file a task run produced: the exact upload that was shared. */
+export interface SharedTaskArtifactPayload {
+    name: string
+    content_type: string
+    /** Decides the renderer: markdown inline, images inline, everything else a download. */
+    kind: 'markdown' | 'image' | 'html' | 'file'
+    size: number | null
+    uploaded_at: string | null
+    /** The markdown text, inlined when the file is small enough to ship in the page. */
+    markdown: string | null
+    /** Same-token file URL: renders inline for images, downloads for everything else. */
+    file_url: string
+}
+
 export interface ExportedData extends SharingConfigurationSettings {
     accessToken?: string
     shareToken?: string // JWT token for password-protected shares
@@ -80,4 +111,8 @@ export interface ExportedData extends SharingConfigurationSettings {
     cohorts?: Pick<CohortType, 'id' | 'name'>[]
     /** AI user interview payload — present only for `type === ExportType.Interview`. */
     interview?: InterviewExportPayload
+    /** Shared desktop canvas payload. */
+    canvas?: SharedCanvasPayload
+    /** Shared task-run artifact payload. */
+    task_artifact?: SharedTaskArtifactPayload
 }
