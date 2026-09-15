@@ -5185,13 +5185,13 @@ snapshots:
     metrics-group-by--default--light:
         hash: v1.k794b7964.e5d6a1978e274f76e13a0476f07c2956302b2b84bc318e38c55c72bd2839d8e9.sZnt-HOnAKGE8421CprrJcFq9wQut5SU7DSEi_6Kqiw
     metrics-metricscatalog--default--dark:
-        hash: v1.k794b7964.03eb5c94a0b676523fab94c0f45cfb5c89acf5b211f8a273a56defdc04bb274e.yxgu8CrbnCWMkqbLOmjKAsTsP6eZXMesGP_SMos45Lo
+        hash: v1.k794b7964.a1464d9a9bef8d961229aa836b02bba22e3baf5683fd6928bad2043e661fb63c.uJFa3cShWZCenILbuE_EpT0yJMsK1lbSZhPfe0ghE0Y
     metrics-metricscatalog--default--light:
-        hash: v1.k794b7964.8a2362832fc615534a844c97d5e3d7d812dd7071bfb09bcb907e99fd99e37da1.aX4HUfYWaWvRqq4F_dBc3vN4r6p4mw4VZvlGgxov4Ys
+        hash: v1.k794b7964.abf03105e43775229318033668be854ce9984399ad5443c6f807f489b7f6804d.ihwV_9JDumkdExc2ZxSOnUFULoe4iX7uMDqWezNx_qU
     metrics-metricscatalog--narrow--dark:
-        hash: v1.k794b7964.bf1f6c610a35043d4c59f8c9da55528374c583d16614dcb2e0aa7a3849ea5757.lUlOAQc8Gubzqf640TCsDgrYGE8AyNyA4x9hAqJycAk
+        hash: v1.k794b7964.2bcd3736aebabc2318ff73411a9a91afe46482ad9bd6b956384d5bae6df59471.K6FU2bGvPPBZdFlHEPr5VDzBofsHaZtUvErUaJZ2f6Y
     metrics-metricscatalog--narrow--light:
-        hash: v1.k794b7964.cea7d6fed3b34d961bfb7c08500061c0f7e3a11457eedec11738f156c1505ce4.LlZKIPi7EOv8jYnruCnJtJOLFDEUyQ420m-ZIvzN0O4
+        hash: v1.k794b7964.a3e0f3eca9aaa6069dba0367ecd31c7bd9d47c9172e06ac68f0ebdad551dcb56.EhcEcU7jd55Gt3GugyXqtOowPSUwBvacNVGulhHN1t0
     posthog-3000-keyboard-shortcut--default--dark:
         hash: v1.k794b7964.a5fc5a426df52137d3fb6377a06c7b39c36b041280de154cf2b95cbe46932b8d.f2HHu2jv6bztshqmrVtHpiuuv3PJZNskIh7SbZRgIpk
     posthog-3000-keyboard-shortcut--default--light:
