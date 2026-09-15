@@ -4,8 +4,9 @@ import { useEffect } from 'react'
 import { IconChat } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
-import { getCommentAuthorName, getText } from 'lib/components/Comments/Comment'
+import { getCommentAuthorName } from 'lib/components/Comments/Comment'
 import { CommentWithRepliesType, commentsLogic } from 'lib/components/Comments/commentsLogic'
+import { getCommentText } from 'lib/components/Comments/commentUtils'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
@@ -137,7 +138,7 @@ export function ThreadDiscussionEntry({
                 data-attr="ticket-thread-discussion"
             >
                 {root ? (
-                    <div className="ph-no-capture text-sm leading-snug line-clamp-2">{getText(root)}</div>
+                    <div className="ph-no-capture text-sm leading-snug line-clamp-2">{getCommentText(root)}</div>
                 ) : (
                     <div className="text-sm font-semibold italic text-secondary">Deleted comment</div>
                 )}

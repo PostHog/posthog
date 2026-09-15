@@ -3,8 +3,17 @@ import type {
   SessionConfigSelectOptions,
 } from "@agentclientprotocol/sdk";
 import type { LoopSchemas } from "@posthog/api-client/loops";
-import { restrictedModelMeta } from "@posthog/shared";
+import {
+  DEEPSEEK_MODEL_FLAG,
+  GLM_MODEL_FLAG,
+  GLM53_FLASH_MODEL_FLAG,
+  GLM53_MODEL_FLAG,
+  KIMI_MODEL_FLAG,
+  restrictedModelMeta,
+} from "@posthog/shared";
+import { MODELS } from "@posthog/shared/model-catalog";
 import { describe, expect, it } from "vitest";
+import type { ModelRolloutFlags } from "../sessions/modelOptionFilters";
 import {
   clampLoopReasoningEffort,
   LOOP_DEFAULT_MODELS,
@@ -27,6 +36,23 @@ function modelConfigOption(
   ];
 }
 
+/** The flag record the picker reads, from the friendlier names these cases are written in. */
+function rolloutFlags(on: {
+  glm?: boolean;
+  glm53?: boolean;
+  glm53Flash?: boolean;
+  kimi?: boolean;
+  deepseek?: boolean;
+}): ModelRolloutFlags {
+  return {
+    [GLM_MODEL_FLAG]: on.glm ?? false,
+    [GLM53_MODEL_FLAG]: on.glm53 ?? false,
+    [GLM53_FLASH_MODEL_FLAG]: on.glm53Flash ?? false,
+    [KIMI_MODEL_FLAG]: on.kimi ?? false,
+    [DEEPSEEK_MODEL_FLAG]: on.deepseek ?? false,
+  };
+}
+
 const claudeOptions = modelConfigOption([
   { value: "claude-sonnet-5", name: "Claude Sonnet 5" },
   { value: "@cf/zai-org/glm-5.2", name: "GLM-5.2" },
@@ -36,7 +62,7 @@ describe("loopModelOptions", () => {
   it("includes GPT-6 Astra in the offline Codex fallback", () => {
     expect(
       loopModelOptions("codex", [], {
-        glmEnabled: false,
+        flags: rolloutFlags({ glm: false }),
         pinnedModel: "",
       }),
     ).toContainEqual({ value: "gpt-6-astra", label: "GPT-6 Astra" });
@@ -45,7 +71,7 @@ describe("loopModelOptions", () => {
   it("maps served model options to value/label pairs", () => {
     expect(
       loopModelOptions("claude", claudeOptions, {
-        glmEnabled: true,
+        flags: rolloutFlags({ glm: true }),
         pinnedModel: "",
       }),
     ).toEqual([
@@ -64,7 +90,7 @@ describe("loopModelOptions", () => {
     ]);
     expect(
       loopModelOptions("claude", grouped, {
-        glmEnabled: true,
+        flags: rolloutFlags({ glm: true }),
         pinnedModel: "",
       }),
     ).toEqual([{ value: "claude-sonnet-5", label: "Claude Sonnet 5" }]);
@@ -81,7 +107,7 @@ describe("loopModelOptions", () => {
     ]);
     expect(
       loopModelOptions("claude", withRestricted, {
-        glmEnabled: true,
+        flags: rolloutFlags({ glm: true }),
         pinnedModel: "",
       }),
     ).toEqual([{ value: "claude-sonnet-5", label: "Claude Sonnet 5" }]);
@@ -108,7 +134,7 @@ describe("loopModelOptions", () => {
     },
   ])("$name", ({ glmEnabled, pinnedModel, expectedValues }) => {
     const values = loopModelOptions("claude", claudeOptions, {
-      glmEnabled,
+      flags: rolloutFlags({ glm: glmEnabled }),
       pinnedModel,
     }).map((option) => option.value);
     expect(values).toEqual(expectedValues);
@@ -117,19 +143,19 @@ describe("loopModelOptions", () => {
   it("keeps a pinned model that the catalog no longer serves", () => {
     expect(
       loopModelOptions("claude", claudeOptions, {
-        glmEnabled: true,
-        pinnedModel: "claude-opus-4-6",
+        flags: rolloutFlags({ glm: true }),
+        pinnedModel: "claude-opus-4-1",
       }),
-    ).toContainEqual({ value: "claude-opus-4-6", label: "claude-opus-4-6" });
+    ).toContainEqual({ value: "claude-opus-4-1", label: "Claude Opus 4.1" });
   });
 
   it.each([
     {
-      flags: { glm53Enabled: true },
+      flags: rolloutFlags({ glm53: true }),
       expected: [{ value: "zai-org/glm-5.3", label: "GLM-5.3" }],
     },
     {
-      flags: { glm53FlashEnabled: true },
+      flags: rolloutFlags({ glm53Flash: true }),
       expected: [{ value: "zai-org/glm-5.3-flash", label: "GLM-5.3 Flash" }],
     },
   ])("gates each GLM 5.3 variant independently", ({ flags, expected }) => {
@@ -140,11 +166,7 @@ describe("loopModelOptions", () => {
     ]);
 
     expect(
-      loopModelOptions("claude", options, {
-        glmEnabled: false,
-        pinnedModel: "",
-        ...flags,
-      }),
+      loopModelOptions("claude", options, { flags, pinnedModel: "" }),
     ).toEqual(expected);
   });
 
@@ -177,8 +199,7 @@ describe("loopModelOptions", () => {
     ]);
 
     const values = loopModelOptions("claude", options, {
-      glmEnabled: true,
-      deepseekEnabled,
+      flags: rolloutFlags({ glm: true, deepseek: deepseekEnabled }),
       pinnedModel,
     }).map((option) => option.value);
     expect(values).toEqual(expectedValues);
@@ -228,11 +249,34 @@ describe("loopModelOptions", () => {
     },
   ])("$name", ({ adapter, glm53Enabled, expectedValues }) => {
     const values = loopModelOptions(adapter, [], {
-      glmEnabled: true,
-      glm53Enabled,
+      flags: rolloutFlags({ glm: true, glm53: glm53Enabled }),
       pinnedModel: "",
     }).map((option) => option.value);
     expect(values).toEqual(expectedValues);
+  });
+
+  // The loops serializer rejects a model the catalog no longer serves, so a retired id
+  // in the fallback list is a save the user cannot make. The cases above assert the
+  // fallback against hardcoded ids, so only this notices a catalog removal.
+  it("every fallback model is one the catalog still serves", () => {
+    for (const adapter of ["claude", "codex"] as const) {
+      const served = MODELS.filter((m) => m.runtimeAdapter === adapter).map(
+        (m) => m.id,
+      );
+      const fallback = loopModelOptions(adapter, [], {
+        flags: rolloutFlags({
+          glm: true,
+          glm53: true,
+          glm53Flash: true,
+          kimi: true,
+          deepseek: true,
+        }),
+        pinnedModel: "",
+      })
+        .map((o) => o.value)
+        .filter((v) => v !== "");
+      expect(served).toEqual(expect.arrayContaining(fallback));
+    }
   });
 });
 

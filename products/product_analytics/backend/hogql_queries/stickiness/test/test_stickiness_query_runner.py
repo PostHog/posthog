@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional, Union
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     BaseTest,
@@ -125,7 +125,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
                     properties_to_create[key] = type
 
-            with freeze_time(first_timestamp):
+            with time_machine.travel(first_timestamp, tick=False):
                 person_result.append(
                     _create_person(
                         team_id=self.team.pk,
@@ -322,7 +322,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_stickiness_data_warehouse(self):
         table_name = self._setup_data_warehouse()
 
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             response = self._run_query(
                 series=[
                     DataWarehouseNode(
@@ -345,7 +345,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_stickiness_data_warehouse_with_entity_property_filter(self):
         table_name = self._setup_data_warehouse()
 
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             response = self._run_query(
                 series=[
                     DataWarehouseNode(
@@ -376,7 +376,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # both actors in a single interval -> [2, 0, 0, 0, 0, 0, 0].
         table_name = self._setup_data_warehouse_with_decoy_timestamp()
 
-        with freeze_time("2023-01-07"):
+        with time_machine.travel("2023-01-07", tick=False):
             response = self._run_query(
                 series=[
                     DataWarehouseNode(
@@ -454,7 +454,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_interval_hour_last_days(self):
         self._create_test_events()
 
-        with freeze_time("2020-01-20T12:00:00Z"):
+        with time_machine.travel("2020-01-20T12:00:00Z", tick=False):
             response = self._run_query(interval=IntervalType.HOUR, date_from="-2d", date_to="now")
             result = response.results[0]
             # 61 = 48 + 12 + 1
@@ -610,7 +610,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_interval_full_weeks(self):
         self._create_test_events()
 
-        with freeze_time("2020-01-23T12:00:00Z"):
+        with time_machine.travel("2020-01-23T12:00:00Z", tick=False):
             response = self._run_query(interval=IntervalType.WEEK, date_from="-30d", date_to="now")
 
             result = response.results[0]

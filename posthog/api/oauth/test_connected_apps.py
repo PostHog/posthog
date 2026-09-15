@@ -1,7 +1,7 @@
 import uuid
 from datetime import timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 
 from django.utils import timezone
@@ -14,7 +14,7 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant,
 from posthog.models.user import User
 
 
-@freeze_time("2024-06-15T12:00:00Z")
+@time_machine.travel("2024-06-15T12:00:00Z", tick=False)
 class TestConnectedAppsViewSet(APIBaseTest):
     def _create_app(self, name: str = "Test App", **kwargs) -> OAuthApplication:
         return OAuthApplication.objects.create(

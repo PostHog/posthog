@@ -356,6 +356,25 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
+    it('shows taxonomy display names for x-axis values of a column named event', async () => {
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['event', 'count'],
+            types: [
+                ['event', 'String'],
+                ['count', 'Int64'],
+            ],
+            results: [
+                ['$pageview', 3],
+                ['signed_up', 1],
+            ],
+        })
+
+        logic.actions.clearAxis()
+        logic.actions.updateXSeries('event')
+
+        expect(logic.values.xData?.data).toEqual(['Pageview', 'signed_up'])
+    })
+
     it('does not resolve to a time-series chart when there is only one row', async () => {
         logic.actions.setVisualizationType(ChartDisplayType.ActionsLineGraph)
 
@@ -416,20 +435,45 @@ describe('dataVisualizationLogic', () => {
             },
         })
     })
-    it('stamps labels onto the slices when a pie chart is newly picked', async () => {
-        logic.actions.setVisualizationType(ChartDisplayType.ActionsPie)
+    test.each([ChartDisplayType.ActionsPie, ChartDisplayType.ActionsDonut])(
+        'stamps labels onto the slices when a pie display is newly picked',
+        async (displayType) => {
+            logic.actions.setVisualizationType(displayType)
+
+            await expectLogic(logic).toMatchValues({
+                chartSettings: expect.objectContaining({ pie: expect.objectContaining({ sliceContent: 'labels' }) }),
+            })
+        }
+    )
+
+    test.each([ChartDisplayType.ActionsPie, ChartDisplayType.ActionsDonut])(
+        'does not override existing pie slice content when re-picking a pie display',
+        async (displayType) => {
+            logic.actions.updateChartSettings({ pie: { sliceContent: 'values' } })
+            logic.actions.setVisualizationType(displayType)
+
+            await expectLogic(logic).toMatchValues({
+                chartSettings: expect.objectContaining({ pie: expect.objectContaining({ sliceContent: 'values' }) }),
+            })
+        }
+    )
+
+    it('defaults a newly selected donut total and preserves an explicit setting', async () => {
+        logic.actions.setVisualizationType(ChartDisplayType.ActionsDonut)
 
         await expectLogic(logic).toMatchValues({
-            chartSettings: expect.objectContaining({ pie: { sliceContent: 'labels' } }),
+            chartSettings: expect.objectContaining({
+                pie: expect.objectContaining({ sliceContent: 'labels', showTotal: true }),
+            }),
         })
-    })
 
-    it('does not override existing pie slice content when re-picking pie', async () => {
-        logic.actions.updateChartSettings({ pie: { sliceContent: 'values' } })
-        logic.actions.setVisualizationType(ChartDisplayType.ActionsPie)
+        logic.actions.updateChartSettings({ pie: { showTotal: false } })
+        logic.actions.setVisualizationType(ChartDisplayType.ActionsDonut)
 
         await expectLogic(logic).toMatchValues({
-            chartSettings: expect.objectContaining({ pie: { sliceContent: 'values' } }),
+            chartSettings: expect.objectContaining({
+                pie: expect.objectContaining({ sliceContent: 'labels', showTotal: false }),
+            }),
         })
     })
 

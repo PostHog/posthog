@@ -1,9 +1,10 @@
 import json
 import uuid
+import functools
 import dataclasses
 from typing import Any, Optional, Self, Union, cast
 
-from django.db import DEFAULT_DB_ALIAS, OperationalError, connections, router, transaction
+from django.db import connections
 from django.db.models import Manager, QuerySet
 from django.http import Http404
 from django.shortcuts import get_object_or_404
@@ -11,11 +12,12 @@ from django.shortcuts import get_object_or_404
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import mixins, request, response, serializers, status, viewsets
-from rest_framework.exceptions import APIException, ValidationError
+from rest_framework.exceptions import ValidationError
 
 from posthog.api.documentation import extend_schema
 from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.statement_timeout import statement_timeout
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
 from posthog.constants import GROUP_TYPES_LIMIT
@@ -26,6 +28,11 @@ from posthog.models import EventProperty, PropertyDefinition, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
+from posthog.taxonomy.definition_listing import (
+    DEFINITION_LIST_STATEMENT_TIMEOUT_MS,
+    DefinitionListTimedOut,
+    definition_read_db_alias,
+)
 from posthog.taxonomy.definition_search import search_plan
 from posthog.taxonomy.taxonomy import (
     CORE_FILTER_DEFINITIONS_BY_GROUP,
@@ -45,18 +52,6 @@ EXCLUDED_EVENT_CORE_PROPERTIES = [
 
 PROPERTY_DEFINITION_TYPES = ["event", "person", "group", "session"]
 
-# Listing runs two raw queries (a count, then a page fetch) that take seconds on projects with
-# very many property definitions. The app database sets no statement_timeout, so a slow one keeps
-# consuming database CPU for the full request until the gateway gives up at 120s, long after the
-# client stopped waiting for it. Bounding each statement well below that ceiling sheds the load
-# instead of queueing it, and returns a 503 the caller can retry or report.
-PROPERTY_DEFINITIONS_STATEMENT_TIMEOUT_MS = 25_000
-
-# Postgres reports a statement cancelled by statement_timeout as SQLSTATE 57014. psycopg2 exposes
-# it as `pgcode` and psycopg3 as `sqlstate`, and Django re-raises either as its own
-# OperationalError, so both attribute names have to be checked on the error and on its cause.
-QUERY_CANCELED_SQLSTATE = "57014"
-
 PROPERTY_DEFINITIONS_TIMED_OUT_COUNTER = Counter(
     "property_definitions_list_timed_out_total",
     "Property definition list requests cancelled by the statement timeout.",
@@ -64,29 +59,23 @@ PROPERTY_DEFINITIONS_TIMED_OUT_COUNTER = Counter(
 )
 
 
-class PropertyDefinitionsTimedOut(APIException):
-    # The taxonomic filter renders a failed list the same way as an empty one, so a generic 5xx here
-    # reads to the user as "this project has no properties". A stable code lets the client tell a
-    # timed-out list apart from any other server error and offer a retry instead.
-    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+class PropertyDefinitionsTimedOut(DefinitionListTimedOut):
     default_code = "property_definitions_timeout"
     default_detail = "Loading properties took too long. Try a narrower search, or try again in a moment."
 
 
+@functools.cache
+def property_definition_model(is_enterprise: bool) -> type[PropertyDefinition]:
+    """The model the list query runs through, which the enterprise extension replaces."""
+    if is_enterprise:
+        from ee.models.property_definition import EnterprisePropertyDefinition
+
+        return EnterprisePropertyDefinition
+    return PropertyDefinition
+
+
 def read_db_alias() -> str:
-    # The page fetch is an ORM RawQuerySet, so it follows the read router (see ReplicaRouter's
-    # opt-in list). The count query and the statement timeout have to land on that same connection
-    # or they describe a different session than the one doing the work.
-    return router.db_for_read(PropertyDefinition) or DEFAULT_DB_ALIAS
-
-
-def is_query_canceled(error: BaseException) -> bool:
-    for exc in (error, error.__cause__):
-        if exc is None:
-            continue
-        if (getattr(exc, "sqlstate", None) or getattr(exc, "pgcode", None)) == QUERY_CANCELED_SQLSTATE:
-            return True
-    return False
+    return definition_read_db_alias(property_definition_model(EE_AVAILABLE))
 
 
 class SeenTogetherQuerySerializer(serializers.Serializer):
@@ -640,20 +629,20 @@ class PropertyDefinitionViewSet(
 
             order_by_verified = False
             if EE_AVAILABLE:
-                from ee.models.property_definition import EnterprisePropertyDefinition
+                enterprise_model = property_definition_model(EE_AVAILABLE)
 
                 # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
                 property_definition_fields = ", ".join(
                     [
                         f'{f.cached_col.alias}."{f.column}"'
-                        for f in EnterprisePropertyDefinition._meta.get_fields()
+                        for f in enterprise_model._meta.get_fields()
                         if hasattr(f, "column")
                         and f.column not in ["deprecated_tags", "tags"]
                         and hasattr(f, "cached_col")
                     ]
                 )
 
-                queryset = EnterprisePropertyDefinition.objects
+                queryset = enterprise_model.objects
 
                 order_by_verified = True
 
@@ -805,27 +794,16 @@ class PropertyDefinitionViewSet(
     def list(self, request, *args, **kwargs):
         event_type = request.query_params.get("type", "event")
 
-        # Both raw queries and the serialization that reads their rows have to sit inside this
-        # transaction, because SET LOCAL only lasts until it commits and the page fetch is a lazy
-        # RawQuerySet that the paginator does not evaluate until super().list() serializes it.
-        alias = read_db_alias()
-        try:
-            with transaction.atomic(using=alias):
-                with connections[alias].cursor() as cursor:
-                    cursor.execute(
-                        "SET LOCAL statement_timeout = %s",
-                        [PROPERTY_DEFINITIONS_STATEMENT_TIMEOUT_MS],
-                    )
-                response = super().list(request, *args, **kwargs)
-        except OperationalError as error:
-            if not is_query_canceled(error):
-                raise
-            # `event_type` is raw query input, so clamp it to the known set rather than letting a
-            # caller mint unbounded Prometheus label values.
-            PROPERTY_DEFINITIONS_TIMED_OUT_COUNTER.labels(
-                property_type=event_type if event_type in PROPERTY_DEFINITION_TYPES else "unknown"
-            ).inc()
-            raise PropertyDefinitionsTimedOut from error
+        # `event_type` is raw query input, so clamp it to the known set rather than letting a
+        # caller mint unbounded Prometheus label values.
+        property_type = event_type if event_type in PROPERTY_DEFINITION_TYPES else "unknown"
+        with statement_timeout(
+            read_db_alias(),
+            DEFINITION_LIST_STATEMENT_TIMEOUT_MS,
+            PropertyDefinitionsTimedOut,
+            PROPERTY_DEFINITIONS_TIMED_OUT_COUNTER.labels(property_type=property_type),
+        ):
+            response = super().list(request, *args, **kwargs)
 
         # Inject virtual event/person/group properties to the end of the results
         if event_type in ["event", "person", "group"]:

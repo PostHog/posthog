@@ -16,6 +16,7 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
+import { hiddenEventNames } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
 import { withKeywordShortcuts } from 'lib/components/TaxonomicFilter/utils/keywordShortcuts'
 import {
     MCP_TOOL_CALL_EVENT,
@@ -173,6 +174,8 @@ export interface BuildTaxonomicGroupsContext {
         showBreakdownLabelHint: boolean
     }
     featureFlags: Record<string, boolean | string | undefined>
+    /** Keep offering events whose data is moving out of the `events` table. See `TaxonomicFilterProps`. */
+    includeHiddenEvents?: boolean
 }
 
 export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): TaxonomicFilterGroup[] {
@@ -195,6 +198,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
         endpointFilters,
         hogQLExpressionComponentProps,
         featureFlags,
+        includeHiddenEvents,
     } = ctx
     const { id: teamId } = currentTeam
     const { excludedProperties, propertyAllowList } = propertyFilters
@@ -215,7 +219,15 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                 event_type: EventDefinitionType.Event,
                 exclude_hidden: true,
             }).url,
-            excludedProperties: excludedProperties?.[TaxonomicFilterGroupType.Events]?.filter(isString) ?? [],
+            // The caller's record already carries the hidden names. Appending them again keeps the
+            // group hiding them even if some future caller passes a record that skipped the fold,
+            // and the set drops the repeat so it stays out of `useGroupList`'s cache key.
+            excludedProperties: [
+                ...new Set([
+                    ...(excludedProperties?.[TaxonomicFilterGroupType.Events]?.filter(isString) ?? []),
+                    ...hiddenEventNames(featureFlags, includeHiddenEvents),
+                ]),
+            ],
             ...withKeywordShortcuts<Record<string, any>>(
                 {
                     getName: (eventDefinition) => eventDefinition.name,

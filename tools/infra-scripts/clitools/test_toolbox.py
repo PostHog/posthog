@@ -1026,10 +1026,41 @@ class TestToolbox(unittest.TestCase):
             toolbox_script.POOLS["flags-cache-jumphost"],
             {
                 "default_namespace": "posthog",
+                "namespace_by_environment": {
+                    "dev": "flags-cache-jumphost",
+                    "prod-eu": "flags-cache-jumphost",
+                },
                 "app_label": "flags-cache-jumphost",
                 "claimed_label_key": "flags-jumphost-claimed",
             },
         )
+
+    @patch.dict(os.environ, {}, clear=False)
+    def test_resolve_namespace_uses_golden_namespace_for_migrated_environments(self):
+        """dev and prod-eu run the jumphost on the golden chart, in its own namespace."""
+        os.environ.pop("KUBE_NAMESPACE", None)
+        pool = toolbox_script.POOLS["flags-cache-jumphost"]
+
+        for context in ("dev-eks", "dev-admin", "prod-eu-eks", "prod-eu-admin", "prod-eu", "dev"):
+            with self.subTest(context=context):
+                self.assertEqual(toolbox_script.resolve_namespace(pool, context), "flags-cache-jumphost")
+
+    @patch.dict(os.environ, {}, clear=False)
+    def test_resolve_namespace_keeps_unmigrated_environments_on_default(self):
+        """prod-us still runs the posthog-rust release, so it stays in `posthog`."""
+        os.environ.pop("KUBE_NAMESPACE", None)
+        pool = toolbox_script.POOLS["flags-cache-jumphost"]
+
+        for context in ("prod-us-eks", "prod-us-admin", None):
+            with self.subTest(context=context):
+                self.assertEqual(toolbox_script.resolve_namespace(pool, context), "posthog")
+
+    @patch.dict(os.environ, {"KUBE_NAMESPACE": "posthog"})
+    def test_resolve_namespace_honours_kube_namespace_override(self):
+        """KUBE_NAMESPACE wins over the per-environment mapping, which is the rollback path."""
+        pool = toolbox_script.POOLS["flags-cache-jumphost"]
+
+        self.assertEqual(toolbox_script.resolve_namespace(pool, "prod-eu-eks"), "posthog")
 
     def test_exit_for_signal_raises_systemexit_for_sigterm(self):
         """SIGTERM handler routes through sys.exit so atexit-registered cleanup fires."""
@@ -1338,28 +1369,33 @@ class TestToolbox(unittest.TestCase):
             patches["delete_pod"],
             patches["select_context"],
             patches["validate_context"],
+            patch.object(toolbox_script, "ensure_context_access", return_value=True),
             patch.object(toolbox_script.sys, "argv", ["toolbox.py", "--pool", "flags-cache-jumphost"]),
             patch.dict(os.environ, {}, clear=False),
         ):
             self._clean_env()
+            # The pool is mid-migration, so its namespace depends on the
+            # environment. Managed contexts are `<environment>-<access suffix>`,
+            # and dev is the environment already on the golden chart.
+            os.environ["KUBE_CONTEXT"] = "dev-eks"
             with self.assertRaises(SystemExit) as ctx:
                 toolbox_script.main()
         self.assertEqual(ctx.exception.code, 0)
 
-        m_user.assert_called_once_with(claimed_label_key="flags-jumphost-claimed", context="posthog-dev")
+        m_user.assert_called_once_with(claimed_label_key="flags-jumphost-claimed", context="dev-eks")
         m_get_pod.assert_called_once_with(
             "user_at_posthog.com",
             check_claimed=True,
             app_label="flags-cache-jumphost",
             claimed_label_key="flags-jumphost-claimed",
-            namespace="posthog",
-            context="posthog-dev",
+            namespace="flags-cache-jumphost",
+            context="dev-eks",
             extra_selector=None,
         )
         # claim_pod gets namespace, context, and resource_version from get_toolbox_pod's return.
         self.assertEqual(
             m_claim.call_args.kwargs,
-            {"namespace": "posthog", "context": "posthog-dev", "resource_version": "12345"},
+            {"namespace": "flags-cache-jumphost", "context": "dev-eks", "resource_version": "12345"},
         )
 
     def test_main_default_pool_dispatches_toolbox_django_kwargs(self):

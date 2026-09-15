@@ -115,7 +115,8 @@ def test_cdc_prerequisites_delegate_for_direct_hosts(host):
     config = mock.MagicMock(host=host)
 
     with mock.patch.object(PostgresSource, "check_cdc_prerequisites", return_value=[]) as super_check:
-        errors = NeonSource().check_cdc_prerequisites(config, management_mode="posthog", tables=["users"])
+        errors = NeonSource().check_cdc_prerequisites(config, management_mode="posthog", tables=["users"], team_id=7)
 
     super_check.assert_called_once()
+    assert super_check.call_args.kwargs["team_id"] == 7
     assert errors == []

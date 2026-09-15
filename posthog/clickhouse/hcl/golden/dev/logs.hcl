@@ -74,11 +74,10 @@ database "posthog" {
       topic_list           = "clickhouse_metrics"
       group_name           = "clickhouse-metrics-avro2"
       format               = "Avro"
-      num_consumers        = 2
-      max_block_size       = 4096
+      num_consumers        = 4
       skip_broken_messages = 100
       poll_timeout_ms      = 10000
-      poll_max_batch_size  = 4096
+      poll_max_batch_size  = 500
       flush_interval_ms    = 10000
       thread_per_consumer  = true
     }
@@ -1253,6 +1252,11 @@ SQL
       type        = "bloom_filter(0.01)"
       granularity = 1
     }
+    index "idx_last_seen_minmax" {
+      expr        = "last_seen"
+      type        = "minmax"
+      granularity = 1
+    }
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/noshard/posthog.metric_series2"
       replica_name   = "{replica}-{shard}"
@@ -1558,9 +1562,6 @@ SQL
       index_granularity_bytes = "104857600"
       ttl_only_drop_parts     = "1"
     }
-    column "uuid" {
-      type = "String"
-    }
     column "team_id" {
       type = "Int32"
     }
@@ -1674,27 +1675,6 @@ SQL
       type        = "minmax"
       granularity = 1
     }
-    projection "projection_series_minute" {
-      query = <<SQL
-SELECT
-  team_id,
-  metric_name,
-  service_name,
-  metric_type,
-  resource_fingerprint,
-  series_fingerprint,
-  toStartOfMinute(timestamp) AS minute,
-  count() AS sample_count,
-  sum(value) AS total_value,
-  min(value) AS min_value,
-  max(value) AS max_value,
-  argMin(value, timestamp) AS first_value,
-  argMax(value, timestamp) AS last_value
-GROUP BY
-  team_id, metric_name, service_name, metric_type, resource_fingerprint, series_fingerprint, minute
-SQL
-
-    }
     projection "projection_series_activity" {
       query = <<SQL
 SELECT
@@ -1805,9 +1785,6 @@ SQL
   }
 
   table "metrics_distributed" {
-    column "uuid" {
-      type = "String"
-    }
     column "team_id" {
       type = "Int32"
     }
@@ -3315,119 +3292,6 @@ SQL
     }
   }
 
-  materialized_view "metrics1_to_metric_attributes" {
-    to_table = "posthog.metric_attributes"
-    query    = <<SQL
-SELECT
-  team_id,
-  time_bucket,
-  service_name,
-  resource_fingerprint,
-  attribute_key,
-  attribute_value,
-  attribute_type,
-  attribute_count
-FROM
-  (
-    SELECT
-      team_id AS team_id,
-      toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket,
-      service_name AS service_name,
-      resource_fingerprint,
-      mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS attributes,
-      arrayJoin(attributes) AS attribute,
-      'metric' AS attribute_type,
-      attribute.1 AS attribute_key,
-      attribute.2 AS attribute_value,
-      sumSimpleState(1) AS attribute_count
-    FROM posthog.metrics1
-    GROUP BY
-      team_id, time_bucket, service_name, resource_fingerprint, attributes
-  )
-SQL
-
-    column "team_id" {
-      type = "Int32"
-    }
-    column "time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "resource_fingerprint" {
-      type = "UInt64"
-    }
-    column "attribute_key" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_value" {
-      type = "String"
-    }
-    column "attribute_type" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_count" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
-    }
-  }
-
-  materialized_view "metrics1_to_resource_attributes" {
-    to_table = "posthog.metric_attributes"
-    query    = <<SQL
-SELECT
-  team_id,
-  time_bucket,
-  service_name,
-  resource_fingerprint,
-  attribute_key,
-  attribute_value,
-  attribute_type,
-  attribute_count
-FROM
-  (
-    SELECT
-      team_id AS team_id,
-      toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket,
-      service_name AS service_name,
-      resource_fingerprint,
-      arrayJoin(resource_attributes) AS attribute,
-      'resource' AS attribute_type,
-      attribute.1 AS attribute_key,
-      attribute.2 AS attribute_value,
-      sumSimpleState(1) AS attribute_count
-    FROM posthog.metrics1
-    GROUP BY
-      team_id, time_bucket, service_name, resource_fingerprint, resource_attributes
-  )
-SQL
-
-    column "team_id" {
-      type = "Int32"
-    }
-    column "time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "resource_fingerprint" {
-      type = "UInt64"
-    }
-    column "attribute_key" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_value" {
-      type = "String"
-    }
-    column "attribute_type" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_count" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
-    }
-  }
-
   materialized_view "metrics2_input_to_metric_attributes" {
     to_table = "posthog.metric_attributes2"
     query    = <<SQL
@@ -3552,7 +3416,6 @@ SQL
     to_table = "posthog.metrics2"
     query    = <<SQL
 SELECT
-  uuid,
   team_id,
   metric_name,
   series_fingerprint,
@@ -3580,9 +3443,6 @@ SELECT
 FROM posthog.metrics2_input
 SQL
 
-    column "uuid" {
-      type = "String"
-    }
     column "team_id" {
       type = "Int32"
     }

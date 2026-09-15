@@ -1,7 +1,7 @@
 from typing import Optional, Union
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.case import skip
 
@@ -737,7 +737,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
             trendsFilter=TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
         )
 
-        with freeze_time("2023-05-01T20:00:00.000Z"):
+        with time_machine.travel("2023-05-01T20:00:00.000Z", tick=False):
             # note: total value actors should be called without day
             result = self._get_actors(trends_query=source_query)
 
@@ -771,7 +771,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
             trendsFilter=TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
         )
 
-        with freeze_time("2023-05-01T20:00:00.000Z"):
+        with time_machine.travel("2023-05-01T20:00:00.000Z", tick=False):
             result = self._get_actors(trends_query=source_query)
 
         self.assertEqual(len(result), 1)
@@ -1248,7 +1248,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
     def test_trends_math_first_time_for_user_handles_multiple_ids(self):
         timestamp = "2020-01-11T12:00:00Z"
 
-        with freeze_time(timestamp):
+        with time_machine.travel(timestamp, tick=False):
             _create_person(
                 team_id=self.team.pk,
                 distinct_ids=["anon1", "p1"],
@@ -1334,7 +1334,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
     def test_trends_math_first_time_for_user_matches_first_event_only(self):
         timestamp = "2020-01-11T12:00:00Z"
 
-        with freeze_time(timestamp):
+        with time_machine.travel(timestamp, tick=False):
             _create_person(
                 team_id=self.team.pk,
                 distinct_ids=["anon1", "p1"],
@@ -1395,7 +1395,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
     def test_trends_math_first_time_for_user_matches_all_first_events(self):
         timestamp = "2020-01-11T12:00:00Z"
 
-        with freeze_time(timestamp):
+        with time_machine.travel(timestamp, tick=False):
             _create_person(
                 team_id=self.team.pk,
                 distinct_ids=["anon1", "p1"],

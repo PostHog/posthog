@@ -97,7 +97,7 @@ function makeEntry(suffix: string): ContextMillResource {
     }
 }
 
-const MANIFEST_CURRENT_KEY = 'mcp:shared-blob:context-mill:manifest:v2:current'
+const MANIFEST_CURRENT_KEY = 'mcp:shared-blob:{context-mill:manifest}:v3:current'
 
 describe('ResourceCatalog', () => {
     let redis: MockRedis
@@ -141,6 +141,22 @@ describe('ResourceCatalog', () => {
             expect(mockRevalidationDurationStartTimer).toHaveBeenCalledWith({ source: 'warmup' })
             expect(mockRevalidationDurationStop).toHaveBeenCalledWith({ source: 'warmup', status: 'success' })
             expect(mockManifestEntriesSet).toHaveBeenCalledWith(2)
+        })
+
+        it('lists UI app resources with the same CSP _meta the read entry carries', async () => {
+            vi.mocked(fetchAndExtractEntries).mockResolvedValue([])
+            vi.mocked(getPromptsFromManifest).mockResolvedValue([])
+
+            const catalog = new ResourceCatalog(mockEnv, redis)
+            await catalog.warmup()
+
+            const uri = 'ui://posthog/query-results.html'
+            const listed = catalog.getResourcesList().resources.find((r) => r.uri === uri)
+            const read = await catalog.readResource({ uri })
+
+            const readMeta = read.contents[0]?._meta as { 'openai/widgetCSP': { resource_domains: string[] } }
+            expect(listed?._meta).toEqual(readMeta)
+            expect(readMeta['openai/widgetCSP'].resource_domains).toEqual(['https://apps.test'])
         })
 
         it('pre-merges resource list so getResourcesList returns a stable array', async () => {

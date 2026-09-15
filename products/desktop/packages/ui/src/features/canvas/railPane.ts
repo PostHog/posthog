@@ -1,4 +1,7 @@
-import { getCurrentMatches } from "@posthog/ui/router/navigationBridge";
+import {
+  hrefPath,
+  reportSourceHrefFromHref,
+} from "@posthog/ui/router/reportNavigation";
 
 /**
  * Which rail destination the app is on, and whether that destination owns the
@@ -10,6 +13,7 @@ import { getCurrentMatches } from "@posthog/ui/router/navigationBridge";
  */
 export type NavRailPane =
   | "home"
+  | "reports"
   | "spaces"
   | "activity"
   | "canvases"
@@ -28,6 +32,7 @@ export type NavRailPane =
  */
 export const RAIL_PANE_ROOT: Readonly<Record<NavRailPane, string>> = {
   home: "/",
+  reports: "/reports",
   spaces: "/spaces",
   activity: "/activity",
   canvases: "/canvases",
@@ -42,6 +47,7 @@ export const RAIL_PANE_ROOT: Readonly<Record<NavRailPane, string>> = {
 // would only shadow that fallback with the same answer.
 const CLAIMED: readonly NavRailPane[] = [
   "home",
+  "reports",
   "activity",
   "canvases",
   "inbox",
@@ -63,16 +69,12 @@ export function railPaneForPath(fullPath: string): NavRailPane {
   return "spaces";
 }
 
-export function railPaneForMatches(
-  matches: readonly { fullPath: string }[],
-): NavRailPane {
-  return railPaneForPath(matches[matches.length - 1]?.fullPath ?? "");
-}
-
-/** Read the destination outside React (event handlers, imperative picks). */
-/** Not wired to a caller yet. The @public tag stops knip from reporting it. */
-export function getRailPane(): NavRailPane {
-  return railPaneForMatches(getCurrentMatches());
+/**
+ * A report page belongs to the list it was opened from rather than to its own
+ * path, so `/reports/$id` under `?from=/inbox` is Self-driving.
+ */
+export function railPaneForHref(href: string): NavRailPane {
+  return railPaneForPath(reportSourceHrefFromHref(href) ?? hrefPath(href));
 }
 
 const NON_RESTORABLE_ROOTS = [
@@ -88,12 +90,12 @@ export function isRestorableVisitHref(
   pane: NavRailPane,
   href: string,
 ): boolean {
-  const path = href.replace(/[?#].*$/, "");
+  const path = hrefPath(href);
   const blocked = NON_RESTORABLE_ROOTS.some(
     (root) => path === root || path.startsWith(`${root}/`),
   );
   if (blocked) return false;
-  return railPaneForPath(path) === pane;
+  return railPaneForHref(href) === pane;
 }
 
 const PANES_WITH_SIDEBAR = new Set<NavRailPane>([
@@ -101,6 +103,7 @@ const PANES_WITH_SIDEBAR = new Set<NavRailPane>([
   "activity",
   "canvases",
   "feeds",
+  "inbox",
 ]);
 
 export function railPaneHasSidebar(pane: NavRailPane): boolean {

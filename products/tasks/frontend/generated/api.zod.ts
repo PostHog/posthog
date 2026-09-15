@@ -3493,6 +3493,86 @@ export const TasksConfigCreateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Team routing rules that steer agent repo selection (`RepoRoutingRule`).
+ *
+ * The same rows the Slack `@PostHog rules` commands manage; the repo selection agent
+ * reads them ordered by priority when picking a repository for a task. Rules whose
+ * repository is not connected to the project are ignored at selection time, so a
+ * stale rule is inert rather than harmful — which is why writes here don't check the
+ * connected-repository list (the UI constrains the picker to connected repos anyway).
+ */
+export const tasksRepoRoutingRulesCreateBodyRuleTextMax = 300
+
+export const tasksRepoRoutingRulesCreateBodyRepositoryMax = 255
+
+export const TasksRepoRoutingRulesCreateBody = /* @__PURE__ */ zod.object({
+    rule_text: zod
+        .string()
+        .max(tasksRepoRoutingRulesCreateBodyRuleTextMax)
+        .describe(
+            "Plain-text description of the requests that should route to the repository, e.g. 'anything about the internal dashboard'. At most 300 characters."
+        ),
+    repository: zod
+        .string()
+        .max(tasksRepoRoutingRulesCreateBodyRepositoryMax)
+        .describe("Target repository as owner\/repo, e.g. 'posthog\/posthog.com'."),
+})
+
+/**
+ * Team routing rules that steer agent repo selection (`RepoRoutingRule`).
+ *
+ * The same rows the Slack `@PostHog rules` commands manage; the repo selection agent
+ * reads them ordered by priority when picking a repository for a task. Rules whose
+ * repository is not connected to the project are ignored at selection time, so a
+ * stale rule is inert rather than harmful — which is why writes here don't check the
+ * connected-repository list (the UI constrains the picker to connected repos anyway).
+ */
+export const tasksRepoRoutingRulesUpdateBodyRuleTextMax = 300
+
+export const tasksRepoRoutingRulesUpdateBodyRepositoryMax = 255
+
+export const TasksRepoRoutingRulesUpdateBody = /* @__PURE__ */ zod.object({
+    rule_text: zod
+        .string()
+        .max(tasksRepoRoutingRulesUpdateBodyRuleTextMax)
+        .describe(
+            "Plain-text description of the requests that should route to the repository, e.g. 'anything about the internal dashboard'. At most 300 characters."
+        ),
+    repository: zod
+        .string()
+        .max(tasksRepoRoutingRulesUpdateBodyRepositoryMax)
+        .describe("Target repository as owner\/repo, e.g. 'posthog\/posthog.com'."),
+})
+
+/**
+ * Team routing rules that steer agent repo selection (`RepoRoutingRule`).
+ *
+ * The same rows the Slack `@PostHog rules` commands manage; the repo selection agent
+ * reads them ordered by priority when picking a repository for a task. Rules whose
+ * repository is not connected to the project are ignored at selection time, so a
+ * stale rule is inert rather than harmful — which is why writes here don't check the
+ * connected-repository list (the UI constrains the picker to connected repos anyway).
+ */
+export const tasksRepoRoutingRulesPartialUpdateBodyRuleTextMax = 300
+
+export const tasksRepoRoutingRulesPartialUpdateBodyRepositoryMax = 255
+
+export const TasksRepoRoutingRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    rule_text: zod
+        .string()
+        .max(tasksRepoRoutingRulesPartialUpdateBodyRuleTextMax)
+        .optional()
+        .describe(
+            "Plain-text description of the requests that should route to the repository, e.g. 'anything about the internal dashboard'. At most 300 characters."
+        ),
+    repository: zod
+        .string()
+        .max(tasksRepoRoutingRulesPartialUpdateBodyRepositoryMax)
+        .optional()
+        .describe("Target repository as owner\/repo, e.g. 'posthog\/posthog.com'."),
+})
+
+/**
  * Returns summary for the requested tasks, including the creator ID and the latest run's ID, status, and environment.
  * @summary Fetch task summaries by ID
  */

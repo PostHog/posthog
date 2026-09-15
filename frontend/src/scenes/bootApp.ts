@@ -43,11 +43,10 @@ export function bootApp(): void {
             })
 
         // On Chrome + Windows, the country flag emojis don't render correctly. This polyfill fixes that.
-        // NOTE: The first argument sets the polyfill's font family name, which our CSS references —
-        // keep the two in sync. Detection is canvas-based and can throw on some browser states
-        // (e.g. Safari/macOS); it's purely cosmetic and best-effort.
-        void import('country-flag-emoji-polyfill')
-            .then(({ polyfillCountryFlagEmojis }) => polyfillCountryFlagEmojis('Emoji Flags Polyfill'))
+        // The import stays dynamic so the package loads after boot. Detection is canvas-based and can
+        // throw on some browser states (e.g. Safari/macOS); it's purely cosmetic and best-effort.
+        void import('lib/countryFlagEmojiPolyfill')
+            .then(({ polyfillCountryFlags }) => polyfillCountryFlags())
             .catch((error) => {
                 console.warn('[App] Country flag emoji polyfill failed:', error)
             })

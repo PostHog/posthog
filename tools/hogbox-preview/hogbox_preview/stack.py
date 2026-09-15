@@ -130,6 +130,7 @@ class PostHogPreviewStack:
         # into the compose override so every process of THIS preview shares it, and
         # never shared across previews — see the module-level note above.
         self.secret_key = secrets.token_hex(32)
+        self.oidc_private_key = ""  # see _ensure_oidc_private_key
         self.branch = branch
         # Default (None) -> the ready-made image; "" -> build-from-checkout escape
         # hatch; any tag -> run that published image.
@@ -156,6 +157,7 @@ class PostHogPreviewStack:
         url = self.backend.web_url
         if self.branch:
             self.checkout_branch(self.branch)
+        self._ensure_oidc_private_key()
         self.write_override()
         if self.image:
             self.pull_image()  # escape hatch: run a published image, skip build
@@ -206,6 +208,7 @@ class PostHogPreviewStack:
         # rotate the key bring_up already migrated + seeded under, or anything it
         # wrote encrypted becomes undecryptable (and any live session drops).
         self._reuse_existing_secret_key()
+        self._ensure_oidc_private_key()
         # Rewrite the override so it now carries the frontend/dist + staticfiles
         # mounts (write_override only adds them when a dist is set), lay the dist
         # in + re-run collectstatic into the mounted staticfiles/, then recreate
@@ -216,18 +219,49 @@ class PostHogPreviewStack:
         self.wait_for_health()
         return self.backend.web_url
 
-    def _reuse_existing_secret_key(self) -> None:
-        """Adopt the SECRET_KEY the box already runs with (read from its override)
-        so a deferred swap doesn't rotate it. Falls back to the freshly-minted
-        key when the override can't be read — shouldn't happen post-bring_up, but
-        a random key is a safe default either way."""
-        r = self.backend.exec(
-            f"sed -n 's/.*SECRET_KEY=//p' {self.repo_dir}/{self.OVERRIDE} 2>/dev/null | head -n1",
+    def _override_value(self, name: str) -> str:
+        """Read one environment value out of the override the box already runs
+        with. Empty when the box has no override yet, or no such entry."""
+        return self.backend.exec(
+            f"sed -n 's/.*{name}=//p' {self.repo_dir}/{self.OVERRIDE} 2>/dev/null | head -n1",
             timeout=60,
+        ).stdout.strip()
+
+    def _reuse_existing_secret_key(self) -> None:
+        """Adopt the SECRET_KEY the box already runs with so a deferred swap
+        doesn't rotate it. Falls back to the freshly-minted key when the override
+        can't be read — shouldn't happen post-bring_up, but a random key is a
+        safe default either way."""
+        self.secret_key = self._override_value("SECRET_KEY") or self.secret_key
+
+    def _ensure_oidc_private_key(self) -> None:
+        """Give the box an RSA key for OAuth token signing, once per box.
+
+        PostHog signs OAuth tokens with RS256 and refuses to save an OAuth
+        application without OIDC_RSA_PRIVATE_KEY, so a preview cannot host an
+        OAuth client (PostHog Desktop, for one) until this is set. Adopted from
+        the override when the box already has one, because rotating it would
+        invalidate every token the preview already issued. Left empty when the
+        box cannot mint one, which serves everything except OAuth.
+        """
+        existing = self._override_value("OIDC_RSA_PRIVATE_KEY")
+        if existing:
+            self.oidc_private_key = existing
+            return
+        # One line, because it lives in a compose environment entry. The Django
+        # setting turns the escapes back into newlines.
+        r = self.backend.exec(
+            r"""openssl genrsa 2048 2>/dev/null | openssl pkcs8 -topk8 -nocrypt -outform PEM """
+            r"""| awk 'NF {sub(/\r/, ""); printf "%s\\n", $0}'""",
+            timeout=120,
         )
         key = r.stdout.strip()
-        if key:
-            self.secret_key = key
+        if not key.startswith("-----BEGIN PRIVATE KEY-----"):
+            sys.stderr.write(
+                "[hogbox-preview] could not mint an RSA key; OAuth applications will not save on this preview\n"
+            )
+            return
+        self.oidc_private_key = key
 
     # --- steps (each usable standalone, mirroring bin/hobby-ci.py) -----------
     def start_runtime(self) -> None:
@@ -303,10 +337,12 @@ class PostHogPreviewStack:
             lines += [f"      - ./{src}:{dst}" for src, dst in mounts]
         lines += [
             "    environment:",
-            # SITE_URL is a cosmetic placeholder (absolute links in emails etc.);
-            # serving is driven by JS_URL="" (relative assets) + the wildcard
-            # CSRF origin, so the box's own edge host serves with no per-box env.
-            "      - SITE_URL=http://localhost:8000",
+            # The OAuth metadata documents (RFC 8414, RFC 9728) build their
+            # issuer and endpoints from SITE_URL, so a placeholder would send a
+            # discovery client to its own machine. Serving still needs no per-box
+            # env: JS_URL="" keeps assets relative, and the CSRF origin is a
+            # wildcard.
+            f"      - SITE_URL={self.backend.web_url}",
             "      - JS_URL=",
             f"      - EXTRA_CSRF_TRUSTED_ORIGINS={_CSRF_TRUSTED_ORIGINS}",
             "      - DISABLE_SECURE_SSL_REDIRECT=1",
@@ -316,6 +352,7 @@ class PostHogPreviewStack:
             # (compose run --rm web) needs it too. Not shared across previews, so
             # a public preview URL can't be used to forge sessions on another.
             f"      - SECRET_KEY={self.secret_key}",
+            f"      - OIDC_RSA_PRIVATE_KEY={self.oidc_private_key}",
             # A preview serves one user, and each worker costs a full Django import
             # at boot, so one worker reaches a serving /_health much sooner.
             "      - GRANIAN_WORKERS=1",

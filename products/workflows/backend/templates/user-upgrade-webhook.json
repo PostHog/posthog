@@ -1,7 +1,7 @@
 {
     "id": "019ce206-1ef1-0000-f1c1-3f9c433294c6",
     "name": "Send a webhook when a user upgrades",
-    "description": "Send a webhook when a user upgrades so other systems like your CRM, billing tool, or internal backend can react to the change. You can connect this to your internal system, HubSpot, Zapier, etc. ",
+    "description": "Send a webhook when someone upgrades, so your CRM, billing tool, or backend can react.",
     "version": 1,
     "created_at": "2026-03-12T12:29:37.905693Z",
     "created_by": {

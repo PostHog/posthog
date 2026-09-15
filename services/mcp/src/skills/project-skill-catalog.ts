@@ -157,12 +157,17 @@ export class ProjectSkillCatalog {
         return {
             identifier: `project:${name}`,
             description,
+            // Name and description matches carry no path; the header already prints both.
             snippets: dedupeSnippets(
-                matches.map((match) => ({
-                    path: match.path ?? match.matched_field,
-                    line: match.line ?? 1,
-                    text: match.excerpt,
-                }))
+                matches
+                    .filter(
+                        (match): match is Schemas.LLMSkillSearchMatch & { path: string } => match.path !== undefined
+                    )
+                    .map((match) => ({
+                        path: match.path,
+                        line: match.line ?? 1,
+                        text: match.excerpt,
+                    }))
             ),
             // Scored client-side so project and PostHog results merge into one relevance order.
             score: scoreProjectSearchResult(

@@ -102,6 +102,8 @@ You can create a personal access token in your [Bitrise security settings](https
                     "Fetches artifacts for every build, one request per build. "
                     "Disabled by default because of the API cost"
                 )
+            if endpoint == "branches":
+                return "Only branches that already have builds on Bitrise are listed"
             return None
 
         def _build_schema(endpoint: str) -> SourceSchema:

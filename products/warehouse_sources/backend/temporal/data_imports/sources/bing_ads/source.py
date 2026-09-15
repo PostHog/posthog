@@ -1,7 +1,5 @@
 from typing import Optional, cast
 
-from django.conf import settings
-
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -14,6 +12,7 @@ from posthog.schema import (
 
 from posthog.exceptions_capture import capture_exception
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
@@ -164,6 +163,13 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
             # Bing's queue, so the next Temporal attempt submits a fresh request and normally clears it.
             # Match the SDK's stable message text, which carries no request or account values.
             "Reporting file download tracking status timeout",
+            # A urllib transport failure reaching Bing's SOAP endpoints — connection refused, DNS or
+            # TLS failure, socket timeout — which suds surfaces as `URLError` and our wrapper re-raises
+            # as `ValueError(... URLError: <urlopen error ...>)`. The endpoints are fixed (see
+            # utils.ENVIRONMENT), so nothing at this layer is customer-configured or deterministic: the
+            # next Temporal attempt normally clears it. Match the exception name plus urllib's fixed
+            # message prefix, which together carry no request or account values.
+            "URLError: <urlopen error",
         }
 
     @property
@@ -258,7 +264,8 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
                 "The linked Bing Ads integration could not be found. Please reconnect your Bing Ads integration."
             ) from e
 
-        if not settings.BING_ADS_DEVELOPER_TOKEN:
+        developer_token = integration_secrets.get_secret("BING_ADS_DEVELOPER_TOKEN")
+        if not developer_token:
             raise ValueError("Bing Ads developer token not configured")
         if not integration.access_token:
             raise IntegrationAccountListingError(
@@ -272,7 +279,7 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
         client = BingAdsClient(
             access_token=integration.access_token,
             refresh_token=integration.refresh_token,
-            developer_token=settings.BING_ADS_DEVELOPER_TOKEN,
+            developer_token=developer_token,
         )
         try:
             return client.list_accounts()
