@@ -67,7 +67,6 @@ export function createProduceCollectedImagesStep<
             bytes += image.bytes.length
         }
         MlMirrorMetrics.incrementMlImagesCollected('queued', fresh.length)
-        MlMirrorMetrics.incrementMlProducedVersion('image', mlWireVersion(key), fresh.length)
         const captureTimestampMs = input.message.timestamp
         const headers =
             captureTimestampMs !== undefined && Number.isSafeInteger(captureTimestampMs) && captureTimestampMs > 0
@@ -91,6 +90,7 @@ export function createProduceCollectedImagesStep<
             .then(() => {
                 // queueMessages resolves on delivery acks, so `produced` counts what actually landed.
                 MlMirrorMetrics.incrementMlImagesCollected('produced', refs.length)
+                MlMirrorMetrics.incrementMlProducedVersion('image', mlWireVersion(key), refs.length)
                 MlMirrorMetrics.incrementMlImageBytesProduced(bytes)
             })
             .catch((error) => {

@@ -56,7 +56,7 @@ export class MlMirrorMetrics {
 
     private static readonly mlProducedVersion = new Counter({
         name: 'recording_blob_ingestion_v2_ml_produced_version_total',
-        help: 'Records the mirror produced, by lane and wire format version. Version 2 is encrypted per session and version 1 is cleartext, so the split across a deploy is how far the encryption switchover has reached. A lane stuck on version 1 means the session key never resolved, which no other mirror metric distinguishes from ordinary traffic',
+        help: 'Kafka records the mirror delivered, by lane and wire format version, counted on the delivery ack. Version 2 is encrypted per session and version 1 is cleartext, so the split across a deploy is how far the encryption switchover has reached. The consumer counters count records too, so the two rates compare directly. A lane stuck on version 1 means the session key never resolved, which no other mirror metric distinguishes from ordinary traffic',
         labelNames: ['lane', 'version'],
     })
 

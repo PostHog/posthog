@@ -269,7 +269,6 @@ export function createProduceCollectedUrlsStep<
             }
         }
         MlMirrorMetrics.incrementMlUrlsCollected('queued', publishable.length)
-        MlMirrorMetrics.incrementMlProducedVersion('url', mlWireVersion(key), publishable.length)
 
         const messages = [...byDomain].flatMap(([domain, jobs]) =>
             packByBytes(jobs, MAX_RECORD_BYTES).map((slice) => {
@@ -284,6 +283,8 @@ export function createProduceCollectedUrlsStep<
             })
         )
 
+        // The fetch consumer counts records, so the producer counts records too and the two rates compare.
+        const recordCount = messages.length
         // The failure handler captures only the cache keys, so that a produce which is not yet
         // delivered does not hold the URL strings alive longer than the messages themselves.
         const producedCacheKeys = publishable.map(({ cacheKey }) => cacheKey)
@@ -292,6 +293,7 @@ export function createProduceCollectedUrlsStep<
             .then(() => {
                 // queueMessages resolves on the delivery acks, so `produced` counts what landed.
                 MlMirrorMetrics.incrementMlUrlsCollected('produced', producedCacheKeys.length)
+                MlMirrorMetrics.incrementMlProducedVersion('url', mlWireVersion(key), recordCount)
                 for (const [registrableDomain, jobs] of byDomain) {
                     producedUrlsByRegistrableDomain.record({ registrable_domain: registrableDomain }, jobs.length)
                 }
