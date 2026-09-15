@@ -48,7 +48,7 @@ import { FractionalRolloutWarning } from 'products/feature_flags/frontend/Fracti
 
 import { resolveAggregationGroupTypeIndex } from './aggregation'
 import { BlastRadiusErrorMessage } from './BlastRadiusErrorMessage'
-import { EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON, MATCHING_ESTIMATE_TOOLTIP } from './constants'
+import { EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON, matchingEstimateTooltip } from './constants'
 import { featureFlagLogic } from './featureFlagLogic'
 import {
     FeatureFlagReleaseConditionsLogicProps,
@@ -144,6 +144,7 @@ export function FeatureFlagReleaseConditions({
         properties,
         filterGroups,
         getDistinctIdName,
+        activityWindowDays,
     } = useValues(releaseConditionsLogic)
 
     const {
@@ -507,9 +508,15 @@ export function FeatureFlagReleaseConditions({
                                         <div className="basis-full flex flex-col mt-1 text-secondary tabular-nums">
                                             <span>
                                                 Filters match: <b>~{pluralize(affected, singularName, pluralName)}</b>
-                                                {filters.aggregation_group_type_index == null && (
-                                                    <Tooltip title={MATCHING_ESTIMATE_TOOLTIP} interactive>
-                                                        <IconInfo className="text-muted text-xs ml-0.5" />
+                                                {resolvedGroupTypeIndex == null && (
+                                                    <Tooltip
+                                                        title={matchingEstimateTooltip(activityWindowDays)}
+                                                        interactive
+                                                    >
+                                                        <IconInfo
+                                                            className="text-muted text-xs ml-0.5"
+                                                            data-attr="matching-estimate-info"
+                                                        />
                                                     </Tooltip>
                                                 )}
                                             </span>

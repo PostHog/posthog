@@ -1,20 +1,26 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import timedelta
 from typing import Optional
 
+from django.core.cache import cache
 from django.core.exceptions import ObjectDoesNotExist
+from django.utils import timezone
 
+import structlog
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import PropertyOperator
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import (
     ExposedHogQLError,
     NotImplementedError as HogQLNotImplementedError,
 )
+from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
@@ -26,14 +32,49 @@ from posthog.models.filters import Filter
 from posthog.models.property import GroupTypeIndex, Property, PropertyGroup, PropertyValidationError
 from posthog.models.property.relative_date import relative_date_parse_for_feature_flag_matching
 from posthog.models.team.team import Team
+from posthog.ph_client import feature_enabled_or_false
 
 from products.cohorts.backend.models.cohort import Cohort
+
+logger = structlog.get_logger(__name__)
 
 
 @frozen
 class BlastRadiusResult:
     affected: int
     total: int
+    # Days of activity both counts are drawn from, or None when they are all-time. The kill switch
+    # decides which basis ran, so the copy shown beside the number has to follow this rather than
+    # assume a window.
+    activity_window_days: Optional[int] = None
+
+
+# Window for the blast-radius denominator. An all-time person count is inflated by anonymous,
+# one-shot persons that never return; a recent-activity window drops them and is defensible.
+RECENTLY_ACTIVE_DAYS = 60
+
+RECENTLY_ACTIVE_SIZING_FLAG = "flags-size-by-active-persons"
+
+# The recently-active count depends on the team alone, and the flag editor asks for it once per
+# empty-properties condition group on every mount, so a short TTL collapses those into one scan.
+_RECENTLY_ACTIVE_COUNT_CACHE_TTL = 300
+
+# A personless event carries a synthetic person_id derived from its distinct id, and no persons row
+# is ever written for it. Counting it would put anonymous traffic in a denominator that the
+# matched-persons subquery can never return, and would raise the total for projects on posthog-js's
+# identified_only default, which is the opposite of what the window is for.
+_IDENTIFIED_PERSONS_ONLY = "person_mode != 'propertyless'"
+
+# Both activity-window queries select on this events predicate. They can answer one panel in a
+# single request cycle, so two copies could drift into reporting two different totals for one team.
+# The query text is fixed at import time and the bounds arrive as placeholders, so no caller-supplied
+# value ever reaches the string.
+_RECENTLY_ACTIVE_EVENTS_WHERE = f"timestamp >= {{cutoff}} AND timestamp < {{upper}} AND {_IDENTIFIED_PERSONS_ONLY}"
+_RECENTLY_ACTIVE_COUNT_QUERY = f"SELECT uniq(person_id) FROM events WHERE {_RECENTLY_ACTIVE_EVENTS_WHERE}"
+_RECENTLY_ACTIVE_MATCHED_QUERY = (
+    f"SELECT uniq(person_id), uniqIf(person_id, person_id IN {{matched}}) "
+    f"FROM events WHERE {_RECENTLY_ACTIVE_EVENTS_WHERE}"
+)
 
 
 # ClickHouse codes for "this literal can't be parsed as the column's type": 6 CANNOT_PARSE_TEXT,
@@ -115,19 +156,52 @@ def replace_proxy_properties(team: Team, feature_flag_condition: dict):
         raise ValidationError({"filters": str(e) or "These filters cannot be evaluated."}) from e
 
 
+def recently_active_sizing_enabled(team: Team) -> bool:
+    """Kill switch for the activity window on the flags sizing endpoint.
+
+    False restores the all-time count the window replaced, which is still the behavior the
+    workflows audience preview depends on, so a disable costs accuracy and never correctness.
+    Evaluation is local-only, so a sizing request never waits on a flag fetch.
+    """
+    try:
+        return feature_enabled_or_false(
+            RECENTLY_ACTIVE_SIZING_FLAG,
+            f"team-{team.pk}",
+            groups={"project": str(team.pk)},
+            group_properties={"project": {"id": str(team.pk)}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        # Log so a fleet-wide silent disable shows up in Sentry rather than as a number that
+        # quietly went back to its old value.
+        logger.warning(
+            "flag_blast_radius_sizing_flag_evaluation_failed",
+            team_id=team.pk,
+            flag=RECENTLY_ACTIVE_SIZING_FLAG,
+            exc_info=True,
+        )
+        return False
+
+
 def get_user_blast_radius(
     team: Team,
     feature_flag_condition: dict,
     group_type_index: Optional[GroupTypeIndex] = None,
+    *,
+    recently_active_only: bool = False,
 ) -> BlastRadiusResult:
     # No rollout % calculations here, since it makes more sense to compute that on the frontend
+    # recently_active_only stays off by default: the workflows audience preview shares this
+    # function, and its count must match the unwindowed send enumeration in batch_audience.py.
     with unevaluable_filters_as_validation_errors():
         cleaned_filter = replace_proxy_properties(team, feature_flag_condition)
 
         if group_type_index is not None:
             return _get_group_blast_radius(team, cleaned_filter, group_type_index)
-        else:
-            return _get_person_blast_radius(team, cleaned_filter)
+        if recently_active_only:
+            return _get_person_blast_radius_recently_active(team, cleaned_filter)
+        return _get_person_blast_radius(team, cleaned_filter)
 
 
 def get_user_blast_radius_persons(
@@ -146,8 +220,117 @@ def get_user_blast_radius_persons(
             return _get_person_blast_radius_persons(team, cleaned_filter, cursor=cursor)
 
 
+def _recently_active_window_placeholders() -> dict[str, ast.Expr]:
+    """Bind the activity window bounds for the query text above.
+
+    Python computes them, so they respect freeze_time in tests and do not depend on ClickHouse
+    server time. The upper bound allows a day of clock skew, but stops a far-future event timestamp
+    from keeping a person "active" for years.
+    """
+    now = timezone.now()
+    return {
+        "cutoff": ast.Constant(value=now - timedelta(days=RECENTLY_ACTIVE_DAYS)),
+        "upper": ast.Constant(value=now + timedelta(days=1)),
+    }
+
+
+def _recently_active_persons_count(team: Team) -> int:
+    """Count distinct persons active in the last RECENTLY_ACTIVE_DAYS days.
+
+    This is the blast-radius denominator. It replaces an all-time person count so anonymous churn
+    does not inflate the audience shown to a flag author (see RECENTLY_ACTIVE_DAYS). `uniq` is an
+    estimate, which matches the "~" the release conditions panel already renders.
+    """
+    cache_key = f"flag_blast_radius:recently_active_persons:{team.pk}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    query = parse_select(_RECENTLY_ACTIVE_COUNT_QUERY, placeholders=_recently_active_window_placeholders())
+
+    tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
+    response = execute_hogql_query(
+        query=query,
+        team=team,
+        workload=Workload.OFFLINE,
+        settings=HogQLGlobalSettings(timeout_overflow_mode="throw"),
+    )
+
+    count = response.results[0][0] if response.results else 0
+    cache.set(cache_key, count, timeout=_RECENTLY_ACTIVE_COUNT_CACHE_TTL)
+    return count
+
+
+def _matching_persons_exprs(team: Team, filter: Filter) -> list[ast.Expr]:
+    """Team scope plus the condition's property filters, in person scope.
+
+    Sizing and the workflows preview both decide who matches a condition from this predicate, so a
+    change to one copy alone would make the previewed audience differ from the sized one.
+    property_to_expr resolves cohorts, static cohorts, and group properties.
+    """
+    return [
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["persons", "team_id"]),
+            right=ast.Constant(value=team.pk),
+        ),
+        property_to_expr(filter.property_groups, team, scope="person"),
+    ]
+
+
+def _matched_persons_query(team: Team, filter: Filter) -> ast.SelectQuery:
+    """Subquery of the person ids matching the condition."""
+    return ast.SelectQuery(
+        select=[ast.Field(chain=["persons", "id"])],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
+        where=ast.And(exprs=_matching_persons_exprs(team, filter)),
+    )
+
+
+def _get_person_blast_radius_recently_active(team: Team, filter: Filter) -> BlastRadiusResult:
+    """Calculate blast radius for person-based feature flags over the recent activity window.
+
+    Both counts are of persons active in the same recent window, so the matched count is never a
+    different population from the total it is shown against.
+    """
+    properties = filter.property_groups.flat
+
+    if len(properties) == 0:
+        # No filters means every recently active person is affected.
+        total_users = _recently_active_persons_count(team)
+        return BlastRadiusResult(affected=total_users, total=total_users, activity_window_days=RECENTLY_ACTIVE_DAYS)
+
+    # One pass over the recent event window yields both the active total and the matched subset, so
+    # the denominator is never a second scan and both numbers come from the same rows.
+    query = parse_select(
+        _RECENTLY_ACTIVE_MATCHED_QUERY,
+        placeholders={
+            "matched": _matched_persons_query(team, filter),
+            **_recently_active_window_placeholders(),
+        },
+    )
+
+    tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
+    # OFFLINE for the same reason as _get_group_blast_radius below: a 60-day events scan is too
+    # heavy for the pool that serves interactive analytics. A partial result on timeout would be a
+    # confidently wrong audience number, so overflow throws instead.
+    response = execute_hogql_query(
+        query=query,
+        team=team,
+        workload=Workload.OFFLINE,
+        settings=HogQLGlobalSettings(timeout_overflow_mode="throw"),
+    )
+
+    total_users, affected = (response.results[0][0], response.results[0][1]) if response.results else (0, 0)
+    # affected is a strict subset of total_users, but both are uniq() estimates, so clamp to keep
+    # the frontend percentage coherent.
+    return BlastRadiusResult(
+        affected=min(affected, total_users), total=total_users, activity_window_days=RECENTLY_ACTIVE_DAYS
+    )
+
+
 def _get_person_blast_radius(team: Team, filter: Filter) -> BlastRadiusResult:
-    """Calculate blast radius for person-based feature flags using HogQL."""
+    """Calculate all-time blast radius for person-based feature flags using HogQL."""
 
     properties = filter.property_groups.flat
 
@@ -194,19 +377,7 @@ def _build_person_query(team: Team, filter: Filter, return_count: bool = True, c
             distinct=True,
         )
 
-    # Build WHERE clause with team_id and property filters
-    # property_to_expr handles all property types including cohorts
-    where_exprs: list[ast.Expr] = [
-        ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["persons", "team_id"]),
-            right=ast.Constant(value=team.pk),
-        )
-    ]
-
-    # Add all property filters (including cohorts) via property_to_expr
-    property_expr = property_to_expr(filter.property_groups, team, scope="person")
-    where_exprs.append(property_expr)
+    where_exprs: list[ast.Expr] = _matching_persons_exprs(team, filter)
 
     # Add cursor-based pagination when returning IDs
     if not return_count and cursor is not None:
