@@ -1550,12 +1550,16 @@
             "additionalProperties": false,
             "description": "Narrows which annotations a chart renders. Unset or empty fields do not narrow. Has no effect when `showAnnotations` is false.",
             "properties": {
-                "emojis": {
-                    "description": "Render only annotations with one of these emojis.",
+                "hiddenEmojis": {
+                    "description": "Hide annotations with one of these emojis.",
                     "items": {
                         "type": "string"
                     },
                     "type": "array"
+                },
+                "hideWithoutEmoji": {
+                    "description": "Hide annotations that have no emoji.",
+                    "type": "boolean"
                 },
                 "search": {
                     "description": "Render only annotations whose content contains this text, case-insensitive.",

@@ -1658,8 +1658,10 @@ export interface ChartStyle {
 /** Narrows which annotations a chart renders. Unset or empty fields do not narrow.
  * Has no effect when `showAnnotations` is false. */
 export interface AnnotationsFilter {
-    /** Render only annotations with one of these emojis. */
-    emojis?: string[]
+    /** Hide annotations with one of these emojis. */
+    hiddenEmojis?: string[]
+    /** Hide annotations that have no emoji. */
+    hideWithoutEmoji?: boolean
     /** Render only annotations whose content contains this text, case-insensitive. */
     search?: string
 }

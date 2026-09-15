@@ -63,9 +63,17 @@ async function openDisplayOptions(): Promise<void> {
         { timeout: 10_000 }
     )
     await userEvent.click(optionsButton)
+    const summary = await waitFor(() => {
+        const button = document.body.querySelector<HTMLElement>('[data-attr="insight-annotations-filter-button"]')
+        if (!button) {
+            throw new Error('Annotations filter not ready')
+        }
+        return button
+    })
+    await userEvent.click(summary)
     await waitFor(() => {
         if (!document.body.querySelector('[data-attr="insight-annotations-filter-search"]')) {
-            throw new Error('Annotations filter not ready')
+            throw new Error('Annotations filter editor not ready')
         }
     })
 }
@@ -95,12 +103,12 @@ export const AllAnnotations: Story = {
 }
 
 export const FilteredByEmoji: Story = {
-    render: createInsightStory(trendsLineInsight({ emojis: ['🚀'] }) as any, 'edit'),
+    render: createInsightStory(trendsLineInsight({ hiddenEmojis: ['🧪', '📣'] }) as any, 'edit'),
     parameters: { ...meta.parameters, testOptions: { ...meta.parameters?.testOptions, waitForSelector: 'canvas' } },
 }
 
 export const DisplayOptionsOpen: Story = {
-    render: createInsightStory(trendsLineInsight({ emojis: ['🚀'], search: 'release' }) as any, 'edit'),
+    render: createInsightStory(trendsLineInsight({ hiddenEmojis: ['🧪'], search: 'release' }) as any, 'edit'),
     parameters: {
         ...meta.parameters,
         testOptions: {

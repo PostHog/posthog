@@ -3842,8 +3842,10 @@ export namespace Schemas {
     } as const;
 
     export interface AnnotationsFilter {
-      /** Render only annotations with one of these emojis. */
-      emojis?: string[] | null;
+      /** Hide annotations with one of these emojis. */
+      hiddenEmojis?: string[] | null;
+      /** Hide annotations that have no emoji. */
+      hideWithoutEmoji?: boolean | null;
       /** Render only annotations whose content contains this text, case-insensitive. */
       search?: string | null;
     }

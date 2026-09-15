@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
 
-import { LemonButton, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -20,7 +20,7 @@ export function AnnotationsOptionsFilter(): JSX.Element {
     // updateInsightFilter debounces, so patches merge into a local draft to keep rapid emoji clicks.
     const [draft, setDraft] = useState(annotationsFilter ?? undefined)
     useEffect(() => setDraft(annotationsFilter ?? undefined), [annotationsFilter])
-    const selectedEmojis = draft?.emojis ?? []
+    const hiddenEmojis = draft?.hiddenEmojis ?? []
     const [searchDraft, setSearchDraft] = useState(draft?.search ?? '')
     useEffect(() => setSearchDraft(draft?.search ?? ''), [draft?.search])
 
@@ -34,59 +34,87 @@ export function AnnotationsOptionsFilter(): JSX.Element {
         return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([emoji]) => emoji)
     }, [annotations])
 
+    const hasAnnotationsWithoutEmoji = useMemo(() => annotations.some(({ emoji }) => !emoji), [annotations])
+
     const setFilter = (patch: AnnotationsFilter): void => {
         const merged: AnnotationsFilter = { ...draft, ...patch }
-        const emojis = merged.emojis?.length ? merged.emojis : undefined
+        const hiddenEmojis = merged.hiddenEmojis?.length ? merged.hiddenEmojis : undefined
+        const hideWithoutEmoji = merged.hideWithoutEmoji || undefined
         const search = merged.search?.trim() || undefined
-        const next = emojis || search ? { emojis, search } : undefined
+        const next = hiddenEmojis || hideWithoutEmoji || search ? { hiddenEmojis, hideWithoutEmoji, search } : undefined
         setDraft(next)
         updateInsightFilter({ annotationsFilter: next })
     }
 
-    const toggleEmoji = (emoji: string): void =>
+    const toggleEmoji = (emoji: string, shown: boolean): void =>
         setFilter({
-            emojis: selectedEmojis.includes(emoji)
-                ? selectedEmojis.filter((e) => e !== emoji)
-                : [...selectedEmojis, emoji],
+            hiddenEmojis: shown ? hiddenEmojis.filter((e) => e !== emoji) : [...hiddenEmojis, emoji],
         })
 
+    const activeCount = hiddenEmojis.length + (draft?.hideWithoutEmoji ? 1 : 0) + (draft?.search ? 1 : 0)
+
     return (
-        <div className="flex flex-col gap-1 p-1 px-2">
+        <div className="flex items-center justify-between gap-2 p-1 px-2">
             <LemonCheckbox
                 onChange={(value) => updateInsightFilter({ showAnnotations: value })}
                 checked={enabled}
                 label={<span className="font-normal">Show annotations</span>}
                 size="small"
             />
-            {enabled && (
-                <div className="flex flex-col gap-1 pl-6">
-                    {emojiOptions.length > 0 && (
-                        <div className="flex flex-wrap gap-1">
-                            {emojiOptions.map((emoji) => (
-                                <LemonButton
-                                    key={emoji}
-                                    size="xsmall"
-                                    type="secondary"
-                                    active={selectedEmojis.includes(emoji)}
-                                    onClick={() => toggleEmoji(emoji)}
-                                    data-attr="insight-annotations-filter-emoji"
-                                >
-                                    {emoji}
-                                </LemonButton>
-                            ))}
+            <LemonDropdown
+                closeOnClickInside={false}
+                placement="bottom-end"
+                overlay={
+                    <div className="flex flex-col w-32">
+                        <div className="p-2">
+                            <LemonInput
+                                size="small"
+                                value={searchDraft}
+                                placeholder="Filter by text"
+                                onChange={setSearchDraft}
+                                onBlur={() => setFilter({ search: searchDraft })}
+                                onPressEnter={() => setFilter({ search: searchDraft })}
+                                data-attr="insight-annotations-filter-search"
+                            />
                         </div>
-                    )}
-                    <LemonInput
-                        size="xsmall"
-                        value={searchDraft}
-                        placeholder="Text contains"
-                        onChange={setSearchDraft}
-                        onBlur={() => setFilter({ search: searchDraft })}
-                        onPressEnter={() => setFilter({ search: searchDraft })}
-                        data-attr="insight-annotations-filter-search"
-                    />
-                </div>
-            )}
+                        {(emojiOptions.length > 0 || hasAnnotationsWithoutEmoji) && (
+                            <div className="flex flex-col max-h-80 overflow-y-auto p-1 border-t">
+                                {hasAnnotationsWithoutEmoji && (
+                                    <LemonSwitch
+                                        fullWidth
+                                        label={<span className="text-xs font-normal leading-7">Default</span>}
+                                        className="px-2 [--lemon-switch-handle-size:15px]"
+                                        checked={!draft?.hideWithoutEmoji}
+                                        onChange={(shown) => setFilter({ hideWithoutEmoji: !shown })}
+                                        data-attr="insight-annotations-filter-no-emoji"
+                                    />
+                                )}
+                                {emojiOptions.map((emoji) => (
+                                    <LemonSwitch
+                                        key={emoji}
+                                        fullWidth
+                                        label={<span className="text-lg leading-7">{emoji}</span>}
+                                        className="px-2 [--lemon-switch-handle-size:15px]"
+                                        checked={!hiddenEmojis.includes(emoji)}
+                                        onChange={(shown) => toggleEmoji(emoji, shown)}
+                                        data-attr="insight-annotations-filter-emoji"
+                                    />
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                }
+            >
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    active={activeCount > 0}
+                    disabledReason={enabled ? undefined : 'Turn on annotations to filter them'}
+                    data-attr="insight-annotations-filter-button"
+                >
+                    Filters
+                </LemonButton>
+            </LemonDropdown>
         </div>
     )
 }

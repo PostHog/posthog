@@ -54,8 +54,8 @@ function annotationMatchesFilter(
     annotation: AnnotationType,
     annotationsFilter: AnnotationsFilter | null | undefined
 ): boolean {
-    const { emojis, search } = annotationsFilter ?? {}
-    if (emojis?.length && !(annotation.emoji && emojis.includes(annotation.emoji))) {
+    const { hiddenEmojis, hideWithoutEmoji, search } = annotationsFilter ?? {}
+    if (annotation.emoji ? hiddenEmojis?.includes(annotation.emoji) : hideWithoutEmoji) {
         return false
     }
     return !search || (annotation.content ?? '').toLowerCase().includes(search.toLowerCase())

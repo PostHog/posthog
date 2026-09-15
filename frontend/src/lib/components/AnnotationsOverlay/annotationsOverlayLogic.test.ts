@@ -382,9 +382,10 @@ describe('annotationsOverlayLogic', () => {
         })
 
         it.each([
-            { annotationsFilter: { emojis: ['🚀', '🐛'] }, expectedIds: [17, 20] },
+            { annotationsFilter: { hiddenEmojis: ['🚀', '🐛'] }, expectedIds: [20, 10, 19, 40, 22, 23] },
+            { annotationsFilter: { hideWithoutEmoji: true }, expectedIds: [17, 20] },
             { annotationsFilter: { search: 'from_insight_1' }, expectedIds: [20, 40] },
-            { annotationsFilter: { emojis: ['🐛'], search: 'from_insight_1' }, expectedIds: [20] },
+            { annotationsFilter: { hiddenEmojis: ['🐛'], search: 'from_insight_1' }, expectedIds: [40] },
         ])('narrows to annotations matching $annotationsFilter', async ({ annotationsFilter, expectedIds }) => {
             useInsightMocks()
 

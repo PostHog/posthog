@@ -455,7 +455,8 @@ class AnnotationsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    emojis: list[str] | None = Field(default=None, description="Render only annotations with one of these emojis.")
+    hiddenEmojis: list[str] | None = Field(default=None, description="Hide annotations with one of these emojis.")
+    hideWithoutEmoji: bool | None = Field(default=None, description="Hide annotations that have no emoji.")
     search: str | None = Field(
         default=None,
         description=("Render only annotations whose content contains this text, case-insensitive."),

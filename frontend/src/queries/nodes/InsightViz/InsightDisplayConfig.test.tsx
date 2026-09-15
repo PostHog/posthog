@@ -172,7 +172,7 @@ describe('InsightDisplayConfig', () => {
                         Axes: ['X-axis', 'Y-axis'],
                         Lines: ['Style', 'Overlays'],
                     },
-                    displayItems: ['Show values on series', 'Show annotations', 'Show legendBottom'],
+                    displayItems: ['Show values on series', 'Show annotationsFilters', 'Show legendBottom'],
                     overlayItems: lineOverlays,
                 },
             ],
@@ -189,7 +189,7 @@ describe('InsightDisplayConfig', () => {
                     displayItems: [
                         'Show values on series',
                         'Show as % of total',
-                        'Show annotations',
+                        'Show annotationsFilters',
                         'Show legendBottom',
                     ],
                     overlayItems: lineOverlays,
@@ -208,7 +208,7 @@ describe('InsightDisplayConfig', () => {
                     displayItems: [
                         'Show values on series',
                         'Show as % of total',
-                        'Show annotations',
+                        'Show annotationsFilters',
                         'Show legendBottom',
                     ],
                 },
@@ -348,7 +348,7 @@ describe('InsightDisplayConfig', () => {
     })
 
     describe('annotations filter', () => {
-        it('keeps both emojis when two chips are clicked inside the update debounce', async () => {
+        it('keeps both hidden emojis when two switches are clicked inside the update debounce', async () => {
             useMocks({
                 get: {
                     '/api/projects/:team_id/annotations/': toPaginatedResponse([
@@ -361,15 +361,16 @@ describe('InsightDisplayConfig', () => {
             await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
             setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
             await openOptionsMenu()
+            fireEvent.click(screen.getByTestId('insight-annotations-filter-button'))
 
             // Synchronous clicks land inside the 300 ms updateInsightFilter breakpoint.
-            const chips = screen.getAllByTestId('insight-annotations-filter-emoji')
+            const chips = await screen.findAllByTestId('insight-annotations-filter-emoji')
             fireEvent.click(chips[0])
             fireEvent.click(chips[1])
 
             await waitFor(() => {
                 const querySource = insightVizDataLogic(insightProps).values.querySource as TrendsQuery
-                expect(querySource.trendsFilter?.annotationsFilter?.emojis).toEqual(['🚀', '🐛'])
+                expect(querySource.trendsFilter?.annotationsFilter?.hiddenEmojis).toEqual(['🚀', '🐛'])
             })
         })
     })

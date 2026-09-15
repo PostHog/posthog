@@ -299,7 +299,7 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
         showAnnotationsConfig && showAnnotations === false,
         showAnnotationsConfig &&
             showAnnotations !== false &&
-            !!(annotationsFilter?.emojis?.length || annotationsFilter?.search),
+            !!(annotationsFilter?.hiddenEmojis?.length || annotationsFilter?.search),
         isMetric && trendsFilter?.metricShowChange === false,
         isMetric && trendsFilter?.metricColorByDirection,
         isMetric && !!trendsFilter?.metricSummary && trendsFilter.metricSummary !== 'total'
