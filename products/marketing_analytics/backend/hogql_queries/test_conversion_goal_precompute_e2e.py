@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -14,7 +15,6 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.preaggregation.marketing_conversions_sql import TRUNCATE_MARKETING_CONVERSIONS_TABLE_SQL
 from posthog.clickhouse.preaggregation.marketing_touchpoints_sql import TRUNCATE_MARKETING_TOUCHPOINTS_TABLE_SQL
-from posthog.clickhouse.query_tagging import Feature, tags_context
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import ConversionGoalProcessor
@@ -26,8 +26,17 @@ class TestConversionGoalPrecomputeEquivalence(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
         self._clean_preaggregation_data()
+        # Reads are precompute-only (they never build inline), but these tests warm and read in-process
+        # with no separate warmer. Treat the in-test ensures as a producer so the precompute path
+        # materializes its windows before reading — the read shape is identical to a warm read's.
+        self._warmer_patcher = patch(
+            "products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute.is_background_warming_request",
+            return_value=True,
+        )
+        self._warmer_patcher.start()
 
     def tearDown(self):
+        self._warmer_patcher.stop()
         self._clean_preaggregation_data()
         super().tearDown()
 
@@ -321,15 +330,13 @@ class TestConversionGoalPrecomputeEquivalence(ClickhouseTestMixin, APIBaseTest):
 
         processor = self._make_processor(precompute=True)
         # Materialize a job spanning December — a wider prior request the lazy framework reuses for the
-        # narrow one below (find_existing_jobs matches the overlapping wider job). Reads are precompute-only
-        # now (they never build inline), so this must run as a producer: the CACHE_WARMUP tag routes the
-        # ensure to the build path, exactly as the warmer does.
-        with tags_context(feature=Feature.CACHE_WARMUP):
-            processor.generate_cte_query(
-                additional_conditions=[],
-                date_from=datetime(2024, 12, 1, tzinfo=UTC),
-                date_to=datetime(2025, 1, 31, tzinfo=UTC),
-            )
+        # narrow one below (find_existing_jobs matches the overlapping wider job). The class-level producer
+        # patch lets this ensure build (reads are precompute-only and never build inline).
+        processor.generate_cte_query(
+            additional_conditions=[],
+            date_from=datetime(2024, 12, 1, tzinfo=UTC),
+            date_to=datetime(2025, 1, 31, tzinfo=UTC),
+        )
         narrow_rows = self._execute(
             processor.generate_cte_query(
                 additional_conditions=[],
