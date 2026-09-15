@@ -1,5 +1,7 @@
 from django.db import migrations
 
+from posthog.migration_helpers import SafeDropTable
+
 
 class Migration(migrations.Migration):
     """Drop the Code Home tables 0069 left behind.
@@ -18,9 +20,9 @@ class Migration(migrations.Migration):
     posthog/models/team/util.py is keyed on team_id and would never reach them.
 
     DROP TABLE takes ACCESS EXCLUSIVE on every table these foreign keys reference, and two of
-    those are hot. The statement runs under a short lock_timeout so it fails fast and bin/migrate
-    retries, rather than queueing that lock for the whole MIGRATE_LOCK_TIMEOUT window while every
-    query arriving behind it waits.
+    those are hot. SafeDropTable takes those locks up front in a fixed order, under a budget
+    derived from the server's deadlock_timeout, so the migration gives up and bin/migrate retries
+    rather than an application read being chosen as the deadlock victim.
     """
 
     dependencies = [
@@ -28,11 +30,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunSQL(
-            sql="""
-                SET LOCAL lock_timeout = '2s';
-                DROP TABLE IF EXISTS posthog_code_workstream, posthog_code_pr_snapshot, posthog_code_workflow_config;
-            """,
-            reverse_sql=migrations.RunSQL.noop,
-        ),
+        SafeDropTable(["posthog_code_workstream", "posthog_code_pr_snapshot", "posthog_code_workflow_config"]),
     ]

@@ -8,6 +8,7 @@ from posthog.migration_helpers.deprecate_field import deprecate_field
 from posthog.migration_helpers.drop_foreign_key import DropForeignKey
 from posthog.migration_helpers.not_valid_constraint import AddConstraintNotValid, ValidateConstraint
 from posthog.migration_helpers.not_valid_foreign_key import AddForeignKeyNotValid, ValidateForeignKey
+from posthog.migration_helpers.safe_drop_table import SafeDropTable
 from posthog.migration_helpers.untrack_field import untrack_field
 
 __all__ = [
@@ -17,6 +18,7 @@ __all__ = [
     "DropForeignKey",
     "DropIndexConcurrently",
     "SafeAddIndexConcurrently",
+    "SafeDropTable",
     "SafeRemoveIndexConcurrently",
     "ValidateConstraint",
     "ValidateForeignKey",
