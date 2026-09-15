@@ -19,6 +19,16 @@ inputs:
 runs:
     using: 'composite'
     steps:
+        # Exports TRUNK_CODEOWNERS_PATH for the uploader steps below, so Trunk attributes each test
+        # to the team that owns its file. Exports nothing when it cannot, which leaves the uploader
+        # on .github/CODEOWNERS as before. The existence guard covers a checkout that predates the
+        # script, the way an unrebased branch does.
+        - name: Build the Trunk ownership map
+          shell: bash
+          run: |
+              script="${{ github.action_path }}/../../scripts/trunk-codeowners.sh"
+              if [ -x "$script" ]; then "$script" "$RUNNER_TEMP/trunk-codeowners"; fi
+
         - name: Upload to Trunk
           id: upload
           continue-on-error: true
