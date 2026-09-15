@@ -72,7 +72,6 @@ from products.slack_app.backend.views import (
     slack_user_link_authorize,
     slack_user_link_callback,
 )
-from products.stamphog.backend.facade.webhooks import stamphog_github_webhook
 from products.streamlit_apps.backend.presentation.bridge_views import StreamlitBridgeView
 from products.surveys.backend.api.survey import public_survey_page
 from products.tasks.backend.facade.agent_proxy import agent_proxy_callback
@@ -104,6 +103,10 @@ from .views import (
 github_app_webhook = build_webhook_view(
     build_github_provider("posthog", pre_dispatch=proxy_github_event_to_owning_region)
 )
+
+# Stamphog runs on its own GitHub App, with its own signing secret and its own consumers, so it
+# gets its own view rather than sharing the customer-facing App's endpoint.
+stamphog_github_webhook = build_webhook_view(build_github_provider("stamphog"))
 
 urlpatterns = [
     # EU spend must precede both the API router and the API fallback.
