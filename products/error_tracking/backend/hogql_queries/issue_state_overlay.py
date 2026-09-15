@@ -68,9 +68,21 @@ def latest_issue_state_watermark(team_id: int) -> datetime.datetime | None:
 
 def load_recent_issue_states(team_id: int, *, current_time: datetime.datetime | None = None) -> list[RecentIssueState]:
     threshold = (current_time or timezone.now()) - RECENT_ISSUE_STATE_WINDOW
-    issues = (
+    recent_issue_ids = list(
         ErrorTrackingIssue.objects.using(DEFAULT_DB_ALIAS)
         .filter(team_id=team_id, state_updated_at__gte=threshold)
+        .values_list("id", flat=True)[: MAX_RECENT_ISSUE_STATES + 1]
+    )
+
+    RECENT_ISSUE_STATE_ROW_COUNT.observe(len(recent_issue_ids))
+    # Stop before the row read, which costs an assignment probe plus the unbounded name and
+    # description columns per row — all of it discarded once the bound skips the overlay.
+    if len(recent_issue_ids) > MAX_RECENT_ISSUE_STATES:
+        return []
+
+    issues = (
+        ErrorTrackingIssue.objects.using(DEFAULT_DB_ALIAS)
+        .filter(team_id=team_id, id__in=recent_issue_ids)
         .select_related("assignment")
         .only(
             "id",
@@ -81,7 +93,7 @@ def load_recent_issue_states(team_id: int, *, current_time: datetime.datetime | 
             "description",
             "assignment__user_id",
             "assignment__role_id",
-        )[: MAX_RECENT_ISSUE_STATES + 1]
+        )
     )
 
     recent_states: list[RecentIssueState] = []
@@ -108,7 +120,4 @@ def load_recent_issue_states(team_id: int, *, current_time: datetime.datetime | 
             )
         )
 
-    RECENT_ISSUE_STATE_ROW_COUNT.observe(len(recent_states))
-    if len(recent_states) > MAX_RECENT_ISSUE_STATES:
-        return []
     return recent_states

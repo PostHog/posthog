@@ -2919,6 +2919,8 @@ export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     assignedToUserIds?: integer[]
     /** Match accounts with no active relationship of any definition. */
     allRolesUnassigned?: boolean
+    /** Match accounts with at least one active relationship of any definition. */
+    assignedOnly?: boolean
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: HogQLExpression
     /** Include ignored accounts. Ignored accounts are hidden by default. */
@@ -3244,9 +3246,11 @@ export type WebAnalyticsPropertyFilter =
     | CohortPropertyFilter
 export type WebAnalyticsPropertyFilters = WebAnalyticsPropertyFilter[]
 export type ActionConversionGoal = {
+    properties?: WebAnalyticsPropertyFilters
     actionId: integer
 }
 export type CustomEventConversionGoal = {
+    properties?: WebAnalyticsPropertyFilters
     customEventName: string
 }
 export type WebAnalyticsConversionGoal = ActionConversionGoal | CustomEventConversionGoal
@@ -3423,6 +3427,8 @@ export interface MCPModelBreakdownItem {
 }
 
 export interface MCPModelBreakdownQueryResponse extends AnalyticsQueryResponseBase {
+    /** Whether another page of individual model identifiers is available. */
+    hasMore?: boolean
     results: MCPModelBreakdownItem[]
 }
 
@@ -3432,6 +3438,19 @@ export interface MCPModelBreakdownQuery extends DataNode<MCPModelBreakdownQueryR
     dateRange?: DateRange
     properties?: AnyPropertyFilter[]
     filterTestAccounts?: boolean
+    /** Return individual reported models, excluding Unknown, instead of the top-six grouping. */
+    includeAllModels?: boolean
+    /**
+     * Page size when includeAllModels is enabled.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: integer
+    /**
+     * Number of individual models to skip when includeAllModels is enabled.
+     * @minimum 0
+     */
+    offset?: integer
 }
 
 export type CachedMCPModelBreakdownQueryResponse = CachedQueryResponse<MCPModelBreakdownQueryResponse>
@@ -3856,6 +3875,7 @@ export enum WebStatsBreakdown {
     FrustrationMetrics = 'FrustrationMetrics',
 }
 export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQueryResponse> {
+    includeTrafficMetrics?: boolean
     kind: NodeKind.WebStatsTableQuery
     breakdownBy: WebStatsBreakdown
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
@@ -9585,6 +9605,9 @@ export const externalDataSources = [
     'GoogleAdSense',
     'Sequenzy',
     'Skio',
+    'Smartlead',
+    'Substack',
+    'ElectricityMaps',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -9837,6 +9860,11 @@ export enum SubscriptionFreeTierLimit {
 /** Maximum length, in characters, of an AI subscription prompt. */
 export enum SubscriptionAIPromptMaxLength {
     CHARACTERS = 4000,
+}
+
+/** Maximum number of dashboards and insights an AI subscription may use as context. */
+export enum SubscriptionAIContextLimit {
+    COUNT = 3,
 }
 
 export type UsageMetricFormat = 'numeric' | 'currency'
@@ -10201,6 +10229,7 @@ export enum ProductIntentContext {
     ERROR_TRACKING_ISSUE_SORTING = 'error_tracking_issue_sorting',
     ERROR_TRACKING_DOCS_VIEWED = 'error_tracking_docs_viewed',
     ERROR_TRACKING_ISSUE_EXPLAINED = 'error_tracking_issue_explained',
+    ERROR_TRACKING_SCAN_WITH_VISION = 'error_tracking_scan_with_vision',
 
     // LLM Analytics
     LLM_ANALYTICS_VIEWED = 'llm_analytics_viewed',

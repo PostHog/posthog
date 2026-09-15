@@ -31,6 +31,11 @@ from posthog.api.oauth import OAuthAuthorizationSerializer
 from posthog.api.oauth.cimd import CIMD_SUPPORTED_AUTH_METHODS
 from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER
 from posthog.api.oauth.views import OAuthTokenView, OAuthValidator, _token_error_code
+from posthog.helpers.oauth_pending_connection import (
+    PENDING_OAUTH_CONNECTION_COOKIE,
+    PENDING_OAUTH_CONNECTION_MAX_AGE_SECONDS,
+    PendingOAuthConnection,
+)
 from posthog.models.oauth import (
     OAuthAccessToken,
     OAuthApplication,
@@ -187,6 +192,56 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertIn(f"/login?next=/oauth/authorize/", response["Location"])
 
+        cookie = response.cookies[PENDING_OAUTH_CONNECTION_COOKIE]
+        self.assertEqual(cookie["max-age"], PENDING_OAUTH_CONNECTION_MAX_AGE_SECONDS)
+        self.assertEqual(cookie["samesite"], "Lax")
+        self.assertFalse(cookie["httponly"])
+        self.assertEqual(
+            PendingOAuthConnection.from_cookie_value(cookie.value),
+            PendingOAuthConnection(
+                client_name="Test Confidential App",
+                client_id="test_confidential_client_id",
+                redirect_host="example.com",
+            ),
+        )
+
+    @parameterized.expand(
+        [
+            ("unregistered_client_id", "no_such_client", None),
+            (
+                "unregistered_cimd_client_id",
+                "https://client.example.com/.well-known/oauth-client",
+                "client.example.com",
+            ),
+        ]
+    )
+    def test_authorize_login_redirect_cookie_for_unknown_client(self, _name, client_id, expected_client_name):
+        self.client.logout()
+        url = self.replace_param_in_url(self.base_authorization_url, "client_id", client_id)
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        cookie = response.cookies.get(PENDING_OAUTH_CONNECTION_COOKIE)
+        if expected_client_name is None:
+            self.assertIsNone(cookie)
+            return
+        assert cookie is not None
+        connection = PendingOAuthConnection.from_cookie_value(cookie.value)
+        assert connection is not None
+        self.assertEqual(connection.client_name, expected_client_name)
+        # The redirect_uri in the query is unverified without an application row.
+        self.assertIsNone(connection.redirect_host)
+
+    @parameterized.expand([("granted", True), ("denied", False)])
+    def test_authorize_decision_clears_pending_connection_cookie(self, _name, allow):
+        self.client.cookies[PENDING_OAUTH_CONNECTION_COOKIE] = "stale"
+
+        response = self.client.post("/oauth/authorize/", {**self.base_authorization_post_body, "allow": allow})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.cookies[PENDING_OAUTH_CONNECTION_COOKIE]["max-age"], 0)
+
     def test_authorize_successful_with_required_params(self):
         response = self.client.get(self.base_authorization_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -237,12 +292,14 @@ class TestOAuthAPI(APIBaseTest):
         )
 
         url = self.replace_param_in_url(self.base_authorization_url, "client_id", first_party_app.client_id)
+        self.client.cookies[PENDING_OAUTH_CONNECTION_COOKIE] = "stale"
 
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         location = response["Location"]
         self.assertIn("code=", location)
+        self.assertEqual(response.cookies[PENDING_OAUTH_CONNECTION_COOKIE]["max-age"], 0)
 
         code = parse_qs(urlparse(location).query)["code"][0]
         grant = OAuthGrant.objects.get(code=code)

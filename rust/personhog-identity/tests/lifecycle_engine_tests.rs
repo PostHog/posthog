@@ -54,10 +54,20 @@ impl OpDriver for DummyDriver {
         self.steps_run.fetch_add(1, Ordering::SeqCst);
         let mut tx = pool.begin().await.map_err(SagaError::Db)?;
         let advanced = match op.step.as_str() {
-            "started" => advance_step_in_tx(&mut tx, op.op_id, "started", "half").await?,
+            "started" => {
+                advance_step_in_tx(
+                    &mut tx,
+                    &common::default_tables(),
+                    op.op_id,
+                    "started",
+                    "half",
+                )
+                .await?
+            }
             "half" => {
                 complete_op_in_tx(
                     &mut tx,
+                    &common::default_tables(),
                     op.op_id,
                     "half",
                     STEP_COMPLETED,
@@ -306,6 +316,7 @@ async fn a_live_lease_blocks_a_second_driver_until_it_lapses() {
             attempt_alert_threshold: 5,
             gc_batch_limit: 10_000,
         },
+        ctx.tables.clone(),
     );
     let err = short_engine
         .execute(&driver, op_id, ctx.team_id, &json!({}))
@@ -355,6 +366,7 @@ async fn a_drive_that_runs_out_its_own_deadline_says_so_and_releases_the_lease()
             attempt_alert_threshold: 5,
             gc_batch_limit: 10_000,
         },
+        ctx.tables.clone(),
     );
 
     // The claim was ours the whole time, so the answer must not blame a
@@ -483,6 +495,7 @@ async fn a_driver_whose_lease_was_stolen_stops_running_steps_instead_of_renewing
             attempt_alert_threshold: 5,
             gc_batch_limit: 10_000,
         },
+        ctx.tables.clone(),
     );
     let err = short_engine
         .execute(&driver, op_id, ctx.team_id, &json!({}))
@@ -567,8 +580,15 @@ impl OpDriver for RefusingDriver {
             )));
         }
         let mut tx = pool.begin().await.map_err(SagaError::Db)?;
-        let advanced =
-            complete_op_in_tx(&mut tx, op.op_id, "started", STEP_COMPLETED, &json!({})).await?;
+        let advanced = complete_op_in_tx(
+            &mut tx,
+            &common::default_tables(),
+            op.op_id,
+            "started",
+            STEP_COMPLETED,
+            &json!({}),
+        )
+        .await?;
         if !advanced {
             tx.rollback().await.map_err(SagaError::Db)?;
             return Ok(());

@@ -62,7 +62,7 @@ class AppdynamicsSource(ResumableSource[AppdynamicsSourceConfig, AppdynamicsResu
             label="Splunk AppDynamics (Cisco)",
             releaseStatus=ReleaseStatus.ALPHA,
             keywords=["appdynamics", "cisco", "splunk", "apm"],
-            caption="""Sync your Splunk AppDynamics (Cisco) APM data (applications, business transactions, tiers, nodes, events, transaction snapshots, health rules, health rule violations, metric paths, and metric time series) into the PostHog Data warehouse.
+            caption="""Sync your Splunk AppDynamics (Cisco) APM data (applications, business transactions, tiers, nodes, backends, events, transaction snapshots, health rules, health rule violations, anomalies, metric paths, metric time series, and monitored database servers) into the PostHog Data warehouse.
 
 Enter your controller URL (e.g. `https://mycompany.saas.appdynamics.com`) and your account name, then authenticate with an OAuth API client (recommended) or a username and password.
 

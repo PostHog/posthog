@@ -539,6 +539,13 @@ def _has_leading_http_method(url: str) -> bool:
     return bool(rest) and head.upper() in _HTTP_METHODS
 
 
+def _has_wrapping_quote(url: str) -> bool:
+    """True when a URL keeps a quote character from a copied code sample or JSON snippet, e.g.
+    '"https://api.example.com'. urlparse then reads no host, same as the leading-method case."""
+    stripped = url.strip()
+    return bool(stripped) and (stripped[0] in "\"'" or stripped[-1] in "\"'")
+
+
 def _check_url(url: str, team_id: int) -> tuple[bool, str | None]:
     # `_url_hostname` mirrors the real connect host (backslash/whitespace-normalized) so the
     # validator can't be fooled into vetting a different host than the request reaches.
@@ -549,9 +556,14 @@ def _check_url(url: str, team_id: int) -> tuple[bool, str | None]:
                 False,
                 "Remove the HTTP method from the URL and enter just the address (for example, https://api.example.com).",
             )
-        return False, f"URL {url!r} is missing a hostname"
+        if _has_wrapping_quote(url):
+            return (
+                False,
+                "Remove the quote marks from the URL and enter just the address (for example, https://api.example.com).",
+            )
+        return False, "Enter a full URL that includes the host, for example https://api.example.com."
     if is_cloud() and urlparse(url).scheme != "https":
-        return False, f"URL {url!r} must use https:// on PostHog Cloud"
+        return False, "Enter a URL that starts with https://. PostHog Cloud does not connect over plain http."
     return _is_host_safe(hostname, team_id)
 
 

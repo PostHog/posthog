@@ -118,6 +118,8 @@ rust/.github
 rust/docker
 rust/target
 **/__snapshots__
+# generate:ui-apps reads these committed tool input schemas while building the MCP image.
+!services/mcp/tests/unit/__snapshots__/tool-schemas
 !docker-compose.base.yml
 !docker-compose.dev.yml
 !docker

@@ -10,6 +10,7 @@ from products.tasks.backend.exceptions import (
     ProcessTaskFatalError,
     SandboxExecutionError,
     SandboxMissingRepositoryError,
+    SandboxRateLimitedError,
     SandboxTimeoutError,
 )
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, sandbox_repo_path
@@ -198,6 +199,27 @@ def test_invoke_start_agent_server_preserves_process_task_error(mocker, error_ty
         _invoke_start_agent_server(sandbox, context, mocker.Mock(agentsh_domains=None), repo_ready_file=None)
 
     assert raised.value is error
+
+
+def test_invoke_start_agent_server_skips_log_tails_when_rate_limited(mocker) -> None:
+    error = SandboxRateLimitedError("Sandbox control plane is rate limited", {"sandbox_id": "sandbox-id"})
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.start_agent_server.side_effect = error
+    emit_agentsh = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._emit_agentsh_log_tail"
+    )
+    emit_agent_server = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._emit_agent_server_log_tail"
+    )
+
+    with pytest.raises(SandboxRateLimitedError) as raised:
+        _invoke_start_agent_server(
+            sandbox, _context(), mocker.Mock(agentsh_domains=["example.com"]), repo_ready_file=None
+        )
+
+    assert raised.value is error
+    emit_agentsh.assert_not_called()
+    emit_agent_server.assert_not_called()
 
 
 @pytest.mark.parametrize(
