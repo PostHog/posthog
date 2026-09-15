@@ -35,7 +35,7 @@ export function neighborFilterParams(searchParams: Record<string, unknown>): Vis
             if (parsed !== null) {
                 params[key] = parsed
             }
-        } else if (typeof value === 'string' && value) {
+        } else if (typeof value === 'string' && value && !(key === 'order_by' && value === '-created_at')) {
             params[key] = value
         }
     }
