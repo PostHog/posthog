@@ -8,12 +8,8 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { ReplayObservationApi, VisionObservationsRetrieveParams } from '../generated/api.schemas'
-import {
-    ObservationPageHandoff,
-    handedOffPage,
-    neighborsFromPage,
-    replayObservationLogic,
-} from './replayObservationLogic'
+import { neighborsFromPage, replayObservationLogic } from './replayObservationLogic'
+import { type ObservationsPage, lastObservationsPage } from './replayObservationSceneLogic'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
 
 jest.mock('lib/lemon-ui/LemonToast', () => ({
@@ -36,7 +32,7 @@ describe('replayObservationLogic', () => {
         viewedSpy = jest.fn(() => [204])
         retrieveUrls = []
         retrieveStatus = 200
-        handedOffPage.current = null
+        lastObservationsPage.current = null
         jest.clearAllMocks()
         useMocks({
             get: {
@@ -201,9 +197,9 @@ describe('replayObservationLogic', () => {
             scanner_origin: 'configured',
             session_id: `sess-${id}`,
         }) as ReplayObservationApi
-    const page = (ids: string[], overrides: Partial<ObservationPageHandoff> = {}): ObservationPageHandoff => ({
+    const page = (ids: string[], overrides: Partial<ObservationsPage> = {}): ObservationsPage => ({
         rows: ids.map(row),
-        page: 1,
+        number: 1,
         pageSize: 3,
         total: ids.length,
         filterParams: {},
@@ -215,20 +211,20 @@ describe('replayObservationLogic', () => {
         ['the first row of the first page', page(['a', 'b', 'c']), 0, {}, { previous: null, next: 'b' }],
         [
             'the last row of the last page',
-            page(['a', 'b', 'c'], { page: 2, total: 6 }),
+            page(['a', 'b', 'c'], { number: 2, total: 6 }),
             2,
             {},
             { previous: 'b', next: null },
         ],
-        ['the first row of a later page', page(['a', 'b', 'c'], { page: 2, total: 6 }), 0, {}, null],
+        ['the first row of a later page', page(['a', 'b', 'c'], { number: 2, total: 6 }), 0, {}, null],
         ['the last row of an earlier page', page(['a', 'b', 'c'], { total: 6 }), 2, {}, null],
         ['a page loaded under other filters', page(['a', 'b', 'c']), 1, { verdict: 'yes' }, null],
     ])('resolves prev/next for %s', (_case, handoff, index, params, expected) => {
         expect(neighborsFromPage(handoff, index, params as VisionObservationsRetrieveParams)).toEqual(expected)
     })
 
-    it('paints the handed-off row and skips the filtered read when the page answers prev/next', async () => {
-        handedOffPage.current = page(['a', 'obs-1', 'c'], {
+    it('paints the row from the table page and skips the filtered read when the page answers prev/next', async () => {
+        lastObservationsPage.current = page(['a', 'obs-1', 'c'], {
             filterParams: { verdict: 'yes' } as VisionObservationsRetrieveParams,
         })
         router.actions.push('/replay-vision/observation/obs-1', { verdict: 'yes' })
@@ -279,9 +275,9 @@ describe('replayObservationLogic', () => {
         }
     })
 
-    it('drops the handed-off row and reports the error when its first read fails', async () => {
+    it('drops the row from the table page and reports the error when its first read fails', async () => {
         retrieveStatus = 500
-        handedOffPage.current = page(['a', 'obs-1', 'c'])
+        lastObservationsPage.current = page(['a', 'obs-1', 'c'])
         router.actions.push('/replay-vision/observation/obs-1')
         const logic = replayObservationLogic({ id: 'obs-1' })
         logic.mount()
@@ -290,6 +286,21 @@ describe('replayObservationLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadObservationFailure'])
             expect(logic.values.observation).toBeNull()
             expect(lemonToast.error).toHaveBeenCalledTimes(1)
+        } finally {
+            logic.unmount()
+        }
+    })
+
+    it('does not seed from a page once the scene has been left', async () => {
+        lastObservationsPage.current = page(['a', 'obs-1', 'c'])
+        sceneLogic.unmount()
+        sceneLogic.mount()
+        router.actions.push('/replay-vision/observation/obs-1')
+        const logic = replayObservationLogic({ id: 'obs-1' })
+        logic.mount()
+        try {
+            expect(logic.values.observation).toBeNull()
+            await expectLogic(logic).toDispatchActions(['loadObservationSuccess'])
         } finally {
             logic.unmount()
         }

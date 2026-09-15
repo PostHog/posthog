@@ -56,7 +56,8 @@ import type { ScannerCreationMethodEnumApi, ScannerTypeEnumApi } from '../genera
 import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations } from '../logics/observationPolling'
 import { requestObservationRetry } from '../logics/observationRetry'
 import { refreshVisionQuota } from '../logics/visionQuotaLogic'
-import { handedOffPage, neighborFilterParams } from '../observations/replayObservationLogic'
+import { neighborFilterParams } from '../observations/replayObservationLogic'
+import { lastObservationsPage } from '../observations/replayObservationSceneLogic'
 import { observationClipboardText } from '../utils/observation'
 import {
     type UrlSorting,
@@ -1595,9 +1596,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         }
         return {
             loadObservationsSuccess: ({ observations, total }) => {
-                handedOffPage.current = {
+                lastObservationsPage.current = {
                     rows: observations,
-                    page: values.observationsPage,
+                    number: values.observationsPage,
                     pageSize: OBSERVATIONS_PAGE_SIZE,
                     total,
                     filterParams: neighborFilterParams(values.observationDetailLinkParams),
