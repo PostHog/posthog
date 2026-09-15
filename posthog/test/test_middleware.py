@@ -1927,24 +1927,37 @@ class TestCSPMiddleware(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("app_root", "/"),
+            ("app_root", "/", True),
             # No route serves this path, so the app catch-all answers it. It must keep the app
             # policy, because the frame policy is enforced and its script-src 'none' stops the app
             # from starting.
-            ("path_under_the_replay_frame_prefix", "/replay_player_frame"),
+            ("path_under_the_replay_frame_prefix", "/replay_player_frame", True),
+            # A customer's page frames this document, and the enforced list names only PostHog
+            # origins.
+            ("embeddable_document", "/shared/notarealtoken", False),
         ]
     )
-    def test_html_response_gets_report_only_csp(self, _name, path):
+    def test_html_response_without_the_flag_enforces_only_frame_ancestors(self, _name, path, enforces_frame_ancestors):
         response = self.client.get(path)
-        assert response.status_code == 200
-        assert "Content-Security-Policy-Report-Only" in response
-        assert "Content-Security-Policy" not in response
+        reported = response["Content-Security-Policy-Report-Only"]
+        assert "default-src 'self'" in reported
+        if not enforces_frame_ancestors:
+            assert "Content-Security-Policy" not in response
+            return
+        # Framing is enforced ahead of the flag because it is what lets posthog.com frame the app.
+        # The enforced list has to be the one the reported policy names, or the two drift apart.
+        enforced = response["Content-Security-Policy"]
+        assert enforced.startswith("frame-ancestors https://posthog.com")
+        assert "default-src" not in enforced
+        assert enforced in reported
 
     @patch("posthog.middleware.posthoganalytics.feature_enabled", return_value=True)
     def test_enforcement_reaches_an_app_page_but_not_an_embeddable_one(self, _mock_flag):
         # The wiring guard for app_csp_header_name. The matrix of paths lives in
         # TestAppCspHeaderName, which needs no database.
-        assert "Content-Security-Policy" in self.client.get("/")
+        enforced = self.client.get("/")
+        assert "default-src 'self'" in enforced["Content-Security-Policy"]
+        assert "Content-Security-Policy-Report-Only" not in enforced
 
         embedded = self.client.get("/shared/notarealtoken")
         assert "Content-Security-Policy" not in embedded
@@ -2593,6 +2606,6 @@ class TestViewManagedCsp(SimpleTestCase):
         elif policy is not None:
             assert response["Content-Security-Policy"] == policy
         else:
-            assert "Content-Security-Policy" not in response
+            assert response["Content-Security-Policy"].startswith("frame-ancestors ")
         assert ("Content-Security-Policy-Report-Only" in response) == (expects_reporting and path != "/admin/")
         assert ("Reporting-Endpoints" in response) == expects_reporting

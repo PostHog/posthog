@@ -49,7 +49,7 @@ export const GrowthAiEnrichmentRunCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(growthAiEnrichmentRunCreateBodyPromptTextMax)
         .describe(
-            'System prompt; {email} is replaced with the signup email domain at runtime. At most 20000 characters.'
+            'System prompt; {email} is replaced with the signup email domain at runtime. When the prompt asks for it, the model may call web_search and fetch_page (run through Firecrawl) to look things up; each call costs Firecrawl credits. At most 20000 characters.'
         ),
     model: zod
         .string()
@@ -134,7 +134,7 @@ export const GrowthAiEnrichmentSaveCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(growthAiEnrichmentSaveCreateBodyPromptTextMax)
         .describe(
-            'System prompt; {email} is replaced with the signup email domain at runtime. At most 20000 characters.'
+            'System prompt; {email} is replaced with the signup email domain at runtime. When the prompt asks for it, the model may call web_search and fetch_page (run through Firecrawl) to look things up; each call costs Firecrawl credits. At most 20000 characters.'
         ),
     model: zod
         .string()

@@ -47,6 +47,7 @@ from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Wo
 from products.signals.backend.temporal.inbox_notification import (
     SignalReportInboxNotificationWorkflow,
     get_inbox_notification_state_activity,
+    send_report_github_comments_activity,
     send_report_inbox_notifications_activity,
 )
 from products.signals.backend.temporal.reingestion import (
@@ -108,6 +109,7 @@ WORKFLOWS = [
 ACTIVITIES = [
     dispatch_inbox_slack_notifications_activity,
     get_inbox_notification_state_activity,
+    send_report_github_comments_activity,
     send_report_inbox_notifications_activity,
     emit_backfill_signal_activity,
     fetch_error_tracking_issues_activity,

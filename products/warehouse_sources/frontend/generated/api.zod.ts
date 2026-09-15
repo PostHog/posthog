@@ -524,7 +524,6 @@ export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = /* @__PURE_
                     ),
             })
         )
-        .optional()
         .describe('Schema updates to apply in a single batch.'),
 })
 

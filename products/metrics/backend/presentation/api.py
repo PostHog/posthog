@@ -41,6 +41,7 @@ from products.metrics.backend.facade.api import (
 )
 from products.metrics.backend.facade.contracts import (
     MAX_CLAUSES_PER_QUERY,
+    MAX_SPARKLINE_BATCH_SIZE,
     METRICS_ERROR_OVERLAYS_FEATURE_FLAG,
     METRICS_FEATURE_FLAG,
     METRICS_FUNDAMENTALS_FEATURE_FLAG,
@@ -464,6 +465,16 @@ class _MetricValuesParamsSerializer(serializers.Serializer):
         return [service.strip() for service in value.split(",")]
 
 
+class _MetricCatalogValuesParamsSerializer(_MetricValuesParamsSerializer):
+    names = serializers.ListField(
+        child=serializers.CharField(max_length=255, trim_whitespace=False),
+        allow_empty=False,
+        min_length=1,
+        max_length=MAX_SPARKLINE_BATCH_SIZE,
+        help_text="Exact metric names to load as a batch. Overrides value and limit.",
+    )
+
+
 class _MetricNameSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Metric name as it appears in the team's data.")
     metric_type = serializers.CharField(
@@ -498,6 +509,13 @@ class _MetricPickerNamesResponseSerializer(serializers.Serializer):
 
 
 class _MetricAttributeKeysParamsSerializer(serializers.Serializer):
+    metricName = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=255,
+        help_text="Exact metric name to limit attribute keys to. Omit to list keys across all metrics.",
+    )
     search = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -563,12 +581,15 @@ class _MetricAttributeKeySerializer(serializers.Serializer):
     name = serializers.CharField(
         help_text="Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name')."
     )
+    series_count = serializers.IntegerField(
+        help_text="Number of distinct recent series with this attribute, based on series metadata."
+    )
 
 
 class _MetricAttributeKeysResponseSerializer(serializers.Serializer):
     results = _MetricAttributeKeySerializer(
         many=True,
-        help_text="Distinct attribute keys (datapoint and resource attributes merged), most frequent first.",
+        help_text="Distinct attribute keys (datapoint and resource attributes merged), ordered by series count descending.",
     )
     count = serializers.IntegerField(help_text="Number of keys returned.")
 
@@ -893,12 +914,18 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response(asdict(overview), status=status.HTTP_200_OK)
 
     @extend_schema(
+        methods=["GET"],
         parameters=[_MetricValuesParamsSerializer],
+        responses={200: _MetricNamesResponseSerializer},
+    )
+    @extend_schema(
+        methods=["POST"],
+        request=_MetricCatalogValuesParamsSerializer,
         responses={200: _MetricNamesResponseSerializer},
     )
     @action(
         detail=False,
-        methods=["GET"],
+        methods=["GET", "POST"],
         required_scopes=["metrics:read"],
         throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
     )
@@ -906,7 +933,11 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         """Distinct metric names for the team. Backs the catalog UI."""
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
 
-        params = _MetricValuesParamsSerializer(data=request.query_params)
+        params = (
+            _MetricCatalogValuesParamsSerializer(data=request.data)
+            if request.method == "POST"
+            else _MetricValuesParamsSerializer(data=request.query_params)
+        )
         params.is_valid(raise_exception=True)
 
         try:
@@ -915,6 +946,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 search=params.validated_data["value"],
                 limit=params.validated_data["limit"],
                 services=params.validated_data["service"],
+                names=params.validated_data.get("names", []),
             )
         except ValueError as exc:
             raise ParseError(str(exc))
@@ -961,9 +993,8 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
     )
     def attributes(self, request: Request, *args, **kwargs) -> Response:
-        """Distinct attribute keys seen on the team's metrics (datapoint and
-        resource attributes merged), most frequent first. Backs the filter
-        bar's key autocomplete."""
+        """Attribute keys ordered by distinct series count, from highest to
+        lowest. `metricName` limits choices to one metric."""
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
 
         params = _MetricAttributeKeysParamsSerializer(data=request.query_params)
@@ -972,6 +1003,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             results = list_metric_attribute_keys(
                 team=self.team,
+                metric_name=params.validated_data["metricName"],
                 search=params.validated_data["search"],
                 date_from=params.validated_data["dateFrom"],
                 date_to=params.validated_data["dateTo"],
