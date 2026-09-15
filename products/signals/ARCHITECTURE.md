@@ -235,8 +235,6 @@ On re-promotion:
 - **Auto-start is deduplicated per report** by a legacy `SignalReportTask` implementation link (alongside the protected `task_run` log), checked inside the report-row `select_for_update`
 - **Workflow ID** includes `run_count` on reruns to avoid Temporal ID collisions with earlier executions
 
-An immediately actionable re-research can select obsolete PRs created by automatically started implementation runs. The server verifies exact-run automation receipts and GitHub branches, transfers only the matching task claim, and starts at most one replacement per research pass. Selected predecessors close only after the replacement completes with verified open PRs. Manual work and runs without automation receipts remain ineligible. Read [automated PR replacement](../../docs/internal/self-driving-pr-replacement.md) when changing research decisions, claim transfer, handover retries, or report completion.
-
 ### `SignalReportReingestionWorkflow` (`signal-report-reingestion`)
 
 Deletes a report and re-ingests its signals through the current Signals ingestion pipeline. Useful when grouping decisions need to be re-evaluated after prompt or matching changes.
