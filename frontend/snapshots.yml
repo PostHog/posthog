@@ -7525,13 +7525,17 @@ snapshots:
     scenes-app-experiments--experiment-watch-shelf-no-separation--light:
         hash: v1.k794b7964.418661e125da6f8bb635cce82971886e971a0e49009b045d24ce2cb41db71f61.ABRYFTNA8OWeQSO_4JEX0pRCsvin6Ivc4n8nx6JEBjo
     scenes-app-experiments--experiment-watch-shelf-no-session-linked-exposures--dark:
-        hash: v1.k794b7964.af899a335617403da2f934a28a6d5e53108e5e9717a8af5729f577dd5055c602.9q3rh_PfHNXaLcnJWdgRl8cHQOZUucnqkhHT29Lj6pU
+        hash: v1.k794b7964.15025ce8da34f316ffe376c966175713e2403f80695ca110c66276f75500d47c.Y3pkvasO7oNBS13HbR38_ATxIB0fpteXe2El28zRV5A
     scenes-app-experiments--experiment-watch-shelf-no-session-linked-exposures--light:
-        hash: v1.k794b7964.49acb126a13ddd7282ead4a45d606c65b68ce36385a6e03c48e22dd7243dd3d5.HYWkaRZp6D-SMaGFNND0Eame9LTQB8-eH6QR9yoNuPw
+        hash: v1.k794b7964.9067d1a95cfecf50489d0d61b1771d27bda19540b0bd8459578fb64f514a4308.2ntIYvfmzpopRY9FUsnRw5Hf_f7vauU3eYHZ7qE9mUo
     scenes-app-experiments--experiment-watch-shelf-too-early--dark:
         hash: v1.k794b7964.3e5f919fc0ee8641df2561640122f1e8579266b1b3c39a1b79702a79023a2cdb.0YEvFMCCv1VnUboUz8fkK1q5w7TDKFH4wzR_3aUo6EU
     scenes-app-experiments--experiment-watch-shelf-too-early--light:
         hash: v1.k794b7964.8b9cf6e2c3db721a8654bbeec17dfa29d7cd02ff76ee76dcc5b2a9422396eef6.eG8RjYgxtBcEe4TZrvO2QXrwgPs2u6M7VqAlDQzSLcU
+    scenes-app-experiments--experiment-watch-shelf-too-early-truncated--dark:
+        hash: v1.k794b7964.f04c8c82cac12295d6a626359e6de2aee00fba3bc0b334a16a2b23b425270136.TfKKSGE0l2wkHjNTUh7A8zagoKrqZvITMbCLKAfdCeA
+    scenes-app-experiments--experiment-watch-shelf-too-early-truncated--light:
+        hash: v1.k794b7964.e3f9faa276617fa161368251455bb8e7a49521d92aae46bdaaac72e29e05c1ec.rAwn-EjXbBpB5RPlRpwVT5LMwO3waz970lv0du7HHaA
     scenes-app-experiments--experiment-with-funnel-metric--dark:
         hash: v1.k794b7964.fd0d0ad7569f50079a322a8901513f854823ce694796a2a24a1e6714ac9c5902.fBtAQkm1LZ7xYp6DTXoQSDqDFjsUkxMCP-aNAZJ1Fmc
     scenes-app-experiments--experiment-with-funnel-metric--light:
