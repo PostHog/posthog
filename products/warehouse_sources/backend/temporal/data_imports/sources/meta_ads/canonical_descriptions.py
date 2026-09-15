@@ -341,6 +341,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     MetaAdsResource.AdStatsByLinkUrl: {
         "description": (
             "Daily ad Insights split by the landing page each ad sent people to. "
+            "Meta builds this split from creative assets. An ad that Meta reports no landing page "
+            "asset for has no row here, so the total spend can be lower than in ad_stats. "
             "Meta does not report unique metrics such as reach and frequency with creative asset "
             "breakdowns, so this table omits them."
         ),
