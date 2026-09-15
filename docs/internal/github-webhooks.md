@@ -1,7 +1,7 @@
 # GitHub webhooks
 
 Transport is `posthog/ingress/`, which serves every inbound webhook PostHog receives.
-Read [`inbound-webhooks.md`](inbound-webhooks.md) for the response contract, the delivery budget, deduplication, and how to add a consumer.
+Read [`posthog/ingress/README.md`](../../posthog/ingress/README.md) for the response contract, the delivery budget, deduplication, and how to add a consumer.
 Only the GitHub-specific parts are below.
 
 ## The two Apps
