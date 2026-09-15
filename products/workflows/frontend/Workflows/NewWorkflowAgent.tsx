@@ -1,6 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 import { MAX_SIDE_PANEL_ID } from 'scenes/max/components/PhaiSidePanelChat'
@@ -33,15 +33,27 @@ export function NewWorkflowAgent(): JSX.Element {
     return (
         // While drafting, the runner takes its natural height so the cards sit right under the composer;
         // once a run starts it fills the page like the side panel.
-        <div
-            className={cn('flex flex-col grow min-h-0', !activeCreation && 'justify-center')}
-            data-attr="new-workflow-agent"
-        >
-            <div className={cn('flex flex-col', activeCreation ? 'grow min-h-0' : 'shrink-0')}>
+        <div className="flex flex-col grow min-h-0" data-attr="new-workflow-agent">
+            {/* Same shape as the tree view's trial banner: the escape hatch rides the banner's action. */}
+            {!activeCreation && (
+                <LemonBanner
+                    type="ai"
+                    className="m-2 shrink-0"
+                    action={{
+                        children: 'Use the editor instead',
+                        onClick: openEditorFromAiComposer,
+                        'data-attr': 'new-workflow-agent-open-editor',
+                    }}
+                >
+                    We're trialling building workflows with PostHog AI. Describe what you want and it drafts the
+                    workflow for you to refine.
+                </LemonBanner>
+            )}
+            <div className={cn('flex flex-col', activeCreation ? 'grow min-h-0' : 'shrink-0 mt-auto')}>
                 <SidePanelRunner panelId={MAX_SIDE_PANEL_ID} />
             </div>
             {!activeCreation && (
-                <div className="flex flex-col items-center gap-4 shrink-0 pb-6">
+                <div className="flex flex-col items-center gap-4 shrink-0 pb-6 mb-auto">
                     <div className="grid grid-cols-1 @min-[40rem]/main-content:grid-cols-2 gap-1 w-full max-w-2xl px-4">
                         {NEW_WORKFLOW_SUGGESTIONS.map((suggestion) => (
                             <SuggestionCard
@@ -54,14 +66,6 @@ export function NewWorkflowAgent(): JSX.Element {
                             />
                         ))}
                     </div>
-                    <LemonButton
-                        type="tertiary"
-                        size="small"
-                        data-attr="new-workflow-agent-open-editor"
-                        onClick={openEditorFromAiComposer}
-                    >
-                        Build it in the editor instead
-                    </LemonButton>
                 </div>
             )}
             <NewWorkflowModal />

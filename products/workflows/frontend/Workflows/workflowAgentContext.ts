@@ -57,10 +57,7 @@ export const WORKFLOW_AGENT_HEADLINES: string[] = [
 
 export const EMAIL_EDITOR_AGENT_HEADLINES: string[] = ['How should this email look?']
 
-export const NEW_WORKFLOW_AGENT_HEADLINES: string[] = [
-    'What do we want to automate today?',
-    'Who do we want to message?',
-]
+export const NEW_WORKFLOW_AGENT_HEADLINES: string[] = ['What workflow would you like to build today?']
 
 export const NEW_WORKFLOW_COMPOSER_OVERRIDE: ComposerOverride = {
     hideRepositorySelector: true,
@@ -105,6 +102,16 @@ export const NEW_WORKFLOW_SUGGESTIONS: NewWorkflowSuggestion[] = [
         title: 'Webhook on upgrade',
         description: 'Call my endpoint when a customer upgrades',
         prompt: 'Send a webhook when a user upgrades their plan',
+    },
+    {
+        title: 'Triage alerts from Slack',
+        description: 'Investigate each new alert and reply with findings in the thread',
+        prompt: 'When an alert is posted in my Slack alerts channel, start an AI investigation and reply with the findings in the thread',
+    },
+    {
+        title: 'Celebrate a milestone',
+        description: 'Congratulate people when they hit one, and point at the next',
+        prompt: 'Send a congratulations email when a user reaches a milestone and point them at the next one',
     },
 ]
 
