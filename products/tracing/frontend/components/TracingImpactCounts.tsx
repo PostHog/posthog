@@ -19,9 +19,8 @@ export interface TracingImpactCountsProps {
 }
 
 /**
- * Sessions and people behind a set of spans, with how much of the set carries each ID. The
- * coverage figure is load-bearing: a session count over 3% of the spans means something
- * different from the same count over all of them.
+ * Sessions and people behind a set of spans. The coverage figure is load-bearing: a session
+ * count over 3% of the spans means something different from the same count over all of them.
  */
 export function TracingImpactCounts({ impact }: TracingImpactCountsProps): JSX.Element | null {
     if (impact.total === 0) {

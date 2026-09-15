@@ -1,10 +1,8 @@
 import { percentage } from 'lib/utils/numbers'
 
 /**
- * The share of `total` spans that carry the ID, as a percentage label.
- *
- * A partly covered set never reads as a flat 0% or 100%, because either would say the count
- * beside it covers nothing or everything.
+ * The share of `total` spans that carry the ID. A partly covered set never reads as a flat
+ * 0% or 100%, because either would say the count beside it covers nothing or everything.
  */
 export function formatIdentityCoverage(covered: number | undefined, total: number): string {
     if (!covered || !total) {

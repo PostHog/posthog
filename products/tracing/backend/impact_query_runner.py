@@ -65,9 +65,8 @@ class TraceSpansImpactQueryRunner(TraceSpansScalarQueryRunnerMixin, AnalyticsQue
 
     def to_query(self) -> ast.SelectQuery:
         session_keys, person_keys = resolved_tracing_identity_attribute_keys(self.team)
-        # uniq() and topK() are HyperLogLog-based, so they run about 1-2% off an exact
-        # count(DISTINCT) and much cheaper, the tradeoff error tracking already accepts. They
-        # skip NULLs, so spans carrying no identity need no predicate.
+        # uniq() and topK() are HyperLogLog-based, so about 1-2% off an exact count(DISTINCT)
+        # and much cheaper. They skip NULLs, so spans carrying no identity need no predicate.
         query = parse_select(
             """
             SELECT

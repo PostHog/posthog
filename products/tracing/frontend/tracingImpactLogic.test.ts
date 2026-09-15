@@ -29,8 +29,7 @@ const IMPACT: _TracingImpactResponseApi = {
     topUsers: [{ value: 'user-1', count: 30 }],
 }
 
-// The shape heatmapBrushToFilters produces for the slow tail of the latency heatmap: a >=min /
-// <max pair of `duration` span filters, in ms.
+// What heatmapBrushToFilters produces for the heatmap's slow tail: a duration range, in ms.
 const durationFilterGroup: UniversalFiltersGroup = {
     type: FilterLogicalOperator.And,
     values: [
@@ -91,8 +90,7 @@ describe('tracingImpactLogic', () => {
             dataLogic.actions.runQuery()
         }).toDispatchActions(['loadImpactSuccess'])
 
-        // A brushed latency selection reaches the strip as these duration filters, so the counts
-        // answer "how many people are in the slow tail?" rather than "in all traffic?".
+        // A brushed latency selection reaches the strip as these duration filters.
         expect(requestBody().serviceNames).toEqual(['checkout'])
         expect(requestBody().filterGroup).toEqual(durationFilterGroup)
     })
@@ -109,7 +107,6 @@ describe('tracingImpactLogic', () => {
     })
 
     it('does not re-query when the filters are unchanged', async () => {
-        // runQuery also fires on sort and view-mode toggles, which cannot change the counts.
         await expectLogic(logic).toDispatchActions(['loadImpactSuccess'])
 
         dataLogic.actions.runQuery()

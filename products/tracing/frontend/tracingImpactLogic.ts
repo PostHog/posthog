@@ -15,8 +15,7 @@ export interface TracingImpactLogicProps {
     id: string
 }
 
-// The filters the counts actually depend on. runQuery also fires on sort, view-mode and compare
-// toggles, which cannot change them.
+// The filters the counts depend on. runQuery also fires on sort, view-mode and compare toggles.
 function impactScopeKey(values: tracingImpactLogicValues): string {
     return JSON.stringify([values.utcDateRange, values.filters.serviceNames, values.queryFilterGroup])
 }
@@ -85,19 +84,18 @@ export const tracingImpactLogic = kea<tracingImpactLogicType>([
             null as _TracingImpactResponseApi | null,
             {
                 loadImpact: async (_, breakpoint) => {
-                    // Read before the request, so what gets recorded as done is the scope the
-                    // response actually covers, even if the filters move while it is in flight.
+                    // Read up front, so the scope recorded as done is the one the response covers.
                     const scopeKey = impactScopeKey(values)
                     await breakpoint(300)
-                    // The endpoint takes the nested group the viewer holds, but the serializer
-                    // models `filterGroup` as a flat list, so the generated type cannot express it.
+                    // The endpoint takes the nested group the viewer holds; the serializer models
+                    // `filterGroup` as a flat list, so the generated type cannot express it.
                     const query = {
                         dateRange: values.utcDateRange,
                         serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
                         filterGroup: values.queryFilterGroup,
                     } as unknown as _TracingCountBodyApi
-                    // Re-adding the key aborts the superseded request; unmount aborts the current
-                    // one. One-shot work, so a hidden tab must not abort it.
+                    // Re-adding the key aborts the superseded request. One-shot work, so a hidden
+                    // tab must not abort it.
                     const controller = new AbortController()
                     cache.disposables.add(() => () => controller.abort(), 'impactRequest', {
                         pauseOnPageHidden: false,
@@ -114,8 +112,7 @@ export const tracingImpactLogic = kea<tracingImpactLogicType>([
                     }
                     breakpoint()
                     if (response) {
-                        // Recorded only on a completed request, so a failure retries on the next
-                        // re-query rather than being cached as done.
+                        // Only on success, so a failure retries instead of caching as done.
                         cache.impactScope = scopeKey
                     }
                     return response
@@ -131,9 +128,7 @@ export const tracingImpactLogic = kea<tracingImpactLogicType>([
     }),
     listeners(({ actions, values, cache }) => ({
         // runQuery is the viewer's execute-this-query entrypoint, so a latency-heatmap brush
-        // refreshes the strip too: it lands as filters and re-queries through this action. The
-        // scope guard is what keeps a sort or Traces/Spans toggle from costing a ClickHouse scan,
-        // and it also keeps the strip from blanking for one of those.
+        // refreshes the strip too: it lands as filters and re-queries through this action.
         runQuery: () => {
             if (impactScopeKey(values) === cache.impactScope) {
                 return
@@ -141,9 +136,8 @@ export const tracingImpactLogic = kea<tracingImpactLogicType>([
             actions.loadImpact(null)
         },
         // An explicit refresh re-reads the same scope on purpose. It loads here rather than
-        // relying on the runQuery that tracingDataLogic dispatches, because listener order across
-        // logics is not guaranteed and that runQuery could reach the guard first. A second
-        // dispatch costs nothing: loadImpact debounces before it requests.
+        // relying on tracingDataLogic's own runQuery, whose listener could reach the guard
+        // first. The extra dispatch costs nothing, because loadImpact debounces.
         refreshQuery: () => {
             cache.impactScope = undefined
             actions.loadImpact(null)

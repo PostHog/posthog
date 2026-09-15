@@ -275,11 +275,9 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
             "offset": ast.Constant(value=self._offset),
             **query_date_range.to_placeholders(),
         }
-        # The identity aggregates are appended rather than always present, because reading the
-        # attribute maps is the expensive part of this query and only the Operations table's
-        # Sessions and Users columns need it. uniq() is HyperLogLog-based, so it runs about 1-2%
-        # off an exact count(DISTINCT). Both skip NULLs, so spans carrying no identity need no
-        # predicate. `_row_from_clickhouse` reads these by position, so the order is a contract.
+        # Appended rather than always present, because reading the attribute maps is the
+        # expensive part of this query and only the Operations columns need it. uniq() is
+        # HyperLogLog-based and skips NULLs. `_row_from_clickhouse` reads these by position.
         impact_columns = ""
         if self.query.includeImpact:
             placeholders["session_value"], placeholders["person_value"] = self._identity_exprs

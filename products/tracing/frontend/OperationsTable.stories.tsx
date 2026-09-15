@@ -65,10 +65,7 @@ export const Default: Story = {
     args: { rows: ROWS, loading: false, windowMs: 3_600_000 },
 }
 
-/**
- * The Sessions and Users columns appear when the aggregation was asked for them. The third
- * operation is a background worker whose spans carry no identity, so its cells stay empty.
- */
+/** The third operation is a background worker with no identity, so its cells stay empty. */
 export const WithImpactColumns: Story = {
     args: {
         rows: [

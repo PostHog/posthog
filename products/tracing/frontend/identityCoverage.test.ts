@@ -1,9 +1,8 @@
 import { formatIdentityCoverage } from './identityCoverage'
 
 describe('formatIdentityCoverage', () => {
-    // Rounding that reads as 0% or 100% would say the count covers nothing, or all of it, when
-    // neither is true — the annotation is what keeps a count over 4% of spans from being read as
-    // the whole picture.
+    // A reading of 0% or 100% would say the count covers nothing, or all of it, when neither
+    // is true.
     it.each([
         ['no covered spans', 0, 1000, '0%'],
         ['no spans at all', 0, 0, '0%'],

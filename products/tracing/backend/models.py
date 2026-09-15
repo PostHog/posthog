@@ -48,8 +48,7 @@ def default_tracing_session_id_attribute_keys() -> list[str]:
 
 # Same list as DISTINCT_ID_KEYS in products/logs/frontend/utils.tsx, which the span attribute
 # table resolves against. Copied rather than imported so tracing takes no dependency on Logs;
-# keep the copies in sync, or the impact counts stop covering the spans the UI links. Literal
-# keys only: the frontend also matches dot-suffixed variants an exact map read cannot express.
+# keep them in sync, or the counts stop covering the spans the UI links.
 DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS = [
     "distinct.id",
     "distinct_id",
