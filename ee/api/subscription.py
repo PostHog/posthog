@@ -53,6 +53,7 @@ from posthog.utils import str_to_bool
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.exports.backend.facade.auth import creator_can_query
 from products.exports.backend.models.subscription import (
     AIQueryPlanStatus,
     Subscription,
@@ -81,7 +82,7 @@ from products.product_analytics.backend.facade.api import insights_including_sof
 from products.product_analytics.backend.facade.models import Insight
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
-from ee.tasks.subscriptions.auto_disable import validate_re_enable
+from ee.tasks.subscriptions.auto_disable import AI_CONSENT_REVOKED_DISABLE_REASON, validate_re_enable
 from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
 from ee.tasks.subscriptions.teams_subscriptions import TEAMS_WEBHOOK_URL_ERROR, TEAMS_WEBHOOK_URL_MASKED_ERROR
 
@@ -824,11 +825,21 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             # fails sanitization). The delivery path will just re-disable on the next
             # tick unless the underlying cause is fixed by this PATCH.
             if resource_type == Subscription.ResourceType.AI_PROMPT:
+                if not self.context["get_organization"]().is_ai_data_processing_approved:
+                    raise ValidationError({"enabled": [AI_CONSENT_REVOKED_DISABLE_REASON.user_message]})
                 prompt_after = attrs.get("prompt") if "prompt" in attrs else (existing.prompt if existing else None)
                 created_by_after = existing.created_by if existing else None
                 if created_by_after is None:
                     raise ValidationError(
                         {"enabled": ["Cannot re-enable AI subscription: the original creator is unavailable."]}
+                    )
+                if not creator_can_query(user=created_by_after, team=self.context["get_team"]()):
+                    raise ValidationError(
+                        {
+                            "enabled": [
+                                "Cannot re-enable AI subscription: the original creator no longer has query access."
+                            ]
+                        }
                     )
                 try:
                     sanitize_prompt(prompt_after)

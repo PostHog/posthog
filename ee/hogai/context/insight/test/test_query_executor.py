@@ -3,9 +3,9 @@ from typing import Any
 
 import time_machine
 from posthog.test.base import NonAtomicBaseTest
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from rest_framework.exceptions import APIException
 
@@ -40,7 +40,9 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.errors import ExposedCHQueryError
+from posthog.hogql_queries.query_runner import ExecutionMode
 
+from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.context.insight.query_executor import (
     AssistantQueryExecutor,
     execute_and_format_query,
@@ -49,6 +51,54 @@ from ee.hogai.context.insight.query_executor import (
 )
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.utils.query import validate_assistant_query
+
+
+class TestAssistantQueryExecutorQueryId(SimpleTestCase):
+    @override_settings(TEST=False)
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    async def test_explicit_query_id_reaches_production_async_execution(self, mock_process_query: MagicMock) -> None:
+        mock_process_query.return_value = {"results": []}
+        query = AssistantTrendsQuery(series=[])
+        context = InsightContext(team=MagicMock(pk=1, organization_id=None), query=query, user=MagicMock())
+
+        await context.execute_and_format(
+            include_prompt_framing=False,
+            query_id="context-query-status-id",
+        )
+
+        self.assertEqual(mock_process_query.call_args.kwargs["query_id"], "context-query-status-id")
+        self.assertEqual(
+            mock_process_query.call_args.kwargs["execution_mode"],
+            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+        )
+
+    @override_settings(TEST=False)
+    @patch("ee.hogai.context.insight.query_executor.get_query_status")
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    async def test_reports_deduplicated_query_status_id(
+        self, mock_process_query: MagicMock, mock_get_query_status: MagicMock
+    ) -> None:
+        mock_process_query.return_value = {"query_status": {"id": "deduplicated-query-status-id", "complete": False}}
+        mock_get_query_status.return_value = Mock(
+            model_dump=lambda mode: {
+                "id": "deduplicated-query-status-id",
+                "complete": True,
+                "results": {"results": []},
+            }
+        )
+        query = AssistantTrendsQuery(series=[])
+        context = InsightContext(team=MagicMock(pk=1, organization_id=None), query=query, user=MagicMock())
+        query_status_ids: list[str] = []
+
+        with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
+            await context.execute_and_format(
+                include_prompt_framing=False,
+                query_id="requested-query-status-id",
+                on_query_status=query_status_ids.append,
+            )
+
+        self.assertEqual(query_status_ids, ["deduplicated-query-status-id"])
+        self.assertEqual(mock_process_query.call_args.kwargs["query_id"], "requested-query-status-id")
 
 
 class TestAssistantQueryExecutor(NonAtomicBaseTest):
@@ -409,8 +459,6 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         call_args = mock_process_query.call_args
         self.assertIn("execution_mode", call_args.kwargs)
         # In production it should be RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
-        from posthog.hogql_queries.query_runner import ExecutionMode
-
         self.assertEqual(call_args.kwargs["execution_mode"], ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
 
     async def test_compress_results_full_ui_queries(self):
