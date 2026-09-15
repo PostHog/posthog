@@ -27,6 +27,8 @@ import {
     NotebookPresence,
     NotebookSyncInfo,
 } from './Notebook/NotebookMeta'
+import { NotebookRunAllBanner } from './Notebook/NotebookRunAllBanner'
+import { NotebookRunAllButton } from './Notebook/NotebookRunAllButton'
 import { NotebookShareModal } from './Notebook/NotebookShareModal'
 import { NotebookMenu } from './NotebookMenu'
 import { notebookPanelLogic } from './NotebookPanel/notebookPanelLogic'
@@ -135,6 +137,7 @@ export function NotebookScene(): JSX.Element {
                     <UserActivityIndicator at={notebook?.last_modified_at} by={notebook?.last_modified_by} />
                     <BindLogic logic={notebookLogic} props={{ shortId: notebookId, target: NotebookTarget.Scene }}>
                         <NotebookVariablesButton type="tertiary" size="small" />
+                        <NotebookRunAllButton type="tertiary" size="small" />
                     </BindLogic>
                 </div>
 
@@ -176,6 +179,10 @@ export function NotebookScene(): JSX.Element {
                     )}
                 </div>
             </div>
+
+            <BindLogic logic={notebookLogic} props={{ shortId: notebookId, target: NotebookTarget.Scene }}>
+                <NotebookRunAllBanner shortId={notebookId} />
+            </BindLogic>
 
             <Notebook
                 key={notebookId}
