@@ -710,6 +710,18 @@ function composeToolSchema(
             }
 
             if (override.aliases?.length) {
+                // normalizeParamAliases deletes alias keys after copying them onto the
+                // canonical param, so an alias that is also a real parameter of this
+                // operation would silently drop that parameter's value.
+                const declaredParamNames = new Set([...pathParamNames, ...queryParamNames, ...bodyFieldNames])
+                for (const alias of override.aliases) {
+                    if (alias === paramName || declaredParamNames.has(alias)) {
+                        throw new Error(
+                            `${config.operation}: alias "${alias}" for param "${paramName}" is also a declared parameter ` +
+                                'of this operation, so normalizeParamAliases would drop its value. Rename or remove the alias.'
+                        )
+                    }
+                }
                 paramAliases[paramName] = override.aliases
             }
 

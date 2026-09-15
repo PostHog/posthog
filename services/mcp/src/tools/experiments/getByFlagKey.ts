@@ -8,23 +8,16 @@ import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase } from '@/tools/types'
 
 /**
- * `experiment-get-by-flag-key` fetches an experiment by its feature flag key.
+ * `experiment-get-by-flag-key` fetches an experiment by its feature flag key, the identifier
+ * agents hold when `experiment-get` wants a numeric ID. The experiments list has no key filter,
+ * but the flag row carries `experiment_set`, so resolving the key to its flag is enough.
  *
- * `experiment-get` only accepts the numeric ID, but the identifier agents naturally have is
- * the flag key — the string in code, in the UI, and in `experiment-create`'s own input. The
- * experiments list endpoint has no key filter, but the flag row carries `experiment_set`
- * (every non-deleted experiment linked to the flag, archived included), so resolving the key
- * to its flag is enough to find the experiment.
- *
- * A key that matches nothing is not an error. The dominant caller is an agent checking whether
- * an experiment already exists before creating one, so a miss is the expected answer and comes
- * back as a structured `{ found: false }` result (same pattern as
- * `feature-flag-get-definition-by-key`). An ambiguous match still throws: the agent cannot pick
- * an id on its own.
+ * A miss is data, not an error: the dominant caller is an existence check before
+ * `experiment-create` (same pattern as `feature-flag-get-definition-by-key`). Several
+ * experiments on one flag is also data, because `experiment-duplicate` reuses the source flag,
+ * so re-runs stack up; the tool picks the single live one when there is one and otherwise
+ * returns the candidates. Only an ambiguous flag key still throws.
  */
-// Same alias set the flag lookup accepts, plus bare `key`: agents composing this call from the
-// tool name reach for any of these. The canonical name still wins on conflict and the advertised
-// JSON schema is unchanged (a preprocess renders as the wrapped object).
 const schema = z.preprocess(
     normalizeParamAliases({ feature_flag_key: ['flagKey', 'flag_key', 'featureFlagKey', 'key'] }),
     z.object({
@@ -36,15 +29,35 @@ const schema = z.preprocess(
 
 type Params = z.infer<typeof schema>
 
-/** The result shape returned when no experiment is linked to `feature_flag_key`. See the file doc comment for why this is data, not a thrown error. */
+interface ExperimentCandidate {
+    id: number
+    name: string
+    status: string | null
+    archived: boolean
+    start_date: string | null
+    end_date: string | null
+    created_at: string | null
+}
+
 interface ExperimentLookupMiss {
     found: false
     feature_flag_key: string
     message: string
+    /** Set when several experiments share the flag and none stands out as the live one. */
+    candidates?: ExperimentCandidate[]
 }
 
-/** Discriminate on `found` in both branches, so callers don't have to test for its absence on a match. */
 type Result = (WithPostHogUrl<Schemas.Experiment> & { found: true }) | ExperimentLookupMiss
+
+const toCandidate = (experiment: Schemas.ExperimentBasic, archived: boolean): ExperimentCandidate => ({
+    id: experiment.id,
+    name: experiment.name,
+    status: (experiment as { status?: string | null }).status ?? null,
+    archived,
+    start_date: experiment.start_date ?? null,
+    end_date: experiment.end_date ?? null,
+    created_at: (experiment as { created_at?: string | null }).created_at ?? null,
+})
 
 const experimentGetByFlagKey = (): ToolBase<typeof schema, Result> => ({
     name: 'experiment-get-by-flag-key',
@@ -86,18 +99,44 @@ const experimentGetByFlagKey = (): ToolBase<typeof schema, Result> => ({
                     'Create one with `experiment-create` using this key, or call `experiment-list` to browse existing experiments.',
             }
         }
+
+        let experimentId = experimentIds[0]!
         if (experimentIds.length > 1) {
-            // Unlike a miss, this is still an error: the key is ambiguous and the agent can't
-            // proceed on its own — it needs the numeric id from a different tool call.
-            throw new ToolInputValidationError(
-                `Multiple experiments are linked to feature flag "${key}" (IDs: ${experimentIds.join(', ')}). ` +
-                    'Pass the numeric `id` to `experiment-get` instead.'
-            )
+            const listPath = `/api/projects/${encodeURIComponent(projectId)}/experiments/`
+            const listLinked = async (archived: boolean): Promise<Schemas.ExperimentBasic[]> => {
+                const page = await context.api.request<Schemas.PaginatedExperimentBasicList>({
+                    method: 'GET',
+                    path: listPath,
+                    query: archived
+                        ? { feature_flag_id: flag.id, archived: true, limit: 50 }
+                        : { feature_flag_id: flag.id, limit: 50 },
+                })
+                return page.results ?? []
+            }
+            const live = await listLinked(false)
+            if (live.length === 1) {
+                experimentId = live[0]!.id
+            } else {
+                const archived = await listLinked(true)
+                if (live.length === 0 && archived.length === 1) {
+                    experimentId = archived[0]!.id
+                } else {
+                    const candidates = [
+                        ...live.map((experiment) => toCandidate(experiment, false)),
+                        ...archived.map((experiment) => toCandidate(experiment, true)),
+                    ]
+                    return {
+                        found: false,
+                        feature_flag_key: key,
+                        candidates,
+                        message:
+                            `${candidates.length} experiments are linked to feature flag "${key}" (ID ${flag.id}) and ` +
+                            'none stands out as the live one. Pick from `candidates` and pass its `id` to `experiment-get`.',
+                    }
+                }
+            }
         }
 
-        // The flag row carries only the id; fetch the full experiment so the result matches
-        // `experiment-get` (metrics, exposure criteria, stats config).
-        const experimentId = experimentIds[0]!
         const experiment = await context.api.request<Schemas.Experiment>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(projectId)}/experiments/${encodeURIComponent(String(experimentId))}/`,

@@ -2217,3 +2217,56 @@ describe('optional param with state fallback', () => {
         expect(collapsed).toContain('.optional()).optional()')
     })
 })
+
+describe('composeToolSchema param aliases', () => {
+    const resolvedWithIdAndQuery = makeResolved({
+        path: '/api/projects/{project_id}/things/{id}/',
+        operation: {
+            operationId: 'things_retrieve',
+            parameters: [
+                { name: 'project_id', in: 'path', required: true, schema: { type: 'string' } },
+                { name: 'id', in: 'path', required: true, schema: { type: 'integer' } },
+                { name: 'thing_id', in: 'query', required: false, schema: { type: 'string' } },
+            ],
+        },
+    })
+
+    it('collects aliases that shadow nothing', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            param_overrides: { id: { aliases: ['thingId', 'thing_identifier'] } },
+        }
+
+        const result = composeToolSchema(config, resolvedWithIdAndQuery, makeSpec(), stubGetQuerySchema)
+
+        expect(result.paramAliases).toEqual({ id: ['thingId', 'thing_identifier'] })
+    })
+
+    // normalizeParamAliases deletes alias keys, so an alias that is also a real parameter
+    // would drop that parameter's value with no error at runtime. The generator is the only
+    // place that sees both the alias list and the operation's parameters.
+    it('rejects an alias that is also a declared parameter of the operation', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            param_overrides: { id: { aliases: ['thingId', 'thing_id'] } },
+        }
+
+        expect(() => composeToolSchema(config, resolvedWithIdAndQuery, makeSpec(), stubGetQuerySchema)).toThrow(
+            /alias "thing_id" for param "id" is also a declared parameter/
+        )
+    })
+
+    it('rejects an alias equal to its own canonical name', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            param_overrides: { id: { aliases: ['id'] } },
+        }
+
+        expect(() => composeToolSchema(config, resolvedWithIdAndQuery, makeSpec(), stubGetQuerySchema)).toThrow(
+            /alias "id" for param "id"/
+        )
+    })
+})

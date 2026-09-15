@@ -505,7 +505,10 @@ export class ApiClient {
                     const errorText = await response.text()
 
                     if (response.status === 404) {
-                        const experimentMatch = /\/experiments\/(\d+)/.exec(url)
+                        // Only the experiment resource itself. Sub-resources such as
+                        // metrics_recalculation return their own 404s whose detail the
+                        // agent needs, so those pass through untouched.
+                        const experimentMatch = /\/experiments\/(\d+)\/?$/.exec(url.split('?')[0]!)
                         if (experimentMatch) {
                             const experimentId = experimentMatch[1]
                             console.error(`[API] Experiment ${experimentId} not found on ${method} ${url}`)

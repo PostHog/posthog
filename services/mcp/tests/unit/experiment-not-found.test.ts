@@ -54,6 +54,42 @@ describe('experiment not-found rewrite', () => {
         expect(result.error.message).toContain('experiment-list')
     })
 
+    it('passes a sub-resource 404 through with the backend detail instead of claiming the experiment is missing', async () => {
+        vi.stubGlobal(
+            'fetch',
+            vi
+                .fn()
+                .mockResolvedValue(
+                    new Response(JSON.stringify({ detail: 'No completed recalculation found' }), { status: 404 })
+                )
+        )
+
+        const result = await buildClient()
+            .request({ method: 'GET', path: '/api/projects/42/experiments/29/metrics_recalculation/latest/' })
+            .then(
+                () => undefined,
+                (error: unknown) => error
+            )
+
+        expect(result).toBeInstanceOf(PostHogApiError)
+        expect((result as PostHogApiError).status).toBe(404)
+        expect((result as PostHogApiError).message).toContain('No completed recalculation found')
+        expect((result as PostHogApiError).message).not.toContain('Experiment 29 not found')
+    })
+
+    it('still rewrites the experiment resource 404 when the URL carries a query string', async () => {
+        stubNotFound()
+
+        const result = await buildClient()
+            .request({ method: 'GET', path: '/api/projects/42/experiments/999/', query: { refresh: true } })
+            .then(
+                () => undefined,
+                (error: unknown) => error
+            )
+
+        expect((result as PostHogApiError).message).toContain('Experiment 999 not found in this project')
+    })
+
     it('keeps the plain path for 404s on other endpoints', async () => {
         stubNotFound()
 
