@@ -63,6 +63,7 @@ from products.notebooks.backend.analytics import (
     notebook_node_count,
 )
 from products.notebooks.backend.collab import submit_steps
+from products.notebooks.backend.facade.api import to_markdown_notebook_content
 from products.notebooks.backend.facade.compute_pricing import (
     COMPUTE_PRESETS,
     DEFAULT_COMPUTE_PRESET_KEY,
@@ -70,7 +71,11 @@ from products.notebooks.backend.facade.compute_pricing import (
     find_matching_preset,
     get_compute_rates,
 )
-from products.notebooks.backend.facade.contracts import NotebookRunBusy, TeamRunCapacityFull
+from products.notebooks.backend.facade.contracts import (
+    NotebookContentNotConvertible,
+    NotebookRunBusy,
+    TeamRunCapacityFull,
+)
 from products.notebooks.backend.facade.kernel_sandbox_usage import record_sandbox_ended_by_id
 from products.notebooks.backend.facade.sql_v2 import acquire_run_slots, release_run_slots
 from products.notebooks.backend.facade.widgets import (
@@ -304,7 +309,9 @@ class NotebookSerializer(NotebookMinimalSerializer):
         ]
         extra_kwargs = {
             **_NOTEBOOK_FIELD_HELP_TEXTS,
-            "content": {"help_text": "Notebook content as a ProseMirror JSON document structure."},
+            "content": {
+                "help_text": "Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook: one ph-markdown-notebook node that holds the converted markdown."
+            },
             "text_content": {"help_text": "Plain text representation of the notebook content for search."},
             "version": {
                 "help_text": "Version number for optimistic concurrency control. Must match the current version when updating content."
@@ -344,6 +351,25 @@ class NotebookSerializer(NotebookMinimalSerializer):
                 )
             validated_data["short_id"] = short_id
 
+        # Counted before conversion, so the event keeps reporting the size of the document the caller sent.
+        node_count = notebook_node_count(validated_data.get("content"))
+        # The cell tools and the editor work on markdown notebooks only, so a create never stores rich text.
+        try:
+            markdown_content = to_markdown_notebook_content(
+                validated_data.get("content"), organization_id=team.organization_id
+            )
+        except NotebookContentNotConvertible as err:
+            raise serializers.ValidationError({"content": str(err)})
+        if markdown_content is not None:
+            # validate_content counted cells before conversion, when rich text has none, so count the converted document.
+            try:
+                validate_cell_count(None, markdown_content)
+            except NotebookCellLimitExceeded as err:
+                raise serializers.ValidationError({"content": str(err)})
+            validated_data["content"] = markdown_content
+        # Search reads text_content, so it mirrors the stored markdown, as a markdown save does.
+        validated_data["text_content"] = markdown_collab.get_markdown_notebook_markdown(validated_data["content"])
+
         created_by = validated_data.pop("created_by", request.user)
         notebook = Notebook.objects.create(
             team=team,
@@ -369,7 +395,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             user=request.user,
             request=request,
             visibility=notebook.visibility,
-            node_count=notebook_node_count(notebook.content),
+            node_count=node_count,
             mcp_consumer=source_props.get("mcp_consumer"),
             api_key_type=source_props.get("api_key_type"),
         )
