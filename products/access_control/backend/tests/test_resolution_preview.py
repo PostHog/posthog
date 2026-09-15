@@ -239,6 +239,24 @@ class TestResolutionPreviewAPI(BaseUserAccessControlTest):
         self.organization.refresh_from_db()
         assert not self.organization.uses_most_specific_access_resolution
 
+    def test_accept_rejects_project_scoped_credentials(self):
+        self.membership.level = OrganizationMembership.Level.ADMIN
+        self.membership.save()
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="scoped", user=self.user, secure_value=hash_key_value(key), scoped_teams=[self.team.id], scopes=["*"]
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/access_control_resolution_accept",
+            headers={"authorization": f"Bearer {key}"},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self.organization.refresh_from_db()
+        assert not self.organization.uses_most_specific_access_resolution
+
     def test_accept_switches_the_organization_and_logs_it(self):
         self.membership.level = OrganizationMembership.Level.ADMIN
         self.membership.save()

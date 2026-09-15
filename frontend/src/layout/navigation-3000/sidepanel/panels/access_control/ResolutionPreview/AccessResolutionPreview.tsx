@@ -111,11 +111,12 @@ const sharedColumns: LemonTableColumns<ResolutionChange> = [
 ]
 
 export function AccessResolutionPreview(): JSX.Element {
-    const { preview, previewLoading, previewForbidden, acceptedLoading } = useValues(resolutionPreviewLogic)
+    const { preview, previewLoading, previewForbidden, accepted, acceptedLoading } = useValues(resolutionPreviewLogic)
     const { loadPreview, acceptResolution } = useActions(resolutionPreviewLogic)
     const { openSupportForm } = useActions(supportLogic)
     const { currentOrganization, isAdminOrOwner } = useValues(organizationLogic)
-    const alreadyEnabled = !!currentOrganization?.uses_most_specific_access_resolution
+    // `accepted` keeps the completed state if the organization reload after the switch fails
+    const alreadyEnabled = accepted || !!currentOrganization?.uses_most_specific_access_resolution
 
     const confirmAccept = (): void => {
         LemonDialog.open({
@@ -151,6 +152,33 @@ export function AccessResolutionPreview(): JSX.Element {
             </LemonBanner>
         )
     }
+    const footer = alreadyEnabled ? (
+        <LemonBanner type="success">Migration completed.</LemonBanner>
+    ) : (
+        <div className="flex items-center gap-2">
+            <LemonButton
+                type="primary"
+                onClick={confirmAccept}
+                loading={acceptedLoading}
+                disabledReason={isAdminOrOwner ? undefined : 'Only organization admins can switch the resolution'}
+                data-attr="access-resolution-accept"
+            >
+                Accept the new resolution
+            </LemonButton>
+            <LemonButton
+                type="secondary"
+                onClick={() => openSupportForm({ kind: 'support' })}
+                data-attr="access-resolution-keep-current"
+            >
+                Keep current access
+            </LemonButton>
+            <span className="text-muted text-xs">
+                Contact support to keep the current access for all members. We will adjust your rules so everyone's
+                effective access stays the same.
+            </span>
+        </div>
+    )
+
     if (preview.summary.total === 0) {
         return (
             <div className="flex flex-col gap-4">
@@ -159,6 +187,7 @@ export function AccessResolutionPreview(): JSX.Element {
                     No access rules resolve differently in the projects you administer. Nothing changes when the new
                     resolution takes effect.
                 </LemonBanner>
+                {footer}
             </div>
         )
     }
@@ -294,34 +323,7 @@ export function AccessResolutionPreview(): JSX.Element {
                 )
             })}
 
-            {alreadyEnabled ? (
-                <LemonBanner type="success">Migration completed.</LemonBanner>
-            ) : (
-                <div className="flex items-center gap-2">
-                    <LemonButton
-                        type="primary"
-                        onClick={confirmAccept}
-                        loading={acceptedLoading}
-                        disabledReason={
-                            isAdminOrOwner ? undefined : 'Only organization admins can switch the resolution'
-                        }
-                        data-attr="access-resolution-accept"
-                    >
-                        Accept the new resolution
-                    </LemonButton>
-                    <LemonButton
-                        type="secondary"
-                        onClick={() => openSupportForm({ kind: 'support' })}
-                        data-attr="access-resolution-keep-current"
-                    >
-                        Keep current access
-                    </LemonButton>
-                    <span className="text-muted text-xs">
-                        Contact support to keep the current access for all members. We will adjust your rules so
-                        everyone's effective access stays the same.
-                    </span>
-                </div>
-            )}
+            {footer}
         </div>
     )
 }

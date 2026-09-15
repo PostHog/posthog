@@ -230,6 +230,11 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
         if not user_access_control.is_organization_admin:
             raise exceptions.PermissionDenied("Only organization admins can accept the new resolution.")
+        # The switch reaches every project, so a credential limited to some projects may not make it
+        if get_authenticator_scoped_team_ids(request.successful_authenticator) is not None:
+            raise exceptions.PermissionDenied(
+                "A credential scoped to specific projects cannot accept the new resolution."
+            )
 
         organization = team.organization
         if not organization.uses_most_specific_access_resolution:
