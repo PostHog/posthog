@@ -28791,6 +28791,75 @@ export namespace Schemas {
       include_posthog_hint?: boolean;
     }
 
+    export interface DurationDistribution {
+      /** Pull requests in the distribution. Every statistic is null when this is 0. */
+      pr_count: number;
+      /**
+         * Fastest duration, in seconds.
+         * @nullable
+         */
+      min_seconds: number | null;
+      /**
+         * 5th percentile, in seconds: the lower whisker.
+         * @nullable
+         */
+      p05_seconds: number | null;
+      /**
+         * 25th percentile, in seconds: the box's lower edge.
+         * @nullable
+         */
+      p25_seconds: number | null;
+      /**
+         * Median, in seconds.
+         * @nullable
+         */
+      p50_seconds: number | null;
+      /**
+         * Mean, in seconds.
+         * @nullable
+         */
+      mean_seconds: number | null;
+      /**
+         * 75th percentile, in seconds: the box's upper edge.
+         * @nullable
+         */
+      p75_seconds: number | null;
+      /**
+         * 95th percentile, in seconds: the upper whisker.
+         * @nullable
+         */
+      p95_seconds: number | null;
+      /**
+         * Slowest duration, in seconds.
+         * @nullable
+         */
+      max_seconds: number | null;
+    }
+
+    export interface ScopeRepoDistribution {
+      /** The deployed pull requests in scope. */
+      scope: DurationDistribution;
+      /** Every deployed pull request in the repository. */
+      repo: DurationDistribution;
+    }
+
+    export interface DeliveryLeadTime {
+      /** Open to the first successful deploy containing the merge, over PRs deployed in the window. */
+      open_to_deploy: ScopeRepoDistribution;
+      /** Open to merge over the same deployed PRs, so it composes with merge_to_deploy. Includes draft time. */
+      open_to_merge: ScopeRepoDistribution;
+      /** Merge to deploy over the same deployed PRs. */
+      merge_to_deploy: ScopeRepoDistribution;
+      /** False when the deployments and deployment statuses tables aren't synced. The distributions are then empty. */
+      deploy_data_available: boolean;
+      /** The deploy environments lead time was scoped to: production by default. Empty when deploy data is not available. */
+      environment_scope: string;
+      /** PRs in scope merged in the window (bots and drafts excluded). */
+      merged_pr_count: number;
+      /** Of merged_pr_count, the PRs a successful in-scope deploy contains. The rest are still waiting for a deploy or fall outside the scan. */
+      deployed_merged_pr_count: number;
+    }
+
     /**
      * * `open_to_gate` - OPEN_TO_GATE
      * * `gate_to_merge` - GATE_TO_MERGE
@@ -28828,6 +28897,96 @@ export namespace Schemas {
       stages: DeliveryStageTiming[];
       /** PRs merged in the window with bots and drafts excluded. A narrower population than RepoOverview.merged_pr_count, which counts all authors. */
       merged_pr_count: number;
+    }
+
+    /**
+     * * `author` - AUTHOR
+     * * `github_team` - GITHUB_TEAM
+     * * `pull_request` - PULL_REQUEST
+     */
+    export type DeliveryScopeKindEnum = typeof DeliveryScopeKindEnum[keyof typeof DeliveryScopeKindEnum];
+
+
+    export const DeliveryScopeKindEnum = {
+      Author: 'author',
+      GithubTeam: 'github_team',
+      PullRequest: 'pull_request',
+    } as const;
+
+    export interface ScopeRepoFigure {
+      /**
+         * The figure over the pull requests in scope. Null when the scope has nothing to measure.
+         * @nullable
+         */
+      scope: number | null;
+      /**
+         * The same figure over every non-bot pull request in the repository, the scope included. Null when the repository has nothing to measure.
+         * @nullable
+         */
+      repo: number | null;
+    }
+
+    export interface DeliverySummary {
+      /** Median estimated CI cost per merged PR, in USD, over every run linked to the PR (merge-queue gate runs included) that started up to 30 days before the window. Null when the jobs table isn't synced. */
+      cost_per_merged_pr_usd: ScopeRepoFigure;
+      /** Median billable runner minutes per merged PR, on the billed clock. Null when the jobs table isn't synced. */
+      billable_minutes_per_merged_pr: ScopeRepoFigure;
+      /** Total CI cost divided by total pushes over the merged PRs: the price of one iteration. A push is a distinct head commit that triggered CI. */
+      cost_per_push_usd: ScopeRepoFigure;
+      /** Median seconds from the last ready_for_review to merge. Null when issue events aren't synced. */
+      median_ready_to_merge_seconds: ScopeRepoFigure;
+      /** 90th percentile of the ready-to-merge seconds. */
+      p90_ready_to_merge_seconds: ScopeRepoFigure;
+      /** Median seconds from ready to the first approval. An approval given while the PR was a draft counts as 0. PRs merged without an approval are left out. Null when reviews aren't synced. */
+      median_ready_to_first_approval_seconds: ScopeRepoFigure;
+      /** Median seconds from the first approval to merge. This median and the one before it do not add up to the ready-to-merge median. */
+      median_first_approval_to_merge_seconds: ScopeRepoFigure;
+      /** Share (0 to 1) of all ready-to-merge hours spent before the first approval, summed over the PRs, so long PRs weigh more. The rest came after the approval. */
+      before_first_approval_share: ScopeRepoFigure;
+      /** Mean pushes after the first approval per merged PR, over PRs with an approval. */
+      pushes_after_approval_per_merged_pr: ScopeRepoFigure;
+      /** Mean merge-queue gate attempts per merged PR that went through the queue. A bisection probe folds into its attempt. */
+      merge_queue_attempts_per_merged_pr: ScopeRepoFigure;
+      /** Share (0 to 1) of queue-landed merged PRs with at least one failed gate attempt. A failure caused by another PR ahead in the queue also counts, because the queue history is not in the warehouse. */
+      failed_merge_queue_share: ScopeRepoFigure;
+      /** Lead time to deploy for the scope against the repository. */
+      lead_time: DeliveryLeadTime;
+      /** What the read covers: 'author' (one GitHub login), 'github_team' (the members of one GitHub team, through the team membership table), or 'pull_request' (one pull request).
+       *
+       * * `author` - AUTHOR
+       * * `github_team` - GITHUB_TEAM
+       * * `pull_request` - PULL_REQUEST */
+      scope_kind: DeliveryScopeKindEnum;
+      /** The GitHub login or GitHub team slug the summary is for. */
+      scope: string;
+      /** True when the team membership table is synced. A github_team scope without it matches no pull requests, so every scope figure is empty rather than the whole repository. */
+      has_membership_data: boolean;
+      /** True when the workflow jobs table is synced, which cost needs. */
+      jobs_available: boolean;
+      /** True when the reviews table is synced, which the approval split needs. */
+      review_data_available: boolean;
+      /** True when issue events are synced, which ready-to-merge time needs. */
+      ready_data_available: boolean;
+      /** PRs in scope opened in the window, drafts included, bots excluded. */
+      opened_pr_count: number;
+      /** PRs in scope merged in the window (bots and drafts excluded): the population of every per-merged-PR figure. */
+      merged_pr_count: number;
+      /** PRs in scope that are open and not drafts right now. Ignores the window. */
+      open_pr_count: number;
+      /** PRs in scope that are open drafts right now. Ignores the window. */
+      draft_pr_count: number;
+      /**
+         * Estimated CI cost summed over the merged PRs in scope. Null when nothing was costable.
+         * @nullable
+         */
+      total_cost_usd: number | null;
+      /**
+         * Billable minutes summed over the merged PRs in scope. Null when the jobs table isn't synced.
+         * @nullable
+         */
+      total_billable_minutes: number | null;
+      /** Pushes summed over the merged PRs in scope. */
+      push_count: number;
     }
 
     export interface DependentFlag {
@@ -56538,6 +56697,102 @@ export namespace Schemas {
       metric_quality?: MetricQualityEnum;
     }
 
+    /**
+     * * `draft` - DRAFT
+     * * `waiting_for_review` - WAITING_FOR_REVIEW
+     * * `changes_requested` - CHANGES_REQUESTED
+     * * `approved_not_enqueued` - APPROVED_NOT_ENQUEUED
+     * * `review_state_unknown` - REVIEW_STATE_UNKNOWN
+     * * `ci_running` - CI_RUNNING
+     * * `red_passed_on_rerun` - RED_PASSED_ON_RERUN
+     * * `red_master_broken` - RED_MASTER_BROKEN
+     * * `red_fixed_by_push` - RED_FIXED_BY_PUSH
+     * * `red_not_provable` - RED_NOT_PROVABLE
+     * * `merge_queue` - MERGE_QUEUE
+     * * `out_of_merge_queue` - OUT_OF_MERGE_QUEUE
+     */
+    export type PRTimelineSegmentKindEnum = typeof PRTimelineSegmentKindEnum[keyof typeof PRTimelineSegmentKindEnum];
+
+
+    export const PRTimelineSegmentKindEnum = {
+      Draft: 'draft',
+      WaitingForReview: 'waiting_for_review',
+      ChangesRequested: 'changes_requested',
+      ApprovedNotEnqueued: 'approved_not_enqueued',
+      ReviewStateUnknown: 'review_state_unknown',
+      CiRunning: 'ci_running',
+      RedPassedOnRerun: 'red_passed_on_rerun',
+      RedMasterBroken: 'red_master_broken',
+      RedFixedByPush: 'red_fixed_by_push',
+      RedNotProvable: 'red_not_provable',
+      MergeQueue: 'merge_queue',
+      OutOfMergeQueue: 'out_of_merge_queue',
+    } as const;
+
+    export interface PRTimelineSegment {
+      /** What the PR waited on: draft; waiting_for_review (no approval yet, or re-review after a push); changes_requested (no push since); approved_not_enqueued (approved, with no failing or running check); review_state_unknown (reviews not synced); ci_running; red_passed_on_rerun (the failed workflows passed a re-run of the same commit); red_master_broken (the failed jobs also failed on the default branch within 12 hours); red_fixed_by_push (a later commit arrived); red_not_provable; merge_queue (every queue state collapsed); out_of_merge_queue (open PR, Trunk says failed or cancelled).
+       *
+       * * `draft` - DRAFT
+       * * `waiting_for_review` - WAITING_FOR_REVIEW
+       * * `changes_requested` - CHANGES_REQUESTED
+       * * `approved_not_enqueued` - APPROVED_NOT_ENQUEUED
+       * * `review_state_unknown` - REVIEW_STATE_UNKNOWN
+       * * `ci_running` - CI_RUNNING
+       * * `red_passed_on_rerun` - RED_PASSED_ON_RERUN
+       * * `red_master_broken` - RED_MASTER_BROKEN
+       * * `red_fixed_by_push` - RED_FIXED_BY_PUSH
+       * * `red_not_provable` - RED_NOT_PROVABLE
+       * * `merge_queue` - MERGE_QUEUE
+       * * `out_of_merge_queue` - OUT_OF_MERGE_QUEUE */
+      kind: PRTimelineSegmentKindEnum;
+      /** Segment start. */
+      started_at: string;
+      /** Segment end: the next segment's start, the merge or close, or now. */
+      ended_at: string;
+    }
+
+    export interface PRTimeline {
+      /** The repository the pull request belongs to. */
+      repo: RepoRef;
+      /** Consecutive segments from started_at to the merge, the close, or now, with no gaps. */
+      segments: PRTimelineSegment[];
+      /** Pull request number. */
+      number: number;
+      /** Pull request title. */
+      title: string;
+      /** The pull request's author. */
+      author: Author;
+      /** open, merged, or closed. Author and team scopes list open and merged PRs only; a pull_request scope returns the PR whatever its state.
+       *
+       * * `open` - OPEN
+       * * `closed` - CLOSED
+       * * `merged` - MERGED */
+      state: EngineeringAnalyticsPRStateEnum;
+      /** True when the PR is a draft right now. */
+      is_draft: boolean;
+      /** When the PR was opened. */
+      created_at: string;
+      /** Where the timeline starts: the last ready_for_review before the end, else created_at. A PR listed for an author or a team starts no earlier than 30 days before the window, because older CI is not read. */
+      started_at: string;
+      /**
+         * Merge time; null when not merged.
+         * @nullable
+         */
+      merged_at: string | null;
+      /** Distinct head commits that triggered CI, merge-queue gate runs excluded. */
+      pushes: number;
+      /**
+         * Estimated CI cost over the PR's runs, in USD. Null when nothing was costable.
+         * @nullable
+         */
+      estimated_cost_usd: number | null;
+      /**
+         * Billable minutes over the PR's runs. Null when the jobs table isn't synced.
+         * @nullable
+         */
+      billable_minutes: number | null;
+    }
+
     export interface PaginatedAccountChannelSummaryList {
       count: number;
       /** @nullable */
@@ -74894,6 +75149,33 @@ export namespace Schemas {
      */
     export interface PullRequestReviewCommentReactionCreateResponse {
       readonly reaction: PullRequestCommentReaction;
+    }
+
+    export interface PullRequestTimelines {
+      /** The pull requests in scope, newest first: open PRs plus PRs merged in the window, or the one pull request of a pull_request scope. */
+      items: PRTimeline[];
+      /** What the read covers: 'author' (one GitHub login), 'github_team' (the members of one GitHub team, through the team membership table), or 'pull_request' (one pull request).
+       *
+       * * `author` - AUTHOR
+       * * `github_team` - GITHUB_TEAM
+       * * `pull_request` - PULL_REQUEST */
+      scope_kind: DeliveryScopeKindEnum;
+      /** The GitHub login, GitHub team slug, or 'owner/name#number' the timelines are for. */
+      scope: string;
+      /** True when the team membership table is synced. A github_team scope without it lists no pull requests. */
+      has_membership_data: boolean;
+      /** False when reviews aren't synced: review stretches read review_state_unknown. */
+      review_data_available: boolean;
+      /** False when workflow jobs aren't synced: a check a re-run turned green is not visible, and no red stretch reads red_master_broken. */
+      jobs_available: boolean;
+      /** True when the Trunk merge-queue table is synced, so out_of_merge_queue can appear. */
+      merge_queue_state_available: boolean;
+      /** The now every open PR's timeline ends at. */
+      generated_at: string;
+      /** True when more PRs matched than the limit. */
+      truncated: boolean;
+      /** The maximum number of PRs returned. */
+      limit: number;
     }
 
     /**
@@ -98480,6 +98762,33 @@ export namespace Schemas {
     source_id?: string;
     };
 
+    export type EngineeringAnalyticsDeliverySummaryParams = {
+    /**
+     * GitHub login: scope the read to this author's pull requests. Pass exactly one scope.
+     */
+    author?: string;
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * GitHub team slug: scope the read to pull requests authored by the team's members, through the team membership table. Pass exactly one scope.
+     */
+    github_team?: string;
+    /**
+     * 'owner/name' repository. Required with pr_number; otherwise it picks the repository when the selected source syncs several.
+     */
+    repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
     export type EngineeringAnalyticsDoraParams = {
     /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
@@ -98662,6 +98971,37 @@ export namespace Schemas {
      * 'owner/name' repository the pull request belongs to.
      */
     repo: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
+    export type EngineeringAnalyticsPullRequestTimelinesParams = {
+    /**
+     * GitHub login: scope the read to this author's pull requests. Pass exactly one scope.
+     */
+    author?: string;
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * GitHub team slug: scope the read to pull requests authored by the team's members, through the team membership table. Pass exactly one scope.
+     */
+    github_team?: string;
+    /**
+     * Pull request number: scope the read to this one pull request. Needs repo. Pass exactly one scope.
+     */
+    pr_number?: number;
+    /**
+     * 'owner/name' repository. Required with pr_number; otherwise it picks the repository when the selected source syncs several.
+     */
+    repo?: string;
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
