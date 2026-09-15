@@ -842,6 +842,9 @@ class TestDropTableValidation:
         # Should be NEEDS_REVIEW (score 2) since properly staged
         assert migration_risk.level == RiskLevel.NEEDS_REVIEW
         assert migration_risk.max_score == 2
+        # Staging is not the whole story: the raw form keeps the deadlock-prone lock order.
+        guidance = migration_risk.operations[0].guidance
+        assert guidance and "SafeDropTable" in guidance
 
     def test_drop_table_resolves_deleted_model_with_custom_db_table(self):
         """

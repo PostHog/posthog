@@ -713,14 +713,16 @@ Safe pattern requires:
                             score=2,
                             reason="DROP TABLE IF EXISTS - properly staged (prior state removal found)",
                             details={"sql": sql, "table": table_name},
-                            guidance=f"""✅ **Validated staged drop:** Found prior SeparateDatabaseAndState that removed model from state.
+                            guidance=f"""⚠️ **Staged, but hand-written:** Found prior SeparateDatabaseAndState that removed model from state, so the staging is valid. Drop the table with `SafeDropTable` from posthog.migration_helpers instead of this raw DROP.
+
+A raw `DROP TABLE` takes ACCESS EXCLUSIVE on the dropped table and on every table its foreign keys reference, one relation at a time. That order crosses the order of a live multi-table read, and the deadlock detector kills the read rather than the migration. A short `lock_timeout` does not change which session Postgres picks. `SafeDropTable` takes all of the locks up front under a budget derived from `deadlock_timeout`, so the migration loses the race instead.
 
 Remaining checklist:
 - Ensure all code references removed (API, models, imports)
 - Waited at least one full deployment cycle since state removal
 - No other models reference this table via foreign keys
 
-[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-tables)""",
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#drop-table-lock-order)""",
                         )
 
                 # Not properly staged or can't validate
