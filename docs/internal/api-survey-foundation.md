@@ -29,6 +29,8 @@ This foundation does not submit partial answers or emit automatic dismissal even
 
 ## Keyboard navigation
 
+Each question displays its relevant shortcuts below the answer control.
+The command key hint uses Cmd on macOS and Ctrl elsewhere.
 Shortcuts only act on a focused answer inside the form.
 Arrow keys select radio choices and ratings, and move between checkboxes without toggling them.
 Space toggles the focused checkbox.
