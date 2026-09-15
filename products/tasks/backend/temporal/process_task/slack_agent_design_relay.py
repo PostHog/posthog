@@ -49,6 +49,10 @@ STATUS_MIN_INTERVAL_SECONDS = 2.0
 TURN_IDLE_TIMEOUT_MINUTES = 5
 _STEP_FIELD_LIMIT = 256
 _NARRATIVE_STEP_TITLE = "💭"
+# One line per tool call inside a merged timeline card, and a cap on how many
+# lines the card lists before collapsing the rest into a "+n more" tail.
+_CARD_LINE_LIMIT = 160
+_CARD_MAX_LINES = 12
 
 _ACTIVITY_OPTIONS: dict[str, Any] = {
     "start_to_close_timeout": timedelta(seconds=10),
@@ -112,6 +116,13 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         # Bumped by every content signal, so the final_only wait can tell live
         # silence from a turn that is still producing.
         self._signal_seq: int = 0
+        # The open timeline card: consecutive tool calls with no narrative between
+        # them merge into it rather than each opening a card of their own.
+        self._card_step_lines: list[str] = []
+        self._card_step_count: int = 0
+        self._card_title_base: Optional[str] = None
+        self._card_titles_uniform: bool = True
+        self._last_consumed_kind: Optional[str] = None
 
     @workflow.signal
     async def agent_status_update(self, payload: dict[str, Any] | str) -> None:
@@ -228,8 +239,41 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         tail = self._events[-1] if self._events else None
         return (len(self._events), len(tail.text) if isinstance(tail, QueuedText) else -1)
 
-    def _step_transition_chunks(self, step: PendingStep) -> list[StreamChunk]:
-        """Complete the in-progress card, open a new one for ``step``."""
+    def _card_chunks_for_step(self, step: PendingStep) -> list[StreamChunk]:
+        """Merge the tool call into the open card, or complete it and open a new one.
+
+        Consecutive tool calls with no narrative between them share one card whose
+        details accumulate the calls, so a burst renders as a single collapsible
+        card instead of a column of one-line cards. Narrative breaks the burst:
+        the card completes when the next call opens a new one.
+        """
+        line = (step.details or step.title)[:_CARD_LINE_LIMIT]
+        if self._current_task_id is not None and self._last_consumed_kind == "step":
+            self._card_step_count += 1
+            if len(self._card_step_lines) < _CARD_MAX_LINES:
+                self._card_step_lines.append(line)
+            if step.title != self._card_title_base:
+                self._card_titles_uniform = False
+            details_lines = [f"• {entry}" for entry in self._card_step_lines]
+            overflow = self._card_step_count - len(self._card_step_lines)
+            if overflow:
+                details_lines.append(f"…+{overflow} more")
+            if self._card_titles_uniform and self._card_title_base:
+                self._current_task_title = f"{self._card_title_base} ({self._card_step_count})"
+            else:
+                self._current_task_title = f"{self._card_step_count} tool calls"
+            self._current_task_details = "\n".join(details_lines)
+            return [
+                StreamChunk(
+                    task_update=TaskUpdateChunk(
+                        id=self._current_task_id,
+                        title=self._current_task_title,
+                        status="in_progress",
+                        details=self._current_task_details,
+                    )
+                )
+            ]
+
         chunks: list[StreamChunk] = []
         if self._current_task_id and self._current_task_title:
             chunks.append(
@@ -251,6 +295,10 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         self._current_task_id = new_id
         self._current_task_title = step.title
         self._current_task_details = step.details
+        self._card_step_lines = [line]
+        self._card_step_count = 1
+        self._card_title_base = step.title
+        self._card_titles_uniform = True
         return chunks
 
     def _collect_timeline_chunks(self, final: bool) -> list[StreamChunk]:
@@ -266,7 +314,21 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         while i < len(self._events):
             item = self._events[i]
             if isinstance(item, PendingStep):
-                chunks.extend(self._step_transition_chunks(item))
+                step_chunks = self._card_chunks_for_step(item)
+                # A merge update supersedes the previous update to the same card,
+                # so one flush sends the card once, not once per call it absorbed.
+                if (
+                    len(step_chunks) == 1
+                    and step_chunks[0].task_update is not None
+                    and chunks
+                    and chunks[-1].task_update is not None
+                    and chunks[-1].task_update.id == step_chunks[0].task_update.id
+                    and chunks[-1].task_update.status == "in_progress"
+                ):
+                    chunks[-1] = step_chunks[0]
+                else:
+                    chunks.extend(step_chunks)
+                self._last_consumed_kind = "step"
                 i += 1
                 offset = 0
                 continue
@@ -275,10 +337,12 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
                 split = split_incomplete_tag_suffix(text)
                 if split.sendable:
                     chunks.append(StreamChunk(markdown_text=split.sendable))
+                    self._last_consumed_kind = "text"
                     offset += len(split.sendable)
                 break
             if text:
                 chunks.append(StreamChunk(markdown_text=text))
+                self._last_consumed_kind = "text"
             i += 1
             offset = 0
         self._consumed = i

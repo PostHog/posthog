@@ -129,10 +129,41 @@ async def test_timeline_interleaves_prose_and_task_cards_in_arrival_order():
     assert stop_input.trace_id == "trace-1"
 
 
-async def test_timeline_completes_previous_card_when_the_next_tool_call_arrives():
+async def test_timeline_merges_consecutive_tool_calls_into_one_card():
+    # A burst of tool calls with no narrative between them must render as one
+    # collapsible card that accumulates the calls, not a column of one-line cards.
+    async with _RelayEnv() as relay:
+        handle = await relay.start_relay(STREAM_MODE_TIMELINE)
+        await handle.signal(
+            SlackAgentDesignRelayWorkflow.agent_status_update, {"title": "posthog/exec", "details": "insight list"}
+        )
+        await handle.signal(
+            SlackAgentDesignRelayWorkflow.agent_status_update, {"title": "posthog/exec", "details": "query run"}
+        )
+        await handle.signal(SlackAgentDesignRelayWorkflow.complete_turn, None)
+        await handle.result()
+
+    tasks = [c.task_update for c in relay.rec.ordered_chunks() if c.task_update]
+    assert len({t.id for t in tasks}) == 1
+    last = tasks[-1]
+    assert last.status == "in_progress"
+    assert last.title == "posthog/exec (2)"
+    assert last.details is not None
+    assert "insight list" in last.details
+    assert "query run" in last.details
+
+    stop_input = relay.rec.calls[-1][1]
+    assert isinstance(stop_input, StopSlackAgentDesignStreamInput)
+    assert stop_input.complete_task_id == last.id
+
+
+async def test_timeline_narrative_breaks_the_card_burst():
+    # Prose between tool calls completes the open card, so the next call opens a
+    # new one and the thread keeps its text → card → text → card rhythm.
     async with _RelayEnv() as relay:
         handle = await relay.start_relay(STREAM_MODE_TIMELINE)
         await handle.signal(SlackAgentDesignRelayWorkflow.agent_status_update, {"title": "Read"})
+        await handle.signal(SlackAgentDesignRelayWorkflow.agent_text_delta, "Now searching.")
         await handle.signal(SlackAgentDesignRelayWorkflow.agent_status_update, {"title": "Grep"})
         await handle.signal(SlackAgentDesignRelayWorkflow.complete_turn, None)
         await handle.result()
@@ -144,6 +175,7 @@ async def test_timeline_completes_previous_card_when_the_next_tool_call_arrives(
         ("Grep", "in_progress"),
     ]
     assert tasks[0].id == tasks[1].id
+    assert tasks[2].id != tasks[0].id
 
 
 async def test_final_only_posts_one_batch_with_only_the_post_tool_answer():
