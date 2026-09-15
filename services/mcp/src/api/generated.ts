@@ -58207,6 +58207,7 @@ export namespace Schemas {
       /** @nullable */
       readonly last_fired_at: string | null;
       readonly status: ReminderStatusEnum;
+      deleted?: boolean;
       readonly created_by: UserBasic;
       readonly created_at: string;
       /** @nullable */
@@ -68969,6 +68970,7 @@ export namespace Schemas {
       /** @nullable */
       readonly last_fired_at?: string | null;
       readonly status?: ReminderStatusEnum;
+      deleted?: boolean;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
       /** @nullable */
