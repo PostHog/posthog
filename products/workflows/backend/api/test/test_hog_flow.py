@@ -773,6 +773,9 @@ class TestHogFlowAPI(APIBaseTest):
             ("unit_and_duration_shape", {"unit": "days", "duration": 3}),
             ("unsupported_unit", {"delay_duration": "30w"}),
             ("empty_string", {"delay_duration": ""}),
+            # The worker's parser is ASCII-only, so a value Python's `\d` would accept throws on the run.
+            ("unicode_digits", {"delay_duration": "\u0665d"}),
+            ("negative", {"delay_duration": "-5d"}),
         ]
     )
     def test_hog_flow_delay_validation_rejects_malformed_config(self, _name, bad_config):
@@ -782,8 +785,8 @@ class TestHogFlowAPI(APIBaseTest):
             "attr": "actions__1__config",
             "code": "invalid_input",
             "detail": (
-                "delay_duration must be a string matching ^\\d*\\.?\\d+[dhms]$ "
-                "(e.g. '30s', '30m', '2h', '1.5d'). ISO-8601 formats are not supported."
+                "delay_duration must be a duration string such as '30s', '30m', '2h', '1.5d'. "
+                "ISO-8601 formats are not supported."
             ),
             "type": "validation_error",
         }
@@ -837,8 +840,8 @@ class TestHogFlowAPI(APIBaseTest):
             "attr": "actions__1__config",
             "code": "invalid_input",
             "detail": (
-                "max_wait_duration must be a string matching ^\\d*\\.?\\d+[dhms]$ "
-                "(e.g. '30s', '30m', '2h', '1.5d'). ISO-8601 formats are not supported."
+                "max_wait_duration must be a duration string such as '30s', '30m', '2h', '1.5d'. "
+                "ISO-8601 formats are not supported."
             ),
             "type": "validation_error",
         }
