@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Any
 
 from unittest.mock import MagicMock, patch
@@ -56,8 +57,10 @@ class _FakeInsight:
 
 
 class _FakeAlert:
+    id = "b8f3a1e0-0000-0000-0000-000000000001"
     config: dict[str, Any] = {"type": "TrendsAlertConfig", "series_index": 0}
     created_by = FAKE_USER
+    next_check_at = datetime(2026, 1, 5, tzinfo=UTC)
 
 
 def _extraction() -> ExtractionResult:

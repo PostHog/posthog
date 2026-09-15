@@ -107,6 +107,24 @@ def test_flattens_nested_property_groups() -> None:
     assert "event property $host is eu.posthog.com" in described
 
 
+def test_the_effective_range_replaces_the_insights_saved_range() -> None:
+    # A detector fetches a wider span than a short saved range holds. Describing the saved range
+    # next to the dated points it sends tells the model two different things about the span.
+    query = {
+        "kind": "TrendsQuery",
+        "interval": "day",
+        "series": [{"kind": "EventsNode", "event": "$pageview"}],
+        "dateRange": {"date_from": "-7d"},
+    }
+
+    saved = describe_metric_definition(query)
+    effective = describe_metric_definition(query, effective_date_range=("2026-01-01", "2026-03-31"))
+
+    assert "Insight date range: -7d to now" in saved
+    assert "Insight date range" not in effective
+    assert "2026-01-01 to 2026-03-31" in effective
+
+
 @parameterized.expand(
     [
         ("none", None),

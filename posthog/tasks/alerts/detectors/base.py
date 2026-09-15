@@ -46,6 +46,9 @@ class DetectionContext:
     instructions: str = ""
     team: "Team | None" = None
     user: "User | None" = None
+    # Names the scheduled check, and stays the same across retries of it, so a detector that
+    # pays for an external call can reuse a verdict it already bought. None for a simulation.
+    evaluation_id: str | None = None
 
 
 class BaseDetector(ABC):

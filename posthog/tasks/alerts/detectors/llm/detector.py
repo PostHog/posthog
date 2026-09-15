@@ -10,8 +10,11 @@ author's own notes on what counts as strange.
 """
 
 import uuid
+import hashlib
 import threading
 from typing import Any
+
+from django.core.cache import cache
 
 import numpy as np
 import structlog
@@ -66,6 +69,62 @@ MAX_RATIONALE_CHARS = 600
 MAX_CONCURRENT_MODEL_CALLS = 8
 MODEL_CALL_SLOT_WAIT_SECONDS = 5.0
 _model_call_slots = threading.BoundedSemaphore(MAX_CONCURRENT_MODEL_CALLS)
+
+# The activity that pays for a verdict also writes the AlertCheck, and it retries as a whole,
+# so one scheduled check would otherwise buy a verdict once per attempt. Sized past the evaluate
+# activity's 12-minute close so it covers every attempt of one check and outlives none of them.
+VERDICT_MEMO_TTL_SECONDS = 20 * 60
+
+
+def _verdict_memo_key(
+    context: DetectionContext, *, data: np.ndarray, window: int, judge_every_point: bool
+) -> str | None:
+    """The memo key for one check's verdict, or None when there is nothing to memoize.
+
+    The key covers the series as well as the check, so a retry that re-queries and gets different
+    numbers asks the model again. A simulation carries no check and is never memoized.
+    """
+    if not context.evaluation_id:
+        return None
+    fingerprint = hashlib.sha256(
+        b"|".join(
+            [
+                context.evaluation_id.encode(),
+                np.ascontiguousarray(data, dtype=np.float64).tobytes(),
+                str(window).encode(),
+                str(judge_every_point).encode(),
+                context.instructions.encode(),
+            ]
+        )
+    ).hexdigest()
+    return f"alerts:llm_detector:verdict:{fingerprint}"
+
+
+def _memoized_verdict(memo_key: str | None) -> LLMDetectionVerdict | None:
+    if not memo_key:
+        return None
+    try:
+        stored = cache.get(memo_key)
+    except Exception:
+        # A cache that cannot be read costs a repeated call, never the check.
+        logger.warning("alerts.llm_detector.memo_read_failed", exc_info=True)
+        return None
+    if not stored:
+        return None
+    try:
+        return LLMDetectionVerdict.model_validate_json(stored)
+    except Exception:
+        logger.warning("alerts.llm_detector.memo_unreadable", exc_info=True)
+        return None
+
+
+def _memoize_verdict(memo_key: str | None, verdict: LLMDetectionVerdict) -> None:
+    if not memo_key:
+        return
+    try:
+        cache.set(memo_key, verdict.model_dump_json(), timeout=VERDICT_MEMO_TTL_SECONDS)
+    except Exception:
+        logger.warning("alerts.llm_detector.memo_write_failed", exc_info=True)
 
 
 @register_detector(DetectorType.LLM)
@@ -128,6 +187,12 @@ class LLMDetector(BaseDetector):
                 f"{access_error} This alert cannot be checked until that changes. Switch it to a statistical "
                 "detector to keep it running."
             )
+
+        memo_key = _verdict_memo_key(context, data=data, window=window, judge_every_point=judge_every_point)
+        memoized = _memoized_verdict(memo_key)
+        if memoized is not None:
+            logger.info("alerts.llm_detector.verdict_reused", is_anomaly=memoized.is_anomaly)
+            return memoized
 
         # Deferred so importing the detector registry does not pull langchain into every
         # process that touches an alert.
@@ -213,6 +278,7 @@ class LLMDetector(BaseDetector):
             instructions_present=instructions_present,
             points_shown=min(window, len(data)),
         )
+        _memoize_verdict(memo_key, verdict)
         return verdict
 
     def _to_result(
