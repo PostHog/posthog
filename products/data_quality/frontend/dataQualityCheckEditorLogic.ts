@@ -495,10 +495,7 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                         rows: response.results.slice(0, 10) as unknown[][],
                         rowCount: response.results.length,
                         hasMore: !!response.hasMore,
-                        warnings: (response.warnings ?? []).filter(
-                            (warning): warning is DataWarehouseSyncWarning | AccessControlFilterWarning =>
-                                warning.type !== 'query_scan'
-                        ),
+                        warnings: response.warnings ?? [],
                     }
                 },
             },

@@ -39,9 +39,8 @@ from posthog.schema import (
     NodeKind,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
+    QueryScanAnalysis,
     QueryScanFindingKind,
-    QueryScanMode,
-    QueryScanStatus,
     StickinessQuery,
     TrendsQuery,
 )
@@ -57,8 +56,7 @@ from posthog.hogql_queries.query_runner import SHARED_FORCE_BLOCKING_STALENESS_W
 from posthog.models import Filter, OrganizationMembership, SharingConfiguration, Team, User
 from posthog.models.project import Project
 from posthog.query_scan.findings import build_warning
-from posthog.query_scan.flag import QueryScanFlag
-from posthog.query_scan.slot import QueryScanSlot
+from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 from posthog.query_scan.test.slots import stored_slot
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.insight_queries import default_pageview_query, insight_query
@@ -4180,14 +4178,12 @@ class TestInsightQueryScan(APIBaseTest):
             query={"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
         )
 
-    def _stored_slot(self, *, killed: bool) -> str:
+    def _stored_slot(self) -> str:
         return stored_slot(
-            QueryScanSlot(
-                status=QueryScanStatus.DONE,
+            QueryScanAnalysis(
                 range_share=0.8,
                 project_share=0.25,
-                killed=killed,
-                findings=(build_warning(kind=QueryScanFindingKind.NO_START_DATE, query_kind="HogQLQuery"),),
+                findings=[build_warning(kind=QueryScanFindingKind.NO_START_DATE, query_kind="HogQLQuery")],
             )
         )
 
@@ -4197,7 +4193,7 @@ class TestInsightQueryScan(APIBaseTest):
         self, _name: str, killed: bool, mock_calculate: mock.MagicMock
     ) -> None:
         insight = self._insight()
-        summary = {"mode": "show", "rows_read": 41_200, "duration_ms": 19_000}
+        summary = {"rows_read": 41_200, "duration_ms": 19_000, "analysis_requested": True}
         if killed:
             # A stopped run has no results to carry the advice, so it rides on the exception.
             error = ClickHouseQueryTimeOut("query timed out")
@@ -4214,7 +4210,7 @@ class TestInsightQueryScan(APIBaseTest):
                 query_scan=summary,
             )
         redis_client = mock.Mock()
-        redis_client.get.return_value = self._stored_slot(killed=killed)
+        redis_client.get.return_value = self._stored_slot()
 
         with (
             patch("posthog.query_scan.serve.get_query_scan_flag", return_value=self.FLAG),
@@ -4224,14 +4220,11 @@ class TestInsightQueryScan(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         body = response.json()
-        # The response's `warnings` list never reaches a tile, so the findings have to ride on
-        # `query_scan` itself.
         query_scan = body["query_scan"]
-        self.assertEqual(query_scan["status"], "done")
-        self.assertEqual(query_scan["range_share"], 0.8)
-        self.assertEqual(query_scan["project_share"], 0.25)
-        self.assertEqual(query_scan["killed"], killed)
-        self.assertEqual([warning["kind"] for warning in query_scan["warnings"]], ["no_start_date"])
+        self.assertEqual(query_scan["analysis"]["range_share"], 0.8)
+        self.assertEqual(query_scan["analysis"]["project_share"], 0.25)
+        self.assertEqual(query_scan.get("killed", False), killed)
+        self.assertEqual([finding["kind"] for finding in query_scan["analysis"]["findings"]], ["no_start_date"])
         # The cache key addresses the stored analysis, so the client can poll for it.
         self.assertEqual(body["filters_hash"], "cache-key")
 
@@ -4255,7 +4248,7 @@ class TestInsightQueryScan(APIBaseTest):
                 "team_id": self.team.pk,
                 "error": True,
                 "cache_key": "cache-key",
-                "query_scan": {"mode": "show", "rows_read": 41_200, "duration_ms": 19_000, "killed": True},
+                "query_scan": {"rows_read": 41_200, "duration_ms": 19_000, "killed": True, "analysis_requested": True},
             },
         )
         self.client.logout()

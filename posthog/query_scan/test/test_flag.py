@@ -9,10 +9,14 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.schema import QueryScanMode
-
 from posthog.query_scan import flag
-from posthog.query_scan.flag import DEFAULT_EVENT_RATIO, DEFAULT_FLOOR_MS, DEFAULT_PERSONS_RATIO, get_query_scan_flag
+from posthog.query_scan.flag import (
+    DEFAULT_EVENT_RATIO,
+    DEFAULT_FLOOR_MS,
+    DEFAULT_PERSONS_RATIO,
+    QueryScanMode,
+    get_query_scan_flag,
+)
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team

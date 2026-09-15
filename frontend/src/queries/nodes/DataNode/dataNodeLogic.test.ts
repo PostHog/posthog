@@ -12,28 +12,28 @@ import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 
 const SCAN_ENDPOINT = '/api/environments/:team_id/query/scan/:cache_key/'
-const PENDING_SCAN = { status: 'pending', warnings: [], killed: false }
+// The scan endpoint answers with an empty body while the job runs.
+const PENDING_SCAN = {}
 const DONE_SCAN = {
-    status: 'done',
-    assistant_prompt: 'Help me get what this query is trying to find, as fast as possible.',
-    warnings: [
-        {
-            type: 'query_scan',
-            kind: 'no_event_filter',
-            message: 'This query read every event in its date range.',
-            fix: 'Add an event filter.',
-        },
-    ],
-    range_share: 0.42,
-    project_share: 0.1,
-    killed: false,
+    analysis: {
+        assistant_prompt: 'Help me get what this query is trying to find, as fast as possible.',
+        findings: [
+            {
+                kind: 'no_event_filter',
+                message: 'This query read every event in its date range.',
+                fix: 'Add an event filter.',
+            },
+        ],
+        range_share: 0.42,
+        project_share: 0.1,
+    },
 }
 
 function pendingScanResponse(cacheKey = 'cache-key'): Record<string, unknown> {
     return {
         results: [],
         cache_key: cacheKey,
-        query_scan: { mode: 'show', rows_read: 10, duration_ms: 2000, status: 'pending' },
+        query_scan: { rows_read: 10, duration_ms: 2000, analysis_requested: true },
     }
 }
 
@@ -840,18 +840,18 @@ describe('dataNodeLogic', () => {
             })
             mountWithPendingScan()
             await jest.advanceTimersByTimeAsync(0)
-            expect(logic.values.queryScan?.summary.status).toBe('pending')
+            expect(logic.values.queryScan?.summary.analysis).toBeUndefined()
 
             await jest.advanceTimersByTimeAsync(QUERY_SCAN_POLL_DELAYS_MS[0])
             expect(scanCalls).toBe(1)
-            expect(logic.values.queryScan?.summary.status).toBe('pending')
+            expect(logic.values.queryScan?.summary.analysis).toBeUndefined()
 
             await jest.advanceTimersByTimeAsync(QUERY_SCAN_POLL_DELAYS_MS[1])
             expect(scanCalls).toBe(2)
-            expect(logic.values.queryScan?.summary.status).toBe('done')
-            expect(logic.values.queryScan?.summary.range_share).toBe(0.42)
+            expect(logic.values.queryScan?.summary.analysis).not.toBeUndefined()
+            expect(logic.values.queryScan?.summary.analysis?.range_share).toBe(0.42)
             expect(logic.values.queryScan?.findings).toHaveLength(1)
-            expect(logic.values.queryScan?.assistantPrompt).toBe(DONE_SCAN.assistant_prompt)
+            expect(logic.values.queryScan?.assistantPrompt).toBe(DONE_SCAN.analysis.assistant_prompt)
 
             // The analysis is done, so no more asks go out.
             await jest.advanceTimersByTimeAsync(60000)
@@ -861,7 +861,7 @@ describe('dataNodeLogic', () => {
         }
     })
 
-    it('fetches the findings once for a stopped run whose analysis an earlier run stored', async () => {
+    it('polls the analysis of a stopped run off its error', async () => {
         jest.useFakeTimers()
         try {
             let scanCalls = 0
@@ -873,19 +873,13 @@ describe('dataNodeLogic', () => {
                     },
                 },
             })
-            // The runner reports the stored analysis as done on the error, and an error carries no findings.
+            // A stopped run has no response, so the pointer to its analysis rides on the error.
             mockedQuery.mockRejectedValueOnce(
                 Object.assign(new Error('Query was cancelled'), {
                     data: {
                         extra: {
                             cache_key: 'cache-key',
-                            query_scan: {
-                                mode: 'show',
-                                rows_read: 10,
-                                duration_ms: 2000,
-                                status: 'done',
-                                killed: true,
-                            },
+                            query_scan: { rows_read: 10, duration_ms: 2000, killed: true, analysis_requested: true },
                         },
                     },
                 })
@@ -896,12 +890,11 @@ describe('dataNodeLogic', () => {
             })
             logic.mount()
 
-            // Well before the first backoff step, so a poll on the backoff would not have gone out yet.
-            await jest.advanceTimersByTimeAsync(100)
+            await jest.advanceTimersByTimeAsync(QUERY_SCAN_POLL_DELAYS_MS[0])
             expect(scanCalls).toBe(1)
             expect(logic.values.queryScan?.summary.killed).toBe(true)
             expect(logic.values.queryScan?.findings).toHaveLength(1)
-            expect(logic.values.queryScan?.assistantPrompt).toBe(DONE_SCAN.assistant_prompt)
+            expect(logic.values.queryScan?.assistantPrompt).toBe(DONE_SCAN.analysis.assistant_prompt)
 
             await jest.advanceTimersByTimeAsync(60000)
             expect(scanCalls).toBe(1)
@@ -929,7 +922,7 @@ describe('dataNodeLogic', () => {
             // A 404 is what a dead job looks like once its pending slot expires, so the poll ends.
             await jest.advanceTimersByTimeAsync(120000)
             expect(scanCalls).toBe(1)
-            expect(logic.values.queryScan?.summary.status).toBe('pending')
+            expect(logic.values.queryScan?.summary.analysis).toBeUndefined()
         } finally {
             jest.useRealTimers()
         }

@@ -587,39 +587,6 @@ export interface AccessControlFilterWarning {
 }
 
 /**
- * Variant of the `query-scan-warnings` flag for the team. `log_only`: analyze but show nothing, to
- * calibrate the thresholds. `show`: clients may show findings. Clients read it here and never
- * evaluate the flag themselves.
- */
-export type QueryScanMode = 'log_only' | 'show'
-
-/**
- * The analysis of a slow query runs in the background, so the response that started it says
- * `pending`. Once `done`, the scan endpoint returns the findings, and later responses for the same
- * query carry them in their `warnings` list.
- */
-export type QueryScanStatus = 'pending' | 'done'
-
-/** What a query cost and where its analysis stands. Only on responses to a signed-in user of a flagged team. */
-export interface QueryScanSummary {
-    mode: QueryScanMode
-    /** Rows ClickHouse read for the last fresh run, all tables included. */
-    rows_read: integer
-    /** ClickHouse time for the last fresh run, summed over its ClickHouse queries. */
-    duration_ms: integer
-    /** Absent when the run was too fast to analyze. */
-    status?: QueryScanStatus
-    /** How much of the project's events in the query's date range the query read, 0 to 1. Set once the analysis is done. */
-    range_share?: number
-    /** How much of all the project's events the query read, 0 to 1. Set once the analysis is done. */
-    project_share?: number
-    /** True when ClickHouse stopped the run instead of finishing it. */
-    killed?: boolean
-    /** The message the Fix with AI button sends to the assistant. Set once the analysis is done and a finding can be fixed in the query. */
-    assistant_prompt?: string
-}
-
-/**
  * `no_event_filter`: nothing narrows the query to particular events. `no_start_date`: nothing bounds
  * where it starts reading. `persons_join`: the join to the persons tables reads as much as the events do.
  */
@@ -633,9 +600,8 @@ export type QueryScanFindingKind = 'no_event_filter' | 'no_start_date' | 'person
  */
 export type QueryScanFindingReason = 'in_or' | 'wrapped' | 'negated' | 'dynamic' | 'not_pruned' | 'filters'
 
-/** One finding of a query scan. Sits in the response's `warnings` list next to the other warning kinds. */
+/** One finding of a query's analysis. */
 export interface QueryScanWarning {
-    type: 'query_scan'
     kind: QueryScanFindingKind
     /** Only with `no_event_filter` and `no_start_date`. */
     reason?: QueryScanFindingReason
@@ -647,16 +613,35 @@ export interface QueryScanWarning {
     evidence?: string
 }
 
-/** The stored analysis of one query, from `GET /query/scan/{cache_key}`. */
-export interface QueryScanResponse {
-    status: QueryScanStatus
-    /** Empty until the status is `done`, and when the analysis found nothing to fix. */
-    warnings: QueryScanWarning[]
+/** The stored analysis of one query, kept for 30 days by cache key and put on every response for that query. */
+export interface QueryScanAnalysis {
+    /** Empty when the analysis found nothing to fix. */
+    findings: QueryScanWarning[]
+    /** How much of the project's events in the query's date range the query read, 0 to 1. */
     range_share?: number
+    /** How much of all the project's events the query read, 0 to 1. */
     project_share?: number
-    killed: boolean
-    /** The message the Fix with AI button sends to the assistant. Absent until the status is `done`, and when no finding can be fixed in the query. */
+    /** The message the Fix with AI button sends to the assistant. Absent when no finding can be fixed in the query. */
     assistant_prompt?: string
+}
+
+/** What a query cost and, once analyzed, why. Only on responses to a signed-in user of a team whose flag shows findings. */
+export interface QueryScanSummary {
+    /** Rows ClickHouse read for the last fresh run, all tables included. */
+    rows_read: integer
+    /** ClickHouse time for the last fresh run, summed over its ClickHouse queries. */
+    duration_ms: integer
+    /** True when ClickHouse stopped the run instead of finishing it. */
+    killed?: boolean
+    /** True when the run asked for an analysis, or found one stored. While `analysis` is absent, poll `GET /query/scan/{cache_key}` for it. */
+    analysis_requested?: boolean
+    /** The stored analysis, put on the response when it is served. Absent while the analysis runs, and when none was requested. */
+    analysis?: QueryScanAnalysis
+}
+
+/** From `GET /query/scan/{cache_key}`: the analysis once the job has stored it. Empty while the job runs, 404 when nothing is stored. */
+export interface QueryScanResponse {
+    analysis?: QueryScanAnalysis
 }
 
 export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBase {
@@ -677,9 +662,8 @@ export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBas
      * Warnings about data warehouse sources referenced by the query whose latest sync failed,
      * is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data.
      * Also carries access control warnings when a system-table query filters out objects the user can't access.
-     * Also carries query scan findings, see `QueryScanWarning`.
      */
-    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | QueryScanWarning)[]
+    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[]
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -2768,9 +2752,8 @@ export interface AnalyticsQueryResponseBase {
      * Accumulated across every HogQL execution that contributes to this response — so insights backed
      * by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.
      * Also carries access control warnings when a system-table query filters out objects the user can't access.
-     * Also carries query scan findings, see `QueryScanWarning`.
      */
-    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | QueryScanWarning)[]
+    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[]
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsage[]
 }
@@ -2790,7 +2773,7 @@ interface CachedQueryResponseMixin {
     /** What triggered the calculation of the query, leave empty if user/immediate */
     calculation_trigger?: string
     query_metadata?: object
-    /** The rows and time of the run that produced these results, with its slow-query analysis once done. */
+    /** The rows and time of the run that produced these results, with its analysis once it is stored. */
     query_scan?: QueryScanSummary
 }
 

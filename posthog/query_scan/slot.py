@@ -1,8 +1,9 @@
-"""The scan slot: what the job found for one query, keyed by its cache key and the flag's thresholds.
+"""The scan slot: one query's analysis, keyed by its cache key and the flag's thresholds.
 
-Written once by the job, read by every response for that cache key, in the query cache's Redis. The
-thresholds ride in the key, so an analysis run under other gates lives under another key and reads as
-absent here. A read returns None on any Redis or JSON failure, and a write logs and swallows.
+Claimed by the trigger, written once by the job, read by every response for that cache key, in the
+query cache's Redis. The thresholds ride in the key, so an analysis run under other gates lives under
+another key and reads as absent here. A read returns None on any Redis or JSON failure, and a write
+logs and swallows.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from typing import Any
 
 import structlog
 
-from posthog.schema import QueryScanStatus, QueryScanWarning
+from posthog.schema import QueryScanAnalysis
 
 from posthog.dataclasses import frozen
 from posthog.query_cache.storage import query_cache_raw_client
@@ -21,7 +22,7 @@ logger = structlog.get_logger(__name__)
 
 # Bumped when a stored slot can no longer be read by this code. An older version reads as
 # "no slot", so the next slow run re-analyzes instead of serving a value we cannot parse.
-SLOT_VERSION = 1
+SLOT_VERSION = 2
 
 PENDING_TTL_SECONDS = 10 * 60
 DONE_TTL_SECONDS = 30 * 24 * 60 * 60
@@ -34,13 +35,9 @@ ENQUEUE_WINDOW_SECONDS = 60
 
 @frozen
 class QueryScanSlot:
-    """One analysis of one query. A ``pending`` slot carries only the status and ``killed``."""
+    """One query's slot: the analysis once the job stored it, None while the job runs."""
 
-    status: QueryScanStatus
-    range_share: float | None = None
-    project_share: float | None = None
-    findings: tuple[QueryScanWarning, ...] = ()
-    killed: bool = False
+    analysis: QueryScanAnalysis | None = None
 
 
 def slot_key(team_id: int, cache_key: str, thresholds: str) -> str:
@@ -68,23 +65,19 @@ def get(team_id: int, cache_key: str, *, thresholds: str) -> QueryScanSlot | Non
         return None
 
 
-def set_pending(team_id: int, cache_key: str, *, thresholds: str, killed: bool = False) -> bool:
+def set_pending(team_id: int, cache_key: str, *, thresholds: str) -> bool:
     """Claim the slot for one job. The write is conditional, so two slow runs of one query enqueue one job."""
-    value: dict[str, Any] = {"status": "pending"}
-    if killed:
-        # The scan endpoint answers from this slot until the job finishes, so a run ClickHouse
-        # stopped must not read as one that completed.
-        value["killed"] = True
-    return _write(team_id, cache_key, value, PENDING_TTL_SECONDS, thresholds=thresholds, nx=True)
+    return _write(team_id, cache_key, {"pending": True}, PENDING_TTL_SECONDS, thresholds=thresholds, nx=True)
 
 
-def set_done(team_id: int, cache_key: str, *, thresholds: str, slot: QueryScanSlot) -> None:
-    _write(team_id, cache_key, _serialize(slot), DONE_TTL_SECONDS, thresholds=thresholds)
+def set_done(team_id: int, cache_key: str, *, thresholds: str, analysis: QueryScanAnalysis) -> None:
+    value = {"analysis": analysis.model_dump(by_alias=True, exclude_none=True)}
+    _write(team_id, cache_key, value, DONE_TTL_SECONDS, thresholds=thresholds)
 
 
 def clear(team_id: int, cache_key: str, *, thresholds: str) -> None:
-    """Drop the slot, for a claim no job is coming to fill; a pending slot nobody answers reads as in
-    flight for its whole TTL.
+    """Drop the slot, for a claim no job will fill; a pending slot nobody answers reads as in flight
+    for its whole TTL.
     """
     try:
         query_cache_raw_client().delete(slot_key(team_id, cache_key, thresholds))
@@ -122,31 +115,12 @@ def _write(
         return False
 
 
-def _serialize(slot: QueryScanSlot) -> dict[str, Any]:
-    value: dict[str, Any] = {
-        "status": str(slot.status),
-        "range_share": slot.range_share,
-        "project_share": slot.project_share,
-        "findings": [finding.model_dump(by_alias=True, exclude_none=True) for finding in slot.findings],
-    }
-    if slot.killed:
-        value["killed"] = True
-    return value
-
-
 def _deserialize(value: Any) -> QueryScanSlot | None:
     if not isinstance(value, dict) or value.get("version") != SLOT_VERSION:
         return None
-    status = value.get("status")
-    if status not in (QueryScanStatus.PENDING, QueryScanStatus.DONE):
-        return None
-    findings = value.get("findings")
-    return QueryScanSlot(
-        status=QueryScanStatus(status),
-        range_share=value.get("range_share"),
-        project_share=value.get("project_share"),
-        findings=tuple(QueryScanWarning.model_validate(finding) for finding in findings)
-        if isinstance(findings, list)
-        else (),
-        killed=bool(value.get("killed", False)),
-    )
+    analysis = value.get("analysis")
+    if isinstance(analysis, dict):
+        return QueryScanSlot(analysis=QueryScanAnalysis.model_validate(analysis))
+    if value.get("pending"):
+        return QueryScanSlot()
+    return None

@@ -1,6 +1,6 @@
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { QueryScanResponse, QueryScanSummary, QueryScanWarning } from '~/queries/schema/schema-general'
+import { QueryScanAnalysis, QueryScanSummary, QueryScanWarning } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
 import { DashboardTile, InsightShortId, QueryBasedInsightModel } from '~/types'
 
@@ -14,13 +14,12 @@ export interface QueryScanState {
 
 export interface QueryScanPollResult {
     cacheKey: string
-    scan: QueryScanResponse
+    analysis: QueryScanAnalysis
 }
 
 interface ScanCarrier {
     query_scan?: QueryScanSummary
     cache_key?: string
-    warnings?: unknown
 }
 
 function asObject(value: unknown): Record<string, unknown> | null {
@@ -42,48 +41,25 @@ function errorScanCarrier(responseErrorObject: unknown): ScanCarrier | null {
     return asCarrier(body.extra) ?? asCarrier(body.query_status)
 }
 
-export function queryScanFindings(warnings: unknown): QueryScanWarning[] {
-    if (!Array.isArray(warnings)) {
-        return []
-    }
-    return warnings.filter((warning): warning is QueryScanWarning => asObject(warning)?.type === 'query_scan')
-}
-
-// A mode other than `show` keeps every surface silent while the scan only logs.
 export function resolveQueryScan(
     response: unknown,
     responseErrorObject: unknown,
     polled: QueryScanPollResult | null
 ): QueryScanState | null {
     const carrier = asCarrier(response) ?? errorScanCarrier(responseErrorObject)
-    const summary = carrier?.query_scan
-    if (!summary || summary.mode !== 'show') {
+    const stored = carrier?.query_scan
+    if (!stored) {
         return null
     }
     const cacheKey = typeof carrier?.cache_key === 'string' ? carrier.cache_key : null
     // A poll outlives the run that started it, so a result for an earlier query would otherwise
     // decorate whatever response is on screen when it lands.
-    if (!polled || polled.cacheKey !== cacheKey) {
-        return {
-            summary,
-            findings: queryScanFindings(carrier?.warnings),
-            cacheKey,
-            assistantPrompt: summary.assistant_prompt ?? null,
-        }
-    }
-    const { scan } = polled
+    const summary = polled && polled.cacheKey === cacheKey ? { ...stored, analysis: polled.analysis } : stored
     return {
-        summary: {
-            ...summary,
-            status: scan.status,
-            range_share: scan.range_share,
-            project_share: scan.project_share,
-            // `killed` describes this run; the stored analysis can be of an earlier run that was stopped.
-            killed: summary.killed ?? false,
-        },
-        findings: [...queryScanFindings(carrier?.warnings), ...scan.warnings],
+        summary,
+        findings: summary.analysis?.findings ?? [],
         cacheKey,
-        assistantPrompt: scan.assistant_prompt ?? null,
+        assistantPrompt: summary.analysis?.assistant_prompt ?? null,
     }
 }
 
@@ -101,8 +77,8 @@ export function queryScanStatLine(summary: QueryScanSummary): string {
     if (summary.killed) {
         return `ClickHouse stopped it after ${seconds} s, having read ${rows} rows.`
     }
-    if (summary.status === 'done' && typeof summary.range_share === 'number') {
-        const percent = Math.round(summary.range_share * 100)
+    if (typeof summary.analysis?.range_share === 'number') {
+        const percent = Math.round(summary.analysis.range_share * 100)
         return `Read ${rows} rows in ${seconds} s, about ${percent}% of the events in this date range.`
     }
     return `Read ${rows} rows in ${seconds} s.`
@@ -133,11 +109,8 @@ export function queryScanDashboardEntries(tiles: DashboardTile<QueryBasedInsight
             continue
         }
         // A killed run has no result to carry the scan, so it arrives on the query status instead.
-        const summary: QueryBasedInsightModel['query_scan'] = insight.query_scan ?? insight.query_status?.query_scan
-        if (summary?.mode !== 'show') {
-            continue
-        }
-        const findingCount = queryScanFindings(summary.warnings).length
+        const summary = insight.query_scan ?? insight.query_status?.query_scan
+        const findingCount = summary?.analysis?.findings.length ?? 0
         if (findingCount === 0) {
             continue
         }

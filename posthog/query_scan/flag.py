@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import json
 import math
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 import structlog
 import posthoganalytics
-
-from posthog.schema import QueryScanMode
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -24,6 +23,15 @@ FLAG_KEY = "query-scan-warnings"
 DEFAULT_FLOOR_MS = 1000
 DEFAULT_EVENT_RATIO = 0.10
 DEFAULT_PERSONS_RATIO = 0.5
+
+
+class QueryScanMode(StrEnum):
+    """Variant of the flag. `log_only`: analyze and show nothing, to calibrate the thresholds. `show`:
+    findings are served. Never sent to a client, which sees a summary only under `show`."""
+
+    LOG_ONLY = "log_only"
+    SHOW = "show"
+
 
 _MODES = {mode.value for mode in QueryScanMode}
 

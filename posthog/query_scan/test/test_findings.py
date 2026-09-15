@@ -112,7 +112,6 @@ class TestFindings(SimpleTestCase):
     ) -> None:
         warning = build_warning(kind=kind, reason=reason, query_kind=query_kind)
 
-        self.assertEqual(warning.type, "query_scan")
         self.assertEqual(warning.kind, kind)
         self.assertIn(message_contains, warning.message)
         self.assertIn(fix_contains, warning.fix)

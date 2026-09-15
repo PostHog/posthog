@@ -61,8 +61,8 @@ from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_fro
 from posthog.models.user import User
 from posthog.models.utils import uuid7
 from posthog.query_scan import slot as query_scan_slot
-from posthog.query_scan.findings import assistant_prompt
-from posthog.query_scan.flag import get_query_scan_flag
+from posthog.query_scan.flag import QueryScanMode, get_query_scan_flag
+from posthog.query_scan.serve import analysis_with_prompt
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AISustainedRateThrottle,
@@ -564,8 +564,8 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
 
     @extend_schema(
         description=(
-            "Get the query scan for a cache key: what the last slow run of that query read, and the "
-            "findings the analysis produced. 404 when the query has not been analyzed."
+            "Get the query scan for a cache key: the analysis of the last slow run of that query. The body "
+            "is empty while the analysis runs. 404 when the query has not been analyzed."
         ),
         responses={
             200: QueryScanResponse,
@@ -582,26 +582,15 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         # `log_only` collects the analysis without showing it to anyone, and with the flag off
         # there is no current configuration to hold a stored analysis to.
         flag = get_query_scan_flag(self.team)
-        if flag is None or flag.mode != "show":
+        if flag is None or flag.mode != QueryScanMode.SHOW:
             raise NotFound("There is no query scan for this cache key.")
         slot = query_scan_slot.get(self.team_id, cache_key, thresholds=flag.thresholds_fingerprint)
         if slot is None:
             raise NotFound("There is no query scan for this cache key.")
-        findings = list(slot.findings)
-        scan = QueryScanResponse(
-            status=slot.status,
-            warnings=findings,
-            range_share=slot.range_share,
-            project_share=slot.project_share,
-            killed=slot.killed,
-            assistant_prompt=assistant_prompt(
-                findings,
-                range_share=slot.range_share,
-                project_share=slot.project_share,
-                killed=slot.killed,
-                fixable_only=True,
-            ),
-        )
+        if slot.analysis is None:
+            return Response({}, status=status.HTTP_200_OK)
+        # Nothing here knows the run that asked, so the prompt carries the findings without a run line.
+        scan = QueryScanResponse(analysis=analysis_with_prompt(slot.analysis))
         return Response(scan.model_dump(by_alias=True, exclude_none=True), status=status.HTTP_200_OK)
 
     def handle_column_ch_error(self, error):

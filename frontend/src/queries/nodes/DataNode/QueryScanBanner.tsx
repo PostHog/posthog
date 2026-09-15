@@ -21,7 +21,7 @@ export function QueryScanBanner({ queryScan, onFixWithAI, className }: QueryScan
     }
 
     const { summary, findings, assistantPrompt } = queryScan
-    const showFindings = summary.status === 'done' && findings.length > 0
+    const showFindings = findings.length > 0
 
     return (
         <div className={clsx('flex flex-col gap-2 shrink-0', className)} data-attr="query-scan">

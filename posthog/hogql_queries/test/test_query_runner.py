@@ -45,7 +45,6 @@ from posthog.schema import (
     PropertyType,
     PropertyValuesQuery,
     QueryLogTags,
-    QueryScanMode,
     SessionsQuery,
     SessionsTimelineQuery,
     SessionsV2JoinMode,
@@ -98,7 +97,7 @@ from posthog.query_cache.failures import (
     QueryFailureCache,
 )
 from posthog.query_cache.storage import entry_redis_key
-from posthog.query_scan.flag import QueryScanFlag
+from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 from posthog.shared_link_user import SharedLinkUser
 from posthog.slo.types import SloOutcome
 
@@ -257,19 +256,16 @@ class TestQueryRunner(BaseTest):
             assert response.query_scan is None
         else:
             assert response.query_scan is not None
-            assert (response.query_scan.mode, response.query_scan.rows_read, response.query_scan.duration_ms) == (
-                "show",
-                12,
-                34,
-            )
+            assert (response.query_scan.rows_read, response.query_scan.duration_ms) == (12, 34)
 
     @parameterized.expand(
         [
-            ("flag turned off", None, None),
-            ("mode narrowed", _QUERY_SCAN_FLAG_LOG_ONLY, "log_only"),
+            ("flag turned off", None),
+            # `log_only` collects the analysis without showing it to anyone.
+            ("mode narrowed", _QUERY_SCAN_FLAG_LOG_ONLY),
         ]
     )
-    def test_cache_hit_serves_the_current_query_scan_mode(self, _name, flag_at_read, expected_mode):
+    def test_a_cache_hit_drops_the_summary_once_the_flag_stops_showing_it(self, _name, flag_at_read):
         TestQueryRunner = self.setup_test_query_runner_class()
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
         with (
@@ -294,15 +290,7 @@ class TestQueryRunner(BaseTest):
                 )
 
         assert response.is_cached
-        if expected_mode is None:
-            assert response.query_scan is None
-        else:
-            assert response.query_scan is not None
-            assert (response.query_scan.mode, response.query_scan.rows_read, response.query_scan.duration_ms) == (
-                expected_mode,
-                12,
-                34,
-            )
+        assert response.query_scan is None
 
     @parameterized.expand(
         [
@@ -354,16 +342,15 @@ class TestQueryRunner(BaseTest):
         assert len(delay.call_args.kwargs["executions"]) == 1
         assert getattr(raised.exception, "cache_key", None) == runner.get_cache_key()
         assert getattr(raised.exception, "query_scan", None) == {
-            "mode": "show",
             "rows_read": 90,
             "duration_ms": 400,
             "killed": True,
-            "status": "pending",
+            "analysis_requested": True,
         }
 
-    def test_a_killed_run_reports_the_status_of_a_scan_another_run_owns(self):
+    def test_a_killed_run_points_at_the_analysis_another_run_owns(self):
         # A retry of a killed query has the same cache key, so the second kill finds the first
-        # one's analysis still running.
+        # one's analysis still running, and says so without reading it.
         TestQueryRunner = self.setup_test_query_runner_class()
 
         def calculate_until_clickhouse_gives_up(_self):
@@ -371,7 +358,7 @@ class TestQueryRunner(BaseTest):
             raise ClickHouseQueryMemoryLimitExceeded()
 
         redis_client = mock.Mock()
-        redis_client.get.return_value = json.dumps({"version": 1, "status": "pending"})
+        redis_client.get.return_value = json.dumps({"version": 2, "pending": True})
         redis_client.incr.return_value = 1
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
         with (
@@ -390,11 +377,10 @@ class TestQueryRunner(BaseTest):
 
         delay.assert_not_called()
         assert getattr(raised.exception, "query_scan", None) == {
-            "mode": "show",
             "rows_read": 90,
             "duration_ms": 4000,
             "killed": True,
-            "status": "pending",
+            "analysis_requested": True,
         }
 
     def test_calculate_runs_validators_before_calculation(self):

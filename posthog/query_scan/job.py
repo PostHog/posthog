@@ -12,7 +12,7 @@ from typing import Any, get_args
 import structlog
 from celery.exceptions import SoftTimeLimitExceeded
 
-from posthog.schema import QueryScanStatus, QueryScanWarning
+from posthog.schema import QueryScanAnalysis, QueryScanWarning
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
@@ -31,7 +31,10 @@ from posthog.query_scan.event_filter import (
 )
 from posthog.query_scan.explain import QueryPlan, TimestampBounds, parse_query_plan
 from posthog.query_scan.flag import get_query_scan_flag
-from posthog.query_scan.slot import QueryScanSlot, set_done
+from posthog.query_scan.slot import (
+    clear as clear_slot,
+    set_done,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -149,18 +152,19 @@ def _run(job: QueryScanJob, started: float) -> None:
     merged = _merge(results, job.executions)
     # Stored under the flag in force now. A pending claim left under other thresholds expires on its
     # own key.
-    set_done(
-        job.team.pk,
-        job.cache_key,
-        thresholds=flag.thresholds_fingerprint,
-        slot=QueryScanSlot(
-            status=QueryScanStatus.DONE,
-            range_share=merged.range_share,
-            project_share=merged.project_share,
-            findings=tuple(merged.findings),
-            killed=job.killed,
-        ),
-    )
+    if merged.explain_ok:
+        set_done(
+            job.team.pk,
+            job.cache_key,
+            thresholds=flag.thresholds_fingerprint,
+            analysis=QueryScanAnalysis(
+                findings=list(merged.findings), range_share=merged.range_share, project_share=merged.project_share
+            ),
+        )
+    else:
+        # A slot stored with no plan behind it would say "nothing to fix" for 30 days, so the claim
+        # goes and the next slow run analyzes again.
+        clear_slot(job.team.pk, job.cache_key, thresholds=flag.thresholds_fingerprint)
     _report(job, merged, flag_event_ratio=flag.event_ratio, job_ms=round((perf_counter() - started) * 1000))
 
 
@@ -293,7 +297,9 @@ def _merge(results: list[QueryScanResult], executions: tuple[Execution, ...]) ->
     heaviest = _heaviest_result(results, executions)
     return QueryScanResult(
         findings=findings,
-        explain_ok=any(result.explain_ok for result in results),
+        # A person reads the advice as if it covered the whole run, so one unplanned execution
+        # fails the run, the way the trigger drops a run with one execution it cannot ship.
+        explain_ok=all(result.explain_ok for result in results),
         range_share=heaviest.range_share if heaviest is not None else None,
         project_share=heaviest.project_share if heaviest is not None else None,
     )

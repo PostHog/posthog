@@ -2,12 +2,12 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.schema import QueryScanFindingReason, QueryScanMode
+from posthog.schema import QueryScanFindingReason
 
 from posthog.query_scan.analyze import PlanSet, QueryScanResult, analyze
 from posthog.query_scan.event_filter import EventFilterOutcome
 from posthog.query_scan.explain import QueryPlan, parse_query_plan
-from posthog.query_scan.flag import QueryScanFlag
+from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 from posthog.query_scan.test.test_explain import events_read_node, load_plan
 
 _USABLE_EVENT_FILTER = EventFilterOutcome(classification="usable")

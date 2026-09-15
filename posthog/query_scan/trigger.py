@@ -126,7 +126,7 @@ def maybe_trigger_query_scan(
         return "slot_exists"
     if not claim_enqueue_budget(team_id):
         return "rate_limited"
-    if not set_pending(team_id, cache_key, thresholds=flag.thresholds_fingerprint, killed=killed):
+    if not set_pending(team_id, cache_key, thresholds=flag.thresholds_fingerprint):
         # Another slow run of the same query claimed the slot between the read above and here.
         return "slot_exists"
 

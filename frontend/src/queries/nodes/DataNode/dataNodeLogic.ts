@@ -61,6 +61,7 @@ import {
     MarketingAnalyticsTableQueryResponse,
     NodeKind,
     PersonsNode,
+    QueryScanAnalysis,
     QueryScanResponse,
     QueryStatus,
     QueryTiming,
@@ -607,11 +608,11 @@ export interface dataNodeLogicActions {
         queryId: string
     }
     setQueryScanResult: (
-        result: QueryScanResponse,
+        analysis: QueryScanAnalysis,
         cacheKey: string
     ) => {
+        analysis: QueryScanAnalysis
         cacheKey: string
-        result: QueryScanResponse
     }
     setResponse: (
         response: Exclude<AnyResponseType, undefined>
@@ -1000,7 +1001,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         setQueryLogQueryId: (queryId: string) => ({ queryId }),
         loadFilteredCount: true,
         pollQueryScan: true,
-        setQueryScanResult: (result: QueryScanResponse, cacheKey: string) => ({ result, cacheKey }),
+        setQueryScanResult: (analysis: QueryScanAnalysis, cacheKey: string) => ({ analysis, cacheKey }),
     }),
     loaders(({ actions, cache, values, props }) => ({
         response: [
@@ -1367,7 +1368,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             null as QueryScanPollResult | null,
             {
                 loadData: () => null,
-                setQueryScanResult: (_, { result, cacheKey }) => ({ cacheKey, scan: result }),
+                setQueryScanResult: (_, { analysis, cacheKey }) => ({ cacheKey, analysis }),
             },
         ],
         responseError: [
@@ -2094,30 +2095,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         pollQueryScan: async (_, breakpoint) => {
             const scan = values.queryScan
             const cacheKey = scan?.cacheKey
-            if (!scan || !cacheKey) {
+            if (!scan || !cacheKey || !scan.summary.analysis_requested || scan.summary.analysis) {
                 return
             }
-            if (scan.summary.status === 'done') {
-                // A run ClickHouse stopped reports the status of the analysis an earlier run stored, and
-                // an error carries no findings, so they are fetched once by cache key.
-                if (!scan.summary.killed || values.queryScanResult?.cacheKey === cacheKey) {
-                    return
-                }
-                let stored: QueryScanResponse
-                try {
-                    stored = await api.queryScan.get(cacheKey)
-                } catch {
-                    return
-                }
-                breakpoint()
-                actions.setQueryScanResult(stored, cacheKey)
-                return
-            }
-            if (scan.summary.status !== 'pending') {
-                return
-            }
-            // The findings can land after the response. Ask on a backoff until they are done, the run
-            // is too old to wait for, or a request fails.
+            // The analysis lands after the response, and an error never carries one. Ask on a backoff
+            // until it is stored, the run is too old to wait for, or a request fails: a 404 is what a
+            // dead job looks like once its claim expires.
             const lastDelayMs = QUERY_SCAN_POLL_DELAYS_MS[QUERY_SCAN_POLL_DELAYS_MS.length - 1]
             let elapsedMs = 0
             for (let attempt = 0; ; attempt++) {
@@ -2127,16 +2110,16 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 }
                 elapsedMs += delayMs
                 await breakpoint(delayMs)
-                let scan: QueryScanResponse
+                let stored: QueryScanResponse
                 try {
-                    scan = await api.queryScan.get(cacheKey)
+                    stored = await api.queryScan.get(cacheKey)
                 } catch {
                     // The analysis is advice, so a missing or failed scan leaves the run's numbers as they are.
                     return
                 }
                 breakpoint()
-                if (scan.status === 'done') {
-                    actions.setQueryScanResult(scan, cacheKey)
+                if (stored.analysis) {
+                    actions.setQueryScanResult(stored.analysis, cacheKey)
                     return
                 }
             }

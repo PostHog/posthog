@@ -10,14 +10,12 @@ import {
 } from './queryScan'
 
 const SUMMARY: QueryScanSummary = {
-    mode: 'show',
     rows_read: 8_400_000_000,
     duration_ms: 19_000,
-    status: 'done',
+    analysis_requested: true,
 }
 
 const FINDING: QueryScanWarning = {
-    type: 'query_scan',
     kind: 'no_event_filter',
     message: 'This query read every event in its date range.',
     fix: 'Add an event filter naming the events this question is about.',
@@ -36,27 +34,27 @@ function slowInsight(
     return {
         short_id: shortId as InsightShortId,
         name,
-        query_scan: { ...SUMMARY, ...summary, warnings: Array(findings).fill(FINDING) },
+        query_scan: { ...SUMMARY, ...summary, analysis: { findings: Array(findings).fill(FINDING) } },
     }
 }
 
 describe('queryScan', () => {
-    it('reads no scan off a run the team only logs', () => {
-        expect(resolveQueryScan({ query_scan: { ...SUMMARY, mode: 'log_only' } }, null, null)).toBeNull()
+    it('reads no scan off a response that carries no summary', () => {
+        expect(resolveQueryScan({ results: [] }, null, null)).toBeNull()
     })
 
     it('ignores a poll result for another run', () => {
         // A poll outlives the run that started it, so a result for another run must not decorate
         // this response with a share and advice measured somewhere else.
-        const response = { query_scan: { ...SUMMARY, status: 'pending' }, cache_key: 'cache-key', warnings: [] }
+        const response = { query_scan: SUMMARY, cache_key: 'cache-key' }
         const polled: QueryScanPollResult = {
             cacheKey: 'another-cache-key',
-            scan: { status: 'done', warnings: [FINDING], range_share: 0.9, project_share: 0.9, killed: false },
+            analysis: { findings: [FINDING], range_share: 0.9, project_share: 0.9 },
         }
 
         const state = resolveQueryScan(response, null, polled)
 
-        expect(state?.summary.status).toBe('pending')
+        expect(state?.summary.analysis).toBeUndefined()
         expect(state?.findings).toHaveLength(0)
     })
 
@@ -64,7 +62,7 @@ describe('queryScan', () => {
         ['a run that finished', {}, 'Read 8,400,000,000 rows in 19.0 s.'],
         [
             'a run whose analysis measured the share of the date range it read',
-            { range_share: 0.42 },
+            { analysis: { findings: [], range_share: 0.42 } },
             'Read 8,400,000,000 rows in 19.0 s, about 42% of the events in this date range.',
         ],
         [
@@ -92,7 +90,7 @@ describe('queryScan', () => {
             tile(1, null),
             tile(2, slowInsight('aaa', 'Active users', 2)),
             tile(3, slowInsight('bbb', 'Fast enough', 0)),
-            tile(4, slowInsight('ccc', 'Only logging', 1, { mode: 'log_only' })),
+            tile(4, { short_id: 'ccc' as InsightShortId, name: 'Still analyzing', query_scan: SUMMARY }),
             tile(5, { ...slowInsight('ddd', 'Deleted', 1), deleted: true }),
             tile(6, { short_id: 'eee' as InsightShortId, derived_name: 'Never run' }),
             tile(7, { ...slowInsight('fff', '', 1), derived_name: 'Pageview count' }),

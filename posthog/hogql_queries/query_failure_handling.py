@@ -64,10 +64,11 @@ def _approximate_wait(open_until: datetime) -> str:
     return f"{hours} hour{'s' if hours != 1 else ''}"
 
 
-def build_failure_exception(record: QueryFailureRecord) -> APIException:
+def build_failure_exception(record: QueryFailureRecord, *, with_scan: bool = False) -> APIException:
     """Rebuild the remembered failure with its original exception class, so status codes and
     frontend error handling stay identical to a fresh failure. The original message leads and
-    the breaker context follows it."""
+    the breaker context follows it. ``with_scan`` puts the first failure's query scan pointer on
+    the copy, for a reader allowed to see it."""
     sentences = [record.detail]
     if record.consecutive_failures == 1:
         sentences.append("This query failed in a way that will repeat, so it was not run again.")
@@ -79,4 +80,7 @@ def build_failure_exception(record: QueryFailureRecord) -> APIException:
         sentences.append(f"It can run again in about {_approximate_wait(record.open_until)}.")
     error = FAILURE_KIND_EXCEPTIONS[record.kind](detail=" ".join(sentences))
     error.served_from_query_failure_cache = True  # type: ignore[attr-defined]
+    if with_scan and record.query_scan is not None:
+        error.cache_key = record.cache_key  # type: ignore[attr-defined]
+        error.query_scan = record.query_scan  # type: ignore[attr-defined]
     return error

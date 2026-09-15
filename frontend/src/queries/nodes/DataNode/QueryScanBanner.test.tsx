@@ -9,14 +9,12 @@ import { initKeaTests } from '~/test/init'
 import { QueryScanBanner } from './QueryScanBanner'
 
 const SUMMARY: QueryScanSummary = {
-    mode: 'show',
     rows_read: 8_400_000_000,
     duration_ms: 19_000,
-    status: 'done',
+    analysis_requested: true,
 }
 
 const FINDING: QueryScanWarning = {
-    type: 'query_scan',
     kind: 'no_event_filter',
     message: 'This query read every event in its date range.',
     fix: 'Add an event filter naming the events this question is about.',

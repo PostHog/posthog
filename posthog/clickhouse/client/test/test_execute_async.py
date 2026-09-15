@@ -328,7 +328,7 @@ class TestExecuteProcessQuery(TestCase):
         mock_redis_client.return_value = mock_redis
         error = ExposedCHQueryError("query timed out")
         error.cache_key = "cache_key_1"
-        error.query_scan = {"mode": "show", "rows_read": 41_200, "duration_ms": 19_000, "killed": True}
+        error.query_scan = {"rows_read": 41_200, "duration_ms": 19_000, "killed": True, "analysis_requested": True}
         mock_process_query_dict.side_effect = error
         sharing_configuration = None if real_user else SharingConfiguration.objects.create(team=self.team, enabled=True)
 

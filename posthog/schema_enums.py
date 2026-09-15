@@ -3889,16 +3889,6 @@ class QueryScanFindingReason(StrEnum):
     FILTERS = "filters"
 
 
-class QueryScanMode(StrEnum):
-    LOG_ONLY = "log_only"
-    SHOW = "show"
-
-
-class QueryScanStatus(StrEnum):
-    PENDING = "pending"
-    DONE = "done"
-
-
 class QuickFilterContext(StrEnum):
     DASHBOARDS = "dashboards"
     ERROR_TRACKING_ISSUE_FILTERS = "error-tracking-issue-filters"

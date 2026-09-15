@@ -167,9 +167,8 @@ from posthog.query_cache.failures import (
     Budget,
     QueryFailureRecord,
 )
-from posthog.query_scan.flag import QueryScanFlag, get_query_scan_flag
-from posthog.query_scan.serve import attach_scan_slot
-from posthog.query_scan.slot import get as get_query_scan_slot
+from posthog.query_scan.flag import QueryScanFlag, QueryScanMode, get_query_scan_flag
+from posthog.query_scan.serve import hydrate_response_scan
 from posthog.query_scan.trigger import (
     SkipReason as QueryScanSkipReason,
     is_analyzable_principal,
@@ -2066,13 +2065,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         except Exception:
             return False
 
-    def _raise_if_failure_fresh_for(self, failure: Optional[QueryFailureRecord], budget: Budget) -> None:
+    def _raise_if_failure_fresh_for(
+        self, failure: Optional[QueryFailureRecord], budget: Budget, user: Optional[User]
+    ) -> None:
         """The one breaker rule: a failure outcome that is fresh for the given execution budget
-        substitutes for the execution it would forbid."""
+        substitutes for the execution it would forbid. The replay carries the first failure's
+        pointer to its stored analysis, for the same readers the first failure had."""
         if failure is None or not failure.forbids(budget):
             return
         QUERY_FAILURE_CACHE_COUNTER.labels(action="served_error", kind=failure.kind).inc()
-        raise build_failure_exception(failure)
+        raise build_failure_exception(failure, with_scan=is_analyzable_principal(user))
 
     def _call_with_rate_limits(self, *, dashboard_id: Optional[int]) -> tuple[R, float]:
         """Execute calculate() with all rate limiters applied.
@@ -2262,7 +2264,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         # enqueued job runs under the async budget, so only failures that cover
                         # that budget forbid it.
                         if self._query_failure_caching_enabled:
-                            self._raise_if_failure_fresh_for(cache_manager.open_failure(), BUDGET_EXTENDED)
+                            self._raise_if_failure_fresh_for(cache_manager.open_failure(), BUDGET_EXTENDED, user)
                         # We should always kick off async calculation and disregard the cache.
                         # cache_hit is left unset on this path because the cache wasn't consulted.
                         slo.tag(execution_path="async_dispatched")
@@ -2382,7 +2384,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         failure_kind = classify_failure(exc, self.team.pk)
                         if failure_kind is not None:
                             QueryCache(team_id=self.team.pk, cache_key=cache_key).record_failure(
-                                failure_kind, str(exc), budget=budget_for_limit_context(self.limit_context)
+                                failure_kind,
+                                str(exc),
+                                budget=budget_for_limit_context(self.limit_context),
+                                cache_key=getattr(exc, "cache_key", None),
+                                query_scan=getattr(exc, "query_scan", None),
                             )
                     raise
 
@@ -2402,7 +2408,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # The single gate for all blocking execution, forced refreshes included: an open
         # breaker that covers this run's execution budget forbids touching ClickHouse.
         if self._query_failure_caching_enabled:
-            self._raise_if_failure_fresh_for(cache_manager.open_failure(), budget_for_limit_context(self.limit_context))
+            self._raise_if_failure_fresh_for(
+                cache_manager.open_failure(), budget_for_limit_context(self.limit_context), user
+            )
 
         CachedResponse: type[CR] = self.cached_response_type
 
@@ -2542,7 +2550,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     scan_skip = "no_clickhouse_query"
                 else:
                     query_scan: dict[str, Any] = {
-                        "mode": query_scan_flag.mode,
                         "rows_read": query_stats.rows_read,
                         "duration_ms": round(query_stats.duration_ms),
                     }
@@ -2560,8 +2567,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         insight_id=insight_id,
                         dashboard_id=dashboard_id,
                     )
-                    if scan_skip is None:
-                        query_scan["status"] = "pending"
+                    if scan_skip in (None, "slot_exists"):
+                        # Says only that there is an analysis to look up, never its state: the
+                        # cached copy is not rewritten when the job finishes.
+                        query_scan["analysis_requested"] = True
 
             if cacheable:
                 cache_manager.store_result(
@@ -2606,11 +2615,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             return CachedResponse(**fresh_response_dict)
 
     def _serve_query_scan(self, response: Any, user: Optional[User]) -> None:
-        """Fold the stored analysis into a response, or take the field off for a shared-link viewer, who
+        """Put the stored analysis on a response, or take the field off for a shared-link viewer, who
         must not see the project's data volume from the cache.
         """
         if is_analyzable_principal(user):
-            attach_scan_slot(self.team, response)
+            hydrate_response_scan(self.team, response)
         elif getattr(response, "query_scan", None) is not None:
             response.query_scan = None
 
@@ -2650,24 +2659,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 killed=True,
                 error_type=clickhouse_error_type(error),
             )
-            if skip not in (None, "slot_exists"):
-                # With no slot behind this cache key the scan endpoint answers 404.
+            if flag.mode != QueryScanMode.SHOW or skip not in (None, "slot_exists"):
+                # Under `log_only` the analysis runs and nobody sees it, and with no slot behind
+                # this cache key the scan endpoint answers 404.
                 return
-            query_scan: dict[str, Any] = {
-                "mode": flag.mode,
+            error.query_scan = {  # type: ignore[attr-defined]
                 "rows_read": stats.rows_read,
                 "duration_ms": round(stats.duration_ms),
                 "killed": True,
+                "analysis_requested": True,
             }
-            if skip is None:
-                query_scan["status"] = "pending"
-            else:
-                # An earlier run of the same query owns the slot; reporting its status lets clients fetch those
-                # findings by cache key.
-                slot = get_query_scan_slot(self.team.pk, cache_key, thresholds=flag.thresholds_fingerprint)
-                if slot is not None:
-                    query_scan["status"] = str(slot.status)
-            error.query_scan = query_scan  # type: ignore[attr-defined]
             error.cache_key = cache_key  # type: ignore[attr-defined]
         except Exception as scan_error:
             capture_exception(scan_error, {"team_id": self.team.pk, "context": "query_scan_killed_run"})

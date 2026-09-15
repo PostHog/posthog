@@ -99,7 +99,7 @@ from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.permissions import TeamMemberStrictManagementPermission
 from posthog.query_cache import QueryCache
-from posthog.query_scan.serve import scan_summary_with_findings
+from posthog.query_scan.serve import hydrate_scan_summary
 from posthog.rate_limit import (
     AIObservabilitySummarizationBurstThrottle,
     AIObservabilitySummarizationDailyThrottle,
@@ -1117,7 +1117,7 @@ class InsightSerializer(InsightBasicSerializer):
             cache_key = query_status.get("cache_key") or cache_key
         if not isinstance(summary, dict):
             return None
-        return scan_summary_with_findings(self.context["get_team"](), summary, cache_key)
+        return hydrate_scan_summary(self.context["get_team"](), summary, cache_key)
 
     @extend_schema_field(serializers.ListField())
     def get_alerts(self, insight: Insight):

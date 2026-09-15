@@ -29,9 +29,8 @@ from posthog.schema import (
     HogQLQuery,
     PersonPropertyFilter,
     PropertyOperator,
+    QueryScanAnalysis,
     QueryScanFindingKind,
-    QueryScanMode,
-    QueryScanStatus,
     QueryStatus,
 )
 
@@ -53,8 +52,7 @@ from posthog.llm.completions import OpenAICompletion
 from posthog.models import PersonalAPIKey
 from posthog.models.utils import UUIDT, generate_random_token_personal, hash_key_value
 from posthog.query_scan.findings import build_warning
-from posthog.query_scan.flag import QueryScanFlag
-from posthog.query_scan.slot import QueryScanSlot
+from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 from posthog.query_scan.test.slots import stored_slot
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
@@ -110,7 +108,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     )
     def test_a_killed_run_puts_its_scan_on_the_error_body(self, _name, error, expected_status):
         error.cache_key = "cache_key_1"
-        error.query_scan = {"mode": "show", "rows_read": 41_200, "duration_ms": 19_000, "killed": True}
+        error.query_scan = {"rows_read": 41_200, "duration_ms": 19_000, "killed": True, "analysis_requested": True}
 
         with patch("posthog.api.query.process_query_model", side_effect=error):
             response = self.client.post(
@@ -1360,14 +1358,13 @@ SHOW_FLAG = QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.
 LOG_ONLY_FLAG = QueryScanFlag(mode=QueryScanMode.LOG_ONLY, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
 
 A_STORED_SCAN = stored_slot(
-    QueryScanSlot(
-        status=QueryScanStatus.DONE,
+    QueryScanAnalysis(
         range_share=0.8,
         project_share=0.25,
-        killed=True,
-        findings=(build_warning(kind=QueryScanFindingKind.NO_EVENT_FILTER, query_kind="HogQLQuery"),),
+        findings=[build_warning(kind=QueryScanFindingKind.NO_EVENT_FILTER, query_kind="HogQLQuery")],
     )
 )
+A_CLAIMED_SCAN = json.dumps({"version": 2, "pending": True})
 
 
 class TestQueryScan(APIBaseTest):
@@ -1387,14 +1384,22 @@ class TestQueryScan(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/query/scan/cache_key_1/")
 
         self.assertEqual(response.status_code, 200, response.content)
-        body = response.json()
-        self.assertEqual(body["status"], "done")
-        self.assertEqual(body["range_share"], 0.8)
-        self.assertEqual(body["project_share"], 0.25)
-        self.assertTrue(body["killed"])
-        self.assertEqual([warning["kind"] for warning in body["warnings"]], ["no_event_filter"])
+        analysis = response.json()["analysis"]
+        self.assertEqual(analysis["range_share"], 0.8)
+        self.assertEqual(analysis["project_share"], 0.25)
+        self.assertEqual([finding["kind"] for finding in analysis["findings"]], ["no_event_filter"])
         # "Fix with AI" sends this, so the endpoint builds it rather than the client.
-        self.assertIn("- no_event_filter:", body["assistant_prompt"])
+        self.assertIn("- no_event_filter:", analysis["assistant_prompt"])
+
+    def test_answers_with_an_empty_body_while_the_job_runs(self):
+        # A client polls until an analysis arrives, so "not yet" has to differ from the 404 that
+        # ends the poll.
+        self.redis_client_mock.get.return_value = A_CLAIMED_SCAN
+
+        response = self.client.get(f"/api/environments/{self.team.id}/query/scan/cache_key_1/")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json(), {})
 
     @parameterized.expand(
         [

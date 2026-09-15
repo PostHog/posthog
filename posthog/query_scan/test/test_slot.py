@@ -4,12 +4,12 @@ from unittest import mock
 
 from django.test import SimpleTestCase
 
-from posthog.schema import QueryScanFindingKind, QueryScanStatus, QueryScanWarning
+from posthog.schema import QueryScanAnalysis, QueryScanFindingKind, QueryScanWarning
 
 from posthog.query_scan.slot import (
-    QueryScanSlot,
     get as get_slot,
     set_done,
+    set_pending,
 )
 
 
@@ -24,33 +24,33 @@ class TestQueryScanSlotRoundTrip(SimpleTestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def test_a_done_slot_round_trips_its_shares_and_findings(self) -> None:
-        # The shares and the killed flag are what a served response and the scan endpoint read back,
-        # so a write that dropped them on the way through Redis would show a blank analysis.
+    def test_a_stored_analysis_round_trips_its_shares_and_findings(self) -> None:
+        # The shares and findings are what a served response and the scan endpoint read back, so a
+        # write that dropped them on the way through Redis would show a blank analysis.
         finding = QueryScanWarning(
             kind=QueryScanFindingKind.NO_EVENT_FILTER,
             message="This query read every event.",
             fix="Add an event filter.",
         )
-        thresholds = "0.1:0.5"
         set_done(
             1,
             "cache_key_1",
-            thresholds=thresholds,
-            slot=QueryScanSlot(
-                status=QueryScanStatus.DONE,
-                range_share=0.42,
-                project_share=0.13,
-                findings=(finding,),
-                killed=True,
-            ),
+            thresholds="0.1:0.5",
+            analysis=QueryScanAnalysis(findings=[finding], range_share=0.42, project_share=0.13),
         )
 
-        stored = get_slot(1, "cache_key_1", thresholds=thresholds)
+        stored = get_slot(1, "cache_key_1", thresholds="0.1:0.5")
+
+        assert stored is not None and stored.analysis is not None
+        assert (stored.analysis.range_share, stored.analysis.project_share) == (0.42, 0.13)
+        assert [str(finding.kind) for finding in stored.analysis.findings] == ["no_event_filter"]
+
+    def test_a_claim_reads_back_as_a_slot_with_no_analysis(self) -> None:
+        # The scan endpoint tells "not yet" from "nothing stored" by this, so a claim must read
+        # back as a slot rather than as nothing.
+        assert set_pending(1, "cache_key_1", thresholds="0.1:0.5") is True
+
+        stored = get_slot(1, "cache_key_1", thresholds="0.1:0.5")
 
         assert stored is not None
-        assert stored.status == QueryScanStatus.DONE
-        assert stored.range_share == 0.42
-        assert stored.project_share == 0.13
-        assert stored.killed is True
-        assert [str(f.kind) for f in stored.findings] == ["no_event_filter"]
+        assert stored.analysis is None

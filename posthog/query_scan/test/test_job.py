@@ -7,15 +7,13 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import QueryScanMode
-
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
 from posthog.errors import InternalCHQueryError
 from posthog.query_scan import slot
-from posthog.query_scan.flag import QueryScanFlag
+from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 from posthog.query_scan.job import Execution, QueryScanJob, run_query_scan
 from posthog.query_scan.stub import stub_in_subqueries
 
@@ -43,6 +41,7 @@ def _fake_job_boundaries(test: BaseTest, stored: dict[str, Any], flag: QueryScan
     redis = mock.Mock()
     redis.get.side_effect = lambda key: stored.get(key)
     redis.set.side_effect = lambda key, value, ex=None, nx=False: stored.__setitem__(key, value)
+    redis.delete.side_effect = lambda key: stored.pop(key, None)
     redis_patcher = mock.patch("posthog.query_scan.slot.query_cache_raw_client", return_value=redis)
     flag_patcher = mock.patch("posthog.query_scan.job.get_query_scan_flag", return_value=flag)
     capture_patcher = mock.patch("posthog.query_scan.job.ph_scoped_capture")
@@ -124,7 +123,8 @@ class TestQueryScanJob(BaseTest):
                 ["no_event_filter"],
                 True,
             ),
-            # Any EXPLAIN error ends the analysis for that execution, findings and all.
+            # Any EXPLAIN error ends the analysis: a slot stored with no plan behind it would say
+            # "nothing to fix" for 30 days, so the claim goes and the next slow run analyzes again.
             ("an explain failure fails closed", {"STUBBED_MARKER": _OTHER_ERROR}, (), [], False),
         ]
     )
@@ -132,9 +132,11 @@ class TestQueryScanJob(BaseTest):
         self._run(dispatch, subqueries=subqueries)
 
         stored = slot.get(self.team.pk, "cache_key_1", thresholds=FLAG.thresholds_fingerprint)
-        assert stored is not None
-        assert stored.status == "done"
-        assert [str(finding.kind) for finding in stored.findings] == expected_kinds
+        if expected_explain_ok:
+            assert stored is not None and stored.analysis is not None
+            assert [str(finding.kind) for finding in stored.analysis.findings] == expected_kinds
+        else:
+            assert stored is None
 
         assert self.capture.call_count == 1
         properties = self.capture.call_args.kwargs["properties"]
@@ -151,8 +153,8 @@ class TestQueryScanJob(BaseTest):
 
         stored = slot.get(self.team.pk, "cache_key_1", thresholds=FLAG.thresholds_fingerprint)
         assert stored is not None
-        assert stored.range_share is not None
-        assert stored.project_share is not None
+        assert stored.analysis.range_share is not None
+        assert stored.analysis.project_share is not None
         # The team denominator runs once, unbounded.
         assert any("%(scan_team_id)s" in query and "timestamp" not in query for query, _ in self.calls)
         # The range denominator carries the lower bound the plan's Min-Max step reported.
@@ -165,16 +167,16 @@ class TestQueryScanJob(BaseTest):
         self._run({"STUBBED_MARKER": "plan_persons_join"})
         assert len([query for query in self._explained() if "system.parts" in query]) == 1
         stored = slot.get(self.team.pk, "cache_key_1", thresholds=FLAG.thresholds_fingerprint)
-        assert stored is not None and stored.status == "done"
-        assert [str(finding.kind) for finding in stored.findings] == ["persons_join"]
+        assert stored is not None and stored.analysis is not None
+        assert [str(finding.kind) for finding in stored.analysis.findings] == ["persons_join"]
 
         # A failed metadata query must not fail the analysis: the gate falls back to raw granules.
         self.calls.clear()
         self.stored.clear()
         self._run({"STUBBED_MARKER": "plan_persons_join"}, averages_error=_OTHER_ERROR)
         stored = slot.get(self.team.pk, "cache_key_1", thresholds=FLAG.thresholds_fingerprint)
-        assert stored is not None and stored.status == "done"
-        assert [str(finding.kind) for finding in stored.findings] == ["persons_join"]
+        assert stored is not None and stored.analysis is not None
+        assert [str(finding.kind) for finding in stored.analysis.findings] == ["persons_join"]
 
 
 class TestQueryScanJobOnClickhouse(ClickhouseTestMixin, BaseTest):
@@ -240,9 +242,9 @@ class TestQueryScanJobOnClickhouse(ClickhouseTestMixin, BaseTest):
         run_query_scan(job)
 
         stored = slot.get(self.team.pk, "cache_key_1", thresholds=self.flag.thresholds_fingerprint)
-        assert stored is not None and stored.status == "done"
+        assert stored is not None and stored.analysis is not None
         assert self.capture.call_args.kwargs["properties"]["explain_ok"] is True
         # A share proves the events read and its bounds were found. The only finding is the persons
         # join: the outer read has a start date and an event filter, and so does the subquery.
-        assert stored.range_share is not None
-        assert [str(finding.kind) for finding in stored.findings] == ["persons_join"]
+        assert stored.analysis.range_share is not None
+        assert [str(finding.kind) for finding in stored.analysis.findings] == ["persons_join"]

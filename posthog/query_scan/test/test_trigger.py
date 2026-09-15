@@ -15,7 +15,6 @@ from posthog.schema import (
     FunnelsQuery,
     HogQLFilters,
     HogQLQuery,
-    QueryScanMode,
     RetentionFilter,
     RetentionQuery,
     RetentionType,
@@ -27,7 +26,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query_stats import QueryStats, RecordedExecution
 
 from posthog.clickhouse.query_tagging import AccessMethod, Feature, reset_query_tags, tag_queries
-from posthog.query_scan.flag import QueryScanFlag
+from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 from posthog.query_scan.slot import slot_key
 from posthog.query_scan.trigger import MAX_EXECUTION_BYTES, _open_filters_placeholder, maybe_trigger_query_scan
 
@@ -56,7 +55,7 @@ def _tag_as_api_key(test: "TestQueryScanTrigger") -> None:
 
 
 def _store_a_slot(test: "TestQueryScanTrigger") -> None:
-    test.redis.get.return_value = json.dumps({"version": 1, "status": "done", "findings": []})
+    test.redis.get.return_value = json.dumps({"version": 2, "analysis": {"findings": []}})
 
 
 def _spend_the_enqueue_budget(test: "TestQueryScanTrigger") -> None:
@@ -176,7 +175,7 @@ class TestQueryScanTrigger(SimpleTestCase):
         other = QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.2, persons_ratio=0.5)
         other_key = slot_key(1, "cache_key_1", other.thresholds_fingerprint)
         new_key = slot_key(1, "cache_key_1", FLAG.thresholds_fingerprint)
-        stored = {other_key: json.dumps({"version": 1, "status": "done", "findings": []})}
+        stored = {other_key: json.dumps({"version": 2, "analysis": {"findings": []}})}
         self.redis.get.side_effect = lambda key: stored.get(key)
 
         def claim(key: str, value: Any, ex: int | None = None, nx: bool = False) -> bool | None:
@@ -192,7 +191,7 @@ class TestQueryScanTrigger(SimpleTestCase):
         assert result is None
         assert self.delay.call_count == 1
         assert new_key in stored
-        assert json.loads(stored[new_key])["status"] == "pending"
+        assert json.loads(stored[new_key])["pending"] is True
 
     def test_a_broker_failure_does_not_fail_the_query(self) -> None:
         # ClickHouse has already done the work and the result is not cached yet, so an optional
@@ -212,14 +211,6 @@ class TestQueryScanTrigger(SimpleTestCase):
         assert result is None
         enqueued = self.delay.call_args.kwargs["executions"]
         assert enqueued[0]["event_filter"] == {"classification": "usable", "reason": None}
-
-    def test_a_killed_run_records_that_on_the_pending_slot(self) -> None:
-        # The scan endpoint answers from this slot until the job finishes, so a stopped run that
-        # left no `killed` here would be reported as one that ran to completion.
-        self._trigger(killed=True, error_type="ClickHouseQueryTimeOut")
-
-        _key, payload = self.redis.set.call_args.args
-        assert json.loads(payload)["killed"] is True
         # The job groups the analytics event by the error kind, so it travels on the payload.
         assert self.delay.call_args.kwargs["error_type"] == "ClickHouseQueryTimeOut"
 

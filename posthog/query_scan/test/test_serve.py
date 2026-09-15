@@ -1,109 +1,110 @@
 import json
 from types import SimpleNamespace
+from typing import Any
 
 from posthog.test.base import BaseTest
 from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import QueryScanMode, QueryScanSummary
+from posthog.schema import QueryScanSummary
 
-from posthog.query_scan.flag import QueryScanFlag
-from posthog.query_scan.serve import attach_scan_slot, scan_summary_with_findings
+from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
+from posthog.query_scan.serve import hydrate_response_scan, hydrate_scan_summary
 
 SHOW = QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
 LOG_ONLY = QueryScanFlag(mode=QueryScanMode.LOG_ONLY, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
-RAISED_FLOOR = QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=60_000, event_ratio=0.1, persons_ratio=0.5)
+
+STORED_ANALYSIS = json.dumps(
+    {
+        "version": 2,
+        "analysis": {
+            "range_share": 0.8,
+            "project_share": 0.25,
+            "findings": [
+                {
+                    "kind": "no_event_filter",
+                    "message": "This query read every event in its date range.",
+                    "fix": "Add an event filter naming the events this question is about.",
+                }
+            ],
+        },
+    }
+)
+PENDING = json.dumps({"version": 2, "pending": True})
 
 
-class TestServeScanSummary(BaseTest):
+class TestHydrateScanSummary(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.redis = mock.Mock()
-        self.redis.get.return_value = json.dumps(
-            {
-                "version": 1,
-                "status": "done",
-                "range_share": 0.8,
-                "project_share": 0.25,
-                "findings": [
-                    {
-                        "type": "query_scan",
-                        "kind": "no_event_filter",
-                        "message": "This query read every event in its date range.",
-                        "fix": "Add an event filter naming the events this question is about.",
-                    }
-                ],
-            }
-        )
+        self.redis.get.return_value = STORED_ANALYSIS
         patcher = mock.patch("posthog.query_scan.slot.query_cache_raw_client", return_value=self.redis)
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def _cached_summary(self) -> dict:
-        # What a run stored while the flag said "show" and the floor was a second.
-        return {"mode": "show", "rows_read": 41_200, "duration_ms": 19_000, "status": "pending"}
+    def _cached_summary(self, **overrides: Any) -> dict[str, Any]:
+        # What a slow run stored with its result.
+        return {"rows_read": 41_200, "duration_ms": 19_000, "analysis_requested": True, **overrides}
 
-    def _cached_response(self) -> SimpleNamespace:
+    def _cached_response(self, **overrides: Any) -> SimpleNamespace:
         return SimpleNamespace(
-            query_scan=QueryScanSummary(mode="show", rows_read=41_200, duration_ms=19_000, status="pending"),
-            cache_key="cache_key_1",
-            warnings=[],
+            query_scan=QueryScanSummary(**self._cached_summary(**overrides)), cache_key="cache_key_1"
         )
 
     @parameterized.expand(
         [
-            ("the flag went off", None, None, None),
+            ("the flag went off", None, None),
             # `log_only` collects the analysis without showing it to anyone.
-            ("the mode was downgraded", LOG_ONLY, ("log_only", "done"), []),
-            # Below the floor nothing reads the slot, so no status can be confirmed.
-            ("the floor was raised", RAISED_FLOOR, ("show", None), []),
-            ("nothing moved", SHOW, ("show", "done"), ["no_event_filter"]),
+            ("the mode was downgraded", LOG_ONLY, None),
+            ("nothing moved", SHOW, ["no_event_filter"]),
         ]
     )
-    def test_a_cached_summary_is_corrected_against_the_live_flag(self, _name, flag, expected, expected_kinds) -> None:
+    def test_a_cached_summary_is_served_under_the_live_flag(self, _name, flag, expected_kinds) -> None:
         response = self._cached_response()
 
         with mock.patch("posthog.query_scan.serve.get_query_scan_flag", return_value=flag):
-            attach_scan_slot(self.team, response)
-            folded = scan_summary_with_findings(self.team, self._cached_summary(), "cache_key_1")
+            hydrate_response_scan(self.team, response)
+            folded = hydrate_scan_summary(self.team, self._cached_summary(), "cache_key_1")
 
-        if expected is None:
-            assert folded is None
+        if expected_kinds is None:
             assert response.query_scan is None
+            assert folded is None
             return
-        assert response.query_scan is not None
-        assert (response.query_scan.mode, response.query_scan.status) == expected
-        assert [warning.kind for warning in response.warnings] == expected_kinds
+        assert [finding.kind for finding in response.query_scan.analysis.findings] == expected_kinds
         assert folded is not None
-        assert (folded["mode"], folded["status"]) == expected
-        assert [warning["kind"] for warning in folded.get("warnings", [])] == expected_kinds
+        assert [finding["kind"] for finding in folded["analysis"]["findings"]] == expected_kinds
+        assert (response.query_scan.analysis.range_share, folded["analysis"]["project_share"]) == (0.8, 0.25)
         # The findings come with the message "Fix with AI" sends, built here so no client keeps its own copy.
-        assert (response.query_scan.assistant_prompt is not None) is bool(expected_kinds)
-        assert ("assistant_prompt" in folded) is bool(expected_kinds)
+        assert "- no_event_filter:" in response.query_scan.analysis.assistant_prompt
 
-    def test_a_done_slot_puts_the_shares_on_the_summary(self) -> None:
-        # The shares are how the stat line says what fraction of the range a query read, so they
-        # have to reach the served summary.
-        response = self._cached_response()
+    @parameterized.expand(
+        [
+            # A run that asked for nothing costs no Redis read, however long it took.
+            ("no analysis was requested", {"analysis_requested": False}, STORED_ANALYSIS, 0),
+            ("the job is still running", {}, PENDING, 1),
+            ("the slot expired", {}, None, 1),
+        ]
+    )
+    def test_a_summary_without_a_stored_analysis_is_served_as_it_is(
+        self, _name, overrides: dict[str, Any], stored: str | None, redis_reads: int
+    ) -> None:
+        self.redis.get.return_value = stored
+        response = self._cached_response(**overrides)
 
         with mock.patch("posthog.query_scan.serve.get_query_scan_flag", return_value=SHOW):
-            attach_scan_slot(self.team, response)
-            folded = scan_summary_with_findings(self.team, self._cached_summary(), "cache_key_1")
+            hydrate_response_scan(self.team, response)
 
-        assert (response.query_scan.range_share, response.query_scan.project_share) == (0.8, 0.25)
-        assert folded is not None
-        assert (folded["range_share"], folded["project_share"]) == (0.8, 0.25)
+        assert response.query_scan is not None
+        assert response.query_scan.analysis is None
+        assert self.redis.get.call_count == redis_reads
 
-    def test_the_prompt_describes_the_run_and_not_the_stored_analysis(self) -> None:
+    def test_the_prompt_describes_the_run_being_served(self) -> None:
         # The slot can hold the analysis of a run that finished while this one was stopped, and the
         # other way round, so the prompt's run line follows the summary.
-        response = self._cached_response()
-        response.query_scan.killed = True
+        response = self._cached_response(killed=True)
 
         with mock.patch("posthog.query_scan.serve.get_query_scan_flag", return_value=SHOW):
-            attach_scan_slot(self.team, response)
+            hydrate_response_scan(self.team, response)
 
-        assert response.query_scan.killed is True
-        assert response.query_scan.assistant_prompt is not None
-        assert "ClickHouse stopped this query after" in response.query_scan.assistant_prompt
+        assert "ClickHouse stopped this query after" in response.query_scan.analysis.assistant_prompt
