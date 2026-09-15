@@ -193,7 +193,6 @@ jobs:
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_POSTHOG_CLI_RELEASER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_POSTHOG_CLI_RELEASER_PRIVATE_KEY }}
-                  # The App installation must grant these permissions. See docs/internal/cli-release.md.
                   permission-contents: write
                   permission-pull-requests: write
 
