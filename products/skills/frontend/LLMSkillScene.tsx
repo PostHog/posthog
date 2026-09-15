@@ -61,6 +61,7 @@ import {
     openArchiveSkillDialog,
     openPublishToCommunityDialog,
     openRenameSkillDialog,
+    publishToCommunityDisabledReason,
 } from './skillSceneComponents'
 
 const MonacoDiffEditor = lazyWithRetry(() => import('lib/components/MonacoDiffEditor'))
@@ -184,22 +185,13 @@ export function LLMSkillScene(): JSX.Element {
     const canEditSkill = userHasAccess(AccessControlResourceType.LlmSkill, AccessControlLevel.Editor)
 
     const communitySkillsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS]
-    const skillOwners = isSkill(skill) ? skill.owners : []
-    const isOwner = !!user && skillOwners.some((owner) => owner.uuid === user.uuid)
-    // Publishing is owner-only on the backend, so mirror that here instead of letting a non-owner's
-    // click come back a 403. In-flight guard keyed on the skill name matches the list view.
-    // The backend publishes the latest version by name, so block publishing from a historical
-    // version to avoid pushing content the user is not viewing.
     const publishDisabledReason = isSkill(skill)
-        ? publishingSkills[skill.name]
-            ? 'Publishing…'
-            : skillOwners.length === 0
-              ? 'Add an owner before publishing to the community'
-              : !isOwner
-                ? "Only the skill's owners can publish it"
-                : isHistoricalVersion
-                  ? 'Switch to the latest version to publish'
-                  : undefined
+        ? publishToCommunityDisabledReason({
+              ownerUuids: skill.owners.map((owner) => owner.uuid),
+              currentUserUuid: user?.uuid,
+              publishing: !!publishingSkills[skill.name],
+              isHistoricalVersion,
+          })
         : undefined
 
     const renameDisabledReason = renameBlockedReason(isSkill(skill) ? skill.name : null)
@@ -279,7 +271,7 @@ export function LLMSkillScene(): JSX.Element {
                                                     data-attr="llma-skill-publish-community-button"
                                                     fullWidth
                                                 >
-                                                    Publish to community
+                                                    Share publicly on GitHub
                                                 </LemonButton>
                                             </AccessControlAction>
                                         )}

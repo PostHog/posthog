@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { Suspense } from 'react'
 
-import { LemonButton, LemonModal, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -12,7 +13,13 @@ import { LemonDialog } from '~/lib/lemon-ui/LemonDialog'
 
 import type { SkillFormFileValues } from './llmSkillLogic'
 import { isSkill, llmSkillLogic } from './llmSkillLogic'
-import { SKILL_NAME_MAX_LENGTH, validateSkillName } from './skillConstants'
+import {
+    COMMUNITY_SKILLS_REPO,
+    COMMUNITY_SKILLS_REPO_URL,
+    SKILL_NAME_MAX_LENGTH,
+    validateSkillName,
+} from './skillConstants'
+import { skillPublishPreviewLogic } from './skillPublishPreviewLogic'
 
 export { LLMSkillsScene } from './LLMSkillsScene'
 export { LLMSkillScene } from './LLMSkillScene'
@@ -58,7 +65,72 @@ interface PublishToCommunityOptions {
     author_handle?: string
 }
 
-/** Collect the publish fields, then hand them to `onPublish`. Shared so the list view and the
+/** Owner-only on the backend, so mirror that here instead of letting a click come back a 403.
+ * Shared so the list view and the single-skill view guard the trigger identically. */
+export function publishToCommunityDisabledReason({
+    ownerUuids,
+    currentUserUuid,
+    publishing,
+    isHistoricalVersion,
+}: {
+    ownerUuids: string[]
+    currentUserUuid: string | undefined
+    publishing: boolean
+    isHistoricalVersion?: boolean
+}): string | undefined {
+    if (publishing) {
+        return 'Sharing…'
+    }
+    if (ownerUuids.length === 0) {
+        return 'Add an owner before you share this skill'
+    }
+    if (!currentUserUuid || !ownerUuids.includes(currentUserUuid)) {
+        return "Only the skill's owners can share it"
+    }
+    // The backend shares the latest version by name, so block sharing from a historical version to
+    // avoid pushing content the user is not looking at.
+    if (isHistoricalVersion) {
+        return 'Switch to the latest version to share'
+    }
+    return undefined
+}
+
+/** What the pending share sends: the destination repo, the version, and every file in the commit. */
+function PublishToCommunityContents({ skillName }: { skillName: string }): JSX.Element {
+    const { publishPreview, publishPreviewLoading } = useValues(skillPublishPreviewLogic({ skillName }))
+
+    return (
+        <div className="flex flex-col gap-1 rounded border p-2 bg-primary-highlight">
+            <div className="flex items-center gap-2">
+                <span className="font-semibold">Goes to</span>
+                <Link to={COMMUNITY_SKILLS_REPO_URL} target="_blank">
+                    {COMMUNITY_SKILLS_REPO}
+                </Link>
+                <LemonTag type="danger">Public</LemonTag>
+            </div>
+            {publishPreviewLoading ? (
+                <LemonSkeleton active className="h-4 w-3/5" />
+            ) : publishPreview ? (
+                <>
+                    <div>
+                        <span className="font-semibold">Version</span> v{publishPreview.version}
+                    </div>
+                    <div className="font-semibold">Files in the commit</div>
+                    <ul className="m-0 pl-4 list-disc font-mono text-xs max-h-40 overflow-y-auto">
+                        <li>SKILL.md</li>
+                        {publishPreview.files.map((file) => (
+                            <li key={file.path}>{file.path}</li>
+                        ))}
+                    </ul>
+                </>
+            ) : (
+                <div className="text-secondary">Couldn't load the file list, but the share still sends every file.</div>
+            )}
+        </div>
+    )
+}
+
+/** Collect the share fields, then hand them to `onPublish`. Shared so the list view and the
  * single-skill view open the identical dialog. */
 export function openPublishToCommunityDialog({
     skillName,
@@ -70,18 +142,20 @@ export function openPublishToCommunityDialog({
     onPublish: (skillName: string, options: PublishToCommunityOptions) => void
 }): void {
     LemonDialog.openForm({
-        title: 'Publish to community',
+        title: 'Share this skill publicly on GitHub',
         description:
-            "Publishing commits the skill's instructions, every bundled file, and any template variables (their prompts and defaults) to a public GitHub repo, then opens a pull request for a maintainer to review. The contents are public from the moment you submit, so don't include credentials or internal details.",
+            "Sharing commits the skill's instructions, every bundled file, and any template variables (their prompts and defaults) to a public GitHub repo, then opens a pull request for a maintainer to review. Everything is public from the moment you submit, and you can't take it back, so don't include credentials or internal details.",
         initialValues: {
             display_name: skillName.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
             tags: '',
             // Prefill with the user's resolved GitHub handle when we have one; the field stays
             // editable so users without a linked GitHub identity can still type one (free-text fallback).
             author_handle: githubLogin ?? '',
+            consent: false,
         },
         content: (
             <div className="flex flex-col gap-2">
+                <PublishToCommunityContents skillName={skillName} />
                 <LemonField name="display_name" label="Display name">
                     <LemonInput data-attr="llma-publish-display-name" autoFocus />
                 </LemonField>
@@ -91,8 +165,22 @@ export function openPublishToCommunityDialog({
                 <LemonField name="author_handle" label="Your GitHub handle (optional)">
                     <LemonInput data-attr="llma-publish-author-handle" placeholder="octocat" />
                 </LemonField>
+                <LemonField name="consent">
+                    {({ value, onChange }) => (
+                        <LemonCheckbox
+                            checked={!!value}
+                            onChange={onChange}
+                            data-attr="llma-publish-consent"
+                            label="I understand this skill becomes public and can't be taken back"
+                        />
+                    )}
+                </LemonField>
             </div>
         ),
+        errors: {
+            consent: (consent: boolean) => (consent ? undefined : 'Confirm you understand this skill becomes public'),
+        },
+        primaryButtonProps: { children: 'Share publicly' },
         onSubmit: ({ display_name, tags, author_handle }) =>
             onPublish(skillName, {
                 display_name: display_name?.trim() || undefined,

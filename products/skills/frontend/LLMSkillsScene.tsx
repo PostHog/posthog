@@ -20,6 +20,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { fullName } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { LemonDialog } from '~/lib/lemon-ui/LemonDialog'
 import { LemonField } from '~/lib/lemon-ui/LemonField'
@@ -34,7 +35,11 @@ import type { LLMSkillListApi } from 'products/skills/frontend/generated/api.sch
 import { llmSkillsEmptyState } from './emptyState/llmSkillsEmptyState'
 import { SKILLS_GROUP_LIMIT, SKILLS_PER_PAGE, SkillGroupNode, SkillGroupTree, llmSkillsLogic } from './llmSkillsLogic'
 import { SKILL_NAME_MAX_LENGTH, validateSkillName } from './skillConstants'
-import { openArchiveSkillDialog, openPublishToCommunityDialog } from './skillSceneComponents'
+import {
+    openArchiveSkillDialog,
+    openPublishToCommunityDialog,
+    publishToCommunityDisabledReason,
+} from './skillSceneComponents'
 import { SkillsSceneShell } from './SkillsSceneShell'
 
 export const scene: SceneExport = {
@@ -50,6 +55,44 @@ const HARNESS_SEEDED_BY = 'signals_scout_harness'
 
 function isCanonicalScout(skill: LLMSkillListApi): boolean {
     return (skill.metadata as Record<string, unknown> | undefined)?.seeded_by === HARNESS_SEEDED_BY
+}
+
+/** The one public action in this menu. It reads the flag, the viewer, and the in-flight state
+ * itself, so the column array stays stable while a share is in flight. */
+function ShareSkillMenuItem({
+    skill,
+    onShare,
+}: {
+    skill: LLMSkillListApi
+    onShare: (skill: LLMSkillListApi) => void
+}): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { publishingSkills } = useValues(llmSkillsLogic)
+    const { user } = useValues(userLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS]) {
+        return null
+    }
+
+    return (
+        <AccessControlAction
+            resourceType={AccessControlResourceType.LlmSkill}
+            minAccessLevel={AccessControlLevel.Editor}
+        >
+            <LemonButton
+                onClick={() => onShare(skill)}
+                disabledReason={publishToCommunityDisabledReason({
+                    ownerUuids: skill.owners.map((owner) => owner.uuid),
+                    currentUserUuid: user?.uuid,
+                    publishing: !!publishingSkills[skill.name],
+                })}
+                data-attr="llma-skill-dropdown-publish-community"
+                fullWidth
+            >
+                Share publicly on GitHub
+            </LemonButton>
+        </AccessControlAction>
+    )
 }
 
 function buildSkillColumns(
@@ -204,18 +247,7 @@ function buildSkillColumns(
                                     </LemonButton>
                                 </AccessControlAction>
 
-                                <AccessControlAction
-                                    resourceType={AccessControlResourceType.LlmSkill}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                >
-                                    <LemonButton
-                                        onClick={() => publishToCommunity(skill)}
-                                        data-attr="llma-skill-dropdown-publish-community"
-                                        fullWidth
-                                    >
-                                        Publish to community
-                                    </LemonButton>
-                                </AccessControlAction>
+                                <ShareSkillMenuItem skill={skill} onShare={publishToCommunity} />
 
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.LlmSkill}
