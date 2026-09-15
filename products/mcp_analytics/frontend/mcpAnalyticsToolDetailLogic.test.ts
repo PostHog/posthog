@@ -188,7 +188,7 @@ describe('failure drill-down', () => {
         expect(logic.values.failureOccurrences).toEqual([occurrenceFor('bucketB')])
     })
 
-    it('clears the previous bucket occurrences when deselecting', async () => {
+    it.each(['deselect', 'properties', 'test accounts'])('clears the open failure on %s', async (change) => {
         const logic = mcpAnalyticsToolDetailLogic({ toolName: 'query_run' })
         logic.mount()
         jest.spyOn(mockApi, 'query').mockResolvedValue({
@@ -217,7 +217,20 @@ describe('failure drill-down', () => {
         }).toDispatchActions(['loadFailureOccurrencesSuccess'])
 
         await expectLogic(logic, () => {
-            logic.actions.selectFailure(null)
+            if (change === 'properties') {
+                logic.actions.setPropertyFilters([
+                    {
+                        key: '$mcp_tool_name',
+                        value: ['query_run'],
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    },
+                ])
+            } else if (change === 'test accounts') {
+                logic.actions.setFilterTestAccounts(true)
+            } else {
+                logic.actions.selectFailure(null)
+            }
         }).toMatchValues({ selectedFailure: null, failureOccurrences: [] })
     })
 })

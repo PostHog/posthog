@@ -729,9 +729,11 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
         // listener on setDateFilter; the shared filters have no URL round-trip of their own here, so
         // they reload directly the same way that handler reloads on a date change.
         setFilterTestAccounts: () => {
+            actions.selectFailure(null)
             actions.loadAllSections()
         },
         setPropertyFilters: () => {
+            actions.selectFailure(null)
             actions.loadAllSections()
         },
         loadAllSections: () => {

@@ -101,6 +101,7 @@ class MCPHarnessBreakdownQueryRunner(AnalyticsQueryRunner[MCPHarnessBreakdownQue
             response = execute_hogql_query(
                 query=self.to_query(),
                 team=self.team,
+                user=self.user,
                 query_type="mcp_harness_breakdown_query",
                 timings=self.timings,
                 modifiers=self.modifiers,
