@@ -7,10 +7,15 @@ source as ``FROM __RUNS_SOURCE__ AS r`` (or joins it as ``r``).
 from datetime import datetime, timedelta
 
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 
 from posthog.dataclasses import frozen
 
 from products.engineering_analytics.backend.facade.contracts import WorkflowHealthRunScope
+
+# HogQL caps a query that names no LIMIT at 100 rows and clamps any larger LIMIT to this ceiling. Reads
+# bounded by the repo's shape (workflows, job names, a PR's runs) rather than by a page size take it whole.
+UNPAGED_SCAN_LIMIT = MAX_SELECT_RETURNED_ROWS
 
 # Trunk's merge-queue batch branches. Trunk-specific and hardcoded like KNOWN_BOT_HANDLES;
 # defined once here so every surface breaks queue spend out with the same key.

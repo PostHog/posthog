@@ -706,6 +706,9 @@ class TrunkQuarantineDebt:
     trunk_url: str | None
     teams: list[TrunkQuarantineTeamDebt]
     tests: list[TrunkQuarantinedTest]
+    # ``teams`` rolls up only the returned ``tests``, so when ``truncated`` its counts are lower bounds.
+    truncated: bool
+    limit: int
 
 
 @dataclass(frozen=True)

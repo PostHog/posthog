@@ -21,6 +21,7 @@ from products.engineering_analytics.backend.facade.contracts import WorkflowHeal
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     DURATION_PERCENTILE_CONDITION,
+    UNPAGED_SCAN_LIMIT,
     branch_filter_clause,
     cost_run_scope_filter_clause,
     date_to_filter_clause,
@@ -81,6 +82,7 @@ _COST_SELECT = f"""
     WHERE workflow_name = {{workflow_name}} AND created_at >= {{date_from}} __DATE_TO__ __BRANCH__
         __COST_RUN_SCOPE__
     GROUP BY job_name
+    LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
 _RUNS_WINDOW = (

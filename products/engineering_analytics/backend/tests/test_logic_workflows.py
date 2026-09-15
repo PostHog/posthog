@@ -13,6 +13,7 @@ from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import DeliveryStage
 from products.engineering_analytics.backend.logic import build_workflow_health
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._workflow_filters import UNPAGED_SCAN_LIMIT
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_cost_per_merge_series
 from products.engineering_analytics.backend.logic.sources import GitHubTables
 from products.engineering_analytics.backend.logic.views.source_schema import (
@@ -61,7 +62,8 @@ class TestWorkflowEndpointMapping(BaseTest):
             if query_type == "engineering_analytics.default_branch":
                 return _resp([(0, 12)])
             assert query_type == "engineering_analytics.current_branch_health"
-            assert "LIMIT" not in sql.upper()
+            # HogQL caps a query with no LIMIT at 100 rows, so the query must name the ceiling.
+            assert f"LIMIT {UNPAGED_SCAN_LIMIT}" in sql
             return _resp(workflow_rows)
 
         with mock.patch(_RUN_QUERY, side_effect=run):

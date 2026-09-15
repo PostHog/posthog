@@ -201,6 +201,8 @@ describe('engineeringAnalyticsLogic', () => {
             available: true,
             owners_resolved: true,
             ttl_days: 15,
+            truncated: false,
+            limit: 5000,
             repository: 'PostHog/posthog',
             trunk_url: null,
             teams: [],
@@ -693,6 +695,8 @@ describe('engineeringAnalyticsLogic', () => {
             available: true,
             owners_resolved: true,
             ttl_days: 15,
+            truncated: true,
+            limit: 5000,
             repository: 'PostHog/posthog',
             trunk_url: 'https://app.trunk.io/posthog-inc/flaky-tests?repo=PostHog/posthog',
             teams: [{ owner_team: 'team-replay', test_count: 1, overdue_count: 1, oldest_age_days: 44 }],
@@ -728,6 +732,8 @@ describe('engineeringAnalyticsLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadTrunkQuarantineSuccess'])
 
         expect(logic.values.trunkQuarantine?.ttlDays).toBe(15)
+        expect(logic.values.trunkQuarantine?.truncated).toBe(true)
+        expect(logic.values.trunkQuarantine?.limit).toBe(5000)
         expect(logic.values.trunkQuarantine?.repository).toBe('PostHog/posthog')
         expect(logic.values.trunkQuarantine?.trunkUrl).toBe(
             'https://app.trunk.io/posthog-inc/flaky-tests?repo=PostHog/posthog'
