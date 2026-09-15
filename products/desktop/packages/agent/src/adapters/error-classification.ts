@@ -1,16 +1,23 @@
 import { getErrorMessage } from "@posthog/shared";
 
+// The single source of truth for the classification set. The runtime schema in
+// agent-server.ts builds its enum from this list, so a new category cannot reach
+// the union while the schema still rejects it.
+export const AGENT_ERROR_CLASSIFICATIONS = [
+  "upstream_stream_terminated",
+  "upstream_connection_error",
+  "upstream_timeout",
+  "upstream_provider_failure",
+  "upstream_rate_limit",
+  "content_block_rejection",
+  "turn_ended_without_response",
+  "subscription_usage_limit",
+  "task_spend_limit",
+  "agent_error",
+] as const;
+
 export type AgentErrorClassification =
-  | "upstream_stream_terminated"
-  | "upstream_connection_error"
-  | "upstream_timeout"
-  | "upstream_provider_failure"
-  | "upstream_rate_limit"
-  | "content_block_rejection"
-  | "turn_ended_without_response"
-  | "subscription_usage_limit"
-  | "task_spend_limit"
-  | "agent_error";
+  (typeof AGENT_ERROR_CLASSIFICATIONS)[number];
 
 const RETRYABLE_UPSTREAM_ERROR_CLASSIFICATIONS =
   new Set<AgentErrorClassification>([
