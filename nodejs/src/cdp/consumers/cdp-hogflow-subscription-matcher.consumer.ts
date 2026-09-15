@@ -244,7 +244,12 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 groupId: 'cdp-hogflow-subscription-matcher-internal-events-consumer',
                 topic: KAFKA_CDP_INTERNAL_EVENTS,
             },
-            startAtLatest
+            {
+                ...startAtLatest,
+                ...(config.CDP_INTERNAL_EVENTS_CONSUMER_METADATA_BROKER_LIST
+                    ? { 'metadata.broker.list': config.CDP_INTERNAL_EVENTS_CONSUMER_METADATA_BROKER_LIST }
+                    : {}),
+            }
         )
         this.personDistinctIdKafkaConsumer = createKafkaConsumer(
             {

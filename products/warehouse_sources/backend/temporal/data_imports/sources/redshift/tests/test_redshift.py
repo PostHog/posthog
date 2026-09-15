@@ -519,6 +519,19 @@ class TestGetRowsToSync:
             assert impl.get_rows_to_sync(cursor, self._inner(), None, logger) == 0
         mock_capture.assert_not_called()
 
+    def test_undefined_table_is_not_reported(self, impl, cursor, logger):
+        # The table can be dropped or renamed between schema discovery and this count query
+        # running. That's an expected, already-known customer/upstream condition (the overall
+        # sync's `get_non_retryable_errors` already stops retrying on "does not exist"), not an
+        # actionable bug — row-count estimation is best-effort (the caller defaults to 0), so skip
+        # gracefully without reporting it to error tracking.
+        cursor.execute.side_effect = psycopg.errors.UndefinedTable('relation "public.apps" does not exist')
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.capture_exception"
+        ) as mock_capture:
+            assert impl.get_rows_to_sync(cursor, self._inner(), None, logger) == 0
+        mock_capture.assert_not_called()
+
     def test_remote_request_timeout_is_not_reported(self, impl, cursor, logger):
         # A `Remote request timeout` (code 29150) is Redshift's leader node losing internal RPC
         # contact with a compute node mid-query — a transient cluster-side hiccup, the same

@@ -1,31 +1,24 @@
-"""GitHub egress telemetry — the first domain registered with the generic observability mechanism.
+"""GitHub egress telemetry on the generic observability mechanism.
 
-Every GitHub API client in the codebase funnels its responses through ``record_github_api_response``
-so request volume and GitHub's own ``X-RateLimit-*`` headers land on one metric set, regardless of
-which subsystem made the call (installation integration, warehouse source, Visual review,
-Conversations, ...). The ``source`` label keeps them apart on a single dashboard.
+Every GitHub API call in the codebase records through ``github_egress`` (via ``github_request``), so
+request volume and GitHub's own ``X-RateLimit-*`` headers land on one metric set, regardless of
+which subsystem made the call. The ``source`` label keeps them apart on a single dashboard.
 
-The metric names are kept stable (``github_integration_api_*``) so existing dashboards stay valid;
-the mechanism is the generic :class:`EgressObservability`, so a new outbound API is just another
-adapter module like this one.
+The metric names are kept stable (``github_integration_api_*``) so existing dashboards stay valid.
 """
 
 import re
 from collections.abc import Mapping
 from urllib.parse import urlparse
 
-import requests
 from prometheus_client import Counter, Gauge
 
 from posthog.egress.observability.observability import (
     EgressMetrics,
     EgressObservability,
     RateLimitSnapshot,
-    register_egress_observability,
-    unpack_requests_response,
+    float_header,
 )
-
-GITHUB_DOMAIN = "github"
 
 _metrics = EgressMetrics(
     request_counter=Counter(
@@ -55,24 +48,12 @@ _metrics = EgressMetrics(
 )
 
 
-def _float_header(headers: Mapping[str, str] | None, name: str) -> float | None:
-    if headers is None:
-        return None
-    value = headers.get(name)
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
 def _parse_github_rate_limit(headers: Mapping[str, str] | None, _url: str | None) -> RateLimitSnapshot:
     return RateLimitSnapshot(
         resource=headers.get("X-RateLimit-Resource", "unknown") if headers is not None else "unknown",
-        remaining=_float_header(headers, "X-RateLimit-Remaining"),
-        limit=_float_header(headers, "X-RateLimit-Limit"),
-        reset_at=_float_header(headers, "X-RateLimit-Reset"),
+        remaining=float_header(headers, "X-RateLimit-Remaining"),
+        limit=float_header(headers, "X-RateLimit-Limit"),
+        reset_at=float_header(headers, "X-RateLimit-Reset"),
     )
 
 
@@ -126,44 +107,4 @@ def _normalize_github_endpoint(url: str | None) -> str:
     return "/" + "/".join(out)
 
 
-github_egress = EgressObservability(
-    GITHUB_DOMAIN, _metrics, _parse_github_rate_limit, endpoint_normalizer=_normalize_github_endpoint
-)
-register_egress_observability(github_egress)
-
-
-def record_github_api_response(
-    response: requests.Response,
-    *,
-    source: str,
-    installation_id: str | None = None,
-    method: str | None = None,
-    endpoint: str | None = None,
-) -> None:
-    """Record one GitHub API response. ``installation_id`` is the GitHub App installation — the shared
-    rate-limit budget GitHub meters. Pass it when known so the rate-limit gauges are set; identity-blind
-    callers (raw PATs) get request volume only. ``source`` attributes the call to a subsystem."""
-    primitives = unpack_requests_response(response)
-    github_egress.record_response(
-        primitives.status_code,
-        primitives.headers,
-        source=source,
-        scope=installation_id,
-        method=method,
-        endpoint=endpoint,
-        request_method=primitives.request_method,
-        request_url=primitives.request_url,
-    )
-
-
-def record_github_api_exception(
-    *,
-    source: str,
-    method: str,
-    endpoint: str | None = None,
-    url: str | None = None,
-    installation_id: str | None = None,
-) -> None:
-    """Record a request that raised before a response (timeout, connection error). Pass a curated
-    ``endpoint`` or a raw ``url`` (normalised internally)."""
-    github_egress.record_exception(source=source, scope=installation_id, method=method, endpoint=endpoint, url=url)
+github_egress = EgressObservability(_metrics, _parse_github_rate_limit, endpoint_normalizer=_normalize_github_endpoint)

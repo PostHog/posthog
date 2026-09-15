@@ -23,5 +23,13 @@ export function CustomerTasksInbox({ canCreate = false, canViewAll = false }: Cu
         persistPrefix,
     })
     useMountedLogic(logic)
-    return <CustomerTasksTable logic={logic} context="inbox" canCreate={canCreate} canViewAll={canViewAll} />
+    return (
+        <CustomerTasksTable
+            logic={logic}
+            context="inbox"
+            canCreate={canCreate}
+            canViewAll={canViewAll}
+            embedded={false}
+        />
+    )
 }

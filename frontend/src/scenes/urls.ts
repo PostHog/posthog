@@ -166,6 +166,7 @@ export const urls = {
     projectRoot: (): string => '/',
     projectHomepage: (): string => '/home',
     ai: (chat?: string, ask?: string): string => combineUrl('/ai', { ask, chat }).url,
+    aiTask: (taskId: string): string => combineUrl('/ai', { task: taskId }).url,
     aiHistory: (): string => '/ai/history',
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>
         combineUrl(`/settings/${section}`, undefined, setting).url,

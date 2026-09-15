@@ -5,9 +5,8 @@ from typing import ClassVar
 
 from unittest.mock import MagicMock, patch
 
-from django.conf import settings
 from django.core.cache import cache
-from django.db import OperationalError, connection
+from django.db import OperationalError
 from django.test import TestCase
 
 from parameterized import parameterized
@@ -15,7 +14,6 @@ from prometheus_client import REGISTRY
 from rest_framework.test import APIClient
 from social_django.models import UserSocialAuth
 
-from posthog.api.github_webhooks.attribution import _attribution_db_aliases, _bounded_attribution_lookup
 from posthog.api.github_webhooks.integrations import _installation_team_ids
 from posthog.api.github_webhooks.pull_requests import _PR_BODY_MAX_CHARS, _account_type
 from posthog.models.integration import Integration
@@ -2552,53 +2550,3 @@ class TestFindSignalImplementationRun(TestCase):
 
         assert found is not None
         assert found.run_id == legitimate.id
-
-
-class TestAttributionDbAliases(TestCase):
-    def _with_replica_configured(self):
-        return self.settings(DATABASES={**settings.DATABASES, "replica": settings.DATABASES["default"]})
-
-    def test_default_only_when_no_replica_is_configured(self):
-        self.assertEqual(_attribution_db_aliases(), ["default"])
-
-    @patch("posthog.api.github_webhooks.attribution.router.db_for_read", return_value="default")
-    def test_skips_a_configured_replica_the_router_would_not_read_from(self, _mock_db_for_read):
-        # Bounding an alias means opening it, and connection setup is itself unbounded (these
-        # aliases carry no connect_timeout), so a replica the router never reads from must not
-        # be dialled just to install a cap on it.
-        with self._with_replica_configured():
-            self.assertEqual(_attribution_db_aliases(), ["default"])
-
-    @patch("posthog.api.github_webhooks.attribution.router.db_for_read", return_value="replica")
-    def test_skips_the_primary_when_every_model_reads_from_the_replica(self, _mock_db_for_read):
-        # Symmetric to the above: a fully replica-opted deployment must not be made to wait on
-        # the primary either, since opening it is just as unbounded.
-        with self._with_replica_configured():
-            self.assertEqual(_attribution_db_aliases(), ["replica"])
-
-    @patch("posthog.api.github_webhooks.attribution.router.db_for_read")
-    def test_covers_every_alias_the_models_read_from(self, mock_db_for_read):
-        mock_db_for_read.side_effect = lambda model: "replica" if model is User else "default"
-        with self._with_replica_configured():
-            self.assertEqual(sorted(_attribution_db_aliases()), ["default", "replica"])
-
-
-class TestBoundedAttributionLookup(TestCase):
-    def _statement_timeout(self) -> str:
-        with connection.cursor() as cursor:
-            cursor.execute("SHOW statement_timeout")
-            row = cursor.fetchone()
-        assert row is not None
-        return row[0]
-
-    def test_caps_statements_and_restores_the_previous_value(self):
-        # Django's TestCase runs each test inside a transaction, which is exactly the case
-        # the restore exists for: joining a transaction we did not open (a future caller's
-        # atomic block, or ATOMIC_REQUESTS) must not leave the 800 ms cap behind.
-        before = self._statement_timeout()
-
-        with _bounded_attribution_lookup():
-            inside = self._statement_timeout()
-
-        self.assertEqual(inside, "800ms")
-        self.assertEqual(self._statement_timeout(), before)

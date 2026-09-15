@@ -1331,6 +1331,7 @@ export type ActivityLogListParams = {
      * * `EventDefinition` - EventDefinition
      * * `PropertyDefinition` - PropertyDefinition
      * * `Notebook` - Notebook
+     * * `GeneratedWidget` - GeneratedWidget
      * * `Canvas` - Canvas
      * * `Endpoint` - Endpoint
      * * `EndpointVersion` - EndpointVersion
@@ -1342,6 +1343,8 @@ export type ActivityLogListParams = {
      * * `Survey` - Survey
      * * `EarlyAccessFeature` - EarlyAccessFeature
      * * `SessionRecordingPlaylist` - SessionRecordingPlaylist
+     * * `ReplayScanner` - ReplayScanner
+     * * `VisionAlertConfiguration` - VisionAlertConfiguration
      * * `Comment` - Comment
      * * `Team` - Team
      * * `Project` - Project
@@ -1429,6 +1432,7 @@ export const ActivityLogListScope = {
     EventDefinition: 'EventDefinition',
     PropertyDefinition: 'PropertyDefinition',
     Notebook: 'Notebook',
+    GeneratedWidget: 'GeneratedWidget',
     Canvas: 'Canvas',
     Endpoint: 'Endpoint',
     EndpointVersion: 'EndpointVersion',
@@ -1440,6 +1444,8 @@ export const ActivityLogListScope = {
     Survey: 'Survey',
     EarlyAccessFeature: 'EarlyAccessFeature',
     SessionRecordingPlaylist: 'SessionRecordingPlaylist',
+    ReplayScanner: 'ReplayScanner',
+    VisionAlertConfiguration: 'VisionAlertConfiguration',
     Comment: 'Comment',
     Team: 'Team',
     Project: 'Project',
@@ -1514,6 +1520,7 @@ export const ActivityLogListScope = {
  * * `EventDefinition` - EventDefinition
  * * `PropertyDefinition` - PropertyDefinition
  * * `Notebook` - Notebook
+ * * `GeneratedWidget` - GeneratedWidget
  * * `Canvas` - Canvas
  * * `Endpoint` - Endpoint
  * * `EndpointVersion` - EndpointVersion
@@ -1525,6 +1532,8 @@ export const ActivityLogListScope = {
  * * `Survey` - Survey
  * * `EarlyAccessFeature` - EarlyAccessFeature
  * * `SessionRecordingPlaylist` - SessionRecordingPlaylist
+ * * `ReplayScanner` - ReplayScanner
+ * * `VisionAlertConfiguration` - VisionAlertConfiguration
  * * `Comment` - Comment
  * * `Team` - Team
  * * `Project` - Project
@@ -1600,6 +1609,7 @@ export const ActivityLogListScopesItem = {
     EventDefinition: 'EventDefinition',
     PropertyDefinition: 'PropertyDefinition',
     Notebook: 'Notebook',
+    GeneratedWidget: 'GeneratedWidget',
     Canvas: 'Canvas',
     Endpoint: 'Endpoint',
     EndpointVersion: 'EndpointVersion',
@@ -1611,6 +1621,8 @@ export const ActivityLogListScopesItem = {
     Survey: 'Survey',
     EarlyAccessFeature: 'EarlyAccessFeature',
     SessionRecordingPlaylist: 'SessionRecordingPlaylist',
+    ReplayScanner: 'ReplayScanner',
+    VisionAlertConfiguration: 'VisionAlertConfiguration',
     Comment: 'Comment',
     Team: 'Team',
     Project: 'Project',
