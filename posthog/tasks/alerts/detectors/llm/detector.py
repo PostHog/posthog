@@ -9,6 +9,7 @@ same points, a plain-English description of what the insight measures, and the a
 author's own notes on what counts as strange.
 """
 
+import json
 import uuid
 import hashlib
 import threading
@@ -24,7 +25,7 @@ from posthog.schema import DetectorType
 
 from posthog.tasks.alerts.detectors.base import BaseDetector, DetectionContext, DetectionResult
 from posthog.tasks.alerts.detectors.llm.errors import LLMDetectorMisconfiguredError, LLMDetectorUnavailableError
-from posthog.tasks.alerts.detectors.llm.prompt import SYSTEM_PROMPT, build_human_message
+from posthog.tasks.alerts.detectors.llm.prompt import PROMPT_REVISION, SYSTEM_PROMPT, build_human_message
 from posthog.tasks.alerts.detectors.llm.verdict import LLMDetectionVerdict
 from posthog.tasks.alerts.detectors.registry import register_detector
 
@@ -86,18 +87,27 @@ def _verdict_memo_key(
     """
     if not context.evaluation_id:
         return None
-    fingerprint = hashlib.sha256(
-        b"|".join(
+    fingerprint = hashlib.sha256(np.ascontiguousarray(data, dtype=np.float64).tobytes())
+    fingerprint.update(
+        json.dumps(
             [
-                context.evaluation_id.encode(),
-                np.ascontiguousarray(data, dtype=np.float64).tobytes(),
-                str(window).encode(),
-                str(judge_every_point).encode(),
-                context.instructions.encode(),
-            ]
-        )
-    ).hexdigest()
-    return f"alerts:llm_detector:verdict:{fingerprint}"
+                context.evaluation_id,
+                context.insight_name,
+                context.series_label,
+                context.interval,
+                context.dates,
+                context.metric_description,
+                context.instructions,
+                window,
+                judge_every_point,
+                LLM_DETECTOR_MODEL,
+                PROMPT_REVISION,
+                SYSTEM_PROMPT,
+            ],
+            separators=(",", ":"),
+        ).encode()
+    )
+    return f"alerts:llm_detector:verdict:{fingerprint.hexdigest()}"
 
 
 def _memoized_verdict(memo_key: str | None) -> LLMDetectionVerdict | None:

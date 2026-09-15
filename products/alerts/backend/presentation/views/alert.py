@@ -857,15 +857,12 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     @transaction.atomic
     def update(self, instance, validated_data):
         instance = AlertConfiguration.objects.select_for_update().get(pk=instance.pk)
+        # Recheck the combined configuration after concurrent updates have finished.
+        self.instance = instance
+        validated_data = self.validate(validated_data)
         enabled_changed = "enabled" in validated_data and validated_data["enabled"] != instance.enabled
         resulting_enabled = validated_data.get("enabled", instance.enabled) is True
         resulting_detector_config = validated_data.get("detector_config", instance.detector_config)
-        if is_llm_detector_config(resulting_detector_config):
-            resulting_interval = validated_data.get("calculation_interval", instance.calculation_interval)
-            if interval_error := llm_detector_interval_error(resulting_interval):
-                raise ValidationError({"calculation_interval": [interval_error]})
-            if not is_llm_detector_config(instance.detector_config) or (resulting_enabled and not instance.enabled):
-                _enforce_llm_feature_access(self.context, resulting_detector_config, principal=instance.created_by)
         # The cap lock serializes every writer of the team's AI alerts, so an edit that cannot
         # add one must not queue behind it.
         if _adds_enabled_llm_alert(
@@ -921,7 +918,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
 
         evaluation_changed = conditions_or_threshold_changed or any(
             validated_data.get(field, getattr(instance, field)) != getattr(instance, field)
-            for field in ("condition", "config", "skip_weekend")
+            for field in ("condition", "config", "skip_weekend", "detector_config")
         )
         calculation_interval_changed = (
             "calculation_interval" in validated_data

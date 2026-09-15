@@ -914,6 +914,7 @@ function WindowSizeInput({
         <div>
             <Label text="Window size" tooltip={tooltip} />
             <LemonInput
+                aria-label="Window size"
                 type="number"
                 min={5}
                 max={max}

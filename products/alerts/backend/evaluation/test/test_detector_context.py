@@ -82,6 +82,7 @@ def _evaluate(detector_config: dict[str, Any]) -> Any:
             detector_config,
             insight=_FakeInsight(),  # type: ignore[arg-type]
             alert=_FakeAlert(),  # type: ignore[arg-type]
+            evaluation_id="workflow-run:activity",
         )
 
 
@@ -97,6 +98,7 @@ class TestDetectionContextPlumbing:
         assert "signed_up" in context.metric_description
         assert context.team is FAKE_TEAM
         assert context.user is FAKE_USER
+        assert context.evaluation_id == "workflow-run:activity"
 
     def test_context_is_built_for_statistical_detectors_too(self) -> None:
         # One code path for every type: a detector added later reads the context without

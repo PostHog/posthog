@@ -142,17 +142,6 @@ def _effective_date_range(result: ExtractionResult) -> MetricDateRange | None:
     return None
 
 
-def _evaluation_id(alert: AlertConfiguration | None) -> str | None:
-    """Names the check being run, the same across every retry of that one check.
-
-    Only the check's own transaction advances ``next_check_at``, so a retried attempt reads the
-    slot it started on and the following check never reads the same one.
-    """
-    if alert is None or alert.next_check_at is None:
-        return None
-    return f"{alert.id}:{alert.next_check_at.isoformat()}"
-
-
 def _detection_context(
     series: ComparableSeries,
     detector_config: dict[str, Any],
@@ -247,6 +236,7 @@ def evaluate_with_detector(
     *,
     insight: Insight | None = None,
     alert: AlertConfiguration | None = None,
+    evaluation_id: str | None = None,
 ) -> AlertEvaluationResult:
     """Score an extracted trends series with an anomaly detector (the non-threshold alert path).
 
@@ -266,7 +256,6 @@ def evaluate_with_detector(
         return AlertEvaluationResult(value=value, breaches=[], interval=interval_value)
 
     metric_description = _metric_description(insight, series_index, _effective_date_range(result))
-    evaluation_id = _evaluation_id(alert)
 
     def score(series: ComparableSeries) -> tuple[np.ndarray, DetectionResult]:
         data = np.array([p.value for p in series.points])

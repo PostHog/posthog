@@ -38,6 +38,7 @@ from posthog.tasks.alerts.utils import (
     send_notifications_for_errors,
 )
 from posthog.temporal.alerts.activities import (
+    _load_alert_for_evaluation,
     cleanup_alert_checks,
     evaluate_alert,
     notify_alert,
@@ -470,28 +471,11 @@ class TestEvaluateAlert:
     async def test_ai_checks_run_on_their_own_executor(self, alert, uses_llm_detector: bool) -> None:
         # A model call can hold a thread for a minute; it must not hold one of the shared pool's.
         thread_names: list[str] = []
-
-        def _record_thread(_alert):
-            thread_names.append(threading.current_thread().name)
-            return AlertEvaluationResult(value=5.0, breaches=None)
-
-        with patch("posthog.temporal.alerts.activities.check_alert_for_insight", side_effect=_record_thread):
-            env = ActivityEnvironment()
-            await env.run(
-                evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id), uses_llm_detector=uses_llm_detector)
-            )
-
-        assert thread_names[0].startswith("insight-alert-llm-evaluate") is uses_llm_detector
-
-    async def test_executor_follows_the_current_detector_type(self, alert, ateam) -> None:
-        # prepare_alert read the type in an earlier activity. An alert converted to the AI
-        # detector since then still has to keep its model call off the shared pool.
-        await sync_to_async(AlertConfiguration.objects.filter(team=ateam, id=alert.id).update)(
-            detector_config={"type": "llm", "threshold": 0.7, "window": 90}
+        await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(
+            detector_config={"type": "llm" if uses_llm_detector else "zscore"}
         )
-        thread_names: list[str] = []
 
-        def _record_thread(_alert):
+        def _record_thread(_alert, *, evaluation_id):
             thread_names.append(threading.current_thread().name)
             return AlertEvaluationResult(value=5.0, breaches=None)
 
@@ -499,10 +483,61 @@ class TestEvaluateAlert:
             env = ActivityEnvironment()
             await env.run(
                 evaluate_alert,
+                EvaluateAlertActivityInputs(alert_id=str(alert.id), uses_llm_detector=not uses_llm_detector),
+            )
+
+        assert thread_names[0].startswith("insight-alert-llm-evaluate") is uses_llm_detector
+
+    async def test_executor_and_evaluation_use_the_same_config_snapshot(self, alert, ateam) -> None:
+        await sync_to_async(AlertConfiguration.objects.filter(team=ateam, id=alert.id).update)(
+            detector_config={"type": "zscore"}
+        )
+        thread_names: list[str] = []
+        detector_types: list[str] = []
+
+        async def _load_then_convert(inputs):
+            snapshot = await _load_alert_for_evaluation(inputs)
+            await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(detector_config={"type": "llm"})
+            return snapshot
+
+        def _record_thread(_alert, *, evaluation_id):
+            thread_names.append(threading.current_thread().name)
+            detector_types.append(_alert.detector_config["type"])
+            return AlertEvaluationResult(value=5.0, breaches=None)
+
+        with (
+            patch("posthog.temporal.alerts.activities._load_alert_for_evaluation", side_effect=_load_then_convert),
+            patch("posthog.temporal.alerts.activities.check_alert_for_insight", side_effect=_record_thread),
+        ):
+            env = ActivityEnvironment()
+            await env.run(
+                evaluate_alert,
                 EvaluateAlertActivityInputs(alert_id=str(alert.id), uses_llm_detector=False, team_id=ateam.id),
             )
 
-        assert thread_names[0].startswith("insight-alert-llm-evaluate")
+        assert not thread_names[0].startswith("insight-alert-llm-evaluate")
+        assert detector_types == ["zscore"]
+
+    async def test_retry_keeps_evaluation_id_after_the_schedule_advances(self, alert) -> None:
+        evaluation_ids: list[str] = []
+        schedules: list[datetime | None] = []
+
+        def _record_evaluation(_alert, *, evaluation_id):
+            evaluation_ids.append(evaluation_id)
+            schedules.append(_alert.next_check_at)
+            return AlertEvaluationResult(value=5.0, breaches=None)
+
+        await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(next_check_at=None)
+        with patch("posthog.temporal.alerts.activities.check_alert_for_insight", side_effect=_record_evaluation):
+            env = ActivityEnvironment()
+            inputs = EvaluateAlertActivityInputs(alert_id=str(alert.id))
+            await env.run(evaluate_alert, inputs)
+            await env.run(evaluate_alert, inputs)
+
+        assert schedules[0] is None
+        assert schedules[1] is not None
+        assert evaluation_ids[0]
+        assert evaluation_ids[0] == evaluation_ids[1]
 
     async def test_evaluate_not_firing_no_breaches(self, alert) -> None:
         with patch(

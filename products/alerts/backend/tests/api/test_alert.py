@@ -2919,13 +2919,61 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert response.json()["attr"] == "calculation_interval"
 
+    @parameterized.expand([("create", False), ("concurrent_insight_change", True)])
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_rejected_for_a_breakdown_insight(self, _flag) -> None:
+    def test_rejected_for_a_breakdown_insight(self, _name, concurrent_change, _flag) -> None:
         breakdown_insight = self._create_breakdown_insight()
-        response = self._create({"type": "llm", "threshold": 0.7, "window": 90}, insight=breakdown_insight["id"])
+        config = {"type": "llm", "threshold": 0.7, "window": 90}
+        if concurrent_change:
+            created = self._create({"type": "zscore", "threshold": 0.9, "window": 30})
+            assert created.status_code == status.HTTP_201_CREATED, created.content
+            update = AlertSerializer.update
+
+            def change_insight_before_lock(serializer, instance, validated_data):
+                AlertConfiguration.objects.filter(pk=instance.pk).update(insight_id=breakdown_insight["id"])
+                return update(serializer, instance, validated_data)
+
+            with mock.patch.object(AlertSerializer, "update", new=change_insight_before_lock):
+                response = self.client.patch(
+                    f"/api/projects/{self.team.id}/alerts/{created.json()['id']}",
+                    {"detector_config": config},
+                )
+            saved_config = AlertConfiguration.objects.get(pk=created.json()["id"]).detector_config
+            assert saved_config is not None
+            assert saved_config["type"] == "zscore"
+        else:
+            response = self._create(config, insight=breakdown_insight["id"])
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "does not support breakdown insights" in response.json()["detail"]
+
+    @parameterized.expand(
+        [("instructions", "Only care about drops"), ("threshold", 0.9), ("window", 30), ("window", 90)]
+    )
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_detector_edits_reset_state_and_schedule(self, field, value, _flag) -> None:
+        config = {"type": "llm", "threshold": 0.7, "window": 90}
+        created = self._create(config, calculation_interval="monthly")
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+        scheduled_check = datetime.now(UTC) + timedelta(days=20)
+        AlertConfiguration.objects.filter(pk=created.json()["id"]).update(
+            state=AlertState.FIRING, next_check_at=scheduled_check
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{created.json()['id']}",
+            {"detector_config": {**config, field: value}},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        saved = AlertConfiguration.objects.get(pk=created.json()["id"])
+        if config.get(field) != value:
+            assert saved.state == AlertState.NOT_FIRING
+            assert saved.next_check_at is not None
+            assert saved.next_check_at <= datetime.now(UTC)
+        else:
+            assert saved.state == AlertState.FIRING
+            assert saved.next_check_at == scheduled_check
 
     @mock.patch("posthog.tasks.alerts.detectors.llm.detector.LLMDetector._ask_model")
     @mock.patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")

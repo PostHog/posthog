@@ -23,6 +23,9 @@ The model returns a verdict: whether the series is anomalous, its confidence, a 
 (spike, drop, flatline, trend break, level shift, pattern change), a short rationale shown to the
 person, and which points it flagged.
 
+Changing the detector configuration resets the alert state and schedules a new check.
+Metric metadata is escaped and marked as data in the prompt. The chart uses a fixed title.
+
 ## The number is confidence, not probability
 
 The model reports how confident it is in the verdict it gave, whichever way that verdict went.
@@ -63,6 +66,12 @@ and defaults to 5 when the payload does not set it.
 A flag rule targeting one organization can carry its own cap.
 Only enabled alerts count, and the cap is checked only on a write that adds an enabled AI alert, so
 lowering it never blocks an edit to an alert that already exists.
+
+Activity retries can reuse a verdict for 20 minutes. The cache key includes the workflow run and
+activity IDs, the series, all prompt fields, the model, and the prompt revision. It stays stable
+after the check advances the schedule, but changed model inputs require a new verdict.
+AI evaluations use a dedicated thread pool. The routing decision and evaluation use the same
+alert configuration snapshot.
 
 ## Gating
 
