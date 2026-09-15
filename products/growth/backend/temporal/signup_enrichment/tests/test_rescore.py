@@ -1,4 +1,5 @@
 import uuid
+import datetime as dt
 
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -63,6 +64,16 @@ class TestResolveWizardRescoreSignupInputs(BaseTest):
 
     def test_returns_none_when_the_organization_has_no_member(self):
         organization = Organization.objects.create(name="ghost.example")
+
+        assert self._resolve(str(organization.id)) is None
+
+    def test_returns_none_when_the_signup_user_left(self):
+        organization = Organization.objects.create(name="left.example")
+        user = User.objects.create_user(email="successor@other.example", password=None, first_name="f")
+        membership = OrganizationMembership.objects.create(organization=organization, user=user)
+        OrganizationMembership.objects.filter(pk=membership.pk).update(
+            joined_at=organization.created_at + dt.timedelta(hours=1)
+        )
 
         assert self._resolve(str(organization.id)) is None
 

@@ -64,7 +64,10 @@ class GrowthEnrichmentViewSet(viewsets.ViewSet):
         secret = get_instance_setting("GROWTH_RESCORE_WEBHOOK_SECRET")
         if not secret:
             return Response(status=503)
-        if not hmac.compare_digest(secret, request.headers.get(WEBHOOK_SECRET_HEADER, "")):
+        # Django decodes headers as latin-1, and compare_digest rejects a non-ASCII str. The
+        # secret is ASCII, so a header that is not cannot match.
+        provided = request.headers.get(WEBHOOK_SECRET_HEADER, "")
+        if not provided.isascii() or not hmac.compare_digest(secret, provided):
             return Response(status=401)
 
         serializer = RescoreRequestSerializer(data=request.data)

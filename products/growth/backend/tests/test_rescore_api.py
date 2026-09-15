@@ -3,6 +3,8 @@ import uuid
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.models.instance_setting import override_instance_config
 
 from products.growth.backend.models import OrganizationEnrichment
@@ -32,9 +34,10 @@ class TestGrowthEnrichmentRescoreAPI(APIBaseTest):
         assert response.status_code == 401
         dispatch_mock.assert_not_called()
 
-    def test_wrong_secret_returns_401_and_dispatches_nothing(self):
+    @parameterized.expand([("plain", "not-the-secret"), ("non_ascii", "not-the-secret\u00ff")])
+    def test_wrong_secret_returns_401_and_dispatches_nothing(self, _name, secret):
         with patch(f"{_MODULE}.dispatch_wizard_stamp_rescore") as dispatch_mock:
-            response = self._post(str(self.organization.id), secret="not-the-secret")
+            response = self._post(str(self.organization.id), secret=secret)
 
         assert response.status_code == 401
         dispatch_mock.assert_not_called()

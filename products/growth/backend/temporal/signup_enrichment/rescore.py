@@ -40,45 +40,30 @@ class WizardStampRescoreInputs:
 async def resolve_wizard_rescore_signup_inputs_activity(
     inputs: WizardStampRescoreInputs,
 ) -> typing.Optional[dict[str, typing.Any]]:
-    """Reads the org's earliest membership to fill in the signup identity, since the webhook body carries only the organization id."""
+    """Resolves the signup identity through the shared gate, since the webhook body carries only the organization id."""
     from asgiref.sync import sync_to_async  # noqa: PLC0415
 
-    from posthog.models.organization import OrganizationMembership  # noqa: PLC0415
-    from posthog.utils import GenericEmails  # noqa: PLC0415
-
-    from products.growth.backend.enrichment.gates import domain_from_email  # noqa: PLC0415
+    from products.growth.backend.enrichment.gates import SignupIdentity, resolve_signup_identity  # noqa: PLC0415
     from products.growth.backend.models import OrganizationEnrichment  # noqa: PLC0415
 
     logger = LOGGER.bind(organization_id=inputs.organization_id)
 
     def _resolve() -> typing.Optional[dict[str, typing.Any]]:
-        membership = (
-            OrganizationMembership.objects.filter(organization_id=inputs.organization_id)
-            .select_related("user")
-            .order_by("joined_at")
-            .first()
-        )
-        if membership is None or membership.user is None:
-            return None
-        user = membership.user
-        domain = domain_from_email(user.email) if user.email else None
-        if not user.distinct_id or not domain or GenericEmails().is_generic(user.email):
+        identity = resolve_signup_identity(inputs.organization_id)
+        if not isinstance(identity, SignupIdentity):
+            logger.info("wizard_stamp_rescore_no_signup_identity", reason=identity.reason)
             return None
 
         record = OrganizationEnrichment.objects.filter(organization_id=inputs.organization_id).only("data").first()
-        role = record.data.get("signup_role") if record else None
 
         return {
             "organization_id": inputs.organization_id,
-            "distinct_id": user.distinct_id,
-            "domain": domain,
-            "role_at_organization": role,
+            "distinct_id": identity.distinct_id,
+            "domain": identity.domain,
+            "role_at_organization": record.data.get("signup_role") if record else None,
         }
 
-    resolved = await sync_to_async(_resolve)()
-    if resolved is None:
-        logger.info("wizard_stamp_rescore_no_signup_identity")
-    return resolved
+    return await sync_to_async(_resolve)()
 
 
 @workflow.defn(name="wizard-stamp-rescore")
