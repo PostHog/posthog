@@ -13,8 +13,16 @@ interface BuildDiscussReportPromptOptions {
 export const CODE_CONTEXT_DISCLOSURE =
   "If you inspect code, add a Code context checked section before your conclusions. Name the repository, branch or commit, number of files scanned, and every excluded or unreadable path. State any coverage limit that could affect the result.";
 
-export function buildLocalCodeSnapshotPrompt(prompt: string): string {
-  return `${prompt}\n\nThis run uses the selected local folder directly. Treat its code context as limited to the folder state during this run and possibly stale. Explain that connecting GitHub enables ongoing background investigations.\n\n${CODE_CONTEXT_DISCLOSURE}`;
+export function buildLocalCodeSnapshotPrompt(
+  prompt: string,
+  /** Repositories the task covers that the selected folder does not hold. */
+  omittedRepositories: string[] = [],
+): string {
+  const omitted =
+    omittedRepositories.length > 0
+      ? `\n\nThis task also covers ${omittedRepositories.join(", ")}. That code is not in this folder, so report it as not checked.`
+      : "";
+  return `${prompt}\n\nThis run uses the selected local folder directly. Treat its code context as limited to the folder state during this run and possibly stale. Explain that connecting GitHub enables ongoing background investigations.${omitted}\n\n${CODE_CONTEXT_DISCLOSURE}`;
 }
 
 export function buildDiscussReportPrompt({

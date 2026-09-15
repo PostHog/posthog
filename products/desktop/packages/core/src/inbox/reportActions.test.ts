@@ -204,6 +204,16 @@ describe("buildDiscussReportPrompt", () => {
     expect(prompt).toContain("limited to the folder state during this run");
     expect(prompt).toContain("possibly stale");
     expect(prompt).toContain("ongoing background investigations");
+    expect(prompt).not.toContain("This task also covers");
+  });
+
+  it("names the repositories a local folder leaves out", () => {
+    const prompt = buildLocalCodeSnapshotPrompt("Investigate this report.", [
+      "acme/api",
+      "acme/web",
+    ]);
+    expect(prompt).toContain("This task also covers acme/api, acme/web.");
+    expect(prompt).toContain("report it as not checked");
   });
 });
 

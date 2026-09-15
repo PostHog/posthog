@@ -105,6 +105,13 @@ export function GithubConnectionRequiredRecovery({
     if (hasError || isTimedOut) connectStartedRef.current = false;
   }, [hasError, isTimedOut]);
 
+  // A task can carry several repositories, and the folder holds one of them.
+  // The agent has to name the rest as unchecked rather than read as complete.
+  const omittedRepositories = useMemo(
+    () => (task.repositories ?? []).filter((entry) => entry !== repository),
+    [repository, task.repositories],
+  );
+
   const runLocally = useCallback(() => {
     if (!localFolder) return;
     onOpenChange(false);
@@ -112,14 +119,17 @@ export function GithubConnectionRequiredRecovery({
       folderId: localFolder.id,
       folderRepository: repository ?? undefined,
       folderRunEnvironment: "local",
-      initialPrompt: buildLocalCodeSnapshotPrompt(getRecoveryPrompt(task)),
+      initialPrompt: buildLocalCodeSnapshotPrompt(
+        getRecoveryPrompt(task),
+        omittedRepositories,
+      ),
       initialMode: "plan",
       reportAssociation: task.signal_report
         ? { reportId: task.signal_report, title: task.title }
         : undefined,
       channelId: task.channel ?? undefined,
     });
-  }, [localFolder, onOpenChange, repository, task]);
+  }, [localFolder, omittedRepositories, onOpenChange, repository, task]);
 
   const connectionMessage = hasError
     ? describeGithubConnectError(error)
