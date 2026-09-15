@@ -7,7 +7,7 @@ import {
   Heading,
   Text,
 } from "@posthog/quill";
-import { warningHog } from "@posthog/ui/assets/hedgehogs";
+import { hoggiePng } from "@posthog/shared/hoggies";
 import {
   buildErrorReport,
   summarizeError,
@@ -73,7 +73,7 @@ export function ErrorBoundaryFallback({
     >
       <div className="my-auto flex w-full max-w-md flex-col items-center gap-6 text-center">
         <img
-          src={warningHog}
+          src={hoggiePng("shocked")}
           alt=""
           className="pointer-events-none @max-[420px]:w-28 w-36 select-none"
         />
