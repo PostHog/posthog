@@ -77,6 +77,17 @@ apm-spans-aggregate
 
 A busy service returns hundreds of operations (the payload runs to 100KB+ and the harness persists it to a file) — **process it programmatically, don't eyeball it.** Sort operations by delta and keep only those where the rate moved but `count` stayed within ~2× (the guard that separates a real regression from a volume swing); a low-`count` operation has too small a sample for a stable percentile (see disqualifiers). Scope to a few services per run rather than pulling the whole project at once.
 
+#### An operation missing from `compare` is not a missing baseline
+
+Both arrays hold the top `limit` rows by `total_duration_nano`, **ranked independently per window** — so `results` and `compare` are different row sets. An operation whose total time moved between the windows can rank inside one and outside the other, which is exactly what a real regression does: the exact join drops your strongest candidates first. Absence from `compare` means "outside this window's top rows", never "no traffic a week ago". A renamed service does the same thing for a different reason. Both read identically in the join, so resolve them before you call any comparison unavailable:
+
+1. **Re-query the operation by name.** `apm-spans-aggregate` with `filterGroup: [{"key": "name", "type": "span", "operator": "exact", "value": "<operation>"}]` and the same `compareFilter` returns that operation in both windows whatever its rank. This is the authoritative baseline read — run it on every candidate you intend to report, not only the ones that look absent.
+2. **Fold in the service's identity variants.** A logical service can change `service_name` mid-rollout, as a runtime or deployment suffix appears or disappears (`checkout`, `checkout-canary`). Diff `apm-services-list` for the primary window against the same call with a matched-week `dateRange`: a name live in one window, absent in the other, and differing from a live service only by such a suffix is a variant candidate. Confirm before merging — the pair must share operation names, and traffic must hand over (one falls as the other rises) — then score the group as one logical service.
+
+Merging variants adds `count` and `error_count` across their rows, so error rate stays exact. **Percentiles do not add** — never average two `p95_duration_nano` values. For merged latency, sum `count` per `bucket_ns` across the variants in each window with `apm-spans-duration-histogram` (`rootSpans: false` plus the name filter for a child operation), or baseline against the one variant carrying the large majority of `count` and say which.
+
+Only when both checks come back empty is the baseline really absent — a new operation, or one whose week-ago traffic was genuinely zero. Name the check that established it. Never label a comparison migration-limited for a row you merely failed to find in `compare`, and when a baseline does come from a merged variant group, say so in the report evidence: it is a cross-service baseline, not an exact matched-week row.
+
 ### Profile shape
 
 | Pattern                                                  | What it usually means                                         |
@@ -85,7 +96,7 @@ A busy service returns hundreds of operations (the payload runs to 100KB+ and th
 | `error_count` up, `count` ~flat (error rate steps up)    | real error regression — investigate first                     |
 | `p95` up materially, `count` ~flat                       | latency regression — investigate                              |
 | `p95` up **and** `count` up sharply                      | saturation under load — investigate, lower confidence         |
-| new `(service, name)` erroring, no 7d-ago row            | new code path / recent deploy — investigate                   |
+| new `(service, name)` erroring, no 7d-ago row            | new code path — only after both baseline checks are empty     |
 | service in baseline memory, now ~0 spans                 | traffic cliff (instrumentation break or outage) — investigate |
 
 Always score the **latest complete** bucket/window — a partial current hour always reads as a drop in volume and a dip in p95.
@@ -119,6 +130,7 @@ Write a scratchpad entry whenever you observe something a future run should know
 - key `pattern:apm:baseline-{service}-{operation}` — "checkout/POST /orders: p95 ~420ms, error rate ~0.3%, ~1.2k req/h at this hour-of-week (2026-06-21)"
 - key `dedupe:apm:{service}:{operation}` — "Surfaced p95 regression on payments/charge (320ms→1.4s, count steady ~800/h) starting 2026-06-21 14:00 UTC. If still elevated next run, edit the report; if back under ~400ms, treat as recovered."
 - key `noise:apm:{service}` — "frontend/GET /healthz: high-volume readiness probe, ignore; deploy-window p95 blips recover within one bucket, don't report unless sustained ≥2 buckets."
+- key `pattern:apm:identity-{service}` — "checkout and checkout-canary are one logical service (confirmed 2026-06-21: shared operation names, traffic handed over across the rollout). Merge their rows before joining the matched week." Record a variant group you ruled out too, so a later run doesn't re-test it.
 - key `report:apm:{service}:{operation}` — the `report_id` of a report you filed for a regression on this operation (error rate, p95, traffic cliff), so the next run edits it (`append_evidence` with the fresh window) instead of duplicating.
 - key `reviewer:apm:{service}` — a resolved owner (bare lowercase GitHub login) for a service, so reports route to a human faster.
 
@@ -139,6 +151,7 @@ One paragraph: which services/operations you scored, which reports you authored 
 ## Disqualifiers (skip these)
 
 - **Raw count tracking traffic.** Error or span count up in lockstep with request `count` (rate ~flat) — volume, not a regression. This is the dominant false positive; check it first.
+- **An unresolved baseline.** A row absent from `compare` because of independent per-window ranking, or because the service was renamed — not a new code path, and not grounds for a migration-limited caveat. Run both baseline checks first.
 - **Deploy-window blips.** A one-bucket p95 or error spike that recovers on its own. Record a `noise:`/`pattern:` entry; report only when sustained across ≥2 complete buckets.
 - **High-but-steady error baselines.** An operation erroring at the same elevated rate in both windows (e.g. ~98% now and ~98% a week ago) is a standing baseline, not a fresh regression — record it once in `pattern:`/`noise:` memory and don't re-report it each run. The signal is the rate _stepping up_, not its absolute level.
 - **Dev / test services.** `service.name` or a resource attribute (`deployment.environment`, env) of `dev` / `local` / `test` / `staging`. Filter before weighing.
