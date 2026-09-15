@@ -467,6 +467,13 @@ export function isUnlinkableEventFilter(
     )
 }
 
+/** Plain-event names a legacy trends/funnels metric counts, from its non-exposure series. */
+function legacyMetricEventNames(metric: ExperimentTrendsQuery | ExperimentFunnelsQuery): string[] {
+    const series =
+        metric.kind === NodeKind.ExperimentTrendsQuery ? metric.count_query.series : metric.funnels_query.series
+    return series.flatMap((node) => (node.kind === NodeKind.EventsNode && node.event ? [node.event] : []))
+}
+
 /**
  * The single event an experiment's exposure is counted on, for the session-linkability check.
  * Null for an action exposure config, which can match several events, so no one name applies.
@@ -482,9 +489,10 @@ export function getExposureLinkabilityEventName(experiment: Experiment): string 
 /**
  * Event names whose session-linkability must be checked before building "View recordings" links:
  * the exposure event plus every plain-event metric step across primary, secondary and shared
- * metrics, mirroring how `getViewRecordingFilters` enumerates them. Action and data warehouse
- * steps pass through unchecked (same as the replay playlist's own check), as do "all events"
- * steps, which have no event name.
+ * metrics, mirroring how `getViewRecordingFilters` (new metrics) and `getViewRecordingFiltersLegacy`
+ * (legacy trends/funnels metrics) enumerate them. Action and data warehouse steps pass through
+ * unchecked (same as the replay playlist's own check), as do "all events" steps, which have no
+ * event name.
  */
 export function getSessionLinkabilityEventNames(experiment: Experiment): string[] {
     const eventNames = new Set<string>()
@@ -494,23 +502,32 @@ export function getSessionLinkabilityEventNames(experiment: Experiment): string[
         eventNames.add(exposureEventName)
     }
 
-    const metrics = [
+    const metricQueries = [
         ...(experiment.metrics || []),
         ...(experiment.metrics_secondary || []),
-        ...(experiment.saved_metrics || []).map((savedMetric: { query?: ExperimentMetric }) => savedMetric?.query),
-    ].filter((metric): metric is ExperimentMetric => metric?.kind === NodeKind.ExperimentMetric)
+        ...(experiment.saved_metrics || []).map(
+            (savedMetric: { query?: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery }) =>
+                savedMetric?.query
+        ),
+    ]
 
-    for (const metric of metrics) {
-        const sources: (ExperimentMetricSource | ExperimentFunnelMetricStep)[] = isExperimentMeanMetric(metric)
-            ? [metric.source]
-            : isExperimentFunnelMetric(metric)
-              ? metric.series
-              : isExperimentRatioMetric(metric)
-                ? [metric.numerator, metric.denominator]
-                : []
-        for (const source of sources) {
-            if (source.kind === NodeKind.EventsNode && source.event) {
-                eventNames.add(source.event)
+    for (const metric of metricQueries) {
+        if (metric?.kind === NodeKind.ExperimentMetric) {
+            const sources: (ExperimentMetricSource | ExperimentFunnelMetricStep)[] = isExperimentMeanMetric(metric)
+                ? [metric.source]
+                : isExperimentFunnelMetric(metric)
+                  ? metric.series
+                  : isExperimentRatioMetric(metric)
+                    ? [metric.numerator, metric.denominator]
+                    : []
+            for (const source of sources) {
+                if (source.kind === NodeKind.EventsNode && source.event) {
+                    eventNames.add(source.event)
+                }
+            }
+        } else if (isLegacyExperimentQuery(metric)) {
+            for (const eventName of legacyMetricEventNames(metric)) {
+                eventNames.add(eventName)
             }
         }
     }

@@ -608,6 +608,47 @@ describe('getSessionLinkabilityEventNames', () => {
         ])
     })
 
+    it('collects plain-event steps of legacy trends and funnel metrics, alongside the exposure event', () => {
+        const experiment = {
+            ...experimentBase,
+            metrics: [
+                {
+                    kind: NodeKind.ExperimentTrendsQuery,
+                    count_query: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                event: 'server_side_conversion',
+                                name: 'server_side_conversion',
+                            },
+                            { kind: NodeKind.ActionsNode, id: 7, name: 'some action' },
+                        ],
+                    },
+                },
+            ],
+            metrics_secondary: [
+                {
+                    kind: NodeKind.ExperimentFunnelsQuery,
+                    funnels_query: {
+                        kind: NodeKind.FunnelsQuery,
+                        series: [
+                            { kind: NodeKind.EventsNode, event: 'signup', name: 'signup' },
+                            { kind: NodeKind.EventsNode, event: 'purchase', name: 'purchase' },
+                        ],
+                    },
+                },
+            ],
+        } as unknown as Experiment
+
+        expect(getSessionLinkabilityEventNames(experiment)).toEqual([
+            '$feature_flag_called',
+            'server_side_conversion',
+            'signup',
+            'purchase',
+        ])
+    })
+
     it('includes a custom exposure event but not a custom exposure action', () => {
         const withEventExposure = {
             ...experimentBase,
