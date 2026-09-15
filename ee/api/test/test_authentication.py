@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 from django.conf import settings
 from django.core import mail
 from django.core.exceptions import ValidationError
+from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.test import RequestFactory, override_settings
 from django.utils import timezone
@@ -152,10 +153,9 @@ class TestOIDCAuthentication(APILicensedTest):
                 with self.assertRaises(AuthTokenError):
                     self.backend.validate_and_return_id_token(token, "example-access-token")
 
-    def test_oidc_login_completes_without_storing_tokens(self):
-        self.user.email = "member@example.com"
-        self.user.save()
-        self.client.logout()
+    def _complete_oidc_login(
+        self, email: str, *, sub: str = "example-user", name: str = "Example User"
+    ) -> HttpResponse:
         private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         public_key = {**json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(private_key.public_key())), "kid": "example-key"}
         token_response: dict[str, Any] = {}
@@ -178,10 +178,10 @@ class TestOIDCAuthentication(APILicensedTest):
                 self.assertEqual(method, "GET")
                 self.assertEqual(kwargs["headers"], {"Authorization": "Bearer example-access-token"})
                 data = {
-                    "sub": "example-user",
-                    "email": self.user.email,
+                    "sub": sub,
+                    "email": email,
                     "email_verified": True,
-                    "name": "Example User",
+                    "name": name,
                 }
             else:
                 self.assertEqual(url, "https://idp.example.com/token")
@@ -192,14 +192,14 @@ class TestOIDCAuthentication(APILicensedTest):
             return response
 
         with patch.object(MultitenantOIDCAuth, "request", side_effect=oidc_response):
-            response = self.client.get("/login/oidc/", {"email": self.user.email})
+            response = self.client.get("/login/oidc/", {"email": email})
             self.assertEqual(response.status_code, 302)
             params = parse_qs(urlparse(response["Location"]).query)
             claims = {
                 "iss": self.config.oidc_issuer_url,
                 "aud": "example-client",
-                "sub": "example-user",
-                "name": "Example User",
+                "sub": sub,
+                "name": name,
                 "iat": int(timezone.now().timestamp()),
                 "exp": int(timezone.now().timestamp()) + 60,
                 "nonce": params["nonce"][0],
@@ -211,13 +211,55 @@ class TestOIDCAuthentication(APILicensedTest):
                     "id_token": jwt.encode(claims, private_key, algorithm="RS256", headers={"kid": "example-key"}),
                 }
             )
-            response = self.client.get("/complete/oidc/", {"state": params["state"][0], "code": "example-code"})
+            return self.client.get("/complete/oidc/", {"state": params["state"][0], "code": "example-code"})
+
+    def test_oidc_login_completes_without_storing_tokens(self):
+        self.user.email = "member@example.com"
+        self.user.save()
+        self.client.logout()
+
+        response = self._complete_oidc_login("member@example.com")
+
         self.assertEqual(response.status_code, 302)
         self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
         self.assertEqual(response.cookies["ph_last_login_method"].value, "oidc")
         social_auth = UserSocialAuth.objects.get(user=self.user, provider="oidc")
         self.assertEqual(social_auth.uid, f"{self.config.oidc_issuer_url}:example-user")
         self.assertEqual(social_auth.extra_data, {})
+
+    def test_oidc_jit_provisioning_creates_user_on_verified_domain(self):
+        self.domain.jit_provisioning_enabled = True
+        self.domain.save()
+        self.client.logout()
+        user_count = User.objects.count()
+
+        response = self._complete_oidc_login("newmember@example.com", sub="new-user", name="New Member")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(User.objects.count(), user_count + 1)
+        user = cast(User, User.objects.get(email="newmember@example.com"))
+        self.assertEqual(user.first_name, "New Member")
+        self.assertEqual(user.organization, self.organization)
+        self.assertEqual(user.team, self.team)
+        self.assertEqual(
+            cast(OrganizationMembership, user.organization_memberships.get()).level,
+            OrganizationMembership.Level.MEMBER,
+        )
+        self.assertEqual(self.client.session["_auth_user_id"], str(user.pk))
+        social_auth = UserSocialAuth.objects.get(user=user, provider="oidc")
+        self.assertEqual(social_auth.uid, f"{self.config.oidc_issuer_url}:new-user")
+
+    def test_oidc_jit_provisioning_disabled_does_not_provision_user(self):
+        self.assertFalse(self.domain.jit_provisioning_enabled)
+        self.client.logout()
+        user_count = User.objects.count()
+
+        response = self._complete_oidc_login("newmember@example.com", sub="new-user", name="New Member")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(User.objects.count(), user_count)
+        self.assertFalse(User.objects.filter(email="newmember@example.com").exists())
+        self.assertNotIn("_auth_user_id", self.client.session)
 
     def test_oidc_redirect_uses_pkce_and_tenant_client(self):
         with patch.object(
