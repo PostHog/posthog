@@ -358,6 +358,30 @@ describe('signupLogic — name handling', () => {
             code: 'invalid_url',
         })
     })
+
+    it('keeps a throttled response out of the validation failure event', async () => {
+        useMocks({
+            post: {
+                '/api/signup/': () => [
+                    429,
+                    { type: 'throttled_error', code: 'throttled', detail: 'Request was throttled.' },
+                ],
+            },
+        })
+        await advanceToOnboardingPanel()
+        logic.actions.setSignupPanelOnboardingValues({
+            name: 'John Smith',
+            organization_name: 'Hogflix',
+            role_at_organization: 'engineer',
+            referral_source: '',
+            referral_source_ai_prompt: '',
+        })
+        logic.actions.submitSignupPanelOnboarding()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.signupPanelOnboardingManualErrors.generic?.code).toBe('throttled')
+        expect(posthog.capture).not.toHaveBeenCalledWith('sign up validation failed', expect.anything())
+    })
 })
 
 describe('signupLogic - pending OAuth connection', () => {
