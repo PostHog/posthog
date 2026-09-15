@@ -1,6 +1,7 @@
 # HogQL language service prototype
 
 This prototype keeps multiple immutable, permission-filtered catalogs in memory and provides local SQL completion.
+Completion uses the cursor context to suggest fields, functions, comparison operators, and predicate continuations such as `AND` and `OR`.
 It uses `github.com/orian/clickhouse-sql-parser` to recover table and alias context from the query. Django remains the
 authority for deciding which schema and properties belong in each catalog.
 
@@ -65,7 +66,8 @@ curl -sS -X PUT http://localhost:8091/teams/2/users/17/catalog \
       "tables": {
         "events": {"name": "events", "type": "posthog", "fields": {}}
       },
-      "properties": {"event": [{"name": "$geo_city", "property_type": "String"}]}
+      "properties": {"event": [{"name": "$geo_city", "property_type": "String"}]},
+      "functions": ["count", "toDateTime"]
     }
   }'
 ```

@@ -18,6 +18,7 @@ from posthog.hogql.editor_assist_metrics import (
     LANGUAGE_SERVICE_HTTP_DURATION_SECONDS,
     LANGUAGE_SERVICE_RESPONSE_SIZE_BYTES,
 )
+from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import PropertyDefinition, Team, User
@@ -86,7 +87,7 @@ def build_catalog(team: Team, user: User, schema: DatabaseSchemaQueryResponse) -
         properties[f"group:{group_type_index}"] = _properties_for_namespace(
             team, user, PropertyDefinition.Type.GROUP, group_type_index
         )
-    return {"tables": tables, "properties": properties}
+    return {"tables": tables, "properties": properties, "functions": sorted(set(ALL_EXPOSED_FUNCTION_NAMES))}
 
 
 def _properties_for_namespace(

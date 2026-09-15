@@ -8,6 +8,7 @@ from posthog.hogql.language_service import (
     CatalogMissing,
     LanguageServiceClient,
     LanguageServiceError,
+    build_catalog,
     is_language_service_enabled,
 )
 
@@ -75,6 +76,13 @@ class TestLanguageServiceClient(SimpleTestCase):
 
         duration.labels.assert_called_once_with(operation="validate")
         duration.labels.return_value.observe.assert_called_once()
+
+    @patch("posthog.hogql.language_service._properties_for_namespace", return_value=[])
+    def test_catalog_includes_hogql_functions(self, _properties: MagicMock) -> None:
+        catalog = build_catalog(MagicMock(), MagicMock(), MagicMock(tables={}))
+
+        assert "count" in catalog["functions"]
+        assert "toDateTime" in catalog["functions"]
 
 
 class TestLanguageServiceFeatureFlag(SimpleTestCase):
