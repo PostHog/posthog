@@ -98,8 +98,8 @@ def classify_runner(labels: list[str]) -> RunnerTier | None:
 
 def _os_from_label(label: str) -> RunnerOS | None:
     """The OS a runner label names, or ``None`` when it names no recognized OS."""
-    lowered = label.lower()
-    return next((os_ for token, os_ in _OS_BY_TOKEN.items() if token in lowered), None)
+    normalized_label = label.lower()
+    return next((os_ for token, os_ in _OS_BY_TOKEN.items() if token in normalized_label), None)
 
 
 def _depot_vcpu(label: str) -> int:
