@@ -28,6 +28,7 @@ const AGGREGATION_OPTIONS: { value: MetricAggregation; label: string }[] = [
     { value: 'min', label: 'Min' },
     { value: 'max', label: 'Max' },
     { value: 'p95', label: 'p95' },
+    { value: 'histogram_quantile', label: 'Histogram p95' },
     { value: 'rate', label: 'Rate (/s)' },
     { value: 'increase', label: 'Increase' },
 ]

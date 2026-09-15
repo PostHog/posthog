@@ -98,7 +98,7 @@ describe('metricsViewerLogic', () => {
     it.each([
         ['requests_total', 'increase'],
         ['queue_depth', 'avg'],
-        ['request_duration', 'p95'],
+        ['request_duration', 'histogram_quantile'],
     ])('selecting %s applies the type-appropriate aggregation %s', (metricName, expected) => {
         logic.actions.setMetricName(metricName)
         expect(logic.values.aggregation).toBe(expected)
@@ -120,6 +120,9 @@ describe('metricsViewerLogic', () => {
 
     // metricsQueryNode is what "Save as insight" persists: a wrong mapping here
     // silently saves insights that re-run a different query than the viewer showed.
+    // A histogram must persist as histogram_quantile: ingest stores the cumulative
+    // observation sum in the scalar value column, so plain quantile/p95 would chart
+    // a quantile of ever-growing sums instead of the latency distribution.
     it('maps viewer state to a MetricsQuery node, translating p95 to quantile', () => {
         logic.actions.setMetricName('request_duration')
         logic.actions.setGroupByKeys(['container'])
@@ -128,14 +131,14 @@ describe('metricsViewerLogic', () => {
         )
         logic.actions.setDateFrom('-24h')
 
-        expect(logic.values.aggregation).toBe('p95')
+        expect(logic.values.aggregation).toBe('histogram_quantile')
         expect(logic.values.metricsQueryNode).toEqual({
             kind: NodeKind.MetricsQuery,
             clauses: [
                 {
                     name: 'a',
                     metricName: 'request_duration',
-                    aggregation: 'quantile',
+                    aggregation: 'histogram_quantile',
                     metricType: 'histogram',
                     quantile: 0.95,
                     filters: [{ key: 'namespace', op: 'eq', value: 'posthog' }],
@@ -143,6 +146,28 @@ describe('metricsViewerLogic', () => {
                 },
             ],
             dateRange: { date_from: '-24h' },
+        })
+    })
+
+    it('maps a saved histogram_quantile node back to viewer vocabulary', () => {
+        logic.actions.setClauses(
+            [
+                {
+                    name: 'a',
+                    metricName: 'request_duration',
+                    selectedMetricType: 'histogram',
+                    aggregation: 'histogram_quantile',
+                    aggregationExplicitlySet: true,
+                    filterGroup: { type: FilterLogicalOperator.And, values: [] },
+                    groupByKeys: [],
+                },
+            ],
+            ''
+        )
+        expect(logic.values.aggregation).toBe('histogram_quantile')
+        expect(logic.values.queryPayload?.clauses[0]).toMatchObject({
+            aggregation: 'histogram_quantile',
+            quantile: 0.95,
         })
     })
 
@@ -308,6 +333,14 @@ describe('metricsViewerLogic', () => {
         // A cold URL restore sets the name before the list arrives, so without the late
         // recommendation a gauge/counter link would silently chart as a raw sum.
         expect(logic.values.aggregation).toBe('avg')
+    })
+
+    it('the late backfill applies histogram_quantile for a histogram metric restored from a link', () => {
+        metricNamePickerLogic.actions.loadItemsSuccess([])
+        logic.actions.setMetricName('request_duration')
+        expect(logic.values.aggregation).toBe('sum')
+        metricNamePickerLogic.actions.loadItemsSuccess(PICKER_ITEMS)
+        expect(logic.values.aggregation).toBe('histogram_quantile')
     })
 
     it('the late backfill leaves an explicitly chosen aggregation alone', () => {

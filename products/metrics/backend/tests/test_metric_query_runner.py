@@ -1338,6 +1338,12 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         with self.assertRaises(ValueError):
             self._run(quantile=1.5)
 
+    def test_rejects_summary_metric_type(self):
+        # A summary stores quantile->value pairs in histogram_bounds/histogram_counts,
+        # not bucket counts. Interpolating them as a distribution returns garbage.
+        with self.assertRaisesRegex(ValueError, "summary"):
+            self._run(metric_type="summary")
+
     def test_group_by_service_name_column(self):
         # Pass `service_name` to the outer group-by.
         self._seed_histogram([(self.anchor, [10, 0, 0, 0])], temporality="delta", service_name="svc-a")

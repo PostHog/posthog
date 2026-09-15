@@ -103,9 +103,12 @@ describe('metricsStarterDashboardLogic', () => {
                 },
             ],
         })
-        // The node schema has no 'p95' — the recommended shorthand maps to quantile + 0.95.
+        // A histogram reads its bucket distribution: quantile over the scalar value
+        // column would chart a percentile of cumulative observation sums.
         expect(histogramInsight.query).toMatchObject({
-            clauses: [expect.objectContaining({ aggregation: 'quantile', quantile: 0.95, metricType: 'histogram' })],
+            clauses: [
+                expect.objectContaining({ aggregation: 'histogram_quantile', quantile: 0.95, metricType: 'histogram' }),
+            ],
         })
     })
 
