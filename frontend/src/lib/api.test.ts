@@ -293,6 +293,27 @@ describe('API helper', () => {
         } satisfies Partial<ApiError>)
     })
 
+    it('completes the request when cloning the response for connection status fails', async () => {
+        const onApiResponse = jest.fn()
+        const apiStatusLogicSpy = jest
+            .spyOn(apiStatusLogic, 'findMounted')
+            .mockReturnValue({ actions: { onApiResponse } } as any)
+        const response = new Response(JSON.stringify(FAKE_FETCH_RESULT), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+        })
+        // Anything that reads the body first, such as an extension or a `fetch` wrapper, leaves `clone()` throwing.
+        jest.spyOn(response, 'clone').mockImplementation(() => {
+            throw new TypeError("Failed to execute 'clone' on 'Response': Response body is already used")
+        })
+        fakeFetch.mockResolvedValueOnce(response)
+
+        await expect(api.get('api/environments/2/insights')).resolves.toEqual(FAKE_FETCH_RESULT)
+        expect(onApiResponse.mock.calls[0][0]).toMatchObject({ status: 200 })
+
+        apiStatusLogicSpy.mockRestore()
+    })
+
     describe('OAuth mode auth headers', () => {
         beforeEach(() => {
             window.localStorage.setItem(
