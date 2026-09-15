@@ -2061,7 +2061,7 @@ class FeatureFlagSerializer(
             key=key,
             team__project_id=self.context["project_id"],
             deleted=True,
-        ).select_related("team")
+        )
         if exclude_pk is not None:
             soft_deleted_qs = soft_deleted_qs.exclude(pk=exclude_pk)
 
