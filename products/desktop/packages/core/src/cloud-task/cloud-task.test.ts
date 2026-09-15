@@ -1547,6 +1547,90 @@ describe("CloudTaskEngine", () => {
     );
   });
 
+  it("rebuilds from history when the proxy reports a trimmed resume position", async () => {
+    vi.useFakeTimers();
+
+    const updates: unknown[] = [];
+    service.on(CloudTaskEvent.Update, (payload) => updates.push(payload));
+
+    mockStreamTokenFetch.mockImplementation(() =>
+      Promise.resolve(
+        createJsonResponse({
+          token: "proxy-token",
+          stream_base_url: "https://proxy.example",
+        }),
+      ),
+    );
+
+    let sessionLogsFetches = 0;
+    mockNetFetch.mockImplementation((input: string | Request) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.includes("/session_logs/")) {
+        sessionLogsFetches += 1;
+        return Promise.resolve(
+          createJsonResponse([], 200, { "X-Has-More": "false" }),
+        );
+      }
+      return Promise.resolve(
+        createJsonResponse({
+          id: "run-1",
+          status: "in_progress",
+          stage: null,
+          output: null,
+          error_message: null,
+          branch: "main",
+          updated_at: "2026-01-01T00:00:00Z",
+        }),
+      );
+    });
+
+    mockStreamFetch
+      .mockImplementationOnce(() =>
+        Promise.resolve(
+          createSseResponse(
+            'id: 5-0\ndata: {"type":"notification","method":"session/update"}\n\n',
+          ),
+        ),
+      )
+      .mockImplementationOnce(() =>
+        Promise.resolve(
+          createSseResponse(
+            'event: end\ndata: {"type":"resync","reason":"trimmed"}\n\n',
+          ),
+        ),
+      )
+      .mockImplementation(() => Promise.resolve(createOpenSseResponse("")));
+
+    service.watch({
+      taskId: "task-1",
+      runId: "run-1",
+      apiHost: "https://app.example.com",
+      teamId: 2,
+    });
+
+    await waitFor(() => mockStreamFetch.mock.calls.length >= 3, 20_000);
+
+    const [resumeUrl, resumeInit] = mockStreamFetch.mock.calls[1];
+    expect(String(resumeUrl)).toContain("resync=1");
+    expect(
+      (resumeInit?.headers as Record<string, string>)["Last-Event-ID"],
+    ).toBe("5-0");
+
+    const [rebuiltUrl, rebuiltInit] = mockStreamFetch.mock.calls[2];
+    expect(String(rebuiltUrl)).toContain("start=latest");
+    expect(
+      (rebuiltInit?.headers as Record<string, string>)["Last-Event-ID"],
+    ).toBeUndefined();
+    expect(sessionLogsFetches).toBe(2);
+    expect(mockStreamTokenFetch.mock.calls.length).toBe(2);
+    expect(
+      updates.filter((u) => (u as { kind?: string }).kind === "snapshot"),
+    ).toHaveLength(2);
+    expect(updates.some((u) => (u as { kind?: string }).kind === "error")).toBe(
+      false,
+    );
+  });
+
   it("drops the resume position when the stream leg changes", async () => {
     vi.useFakeTimers();
 
