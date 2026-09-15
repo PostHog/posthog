@@ -391,7 +391,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
                         caption=(
                             "In MongoDB Atlas, open your cluster and click **Connect → Drivers** to copy this, "
                             "then replace `<db_password>` with your database user's password. Self-hosted "
-                            "clusters use a `mongodb://host:port` string."
+                            "clusters use the host and port form in the placeholder, keeping `tls=true`."
                         ),
                         secret=True,
                     ),
