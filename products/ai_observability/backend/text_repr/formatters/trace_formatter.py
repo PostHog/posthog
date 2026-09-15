@@ -8,6 +8,7 @@ supports both interactive frontend markers and plain text for backend/LLM consum
 
 import json
 import base64
+from collections.abc import Iterator
 from typing import Any
 
 from dateutil.parser import isoparse
@@ -16,7 +17,7 @@ from posthog.schema import LLMTrace, LLMTraceEvent
 
 from posthog.dataclasses import frozen
 
-from .constants import DEFAULT_MAX_LENGTH, MAX_TREE_DEPTH, SEPARATOR
+from .constants import DEFAULT_MAX_LENGTH, DEFAULT_TRUNCATE_BUFFER, MAX_TREE_DEPTH, SEPARATOR
 from .event_formatter import format_event_text_repr
 from .message_formatter import (
     FormatterLines,
@@ -57,24 +58,24 @@ def _normalize_hierarchy_id(value: Any) -> str | None:
     return None
 
 
-def _latency_ms(event: LLMTraceEvent) -> float:
+def _latency_ms(properties: dict[str, Any]) -> float:
     try:
-        latency = float(event.properties.get("$ai_latency", 0))
+        latency = float(properties.get("$ai_latency", 0))
     except (TypeError, ValueError):
         return 0.0
     return latency * 1000 if latency > 0 else 0.0
 
 
-def _operation_start_ms(event: LLMTraceEvent) -> float:
+def _operation_start_ms(created_at: Any, properties: dict[str, Any]) -> float:
     """Epoch ms the event's operation began. PostHog AI SDKs capture an event when the operation
     finishes, so its timestamp is the end; OTel-ingested spans already carry the start."""
     try:
-        end_ms = isoparse(event.createdAt).timestamp() * 1000
+        end_ms = isoparse(created_at).timestamp() * 1000
     except (TypeError, ValueError):
         return 0.0
-    if event.properties.get("$ai_ingestion_source") == "otel":
+    if properties.get("$ai_ingestion_source") == "otel":
         return end_ms
-    return end_ms - _latency_ms(event)
+    return end_ms - _latency_ms(properties)
 
 
 def _to_formatter_event(event: LLMTraceEvent) -> dict[str, Any]:
@@ -108,7 +109,8 @@ def _nest_events(llm_trace: LLMTrace) -> list[dict[str, Any]]:
         event = events_by_node_id[node_id]
         # Siblings that began together are ordered longest first, matching the timeline.
         return _TraceEventSortKey(
-            operation_start_ms=_operation_start_ms(event), negative_latency_ms=-_latency_ms(event)
+            operation_start_ms=_operation_start_ms(event.createdAt, event.properties),
+            negative_latency_ms=-_latency_ms(event.properties),
         )
 
     emitted_node_ids: set[str] = set()
@@ -413,6 +415,9 @@ def _render_event_node(
     event_options: FormatterOptions = (
         {**options, "include_line_numbers": False} if options else {"include_line_numbers": False}
     )
+    event_buffer = (options or {}).get("event_truncate_buffers", {}).get(str(event_id))
+    if event_buffer is not None:
+        event_options["truncate_buffer"] = event_buffer
     event_content = format_event_text_repr(event, event_options)
 
     if include_markers:
@@ -556,3 +561,143 @@ def format_trace_text_repr(
         formatted_text, was_sampled = reduce_by_uniform_sampling(formatted_text, max_length)
 
     return sanitize_surrogates(formatted_text), was_sampled
+
+
+# Floor for a budgeted render. An event this far back in the transcript keeps only a first and last
+# slice of each message, the same amount the trace view shows before a reader expands it.
+MIN_EVENT_TRUNCATE_BUFFER = DEFAULT_TRUNCATE_BUFFER
+# The buffer caps each message, not the whole event, so an event with many messages renders longer
+# than its buffer. Grow the buffer from the floor and stop when the event fills its allowance.
+_MAX_EVENT_FIT_ATTEMPTS = 3
+# Tree prefixes and line numbers are added around an event, so they are invisible while one event is
+# measured and a first pass can still overshoot. Shrink the allocation and render again.
+_MAX_BUDGET_ATTEMPTS = 3
+# Shrink past the measured overshoot, so a second pass lands under the budget instead of just on it.
+_BUDGET_REDUCTION_FACTOR = 0.95
+
+
+def _iter_events(nodes: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
+    for node in nodes:
+        yield node.get("event", node)
+        yield from _iter_events(node.get("children", []))
+
+
+def _fit_event_buffer(
+    event: dict[str, Any], allowance: int, floor_length: int, options: FormatterOptions
+) -> tuple[int, int]:
+    """Find the largest truncate buffer whose rendered event still fits `allowance`.
+
+    Returns the buffer and the length it renders to. The search starts at the floor and grows, so a
+    measurement never allocates much more than the allowance even when the event holds megabytes.
+    """
+    buffer, rendered = MIN_EVENT_TRUNCATE_BUFFER, floor_length
+    for _ in range(_MAX_EVENT_FIT_ATTEMPTS):
+        if rendered >= allowance:
+            break
+        candidate = min(allowance, buffer * allowance // max(rendered, 1))
+        if candidate <= buffer:
+            break
+        candidate_rendered = len(format_event_text_repr(event, {**options, "truncate_buffer": candidate}))
+        if candidate_rendered > allowance:
+            break
+        buffer, rendered = candidate, candidate_rendered
+    return buffer, rendered
+
+
+def _allocate_event_buffers(hierarchy: list[dict[str, Any]], budget: int, options: FormatterOptions) -> dict[str, int]:
+    """Spend `budget` on the newest event first, so the latest turn keeps its content whole.
+
+    Every event renders at the floor first. Only what the budget has left over that baseline is
+    handed out, newest first, so an older event never spends the budget the newest one needs.
+    """
+    measure_options: FormatterOptions = {**options, "include_line_numbers": False, "max_length": None}
+    floor_options: FormatterOptions = {**measure_options, "truncate_buffer": MIN_EVENT_TRUNCATE_BUFFER}
+    measured = [
+        (event, len(format_event_text_repr(event, floor_options)))
+        for event in _iter_events(hierarchy)
+        if _is_expandable_event(event.get("event", ""))
+    ]
+    # Events arrive in completion order, so a span that wraps the closing generation arrives after
+    # it and would take the spare budget first. Order by when each operation began instead, which
+    # puts the turn under judgement last. The sort is stable, so events with no latency to subtract
+    # keep the order they arrived in.
+    measured.sort(key=lambda pair: _operation_start_ms(pair[0].get("timestamp"), pair[0].get("properties", {})))
+
+    buffers: dict[str, int] = {}
+    spare = max(0, budget - sum(floor_length for _, floor_length in measured))
+    for event, floor_length in reversed(measured):
+        buffer, rendered = _fit_event_buffer(event, floor_length + spare, floor_length, measure_options)
+        buffers[str(event.get("id", "unknown"))] = buffer
+        spare = max(0, spare - (rendered - floor_length))
+    return buffers
+
+
+def _fit_trace_state_render(trace: dict[str, Any], budget: int, options: FormatterOptions) -> str:
+    """Render a trace with no events, growing its state buffer from the floor while the pair fits.
+
+    Trace-level input and output render only when the trace has no events, and both read the one
+    `truncate_buffer`. A buffer set from the budget alone lets the pair render twice the budget, and
+    the sampling pass then drops whole lines, which can cost a state its entire section. Growing
+    from the floor keeps the first and last slice of both sections whatever the budget is.
+    """
+    floor_options: FormatterOptions = {**options, "truncate_buffer": MIN_EVENT_TRUNCATE_BUFFER, "max_length": budget}
+    text, _ = format_trace_text_repr(trace, [], floor_options)
+    buffer = MIN_EVENT_TRUNCATE_BUFFER
+    for _ in range(_MAX_EVENT_FIT_ATTEMPTS):
+        if len(text) >= budget:
+            break
+        candidate = min(budget, buffer * budget // max(len(text), 1))
+        if candidate <= buffer:
+            break
+        candidate_options: FormatterOptions = {**options, "truncate_buffer": candidate, "max_length": None}
+        candidate_text, _ = format_trace_text_repr(trace, [], candidate_options)
+        if len(candidate_text) > budget:
+            break
+        buffer, text = candidate, candidate_text
+    return text
+
+
+def format_trace_within_budget(
+    trace: dict[str, Any],
+    hierarchy: list[dict[str, Any]],
+    budget: int,
+    options: FormatterOptions | None = None,
+) -> str:
+    """Render a trace into at most `budget` characters, spending the budget newest event first.
+
+    The latest events keep their content whole while budget lasts, and the oldest fall back to a
+    first and last slice of each message. An LLM judge grades the latest answer, so the newest turn
+    is the last content worth dropping. Uniform sampling stays as the final guarantee of the cap.
+
+    A trace with no events renders its input and output state instead, and the two share one buffer.
+
+    `options` must not set `max_render_length`: this render is the fallback for a render that
+    already exceeded it.
+    """
+    base: FormatterOptions = {**(options or {}), "truncated": True}
+    if not hierarchy:
+        return _fit_trace_state_render(trace, budget, base)
+
+    # This is the floor for any event the allocation did not reach.
+    base["truncate_buffer"] = MIN_EVENT_TRUNCATE_BUFFER
+
+    allocation = budget
+    text = ""
+    for attempt in range(_MAX_BUDGET_ATTEMPTS):
+        buffers = _allocate_event_buffers(hierarchy, allocation, base)
+        # Every event at the floor means the allocation had nothing spare to hand out, and a
+        # smaller allocation cannot take an event below the floor. The map is final, so this render
+        # takes the cap now instead of repeating the same render twice more to reach it.
+        is_final_render = attempt == _MAX_BUDGET_ATTEMPTS - 1 or all(
+            buffer == MIN_EVENT_TRUNCATE_BUFFER for buffer in buffers.values()
+        )
+        attempt_options: FormatterOptions = {
+            **base,
+            "event_truncate_buffers": buffers,
+            "max_length": budget if is_final_render else None,
+        }
+        text, _ = format_trace_text_repr(trace, hierarchy, attempt_options)
+        if is_final_render or len(text) <= budget:
+            break
+        allocation = max(MIN_EVENT_TRUNCATE_BUFFER, int(allocation * budget / len(text) * _BUDGET_REDUCTION_FACTOR))
+    return text

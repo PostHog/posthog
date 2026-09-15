@@ -151,6 +151,23 @@ class TestFormatSessionForJudge:
         assert " end" in rendered
         assert len(rendered) <= JUDGE_SESSION_MAX_CHARS
 
+    def test_keeps_the_newest_answer_whole_when_the_session_is_oversized(self) -> None:
+        # The answer under judgement is far longer than the per-message default of 1,000 chars.
+        answer = "opening " + "z" * 6_000 + " critical evidence " + "z" * 6_000 + " closing"
+        traces = [_trace(f"t{i}", cost=0, latency=0, event_count=8) for i in range(20)]
+        for trace in traces:
+            for event in trace.events:
+                event.properties["$ai_input"] = [{"role": "user", "content": "x" * 20_000}]
+        traces[-1].events[-1].properties["$ai_input"] = [{"role": "user", "content": "final question"}]
+        traces[-1].events[-1].properties["$ai_output_choices"] = [{"role": "assistant", "content": answer}]
+
+        rendered = format_session_for_judge(traces)
+
+        assert rendered is not None
+        assert "critical evidence" in rendered
+        assert "chars truncated" in rendered
+        assert len(rendered) <= JUDGE_SESSION_MAX_CHARS
+
     @pytest.mark.parametrize("budget_delta", [-1, 0])
     def test_session_budget_includes_trace_headers_and_separators(self, budget_delta: int) -> None:
         traces = [_trace("t-alpha", cost=0, latency=0), _trace("t-beta", cost=0, latency=0)]

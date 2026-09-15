@@ -176,6 +176,26 @@ class TestFormatTraceForJudge:
         assert " end" in transcript
         assert len(transcript) <= JUDGE_TRACE_MAX_CHARS
 
+    def test_keeps_the_newest_answer_whole_when_the_trace_is_oversized(self) -> None:
+        # The answer under judgement is far longer than the per-message default of 1,000 chars.
+        answer = "opening " + "z" * 6_000 + " critical evidence " + "z" * 6_000 + " closing"
+        events = [
+            create_trace_event("$ai_generation", **{"$ai_input": f"question {i} " + "x" * 20_000}) for i in range(20)
+        ]
+        events.append(
+            create_trace_event(
+                "$ai_generation",
+                **{"$ai_input": "final question", "$ai_output_choices": [{"role": "assistant", "content": answer}]},
+            )
+        )
+
+        transcript = format_trace_for_judge(create_trace(events))
+
+        assert "critical evidence" in transcript
+        assert "chars truncated" in transcript
+        assert "SAMPLED VIEW" not in transcript
+        assert len(transcript) <= JUDGE_TRACE_MAX_CHARS
+
     def test_bounds_output_to_max_chars(self):
         # 200 large generations would blow well past the cap without sampling.
         events = [
