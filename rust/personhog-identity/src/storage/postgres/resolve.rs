@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
-use sqlx::postgres::PgPool;
 use sqlx::Row;
 
 use crate::config::IdentityTables;
+use crate::pools::{IdentityPools, Lane};
 use crate::storage::error::StorageResult;
 use crate::storage::postgres::{person_columns, person_from_row};
 use crate::storage::types::Person;
@@ -12,7 +12,7 @@ use crate::storage::types::Person;
 /// primary. Tombstoned mappings and persons are invisible; unresolved keys
 /// are absent from the result.
 pub(super) async fn resolve_distinct_ids(
-    pool: &PgPool,
+    pools: &IdentityPools,
     tables: &IdentityTables,
     keys: &[(i64, String)],
 ) -> StorageResult<HashMap<(i64, String), Person>> {
@@ -39,7 +39,7 @@ pub(super) async fn resolve_distinct_ids(
         pdi_table = tables.person_distinct_id,
         person_table = tables.person,
     );
-    let mut conn = super::acquire_timed(pool).await?;
+    let mut conn = pools.acquire(Lane::Fast).await?;
     let rows = sqlx::query(&sql)
         .bind(&team_ids)
         .bind(&distinct_ids)

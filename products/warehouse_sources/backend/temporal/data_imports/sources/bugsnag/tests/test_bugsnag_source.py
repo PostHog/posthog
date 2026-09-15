@@ -80,6 +80,10 @@ class TestBugsnagSource:
             ("trend", True),
             ("release_groups", True),
             ("pivot_values", False),
+            ("error_trend", False),
+            ("error_pivot_values", False),
+            ("span_groups", True),
+            ("span_group_spans", False),
         ]
     )
     def test_should_sync_default(self, endpoint: str, expected_default: bool) -> None:
@@ -121,6 +125,10 @@ class TestBugsnagSource:
             ("trend", ["project_id", "from"]),
             ("release_groups", ["id", "project_id"]),
             ("pivot_values", ["project_id", "event_field_display_id", "event_field_value"]),
+            ("error_trend", ["project_id", "error_id", "from"]),
+            ("error_pivot_values", ["project_id", "error_id", "event_field_display_id", "event_field_value"]),
+            ("span_groups", ["id", "project_id"]),
+            ("span_group_spans", ["project_id", "span_group_id", "id"]),
         ]
     )
     def test_source_response_primary_keys(self, endpoint: str, expected_keys: list[str]) -> None:
@@ -138,6 +146,9 @@ class TestBugsnagSource:
             BugsnagScope.PER_PROJECT,
             BugsnagScope.PER_PROJECT_RELEASE_STAGE,
             BugsnagScope.PER_PROJECT_PIVOT,
+            BugsnagScope.PER_PROJECT_ERROR,
+            BugsnagScope.PER_PROJECT_ERROR_PIVOT,
+            BugsnagScope.PER_PROJECT_SPAN_GROUP,
         }
         for config in BUGSNAG_ENDPOINTS.values():
             if config.scope is BugsnagScope.PER_ORG:
@@ -182,3 +193,12 @@ class TestBugsnagSource:
         # Canonical descriptions are keyed by schema name; a typo'd key would silently never apply.
         descriptions: dict[str, Any] = self.source.get_canonical_descriptions()
         assert set(descriptions).issubset(set(ENDPOINTS))
+
+    def test_error_grain_endpoints_bound_their_error_fan_out(self) -> None:
+        # Error-grain endpoints cost one request per error and BugSnag exposes no filter to narrow
+        # the error list, so an uncapped one would walk every error a project has ever recorded.
+        error_scopes = {BugsnagScope.PER_PROJECT_ERROR, BugsnagScope.PER_PROJECT_ERROR_PIVOT}
+        error_grain = [c for c in BUGSNAG_ENDPOINTS.values() if c.scope in error_scopes]
+        assert error_grain
+        for config in error_grain:
+            assert config.max_errors_per_project is not None, config.name

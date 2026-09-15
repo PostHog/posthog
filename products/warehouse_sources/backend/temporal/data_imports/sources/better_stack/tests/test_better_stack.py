@@ -466,6 +466,34 @@ class TestFanout:
             {"monitor_id": "7", "region": "eu", "at": "2026-04-03T11:00:59.000Z"}
         ]
 
+    @parameterized.expand(
+        [
+            # (endpoint, parent path, child path, parent id column)
+            ("heartbeat_availability", "/v2/heartbeats", "/v2/heartbeats/1/availability", "heartbeat_id"),
+            ("status_page_resources", "/v2/status-pages", "/v2/status-pages/1/resources", "status_page_id"),
+        ]
+    )
+    @mock.patch(SESSION_PATCH)
+    def test_child_is_bound_to_its_parent(
+        self, endpoint: str, parent_path: str, child_path: str, parent_key: str, MockSession
+    ) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"id": "1", "attributes": {}}]),
+                _object_response({"id": "9", "attributes": {"availability": 99.5}}),
+            ],
+        )
+
+        rows = _rows(_source(endpoint=endpoint))
+
+        # Each parent has its own resolve param, so a wrong one leaves the path placeholder unbound.
+        assert snapshots[0]["url"] == f"{BETTER_STACK_BASE_URL}{parent_path}"
+        assert snapshots[0]["params"] == {"per_page": 250}
+        assert snapshots[1]["url"] == f"{BETTER_STACK_BASE_URL}{child_path}"
+        assert rows == [{"id": "9", parent_key: "1", "availability": 99.5}]
+
     @mock.patch(SESSION_PATCH)
     def test_incident_comments_carry_their_incident(self, MockSession) -> None:
         session = MockSession.return_value
@@ -575,12 +603,93 @@ class TestFanout:
         assert _rows(_source(endpoint="monitor_availability")) == [{"id": "2", "monitor_id": "2", "availability": 98.0}]
 
 
+class TestOnCallSchedules:
+    @mock.patch(SESSION_PATCH)
+    def test_shifts_are_read_from_the_events_envelope(self, MockSession) -> None:
+        session = MockSession.return_value
+        events = Response()
+        events.status_code = 200
+        events._content = json.dumps(
+            {
+                "events": [
+                    {
+                        "id": 12345,
+                        "users": ["responder@example.com"],
+                        "starts_at": "2026-09-04T22:00:00Z",
+                        "ends_at": "2026-09-05T22:00:00Z",
+                        "override": False,
+                    }
+                ]
+            }
+        ).encode()
+        snapshots = _wire(session, [_response([{"id": "3", "type": "on_call", "attributes": {}}]), events])
+
+        rows = _rows(_source(endpoint="on_call_events"))
+
+        # Shifts arrive under `events`, not the `data` envelope every other collection uses.
+        assert rows == [
+            {
+                "id": 12345,
+                "on_call_id": "3",
+                "users": ["responder@example.com"],
+                "starts_at": "2026-09-04T22:00:00Z",
+                "ends_at": "2026-09-05T22:00:00Z",
+                "override": False,
+            }
+        ]
+        assert snapshots[1]["url"] == f"{BETTER_STACK_BASE_URL}/v2/on-calls/3/events"
+
+    @mock.patch(SESSION_PATCH)
+    def test_rotation_is_read_from_the_bare_response_body(self, MockSession) -> None:
+        session = MockSession.return_value
+        rotation = Response()
+        rotation.status_code = 200
+        rotation._content = json.dumps(
+            {
+                "rotation_length": 8,
+                "rotation_interval": "hour",
+                "start_rotations_at": "2026-02-01T07:00:00.000Z",
+                "users": ["bob@example.com", "alice@example.com"],
+            }
+        ).encode()
+        snapshots = _wire(session, [_response([{"id": "3", "type": "on_call", "attributes": {}}]), rotation])
+
+        rows = _rows(_source(endpoint="on_call_rotations"))
+
+        # The rotation has no envelope and no id of its own — the schedule id keys the row.
+        assert rows == [
+            {
+                "on_call_id": "3",
+                "rotation_length": 8,
+                "rotation_interval": "hour",
+                "start_rotations_at": "2026-02-01T07:00:00.000Z",
+                "users": ["bob@example.com", "alice@example.com"],
+            }
+        ]
+        assert snapshots[1]["url"] == f"{BETTER_STACK_BASE_URL}/v2/on-calls/3/rotation"
+
+    @mock.patch(SESSION_PATCH)
+    def test_schedule_without_a_rotation_is_skipped(self, MockSession) -> None:
+        session = MockSession.return_value
+        missing = Response()
+        missing.status_code = 404
+        missing._content = b"{}"
+        _wire(session, [_response([{"id": "3", "attributes": {}}]), missing])
+
+        # A schedule with no rotation defined answers 404 — a normal state, not a sync failure.
+        assert _rows(_source(endpoint="on_call_rotations")) == []
+
+
 class TestProbeCredentialsForFanoutEndpoints:
     @parameterized.expand(
         [
             ("monitor_availability", f"{BETTER_STACK_BASE_URL}/v2/monitors?per_page=1"),
             ("monitor_response_times", f"{BETTER_STACK_BASE_URL}/v2/monitors?per_page=1"),
             ("incident_comments", f"{BETTER_STACK_BASE_URL}/v3/incidents?per_page=1"),
+            ("heartbeat_availability", f"{BETTER_STACK_BASE_URL}/v2/heartbeats?per_page=1"),
+            ("status_page_resources", f"{BETTER_STACK_BASE_URL}/v2/status-pages?per_page=1"),
+            ("on_call_events", f"{BETTER_STACK_BASE_URL}/v2/on-calls?per_page=1"),
+            ("on_call_rotations", f"{BETTER_STACK_BASE_URL}/v2/on-calls?per_page=1"),
             ("team_members", f"{BETTER_STACK_ORG_BASE_URL}/v2/team-members?per_page=1"),
         ]
     )
