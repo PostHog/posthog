@@ -1040,8 +1040,10 @@ _PATCH_PREP_RETRY = "grouping-prep-retry-v1"
 PREP_RETRY_BASE_BACKOFF = timedelta(seconds=30)
 PREP_RETRY_MAX_BACKOFF = timedelta(minutes=5)
 # The backoff sequence over this many attempts spans a bit more than two hours, so a batch
-# survives a dependency outage of that length. A batch that still fails is treated as poison
-# and dropped, because it holds the head of the team's queue while it retries.
+# survives a dependency outage of that length. The sequence counts the sleeps only. A round
+# that hangs until its activity timeouts expire adds that time on top, so this constant does
+# not bound the total wait. A batch that still fails is treated as poison and dropped,
+# because it holds the head of the team's queue while it retries.
 MAX_PREP_ATTEMPTS = 30
 
 
