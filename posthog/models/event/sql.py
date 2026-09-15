@@ -1,6 +1,7 @@
 from django.conf import settings
 
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string
+from posthog.hogql.functions.udfs import JSON_STRIP_EMPTY_STRINGS_AND_NULLS_CLICKHOUSE_NAME
 
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
@@ -16,8 +17,8 @@ from posthog.clickhouse.events_json import (
     EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
     KAFKA_EVENTS_NATIVE_JSON_TABLE,
     PERSON_PROPERTIES_JSON_SUBCOLUMNS,
+    UNPARSEABLE_PROPERTIES_KEY,
     WRITABLE_EVENTS_JSON_TABLE,
-    _json_subcolumn_type_supports_nullable,
 )
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import (
@@ -42,49 +43,62 @@ def WRITABLE_EVENTS_DATA_TABLE():
     return "writable_events"
 
 
-def _json_column_type(max_dynamic_types: int, max_dynamic_paths: int, subcolumns: dict[str, str]) -> str:
+def _json_column_type(subcolumns: dict[str, str]) -> str:
     explicit_paths = ", ".join(
         f"{escape_clickhouse_identifier(name)} {column_type}" for name, column_type in subcolumns.items()
     )
-    return f"JSON(max_dynamic_types = {max_dynamic_types}, max_dynamic_paths = {max_dynamic_paths}, {explicit_paths})"
+    return f"JSON(max_dynamic_paths = 0, {explicit_paths})"
 
 
 def EVENTS_PROPERTIES_JSON_TYPE() -> str:
-    return _json_column_type(8, 256, EVENTS_PROPERTIES_JSON_SUBCOLUMNS)
+    return _json_column_type(EVENTS_PROPERTIES_JSON_SUBCOLUMNS)
 
 
 def PERSON_PROPERTIES_JSON_TYPE() -> str:
-    return _json_column_type(6, 32, PERSON_PROPERTIES_JSON_SUBCOLUMNS)
+    return _json_column_type(PERSON_PROPERTIES_JSON_SUBCOLUMNS)
 
 
 def json_property_presence_expr(column: str, prop: str) -> str:
     """SQL predicate testing whether a (possibly dotted) property path is present in a native-JSON
     events column, for deletion/mutation predicates that run against the JSON events tables.
 
-    Mirrors the HogQL resolver's JSONHas lowering: a typed subcolumn is present when non-null; a
-    dynamic path is present when its scalar read is non-null or its sub-object read is non-empty.
+    Mirrors the HogQL resolver's JSONHas lowering, with the materialized-column rule that an empty
+    value is absent: a declared path is present when it is not null and not empty; a dynamic path
+    is present when its scalar read is a non-empty string or its sub-object holds a non-empty value.
     ClickHouse's JSONHas() cannot be used directly on a JSON-typed column — it does not see typed
     paths or nested objects there.
     """
-    if column not in ("properties", "person_properties"):
+    if column not in ("properties", "person_properties", "temporary_properties"):
         raise ValueError(f"unsupported JSON events column: {column}")
-    subcolumns = EVENTS_PROPERTIES_JSON_SUBCOLUMNS if column == "properties" else PERSON_PROPERTIES_JSON_SUBCOLUMNS
+    subcolumns = {
+        "properties": EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
+        "person_properties": PERSON_PROPERTIES_JSON_SUBCOLUMNS,
+        "temporary_properties": {},
+    }[column]
+    if column == "properties" and prop.startswith("$feature/"):
+        key = escape_clickhouse_string(prop.removeprefix("$feature/"))
+        return f"mapContains(properties.`$feature_flags`, {key})"
     parts = prop.split(".")
     column_sql = escape_clickhouse_identifier(column)
     path_sql = ".".join(escape_clickhouse_identifier(part) for part in parts)
     scalar = f"{column_sql}.{path_sql}"
-    if len(parts) == 1 and prop in subcolumns:
-        if not _json_subcolumn_type_supports_nullable(subcolumns[prop]):
-            # Native container paths use the empty value for both missing and explicitly empty values.
+    # Declared paths can be dotted ($groups.organization), so match the whole path before the head.
+    if prop in subcolumns:
+        if not subcolumns[prop].startswith("Nullable("):
             return f"notEmpty({scalar})"
         return f"isNotNull({scalar})"
-    if parts[0] in subcolumns:
+    if len(parts) > 1 and parts[0] in subcolumns:
         head = f"{column_sql}.{escape_clickhouse_identifier(parts[0])}"
         head_document = head if subcolumns[parts[0]] in ("String", "Nullable(String)") else f"toJSONString({head})"
         tail = ", ".join(escape_clickhouse_string(part) for part in parts[1:])
         return f"JSONHas(ifNull({head_document}, ''), {tail})"
+    # The sub-object serializes the '' default of every declared path under it ($groups always
+    # shows organization/project/instance), so strip empty values before the emptiness check.
     sub_object = f"{column_sql}.^{path_sql}"
-    return f"(isNotNull({scalar}) OR toJSONString({sub_object}) != '{{}}')"
+    return (
+        f"(notEmpty(ifNull(toString({scalar}), '')) "
+        f"OR {JSON_STRIP_EMPTY_STRINGS_AND_NULLS_CLICKHOUSE_NAME}(toJSONString({sub_object})) != '{{}}')"
+    )
 
 
 def TRUNCATE_EVENTS_TABLE_SQL():
@@ -217,7 +231,7 @@ def _json_subcolumn(column: str, path: str) -> str:
     return f"{escape_clickhouse_identifier(column)}.{escape_clickhouse_identifier(path)}"
 
 
-EVENTS_JSON_DATA_COMPATIBILITY_COLUMNS = f"""
+EVENTS_JSON_PROXY_COMPATIBILITY_COLUMNS = f"""
     , $group_0 String ALIAS ifNull({_json_subcolumn("properties", "$group_0")}, '')
     , $group_1 String ALIAS ifNull({_json_subcolumn("properties", "$group_1")}, '')
     , $group_2 String ALIAS ifNull({_json_subcolumn("properties", "$group_2")}, '')
@@ -226,28 +240,14 @@ EVENTS_JSON_DATA_COMPATIBILITY_COLUMNS = f"""
     , $window_id String ALIAS ifNull({_json_subcolumn("properties", "$window_id")}, '')
     , $session_id String ALIAS ifNull({_json_subcolumn("properties", "$session_id")}, '')
     , $session_id_uuid Nullable(UInt128) ALIAS toUInt128(toUUIDOrNull({_json_subcolumn("properties", "$session_id")}))
+"""
+
+EVENTS_JSON_ELEMENTS_COLUMNS = """
     , elements_chain_href String MATERIALIZED extract(elements_chain, '(?::|\")href="(.*?)"')
     , elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|\")text="(.*?)"'))
     , elements_chain_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|\")attr_id="(.*?)"'))
     , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\.|$|:)'))
 """
-
-
-EVENTS_JSON_PROXY_COMPATIBILITY_COLUMNS = """
-    , $group_0 String
-    , $group_1 String
-    , $group_2 String
-    , $group_3 String
-    , $group_4 String
-    , $window_id String
-    , $session_id String
-    , $session_id_uuid Nullable(UInt128)
-    , elements_chain_href String
-    , elements_chain_texts Array(String)
-    , elements_chain_ids Array(String)
-    , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label'))
-"""
-
 
 EVENTS_JSON_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
@@ -255,34 +255,37 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     uuid UUID,
     event String,
     properties {properties_json_type},
-    timestamp DateTime64(6, 'UTC'),
+    temporary_properties JSON(max_dynamic_paths = 32){temporary_properties_storage},
+    timestamp DateTime64(6, 'UTC'){gcd_codec},
     team_id Int64,
     distinct_id String,
-    elements_hash String DEFAULT '',
-    created_at DateTime64(6, 'UTC'),
-    _timestamp DateTime,
-    _offset UInt64,
+    created_at DateTime64(6, 'UTC') DEFAULT now(){gcd_codec},
+    _timestamp DateTime{t64_codec},
+    _offset UInt64{t64_codec},
     elements_chain String,
     person_id UUID,
     person_properties {person_properties_json_type},
-    group0_properties String CODEC(ZSTD(3)),
-    group1_properties String CODEC(ZSTD(3)),
-    group2_properties String CODEC(ZSTD(3)),
-    group3_properties String CODEC(ZSTD(3)),
-    group4_properties String CODEC(ZSTD(3)),
-    person_created_at DateTime64(3),
+    group0_properties String,
+    group1_properties String,
+    group2_properties String,
+    group3_properties String,
+    group4_properties String,
+    person_created_at DateTime64(3){gcd_codec},
     group0_created_at DateTime64(3),
     group1_created_at DateTime64(3),
     group2_created_at DateTime64(3),
     group3_created_at DateTime64(3),
     group4_created_at DateTime64(3),
-    inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT now64(),
+    inserted_at DateTime64(6, 'UTC') DEFAULT now64(){gcd_codec},
     person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
-    is_deleted Bool DEFAULT false,
     consumer_breadcrumbs Array(String),
-    historical_migration Bool DEFAULT false
-    {compatibility_columns}
-    {indexes}
+    historical_migration Bool,
+    total_event_size UInt32{t64_codec},
+    captured_at DateTime64(6, 'UTC') DEFAULT now(){gcd_codec},
+    _partition UInt64{t64_codec}
+{elements_columns}
+{compatibility_columns}
+{indexes}
 ) ENGINE = {engine}
 """
 
@@ -290,11 +293,11 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 def EVENTS_JSON_TABLE_SQL(on_cluster: bool = False) -> str:
     return (
         EVENTS_JSON_TABLE_BASE_SQL
-        + """PARTITION BY toYYYYMM(timestamp)
-PRIMARY KEY (team_id, toDate(timestamp), event, timestamp, cityHash64(distinct_id))
-ORDER BY (team_id, toDate(timestamp), event, timestamp, cityHash64(distinct_id), distinct_id, uuid)
+        + """PARTITION BY clamp(toYYYYMM(timestamp), 202001, 203512)
+PRIMARY KEY (team_id, toDate(timestamp), event, cityHash64(distinct_id))
+ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), timestamp, uuid)
 SAMPLE BY cityHash64(distinct_id)
-SETTINGS index_granularity = 8192, object_serialization_version = 'v3', object_shared_data_serialization_version = 'map_with_buckets', object_shared_data_serialization_version_for_zero_level_parts = 'map', merge_max_block_size = 131072, merge_max_block_size_bytes = 67108864, vertical_merge_algorithm_min_rows_to_activate = 0
+SETTINGS index_granularity = 8192, object_serialization_version = 'v3', object_shared_data_serialization_version = 'map_with_buckets', enable_block_offset_column = 1, enable_block_number_column = 1, map_serialization_version = 'with_buckets', string_serialization_version = 'single_stream', propagate_types_serialization_versions_to_nested_types = 1
 """
     ).format(
         table_name=EVENTS_JSON_DATA_TABLE,
@@ -302,7 +305,11 @@ SETTINGS index_granularity = 8192, object_serialization_version = 'v3', object_s
         engine=EVENTS_JSON_DATA_TABLE_ENGINE(),
         properties_json_type=EVENTS_PROPERTIES_JSON_TYPE(),
         person_properties_json_type=PERSON_PROPERTIES_JSON_TYPE(),
-        compatibility_columns=EVENTS_JSON_DATA_COMPATIBILITY_COLUMNS,
+        temporary_properties_storage=" TTL toDateTime(inserted_at) + INTERVAL 60 DAY",
+        gcd_codec=" CODEC(GCD, Default)",
+        t64_codec=" CODEC(T64, Default)",
+        elements_columns=EVENTS_JSON_ELEMENTS_COLUMNS,
+        compatibility_columns="",
         indexes=EVENTS_JSON_DATA_TABLE_INDEXES(),
     )
 
@@ -314,6 +321,10 @@ def WRITABLE_EVENTS_JSON_TABLE_SQL(on_cluster: bool = False) -> str:
         engine=Distributed(data_table=EVENTS_JSON_DATA_TABLE, sharding_key="sipHash64(distinct_id)"),
         properties_json_type=EVENTS_PROPERTIES_JSON_TYPE(),
         person_properties_json_type=PERSON_PROPERTIES_JSON_TYPE(),
+        temporary_properties_storage="",
+        gcd_codec="",
+        t64_codec="",
+        elements_columns="",
         compatibility_columns="",
         indexes="",
     )
@@ -326,7 +337,17 @@ def DISTRIBUTED_EVENTS_JSON_TABLE_SQL(on_cluster: bool = False) -> str:
         engine=Distributed(data_table=EVENTS_JSON_DATA_TABLE, sharding_key="sipHash64(distinct_id)"),
         properties_json_type=EVENTS_PROPERTIES_JSON_TYPE(),
         person_properties_json_type=PERSON_PROPERTIES_JSON_TYPE(),
-        compatibility_columns=EVENTS_JSON_PROXY_COMPATIBILITY_COLUMNS,
+        temporary_properties_storage="",
+        gcd_codec="",
+        t64_codec="",
+        elements_columns="",
+        compatibility_columns=EVENTS_JSON_PROXY_COMPATIBILITY_COLUMNS
+        + """
+    , elements_chain_href String
+    , elements_chain_texts Array(String)
+    , elements_chain_ids Array(String)
+    , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label'))
+""",
         indexes="",
     )
 
@@ -399,7 +420,7 @@ def KAFKA_EVENTS_NATIVE_JSON_TABLE_SQL(on_cluster: bool = False) -> str:
         table_name=KAFKA_EVENTS_NATIVE_JSON_TABLE,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=kafka_engine(topic=KAFKA_EVENTS_JSON, group=CONSUMER_GROUP_EVENTS_JSON_NATIVE_JSON),
-        extra_fields="",
+        extra_fields=", captured_at Nullable(DateTime64(6, 'UTC'))",
         dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
         materialized_columns="",
         indexes="",
@@ -474,27 +495,11 @@ FROM {database}.{kafka_table}
     )
 
 
-def _poison_safe_json_cast(column: str, fallback_key: str) -> str:
-    """Cast a String properties payload to the JSON column type without ever throwing.
-
-    The JSON type's parser rejects some payloads that are valid JSON — notably integers outside
-    [-2^63, 2^64) fail with INCORRECT_DATA. A throwing cast inside a Kafka materialized view is a
-    poison message: kafka_skip_broken_messages only covers format parsing, so the consumer would
-    retry the same block forever and stall ingestion for the whole table. Unparseable payloads are
-    instead preserved verbatim under a single string property so they can be repaired later.
-    """
-    return (
-        f"ifNull(accurateCastOrNull({column}, 'JSON'), "
-        f"CAST(concat('{{\"{fallback_key}\":', toJSONString({column}), '}}'), 'JSON')) AS {column}"
-    )
+def _clean_properties(column: str, cleaner: str) -> str:
+    fallback = f"concat('{{\"{UNPARSEABLE_PROPERTIES_KEY}\":', toJSONString({column}), '}}')"
+    return f"if(isValidJSON({column}) AND startsWith(trimLeft({column}), '{{'), {cleaner}({column}), {fallback})"
 
 
-# Dual-write materialized view that writes events into the native-JSON schema
-# (writable_events_json). It reads from a dedicated Kafka consumer group so JSON-table retries do not
-# replay legacy writes through events_json_mv. The string properties/person_properties payloads are
-# cast to the destination JSON columns via a poison-safe cast (see _poison_safe_json_cast). Unlike the
-# legacy MV this does not project the dmat_string_* columns — they don't exist on the JSON table,
-# whose property reads come from JSON subcolumns instead.
 def EVENTS_JSON_TABLE_MV_SQL(
     mv_name="events_json_table_mv",
     kafka_table=KAFKA_EVENTS_NATIVE_JSON_TABLE,
@@ -507,18 +512,26 @@ def EVENTS_JSON_TABLE_MV_SQL(
     return """
 CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} {on_cluster_clause}
 TO {database}.{target_table}
-AS SELECT
+AS
+SELECT
+*,
+accurateCast(byteSize(*) + byteSize(toUInt32(0)), 'UInt32') AS total_event_size
+FROM
+(
+SELECT
 uuid,
 event,
-{properties_expr},
+{properties_expr} AS properties,
+JSONCleanPostHogTemporaryProperties(if(isValidJSON(source.properties) AND startsWith(trimLeft(source.properties), '{{'), source.properties, '{{}}')) AS temporary_properties,
+now64() AS inserted_at,
 timestamp,
 team_id,
 distinct_id,
 elements_chain,
 created_at,
 person_id,
+{person_properties_expr} AS person_properties,
 person_created_at,
-{person_properties_expr},
 group0_properties,
 group1_properties,
 group2_properties,
@@ -531,8 +544,10 @@ group3_created_at,
 group4_created_at,
 person_mode,
 historical_migration,
+coalesce(captured_at, created_at) AS captured_at,
 _timestamp,
 _offset,
+_partition,
 arrayMap(
     i -> _headers.value[i],
     arrayFilter(
@@ -540,15 +555,16 @@ arrayMap(
         arrayEnumerate(_headers.name)
     )
 ) as consumer_breadcrumbs
-FROM {database}.{kafka_table}
+FROM {database}.{kafka_table} AS source
+)
 """.format(
         mv_name=mv_name,
         kafka_table=kafka_table,
         target_table=target_table,
         on_cluster_clause=f"ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'" if on_cluster else "",
         database=settings.CLICKHOUSE_DATABASE,
-        properties_expr=_poison_safe_json_cast("properties", "$unparseable_properties"),
-        person_properties_expr=_poison_safe_json_cast("person_properties", "$unparseable_properties"),
+        properties_expr=_clean_properties("source.properties", "JSONCleanPostHogEventProperties"),
+        person_properties_expr=_clean_properties("source.person_properties", "JSONCleanPostHogPersonProperties"),
     )
 
 
@@ -756,10 +772,17 @@ def DISTRIBUTED_EVENTS_TABLE_SQL(on_cluster=True):
     )
 
 
-def INSERT_EVENT_SQL(table_name: str | None = None) -> str:
+def BULK_INSERT_EVENT_SQL(table_name: str | None = None, *, values: str = "") -> str:
     if table_name is None:
         table_name = EVENTS_DATA_TABLE()
 
+    # Native fixtures need ingestion cleanup, and VALUES cannot execute an external UDF.
+    source = (
+        f"SELECT * REPLACE(JSONCleanPostHogEventProperties(source.c3) AS c3), "
+        f"JSONCleanPostHogTemporaryProperties(source.c3) FROM values({values}) AS source"
+        if table_name == EVENTS_JSON_DATA_TABLE
+        else f"VALUES{values}"
+    )
     return f"""
 INSERT INTO {table_name}
 (
@@ -786,9 +809,16 @@ INSERT INTO {table_name}
     person_mode,
     created_at,
     _timestamp,
-    _offset
+    _offset{", temporary_properties" if table_name == EVENTS_JSON_DATA_TABLE else ""}
 )
-VALUES
+{source}
+"""
+
+
+def INSERT_EVENT_SQL(table_name: str | None = None) -> str:
+    return BULK_INSERT_EVENT_SQL(
+        table_name,
+        values="""
 (
     %(uuid)s,
     %(event)s,
@@ -814,44 +844,8 @@ VALUES
     %(created_at)s,
     now(),
     0
-)
-"""
-
-
-def BULK_INSERT_EVENT_SQL(table_name: str | None = None) -> str:
-    if table_name is None:
-        table_name = EVENTS_DATA_TABLE()
-
-    return f"""
-INSERT INTO {table_name}
-(
-    uuid,
-    event,
-    properties,
-    timestamp,
-    team_id,
-    distinct_id,
-    elements_chain,
-    person_id,
-    person_properties,
-    person_created_at,
-    group0_properties,
-    group1_properties,
-    group2_properties,
-    group3_properties,
-    group4_properties,
-    group0_created_at,
-    group1_created_at,
-    group2_created_at,
-    group3_created_at,
-    group4_created_at,
-    person_mode,
-    created_at,
-    _timestamp,
-    _offset
-)
-VALUES
-"""
+)""",
+    )
 
 
 NULL_SQL = """

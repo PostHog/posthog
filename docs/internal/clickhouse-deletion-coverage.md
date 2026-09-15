@@ -86,8 +86,12 @@ Skipping the second table there is worse than under-deleting: the overrides that
 ## Covered tables
 
 - `sharded_events` — all sweeps.
-- `sharded_events_json` — all sweeps. Optional: only present after the native-JSON migration.
+- `sharded_events_json` — person, team, queued-uuid and event removal. Property rewriting is unsupported: temporary properties and quarantine diagnostics retain additional copies that the legacy property-removal machinery does not rewrite. Optional: only present after the native-JSON migration.
 - `sharded_flag_evaluations` — person, team, queued-uuid and event removal. Not property removal (below). Optional.
+
+Native property-removal requests fail when the selected rows retain a requested permanent or temporary property, or a matching person `$set`/`$set_once` instruction.
+They also fail when that property class has quarantine diagnostics, because malformed raw data cannot prove that the requested value is absent.
+The gate runs before shard processing and again during verification, with the same event, time-range, and insertion-marker bounds.
 
 ## Tables on TTL alone
 

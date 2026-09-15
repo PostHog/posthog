@@ -3,6 +3,8 @@ from typing import Any
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from django.conf import settings
+
 from parameterized import parameterized
 
 from posthog.schema import DateRange, SessionQuery
@@ -419,7 +421,10 @@ class TestSessionQueryRunner(ClickhouseTestMixin, BaseTest):
         trace = response.results[0]
         self.assertEqual(trace.id, "trace-date-from")
         self.assertEqual(trace.aiSessionId, "session-date-from")
-        self.assertEqual(trace.events[0].properties["$ai_output_choices"][0]["content"], "hi")
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            self.assertNotIn("$ai_output_choices", trace.events[0].properties)
+        else:
+            self.assertEqual(trace.events[0].properties["$ai_output_choices"][0]["content"], "hi")
         self.assertEqual(trace.inputTokens, 5)
         self.assertEqual(trace.outputTokens, 2)
         self.assertAlmostEqual(trace.totalCost or 0, 0.01)

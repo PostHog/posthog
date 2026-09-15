@@ -95,6 +95,7 @@ async def assert_clickhouse_records_in_mock_server(
 
     expected_records = []
     for records in iter_records(
+        use_new_events_schema=False,
         client=clickhouse_client,
         team_id=team_id,
         interval_start=data_interval_start.isoformat(),
