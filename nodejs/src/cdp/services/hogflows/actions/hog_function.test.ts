@@ -783,6 +783,7 @@ describe('HogFunctionHandler', () => {
                 deadlineAt: handlerResult.scheduledAt!.toISO(),
                 dispatch: { id: 't1', run_id: 'r1' },
                 label: 'task',
+                parkedAt: expect.any(String),
             })
             expect(invocationResult.metrics.map((m) => m.metric_name)).toContain('billable_invocation')
             expect(invocationResult.logs.map((l) => l.message)).toContainEqual(
