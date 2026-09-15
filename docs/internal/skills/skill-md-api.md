@@ -17,9 +17,9 @@ Rendering: `products/skills/backend/marketplace/packaging.py` (`render_skill_md`
 GET /api/projects/{team_id}/llm_skills/name/{skill_name}/skill-md/?version=N
 ```
 
-| Param     | Default        | Behavior                                                       |
-| --------- | -------------- | -------------------------------------------------------------- |
-| `version` | latest version | Pins the response to one published version of the skill.       |
+| Param     | Default        | Behavior                                                 |
+| --------- | -------------- | -------------------------------------------------------- |
+| `version` | latest version | Pins the response to one published version of the skill. |
 
 Response:
 
@@ -46,14 +46,14 @@ Response:
 
 `frontmatter_document` maps storage shape to spec shape:
 
-| Stored           | Served                                                  |
-| ---------------- | ------------------------------------------------------- |
-| `name`           | `name`                                                  |
-| `description`    | `description`                                           |
-| `license`        | `license`, omitted when empty                           |
-| `compatibility`  | `compatibility`, omitted when empty                     |
-| `metadata`       | `metadata`, with `version` written last so it always wins |
-| `allowed_tools`  | `allowed-tools`, space separated, omitted when empty    |
+| Stored          | Served                                                    |
+| --------------- | --------------------------------------------------------- |
+| `name`          | `name`                                                    |
+| `description`   | `description`                                             |
+| `license`       | `license`, omitted when empty                             |
+| `compatibility` | `compatibility`, omitted when empty                       |
+| `metadata`      | `metadata`, with `version` written last so it always wins |
+| `allowed_tools` | `allowed-tools`, space separated, omitted when empty      |
 
 The spec has no top-level version field, so the platform version is parked under
 `metadata.version`. It is a string, and it changes on every publish even when the body does not,
