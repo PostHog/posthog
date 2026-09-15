@@ -36,6 +36,13 @@ CALENDLY_SESSION_PATCH = (
 
 ORG_URI = "https://api.calendly.com/organizations/ABC123"
 
+# Parent row each fan-out child is bound to, keyed by the child endpoint.
+PARENT_URIS = {
+    "invitees": "https://api.calendly.com/scheduled_events/EV1",
+    "routing_form_submissions": "https://api.calendly.com/routing_forms/RF1",
+    "event_type_memberships": "https://api.calendly.com/event_types/ET1",
+}
+
 
 def _response(
     collection: Optional[list[dict[str, Any]]],
@@ -316,6 +323,117 @@ class TestRequestParams:
         )
 
         assert "min_start_time" not in snapshots[0]["params"]
+
+
+class TestFanoutEndpoints:
+    """The three child endpoints scoped to a parent resource, fanned out one request per parent."""
+
+    @parameterized.expand(
+        [
+            (
+                "invitees",
+                "scheduled_events",
+                f"{CALENDLY_BASE_URL}/scheduled_events/EV1/invitees",
+                "created_at:asc",
+            ),
+            (
+                "routing_form_submissions",
+                "routing_forms",
+                f"{CALENDLY_BASE_URL}/routing_form_submissions?form=https%3A%2F%2Fapi.calendly.com%2Frouting_forms%2FRF1",
+                "created_at:asc",
+            ),
+            (
+                "event_type_memberships",
+                "event_types",
+                f"{CALENDLY_BASE_URL}/event_type_memberships?event_type=https%3A%2F%2Fapi.calendly.com%2Fevent_types%2FET1",
+                # The only list endpoint that accepts no sort param.
+                None,
+            ),
+        ]
+    )
+    @mock.patch(CALENDLY_SESSION_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_child_request_is_bound_to_its_parent(
+        self,
+        endpoint: str,
+        parent: str,
+        expected_child_url: str,
+        expected_sort: Optional[str],
+        MockClientSession: mock.MagicMock,
+        mock_calendly_session: mock.MagicMock,
+    ) -> None:
+        mock_calendly_session.return_value.get.return_value = _users_me_response()
+        snapshots = _wire(
+            MockClientSession.return_value,
+            [_response([{"uri": PARENT_URIS[endpoint]}]), _response([{"uri": "child-1"}])],
+        )
+
+        rows = _rows(_source(_make_manager(), endpoint=endpoint))
+
+        # The parent walk stays org-scoped; the child carries the parent identity in its path,
+        # percent-encoded where it rides in a query param.
+        assert snapshots[0]["url"] == f"{CALENDLY_BASE_URL}/{parent}"
+        assert snapshots[0]["params"]["organization"] == ORG_URI
+        assert snapshots[1]["url"] == expected_child_url
+        assert snapshots[1]["params"].get("sort") == expected_sort
+        assert snapshots[1]["params"]["count"] == 100
+        assert [r["uri"] for r in rows] == ["child-1"]
+
+    @mock.patch(CALENDLY_SESSION_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_child_pages_are_followed_per_parent(
+        self, MockClientSession: mock.MagicMock, mock_calendly_session: mock.MagicMock
+    ) -> None:
+        mock_calendly_session.return_value.get.return_value = _users_me_response()
+        next_url = f"{CALENDLY_BASE_URL}/scheduled_events/EV1/invitees?page=2"
+        _wire(
+            MockClientSession.return_value,
+            [
+                _response([{"uri": PARENT_URIS["invitees"]}]),
+                _response([{"uri": "in-1"}], next_page=next_url),
+                _response([{"uri": "in-2"}]),
+            ],
+        )
+
+        rows = _rows(_source(_make_manager(), endpoint="invitees"))
+
+        assert [r["uri"] for r in rows] == ["in-1", "in-2"]
+
+    @mock.patch(CALENDLY_SESSION_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fanout_neither_reads_nor_writes_resume_state(
+        self, MockClientSession: mock.MagicMock, mock_calendly_session: mock.MagicMock
+    ) -> None:
+        # Dependent resources cannot resume, so a saved next-page URL must not leak into the
+        # fan-out — applying another endpoint's cursor here would request the wrong resource.
+        mock_calendly_session.return_value.get.return_value = _users_me_response()
+        snapshots = _wire(
+            MockClientSession.return_value,
+            [_response([{"uri": PARENT_URIS["invitees"]}]), _response([{"uri": "in-1"}])],
+        )
+        manager = _make_manager(resume_state=CalendlyResumeConfig(next_url=f"{CALENDLY_BASE_URL}/event_types?page=9"))
+
+        _rows(_source(manager, endpoint="invitees"))
+
+        assert snapshots[0]["url"] == f"{CALENDLY_BASE_URL}/scheduled_events"
+        manager.save_state.assert_not_called()
+
+
+class TestContacts:
+    @mock.patch(CALENDLY_SESSION_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_contacts_is_account_scoped_and_sorted(
+        self, MockClientSession: mock.MagicMock, mock_calendly_session: mock.MagicMock
+    ) -> None:
+        snapshots = _wire(MockClientSession.return_value, [_response([{"uri": "contact-1"}])])
+
+        rows = _rows(_source(_make_manager(), endpoint="contacts"))
+
+        # /contacts takes no organization param, so there is no /users/me bootstrap to make.
+        mock_calendly_session.assert_not_called()
+        assert "organization" not in snapshots[0]["params"]
+        assert snapshots[0]["params"]["sort"] == "created_at:asc"
+        assert [r["uri"] for r in rows] == ["contact-1"]
 
 
 class TestCalendlySource:

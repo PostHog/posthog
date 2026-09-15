@@ -51,6 +51,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.types import Table
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.tests.resolver import addrinfo
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import (
@@ -104,6 +105,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _connect_to_postgres,
     _connect_with_dropped_retry,
     _fetch_rows_for,
+    _full_table_timeout_error,
     _get_estimated_row_count_for_partitioned_table,
     _get_partition_settings,
     _get_partition_settings_for_partitioned_table,
@@ -727,6 +729,39 @@ class TestPostgresSourceNonRetryableErrors:
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
         assert friendly, "Invalid SSL-negotiation response should surface an actionable message"
         assert "host and port" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)). libpq concatenates
+            # the SSL and no-encryption attempts into one message when sslmode=prefer retries after the
+            # SSL attempt is rejected; the host/user/database are volatile, the pg_hba.conf phrase is
+            # stable.
+            'connection failed: connection to server at "127.0.0.1", port 36079 failed: FATAL:  no '
+            'pg_hba.conf entry for host "172.31.4.66", user "postgres", database "peak_staging_db", '
+            'SSL encryption\nconnection to server at "127.0.0.1", port 36079 failed: FATAL:  no '
+            'pg_hba.conf entry for host "172.31.4.66", user "postgres", database "peak_staging_db", '
+            "no encryption",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            'OperationalError: connection failed: connection to server at "10.0.0.5", port 5432 failed: '
+            'FATAL:  no pg_hba.conf entry for host "10.0.0.5", user "postgres", database "app", no encryption',
+        ],
+    )
+    def test_no_pg_hba_conf_entry_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Missing pg_hba.conf entry error should be non-retryable: {error_msg}"
+
+    def test_no_pg_hba_conf_entry_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = (
+            'connection failed: connection to server at "127.0.0.1", port 36079 failed: FATAL:  no '
+            'pg_hba.conf entry for host "172.31.4.66", user "postgres", database "peak_staging_db", '
+            "no encryption"
+        )
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Missing pg_hba.conf entry error should surface an actionable message"
+        assert "pg_hba.conf" in friendly[0]
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -1495,6 +1530,13 @@ class TestPostgresSourceNonRetryableErrors:
         assert "QueryTimeoutException" not in matching_keys
         assert "has an appropriate index" in matching_keys
 
+    def test_full_table_timeout_message_stays_retryable(self, source):
+        # A full-table read restarts from scratch, so it keeps retrying. Wording it like the
+        # incremental message would collide with a non-retryable key and disable the sync.
+        error_msg = str(_full_table_timeout_error())
+        non_retryable = source.get_non_retryable_errors()
+        assert not any(pattern in error_msg for pattern in non_retryable)
+
     def test_pk_uniqueness_probe_timeout_is_non_retryable_and_points_at_primary_key(self, source):
         # A statement_timeout in the fallback `id` uniqueness probe used to surface the generic
         # "index your incremental field" message, which won't fix this full-table GROUP BY. The
@@ -1922,6 +1964,118 @@ class TestSetupStatementTimeoutUnsupported:
             )
             # Setup completes and streaming runs to exhaustion; the rejected SET does not abort it.
             assert list(cast(Iterable[Any], response.items())) == []
+
+
+class TestPostgresSourceSyncAllProjection:
+    """Sync-all names the discovered columns rather than rendering `SELECT *`.
+
+    A source role that holds column grants instead of table grants cannot run `SELECT *`, because
+    the star expands to columns it may not read. The read names what the streaming connection
+    discovers, not what setup discovered minutes earlier. No other test covers this wiring, only
+    the query builders in isolation."""
+
+    class _Cursor:
+        def __init__(self, recorder: list[str]):
+            self._recorder = recorder
+            column = mock.Mock()
+            column.name = "id"
+            self.description = [column]
+
+        def execute(self, query, *args, **kwargs):
+            self._recorder.append(query.as_string() if isinstance(query, sql.Composed) else str(query))
+            return None
+
+        def fetchmany(self, _n: int):
+            return []
+
+        def fetchone(self):
+            return None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class _Connection:
+        def __init__(self, streaming_queries: list[str], setup_queries: list[str]):
+            self.autocommit = True
+            self.closed = False
+            self.broken = False
+            self.adapters = mock.Mock()
+            self._streaming_queries = streaming_queries
+            self._setup_queries = setup_queries
+
+        def cursor(self, *args, **kwargs):
+            recorder = self._streaming_queries if "name" in kwargs else self._setup_queries
+            return TestPostgresSourceSyncAllProjection._Cursor(recorder)
+
+        def commit(self):
+            return None
+
+        def close(self):
+            self.closed = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def test_sync_all_names_the_columns_rediscovered_before_streaming(self):
+        @contextmanager
+        def fake_tunnel():
+            yield ("localhost", 5432)
+
+        def table_with(*columns: str) -> Table[PostgreSQLColumn]:
+            return Table(
+                name="companies",
+                parents=("public",),
+                columns=[PostgreSQLColumn(name=name, data_type="text", nullable=False) for name in columns],
+                type="table",
+            )
+
+        streaming_queries: list[str] = []
+        setup_queries: list[str] = []
+        connection = self._Connection(streaming_queries, setup_queries)
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
+        with (
+            patch(f"{module}.psycopg.connect", return_value=connection),
+            patch(f"{module}.psycopg.Cursor", return_value=self._Cursor(setup_queries)),
+            # The source drops `nickname` between setup and the read. Naming it would fail the
+            # read as a permanent error, which disables the schema.
+            patch(
+                f"{module}._get_table",
+                side_effect=[table_with("id", "email", "nickname"), table_with("id", "email")],
+            ),
+            patch(f"{module}._is_read_replica", return_value=False),
+            patch(f"{module}._is_duckdb_connection", return_value=False),
+            patch(f"{module}._get_primary_keys", return_value=["id"]),
+            patch(f"{module}._is_partitioned_table", return_value=False),
+            patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=100, fetch_rows=100)),
+            patch(f"{module}._get_rows_to_sync", return_value=0),
+            patch(f"{module}._role_subject_to_rls", return_value=False),
+            patch(f"{module}._get_partition_settings", return_value=None),
+        ):
+            response = postgres_source(
+                tunnel=lambda: fake_tunnel(),
+                user="u",
+                password="p",
+                database="db",
+                sslmode="prefer",
+                schema="public",
+                table_names=["companies"],
+                should_use_incremental_field=False,
+                logger=structlog.get_logger(),
+                db_incremental_field_last_value=None,
+                team_id=1,
+            )
+            list(cast(Iterable[Any], response.items()))
+
+        assert [query for query in streaming_queries if query.startswith("SELECT")] == [
+            'SELECT "id", "email" FROM "public"."companies"'
+        ]
 
 
 class TestIsConnectionDroppedError:
@@ -3017,8 +3171,8 @@ class TestStatementTimeoutAsNonRetryable:
         [
             # Incremental syncs map the timeout to a non-retryable QueryTimeoutException.
             (True, "updated_at", "updated_at"),
-            # Full-table syncs must re-raise the raw QueryCanceled so a fresh re-sync can
-            # reorder rows; we only short-circuit incremental reads.
+            # Full-table syncs stay retryable so a fresh re-sync can reorder rows; we only
+            # short-circuit incremental reads.
             (False, None, None),
         ],
     )
@@ -3058,8 +3212,9 @@ class TestServerCursorStatementTimeout:
     """The main server-cursor streaming path in `get_rows` must not leak a raw,
     retryable QueryCanceled when a FETCH hits the statement_timeout — it must map
     to a non-retryable QueryTimeoutException for incremental syncs (mirroring the
-    offset-chunking and windowed paths), and re-raise the raw error for full-table
-    syncs so a fresh re-sync can reorder rows safely.
+    offset-chunking and windowed paths). A full-table read stays retryable so a fresh
+    re-sync can reorder rows safely, but must still carry a message the customer can act
+    on rather than psycopg's raw text.
     """
 
     class _Cursor:
@@ -3160,9 +3315,9 @@ class TestServerCursorStatementTimeout:
         [
             # Incremental syncs map the FETCH timeout to a non-retryable QueryTimeoutException.
             (True, QueryTimeoutException, "updated_at"),
-            # Full-table syncs have no stable ORDER BY, so we re-raise the raw QueryCanceled
-            # to let a fresh re-sync reorder rows rather than giving up.
-            (False, psycopg.errors.QueryCanceled, None),
+            # Full-table syncs have no stable ORDER BY, so they stay retryable to let a fresh
+            # re-sync reorder rows rather than giving up — with a message that names the fix.
+            (False, Exception, "incremental replication"),
         ],
     )
     def test_statement_timeout_handling(self, should_use_incremental_field, expected_exception, expected_substr):
@@ -3496,9 +3651,10 @@ class TestOffsetChunkingConnectRecoveryConflict:
 
         def connect_side_effect(*args, **kwargs):
             connect_calls["n"] += 1
-            # Calls 1 (setup) and 2 (initial server-cursor read) succeed; the offset-chunking
-            # bootstrap connect hits the recovery conflict twice before succeeding.
-            if connect_calls["n"] in (3, 4):
+            # Calls 1 (setup), 2 (catalog re-read before streaming) and 3 (initial server-cursor
+            # read) succeed; the offset-chunking bootstrap connect hits the recovery conflict
+            # twice before succeeding.
+            if connect_calls["n"] in (4, 5):
                 raise connect_error
             return connection
 
@@ -3533,8 +3689,9 @@ class TestOffsetChunkingConnectRecoveryConflict:
             # Before the fix the connect-time conflict escaped offset_chunking and raised here.
             list(cast(Iterable[Any], response.items()))
 
-        # 1 setup + 1 initial read + 3 offset-chunking connects (2 conflicts + 1 success).
-        assert connect_mock.call_count == 5
+        # 1 setup + 1 catalog re-read + 1 initial read + 3 offset-chunking connects (2 conflicts
+        # + 1 success).
+        assert connect_mock.call_count == 6
 
 
 class TestOffsetChunkingConnectTimeout:
@@ -3562,9 +3719,10 @@ class TestOffsetChunkingConnectTimeout:
 
         def connect_side_effect(*args, **kwargs):
             connect_calls["n"] += 1
-            # Calls 1 (setup) and 2 (initial server-cursor read) succeed; the offset-chunking
-            # bootstrap connect times out twice before succeeding.
-            if connect_calls["n"] in (3, 4):
+            # Calls 1 (setup), 2 (catalog re-read before streaming) and 3 (initial server-cursor
+            # read) succeed; the offset-chunking bootstrap connect times out twice before
+            # succeeding.
+            if connect_calls["n"] in (4, 5):
                 raise psycopg.errors.ConnectionTimeout("connection timeout expired")
             return connection
 
@@ -3602,8 +3760,9 @@ class TestOffsetChunkingConnectTimeout:
             # Before the fix the connect-time timeout escaped offset_chunking and raised here.
             list(cast(Iterable[Any], response.items()))
 
-        # 1 setup + 1 initial read + 3 offset-chunking connects (2 timeouts + 1 success).
-        assert connect_mock.call_count == 5
+        # 1 setup + 1 catalog re-read + 1 initial read + 3 offset-chunking connects (2 timeouts
+        # + 1 success).
+        assert connect_mock.call_count == 6
 
 
 class TestOffsetChunkingRecoveryConflictTimeout:
@@ -9201,10 +9360,11 @@ class TestPartitionIterationConnectRetry:
 
         def connect_side_effect(*args, **kwargs):
             connect_calls["n"] += 1
-            if connect_calls["n"] == 1:
-                # Setup connection (metadata probes are patched out).
+            if connect_calls["n"] in (1, 2):
+                # Setup connection, then the catalog re-read before streaming (metadata probes
+                # are patched out).
                 return TestPartitionIterationConnectRetry._WindowConnection()
-            if connect_calls["n"] == 2:
+            if connect_calls["n"] == 3:
                 # First per-window/per-partition connect: the setup commit() inside get_connection drops.
                 return TestPartitionIterationConnectRetry._WindowConnection(
                     commit_error=psycopg.OperationalError("the connection is lost")
@@ -9257,8 +9417,9 @@ class TestPartitionIterationConnectRetry:
             # Before the fix the connect drop escaped iterate_date_windows / iterate_partitions here.
             tables = list(cast(Iterable[Any], response.items()))
 
-        # 1 setup + 2 per-window/per-partition connects (1 dropped commit + 1 success).
-        assert connect_mock.call_count == 3
+        # 1 setup + 1 catalog re-read + 2 per-window/per-partition connects (1 dropped commit
+        # + 1 success).
+        assert connect_mock.call_count == 4
         assert sum(table.num_rows for table in tables) == 3
 
 

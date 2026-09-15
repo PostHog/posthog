@@ -10,6 +10,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence, Set
 from concurrent.futures import ALL_COMPLETED, FIRST_EXCEPTION, Future, ThreadPoolExecutor, as_completed
 from copy import copy
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, ClassVar, Generic, Literal, NamedTuple, Optional, TypeVar
 
 from clickhouse_driver import Client
@@ -822,6 +823,13 @@ class MutationRunner(abc.ABC):
     # How long to wait for the table to be free of other mutations before giving up. 0 waits
     # forever, which is what a caller with no deadline of its own wants.
     capacity_timeout: float = field(default=0.0, kw_only=True)
+    # Oldest ``create_time`` an existing mutation may have for this runner to adopt it instead of
+    # enqueueing its own. A command names the dictionaries it joins, never their contents, so a
+    # caller whose dictionaries are rebuilt each run produces the same command text over different
+    # data. Without a floor the match reaches back to whatever a previous run left in
+    # system.mutations, and adopting that finished mutation deletes nothing while reporting done.
+    # None keeps the unbounded match, which is right only where the command text pins the data.
+    reuse_since: datetime | None = field(default=None, kw_only=True)
 
     @abc.abstractmethod
     def get_all_commands(self) -> Set[str]:
@@ -852,7 +860,7 @@ class MutationRunner(abc.ABC):
             mutations_running: Mapping[str, str] = {}
         else:
             logger.info("Ensuring mutation for %r is running or has completed.", expected_commands)
-            mutations_running = self.find_existing_mutations(client, expected_commands)
+            mutations_running = self.find_existing_mutations(client, expected_commands, since=self.reuse_since)
 
         commands_to_enqueue = expected_commands - mutations_running.keys()
         if not commands_to_enqueue:
@@ -917,10 +925,17 @@ class MutationRunner(abc.ABC):
             )
             time.sleep(poll_interval)
 
-    def find_existing_mutations(self, client: Client, commands: Set[str] | None = None) -> Mapping[str, str]:
+    def find_existing_mutations(
+        self, client: Client, commands: Set[str] | None = None, since: datetime | None = None
+    ) -> Mapping[str, str]:
         """
         Find the mutation ID (if it exists) associated with each command provided (or all commands if no commands are
         specified.)
+
+        ``since`` drops mutations created before it, so a caller can refuse to adopt one an earlier
+        run enqueued. Pass it on the lookup that decides whether to enqueue, and leave it off the
+        one that confirms an enqueue: the second is looking for the mutation it just created, and a
+        clock reading taken on another host could exclude it.
         """
         if commands is None:
             commands = self.get_all_commands()
@@ -979,6 +994,7 @@ class MutationRunner(abc.ABC):
                     database = %(__database)s
                     AND table = %(__table)s
                     AND NOT is_killed  -- ok to restart a killed mutation
+                    AND (%(__since)s IS NULL OR create_time >= %(__since)s)
                 GROUP BY command
             ) mutations USING (command)
             ORDER BY position ASC
@@ -988,6 +1004,7 @@ class MutationRunner(abc.ABC):
                 "__database": settings.CLICKHOUSE_DATABASE,
                 "__table": self.table,
                 "__alter_prefix": alter_prefix,
+                "__since": since,
                 # self.parameters are already rendered into __command_*; passing them again would
                 # reintroduce the substitution this avoids.
                 **{f"__command_{i}": text for i, text in enumerate(rendered_commands)},

@@ -305,8 +305,14 @@ useEffect(() => {
 - `ph.capture(event, properties?, distinctId?)` — analytics events for interactions
   (fire-and-forget). Session replay, `$session_id`, and person attribution are handled by the
   host automatically; never initialize recording, set session ids, or roll your own capture.
-- `ph.openExternal(url)` — opens `https://posthog.com` / `*.posthog.com` URLs only, and only from
-  a user interaction (opens outside focus are ignored). Sandboxed `target="_blank"` navigation is
-  blocked, so do not use it as a fallback or link elsewhere.
+- `ph.openExternal(url)` — opens PostHog HTTPS URLs and `https://github.com/<owner>/<repo>/pull/<number>`
+  links from a user click. GitHub PR links open without a confirmation dialog. Files, commits, checks,
+  and fragment links are allowed; credentials, custom ports, query strings, and other domains are not.
+  Sandboxed `target="_blank"` navigation is blocked, so use the bridge rather than a browser fallback.
 - `ph.navigate.toTask(id)` / `.toNewTask()` / `.toCanvas(id)` / `.toNewCanvas()` — in-app
   navigation within the canvas's own channel.
+- `ph.navigate.toNewTask({ prompt, repository })` — opens a prefilled task form in a new tab from
+  a user click. `prompt` is at most 16,000 characters; `repository` is an `owner/repo` name. Both are
+  optional. Setting a repository selects cloud mode for this task without changing the space.
+  The viewer reviews and sends the prompt; opening the form does not start a run. Check for
+  `ph.navigate` in older published artifacts and ask for a rebuild after deployment if it is missing.

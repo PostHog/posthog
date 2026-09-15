@@ -2,12 +2,11 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonCard, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
-import { resolveCategoryDropdownVariant, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog, LemonDialogProps } from 'lib/lemon-ui/LemonDialog'
@@ -15,7 +14,6 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getExperimentVariants } from 'scenes/experiments/utils'
 import { DurationFilter } from 'scenes/session-recordings/filters/DurationFilter'
 import {
@@ -174,11 +172,7 @@ function ExperimentTargeting({ scannerId }: { scannerId: string }): JSX.Element 
 
 export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Element {
     const { scanner, scannerEstimate, scannerEstimateLoading } = useValues(replayScannerLogic({ id: scannerId }))
-    const { featureFlags } = useValues(featureFlagLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const categoryDropdownVariant = resolveCategoryDropdownVariant(
-        featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
-    )
     const scannerFilterTypes = [...SCANNER_BASE_FILTER_TYPES, ...groupsTaxonomicTypes]
     // Waits for the in-flight estimate so an edit can't report on the previous filters.
     const noMatchWindowDays =
@@ -308,7 +302,6 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                             }
                                         >
                                             <RecordingsUniversalFilterAddFilterPopover
-                                                categoryDropdownVariant={categoryDropdownVariant}
                                                 taxonomicGroupTypes={scannerFilterTypes}
                                             />
                                         </UniversalFilters>

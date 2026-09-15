@@ -41,6 +41,7 @@ from products.engineering_analytics.backend.logic.views import (
     issue_events,
     job_costs,
     pull_requests,
+    reviews,
     team_members,
     trunk_merge_queue,
     trunk_quarantined_tests,
@@ -247,6 +248,13 @@ class CuratedGitHubSource:
             return None
         return f"({issue_events.build_query(self._tables.issue_events)})"
 
+    def reviews_source(self) -> str | None:
+        """Curated submitted-reviews ``SELECT`` subquery, or None when the optional reviews table
+        isn't synced."""
+        if not self._tables.reviews:
+            return None
+        return f"({reviews.build_query(self._tables.reviews)})"
+
     def deploy_sources(self) -> "DeploySources | None":
         """The curated deploy ``SELECT`` subqueries, or None when the optional deploy pair isn't
         fully synced. Gated on BOTH tables in one place: a deployment's outcome lives on its
@@ -369,6 +377,11 @@ class CuratedGitHubSource:
                     -- s IS NULL: run_started_at parses to NULL on a bad/missing timestamp, and argMax
                     -- over an all-NULL group returns NULL — count those as pending, not vanished.
                     countIf(s IS NULL OR s != 'completed') AS pending,
+                    -- Completes the partition, so an all-cancelled PR is not read as passing.
+                    countIf(
+                        s = 'completed'
+                        AND ifNull(c, '') NOT IN ('success', {DECISIVE_FAILURE_CONCLUSIONS_SQL})
+                    ) AS inconclusive,
                     -- The names behind `failing`, sorted for a stable order — the UI shows what is
                     -- failing under the CI tag instead of a bare count.
                     arraySort(groupArrayIf(workflow_name, s = 'completed' AND c IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL}))) AS failing_workflows

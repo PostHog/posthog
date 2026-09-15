@@ -16,6 +16,8 @@ import type {
     UserCustomerAnalyticsConfigApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { ACCOUNTS_DEFAULT_COLUMNS, customPropertyAlias } from './accountsColumnConfigLogic'
+
 const QUERY_ENDPOINT = '/api/projects/:team_id/accounts_table_query/'
 const ACCOUNT_RETRIEVE_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/'
 const ACCOUNT_NOTEBOOKS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/notebooks/'
@@ -73,7 +75,10 @@ const RELATIONSHIP_DEFINITIONS = {
     ],
 }
 
-function buildAccountsTableQueryResponse(rows: AccountRow[]): Record<string, unknown> {
+function buildAccountsTableQueryResponse(
+    rows: AccountRow[],
+    customProperties: Record<string, string> = {}
+): Record<string, unknown> {
     return {
         kind: 'AccountsTableQuery',
         results: rows.map(([account, tags, noteCount, csm, accountExecutive, accountOwner]) => ({
@@ -89,7 +94,7 @@ function buildAccountsTableQueryResponse(rows: AccountRow[]): Record<string, unk
                 '66666666-7777-8888-9999-aaaaaaaaaaaa': accountExecutive,
                 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff': accountOwner,
             },
-            customProperties: {},
+            customProperties,
             customPropertyHistory: {},
         })),
         hasMore: false,
@@ -274,7 +279,8 @@ const EXPANDED_ROW_TEST_OPTIONS = {
 }
 
 function mockAccountsTableQuery(
-    rows: AccountRow[]
+    rows: AccountRow[],
+    customProperties: Record<string, string> = {}
 ): (info: MockResolverInfo) => Promise<[number, unknown] | undefined> {
     return async ({ request }) => {
         const body = (await request.json()) as { query?: { kind?: string; metrics?: unknown[] } }
@@ -292,7 +298,7 @@ function mockAccountsTableQuery(
                           metricsResults: [rows.length],
                       },
                   ]
-                : [200, buildAccountsTableQueryResponse(rows)]
+                : [200, buildAccountsTableQueryResponse(rows, customProperties)]
         }
         return undefined
     }
@@ -355,6 +361,109 @@ export const Default: Story = {
             },
         }),
     ],
+}
+
+const ADDITIONAL_COLUMN_DEFINITIONS: CustomPropertyDefinitionApi[] = (
+    [
+        { name: 'Subscription cost', display_type: 'currency' },
+        { name: 'Onboarding progress', display_type: 'percent' },
+        { name: 'Seats', display_type: 'number' },
+        { name: 'Deployment region', display_type: 'text' },
+        { name: 'Plan', display_type: 'text' },
+        { name: 'Account description', display_type: 'text' },
+    ] satisfies Pick<CustomPropertyDefinitionApi, 'name' | 'display_type'>[]
+).map((definition, index) => ({
+    ...definition,
+    id: `00000000-0000-0000-0000-00000000000${index}`,
+    is_canonical: false,
+    source: null,
+    has_workflow_reference: false,
+    created_at: '2026-05-01T00:00:00Z',
+    created_by: null,
+    updated_at: null,
+    references: [],
+}))
+
+const ADDITIONAL_COLUMN_VALUES = Object.fromEntries(
+    [
+        '12345.67',
+        '0.75',
+        '250',
+        'Europe',
+        'Enterprise',
+        'A long account description that needs more than one column width',
+    ].map((value, index) => [ADDITIONAL_COLUMN_DEFINITIONS[index].id, value])
+)
+
+export const ManyColumns: Story = {
+    render: () => <App />,
+    parameters: {
+        pageUrl: `${urls.customerAnalyticsAccounts()}#view=${encodeURIComponent(
+            JSON.stringify({
+                columns: [
+                    ...ACCOUNTS_DEFAULT_COLUMNS,
+                    'csm',
+                    'external_id',
+                    ...ADDITIONAL_COLUMN_DEFINITIONS.map(
+                        ({ id }) => `accounts.custom_properties.values.\`${id}\` AS ${customPropertyAlias(id)}`
+                    ),
+                ],
+            })
+        )}`,
+        testOptions: {
+            waitForSelector: `[data-attr="accounts-table-sort-${customPropertyAlias(ADDITIONAL_COLUMN_DEFINITIONS[5].id)}"]`,
+            viewport: { width: 1280, height: 960 },
+        },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/column_configurations/': { count: 0, next: null, results: [] },
+                'api/environments/:team_id/customer_journeys/': { count: 0, next: null, results: [] },
+                'api/projects/:team_id/custom_property_definitions/': {
+                    count: ADDITIONAL_COLUMN_DEFINITIONS.length,
+                    next: null,
+                    previous: null,
+                    results: ADDITIONAL_COLUMN_DEFINITIONS,
+                },
+            },
+            post: {
+                [QUERY_ENDPOINT]: mockAccountsTableQuery(SAMPLE_ROWS, ADDITIONAL_COLUMN_VALUES),
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findAllByText('Enterprise', {}, { timeout: 15000 })
+        await waitFor(() => {
+            const widths: number[] = []
+            for (const definition of ADDITIONAL_COLUMN_DEFINITIONS) {
+                const header = canvasElement
+                    .querySelector(`[data-attr="accounts-table-sort-${customPropertyAlias(definition.id)}"]`)
+                    ?.closest('th')
+                const width = header?.getBoundingClientRect().width ?? 0
+                if (width < 80 || width > 200) {
+                    throw new Error('New account columns must size between 80px and 200px')
+                }
+                widths.push(width)
+            }
+            if (widths[4] <= widths[2] || widths.at(-1) !== 200) {
+                throw new Error('Column sizes must account for values wider than the header and cap long content')
+            }
+            const expansionToggle = canvasElement.querySelector('.DataTable .LemonTable__toggle')
+            if (!expansionToggle || expansionToggle.getBoundingClientRect().width === 0) {
+                throw new Error('Automatic column widths must leave the row expansion control visible')
+            }
+            const scrollContainer = canvasElement.querySelector<HTMLElement>('.DataTable .ScrollableShadows__inner')
+            if (!scrollContainer || scrollContainer.scrollWidth <= scrollContainer.clientWidth) {
+                throw new Error('Account columns must scroll inside the table when they do not fit')
+            }
+            scrollContainer.scrollLeft = scrollContainer.scrollWidth
+            if (scrollContainer.scrollLeft === 0) {
+                throw new Error('The last account column must be reachable by scrolling')
+            }
+            scrollContainer.scrollLeft = 0
+        })
+    },
 }
 
 export const Empty: Story = {

@@ -17,6 +17,7 @@ import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
+import { PostHogApiError } from '@/lib/errors'
 import { buildToolDomainsCompact } from '@/lib/instructions'
 import { RENDER_UI_RESOURCE_URI, URI_MAP } from '@/resources/ui-apps.generated'
 import { makeSkillFile, SkillCatalog } from '@/skills/skill-catalog'
@@ -163,6 +164,103 @@ describe('ToolExecutor', () => {
             expect(text).toContain('organization-get')
             expect(text).not.toContain('feature-flag-get-all')
         })
+
+        function skillMissContext(skillName: string, body: string): ResolvedState['context'] {
+            return {
+                api: {
+                    request: vi.fn().mockRejectedValue(
+                        new PostHogApiError({
+                            status: 404,
+                            statusText: 'Not Found',
+                            body,
+                            url: `https://internal.example.com/api/projects/1/llm_skills/name/${skillName}/`,
+                            method: 'GET',
+                        })
+                    ),
+                },
+                cache: {},
+                env: {},
+                stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+                sessionManager: {},
+                getDistinctId: vi.fn(),
+                trackEvent: vi.fn(),
+            } as any
+        }
+
+        // Cursor and ChatGPT get the per-tool roster, so they call the skill read
+        // tools here rather than through exec. Left on the generic error shape, the
+        // same miss reads as a service outage for them and as a plain answer for
+        // everyone else — the divergence this rewrite exists to remove.
+        it.each([
+            [
+                'skill-get',
+                { skill_name: 'missing-skill' },
+                '{"detail":"Skill with name \'missing-skill\' not found."}',
+                'No skill named "missing-skill" in this project\'s skills store.',
+            ],
+            [
+                'skill-file-get',
+                { skill_name: 'real-skill', file_path: 'refs/guide.md' },
+                '{"detail":"File \'refs/guide.md\' not found in skill \'real-skill\'."}',
+                'No file "refs/guide.md" in the skill "real-skill".',
+            ],
+        ])('answers a %s miss with the plain message in tools mode', async (name, args, body, expected) => {
+            const state = makeState([{ name }], { context: skillMissContext(args.skill_name, body) })
+
+            const result = (await executor.handleToolCall({ name, arguments: args }, state)) as any
+
+            expect(result.isError).toBeFalsy()
+            expect(result.content[0].text).toContain(expected)
+            expect(result.content[0].text).not.toContain('Request failed')
+        })
+
+        // The `learn` command is feature-flagged, so most connections cannot load a
+        // built-in skill at all. Sending them back to a store that never held one
+        // is what makes an agent drop the task, so the message says where the skill
+        // lives and whether this connection can reach it.
+        // Both modes are covered: single-exec dispatch is where nearly every skill
+        // read arrives, and the per-tool roster is the path Cursor and ChatGPT take.
+        it.each([
+            ['tools', false, 'this connection cannot load built-in skills.'],
+            ['tools', true, 'Run `learn posthog:scanning-experiments-with-replay-vision` to load it.'],
+            ['exec', false, 'this connection cannot load built-in skills.'],
+            ['exec', true, 'Run `learn posthog:scanning-experiments-with-replay-vision` to load it.'],
+        ])(
+            'names the built-in catalog on a store miss in %s mode, with learn enabled=%s',
+            async (mode, skillsEnabled, expected) => {
+                const skillName = 'scanning-experiments-with-replay-vision'
+                const skills = new SkillCatalog([
+                    {
+                        name: skillName,
+                        description: 'A built-in skill.',
+                        files: [makeSkillFile('SKILL.md', '# Built-in skill')],
+                    },
+                ])
+                const skillExecutor = new ToolExecutor(catalog, new InstructionsBuilder(''), {
+                    getCatalog: () => skills,
+                } as any)
+                const useExec = mode === 'exec'
+                // Exec dispatches through the real tool objects, so the roster has to
+                // carry the handler rather than only the name.
+                const tools = useExec
+                    ? catalog.getFilteredTools({ scopes: ['*'] }).filter((tool) => tool.name === 'skill-get')
+                    : [{ name: 'skill-get' }]
+                const state = makeState(tools as any, {
+                    useSingleExec: useExec,
+                    toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: skillsEnabled },
+                    context: skillMissContext(skillName, `{"detail":"Skill with name '${skillName}' not found."}`),
+                })
+                const call = useExec
+                    ? { name: 'exec', arguments: { command: `call skill-get {"skill_name":"${skillName}"}` } }
+                    : { name: 'skill-get', arguments: { skill_name: skillName } }
+
+                const result = (await skillExecutor.handleToolCall(call, state)) as any
+
+                expect(result.isError).toBeFalsy()
+                expect(result.content[0].text).toContain(expected)
+                expect(result.content[0].text).not.toContain('call skill-list')
+            }
+        )
     })
 
     describe('handleToolsList', () => {
@@ -560,20 +658,30 @@ describe('ToolExecutor', () => {
                 useSingleExec: true,
                 renderUiEnabled: true,
                 expectStructuredContent: true,
+                posthogAi: false,
             },
             {
                 label: 'drops it for a CLI client without render-ui, which reads the table',
                 useSingleExec: true,
                 renderUiEnabled: false,
                 expectStructuredContent: false,
+                posthogAi: false,
             },
             {
                 label: 'drops it in tools mode, where a direct call may be the model',
                 useSingleExec: false,
                 renderUiEnabled: true,
                 expectStructuredContent: false,
+                posthogAi: false,
             },
-        ])('$label', async ({ useSingleExec, renderUiEnabled, expectStructuredContent }) => {
+            {
+                label: 'carries app data for native widgets without a UI resource',
+                useSingleExec: false,
+                renderUiEnabled: false,
+                expectStructuredContent: false,
+                posthogAi: true,
+            },
+        ])('$label', async ({ useSingleExec, renderUiEnabled, expectStructuredContent, posthogAi }) => {
             getToolByNameSpy = vi.spyOn(catalog, 'getToolByName').mockReturnValue({
                 build() {
                     return this.base
@@ -584,17 +692,65 @@ describe('ToolExecutor', () => {
                         results: [{ count: 28, label: '$pageview' }],
                         [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: formattedTable,
                     }),
-                    _meta: uiAppTool._meta,
+                    _meta: posthogAi ? undefined : uiAppTool._meta,
                 },
             } as any)
 
             const state = makeState([uiAppTool], { useSingleExec, renderUiEnabled })
             vi.mocked(state.clientProfile.isCliModeEnabled).mockReturnValue(true)
+            if (posthogAi) {
+                state.clientProfile = { ...state.clientProfile, consumer: 'posthog_ai' } as typeof state.clientProfile
+            }
 
             const result = (await executor.handleToolCall({ name: 'survey-get', arguments: {} }, state)) as any
 
             expect(result.content[0].text).toContain(formattedTable)
             expect('structuredContent' in result).toBe(expectStructuredContent)
+            if (posthogAi) {
+                expect(result._meta['com.posthog.mcp/app_data']).toEqual({
+                    results: [{ count: 28, label: '$pageview' }],
+                })
+            }
+        })
+    })
+
+    // A tools-mode client calls the metric-run tool directly, bypassing the exec
+    // dispatcher that marks the result. Both paths have to agree, or whether an agent
+    // is warned off an unapproved metric depends on the client it runs in.
+    describe('governed metric run canonicality in tools mode', () => {
+        const metricRunTool = { name: 'data-catalog-metric-run' }
+        let getToolByNameSpy: MockInstance | undefined
+
+        afterEach(() => {
+            getToolByNameSpy?.mockRestore()
+            getToolByNameSpy = undefined
+        })
+
+        function stubMetricRun(envelope: Record<string, unknown>): void {
+            getToolByNameSpy = vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+                build() {
+                    return this.base
+                },
+                base: {
+                    schema: z.object({}),
+                    handler: async () => envelope,
+                },
+            } as any)
+        }
+
+        it.each([
+            { label: 'proposed', envelope: { status: 'proposed', is_drifted: false }, marked: true },
+            { label: 'drifted approved', envelope: { status: 'approved', is_drifted: true }, marked: true },
+            { label: 'approved', envelope: { status: 'approved', is_drifted: false }, marked: false },
+        ])('$label metric result is marked: $marked', async ({ envelope, marked }) => {
+            stubMetricRun({ ...envelope, results: [[42]] })
+
+            const result = (await executor.handleToolCall(
+                { name: metricRunTool.name, arguments: {} },
+                makeState([metricRunTool], { useSingleExec: false })
+            )) as any
+
+            expect(result.content[0].text.includes('NONCANONICAL')).toBe(marked)
         })
     })
 })
