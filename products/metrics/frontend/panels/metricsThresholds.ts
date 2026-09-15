@@ -22,3 +22,10 @@ export function thresholdColor(
     }
     return color
 }
+
+/** A threshold color is persisted user input that ends up inside a class string;
+ * anything beyond a plain token (whitespace, parentheses) could inject extra
+ * utilities, so it falls back instead. */
+export function safeColorToken(color: string, fallback: string): string {
+    return /^[a-zA-Z0-9_-]+$/.test(color) ? color : fallback
+}

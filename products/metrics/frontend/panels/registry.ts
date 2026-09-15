@@ -2,12 +2,12 @@ import type { MetricsDisplaySettings, MetricsDisplayType } from '~/queries/schem
 
 import type { MetricsChartSeries } from '../components/metricsSeries'
 
-/** The props every metrics panel receives. `unit` is the resolved unit (display override,
- * else the first series' ingested unit). A panel is a pure function of these props. */
+/** The props every metrics panel receives. Each series' unit is already resolved by the
+ * dispatcher (display override, else the series' ingested unit, else the unit every series
+ * shares — undefined when they disagree). A panel is a pure function of these props. */
 export interface MetricsPanelProps {
     series: MetricsChartSeries[]
     display: MetricsDisplaySettings
-    unit: string | undefined
     fallbackName: string
 }
 

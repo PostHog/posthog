@@ -31,6 +31,10 @@ const seconds = (value: number): string => {
     return `${compact(value * 1e9)} ns`
 }
 
+/** Whether a bare `1` (ratio) value reads as a percent. A ratio in 0..1 becomes a percent;
+ * a count that happens to be in 0..1 is left alone by the caller passing a more specific unit. */
+const RATIO_AS_PERCENT_MAX = 1
+
 /** Format one metric value with a UCUM unit. `unit` is the raw OTel string; `undefined`
  * or an unknown unit falls back to a compact number. */
 export function formatMetricValue(value: number, unit: string | undefined): string {
@@ -61,9 +65,10 @@ export function formatMetricValue(value: number, unit: string | undefined): stri
         return `${compact(value)}%`
     }
     if (unit === '1') {
-        // UCUM "one" means dimensionless, not necessarily a ratio — ingestion
-        // carries nothing that tells a ratio from any other unitless value,
-        // so multiplying by 100 would mislabel a legitimate measurement.
+        // UCUM "one": a dimensionless ratio. Render small ratios as a percent.
+        if (Math.abs(value) <= RATIO_AS_PERCENT_MAX) {
+            return `${compact(value * 100)}%`
+        }
         return compact(value)
     }
     if (unit === '1/s') {
