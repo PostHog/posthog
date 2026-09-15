@@ -39,8 +39,7 @@ class BetterStackEndpointConfig:
     # Documented default is 50 everywhere; standard v2 collections accept up to 250, the v3
     # incidents endpoint caps at 50.
     page_size: int = 50
-    # JSONPath selecting this endpoint's rows in its response body. Better Stack wraps almost
-    # everything in the JSON:API `data` envelope, but the on-call schedule endpoints do not.
+    # Most collections wrap their rows in the JSON:API `data` envelope; the on-call ones do not.
     data_selector: str = "data"
     should_sync_default: bool = True
     # Set where the resource only exists per parent row (e.g. /monitors/{monitor_id}/sla).
@@ -170,9 +169,7 @@ BETTER_STACK_ENDPOINTS: dict[str, BetterStackEndpointConfig] = {
         partition_key="created_at",
         page_size=250,
     ),
-    # Uptime percentage and downtime totals per heartbeat — the heartbeat counterpart of
-    # monitor_availability, which the heartbeats table does not carry. One row per heartbeat,
-    # recomputed every sync.
+    # Recomputed every sync: the endpoint summarizes the heartbeat's whole life and takes no filter.
     "heartbeat_availability": BetterStackEndpointConfig(
         name="heartbeat_availability",
         path="/v2/heartbeats/{heartbeat_id}/availability",
@@ -189,8 +186,6 @@ BETTER_STACK_ENDPOINTS: dict[str, BetterStackEndpointConfig] = {
         path="/v2/status-pages",
         page_size=250,
     ),
-    # The monitors and heartbeats each status page publishes, with the public name and
-    # availability shown for them — the join table between a status page and what it reports on.
     "status_page_resources": BetterStackEndpointConfig(
         name="status_page_resources",
         path="/v2/status-pages/{status_page_id}/resources",
@@ -203,21 +198,17 @@ BETTER_STACK_ENDPOINTS: dict[str, BetterStackEndpointConfig] = {
         name="on_calls",
         path="/v2/on-calls",
     ),
-    # Who was actually on call and when. on_calls only carries the schedule definitions; these
-    # are the resolved shifts, including one-off overrides. The whole list is re-read every sync
-    # rather than merged: editing a schedule rewrites its future shifts, and a merge would keep
-    # rows for shifts that no longer exist.
+    # Re-read whole every sync rather than merged: editing a schedule rewrites its future shifts,
+    # and a merge would keep rows for shifts that no longer exist.
     "on_call_events": BetterStackEndpointConfig(
         name="on_call_events",
         path="/v2/on-calls/{schedule_id}/events",
-        # Rows arrive under `events`, not the usual `data` envelope, and the endpoint does not
-        # paginate — one request returns every shift of the schedule.
+        # Rows arrive under `events`, and the endpoint does not paginate.
         data_selector="events",
         partition_key="starts_at",
         primary_keys=["on_call_id", "id"],
         fanout=_ON_CALL_FANOUT,
     ),
-    # The rotation currently driving a schedule: its length, interval, and the users in it.
     "on_call_rotations": BetterStackEndpointConfig(
         name="on_call_rotations",
         path="/v2/on-calls/{schedule_id}/rotation",
@@ -231,7 +222,6 @@ BETTER_STACK_ENDPOINTS: dict[str, BetterStackEndpointConfig] = {
         name="escalation_policies",
         path="/v2/policies",
     ),
-    # Call-routing severities and their groups, resolving the severity an incident references.
     # The routes still carry the feature's former name, `urgencies`.
     "severities": BetterStackEndpointConfig(
         name="severities",
