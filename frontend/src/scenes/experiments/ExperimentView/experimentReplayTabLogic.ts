@@ -636,7 +636,8 @@ export interface experimentReplayTabLogicMeta {
             effectiveMetricUuids: string[],
             bucketSessionIds: string[] | undefined,
             selectedWatchCard: ExperimentWatchCardApi | null,
-            entryPoint: 'results_button' | 'results_menu' | null
+            entryPoint: 'results_button' | 'results_menu' | null,
+            filtersCustomized: boolean
         ) => ExperimentRecordingsFilterContext
         tabViewContext: (
             variantKeys: string[],
