@@ -3,20 +3,26 @@ from typing import Literal, Optional
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
+AZURE_DEVOPS_BASE_URL = "https://dev.azure.com"
+# Release Management is the one area served from its own host.
+AZURE_DEVOPS_RELEASE_BASE_URL = "https://vsrm.dev.azure.com"
+
 
 # Azure DevOps mixes pagination styles per endpoint, dispatched by name in
 # azure_devops.py:
-# - projects/builds: continuationToken via the x-ms-continuationtoken header
-# - pull_requests/commits/teams/team_members: $top/$skip offset paging
+# - projects/builds/build_definitions/releases/release_deployments: continuationToken
+#   via the x-ms-continuationtoken header
+# - pull_requests/commits/teams/team_members/test_runs: $top/$skip offset paging
 # - work_item_revisions: body continuationToken + isLastBatch (reporting endpoint)
-# - repositories/pull request threads/reviewers: single response per parent
+# - repositories/pull request threads/reviewers/build timelines: single response per parent
 @dataclass(frozen=True)
 class AzureDevOpsEndpointConfig:
     name: str
-    # Path template under https://dev.azure.com/{organization}. `{project}`,
-    # `{repositoryId}`, `{pullRequestId}` and `{teamId}` are substituted during
-    # the fan-out that reaches the endpoint.
+    # Path template under {base_url}/{organization}. `{project}`, `{repositoryId}`,
+    # `{pullRequestId}`, `{buildId}` and `{teamId}` are substituted during the
+    # fan-out that reaches the endpoint.
     path: str
+    base_url: str = AZURE_DEVOPS_BASE_URL
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Query param that pushes the incremental cursor server-side.
@@ -47,6 +53,38 @@ AZURE_DEVOPS_ENDPOINTS: dict[str, AzureDevOpsEndpointConfig] = {
                 "label": "queueTime",
                 "type": IncrementalFieldType.DateTime,
                 "field": "queueTime",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    "build_definitions": AzureDevOpsEndpointConfig(
+        name="build_definitions",
+        path="/{project}/_apis/build/definitions",
+        # Definition IDs restart per project.
+        primary_keys=["project_id", "id"],
+        partition_key="createdDate",
+        # The listing filters on build times (builtAfter/notBuiltAfter), never on when
+        # the definition itself changed, so there is no cursor to sync incrementally on.
+    ),
+    "build_timeline_records": AzureDevOpsEndpointConfig(
+        name="build_timeline_records",
+        path="/{project}/_apis/build/builds/{buildId}/timeline",
+        # Record IDs are GUIDs; the build is carried so a row identifies the run it
+        # describes without joining.
+        primary_keys=["build_id", "id"],
+        partition_key="build_queue_time",
+        # A timeline takes no filter of its own, so the watermark bounds the parent
+        # build listing instead — an incremental sync only fetches new builds.
+        incremental_param="minTime",
+        # The fan-out visits projects one after another, so the stream as a whole is
+        # not ascending. `desc` makes the pipeline finalize the watermark only after a
+        # fully successful sync.
+        sort_mode="desc",
+        incremental_fields=[
+            {
+                "label": "build_queue_time",
+                "type": IncrementalFieldType.DateTime,
+                "field": "build_queue_time",
                 "field_type": IncrementalFieldType.DateTime,
             },
         ],
@@ -137,6 +175,63 @@ AZURE_DEVOPS_ENDPOINTS: dict[str, AzureDevOpsEndpointConfig] = {
                 "label": "changed_date",
                 "type": IncrementalFieldType.DateTime,
                 "field": "changed_date",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    "releases": AzureDevOpsEndpointConfig(
+        name="releases",
+        path="/{project}/_apis/release/releases",
+        base_url=AZURE_DEVOPS_RELEASE_BASE_URL,
+        # Release IDs restart per project.
+        primary_keys=["project_id", "id"],
+        partition_key="createdOn",
+        incremental_param="minCreatedTime",
+        # Ascending within a project, but the fan-out interleaves projects.
+        sort_mode="desc",
+        incremental_fields=[
+            {
+                "label": "createdOn",
+                "type": IncrementalFieldType.DateTime,
+                "field": "createdOn",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    "release_deployments": AzureDevOpsEndpointConfig(
+        name="release_deployments",
+        path="/{project}/_apis/release/deployments",
+        base_url=AZURE_DEVOPS_RELEASE_BASE_URL,
+        # Deployment IDs restart per project.
+        primary_keys=["project_id", "id"],
+        # A deployment's status changes as it promotes, so the queue time is the
+        # stable field and the modified time is the cursor.
+        partition_key="queuedOn",
+        incremental_param="minModifiedTime",
+        sort_mode="desc",
+        incremental_fields=[
+            {
+                "label": "lastModifiedOn",
+                "type": IncrementalFieldType.DateTime,
+                "field": "lastModifiedOn",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    "test_runs": AzureDevOpsEndpointConfig(
+        name="test_runs",
+        path="/{project}/_apis/test/runs",
+        primary_keys=["project_id", "id"],
+        partition_key="createdDate",
+        # The cursor is pushed through minLastUpdatedDate/maxLastUpdatedDate, which the
+        # vendor caps at a 7-day span, so azure_devops.py walks windows rather than
+        # sending one filter param. Full refresh takes the unfiltered listing instead.
+        sort_mode="desc",
+        incremental_fields=[
+            {
+                "label": "lastUpdatedDate",
+                "type": IncrementalFieldType.DateTime,
+                "field": "lastUpdatedDate",
                 "field_type": IncrementalFieldType.DateTime,
             },
         ],

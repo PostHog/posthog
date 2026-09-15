@@ -1,7 +1,7 @@
 import re
 import dataclasses
 from collections.abc import Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import quote, urlencode
 
@@ -10,14 +10,13 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.settings import (
+    AZURE_DEVOPS_BASE_URL,
     AZURE_DEVOPS_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-
-AZURE_DEVOPS_BASE_URL = "https://dev.azure.com"
 
 # Source version labels. The legacy label predates versioning and keeps sending
 # api-version 7.1 so existing syncs are unchanged; 7.2 is the current GA stable API.
@@ -43,6 +42,8 @@ REQUEST_TIMEOUT_SECONDS = 60
 # Rate limiting is 200 TSTUs per identity per sliding 5-minute window; 429s
 # carry Retry-After but exponential backoff is sufficient.
 MAX_RETRY_ATTEMPTS = 5
+# The test run query rejects a minLastUpdatedDate/maxLastUpdatedDate span wider than this.
+TEST_RUN_WINDOW = timedelta(days=7)
 
 
 class AzureDevOpsRetryableError(Exception):
@@ -95,6 +96,29 @@ def _format_datetime(value: Any) -> str:
     return str(value)
 
 
+def _parse_datetime(value: Any) -> Optional[datetime]:
+    """Read an incremental cursor back into a datetime, or None when it isn't one."""
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day, tzinfo=UTC)
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+    return None
+
+
+def _last_updated_windows(since: datetime, until: datetime) -> Iterator[tuple[str, str]]:
+    start = since
+    while start < until:
+        end = min(start + TEST_RUN_WINDOW, until)
+        yield _format_datetime(start), _format_datetime(end)
+        start = end
+
+
 def _flatten_revision(item: dict[str, Any]) -> dict[str, Any]:
     # Revision payloads nest everything interesting under `fields`; copy the
     # watermark field to the top level so the pipeline can track it.
@@ -138,10 +162,24 @@ def _flatten_thread_comments(thread: dict[str, Any], ref: PullRequestRef) -> lis
     ]
 
 
-def _flatten_team(item: dict[str, Any], project: dict[str, Any]) -> dict[str, Any]:
-    # This endpoint leaves WebApiTeam's optional project fields unset, so the
-    # fan-out parent supplies them.
+def _with_project_ref(item: dict[str, Any], project: dict[str, Any]) -> dict[str, Any]:
+    # Project-fan-out rows either leave the project unset or nest it, and project_id is
+    # part of the primary key on several of them, so the parent supplies both fields.
     return {**item, "project_id": project.get("id"), "project_name": project.get("name")}
+
+
+def _flatten_timeline_record(
+    record: dict[str, Any], project: str, build: dict[str, Any], timeline_id: Any
+) -> dict[str, Any]:
+    # A record only makes sense against the run it describes, and the build's queue time
+    # is what the pipeline partitions and tracks the watermark on.
+    return {
+        **record,
+        "project_name": project,
+        "build_id": build.get("id"),
+        "build_queue_time": build.get("queueTime"),
+        "timeline_id": timeline_id,
+    }
 
 
 def _flatten_team_member(item: dict[str, Any], project: dict[str, Any], team: dict[str, Any]) -> dict[str, Any]:
@@ -231,8 +269,8 @@ def get_rows(
         wait=wait_exponential_jitter(initial=2, max=120),
         reraise=True,
     )
-    def fetch(path: str, params: dict[str, Any]) -> requests.Response:
-        url = f"{AZURE_DEVOPS_BASE_URL}/{quote(org)}{path}?{urlencode({**params, 'api-version': wire_version})}"
+    def fetch(path: str, params: dict[str, Any], base_url: str = AZURE_DEVOPS_BASE_URL) -> requests.Response:
+        url = f"{base_url}/{quote(org)}{path}?{urlencode({**params, 'api-version': wire_version})}"
         response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
 
         if response.status_code == 429 or response.status_code >= 500:
@@ -265,14 +303,14 @@ def get_rows(
         return params
 
     def iterate_header_token(
-        path: str, extra: dict[str, Any], use_base_params: bool = True
+        path: str, extra: dict[str, Any], use_base_params: bool = True, base_url: str = AZURE_DEVOPS_BASE_URL
     ) -> Iterator[list[dict[str, Any]]]:
         token: Optional[str] = None
         while True:
             params = {**(base_params() if use_base_params else {}), **extra, "$top": PAGE_SIZE}
             if token:
                 params["continuationToken"] = token
-            response = fetch(path, params)
+            response = fetch(path, params, base_url)
             items = response.json().get("value", []) or []
             if items:
                 yield items
@@ -313,6 +351,12 @@ def get_rows(
         path = AZURE_DEVOPS_ENDPOINTS["teams"].path.replace("{project}", quote(str(project["id"])))
         yield from iterate_skip(path, {}, use_base_params=False)
 
+    def builds_for(project: str) -> Iterator[list[dict[str, Any]]]:
+        # The timeline endpoint takes no filter, so the endpoint's minTime watermark
+        # lands here and bounds which builds an incremental sync visits at all.
+        path = AZURE_DEVOPS_ENDPOINTS["builds"].path.replace("{project}", quote(project))
+        yield from iterate_header_token(path, {"queryOrder": "queueTimeAscending"})
+
     def pull_request_refs() -> Iterator[PullRequestRef]:
         pr_path = AZURE_DEVOPS_ENDPOINTS["pull_requests"].path
         for project in project_names():
@@ -349,6 +393,72 @@ def get_rows(
             yield from iterate_header_token(
                 config.path.replace("{project}", quote(project)), {"queryOrder": "queueTimeAscending"}
             )
+        return
+
+    if endpoint == "build_definitions":
+        for project_row in projects():
+            if not project_row.get("name"):
+                continue
+            # lastModifiedAscending gives the listing a stable order to page through.
+            for page in iterate_header_token(
+                config.path.replace("{project}", quote(project_row["name"])), {"queryOrder": "lastModifiedAscending"}
+            ):
+                yield [_with_project_ref(item, project_row) for item in page]
+        return
+
+    if endpoint == "build_timeline_records":
+        for project in project_names():
+            for build_page in builds_for(project):
+                for build in build_page:
+                    if build.get("id") is None:
+                        continue
+                    path = config.path.replace("{project}", quote(project)).replace(
+                        "{buildId}", quote(str(build["id"]))
+                    )
+                    response = fetch(path, {})
+                    # A build that never ran has no timeline; Azure DevOps answers 204
+                    # with an empty body rather than an empty object.
+                    timeline = {} if response.status_code == 204 else response.json()
+                    rows = [
+                        _flatten_timeline_record(record, project, build, timeline.get("id"))
+                        for record in (timeline.get("records") or [])
+                    ]
+                    if rows:
+                        yield rows
+        return
+
+    if endpoint in ("releases", "release_deployments"):
+        for project_row in projects():
+            if not project_row.get("name"):
+                continue
+            for page in iterate_header_token(
+                config.path.replace("{project}", quote(project_row["name"])),
+                {"queryOrder": "ascending"},
+                base_url=config.base_url,
+            ):
+                yield [_with_project_ref(item, project_row) for item in page]
+        return
+
+    if endpoint == "test_runs":
+        # Both window bounds are mandatory on the filtered query and may span at most
+        # 7 days, so an incremental sync walks windows from the watermark to now. Full
+        # refresh takes the unfiltered listing, which pages on $skip instead.
+        since = _parse_datetime(db_incremental_field_last_value) if incremental_value is not None else None
+        for project_row in projects():
+            if not project_row.get("name"):
+                continue
+            path = config.path.replace("{project}", quote(project_row["name"]))
+            if since is None:
+                for page in iterate_skip(path, {}, use_base_params=False):
+                    yield [_with_project_ref(item, project_row) for item in page]
+                continue
+            for window_start, window_end in _last_updated_windows(since, datetime.now(UTC)):
+                for page in iterate_header_token(
+                    path,
+                    {"minLastUpdatedDate": window_start, "maxLastUpdatedDate": window_end},
+                    use_base_params=False,
+                ):
+                    yield [_with_project_ref(item, project_row) for item in page]
         return
 
     if endpoint == "pull_requests":
@@ -398,7 +508,7 @@ def get_rows(
             if not project_row.get("id"):
                 continue
             for page in teams_for(project_row):
-                yield [_flatten_team(item, project_row) for item in page]
+                yield [_with_project_ref(item, project_row) for item in page]
         return
 
     if endpoint == "team_members":
