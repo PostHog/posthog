@@ -3,12 +3,14 @@
 :class:`posthog.egress.transport.transport.AsyncEgressClient`.
 """
 
-from typing import Any
+import time
+from contextlib import suppress
+from typing import Any, cast
 
 import aiohttp
 
 from posthog.egress.harmonic.limiter import ACCOUNT_SCOPE_ID, acquire_harmonic
-from posthog.egress.harmonic.observability import harmonic_egress
+from posthog.egress.harmonic.observability import harmonic_egress, record_harmonic_request_duration
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import AsyncEgressClient, EgressBudgetExhausted
 
@@ -46,6 +48,33 @@ class HarmonicClient(AsyncEgressClient):
 _harmonic_client = HarmonicClient()
 
 
+class _TimedHarmonicSession:
+    def __init__(
+        self, session: aiohttp.ClientSession, *, source: str, priority: Priority, endpoint: str | None
+    ) -> None:
+        self._session = session
+        self._source = source
+        self._priority = priority
+        self._endpoint = endpoint
+
+    async def request(self, method: str, url: str, **kwargs: Any) -> aiohttp.ClientResponse:
+        started_at = time.perf_counter()
+        outcome = "exception"
+        try:
+            response = await self._session.request(method, url, **kwargs)
+            outcome = "response"
+            return response
+        finally:
+            with suppress(Exception):
+                record_harmonic_request_duration(
+                    time.perf_counter() - started_at,
+                    source=self._source,
+                    priority=self._priority,
+                    endpoint=self._endpoint,
+                    outcome=outcome,
+                )
+
+
 async def harmonic_request(
     session: aiohttp.ClientSession,
     method: str,
@@ -63,8 +92,11 @@ async def harmonic_request(
     # Harmonic bills one account-wide budget, so every call carries the same scope. AsyncEgressClient
     # skips its gate entirely on a falsy scope, and Harmonic has no per-caller identity to gate on
     # instead, so this constant is what keeps every Harmonic call gated.
+    timed_session = cast(
+        aiohttp.ClientSession, _TimedHarmonicSession(session, source=source, priority=priority, endpoint=endpoint)
+    )
     return await _harmonic_client.request(
-        session,
+        timed_session,
         method,
         url,
         source=source,
