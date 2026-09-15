@@ -952,7 +952,7 @@ describe('experimentReplayTabLogic', () => {
         // would credit the results row with lists it never asked for.
         const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
         teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
-        router.actions.push('/experiments/63', { tab: 'recordings', variant: 'test' })
+        router.actions.push('/experiments/63', { tab: 'recordings', variant: 'test', entry: 'results_button' })
         const fromResults = experimentReplayTabLogic({
             experiment: { ...EXPERIMENT, id: 63, start_date: daysAgo(10), end_date: daysAgo(2) } as Experiment,
         })
@@ -961,12 +961,45 @@ describe('experimentReplayTabLogic', () => {
 
         fromResults.actions.recordingsLoaded(loadedPage(['s1']))
         await expectLogic(fromResults).toFinishAllListeners()
-        expect(listsRendered(captureSpy, 63)[0][1]).toMatchObject({ entry_point: 'results_row', variant: 'test' })
+        expect(listsRendered(captureSpy, 63)[0][1]).toMatchObject({ entry_point: 'results_button', variant: 'test' })
 
         fromResults.actions.setSelectedVariantKey(null)
         fromResults.actions.recordingsLoaded(loadedPage(['s1']))
         await expectLogic(fromResults).toFinishAllListeners()
         expect(listsRendered(captureSpy, 63)[1][1]).toMatchObject({ entry_point: null, variant: null })
+        fromResults.unmount()
+    })
+
+    it('drops the entry point once the viewer narrows the list from the playlist bar', async () => {
+        // A filter added in the playlist bar narrows the list past what the link asked for, so the
+        // results row must stop being credited with it. The variant facet is left alone here, since
+        // moving one is the other way to clear the entry point and would hide this one failing.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+        router.actions.push('/experiments/67', { tab: 'recordings', variant: 'test', entry: 'results_button' })
+        const fromResults = experimentReplayTabLogic({
+            experiment: { ...EXPERIMENT, id: 67, start_date: daysAgo(10), end_date: daysAgo(2) } as Experiment,
+        })
+        fromResults.mount()
+        await expectLogic(fromResults).toFinishAllListeners()
+
+        fromResults.actions.playlistFiltersChanged({
+            ...fromResults.values.recordingsFilters,
+            filter_group: {
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
+                    },
+                ],
+            },
+        })
+        fromResults.actions.recordingsLoaded(loadedPage(['s1']))
+        await expectLogic(fromResults).toFinishAllListeners()
+
+        expect(fromResults.values.entryPoint).toBe('results_button')
+        expect(listsRendered(captureSpy, 67)[0][1]).toMatchObject({ entry_point: null, variant: 'test' })
         fromResults.unmount()
     })
 
@@ -976,6 +1009,7 @@ describe('experimentReplayTabLogic', () => {
             variant: 'test',
             metric_uuid: 'metric-purchase',
             metric_filter: 'no_metric_activity',
+            entry: 'results_menu',
         })
         const deepLinked = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 64 } as Experiment })
         deepLinked.mount()
@@ -984,6 +1018,9 @@ describe('experimentReplayTabLogic', () => {
         expect(deepLinked.values.selectedVariantKey).toBe('test')
         expect(deepLinked.values.effectiveMetricUuids).toEqual(['metric-purchase'])
         expect(deepLinked.values.metricFilterMode).toBe('no_metric_activity')
+        // Which control opened the tab has to survive the trip, or a menu selection and a plain
+        // button click become the same row in the report.
+        expect(deepLinked.values.entryPoint).toBe('results_menu')
         // One request for the three facets: they arrive in one dispatch, and afterMount asks for
         // the same bucket, so a second call here means the two are no longer collapsing.
         expect(experimentsSessionBucketsCreate).toHaveBeenCalledTimes(1)

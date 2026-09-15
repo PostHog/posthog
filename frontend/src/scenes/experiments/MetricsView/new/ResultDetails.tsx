@@ -1,16 +1,14 @@
 import { useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useState } from 'react'
 
-import { IconRewindPlay } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonTable, LemonTableColumns, LemonTabs } from '@posthog/lemon-ui'
+import { LemonCollapse, LemonTable, LemonTableColumns, LemonTabs } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { ExperimentFunnelChart } from 'scenes/experiments/charts/funnel/ExperimentFunnelChart'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
-import { experimentRecordingsUrl } from 'scenes/experiments/ExperimentView/experimentRecordingsDeepLink'
+import { getMetricRecordingModes } from 'scenes/experiments/ExperimentView/experimentRecordingModes'
 import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
 import { viewRecordingsLinkabilityLogic } from 'scenes/experiments/viewRecordingsLinkabilityLogic'
 
@@ -35,7 +33,7 @@ import {
     isBayesianResult,
     isFrequentistResult,
 } from '../shared/utils'
-import { getResultRowRecordingLinks } from './resultRowRecordingLinks'
+import { type ExperimentResultsSurface, VariantRecordingsButton } from './VariantRecordingsButton'
 
 function SqlCollapsible({
     hogql,
@@ -104,12 +102,14 @@ export function ResultDetails({
     result,
     metric,
     embedded = false,
+    surface = 'inline',
 }: {
     experiment: Experiment
     result: CachedNewExperimentQueryResponse
     metric: ExperimentMetric
     /** Renders the table, funnel, and SQL as divider-separated sections of a parent panel instead of standalone cards. */
     embedded?: boolean
+    surface?: ExperimentResultsSurface
 }): JSX.Element {
     const { featureFlags } = useValues(experimentLogic)
     const { unlinkableEventNames, linkabilityLoaded } = useValues(viewRecordingsLinkabilityLogic({ experiment }))
@@ -117,10 +117,7 @@ export function ResultDetails({
     const baselineKey = result.baseline?.key
     // Every row links to the same metric, so the labels and the reasons are decided once. An empty
     // set while the check is in flight keeps today's fail-open behavior.
-    const recordingLinks = getResultRowRecordingLinks(
-        metric,
-        linkabilityLoaded ? unlinkableEventNames : new Set<string>()
-    )
+    const recordingModes = getMetricRecordingModes(metric, linkabilityLoaded ? unlinkableEventNames : new Set<string>())
 
     const columns: LemonTableColumns<ExperimentVariantResult & { key: string }> = [
         {
@@ -192,46 +189,18 @@ export function ResultDetails({
         {
             key: 'recordings',
             title: '',
-            render: (_, item) => {
-                const variantKey = item.key
-                return (
-                    // The pair sits in the table's last column, so it stacks in a narrow scene
-                    // rather than pushing the other columns out of reach.
-                    <div className="flex flex-col items-end gap-1 @min-[48rem]/main-content:flex-row @min-[48rem]/main-content:flex-wrap">
-                        {recordingLinks.map((link) => (
-                            <LemonButton
-                                key={link.dataAttr}
-                                size="xsmall"
-                                type="secondary"
-                                truncate
-                                // A metric can count an event with a long name, which the label
-                                // carries. The tooltip holds the whole sentence either way.
-                                className="max-w-52"
-                                sideIcon={<IconRewindPlay />}
-                                tooltip={link.tooltip}
-                                disabledReason={link.disabledReason ?? undefined}
-                                to={experimentRecordingsUrl(experiment.id, {
-                                    variantKey,
-                                    metricUuid: metric.uuid ?? null,
-                                    metricFilterMode: link.metricFilterMode,
-                                })}
-                                data-attr={link.dataAttr}
-                                onClick={() => {
-                                    // Pinned: a dashboard counts this event. The two properties
-                                    // are new, so the count stays comparable across the change.
-                                    posthog.capture('viewed recordings from experiment', {
-                                        variant: variantKey,
-                                        metric_filter: link.metricFilterMode,
-                                        metric_kind: metric.metric_type,
-                                    })
-                                }}
-                            >
-                                {link.label}
-                            </LemonButton>
-                        ))}
-                    </div>
-                )
-            },
+            render: (_, item) => (
+                <div className="flex justify-end">
+                    <VariantRecordingsButton
+                        experiment={experiment}
+                        metric={metric}
+                        variantKey={item.key}
+                        isBaseline={item.key === baselineKey}
+                        surface={surface}
+                        modes={recordingModes}
+                    />
+                </div>
+            ),
         },
     ]
 

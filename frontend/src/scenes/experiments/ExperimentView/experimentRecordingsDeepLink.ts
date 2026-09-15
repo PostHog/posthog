@@ -31,12 +31,20 @@ export function isFunnelMode(mode: ExperimentReplayMetricFilterMode): boolean {
 }
 
 /**
+ * Which control on a results row opened the tab. Telemetry reads it to tell the one-click button
+ * apart from a mode picked out of the menu, and to measure what either sends to the tab.
+ */
+export const EXPERIMENT_RECORDINGS_ENTRY_POINTS = ['results_button', 'results_menu'] as const
+
+export type ExperimentRecordingsEntryPoint = (typeof EXPERIMENT_RECORDINGS_ENTRY_POINTS)[number]
+
+/**
  * The search params that preselect the recordings tab, so a results row can open the population it
  * names instead of the replay page's own list. The tab consumes them on mount and removes them from
  * the URL, after which its persisted state is the source of truth. `metric` is taken by the
  * create flow's prefill, so the metric param here is `metric_uuid`.
  */
-export const EXPERIMENT_RECORDINGS_DEEP_LINK_PARAMS = ['variant', 'metric_uuid', 'metric_filter'] as const
+export const EXPERIMENT_RECORDINGS_DEEP_LINK_PARAMS = ['variant', 'metric_uuid', 'metric_filter', 'entry'] as const
 
 export interface ExperimentRecordingsDeepLink {
     /** A variant key of the experiment's flag. Null selects every variant. */
@@ -45,6 +53,8 @@ export interface ExperimentRecordingsDeepLink {
     metricUuid: string | null
     /** Null falls back to the tab's default mode. */
     metricFilterMode: ExperimentReplayMetricFilterMode | null
+    /** Null for a link that names no control, which leaves the reported entry point null. */
+    entry: ExperimentRecordingsEntryPoint | null
 }
 
 /** The recordings tab's key in the experiment scene's tab bar. */
@@ -56,6 +66,7 @@ export function experimentRecordingsUrl(experimentId: ExperimentIdType, link: Ex
         ...(link.variantKey !== null ? { variant: link.variantKey } : {}),
         ...(link.metricUuid !== null ? { metric_uuid: link.metricUuid } : {}),
         ...(link.metricFilterMode !== null ? { metric_filter: link.metricFilterMode } : {}),
+        ...(link.entry !== null ? { entry: link.entry } : {}),
     }).url
 }
 
@@ -63,7 +74,8 @@ export function experimentRecordingsUrl(experimentId: ExperimentIdType, link: Ex
  * Null when the URL carries none of the three keys, which is the ordinary case and must not move
  * the tab's persisted state. A value the experiment does not own is left to the tab's own
  * selectors, which drop an unknown variant key or metric uuid, so a stale link degrades to the
- * tab's defaults. An unknown mode is dropped here instead, against the closed list above.
+ * tab's defaults. An unknown mode or entry point is dropped here instead, against the closed lists
+ * above.
  */
 export function parseExperimentRecordingsDeepLink(
     searchParams: Record<string, any>
@@ -76,5 +88,6 @@ export function parseExperimentRecordingsDeepLink(
         metricUuid: typeof searchParams.metric_uuid === 'string' ? searchParams.metric_uuid : null,
         metricFilterMode:
             EXPERIMENT_REPLAY_METRIC_FILTER_MODES.find((mode) => mode === searchParams.metric_filter) ?? null,
+        entry: EXPERIMENT_RECORDINGS_ENTRY_POINTS.find((entry) => entry === searchParams.entry) ?? null,
     }
 }

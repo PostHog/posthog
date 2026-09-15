@@ -33,6 +33,7 @@ import { scannerTypeLabel } from 'products/replay_vision/frontend/replay_scanner
 
 import { NOT_A_FUNNEL_REASON } from '../utils'
 import { ExperimentBehaviorComparison, ExperimentBehaviorComparisonToggle } from './ExperimentBehaviorComparison'
+import { EXPERIMENT_RECORDING_MODE_OPTIONS } from './experimentRecordingModes'
 import { type ExperimentReplayMetricFilterMode, isFunnelMode } from './experimentRecordingsDeepLink'
 import { ExperimentRecordingsListEmptyState } from './ExperimentRecordingsListEmptyState'
 import {
@@ -196,36 +197,6 @@ function MetricOptionLabel({ option }: { option: ExperimentReplayMetricOption })
         </span>
     )
 }
-
-const METRIC_FILTER_MODE_OPTIONS: { value: ExperimentReplayMetricFilterMode; label: string; tooltip: string }[] = [
-    {
-        value: 'fired_all',
-        label: 'Fired all',
-        tooltip: 'Sessions that fired events for every selected metric.',
-    },
-    {
-        value: 'fired_any',
-        label: 'Fired any',
-        tooltip: 'Sessions that fired events for at least one of the selected metrics.',
-    },
-    {
-        value: 'no_metric_activity',
-        label: 'Fired none',
-        tooltip: 'Sessions that fired no events for any of the selected metrics.',
-    },
-    {
-        value: 'funnel_completed',
-        label: 'Finished funnel',
-        tooltip:
-            "Sessions that saw the experiment and fired a funnel metric's last step during the recording. The same person may have finished it in a different session.",
-    },
-    {
-        value: 'funnel_dropoff',
-        label: "Didn't finish funnel",
-        tooltip:
-            "Sessions that saw the experiment but didn't fire a funnel metric's last step during the recording. The exposure counts as the funnel's first step. The same person may have finished it in a later session.",
-    },
-]
 
 /** Placeholder for the watching-scanners card while the lookup is in flight, so the tab doesn't
  * flash the cross-sell banner before the card resolves. */
@@ -452,7 +423,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                                     fullWidth
                                     value={metricFilterMode}
                                     onChange={(value) => setMetricFilterMode(value)}
-                                    options={METRIC_FILTER_MODE_OPTIONS}
+                                    options={EXPERIMENT_RECORDING_MODE_OPTIONS}
                                 />
                             </div>
                             <DropdownMenuSeparator />

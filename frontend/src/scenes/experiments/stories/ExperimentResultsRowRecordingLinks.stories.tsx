@@ -1,4 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -11,8 +13,10 @@ import FUNNELS_METRIC_RESULT from '~/mocks/fixtures/api/experiments/funnel_metri
 import MEAN_METRIC_RESULT from '~/mocks/fixtures/api/experiments/mean_metric_result.json'
 import { NodeKind } from '~/queries/schema/schema-general'
 
-// The pair of recordings links each variant row offers. The labels are the feature: they name the
-// population the Recordings tab opens on, and a funnel names a different one from a mean metric.
+// The split button each variant row offers. The menu is the feature: it names the populations the
+// Recordings tab can open for this metric, and a funnel names different ones from a mean metric.
+const MAIN_BUTTON = '[data-attr="experiment-metrics-view-recordings"]'
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Experiments',
@@ -21,7 +25,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2025-01-27',
         pageUrl: urls.experiment(EXPERIMENT_WITH_FUNNEL_METRIC.id),
-        testOptions: { waitForSelector: '[data-attr="experiment-metrics-recordings-negative"]' },
+        testOptions: { waitForSelector: MAIN_BUTTON },
     },
     decorators: [
         mswDecorator({
@@ -37,8 +41,8 @@ const meta: Meta = {
                 [`/api/projects/:team_id/feature_flags/${EXPERIMENT_WITH_MEAN_METRIC.feature_flag.id}/status/`]: {},
                 '/api/environments/:team_id/default_release_conditions/': [],
                 '/api/environments/:team_id/experiments_config/': {},
-                // The linkability check decides whether the links are offered or disabled, so it is
-                // answered here rather than left to fail open on a missing handler.
+                // The linkability check decides whether the menu items are offered or disabled, so
+                // it is answered here rather than left to fail open on a missing handler.
                 '/api/projects/:team_id/property_definitions/seen_together': {},
             },
             post: {
@@ -61,37 +65,58 @@ export default meta
 
 type Story = StoryObj<{}>
 
-/** A funnel metric: the pair reads finished / didn't finish the funnel. */
+const meanMetricDecorator = mswDecorator({
+    post: {
+        '/api/environments/:team_id/query/:kind': async ({ request }) => {
+            const body = (await request.json()) as Record<string, any>
+
+            if (body.query.kind === NodeKind.ExperimentExposureQuery) {
+                return [200, EXPOSURE_QUERY_RESULT]
+            }
+
+            return [200, MEAN_METRIC_RESULT]
+        },
+    },
+})
+
+/**
+ * Opens the first row's menu. Storybook leaves testing-library's test id attribute at its default,
+ * unlike jest and Playwright, so a `data-attr` has to be matched as a plain attribute.
+ */
+const openFirstRowMenu: Story['play'] = async ({ canvasElement }) => {
+    const caret = await waitFor(() => {
+        const button = canvasElement.querySelector<HTMLElement>('[data-attr="experiment-metrics-recordings-menu"]')
+        if (!button) {
+            throw new Error('recordings menu caret not yet rendered')
+        }
+        return button
+    })
+    await userEvent.click(caret)
+}
+
+/** The one-click path: the button names the action, not the population it opens. */
 export const ExperimentResultsRowRecordingLinksFunnel: Story = {}
 
-/** A mean metric: the pair names the event a session has to have fired. */
-export const ExperimentResultsRowRecordingLinksMean: Story = {
+/** A funnel's menu: the two halves of the funnel, then every recording of the variant. */
+export const ExperimentResultsRowRecordingLinksFunnelMenu: Story = {
+    play: openFirstRowMenu,
+}
+
+/** A mean metric's menu names the event a session has to have fired. */
+export const ExperimentResultsRowRecordingLinksMeanMenu: Story = {
     parameters: { pageUrl: urls.experiment(EXPERIMENT_WITH_MEAN_METRIC.id) },
-    decorators: [
-        mswDecorator({
-            post: {
-                '/api/environments/:team_id/query/:kind': async ({ request }) => {
-                    const body = (await request.json()) as Record<string, any>
-
-                    if (body.query.kind === NodeKind.ExperimentExposureQuery) {
-                        return [200, EXPOSURE_QUERY_RESULT]
-                    }
-
-                    return [200, MEAN_METRIC_RESULT]
-                },
-            },
-        }),
-    ],
+    decorators: [meanMetricDecorator],
+    play: openFirstRowMenu,
 }
 
 /**
- * The scene a nav sidebar and an open side panel leave, where the two links have to wrap inside
- * their column rather than push the table sideways.
+ * The ~520px of scene a nav sidebar and an open side panel leave, where the button has to hold its
+ * column rather than push the rest of the table out of reach.
  */
 export const ExperimentResultsRowRecordingLinksNarrow: Story = {
     parameters: {
         testOptions: {
-            waitForSelector: '[data-attr="experiment-metrics-recordings-negative"]',
+            waitForSelector: MAIN_BUTTON,
             viewport: { width: 767, height: 1200 },
         },
     },
