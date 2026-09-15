@@ -71,6 +71,7 @@ class TestWrapClickhouseQueryError:
             # internal to avoid leaking source values on public shared insights.
             (6, "CANNOT_PARSE_TEXT"),
             (72, "CANNOT_PARSE_NUMBER"),
+            (130, "CANNOT_READ_ARRAY_FROM_TEXT"),
             (675, "CANNOT_PARSE_IPV4"),
             (676, "CANNOT_PARSE_IPV6"),
             (691, "UNKNOWN_ELEMENT_OF_ENUM"),

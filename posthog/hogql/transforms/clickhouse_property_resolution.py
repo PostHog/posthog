@@ -1154,6 +1154,7 @@ class ClickHousePropertyResolver(CloningVisitor):
             or self._optimize_materialized_like(node)
             or self._optimize_materialized_in(node)
             or self._optimize_materialized_lower_in(node)
+            or self._rewrite_array_column_compare(node)
         )
         if optimized is not None:
             return optimized
@@ -1793,6 +1794,38 @@ class ClickHousePropertyResolver(CloningVisitor):
         if node.op == ast.CompareOperationOp.In:
             return _call("has", [ast.Array(exprs=[_const(v) for v in values]), indexed])
         return _call("notIn", [indexed, ast.Tuple(exprs=[_const(v) for v in values])])
+
+    # --- array columns: membership instead of equality ---
+
+    def _rewrite_array_column_compare(self, node: ast.CompareOperation) -> ast.Expr | None:
+        """`array_column = 'value'` as `has(array_column, 'value')`.
+
+        ClickHouse cannot parse a text literal as an array, so the plain comparison fails the whole query with
+        CANNOT_READ_ARRAY_FROM_TEXT. A data warehouse column typed `Array(...)` reaches here whenever a property
+        filter targets it, so the membership form is what makes such an insight runnable at all.
+
+        The item type is not checked, because warehouse resolution maps every `Array(...)` column to
+        `StringArrayDatabaseField` and keeps no item type. A text value against an `Array(Float64)` column therefore
+        prints `has(col, 'text')`, which ClickHouse rejects for having no common type. That column is equally
+        unusable without this rewrite, and a cast to the item type needs that type kept at resolution time.
+        """
+        if node.op not in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
+            return None
+
+        if isinstance(node.left, ast.Constant):
+            array, other = node.right, node.left
+        elif isinstance(node.right, ast.Constant):
+            array, other = node.left, node.right
+        else:
+            return None
+        # `array = NULL` is an is-set check, and an array on both sides already compares fine.
+        if other.value is None or isinstance(other.value, (list, tuple, dict)):
+            return None
+        if not isinstance(self._operand_semantic_type(array), (ast.ArrayType, ast.StringArrayType)):
+            return None
+
+        contains = _call("has", [self.visit(array), _const(other.value)])
+        return contains if node.op == ast.CompareOperationOp.Eq else _call("not", [contains])
 
     @staticmethod
     def _extract_string_constants(node: ast.Expr) -> list[str] | None:
