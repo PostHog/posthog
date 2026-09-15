@@ -1286,13 +1286,19 @@ export class LogsIngestionConsumer {
 
                     let team
                     try {
-                        if (isDevEnv() && token === 'phc_local') {
-                            // phc_local is a special token used in dev to refer to team 1
-                            team = await this.deps.teamManager.getTeam(1)
-                        } else {
-                            team = await this.deps.teamManager.getTeamByToken(token)
-                        }
+                        team = await this.retryOnDependencyUnavailable(() =>
+                            isDevEnv() && token === 'phc_local'
+                                ? // phc_local is a special token used in dev to refer to team 1
+                                  this.deps.teamManager.getTeam(1)
+                                : this.deps.teamManager.getTeamByToken(token)
+                        )
                     } catch (e) {
+                        if (e instanceof DependencyUnavailableError) {
+                            // The token may well be valid — we just cannot check it right now. Fail
+                            // the batch so the message stays on the source topic, instead of
+                            // dropping customer logs over a Postgres outage.
+                            throw e
+                        }
                         logger.error('team_lookup_error', { error: e })
                         logMessageDroppedCounter.inc({ reason: 'team_lookup_error', team_id: 'unknown' })
                         recordLogMessageDropped('team_lookup_error', 'unknown')
@@ -1349,6 +1355,11 @@ export class LogsIngestionConsumer {
                         recordCount,
                     })
                 } catch (e) {
+                    if (e instanceof DependencyUnavailableError) {
+                        // Infrastructure-scoped: the message parses fine once the dependency is
+                        // back, so leave it on the source topic rather than in the DLQ.
+                        throw e
+                    }
                     // A message we cannot parse is message-scoped and will fail the same way on
                     // every redelivery, so quarantine it instead of discarding the payload.
                     logger.error('🔴', 'logs_ingestion_parse_error', {

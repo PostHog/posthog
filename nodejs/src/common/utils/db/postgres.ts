@@ -60,7 +60,24 @@ const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'Cannot use a pool after calling end on the pool', // Shutdown ended the pool while work was still in flight
 ]
 
+// Transaction failures Postgres resolves by aborting one statement, so the same query succeeds on a
+// retry. Matched on SQLSTATE because the message text carries no connection-level marker and would
+// otherwise read as a logical error — a deadlock against a concurrent DDL lock is infrastructure,
+// not a bad row.
+const POSTGRES_RETRIABLE_ERROR_CODES = new Set([
+    '40001', // serialization_failure
+    '40P01', // deadlock_detected
+])
+
+function retriablePgErrorCode(err: unknown): string | undefined {
+    const code = (err as { code?: string } | undefined)?.code
+    return code && POSTGRES_RETRIABLE_ERROR_CODES.has(code) ? code : undefined
+}
+
 export function isTransientPgError(err: unknown): boolean {
+    if (retriablePgErrorCode(err)) {
+        return true
+    }
     const message = (err as Error | undefined)?.message
     return !!message && POSTGRES_UNAVAILABLE_ERROR_MESSAGES.some((m) => message.includes(m))
 }
@@ -291,7 +308,8 @@ function postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
 
 /** Throws retriable DependencyUnavailableError for transient PG/PgBouncer errors, does nothing otherwise. */
 export function handlePostgresError(error: Error, databaseUse: PostgresUse): void {
-    const matchedMessage = POSTGRES_UNAVAILABLE_ERROR_MESSAGES.find((msg) => error.message?.includes(msg))
+    const matchedMessage =
+        retriablePgErrorCode(error) ?? POSTGRES_UNAVAILABLE_ERROR_MESSAGES.find((msg) => error.message?.includes(msg))
     if (!matchedMessage) {
         return
     }
