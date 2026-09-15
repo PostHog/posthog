@@ -111,3 +111,12 @@ DELTALITE_GOVERNOR_RESERVED_MB = Gauge(
     "warehouse_load_deltalite_governor_reserved_mb",
     "Total memory (MB) currently reserved by in-flight deltalite upserts on this process",
 )
+
+# Post-load workflow triggers that failed for good after their retries. These starts are
+# fire-and-forget client RPCs with no server-side retry behind them, so each increment is one
+# trigger that nothing else picks back up.
+POST_LOAD_TRIGGER_DROPPED_TOTAL = Counter(
+    "warehouse_load_post_load_trigger_dropped_total",
+    "Post-load workflow starts dropped after retries were exhausted, by trigger",
+    labelnames=["trigger"],
+)
