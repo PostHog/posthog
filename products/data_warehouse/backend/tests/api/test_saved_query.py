@@ -197,6 +197,61 @@ class TestSavedQuery(APIBaseTest):
         )
         self.assertEqual(response.status_code, 200)
 
+    def _create_event_view(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {"name": "event_view", "query": {"kind": "HogQLQuery", "query": "select event as event from events"}},
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        return response.json()["id"]
+
+    def test_upsert_replaces_the_query_without_a_base_version(self):
+        """A POST that names an existing view replaces it.
+
+        Creating the view already writes query history, so keying the optimistic-concurrency guard
+        off that history rejected every later upsert, and the create payload carries no
+        `edited_history_id` to satisfy it with.
+        """
+        self._create_event_view()
+
+        for limit in (10, 20):
+            upsert = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {
+                    "name": "event_view",
+                    "query": {"kind": "HogQLQuery", "query": f"select event as event from events LIMIT {limit}"},
+                },
+            )
+            self.assertEqual(upsert.status_code, 200, upsert.content)
+            self.assertEqual(upsert.json()["query"]["query"], f"select event as event from events LIMIT {limit}")
+
+    @parameterized.expand(
+        [
+            # An upsert that declares a base version is still checked against it.
+            ("upsert_with_a_stale_base_version", "post", {"edited_history_id": str(uuid.uuid4())}),
+            # A PATCH must declare one, and the refusal has to name the field to send.
+            ("patch_without_a_base_version", "patch", {}),
+        ]
+    )
+    def test_the_guard_names_the_field_to_send(self, _name, method, extra):
+        view_id = self._create_event_view()
+        query = {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 10"}
+
+        if method == "post":
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {"name": "event_view", "query": query, **extra},
+            )
+        else:
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{view_id}/",
+                {"query": query, **extra},
+            )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.json()["attr"], "edited_history_id")
+        self.assertIn("edited_history_id", response.json()["detail"])
+
     def test_materialize_view(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
@@ -1771,7 +1826,8 @@ class TestSavedQuery(APIBaseTest):
             )
 
             self.assertEqual(response.status_code, 400, response.content)
-            self.assertEqual(response.json()["detail"], "The query was modified by someone else.")
+            self.assertIn("modified by someone else", response.json()["detail"])
+            self.assertEqual(response.json()["attr"], "edited_history_id")
 
     def test_update_concurrency_ignores_non_query_activity(self):
         response = self.client.post(
