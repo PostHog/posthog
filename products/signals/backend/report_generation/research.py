@@ -165,27 +165,35 @@ Hard rules:
 class FixVerificationOutput(BaseModel):
     """Session output for the final, actionable-only fix verification turn."""
 
-    steps: list[str] = Field(
-        min_length=2,
-        max_length=3,
+    current_state: str = Field(
         description=(
-            "Two or three repeatable checks grounded in the completed research. Start with a 'Before changing code' "
-            "check for whether the issue still occurs, followed by 'After deployment' checks for the hypothetical fix. "
-            "Include runnable commands or queries, their inputs, measurement windows, and expected results."
+            "Free-form guidance to confirm whether the reported issue still occurs. State the evidence to collect, "
+            "the result that supports a conclusion, and the result that is inconclusive."
+        ),
+    )
+    outcome: str = Field(
+        description=(
+            "Free-form guidance to confirm the intended outcome after the chosen resolution. State the evidence to "
+            "collect, the result that supports a conclusion, and the result that is inconclusive."
         ),
     )
 
-    @field_validator("steps")
+    @field_validator("current_state", "outcome")
     @classmethod
-    def steps_must_not_be_empty(cls, steps: list[str]) -> list[str]:
-        normalized = [step.strip() for step in steps]
-        if any(not step for step in normalized):
-            raise ValueError("Verification steps must not be empty")
-        return normalized
+    def sections_must_not_be_empty(cls, section: str) -> str:
+        section = section.strip()
+        if not section:
+            raise ValueError("Verification plan sections must not be empty")
+        return section
 
     def to_note(self) -> NoteArtefact:
-        steps = "\n".join(f"{index}. {step}" for index, step in enumerate(self.steps, start=1))
-        return NoteArtefact(note=f"## Steps to verify fix\n\n{steps}")
+        return NoteArtefact(
+            note=(
+                f"## Verification plan\n\n"
+                f"### Confirm the current state\n\n{self.current_state}\n\n"
+                f"### Confirm the outcome\n\n{self.outcome}"
+            )
+        )
 
 
 # The report artefacts a research run produces: one finding per signal plus the two assessments.
@@ -824,26 +832,30 @@ Respond with a JSON object matching this schema:
 def build_fix_verification_prompt() -> str:
     """Build the final follow-up for actionable reports after all research and presentation work."""
     schema = json.dumps(FixVerificationOutput.model_json_schema(), indent=2)
-    return f"""As the final step, write the **steps to verify fix** note for this actionable report.
+    return f"""As the final step, write the **verification plan** for this actionable report.
 
-Base the steps only on the evidence and successful checks from this research session. Do not do more research in this turn. Do not claim that a fix exists or has shipped.
+Base the plan only on the evidence and successful checks from this research session. Do not do more research in this turn. Do not prescribe a resolution or claim that one exists.
 
-Return two or three self-contained steps. Do not add a heading or numbers because the pipeline adds them:
+Return two self-contained, free-form sections. Do not add headings because the pipeline adds them:
 
-- Label the first step `Before changing code`. Explain how to rerun the observed failure check against current data and what result confirms the issue still occurs.
-- Label the remaining steps `After deployment`. Explain how to repeat the measurement after rollout and what result would show that the fix worked.
+- In `current_state`, explain how to confirm whether the reported issue still occurs.
+- In `outcome`, explain how to confirm the intended outcome after the chosen resolution.
 
-Make the note specific enough to execute without reconstructing this conversation:
+Each section must state:
 
-- Include the exact PostHog MCP command and full arguments, or the complete query, reused from a successful research check. A tool name alone is not enough. For a saved insight, include its actual ID and required date overrides.
-- Preserve the relevant entity IDs, event names, filters, aggregation, breakdowns, and numerator/denominator for rates. Name the user or system outcome being measured.
-- Specify bounded measurement windows. Separate the recorded research baseline from the fresh pre-change observation. For post-deployment checks, state how to set the time bounds from the actual rollout time so pre-fix data is excluded.
-- State the observed baseline and comparison criterion where the research established them. Explain what indicates failure, improvement, or an inconclusive result. Missing data, insufficient traffic, or a failed query does not prove the issue is fixed.
+- What evidence to collect.
+- What result supports the conclusion.
+- What result is inconclusive.
+
+Choose the most direct method supported by the research. It can be a query, test, log search, replay, code review, or manual check. Include the details needed to perform the check, such as known commands, inputs, IDs, filters, or time bounds. Do not force a product metric when another method gives better evidence.
+
+State the observed baseline and comparison criterion when the research established them. Missing data, insufficient traffic, and failed checks are inconclusive. They do not show that the issue is resolved.
+
 - Do not invent tool arguments, IDs, events, baselines, or numerical thresholds. If a required input or success criterion is unknown, name it and say what must be established before drawing a conclusion.
 
-If the research established a code or test reproduction rather than a runnable metric check, give the exact command, inputs, and expected failing/passing behavior. Do not force an unrelated product metric. Do not include implementation instructions.
+Do not include implementation instructions.
 
-Respond with a JSON object matching this schema. The pipeline will format it as a note with the heading `Steps to verify fix`:
+Respond with a JSON object matching this schema. The pipeline will format it as a note with the heading `Verification plan`:
 
 <jsonschema>
 {schema}

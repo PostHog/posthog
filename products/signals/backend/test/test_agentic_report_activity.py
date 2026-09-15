@@ -95,9 +95,11 @@ def _build_research_output() -> ReportResearchOutput:
         summary="Signals point to a likely regression around onboarding completion event tracking.",
         verification_note=NoteArtefact(
             note=(
-                "## Steps to verify fix\n\n"
-                "1. Run query-trends for onboarding_completed over the same 14-day window.\n"
-                "2. Confirm completion volume returns to its pre-regression baseline."
+                "## Verification plan\n\n"
+                "### Confirm the current state\n\n"
+                "Run query-trends for onboarding_completed over the same 14-day window.\n\n"
+                "### Confirm the outcome\n\n"
+                "Confirm completion volume returns to its pre-regression baseline."
             )
         ),
         new_artefacts=[
@@ -551,9 +553,11 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
         note_content = json.loads(artefacts[1].content)
         assert note_content == {
             "note": (
-                "## Steps to verify fix\n\n"
-                "1. Run query-trends for onboarding_completed over the same 14-day window.\n"
-                "2. Confirm completion volume returns to its pre-regression baseline."
+                "## Verification plan\n\n"
+                "### Confirm the current state\n\n"
+                "Run query-trends for onboarding_completed over the same 14-day window.\n\n"
+                "### Confirm the outcome\n\n"
+                "Confirm completion volume returns to its pre-regression baseline."
             ),
             "author": None,
         }
@@ -1072,7 +1076,7 @@ async def test_run_multi_turn_research_requests_verification_note_as_the_final_a
         expected_labels.append("fix_verification")
         if failure is ValidationError:
             with pytest.raises(ValidationError) as exc_info:
-                FixVerificationOutput(steps=["Only one step"])
+                FixVerificationOutput(current_state=" ", outcome="Confirm the outcome.")
             verification_error = exc_info.value
         elif failure is not None:
             verification_error = failure("Verification interrupted")
@@ -1080,10 +1084,8 @@ async def test_run_multi_turn_research_requests_verification_note_as_the_final_a
             verification_error
             if verification_error is not None
             else FixVerificationOutput(
-                steps=[
-                    "Run query-trends for onboarding_completed over the same 14-day window.",
-                    "Confirm event volume returns to the pre-regression baseline.",
-                ]
+                current_state="Run query-trends for onboarding_completed over the same 14-day window.",
+                outcome="Confirm event volume returns to the pre-regression baseline.",
             )
         )
     session.send_followup = AsyncMock(side_effect=responses)
@@ -1111,7 +1113,9 @@ async def test_run_multi_turn_research_requests_verification_note_as_the_final_a
             assert result.research_task_id == "research-task-id"
             if actionability != ActionabilityChoice.NOT_ACTIONABLE and failure is None:
                 assert result.verification_note is not None
-                assert result.verification_note.note.startswith("## Steps to verify fix\n\n1. ")
+                assert result.verification_note.note.startswith(
+                    "## Verification plan\n\n### Confirm the current state\n\n"
+                )
             else:
                 assert result.verification_note is None
 

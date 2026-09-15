@@ -77,10 +77,10 @@ tools:
             and work-log entries (code references, commits, task runs, notes). Read this before re-judging a status or
             adding to the log.
         agent_note: >
-            Before changing code for this report, find the newest applicable note that starts with `## Steps to verify
-            fix`. Check that it matches the report's current findings. Treat the note as a plan, not evidence of the
-            issue's current state. Run its `Before changing code` check against current data now. Reserve `After
-            deployment` checks for after rollout.
+            Before working on this report, find the newest applicable note that starts with `## Verification plan`.
+            Check that it matches the report's current findings. Treat the note as a plan, not evidence of the issue's
+            current state. Use its `Confirm the current state` guidance before work. Use its `Confirm the outcome`
+            guidance after the chosen resolution.
 
             Missing, failed, or inconclusive checks are not proof of resolution. If current evidence shows the issue is
             gone, do not implement the stale fix. Record the result in the report log and reassess the report. If no
@@ -267,9 +267,9 @@ tools:
             identified in the report, call inbox-reports-claim to record that you are working on it. Taking ownership
             from another actor requires `takeover=true`.
 
-            Before changing code, fetch the work log with inbox-report-artefacts-list. Find the newest applicable `Steps
-            to verify fix` note. Run its `Before changing code` check now, not its `After deployment` check. Use the
-            verification guidance returned with the work log.
+            Before working on the report, fetch the work log with inbox-report-artefacts-list. Find the newest
+            applicable `Verification plan` note. Use its `Confirm the current state` guidance before work. Use its
+            `Confirm the outcome` guidance after the chosen resolution.
 
             If you create a pull request implementing the remediation, call inbox-reports-claim with the returned
             `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and
