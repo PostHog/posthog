@@ -9153,9 +9153,9 @@ snapshots:
     scenes-app-oauth-authorize--all-scopes-required--light:
         hash: v1.k794b7964.317c60eee73133c8051fa95326ae8a2862eab42e9233cfd007f444455efa3f3f.7VMT28J9VYZhVLYqo9_DmEe7YS2PSR67YEbXtfOGxz0
     scenes-app-oauth-authorize--default-scopes--dark:
-        hash: v1.k794b7964.d3709da69b5399ed5ebead357f9c3ad67e11dc3eb3a89686761993305f94167d.wa5J78hx0IwF0sieeuEN2W5jBUuLXU55szPCcwSOYv4
+        hash: v1.k794b7964.4ede4b460b1ada27b1ddf360b23eb101f2936dfafc18ab817c83e6b1814a44ac.hG-JtEzp7lgW5gZC_7w6rI0zXHIEoD6BOOR4t4OgZ20
     scenes-app-oauth-authorize--default-scopes--light:
-        hash: v1.k794b7964.f9da299cdeeb3397023e1680fa42457beaf7a77f86a3e7facc6af59af48529f5.Nyb2OYCDSrBBG4qSmSVXD68yWaiUZ-jaOS9hXG8QJGw
+        hash: v1.k794b7964.b74ce51fdad39b6b4849dab33c2151f9c3138696716ab7adb4091f62a1c669bb.DgVBWT_xj8j32uWhcNcRQeKgOdxyEEwB5JZm-zFIc7c
     scenes-app-oauth-authorize--every-scope-requested--dark:
         hash: v1.k794b7964.98089d8de3f151cf3f8f288fa0e1889b1bec56a18221d4ed5ce1272c1c45d48d.RQRLSRKg5BdWJcWkecHsnfNxRsM4hQCWrZibVkGTc9U
     scenes-app-oauth-authorize--every-scope-requested--light:
@@ -9164,6 +9164,10 @@ snapshots:
         hash: v1.k794b7964.98089d8de3f151cf3f8f288fa0e1889b1bec56a18221d4ed5ce1272c1c45d48d.nx1s7QkTpK8rq5W8edIggvrgQwXf-KOlmXqYZtN9_cU
     scenes-app-oauth-authorize--every-scope-requested-scrolled-to-end--light:
         hash: v1.k794b7964.238f7ce66141023589a5f50812a8f4fe05022bf96569cdec5bfb5aa2a385f5f6.QSUMFvFn8dz52CWyDfHydM-BDTgb3OVG8d0KnvPOCIU
+    scenes-app-oauth-authorize--identity-only-scopes--dark:
+        hash: v1.k794b7964.d3709da69b5399ed5ebead357f9c3ad67e11dc3eb3a89686761993305f94167d.8U0NZ8D9-3xXyeSO9Yg8MyssixvCv_dmjquZSIcXlks
+    scenes-app-oauth-authorize--identity-only-scopes--light:
+        hash: v1.k794b7964.f9da299cdeeb3397023e1680fa42457beaf7a77f86a3e7facc6af59af48529f5.ZqNX58ui2RSkxwFxkibjyFAnUCEQkdTPLoTlZ7PK9xY
     scenes-app-oauth-authorize--many-optional-scopes--dark:
         hash: v1.k794b7964.dfaac1cfdc53f1eb86edb541c52e731bc26edf546eb17693e3a2aeaf93e12fec.rqOthtnE_JqlShgBX6MZrhh7e4JcqUURVA6CanXqdUU
     scenes-app-oauth-authorize--many-optional-scopes--light:
