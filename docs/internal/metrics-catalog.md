@@ -24,3 +24,41 @@ The card gives the shared `Sparkline` component `w-full h-full` inside a fixed-h
 The component tests check the POST batch after the queue delay.
 The Storybook tests use an explicit container width and wait for a visible chart.
 They do not wait for every loading placeholder to disappear: offscreen cards stay unloaded until they enter view.
+
+## Metadata migration
+
+Migration `0322_metrics_metadata3_dual_write` adds two metadata tables on the logs cluster.
+`metric_series3` partitions by `toDate(last_seen)` and keeps `ReplacingMergeTree(last_seen)`.
+Merges retain the latest labelled row for each series within each day.
+The expiry timestamp still controls row retention.
+
+`metric_attributes3` includes `metric_name` in its columns, sort key, and materialized view grouping.
+Both metric attributes and resource attributes include the metric name.
+The hourly buckets, expiry partitions, label filter, and attribute length limits match `metric_attributes2`.
+
+Three new materialized views read `metrics2_input` and write to the new tables.
+The existing views continue to write to `metric_series2` and `metric_attributes2`.
+The distributed tables and HogQL schemas still read the existing tables.
+This phase adds storage and insert work; it does not improve query speed until reads move to the new tables.
+
+### Backfill and read cutover
+
+The migration does not copy historical rows.
+Backfill the new destination tables directly after all three materialized views exist on each logs replica.
+Do not replay a backfill through `metrics2_input`, because its existing views would also write the raw samples and old metadata again.
+
+Use a source boundary that excludes rows already written by the new views.
+Attribute counts use addition, so overlapping writes or repeated backfill batches can count rows twice.
+A timestamp boundary alone does not exclude late samples.
+Preserve the original expiry timestamps in the backfill.
+
+`metric_series2` retains only the latest row for each series after merges.
+Copying it cannot restore earlier daily activity.
+Use retained samples and the matching series labels to restore those days.
+`metric_attributes2` does not retain metric names, so it cannot supply the new attribute rows alone.
+Preserve the `has_labels` filter when rebuilding attribute counts from samples.
+
+Before a read cutover, compare metric names, label pairs, daily series activity, and retention for the same source range.
+Check insert latency, materialized view errors, part counts, and storage growth during this phase.
+A later migration can move the distributed readers after the backfill is complete.
+Keep the old tables until that read cutover is stable.
