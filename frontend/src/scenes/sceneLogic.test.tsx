@@ -1,6 +1,6 @@
 import { MOCK_USER_UUID } from 'lib/api.mock'
 
-import { kea, path } from 'kea'
+import { afterMount, kea, path } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
 
@@ -27,7 +27,9 @@ jest.mock('lib/api', () => ({
 
 const Component = (): JSX.Element => <div />
 const testLogic = kea<testLogicType>([path(['scenes', 'sceneLogic', 'test'])])
-const sceneImport = (): any => ({ scene: { component: Component, logic: testLogic } })
+
+const sceneImportFor = (logic: any) => (): any => ({ scene: { component: Component, logic } })
+const sceneImport = sceneImportFor(testLogic)
 
 const testScenes: Record<string, () => any> = {
     [Scene.Alerts]: sceneImport,
@@ -186,6 +188,76 @@ describe('sceneLogic', () => {
         } finally {
             window.POSTHOG_APP_CONTEXT = priorAppContext
         }
+    })
+
+    describe('a scene that navigates while its logic mounts', () => {
+        const previousSceneLogic = kea<testLogicType>([path(['scenes', 'sceneLogic', 'testPrevious'])])
+        const finalSceneLogic = kea<testLogicType>([path(['scenes', 'sceneLogic', 'testFinal'])])
+        // Mirrors the insight scene: mounting it settles the URL, which re-enters setScene
+        // synchronously before the outer setScene has recorded the logic it just mounted.
+        const redirectingSceneLogic = kea<testLogicType>([
+            path(['scenes', 'sceneLogic', 'testRedirecting']),
+            afterMount(() => {
+                router.actions.replace(urls.notebooks())
+            }),
+        ])
+
+        // Scoped to this describe: Scene.Dashboards redirects on mount here, which would derail
+        // any other test in this file that happens to navigate to it.
+        beforeEach(async () => {
+            logic = sceneLogic.build({
+                scenes: {
+                    ...testScenes,
+                    [Scene.SavedInsights]: sceneImportFor(previousSceneLogic),
+                    [Scene.Dashboards]: sceneImportFor(redirectingSceneLogic),
+                    [Scene.Notebooks]: sceneImportFor(finalSceneLogic),
+                },
+            })
+            logic.mount()
+            // Visit the redirect target first so its chunk is already loaded. loadScene only
+            // reaches setScene synchronously for a loaded scene, which is what re-enters.
+            router.actions.push(urls.notebooks())
+            await expectLogic(logic).delay(1)
+        })
+
+        it('unmounts each scene logic exactly once', async () => {
+            const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+            try {
+                router.actions.push(urls.savedInsights())
+                await expectLogic(logic).delay(1)
+                expect(previousSceneLogic.isMounted()).toBe(true)
+
+                router.actions.push(urls.dashboards())
+                await expectLogic(logic).delay(1)
+
+                // The redirect target is the scene actually open, so it is the one left mounted.
+                expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.notebooks())
+                expect(finalSceneLogic.isMounted()).toBe(true)
+                expect(redirectingSceneLogic.isMounted()).toBe(false)
+                expect(previousSceneLogic.isMounted()).toBe(false)
+                // kea throws when a logic is unmounted twice, and this listener only logs that
+                // error, so a browser error record is the sole symptom users produce.
+                expect(consoleError).not.toHaveBeenCalledWith(
+                    'Error unmounting previous scene logic:',
+                    expect.anything()
+                )
+            } finally {
+                consoleError.mockRestore()
+            }
+        })
+
+        it('records the open scene as viewed, not the one it navigated away from', async () => {
+            router.actions.push(urls.savedInsights())
+            await expectLogic(logic).delay(1)
+
+            router.actions.push(urls.dashboards())
+            await expectLogic(logic).delay(1)
+
+            // The superseded setScene carries the redirecting scene's id. Reaching the tracking
+            // block with it files a recently-viewed entry for a scene nobody landed on. No
+            // selector exposes that, so assert the cache entry which feeds it.
+            expect(logic.cache.lastTrackedScene).toEqual({ sceneId: Scene.Notebooks, sceneKey: 'notebooks' })
+        })
     })
 
     describe('/home honors the configured homepage', () => {
