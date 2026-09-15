@@ -26,9 +26,8 @@ from posthog.schema import (
     WebBotsTableQuery,
 )
 
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
+from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 from products.web_analytics.backend.hogql_queries.web_bots import BOT_ANALYTICS_EVENTS, WebBotsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.web_bots_trends_lazy_precompute import (
     bots_trends_breakdown,
@@ -213,6 +212,21 @@ class TestWebBotsTrendsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         query = self.query(breakdown or "$virt_bot_name", interval or IntervalType.HOUR)
         query.compareFilter = compare
         assert bots_trends_breakdown(query) is None
+
+    @parameterized.expand(
+        [
+            ("one_transition", "2024-11-01T00:00:00-04:00", "2024-11-05T00:00:00-05:00"),
+            ("two_transitions", "2024-11-01T00:00:00-04:00", "2025-03-15T00:00:00-04:00"),
+        ]
+    )
+    def test_hour_interval_across_a_dst_transition_falls_back(self, _name: str, date_from: str, date_to: str) -> None:
+        self.team.timezone = "America/New_York"
+        self.team.save()
+        query = self.query()
+        query.dateRange = DateRange(date_from=date_from, date_to=date_to)
+        with patch(f"{MODULE}._fall_back") as fall_back:
+            assert execute_lazy_precomputed_bots_trends(WebTrendsQueryRunner(team=self.team, query=query)) is None
+        fall_back.assert_called_once_with(self.team.pk, "dst_transition")
 
     def test_other_bucket_reports_has_more(self) -> None:
         for index in range(30):

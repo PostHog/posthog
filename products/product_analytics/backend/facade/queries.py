@@ -32,6 +32,7 @@ _LAZY = {
     "PathsQueryRunner": "paths.paths_query_runner",
     "RetentionQueryRunner": "retention.retention_query_runner",
     "PathsV2QueryRunner": "paths_v2.paths_v2_query_runner",
+    "SeriesWithExtras": "trends.series_with_extras",
     "SlopeGraphTrendsQueryRunner": "trends.slope_graph_trends_query_runner",
     "StickinessQueryRunner": "stickiness.stickiness_query_runner",
     "TrendsDisplay": "trends.display",
@@ -67,6 +68,9 @@ if TYPE_CHECKING:
         CalendarHeatmapTrendsQueryRunner,
     )
     from products.product_analytics.backend.hogql_queries.trends.display import TrendsDisplay  # noqa: F401
+    from products.product_analytics.backend.hogql_queries.trends.series_with_extras import (  # noqa: F401
+        SeriesWithExtras,
+    )
     from products.product_analytics.backend.hogql_queries.trends.slope_graph_trends_query_runner import (  # noqa: F401
         SlopeGraphTrendsQueryRunner,
     )

@@ -37,9 +37,9 @@ from posthog.hogql.constants import BREAKDOWN_VALUE_MAX_LENGTH, HogQLGlobalSetti
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
 from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 
+from products.product_analytics.backend.facade.queries import SeriesWithExtras
 from products.web_analytics.backend.hogql_queries.web_bots import BOT_ANALYTICS_EVENTS, WebBotsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.web_bots_lazy_precompute import (
     FAMILY as BOTS_FAMILY,
@@ -308,8 +308,9 @@ def execute_lazy_precomputed_bots_trends(
         interval = (runner.query.interval or IntervalType.DAY).value
         # An hour-interval range crossing a DST transition collides two local hours onto one
         # bucket key, or asks for one that does not exist. The live path emits 25 or 23 points
-        # there; serving a silently different axis is worse than falling back.
-        if interval == "hour" and range_start.utcoffset() != range_end.utcoffset():
+        # there; serving a silently different axis is worse than falling back. Every bucket is
+        # checked because a range that crosses back leaves the two ends on the same offset.
+        if interval == "hour" and len({value.utcoffset() for value in (*buckets, range_end)}) > 1:
             _fall_back(team.pk, "dst_transition")
             return None
 
