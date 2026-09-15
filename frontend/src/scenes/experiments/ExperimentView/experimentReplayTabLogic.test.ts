@@ -1383,6 +1383,35 @@ describe('experimentReplayTabLogic', () => {
         expect(logic.values.sessionEventDeltas).toEqual(DELTA_RESPONSE)
     })
 
+    it('reports the population the comparison covered, not just what it found', async () => {
+        // An empty reason on its own cannot be read: 'no_separation' over sixty people and over
+        // twelve thousand ask for different answers. So the report carries the denominator, the
+        // stretch of enrollment it came from, and whether the cap left older enrollees out.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+
+        await expectLogic(logic, () => {
+            logic.actions.toggleBehaviorComparison()
+        }).toFinishAllListeners()
+
+        expect(captureSpy).toHaveBeenCalledWith('experiment behavior comparison loaded', {
+            experiment_id: 42,
+            too_early: false,
+            empty_reason: null,
+            behavior_cards: 1,
+            friction_cards: 0,
+            variant_only_cards: 0,
+            metric_cards: 0,
+            dropped_duplicate_cards: 0,
+            used_exposure_fallback: false,
+            duration_ms: expect.any(Number),
+            compared_persons: 200,
+            compared_variants: 2,
+            compared_enrollment_hours: 744,
+            sessions_truncated: false,
+            events_truncated: false,
+        })
+    })
+
     it('does not fire a duplicate comparison when the shelf is closed and reopened mid-load', async () => {
         let resolveLoad: (value: unknown) => void = () => {}
         ;(experimentsSessionEventDeltasCreate as jest.Mock).mockImplementation(

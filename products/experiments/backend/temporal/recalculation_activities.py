@@ -5,10 +5,14 @@ These are thin ``@temporalio.activity.defn`` wrappers; the DB-touching implement
 and lets the logic be unit-tested without the activity decorator.
 """
 
+import asyncio
+
+import structlog
 import temporalio.activity
 
 from products.experiments.backend.temporal.models import (
     MAX_METRIC_ATTEMPTS,
+    METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS,
     ExperimentMetricToRecalculate,
     MetricRecalculationResult,
     RecalculationProgressUpdate,
@@ -18,6 +22,8 @@ from products.experiments.backend.temporal.recalculation_logic import (
     _discover_experiment_metrics_sync,
     _update_recalculation_progress_sync,
 )
+
+logger = structlog.get_logger(__name__)
 
 
 @temporalio.activity.defn
@@ -57,6 +63,29 @@ async def calculate_experiment_metric_for_recalculation(
     """
     attempt = temporalio.activity.info().attempt
     is_final_attempt = attempt >= MAX_METRIC_ATTEMPTS
-    return await _calculate_experiment_metric_for_recalculation_sync(
-        experiment_id, metric_uuid, recalculation_id, query_to, metric_type, is_final_attempt, attempt
+    task = asyncio.ensure_future(
+        _calculate_experiment_metric_for_recalculation_sync(
+            experiment_id, metric_uuid, recalculation_id, query_to, metric_type, is_final_attempt, attempt
+        )
     )
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        # Keep the worker slot while the uncancellable thread finishes, but bound shutdown cleanup.
+        drain = asyncio.create_task(asyncio.wait_for(asyncio.shield(task), METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS))
+        while True:
+            try:
+                await asyncio.shield(drain)
+                break
+            except asyncio.CancelledError:
+                if drain.cancelled():
+                    break
+            except Exception:
+                logger.warning(
+                    "experiment_metric_recalculation_drain_after_cancel_failed",
+                    metric_uuid=metric_uuid,
+                    recalculation_id=recalculation_id,
+                    exc_info=True,
+                )
+                break
+        raise
