@@ -26,7 +26,12 @@ from products.tasks.backend.logic.services.run_actor import (
     is_slack_interaction_state,
     loop_owner_eligible_for_credentials,
 )
-from products.tasks.backend.models import INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN, TASK_OWNERSHIP_VERSION_STATE_KEY, Task
+from products.tasks.backend.models import (
+    INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN,
+    SIGNALS_IMPLEMENTATION_AI_STAGE,
+    TASK_OWNERSHIP_VERSION_STATE_KEY,
+    Task,
+)
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -105,6 +110,19 @@ def is_interactive_signals_run(task: Task, state: dict[str, Any] | None) -> bool
     return not stage or stage in INTERACTIVE_SIGNALS_AI_STAGES
 
 
+def is_signals_implementation_run(task: Task, state: dict[str, Any] | None) -> bool:
+    """Whether *this run* is the report pipeline's implementation stage.
+
+    Reads the same server-stamped `ai_stage` as `is_interactive_signals_run`, so the answer is
+    provenance rather than a claim: the stage is absent from the task create serializer and sits
+    in `_PROTECTED_RUN_STATE_KEYS`. A person can start a second run on an auto-started
+    implementation task, and that run carries no stage, so it stays off this budget.
+    """
+    if task.origin_product != Task.OriginProduct.SIGNAL_REPORT:
+        return False
+    return (state or {}).get("ai_stage") == SIGNALS_IMPLEMENTATION_AI_STAGE
+
+
 def _scopes_for_loop_fired_run(scopes: PosthogMcpScopes) -> list[str]:
     resolved = resolve_scopes(scopes, include_internal_scopes=True)
     return [scope for scope in resolved if scope not in LOOP_FIRED_RUN_EXCLUDED_SCOPES]
@@ -148,8 +166,8 @@ def create_oauth_access_token(
     OAuth tokens auto-expire after 6 hours, so no cleanup is needed. Pass `loop_id` for a
     loop-fired run so `loop:write` is stripped from the granted scopes regardless of `scopes`.
     Pass `run_state` so the Signals budget is picked from the run's own provenance
-    (`is_interactive_signals_run`); omitting it bills a signals run as interactive, which is
-    the safe default but is never what a pipeline run wants.
+    (`is_interactive_signals_run`, `is_signals_implementation_run`); omitting it bills a signals
+    run as interactive, which is the safe default but is never what a pipeline run wants.
     """
     actor = user or (task.created_by if allow_task_creator_fallback else None)
     if not actor:
@@ -180,6 +198,8 @@ def create_oauth_access_token(
         token_options["include_mcp_builtin_agent_scope"] = True
     if is_interactive_signals_run(task, run_state):
         token_options["include_interactive_run_scope"] = True
+    if is_signals_implementation_run(task, run_state):
+        token_options["include_implementation_run_scope"] = True
     if task.origin_product == Task.OriginProduct.SLACK:
         token_options["include_slack_run_scope"] = True
     return create_oauth_access_token_for_user(actor, task.team_id, **token_options)
@@ -274,6 +294,7 @@ def create_oauth_access_token_for_user(
     application: SandboxOAuthApplication = "array",
     include_mcp_builtin_agent_scope: bool = False,
     include_interactive_run_scope: bool = False,
+    include_implementation_run_scope: bool = False,
     include_slack_run_scope: bool = False,
     sandbox_task_id: UUID | None = None,
 ) -> str:
@@ -288,6 +309,8 @@ def create_oauth_access_token_for_user(
             token_options["include_mcp_builtin_agent_scope"] = True
         if include_interactive_run_scope:
             token_options["include_interactive_run_scope"] = True
+        if include_implementation_run_scope:
+            token_options["include_implementation_run_scope"] = True
         if include_slack_run_scope:
             token_options["include_slack_run_scope"] = True
         return _create_oauth_access_token_for_user(user, team_id, **token_options)

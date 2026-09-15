@@ -76,6 +76,12 @@ TASK_OWNERSHIP_VERSION_STATE_KEY = "task_ownership_version"
 # gateway product. Keyed by origin value.
 INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN: dict[str, str] = {"signal_report": "inbox", "signals_chat": "chat"}
 
+# Stage the report pipeline stamps on the implementation run it auto-starts. Read by the token
+# mint and by the review carve-out in the facade. Equals AI_STAGE_IMPLEMENTATION in
+# products/signals/backend/pipeline_identity.py, which owns the write; a drift test pins the pair,
+# because a rename there silently drops the run off its own budget.
+SIGNALS_IMPLEMENTATION_AI_STAGE = "implementation"
+
 MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN: dict[str, MCPBuiltInAgentKey] = {
     "support_reply": "support",
     "signals_scout": "scout",

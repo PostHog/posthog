@@ -342,8 +342,11 @@ The Python gateway records cost after each request completes, so concurrent requ
 The three limits above are usually keyed by product, but a product that serves both our own scheduled work and a button a customer can press needs two budgets rather than one.
 `resolve_cost_key` picks the budget from the token's scopes, which are minted server-side, instead of from the product in the URL, which the caller chooses.
 
-Today that splits `signals`: a run started from the Inbox carries `interactive_run:read` and meters against `signals_interactive`, while the scheduled pipeline keeps `signals`.
-`signals_interactive` is a budget name only — it is not in `PRODUCTS`, so no caller can request it.
+Today that splits `signals` two ways.
+A run started from the Inbox carries `interactive_run:read` and meters against `signals_interactive`.
+The report pipeline's implementation stage carries `implementation_run:read` and meters against `signals_implementation`, so the stage that grows fastest cannot fill the pool that scout scanning and research share.
+The remaining scheduled stages keep `signals`.
+Both split names are budget names only — neither is in `PRODUCTS`, so no caller can request one.
 Slack task tokens carry `slack_run:read`, which keeps them on the `slack_app` budget even if the sandbox calls another product route that accepts the same OAuth application.
 
 ## Error handling

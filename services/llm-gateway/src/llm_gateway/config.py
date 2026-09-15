@@ -38,6 +38,13 @@ DEFAULT_PRODUCT_COST_LIMITS: dict[str, "ProductCostLimit"] = {
     # Held apart from the scheduled pipeline's pool so a customer burning this budget can't
     # stall scouts and report research for every other customer.
     "signals_interactive": ProductCostLimit(limit_usd=10000.0, window_seconds=86400),
+    # The pipeline's implementation stage. Split off for the same reason, from the other side:
+    # its volume grows on its own, and once it filled the shared pool the throttle refused scout
+    # scanning and research for every customer at once. Sized above the stage's own trajectory
+    # rather than carved out of `signals`, which still has to cover the remaining stages —
+    # trimming that pool to hold the total flat would risk the stall this split prevents. The
+    # pool gauges show the real headroom to tighten both with.
+    "signals_implementation": ProductCostLimit(limit_usd=12000.0, window_seconds=86400),
     "posthog_ai": ProductCostLimit(limit_usd=5000.0, window_seconds=86400),
     "changelog_bot": ProductCostLimit(limit_usd=500.0, window_seconds=86400),
     # Path-cleaning suggestions: haiku-only, a few short calls per team per week. The product is
@@ -72,6 +79,15 @@ DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
         burst_limit_usd=250.0,
         burst_window_seconds=604800,
         sustained_limit_usd=750.0,
+        sustained_window_seconds=2592000,
+    ),
+    # Mirrors `signals`: the implementation stage runs the same fleet-wide, per-team work the
+    # shared key covered before the split, so its per-user enforcement must not change with it.
+    # An absent entry would fall back to DEFAULT_USER_COST_LIMIT ($100/day) and refuse the stage.
+    "signals_implementation": UserCostLimit(
+        burst_limit_usd=2500.0,
+        burst_window_seconds=604800,
+        sustained_limit_usd=10000.0,
         sustained_window_seconds=2592000,
     ),
     # Nobody is billed for onboarding (credit_bucket=None), so this bounds blast radius rather than
