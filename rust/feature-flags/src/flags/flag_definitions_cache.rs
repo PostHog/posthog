@@ -806,7 +806,10 @@ mod tests {
     /// cache's byte-budget eviction.
     #[test]
     fn test_weigher_accounts_for_extra_passthrough() {
-        use crate::flags::flag_models::{FlagFilters, FlagPropertyGroup};
+        use crate::flags::flag_models::{
+            FlagFilters, FlagPropertyGroup, Holdout, MultivariateFlagOptions,
+            MultivariateFlagVariant,
+        };
         use crate::properties::property_models::PropertyType;
         use serde_json::Map;
 
@@ -874,10 +877,54 @@ mod tests {
             cohorts: None,
         });
 
+        let seal_one = |flag: FeatureFlag| {
+            Arc::new(PreparedFlagDefinitions {
+                flags: PreparedFlags::seal(vec![flag]),
+                evaluation_metadata: Arc::new(EvaluationMetadata::default()),
+                cohorts: None,
+            })
+        };
+
+        let mut variant_extra = Map::new();
+        variant_extra.insert("payload".to_string(), json!(big_str));
+        let mut flag = make_flag(Map::new(), Map::new(), Map::new());
+        flag.filters.multivariate = Some(MultivariateFlagOptions {
+            variants: vec![MultivariateFlagVariant {
+                key: "control".to_string(),
+                name: None,
+                rollout_percentage: 100.0,
+                extra: variant_extra,
+            }],
+            extra: Map::new(),
+        });
+        let with_variant_extra = seal_one(flag);
+
+        let mut multivariate_extra = Map::new();
+        multivariate_extra.insert("description".to_string(), json!(big_str));
+        let mut flag = make_flag(Map::new(), Map::new(), Map::new());
+        flag.filters.multivariate = Some(MultivariateFlagOptions {
+            variants: vec![],
+            extra: multivariate_extra,
+        });
+        let with_multivariate_extra = seal_one(flag);
+
+        let mut holdout_extra = Map::new();
+        holdout_extra.insert("description".to_string(), json!(big_str));
+        let mut flag = make_flag(Map::new(), Map::new(), Map::new());
+        flag.filters.holdout = Some(Holdout {
+            id: 1,
+            exclusion_percentage: 10.0,
+            extra: holdout_extra,
+        });
+        let with_holdout_extra = seal_one(flag);
+
         let base_sz = baseline.estimated_size_bytes();
         let filters_sz = with_filters_extra.estimated_size_bytes();
         let group_sz = with_group_extra.estimated_size_bytes();
         let prop_sz = with_prop_extra.estimated_size_bytes();
+        let variant_sz = with_variant_extra.estimated_size_bytes();
+        let multivariate_sz = with_multivariate_extra.estimated_size_bytes();
+        let holdout_sz = with_holdout_extra.estimated_size_bytes();
 
         assert!(
             filters_sz > base_sz + 9_000,
@@ -890,6 +937,18 @@ mod tests {
         assert!(
             prop_sz > base_sz + 9_000,
             "weigher must count PropertyFilter.extra: base={base_sz}, with_prop_extra={prop_sz}"
+        );
+        assert!(
+            variant_sz > base_sz + 9_000,
+            "weigher must count MultivariateFlagVariant.extra: base={base_sz}, with_variant_extra={variant_sz}"
+        );
+        assert!(
+            multivariate_sz > base_sz + 9_000,
+            "weigher must count MultivariateFlagOptions.extra: base={base_sz}, with_multivariate_extra={multivariate_sz}"
+        );
+        assert!(
+            holdout_sz > base_sz + 9_000,
+            "weigher must count Holdout.extra: base={base_sz}, with_holdout_extra={holdout_sz}"
         );
     }
 }

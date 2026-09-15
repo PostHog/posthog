@@ -16,12 +16,11 @@ impl FeatureFlag {
         &self.filters.groups
     }
 
-    pub fn get_variants(&self) -> Vec<MultivariateFlagVariant> {
+    pub fn get_variants(&self) -> &[MultivariateFlagVariant] {
         self.filters
             .multivariate
             .as_ref()
-            .map(|m| m.variants.clone())
-            .unwrap_or_default()
+            .map_or(&[], |m| m.variants.as_slice())
     }
 
     pub fn get_payload(&self, match_val: &str) -> Option<serde_json::Value> {

@@ -445,8 +445,27 @@ impl PreparedFlagDefinitions {
                         })
                         .sum()
                 };
-                let filters_size: usize =
-                    group_size(&f.filters.groups) + estimate_json_map_size(&f.filters.extra);
+                let multivariate_size = f.filters.multivariate.as_ref().map_or(0, |m| {
+                    estimate_json_map_size(&m.extra)
+                        + m.variants
+                            .iter()
+                            .map(|v| {
+                                std::mem::size_of::<MultivariateFlagVariant>()
+                                    + v.key.len()
+                                    + v.name.as_ref().map_or(0, |n| n.len())
+                                    + estimate_json_map_size(&v.extra)
+                            })
+                            .sum::<usize>()
+                });
+                let holdout_size = f
+                    .filters
+                    .holdout
+                    .as_ref()
+                    .map_or(0, |h| estimate_json_map_size(&h.extra));
+                let filters_size: usize = group_size(&f.filters.groups)
+                    + estimate_json_map_size(&f.filters.extra)
+                    + multivariate_size
+                    + holdout_size;
                 let payloads_size = f.filters.payloads.as_ref().map_or(0, estimate_json_size);
 
                 struct_size
