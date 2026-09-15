@@ -1,7 +1,7 @@
 from datetime import datetime
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, call, patch
 
 from temporalio.exceptions import ActivityError, ApplicationError
 
@@ -72,6 +72,19 @@ def _prep_error() -> SignalBatchPrepError:
     return SignalBatchPrepError("Failed to prepare a batch of 2 signals", _connect_error())
 
 
+def _workflow(prep_failures: int) -> TeamSignalGroupingV2Workflow:
+    instance = TeamSignalGroupingV2Workflow()
+    instance._prep_failures = prep_failures
+    return instance
+
+
+def _collected() -> CollectedBatch:
+    return CollectedBatch(
+        signals=[_make_signal("a", "first finding"), _make_signal("b", "second finding")],
+        object_keys=["key-1"],
+    )
+
+
 def _activity_dispatcher(unreachable_descriptions: set[str]):
     """Stand in for the whole batch pipeline, failing embedding for the given descriptions."""
 
@@ -122,27 +135,14 @@ class TestProcessSignalBatchPrep:
 
 
 class TestHoldBatchAfterPrepFailure:
-    @staticmethod
-    def _workflow(prep_failures: int) -> TeamSignalGroupingV2Workflow:
-        instance = TeamSignalGroupingV2Workflow()
-        instance._prep_failures = prep_failures
-        return instance
-
-    @staticmethod
-    def _collected() -> CollectedBatch:
-        return CollectedBatch(
-            signals=[_make_signal("a", "first finding"), _make_signal("b", "second finding")],
-            object_keys=["key-1"],
-        )
-
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "prep_failures,expected_backoff",
         [(0, RETRY_BACKOFF), (3, RETRY_BACKOFF * 8), (MAX_PREP_ATTEMPTS - 2, MAX_PREP_BACKOFF)],
     )
     async def test_batch_is_held_and_backed_off_instead_of_dropped(self, prep_failures, expected_backoff):
-        instance = self._workflow(prep_failures)
-        collected = self._collected()
+        instance = _workflow(prep_failures)
+        collected = _collected()
 
         with (
             patch(f"{GROUPING_V2_MODULE_PATH}.workflow.sleep", new_callable=AsyncMock) as sleep,
@@ -158,8 +158,8 @@ class TestHoldBatchAfterPrepFailure:
 
     @pytest.mark.asyncio
     async def test_batch_is_dropped_once_it_has_been_held_long_enough(self):
-        instance = self._workflow(MAX_PREP_ATTEMPTS - 1)
-        collected = self._collected()
+        instance = _workflow(MAX_PREP_ATTEMPTS - 1)
+        collected = _collected()
 
         with (
             patch(f"{GROUPING_V2_MODULE_PATH}.workflow.sleep", new_callable=AsyncMock) as sleep,
@@ -174,3 +174,31 @@ class TestHoldBatchAfterPrepFailure:
         assert instance._batch_key_buffer == []
         assert instance._prep_failures == 0
         sleep.assert_not_awaited()
+
+
+class TestPrepFailureStreakAcrossRounds:
+    @pytest.mark.asyncio
+    async def test_a_failure_after_preparation_ends_the_streak(self):
+        """A round that prepares and then fails later must not leave an older streak in place."""
+        instance = _workflow(MAX_PREP_ATTEMPTS - 1)
+        workflow_input = TeamSignalGroupingV2Input(team_id=1)
+
+        with (
+            patch(f"{GROUPING_V2_MODULE_PATH}.workflow.patched", return_value=True),
+            patch(f"{GROUPING_V2_MODULE_PATH}.workflow.continue_as_new"),
+            patch(f"{GROUPING_V2_MODULE_PATH}.workflow.sleep", new_callable=AsyncMock) as sleep,
+            patch(f"{GROUPING_V2_MODULE_PATH}.capture_batch_dropped", new_callable=AsyncMock) as capture_dropped,
+            patch.object(instance, "_collect_next_batch", new_callable=AsyncMock, return_value=_collected()),
+            patch(
+                f"{GROUPING_V2_MODULE_PATH}._process_signal_batch",
+                new_callable=AsyncMock,
+                side_effect=[RuntimeError("the visibility wait timed out"), _prep_error()],
+            ),
+        ):
+            await instance._run_new_collect_batch_path(workflow_input)
+            assert instance._prep_failures == 0
+            await instance._run_new_collect_batch_path(workflow_input)
+
+        capture_dropped.assert_not_called()
+        assert instance._prep_failures == 1
+        assert sleep.await_args_list == [call(RETRY_BACKOFF), call(RETRY_BACKOFF)]

@@ -299,6 +299,8 @@ class TeamSignalGroupingV2Workflow:
                 await capture_batch_dropped(collected.signals, e)
                 await self._requeue_and_back_off(collected, RETRY_BACKOFF)
         except Exception:
+            # The batch prepared before this failure, so the streak of preparation failures ends here.
+            self._prep_failures = 0
             logger.exception(
                 "Failed to process signal batch",
                 team_id=input.team_id,
