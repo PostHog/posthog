@@ -30,9 +30,8 @@ export class MailDevAPI {
         return response.json()
     }
 
-    async clearEmails(): Promise<void> {
-        await fetch(`${mailDevWebUrl}/email/all`, {
-            method: 'DELETE',
-        })
+    async getEmailsTo(address: string): Promise<any[]> {
+        const emails = await this.getEmails()
+        return emails.filter((email) => email.to?.some((to: any) => to.address === address))
     }
 }
