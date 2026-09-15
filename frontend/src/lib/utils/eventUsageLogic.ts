@@ -130,9 +130,9 @@ export enum GraphSeriesAddedSource {
  */
 export interface ExperimentRecordingsTabContext {
     /**
-     * What put the tab in the state it opened in, when it was not the viewer: 'results_row' for a
-     * results-table link. Null when the viewer opened the tab themselves, which is the ordinary
-     * case, so this is what separates the two populations in a report.
+     * What put the tab in the state it opened in, when it was not the viewer: 'results_button' or
+     * 'results_menu' for a results-table link. Null when the viewer opened the tab themselves,
+     * which is the ordinary case, so this is what separates the two populations in a report.
      */
     entry_point: string | null
     variant_count: number
@@ -165,9 +165,9 @@ export interface ExperimentRecordingsFilterContext {
      * plain list drove. */
     watch_card_kind: string | null
     /**
-     * What set these facets, when it was not the viewer: 'results_row' for a results-table link.
-     * Null once the viewer moves a facet themselves, so an empty list that a results row produced
-     * can be told from one somebody narrowed into by hand.
+     * What set these facets, when it was not the viewer: 'results_button' or 'results_menu' for a
+     * results-table link. Null once the viewer moves a facet themselves, so an empty list that a
+     * results row produced can be told from one somebody narrowed into by hand.
      */
     entry_point: string | null
 }
