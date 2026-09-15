@@ -245,11 +245,12 @@ def to_markdown_notebook_content(
     """
     if is_markdown_notebook_content(content):
         return None
-    options = NotebookMarkdownConversionOptions(
-        comment_replies_by_mark_id=comment_replies_by_mark_id,
-        get_mention_label=_build_mention_label_getter(content, organization_id),
-    )
     try:
+        # The mention scan walks the same caller-supplied tree as the converter, so its failures map to the same error.
+        options = NotebookMarkdownConversionOptions(
+            comment_replies_by_mark_id=comment_replies_by_mark_id,
+            get_mention_label=_build_mention_label_getter(content, organization_id),
+        )
         markdown = convert_notebook_content_to_markdown(content, options)
     except (AttributeError, KeyError, RecursionError, TypeError, ValueError) as err:
         raise NotebookContentNotConvertible(
