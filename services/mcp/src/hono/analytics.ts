@@ -4,7 +4,7 @@ import type { MCPAnalyticsIntentSource, MCPAnalyticsModelSource } from '@posthog
 
 import type { McpAuthFailure } from '@/lib/auth-errors'
 import { classifyAuthMethod } from '@/lib/auth-method'
-import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
+import { MCP_ANALYTICS_SOURCE, MCP_SERVER_BUILD, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { resolveEventSource } from '@/lib/event-source'
 import { gatewayServerSlug, isGatewayToolName, THIRD_PARTY_TOOL_CATEGORY } from '@/lib/gateway-tools'
 import { getPostHogClient } from '@/lib/posthog'
@@ -23,6 +23,15 @@ import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 import { buildMCPSessionAnalyticsProperties, getEffectiveMCPClientIdentity } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
+
+/** Which server produced the event: stamped identically on every event, including auth failures. */
+const MCP_SERVER_IDENTITY_PROPERTIES = {
+    $mcp_source: MCP_ANALYTICS_SOURCE,
+    $mcp_server_name: MCP_SERVER_NAME,
+    $mcp_server_version: MCP_SERVER_VERSION,
+    $mcp_server_build: MCP_SERVER_BUILD,
+    $mcp_version: MCP_ANALYTICS_VERSION,
+} as const
 
 function buildBaseProperties(
     state: ResolvedState,
@@ -52,10 +61,7 @@ function buildBaseProperties(
             apiKeyScopes: state.apiKeyScopes,
             oauthClientId: state.oauthClientId,
         }),
-        $mcp_source: MCP_ANALYTICS_SOURCE,
-        $mcp_server_name: MCP_SERVER_NAME,
-        $mcp_server_version: MCP_SERVER_VERSION,
-        $mcp_version: MCP_ANALYTICS_VERSION,
+        ...MCP_SERVER_IDENTITY_PROPERTIES,
         $mcp_client_name: clientIdentity.mcpClientName,
         $mcp_client_version: clientIdentity.mcpClientVersion,
         $mcp_client_user_agent: requestContext.clientUserAgent,
@@ -477,10 +483,7 @@ export function trackAuthFailure(props: RequestProperties, failure: McpAuthFailu
                     mcpConsumer: props.mcpConsumer,
                     clientUserAgent: props.clientUserAgent,
                 }),
-                $mcp_source: MCP_ANALYTICS_SOURCE,
-                $mcp_server_name: MCP_SERVER_NAME,
-                $mcp_server_version: MCP_SERVER_VERSION,
-                $mcp_version: MCP_ANALYTICS_VERSION,
+                ...MCP_SERVER_IDENTITY_PROPERTIES,
                 $mcp_client_name: props.mcpClientName,
                 $mcp_client_version: props.mcpClientVersion,
                 $mcp_client_user_agent: props.clientUserAgent,

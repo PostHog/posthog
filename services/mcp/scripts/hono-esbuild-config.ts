@@ -43,7 +43,10 @@ export function honoEsbuildOptions(opts: HonoEsbuildOptions = {}): BuildOptions 
         external: [],
         plugins: [cfWorkersStub, ...(opts.extraPlugins ?? [])],
         loader: { '.html': 'text', '.md': 'text', '.yaml': 'text', '.json': 'json' },
-        define: { 'process.env.NODE_ENV': opts.dev ? '"development"' : '"production"' },
+        define: {
+            'process.env.NODE_ENV': opts.dev ? '"development"' : '"production"',
+            'process.env.MCP_BUILD_SHA': JSON.stringify(process.env.COMMIT_HASH ?? process.env.MCP_BUILD_SHA ?? ''),
+        },
         // Bundled CJS modules (e.g. ioredis using `require('util')`) call through
         // to a global `require`. ESM has no `require`; banner injects one. The
         // alias avoids colliding with esbuild's own CJS-interop shim.

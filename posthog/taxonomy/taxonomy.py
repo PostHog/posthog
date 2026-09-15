@@ -2864,6 +2864,59 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Field path the PostHog API's validation error pointed at, with array indexes normalized to N so one failure mode groups to one value. Only set for validation failures.",
             "examples": ["actions__N__inputs__email", "query"],
         },
+        "$mcp_validation_fields": {
+            "label": "MCP validation fields",
+            "description": "Parameter paths the MCP server's own input schema rejected, as `path:code` (for example `id:invalid_type`). Names from the tool's schema, never caller values. Only set when the server rejected the input before calling PostHog.",
+            "examples": ["id:invalid_type", "filters.groups:required"],
+        },
+        "$mcp_validation_input_keys": {
+            "label": "MCP validation input keys",
+            "description": "Top-level argument names the caller sent on a call the MCP server's input schema rejected, sorted and capped at 20. Shows which name an agent used for a parameter the schema spells differently. Only set on local schema rejections; see $mcp_input_keys for every call, which additionally drops the SDK-injected `context` and `llm_model` keys.",
+            "examples": ["experimentId", "flagKey, limit"],
+        },
+        "$mcp_input_keys": {
+            "label": "MCP input keys",
+            "description": "Top-level argument names the caller sent on a tool call, success or failure: every direct-mode call, `render-ui`, and an exec `call` (parsed from the command string). Exec discovery verbs (tools, search, info, schema) carry none, so rate against rows where it is set rather than every $mcp_tool_call. Sorted, capped at 20, a key that is not identifier-shaped recorded as `*`; names only, never values. Group by it with $mcp_param_aliases_used to see how agents spell a parameter.",
+            "examples": ["id", "experimentId", "filters, key, name"],
+        },
+        "$mcp_param_aliases_used": {
+            "label": "MCP parameter aliases used",
+            "description": "Declared parameter aliases the call relied on, as `alias->canonical` (for example `experimentId->id`). Present only when at least one alias was used. Both names come from the tool's own schema. Measures how much traffic the alias layer rescues, and which spellings agents reach for.",
+            "examples": ["experimentId->id", "flagKey->key"],
+        },
+        "$mcp_exec_verb": {
+            "label": "MCP exec verb",
+            "description": "Which exec dispatcher verb the request ran: tools, search, info, schema, call, learn, or `unrecognized` for a verb the server does not accept. Only set in exec mode ($mcp_mode).",
+            "examples": ["call", "info", "unrecognized"],
+        },
+        "$mcp_exec_target_tool": {
+            "label": "MCP exec target tool",
+            "description": "The tool an exec info, schema, or call verb named, when it resolves to a tool in the server's catalog; `unrecognized` otherwise so the caller's own token is never recorded. Links an `info` read to the `call` that follows it.",
+            "examples": ["experiment-get", "unrecognized"],
+        },
+        "$mcp_schema_read_before_call": {
+            "label": "MCP schema read before call",
+            "description": "On an exec-mode `call`, whether the same MCP session read the tool's schema (`info` or `schema`) earlier. Absent in tools mode, where the schema is in the tool listing, and absent when the request carries no MCP session id.",
+            "type": "Boolean",
+            "examples": [True, False],
+        },
+        "$mcp_session_tool_call_index": {
+            "label": "MCP session tool call index",
+            "description": "How many tool calls the MCP session has made so far, including this one; 1 on the first call. Discovery verbs (tools, search, info, schema) are stamped with the count but do not advance it. Absent when the request carries no MCP session id.",
+            "type": "Numeric",
+            "examples": [1, 2, 15],
+        },
+        "$mcp_session_age_ms": {
+            "label": "MCP session age (ms)",
+            "description": "Milliseconds since the MCP session's first observed request. 0 on that first request. Absent when the request carries no MCP session id.",
+            "type": "Numeric",
+            "examples": [0, 4200, 1800000],
+        },
+        "$mcp_server_build": {
+            "label": "MCP server build",
+            "description": "The git commit (12 hex characters) PostHog's MCP server was built from, or `dev` outside a release build. $mcp_server_version stays the protocol-facing version clients display; use this one to tie a change in behaviour to the deploy that shipped it.",
+            "examples": ["b3b941584ba0", "dev"],
+        },
         "$mcp_auth_method": {
             "label": "MCP auth method",
             "description": "Which credential the MCP request authenticated with, derived from the bearer token's prefix: oauth, personal_api_key, id_jag, none, or unknown. Stamped on every event by PostHog's own MCP server. Use it to tell an OAuth connector apart from an API-key connection — for example when a user works around a broken OAuth flow by switching to a personal API key.",

@@ -15,6 +15,7 @@ import {
     createExecTool,
     describeApiValidationError,
     describeExecCommand,
+    describeInputKeys,
     describeValidationError,
     type ExecInnerCallProperties,
     type ExecToolOptions,
@@ -1926,6 +1927,50 @@ describe('exec tool', () => {
             const queryToolsBlock = buildQueryToolsBlock(queryToolInfos)
             expect(commandDescription).not.toContain(domainsBlock)
             expect(commandDescription).toContain(queryToolsBlock)
+        })
+    })
+
+    describe('describeInputKeys', () => {
+        it('lists the top-level keys sorted, without values', () => {
+            const keys = describeInputKeys({ zeta: 'secret-value', alpha: 1, mid: { nested: 'also-secret' } })
+
+            expect(keys).toEqual(['alpha', 'mid', 'zeta'])
+            expect(JSON.stringify(keys)).not.toContain('secret')
+        })
+
+        it('caps the count at 20 and masks a key longer than 64 characters', () => {
+            const wide = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`k${String(i).padStart(2, '0')}`, i]))
+            expect(describeInputKeys(wide)).toHaveLength(20)
+
+            // A 100-character key is not a parameter spelling; it is recorded as masked, not truncated.
+            const long = 'x'.repeat(100)
+            expect(describeInputKeys({ [long]: 1 })).toEqual(['*'])
+        })
+
+        // `params.arguments` is an unvalidated cast until the schema runs; a string or
+        // array there is not an argument object, and walking one builds an entry per
+        // character or element.
+        it('records nothing for input that is not a plain object', () => {
+            expect(describeInputKeys('a'.repeat(1000))).toEqual([])
+            expect(describeInputKeys(['a', 'b'])).toEqual([])
+            expect(describeInputKeys(null)).toEqual([])
+        })
+
+        it('drops excluded keys and masks a key that is not identifier-shaped', () => {
+            expect(
+                describeInputKeys({ context: {}, llm_model: 'x', id: 1 }, new Set(['context', 'llm_model']))
+            ).toEqual(['id'])
+            // Free text in a key name is caller text; the property records names only.
+            expect(describeInputKeys({ 'drop table users; --': 1, ok_key: 2 })).toEqual(['*', 'ok_key'])
+        })
+
+        it('is what describeValidationError records as inputKeys', () => {
+            const schema = z.object({ id: z.string() })
+            const input = { experimentId: 'x', extra: true }
+            const result = schema.safeParse(input, { reportInput: true })
+            expect(result.success).toBe(false)
+
+            expect(describeValidationError(result.error!, input, schema).inputKeys).toEqual(describeInputKeys(input))
         })
     })
 
