@@ -57,6 +57,7 @@ from .serializers import (
     AccessControlMembersResponseSerializer,
     AccessControlObjectRulesResponseSerializer,
     AccessControlPropertyRulesResponseSerializer,
+    AccessControlResolutionAcceptResponseSerializer,
     AccessControlRolesResponseSerializer,
 )
 
@@ -143,6 +144,8 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             return ["access_control:read"]
         if request.method == "PUT" and self.action == "access_control_object_rules":
             return ["access_control:write"]
+        if request.method == "POST" and self.action == "access_control_resolution_accept":
+            return ["access_control:write"]
         parent = getattr(super(), "dangerously_get_required_scopes", None)
         return parent(request, view) if parent is not None else None
 
@@ -215,6 +218,31 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         }
         django_cache.set(cache_key, payload, timeout=300)
         return Response(payload)
+
+    @extend_schema(exclude=True)
+    @action(methods=["POST"], detail=True, url_path="access_control_resolution_accept")
+    def access_control_resolution_accept(self, request: Request, *args, **kwargs) -> Response:
+        """Switch the organization to most-specific access resolution.
+
+        Organization admins only: the switch applies to every project in the organization, so
+        a project admin cannot make it. The change is logged on the organization."""
+        team = cast(Team, self.team)  # type: ignore
+        user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
+        if not user_access_control.is_organization_admin:
+            raise exceptions.PermissionDenied("Only organization admins can accept the new resolution.")
+        # The switch reaches every project, so a credential limited to some projects may not make it
+        if get_authenticator_scoped_team_ids(request.successful_authenticator) is not None:
+            raise exceptions.PermissionDenied(
+                "A credential scoped to specific projects cannot accept the new resolution."
+            )
+
+        organization = team.organization
+        if not organization.uses_most_specific_access_resolution:
+            organization.uses_most_specific_access_resolution = True
+            organization.save(update_fields=["uses_most_specific_access_resolution", "updated_at"])
+        return Response(
+            AccessControlResolutionAcceptResponseSerializer({"uses_most_specific_access_resolution": True}).data
+        )
 
     @extend_schema(
         description="The project's default access. Returns the level that applies to the project and to each "
