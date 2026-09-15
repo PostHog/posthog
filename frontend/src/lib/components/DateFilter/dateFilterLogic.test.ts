@@ -323,6 +323,13 @@ describe('dateFilterLogic', () => {
             })
         })
 
+        it('names the upper bound when only the end of the range is set', async () => {
+            const narrowLogic = buildLogic(null, '2026-07-31')
+            narrowLogic.mount()
+
+            await expectLogic(narrowLogic).toMatchValues({ label: 'Until July 31, 2026' })
+        })
+
         it('still shows the placeholder when no range is set', async () => {
             const narrowLogic = buildLogic(null, null)
             narrowLogic.mount()

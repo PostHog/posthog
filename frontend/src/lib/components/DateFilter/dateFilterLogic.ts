@@ -32,10 +32,10 @@ function labelForRangeOutsideOptions(
         return mappedLabel
     }
     const resolvedFrom = dayjs.isDayjs(dateFrom) ? dateFrom : dateStringToDayJs(dateFrom ?? null)
-    if (!resolvedFrom?.isValid()) {
-        return null
-    }
     const resolvedTo = dayjs.isDayjs(dateTo) ? dateTo : dateStringToDayJs(dateTo ?? null)
+    if (!resolvedFrom?.isValid()) {
+        return resolvedTo?.isValid() ? `Until ${formatDate(resolvedTo)}` : null
+    }
     return resolvedTo?.isValid() ? formatDateRange(resolvedFrom, resolvedTo) : `${formatDate(resolvedFrom)} to now`
 }
 
