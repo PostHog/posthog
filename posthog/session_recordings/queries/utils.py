@@ -209,7 +209,8 @@ def validate_replay_scope_expr(
             {
                 "properties": [
                     f"This filter cannot run on session recordings. ({e}) "
-                    "To filter on an event property, write it as properties.<name>."
+                    "To filter on an event property, write it as properties.<name>. "
+                    "To filter on the event name, add an event filter instead."
                 ]
             },
             # Keeps the HogQL classification that the two handlers on this path already forward.

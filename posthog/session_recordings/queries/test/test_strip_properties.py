@@ -131,6 +131,9 @@ class TestUnexpectedPropertyValidation(BaseTest):
         detail = str(e.value.detail)
         assert "properties" in detail
         assert expected_reason in detail
+        # The event name is a column, not a JSON property, so properties.event would silently
+        # match nothing. The message has to point at the event filter for that case.
+        assert "event filter" in detail
         assert e.value.get_codes() == {"properties": ["hogql_query_error"]}
 
     @parameterized.expand(
