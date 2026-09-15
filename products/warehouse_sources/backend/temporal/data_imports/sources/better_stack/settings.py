@@ -39,6 +39,9 @@ class BetterStackEndpointConfig:
     # Documented default is 50 everywhere; standard v2 collections accept up to 250, the v3
     # incidents endpoint caps at 50.
     page_size: int = 50
+    # JSONPath selecting this endpoint's rows in its response body. Better Stack wraps almost
+    # everything in the JSON:API `data` envelope, but the on-call schedule endpoints do not.
+    data_selector: str = "data"
     should_sync_default: bool = True
     # Set where the resource only exists per parent row (e.g. /monitors/{monitor_id}/sla).
     fanout: Optional[DependentEndpointConfig] = None
@@ -65,6 +68,33 @@ _MONITOR_FANOUT = DependentEndpointConfig(
     resolve_field="id",
     include_from_parent=["id"],
     parent_field_renames={"id": "monitor_id"},
+    child_response_actions=_SKIP_MISSING_PARENT,
+)
+
+_HEARTBEAT_FANOUT = DependentEndpointConfig(
+    parent_name="heartbeats",
+    resolve_param="heartbeat_id",
+    resolve_field="id",
+    include_from_parent=["id"],
+    parent_field_renames={"id": "heartbeat_id"},
+    child_response_actions=_SKIP_MISSING_PARENT,
+)
+
+_ON_CALL_FANOUT = DependentEndpointConfig(
+    parent_name="on_calls",
+    resolve_param="schedule_id",
+    resolve_field="id",
+    include_from_parent=["id"],
+    parent_field_renames={"id": "on_call_id"},
+    child_response_actions=_SKIP_MISSING_PARENT,
+)
+
+_STATUS_PAGE_FANOUT = DependentEndpointConfig(
+    parent_name="status_pages",
+    resolve_param="status_page_id",
+    resolve_field="id",
+    include_from_parent=["id"],
+    parent_field_renames={"id": "status_page_id"},
     child_response_actions=_SKIP_MISSING_PARENT,
 )
 
@@ -140,6 +170,15 @@ BETTER_STACK_ENDPOINTS: dict[str, BetterStackEndpointConfig] = {
         partition_key="created_at",
         page_size=250,
     ),
+    # Uptime percentage and downtime totals per heartbeat — the heartbeat counterpart of
+    # monitor_availability, which the heartbeats table does not carry. One row per heartbeat,
+    # recomputed every sync.
+    "heartbeat_availability": BetterStackEndpointConfig(
+        name="heartbeat_availability",
+        path="/v2/heartbeats/{heartbeat_id}/availability",
+        primary_keys=["heartbeat_id"],
+        fanout=_HEARTBEAT_FANOUT,
+    ),
     "heartbeat_groups": BetterStackEndpointConfig(
         name="heartbeat_groups",
         path="/v2/heartbeat-groups",
@@ -150,15 +189,57 @@ BETTER_STACK_ENDPOINTS: dict[str, BetterStackEndpointConfig] = {
         path="/v2/status-pages",
         page_size=250,
     ),
+    # The monitors and heartbeats each status page publishes, with the public name and
+    # availability shown for them — the join table between a status page and what it reports on.
+    "status_page_resources": BetterStackEndpointConfig(
+        name="status_page_resources",
+        path="/v2/status-pages/{status_page_id}/resources",
+        primary_keys=["status_page_id", "id"],
+        fanout=_STATUS_PAGE_FANOUT,
+    ),
     # Small configuration collections — page size left at the documented default of 50 since
     # their maximums aren't documented.
     "on_calls": BetterStackEndpointConfig(
         name="on_calls",
         path="/v2/on-calls",
     ),
+    # Who was actually on call and when. on_calls only carries the schedule definitions; these
+    # are the resolved shifts, including one-off overrides. The whole list is re-read every sync
+    # rather than merged: editing a schedule rewrites its future shifts, and a merge would keep
+    # rows for shifts that no longer exist.
+    "on_call_events": BetterStackEndpointConfig(
+        name="on_call_events",
+        path="/v2/on-calls/{schedule_id}/events",
+        # Rows arrive under `events`, not the usual `data` envelope, and the endpoint does not
+        # paginate — one request returns every shift of the schedule.
+        data_selector="events",
+        partition_key="starts_at",
+        primary_keys=["on_call_id", "id"],
+        fanout=_ON_CALL_FANOUT,
+    ),
+    # The rotation currently driving a schedule: its length, interval, and the users in it.
+    "on_call_rotations": BetterStackEndpointConfig(
+        name="on_call_rotations",
+        path="/v2/on-calls/{schedule_id}/rotation",
+        # A bare object with no envelope and no id of its own, so the schedule id is the key. A
+        # schedule with no rotation defined answers 404, which the fan-out skips.
+        data_selector="$",
+        primary_keys=["on_call_id"],
+        fanout=_ON_CALL_FANOUT,
+    ),
     "escalation_policies": BetterStackEndpointConfig(
         name="escalation_policies",
         path="/v2/policies",
+    ),
+    # Call-routing severities and their groups, resolving the severity an incident references.
+    # The routes still carry the feature's former name, `urgencies`.
+    "severities": BetterStackEndpointConfig(
+        name="severities",
+        path="/v2/urgencies",
+    ),
+    "severity_groups": BetterStackEndpointConfig(
+        name="severity_groups",
+        path="/v2/urgency-groups",
     ),
     # People lookups resolving the user ids incidents, on-call calendars and escalation policies
     # reference. Both are account-level, so they live on the other host.
