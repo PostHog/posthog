@@ -1421,6 +1421,8 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             // Not attributed as a merge re-key: counterHogflowRekeyWake measures whether waking on a merge
             // is wasted churn, so a first-mapping fill must stay out of that ratio.
             expect(newState.state.currentAction?.rekeyWake).toBeUndefined()
+            // Flagged as a matcher wake instead, which is what keeps the poll-only counter off it.
+            expect(newState.state.currentAction?.anchorWake).toBe(true)
         })
 
         it('scopes a first mapping to jobs with no anchor, leaving anchored waits alone', async () => {
