@@ -26,7 +26,9 @@ from posthog.schema import (
     LogEntryPropertyFilter,
     LogPropertyFilter,
     LogPropertyFilterType,
+    MCPFailureGroupsQuery,
     MCPModelBreakdownQuery,
+    MCPOverviewSummaryQuery,
     MetricPropertyFilter,
     PersonMetadataPropertyFilter,
     PersonPropertyFilter,
@@ -287,10 +289,17 @@ class TestPropertyFilterDiscriminator(SimpleTestCase):
         assert isinstance(query.properties, list)
         assert type(query.properties[0]) is EventPropertyFilter
 
-    def test_mcp_model_breakdown_properties_use_the_discriminated_filter(self) -> None:
-        query = MCPModelBreakdownQuery.model_validate(
+    @parameterized.expand(
+        [
+            (MCPModelBreakdownQuery, "MCPModelBreakdownQuery"),
+            (MCPOverviewSummaryQuery, "MCPOverviewSummaryQuery"),
+            (MCPFailureGroupsQuery, "MCPFailureGroupsQuery"),
+        ]
+    )
+    def test_mcp_analytics_query_properties_use_the_discriminated_filter(self, query_cls: type, kind: str) -> None:
+        query = query_cls.model_validate(
             {
-                "kind": "MCPModelBreakdownQuery",
+                "kind": kind,
                 "properties": [{"type": "event", "key": "$mcp_llm_model", "operator": "exact"}],
             }
         )

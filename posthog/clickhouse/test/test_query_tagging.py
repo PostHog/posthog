@@ -590,7 +590,14 @@ class TestAddFallbackQueryTags(BaseTest):
         assert tags.product == Product.PRODUCT_ANALYTICS
         assert tags.feature is None
 
-    @parameterized.expand([("MCPMissingCapabilitiesQuery",), ("MCPModelBreakdownQuery",)])
+    @parameterized.expand(
+        [
+            ("MCPMissingCapabilitiesQuery",),
+            ("MCPModelBreakdownQuery",),
+            ("MCPOverviewSummaryQuery",),
+            ("MCPFailureGroupsQuery",),
+        ]
+    )
     def test_mcp_analytics_kind_attributes_to_mcp_analytics(self, query_type: str) -> None:
         tags = QueryTags(query_type=query_type)
         add_fallback_query_tags(tags)

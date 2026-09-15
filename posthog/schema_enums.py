@@ -3143,6 +3143,12 @@ class LogsSparklineRankBy(StrEnum):
     BYTES = "bytes"
 
 
+class MCPCallerKind(StrEnum):
+    PEOPLE = "people"
+    AUTOMATIONS = "automations"
+    ALL = "all"
+
+
 class NeighborDirection(StrEnum):
     BEFORE = "before"
     AFTER = "after"
@@ -3541,6 +3547,8 @@ class NodeKind(StrEnum):
     MCP_TOOL_SAMPLE_INTENTS_QUERY = "MCPToolSampleIntentsQuery"
     MCP_TOOL_NEIGHBORS_QUERY = "MCPToolNeighborsQuery"
     MCP_MISSING_CAPABILITIES_QUERY = "MCPMissingCapabilitiesQuery"
+    MCP_OVERVIEW_SUMMARY_QUERY = "MCPOverviewSummaryQuery"
+    MCP_FAILURE_GROUPS_QUERY = "MCPFailureGroupsQuery"
     PROPERTY_VALUES_QUERY = "PropertyValuesQuery"
 
 

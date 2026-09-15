@@ -7,7 +7,7 @@ its harness-label SQL.
 
 import json
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import posthoganalytics
 
@@ -45,6 +45,31 @@ EFFECTIVE_DESCRIPTION_SQL = (
 )
 # Marker the posthog-node MCP analytics SDK stamps on the events it sends.
 NEW_SDK_SOURCE = "posthog_mcp_analytics"
+
+MCPCallerKind = Literal["people", "automations", "all"]
+
+# $mcp_scope_preset is stamped only by PostHog's own hosted MCP server, for its automated run
+# types (scout, sandbox, research, implementation); "user" or an absent value means a person
+# drove the call. A customer's own server never sets this property, so unfiltered customer
+# traffic is always "people". This predicate separates PostHog's own dogfood traffic, not
+# anyone else's.
+_PEOPLE_SQL = "coalesce(toString(properties.$mcp_scope_preset), '') IN ('', 'user')"
+
+
+def caller_kind_expr(kind: "str | None") -> ast.Expr | None:
+    """A predicate scoping $mcp_tool_call events to one caller segment, or None for no filter.
+
+    `kind` takes any of `MCPCallerKind`'s values, typed as plain `str` because callers pass both
+    the generated `schema.MCPCallerKind` enum (itself a str subclass) and, from the intent-digest
+    endpoint, a raw request string. `kind` is never string-interpolated: "people"/"automations"
+    compile to the fixed `_PEOPLE_SQL` predicate or its negation, and any other value (including
+    None and "all") applies no filter at all, keeping every existing caller's results unchanged.
+    """
+    if kind == "people":
+        return parse_expr(_PEOPLE_SQL)
+    if kind == "automations":
+        return parse_expr(f"NOT ({_PEOPLE_SQL})")
+    return None
 
 
 def tool_scope_exprs(tool: str) -> list[ast.Expr]:
