@@ -1496,6 +1496,13 @@ def page_target_organization(request: HttpRequest, user: User) -> Optional[Organ
     return user.current_organization
 
 
+def switch_current_organization(user: User, organization: Organization) -> None:
+    """Point the user at this organization, keeping the current team consistent with it."""
+    user.current_organization = organization
+    user.current_team = user.teams.filter(organization=organization).order_by("id").first()
+    user.save(update_fields=["current_organization", "current_team"])
+
+
 class ActiveOrganizationMiddleware:
     """Keep members out of an organization that is deactivated or pending deletion.
 
@@ -1532,6 +1539,12 @@ class ActiveOrganizationMiddleware:
 
         if page_is_allowed(block, request.path):
             return self.get_response(request)
+
+        # The block page names no organization, so the request after this redirect resolves the
+        # current one and would judge a different organization. `AutoProjectMiddleware` makes the
+        # same switch, but runs after this redirect.
+        if organization.id != user.current_organization_id:
+            switch_current_organization(user, organization)
 
         return redirect(BLOCK_PAGES[block])
 

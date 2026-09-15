@@ -39,6 +39,7 @@ from posthog.models import InviteExpiredException, Organization, OrganizationDom
 from posthog.models.identity_provider_config import ConfigScope, IdentityProviderConfig
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.organization_access import block_invite_detail, organization_block
 from posthog.permissions import CanCreateOrg
 from posthog.rate_limit import SignupEmailPrecheckThrottle, SignupIPThrottle, SignupResendInviteThrottle
 from posthog.utils import get_can_create_org, get_trusted_client_ip, is_relative_url
@@ -810,10 +811,15 @@ class TeamInviteSurrogate:
         team = Team.objects.select_related("organization").get(signup_token=signup_token)
         self.organization = team.organization
 
-    def validate(*args, **kwargs) -> bool:
+    def validate(self, *args, **kwargs) -> bool:
+        # The `OrganizationInvite` path gets this check from its own `validate`.
+        block = organization_block(self.organization)
+        if block is not None:
+            raise exceptions.ValidationError(block_invite_detail(block), code=block.value)
         return True
 
     def use(self, user: Any, *args, **kwargs) -> None:
+        self.validate()
         user.join(organization=self.organization)
 
 
@@ -853,7 +859,11 @@ def process_social_invite_signup(
             return None
         # Legacy team signup tokens bind to no email and never expire, so this branch must run the
         # domain gate itself — real invites get it upstream via their resolved organization.
+        # Refusing the block here too keeps SSO on its error redirect, rather than surfacing the
+        # exception `TeamInviteSurrogate.validate` raises.
         if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(email, invite.organization):
+            return None
+        if organization_block(invite.organization) is not None:
             return None
 
     # Capture before invite.use() — use() deletes the invite row, so the in-memory boolean is

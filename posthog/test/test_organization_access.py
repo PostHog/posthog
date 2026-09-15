@@ -44,6 +44,12 @@ class TestPageIsAllowed(SimpleTestCase):
                 "/signup/0190a1b2-c3d4-0000-0000-000000000001",
                 True,
             ),
+            (
+                "deactivated_keeps_the_stripe_return",
+                OrganizationBlock.DEACTIVATED,
+                "/billing/authorization_status",
+                True,
+            ),
             ("deactivated_drops_the_app", OrganizationBlock.DEACTIVATED, "/dashboard", False),
             (
                 "pending_deletion_keeps_its_own_page",
@@ -52,6 +58,12 @@ class TestPageIsAllowed(SimpleTestCase):
                 True,
             ),
             ("pending_deletion_drops_billing", OrganizationBlock.PENDING_DELETION, "/organization/billing", False),
+            (
+                "pending_deletion_drops_the_stripe_return",
+                OrganizationBlock.PENDING_DELETION,
+                "/billing/authorization_status",
+                False,
+            ),
             (
                 "pending_deletion_keeps_invites",
                 OrganizationBlock.PENDING_DELETION,

@@ -33,7 +33,7 @@ function blockPage(block: OrganizationBlock): string {
 const ORG_INDEPENDENT_PAGES: string[] = ['/signup/']
 const EXTRA_ALLOWED_PAGES: Record<OrganizationBlock, string[]> = {
     pending_deletion: [],
-    deactivated: ['/organization/billing'],
+    deactivated: ['/organization/billing', '/billing/authorization_status'],
 }
 
 function organizationBlock(organization: OrganizationType | null): OrganizationBlock | null {

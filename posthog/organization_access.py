@@ -35,9 +35,11 @@ ORG_INDEPENDENT_PAGES: tuple[str, ...] = ("/signup/",)
 # What a blocked organization's members keep, beyond the page that explains the block.
 # Deactivation keeps billing, because settling the balance is how a member lifts it. No payment
 # restores an organization that is pending deletion, so that state keeps nothing.
+# `/billing/authorization_status` is the Stripe return route for a payment method that needs a
+# redirect. Without it the payment lands on the block page and never confirms.
 EXTRA_ALLOWED_PAGES: dict[OrganizationBlock, tuple[str, ...]] = {
     OrganizationBlock.PENDING_DELETION: (),
-    OrganizationBlock.DEACTIVATED: ("/organization/billing",),
+    OrganizationBlock.DEACTIVATED: ("/organization/billing", "/billing/authorization_status"),
 }
 
 

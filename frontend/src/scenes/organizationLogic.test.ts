@@ -139,6 +139,18 @@ describe('organizationLogic', () => {
                 '/signup/0190a1b2-c3d4-0000-0000-000000000001',
                 '/signup/0190a1b2-c3d4-0000-0000-000000000001',
             ],
+            [
+                'deactivated keeps the Stripe return route',
+                { is_active: false },
+                '/billing/authorization_status',
+                '/billing/authorization_status',
+            ],
+            [
+                'pending deletion drops the Stripe return route',
+                { is_pending_deletion: true },
+                '/billing/authorization_status',
+                urls.organizationPendingDeletion(),
+            ],
             ['deactivated drops the app', { is_active: false }, '/dashboard', urls.organizationDeactivated()],
             [
                 'pending deletion drops billing',

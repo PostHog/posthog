@@ -1851,14 +1851,18 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
         response = self.client.get(f"/project/{active_team.pk}/dashboard")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_link_into_a_deactivated_organization_still_redirects(self):
+    def test_link_into_a_deactivated_organization_lands_on_its_block_page(self):
         deactivated_org = Organization.objects.create(name="Deactivated Org", is_active=False)
         deactivated_team = Team.objects.create(organization=deactivated_org, name="Deactivated Team")
         self.user.organizations.add(deactivated_org)
 
-        response = self.client.get(f"/project/{deactivated_team.pk}/dashboard")
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertEqual(response.headers["Location"], "/organization-deactivated")
+        # A second request judged against the healthy current organization bounces to "/".
+        response = self.client.get(f"/project/{deactivated_team.pk}/dashboard", follow=True)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.redirect_chain[-1], ("/organization-deactivated", status.HTTP_302_FOUND))
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.current_organization, deactivated_org)
 
 
 class TestActivityLoggingMiddleware(APIBaseTest):

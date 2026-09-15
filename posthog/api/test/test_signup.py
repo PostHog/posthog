@@ -1368,6 +1368,26 @@ class TestSignupAPI(APIBaseTest):
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
+    def test_legacy_team_signup_token_refuses_a_blocked_organization(self, mock_sso_providers, mock_request):
+        # `TeamInviteSurrogate` calls `user.join()` directly, never reaching the invite check.
+        mock_sso_providers.return_value = {"google-oauth2": True}
+        with self.is_cloud(True):
+            blocked_org = Organization.objects.create(name="Blocked Org", is_active=False)
+            blocked_team = Team.objects.create(organization=blocked_org, name="Blocked Team")
+            blocked_team.signup_token = "blocked-signup-token"
+            blocked_team.save()
+
+            self._complete_sso_with_invite_id(mock_request, "blocked-signup-token", "outsider@gmail.com")
+
+            self.assertFalse(
+                OrganizationMembership.objects.filter(
+                    organization=blocked_org, user__email="outsider@gmail.com"
+                ).exists()
+            )
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
     def test_legacy_team_signup_token_respects_domain_enforcement(self, mock_sso_providers, mock_request):
         # TeamInviteSurrogate joins with no email binding and no expiry, so the surrogate branch runs
         # the domain gate itself — otherwise an old signup link silently voids the setting.
