@@ -46,15 +46,22 @@ class TestDashboardPatchOpenApiContract:
         # but tiles is a SerializerMethodField, so nothing infers the nested tile schema. Without this field
         # the dashboard-update MCP tool cannot size or place a tile at all.
         tiles_field = PatchedDashboardOpenApiSerializer().fields["tiles"]
-        tile_fields = tiles_field.child.fields
+        assert isinstance(tiles_field, serializers.ListSerializer)
+        tile_serializer = tiles_field.child
+        assert isinstance(tile_serializer, serializers.Serializer)
+        tile_fields = tile_serializer.fields
         assert "layouts" in tile_fields, (
             "DashboardPatchTileOpenApiSerializer must document 'layouts' so the dashboard-update MCP tool can "
             f"set a tile's grid position and size. Got: {sorted(tile_fields)}."
         )
-        breakpoints = tile_fields["layouts"].fields
+        layouts_field = tile_fields["layouts"]
+        assert isinstance(layouts_field, serializers.Serializer)
+        breakpoints = layouts_field.fields
         assert {"sm", "xs"}.issubset(breakpoints), f"Tile layouts must expose sm/xs. Got: {sorted(breakpoints)}."
-        assert {"x", "y", "w", "h"}.issubset(breakpoints["sm"].fields), (
-            f"Tile layout box must expose x/y/w/h. Got: {sorted(breakpoints['sm'].fields)}."
+        sm_field = breakpoints["sm"]
+        assert isinstance(sm_field, serializers.Serializer)
+        assert {"x", "y", "w", "h"}.issubset(sm_field.fields), (
+            f"Tile layout box must expose x/y/w/h. Got: {sorted(sm_field.fields)}."
         )
 
     def test_filters_documented_as_writable_patch_field(self) -> None:

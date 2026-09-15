@@ -58,6 +58,7 @@ Prefer reusing existing insights over recreating them.
   `three_column` when the user asks for something more compact.
 - Tile sizes: to size or move one tile rather than the whole dashboard, send `tiles` through `dashboard-update` with
   each tile's `id` and a `layouts` object. The desktop grid is 12 columns, so `layouts.sm.w` of 4 gives three per row.
+  Boxes are stored as sent and overlaps are not resolved, so plan the grid before you send it.
 - Verify with `dashboard-insights-run` to confirm the tiles return data, then summarize what you built and invite the
   user to refine it.
 

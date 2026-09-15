@@ -654,7 +654,7 @@ export interface _TileLayoutBoxOpenApiApi {
 export interface _TileLayoutsOpenApiApi {
     /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
     sm?: _TileLayoutBoxOpenApiApi
-    /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
+    /** Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders. */
     xs?: _TileLayoutBoxOpenApiApi
 }
 
@@ -1151,7 +1151,7 @@ export interface DashboardPatchWidgetOpenApiApi {
 export interface DashboardPatchTileOpenApiApi {
     /** Dashboard tile ID to update. */
     id?: number
-    /** Grid position and size per breakpoint. Works for every tile type, including insight tiles. Tiles the grid finds overlapping are pushed apart, so send every tile you want placed in the same request. */
+    /** Grid position and size per breakpoint. Works for every tile type, including insight tiles. Boxes are stored as sent and overlaps are not resolved, so send sm boxes that do not overlap, and include every tile you move in the same request. */
     layouts?: _TileLayoutsOpenApiApi
     /** Nested widget row updates. */
     widget?: DashboardPatchWidgetOpenApiApi
