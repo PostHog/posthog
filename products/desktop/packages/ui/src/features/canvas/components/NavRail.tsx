@@ -19,6 +19,7 @@ import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useOpenBrowserTab } from "@posthog/ui/features/browser-tabs/useOpenBrowserTab";
 import { useSpacesTabs } from "@posthog/ui/features/browser-tabs/useSpacesTabs";
 import { ActivityHoverCard } from "@posthog/ui/features/canvas/components/ActivityHoverCard";
+import { ChannelsFab } from "@posthog/ui/features/canvas/components/ChannelsFab";
 import {
   pickRailDestination,
   type RailCounts,
@@ -29,6 +30,7 @@ import { useProjectTaskFeeds } from "@posthog/ui/features/canvas/hooks/useProjec
 import { useRailPane } from "@posthog/ui/features/canvas/hooks/useRailSurface";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
+import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import {
   formatHotkey,
   SHORTCUTS,
@@ -228,6 +230,9 @@ function NavRailImpl() {
   // light a destination the screen isn't on.
   const railPane = useRailPane();
   const toggleCommandMenu = useCommandMenuStore((s) => s.toggle);
+  // The create button files into the space you are in, the same as the
+  // sidebar's own button and the new-task shortcut.
+  const currentChannelId = useCurrentChannelStore((s) => s.currentChannelId);
 
   const pick =
     (destination: RailDestination): MouseEventHandler<HTMLButtonElement> =>
@@ -312,6 +317,13 @@ function NavRailImpl() {
         {topDestinations.map(renderDestination)}
         <div className="mt-auto flex flex-col items-center gap-1.5">
           {bottomDestinations.map(renderDestination)}
+          {/* The rail is the one column every destination keeps, sidebar or
+              not, so the create button lives here to be reachable from all
+              of them. */}
+          <ChannelsFab
+            channelId={currentChannelId ?? undefined}
+            placement="rail"
+          />
           <NavIcon
             icon={<MagnifyingGlass size={16} />}
             label="Search"
