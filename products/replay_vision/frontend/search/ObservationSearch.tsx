@@ -37,42 +37,6 @@ function exampleQueries(scanner: ReplayScanner | null): string[] {
     }
 }
 
-function SuggestedSearches({
-    queries,
-    loading,
-    onPick,
-}: {
-    queries: string[]
-    loading: boolean
-    onPick: (query: string) => void
-}): JSX.Element {
-    return (
-        <div className="rounded bg-surface-secondary px-3 py-2 flex flex-col gap-2 min-w-0 min-h-16">
-            <span className="text-xs text-secondary">Suggested searches</span>
-            {loading ? (
-                <Spinner className="self-center" />
-            ) : queries.length === 0 ? (
-                <span className="text-xs text-tertiary">Themes from what your scanners observed will appear here.</span>
-            ) : (
-                <div className="flex flex-wrap gap-1">
-                    {queries.map((query) => (
-                        <LemonButton
-                            key={query}
-                            type="secondary"
-                            size="xsmall"
-                            className="max-w-full"
-                            onClick={() => onPick(query)}
-                            data-attr="vision-search-example"
-                        >
-                            <span className="truncate">{query}</span>
-                        </LemonButton>
-                    ))}
-                </div>
-            )}
-        </div>
-    )
-}
-
 export function ObservationSearch({ className }: { className?: string }): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const { user } = useValues(userLogic)
@@ -94,7 +58,6 @@ export function ObservationSearch({ className }: { className?: string }): JSX.El
     const { setQuery, setScannerId, search, clearSearch } = useActions(logic)
 
     const [recentsOpen, setRecentsOpen] = useState(false)
-    const [highlighted, setHighlighted] = useState<number | null>(null)
 
     const selectedScanner = (scanners.find((scanner) => scanner.id === scannerId) as ReplayScanner | undefined) ?? null
     const suggestions = suggestedQueries.length > 0 ? suggestedQueries : exampleQueries(selectedScanner)
@@ -103,7 +66,6 @@ export function ObservationSearch({ className }: { className?: string }): JSX.El
     const showRecents = recentsOpen && dataProcessingAccepted && matchingRecents.length > 0
     const runQuery = (value: string): void => {
         setRecentsOpen(false)
-        setHighlighted(null)
         setQuery(value)
         search()
     }
@@ -113,20 +75,11 @@ export function ObservationSearch({ className }: { className?: string }): JSX.El
         if (event.nativeEvent.isComposing) {
             return
         }
-        if (showRecents && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
-            event.preventDefault()
-            const step = event.key === 'ArrowDown' ? 1 : -1
-            setHighlighted(((highlighted ?? -1) + step + matchingRecents.length) % matchingRecents.length)
-        } else if (event.key === 'Escape') {
+        if (event.key === 'Escape') {
             setRecentsOpen(false)
-            setHighlighted(null)
-        } else if (event.key === 'Enter') {
-            if (showRecents && highlighted !== null) {
-                runQuery(matchingRecents[highlighted])
-            } else if (canSubmit) {
-                setRecentsOpen(false)
-                search()
-            }
+        } else if (event.key === 'Enter' && canSubmit) {
+            setRecentsOpen(false)
+            search()
         }
     }
 
@@ -149,15 +102,12 @@ export function ObservationSearch({ className }: { className?: string }): JSX.El
                         padded={false}
                         overlay={
                             <ul className="py-1" data-attr="vision-search-recent-list">
-                                {matchingRecents.map((recent, index) => (
+                                {matchingRecents.map((recent) => (
                                     <li key={recent}>
                                         {/* Mouse down would blur the input and close the list first. */}
                                         <button
                                             type="button"
-                                            className={clsx(
-                                                'w-full text-left px-3 py-1.5 text-sm truncate hover:bg-fill-button-tertiary-hover',
-                                                index === highlighted && 'bg-fill-button-tertiary-hover'
-                                            )}
+                                            className="w-full text-left px-3 py-1.5 text-sm truncate hover:bg-fill-button-tertiary-hover"
                                             onMouseDown={(event) => event.preventDefault()}
                                             onClick={() => runQuery(recent)}
                                             data-attr="vision-search-recent"
@@ -177,7 +127,6 @@ export function ObservationSearch({ className }: { className?: string }): JSX.El
                                 onChange={(event) => {
                                     setQuery(event.target.value)
                                     setRecentsOpen(true)
-                                    setHighlighted(null)
                                 }}
                                 onFocus={() => setRecentsOpen(true)}
                                 onBlur={() => setRecentsOpen(false)}
@@ -224,7 +173,31 @@ export function ObservationSearch({ className }: { className?: string }): JSX.El
                     )}
                 </div>
                 {idle && (
-                    <SuggestedSearches queries={suggestions} loading={suggestedQueriesLoading} onPick={runQuery} />
+                    <div className="rounded bg-surface-secondary px-3 py-2 flex flex-col gap-2 min-w-0 min-h-16">
+                        <span className="text-xs text-secondary">Suggested searches</span>
+                        {suggestedQueriesLoading ? (
+                            <Spinner className="self-center" />
+                        ) : suggestions.length === 0 ? (
+                            <span className="text-xs text-tertiary">
+                                Themes from what your scanners observed will appear here.
+                            </span>
+                        ) : (
+                            <div className="flex flex-wrap gap-1">
+                                {suggestions.map((suggestion) => (
+                                    <LemonButton
+                                        key={suggestion}
+                                        type="secondary"
+                                        size="xsmall"
+                                        className="max-w-full"
+                                        onClick={() => runQuery(suggestion)}
+                                        data-attr="vision-search-example"
+                                    >
+                                        <span className="truncate">{suggestion}</span>
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 )}
             </div>
             {results === null && searching && (

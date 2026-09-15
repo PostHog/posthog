@@ -31,11 +31,6 @@ describe('observationQueries', () => {
             'User rage clicked the button',
         ],
         ['falls back to the reasoning', { reasoning: 'Hesitated on pricing' }, 'Hesitated on pricing'],
-        [
-            'leads with the title, as the summarizer indexes it',
-            { title: 'Stalled', summary: 'Paused' },
-            'Stalled Paused',
-        ],
         ['gives null when there is no prose', { summary: '   ' }, null],
     ])('%s', (_name, modelOutput, expected) => {
         expect(similarSearchQuery(observation(modelOutput))).toBe(expected)

@@ -1,4 +1,4 @@
-import { type Segment, citedMarkdown, citedTextToPlainText, parseCitedSegments, stripCitations } from './citations'
+import { type Segment, citedMarkdown, citedTextToPlainText, parseCitedSegments } from './citations'
 
 describe('parseCitedSegments', () => {
     const text = (value: string): Segment => ({ kind: 'text', value })
@@ -144,14 +144,5 @@ describe('citedMarkdown', () => {
         },
     ])('$name', ({ text, segments, expected }) => {
         expect(citedMarkdown(text, segments)).toBe(expected)
-    })
-})
-
-describe('stripCitations', () => {
-    it.each([
-        ['a single marker, with the space before it', 'Clicked save (t 12) twice', 'Clicked save twice'],
-        ['a range the backend never parsed', 'Hovered the table (t 34-42) then left', 'Hovered the table then left'],
-    ])('strips %s', (_name, text, expected) => {
-        expect(stripCitations(text)).toBe(expected)
     })
 })

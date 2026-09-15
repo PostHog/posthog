@@ -9,6 +9,7 @@ import { Link } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 import { PaginationControl } from 'lib/lemon-ui/PaginationControl'
 import { colonDelimitedDuration } from 'lib/utils/durations'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { ObservationResultSummary } from '../components/ObservationCard'
@@ -21,13 +22,6 @@ import { hasScannerPage, scannerLabel } from '../utils/observation'
 import { firstCitedTimestampMs } from './observationQueries'
 import { type ObservationSearchLogicProps, SEARCH_PAGE_SIZE, observationSearchLogic } from './observationSearchLogic'
 import { snippetSegments } from './snippetSegments'
-
-function countLabel(count: number, truncated: boolean): string {
-    if (truncated) {
-        return `Showing the top ${count === 1 ? 'match' : `${count} matches`}, best first`
-    }
-    return `${count === 1 ? '1 match' : `${count} matches`}, best first`
-}
 
 // The global SessionPlayerModal opens from the hash and seeks from `t`, so the recording plays over the results.
 function watchMomentUrl(
@@ -42,23 +36,6 @@ function watchMomentUrl(
     ).url
 }
 
-function SubjectLabel({ observation }: { observation: ReplayObservationApi }): JSX.Element {
-    const email = observation.recording_subject_email
-    const className = clsx('text-xs truncate', !email && 'font-mono')
-    if (!observation.distinct_id) {
-        return <span className={clsx(className, 'text-muted')}>{email ?? observation.session_id}</span>
-    }
-    return (
-        <Link
-            to={urls.personByDistinctId(observation.distinct_id)}
-            className={className}
-            data-attr="vision-search-result-person"
-        >
-            {email ?? observation.distinct_id}
-        </Link>
-    )
-}
-
 function SearchResultRow({
     result,
     searchedQuery,
@@ -69,6 +46,8 @@ function SearchResultRow({
     const routerValues = useValues(router)
     const observation = result.observation
     const snapshot = observation.scanner_snapshot
+    const email = observation.recording_subject_email
+    const subjectClass = clsx('text-xs truncate', !email && 'font-mono')
     const citedMs = firstCitedTimestampMs(observation)
     const snippet = parseCitedSegments(result.matched_content, undefined)
     return (
@@ -89,7 +68,17 @@ function SearchResultRow({
                     <span className="font-semibold text-sm truncate">{scannerLabel(observation)}</span>
                 )}
                 {snapshot && <ScannerOutputBadge scannerType={snapshot.scanner_type} size="small" />}
-                <SubjectLabel observation={observation} />
+                {observation.distinct_id ? (
+                    <Link
+                        to={urls.personByDistinctId(observation.distinct_id)}
+                        className={subjectClass}
+                        data-attr="vision-search-result-person"
+                    >
+                        {email ?? observation.distinct_id}
+                    </Link>
+                ) : (
+                    <span className={clsx(subjectClass, 'text-muted')}>{email ?? observation.session_id}</span>
+                )}
                 <span className="ml-auto shrink-0 text-xs text-muted">
                     <TZLabel time={observation.created_at} />
                 </span>
@@ -172,7 +161,10 @@ export function SearchResults(logicProps: ObservationSearchLogicProps): JSX.Elem
         topMatchDistanceCutoff === null ? null : result.distance <= topMatchDistanceCutoff ? 'top' : 'other'
     return (
         <div className={clsx('flex flex-col gap-3', searching && 'opacity-50 pointer-events-none')}>
-            <div className="text-xs text-secondary">{countLabel(results.length, truncated)}</div>
+            <div className="text-xs text-secondary">
+                {truncated ? 'Showing the top ' : ''}
+                {pluralize(results.length, 'match', 'matches')}, best first
+            </div>
             <div className="flex flex-col border border-secondary rounded overflow-hidden bg-surface-primary">
                 {pageResults.map((result, index) => {
                     const tier = tierOf(result)

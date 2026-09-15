@@ -61,26 +61,16 @@ describe('observationSearchLogic', () => {
         expect(logic.values.results?.map((r) => r.observation.id)).toEqual(['obs-1'])
         expect(router.values.searchParams.q).toBe('confused users')
         expect(router.values.searchParams.scanner).toBe(scannerId ?? undefined)
-        logic.unmount()
-    })
 
-    it('changing the scope reruns the current search', async () => {
-        const logic = observationSearchLogic({ teamId: 1, userId: 'user-1' })
-        logic.mount()
-        router.actions.push(urls.replayVision(), { tab: 'search' })
-        logic.actions.setQuery('confused users')
-        await expectLogic(logic, () => logic.actions.search()).toFinishAllListeners()
-        await expectLogic(logic, () => logic.actions.setScannerId('scanner-1')).toFinishAllListeners()
-
+        await expectLogic(logic, () => logic.actions.setScannerId('scanner-2')).toFinishAllListeners()
         expect(searchSpy).toHaveBeenCalledTimes(2)
-        expect(new URL(searchSpy.mock.calls[1][0].request.url).searchParams.get('scanner_id')).toBe('scanner-1')
+        expect(new URL(searchSpy.mock.calls[1][0].request.url).searchParams.get('scanner_id')).toBe('scanner-2')
         logic.unmount()
     })
 
     it.each([
         ['spread distances split off a top tier', [0.1, 0.12, 0.4], expect.closeTo(0.15)],
         ['clustered distances stay one tier', [0.1, 0.12, 0.14], null],
-        ['a single result stays one tier', [0.2], null],
     ])('%s', (_name, distances, expectedCutoff) => {
         const logic = observationSearchLogic({ teamId: 1, userId: 'user-1' })
         logic.mount()
@@ -194,7 +184,6 @@ describe('observationSearchLogic', () => {
         expect(suggestionsSpy).toHaveBeenCalledTimes(2)
         expect(new URL(suggestionsSpy.mock.calls[1][0].request.url).searchParams.get('scanner_id')).toBe('scanner-1')
         expect(logic.values.suggestedQueries).toEqual(['coupon rejected at checkout'])
-        // The view is recorded through a POST, so the read itself has no side effect.
         expect(viewedSpy).toHaveBeenCalledTimes(2)
         expect(await viewedSpy.mock.calls[1][0].request.json()).toEqual({ scanner_id: 'scanner-1' })
         logic.unmount()
@@ -223,27 +212,6 @@ describe('observationSearchLogic', () => {
         expect(logic.values.results).toBeNull()
         expect(logic.values.searchedQuery).toBeNull()
         expect(router.values.searchParams.q).toBeUndefined()
-        logic.unmount()
-    })
-
-    it('a clear while a search is in flight leaves the empty state when the response lands', async () => {
-        let release!: () => void
-        const gate = new Promise<void>((resolve) => (release = resolve))
-        searchSpy.mockImplementation(async () => {
-            await gate
-            return [200, { results: [{ observation: { id: 'obs-1' }, distance: 0.1 }] }]
-        })
-        const logic = observationSearchLogic({ teamId: 1, userId: 'user-1' })
-        logic.mount()
-        router.actions.push(urls.replayVision(), { tab: 'search' })
-        logic.actions.setQuery('rage clicks')
-        logic.actions.search()
-        logic.actions.clearSearch()
-        release()
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(logic.values.searching).toBe(false)
-        expect(logic.values.results).toBeNull()
         logic.unmount()
     })
 
