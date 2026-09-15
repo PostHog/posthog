@@ -1687,6 +1687,65 @@ async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_team_fallback_keeps_the_grant_a_canonical_scout_declares(ateam):
+    # A pristine canonical scout has no author to act as, so every one of its runs takes the team
+    # fallback. Withholding its own declared grant there (`scout-write-scopes`, approved by PostHog
+    # when the skill shipped) would withhold it on every run; a person's grant on the same config
+    # is still withheld, because the fallback member never approved that one.
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+    captured: dict = {}
+
+    def _seed_config() -> None:
+        SignalScoutConfig.objects.unscoped().create(
+            team_id=ateam.id,
+            skill_name="signals-scout-workflows",
+            write_scopes=["dashboard:write", "hog_flow_proposal:write"],
+        )
+
+    await database_sync_to_async(_seed_config, thread_sensitive=False)()
+
+    async def _capture_start(*args, on_task_run_created=None, **kwargs):
+        captured.update(kwargs)
+        if on_task_run_created is not None:
+            await on_task_run_created(session.task_run)
+        return session, result
+
+    canonical = LoadedSkill(
+        name="signals-scout-workflows",
+        version=1,
+        body="watch",
+        description="d",
+        allowed_tools=[],
+        files=[],
+        skill_id="skill-1",
+        origin="canonical",
+        authors=[],
+    )
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
+        patch("products.signals.backend.scout_harness.runner.load_skill_for_run", return_value=canonical),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch("products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team", return_value=42),
+        patch("products.signals.backend.scout_harness.runner.resolve_scout_acting_user_id", return_value=None),
+    ):
+        await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-workflows")
+
+    assert captured["context"].posthog_mcp_scopes == {
+        "preset": "signals_scout",
+        "extra_write_scopes": ["hog_flow_proposal:write"],
+    }
+    metadata = await database_sync_to_async(
+        lambda: SignalScoutRun.objects.unscoped().filter(team_id=ateam.id).latest("created_at").metadata or {},
+        thread_sensitive=False,
+    )()
+    assert metadata.get("write_scopes") == ["hog_flow_proposal:write"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     "names,expected_marker",
     [
