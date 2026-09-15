@@ -33,10 +33,6 @@ OIDC_REQUEST_DURATION = Histogram(
 )
 
 
-class OIDCResponseTooLargeError(RequestException):
-    pass
-
-
 OIDC_FETCH_TIMEOUT_SECONDS = 10
 
 
@@ -188,8 +184,6 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
             return "timeout"
         if isinstance(error, HTTPError):
             return "http_error"
-        if isinstance(error, OIDCResponseTooLargeError):
-            return "response_too_large"
         return "request_error"
 
     def request(self, url: str, method: str = "GET", *args: Any, **kwargs: Any) -> Response:
