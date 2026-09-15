@@ -214,6 +214,32 @@ class TestComputeTableStatisticsSync:
         assert result["status"] == "done"
         assert mock_upsert.call_count == 2
 
+    def test_recovers_from_deadlock_on_team_lookup(self) -> None:
+        # The Team/Organization join at the top of the activity can lose a Postgres deadlock race
+        # against an unrelated writer of either table. It's a plain read, so retrying it must
+        # recover instead of failing the whole activity (and reaching error tracking) over a race
+        # that clears on its own.
+        team = self._team()
+        schema, table, _ = self._schema_table_job(team)
+        add_actions = pa.table({"num_records": [1], "null_count.amount": [0], "min.amount": [1], "max.amount": [1]})
+        mock_manager = MagicMock()
+        mock_manager.select_related.return_value.only.return_value.get.side_effect = [
+            OperationalError("deadlock detected"),
+            team,
+        ]
+        with (
+            patch.object(comp.Team, "objects", mock_manager),
+            patch.object(comp, "statistics_enabled", return_value=True),
+            patch(DELTA_HELPER_PATH, return_value=self._mock_delta(add_actions)),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry.time.sleep"
+            ),
+        ):
+            result = compute_table_statistics_sync(team.id, schema.id)
+
+        assert result["status"] == "done"
+        assert mock_manager.select_related.return_value.only.return_value.get.call_count == 2
+
     def test_job_reuses_prefetched_schema_to_avoid_lazy_query(self) -> None:
         # job is fetched without select_related("schema"), so job.folder_path() (which reads
         # job.schema.source.source_type) would otherwise fire a lazy SELECT on a pooled connection a
