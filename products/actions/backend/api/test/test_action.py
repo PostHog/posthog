@@ -10,11 +10,14 @@ from posthog.test.base import (
 )
 from unittest.mock import ANY, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Tag, User
 
+from products.actions.backend.api.action import ActionStepJSONSerializer
 from products.actions.backend.models.action import Action
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
@@ -98,6 +101,92 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             team=ANY,
             request=ANY,
         )
+
+    def test_create_action_invalid_regex_url(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            data={
+                "name": "bad regex url action",
+                "steps": [
+                    {
+                        "url": "/shardlibrary/\\d+/\\",
+                        "url_matching": "regex",
+                    }
+                ],
+            },
+            headers={"origin": "http://testserver"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["type"] == "validation_error"
+        assert "Invalid regular expression" in str(response.json()["detail"])
+
+    def test_create_action_invalid_regex_href(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            data={
+                "name": "bad regex href action",
+                "steps": [
+                    {
+                        "href": "(unclosed",
+                        "href_matching": "regex",
+                    }
+                ],
+            },
+            headers={"origin": "http://testserver"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["type"] == "validation_error"
+        assert "Invalid regular expression" in str(response.json()["detail"])
+
+    def test_create_action_invalid_regex_text(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            data={
+                "name": "bad regex text action",
+                "steps": [
+                    {
+                        "text": "^foo(?!bar).+",
+                        "text_matching": "regex",
+                    }
+                ],
+            },
+            headers={"origin": "http://testserver"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["type"] == "validation_error"
+        assert "Invalid regular expression" in str(response.json()["detail"])
+
+    def test_create_action_valid_regex(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            data={
+                "name": "valid regex action",
+                "steps": [
+                    {
+                        "url": r"https://example\.com/.*",
+                        "url_matching": "regex",
+                    }
+                ],
+            },
+            headers={"origin": "http://testserver"},
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_create_action_non_regex_with_backslash(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            data={
+                "name": "contains with backslash",
+                "steps": [
+                    {
+                        "url": "/path/with/\\",
+                        "url_matching": "contains",
+                    }
+                ],
+            },
+            headers={"origin": "http://testserver"},
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
 
     def test_create_action_generates_bytecode(self):
         response = self.client.post(
@@ -902,3 +991,48 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         results = response.json()["results"]
         action_result = next(r for r in results if r["id"] == action.id)
         assert action_result["reference_count"] == 4
+
+
+class TestActionStepJSONSerializer(SimpleTestCase):
+    def test_valid_regex(self):
+        serializer = ActionStepJSONSerializer(data={"url": r"https://example\.com/.*", "url_matching": "regex"})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_invalid_url_regex(self):
+        serializer = ActionStepJSONSerializer(data={"url": "/shardlibrary/\\d+/\\", "url_matching": "regex"})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("url", serializer.errors)
+        self.assertIn("Invalid regular expression", str(serializer.errors["url"]))
+
+    def test_invalid_href_regex(self):
+        serializer = ActionStepJSONSerializer(data={"href": "(unclosed", "href_matching": "regex"})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("href", serializer.errors)
+        self.assertIn("Invalid regular expression", str(serializer.errors["href"]))
+
+    def test_invalid_text_regex(self):
+        serializer = ActionStepJSONSerializer(data={"text": "^foo(?!bar).+", "text_matching": "regex"})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("text", serializer.errors)
+        self.assertIn("Invalid regular expression", str(serializer.errors["text"]))
+
+    def test_contains_matching_does_not_validate_as_regex(self):
+        serializer = ActionStepJSONSerializer(data={"url": "/shardlibrary/\\d+/\\", "url_matching": "contains"})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_exact_matching_does_not_validate_as_regex(self):
+        serializer = ActionStepJSONSerializer(data={"url": "/shardlibrary/\\d+/\\", "url_matching": "exact"})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_multiple_invalid_fields(self):
+        serializer = ActionStepJSONSerializer(
+            data={
+                "url": "/shardlibrary/\\d+/\\",
+                "url_matching": "regex",
+                "text": "(unclosed",
+                "text_matching": "regex",
+            }
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("url", serializer.errors)
+        self.assertIn("text", serializer.errors)
