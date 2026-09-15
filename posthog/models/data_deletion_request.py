@@ -441,6 +441,7 @@ class DataDeletionRequest(UUIDModel):
 
     class Meta:
         ordering = ["-created_at"]
+        indexes = [models.Index(fields=["team_id", "-created_at"], name="ddr_team_created_at_idx")]
 
     def __str__(self) -> str:
         return f"DataDeletionRequest({self.request_type}, team={self.team_id}, status={self.status})"
