@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCheckCircle } from '@posthog/icons'
-import { LemonBanner, LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -11,14 +11,13 @@ import { CADENCE_LABELS } from 'scenes/data-warehouse/saved_queries/SyncFrequenc
 import { urls } from 'scenes/urls'
 
 import { BehindScheduleModel } from 'products/data_modeling/frontend/freshness'
+import { ModelsOverviewTable } from 'products/data_modeling/frontend/ModelsOverviewTable'
 import { checkDisplayName } from 'products/data_quality/frontend/checksConstants'
 import { CheckStatusCell } from 'products/data_quality/frontend/CheckStatusCell'
 import { DataQualityOverviewCheckApi } from 'products/data_quality/frontend/generated/api.schemas'
 import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
 import { AttentionModel, modelsSceneLogic } from '../modelsSceneLogic'
-
-const PAGINATED_TABLE_CLASS = String.raw`[&_.LemonTable\_\_content]:flex [&_.LemonTable\_\_content]:h-[36rem] [&_.LemonTable\_\_content]:flex-col [&_.LemonTable\_\_content]:overflow-y-auto [&_table]:shrink-0 [&_.PaginationControl]:sticky [&_.PaginationControl]:bottom-0 [&_.PaginationControl]:mt-auto [&_.PaginationControl]:shrink-0 [&_.PaginationControl]:bg-surface-primary`
 
 function Section({
     title,
@@ -216,12 +215,9 @@ function OverviewBody({
                         </Link>
                     }
                 >
-                    <LemonTable
+                    <ModelsOverviewTable
                         columns={ATTENTION_COLUMNS}
                         dataSource={attentionModels}
-                        className={attentionModels.length > 10 ? PAGINATED_TABLE_CLASS : undefined}
-                        scrollToTopOnPageChange={false}
-                        pagination={{ pageSize: 10, useUrl: false }}
                         loading={nodesLoading}
                         rowKey={(row) => row.node.id}
                         size="small"
@@ -234,13 +230,10 @@ function OverviewBody({
                     title="Models behind schedule"
                     description="Each of these declares how fresh it should be, but has gone more than twice that long without finishing a run. Nothing reported a failure, so they may have stopped quietly."
                 >
-                    <LemonTable
+                    <ModelsOverviewTable
                         columns={BEHIND_COLUMNS}
                         maxHeaderWidth="7rem"
                         dataSource={behindSchedule}
-                        className={behindSchedule.length > 10 ? PAGINATED_TABLE_CLASS : undefined}
-                        scrollToTopOnPageChange={false}
-                        pagination={{ pageSize: 10, useUrl: false }}
                         rowKey={(row) => row.node.id}
                         size="small"
                         data-attr="models-overview-behind"
@@ -266,12 +259,9 @@ function OverviewBody({
                         </Link>
                     }
                 >
-                    <LemonTable
+                    <ModelsOverviewTable
                         columns={CHECK_COLUMNS}
                         dataSource={failingChecks}
-                        className={failingChecks.length > 10 ? PAGINATED_TABLE_CLASS : undefined}
-                        scrollToTopOnPageChange={false}
-                        pagination={{ pageSize: 10, useUrl: false }}
                         loading={checksLoading}
                         rowKey={(check) => check.id}
                         size="small"
