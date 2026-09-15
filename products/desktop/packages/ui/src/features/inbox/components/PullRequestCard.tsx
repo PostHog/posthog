@@ -1,5 +1,4 @@
 import { ArchiveIcon } from "@phosphor-icons/react";
-import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
 import {
   deriveHeadline,
   displayConventionalCommitTitle,
@@ -26,7 +25,6 @@ import { PriorityMonogram } from "@posthog/ui/features/inbox/components/Priority
 import { SuggestedReviewerAvatarStack } from "@posthog/ui/features/inbox/components/SuggestedReviewerAvatarStack";
 import { ReportImplementationPrLink } from "@posthog/ui/features/inbox/components/utils/ReportImplementationPrLink";
 import { useInboxReportDetailPrefetch } from "@posthog/ui/features/inbox/hooks/useInboxReportDetailPrefetch";
-import { useInboxReportArtefacts } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { Button as UiButton } from "@posthog/ui/primitives/Button";
 import {
   navigationSourceHref,
@@ -38,8 +36,8 @@ import type { HTMLAttributes, MouseEvent, ReactNode } from "react";
 export interface PullRequestCardViewProps {
   report: SignalReport;
   repoSlug?: string | null;
-  /** Resolved artefacts for the reviewer stack; null renders no avatars. */
-  artefacts: SignalReportArtefactsResponse | null;
+  /** Preloaded reviewer artefacts; omit to let the stack fetch them, null renders no avatars. */
+  artefacts?: SignalReportArtefactsResponse | null;
   isSelected?: boolean;
   onDismiss?: () => void;
   dismissDisabledReason?: string | null;
@@ -195,18 +193,12 @@ export function PullRequestCard({
   const prRef = report.implementation_pr_url
     ? parsePrUrl(report.implementation_pr_url)
     : null;
-  const { data: artefactsResp } = useInboxReportArtefacts(report.id, {
-    staleTime: 5 * 60 * 1000,
-    refetchOnWindowFocus: false,
-  });
-  const repoSlug =
-    extractRepoSelectionRepository(artefactsResp?.results) ?? prRef?.repoSlug;
+  const repoSlug = report.repo_slug ?? prRef?.repoSlug;
 
   return (
     <PullRequestCardView
       report={report}
       repoSlug={repoSlug}
-      artefacts={artefactsResp ?? null}
       isSelected={isSelected}
       onDismiss={onDismiss}
       dismissDisabledReason={dismissDisabledReason}

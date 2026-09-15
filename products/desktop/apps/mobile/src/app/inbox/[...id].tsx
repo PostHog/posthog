@@ -42,7 +42,6 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useUserQuery } from "@/features/auth";
 import { MarkdownText } from "@/features/chat/components/MarkdownText";
-import { getReportRepository } from "@/features/inbox/api";
 import { buildCreatePrReportPrompt } from "@/features/inbox/buildCreatePrReportPrompt";
 import { ConventionalCommitTag } from "@/features/inbox/components/ConventionalCommitTag";
 import { CreatePrFeedbackSheet } from "@/features/inbox/components/CreatePrFeedbackSheet";
@@ -163,7 +162,7 @@ export default function ReportDetailScreen() {
   const refundFlagEnabled = !!useFeatureFlag(SIGNALS_PR_REFUNDS_FLAG);
   const { data: report, isLoading, error } = useInboxReport(reportId ?? null);
   const { data: me } = useUserQuery();
-  const [reportRepo, setReportRepo] = useState<string | null>(null);
+  const reportRepo = report?.repo_slug ?? null;
   const [dismissOpen, setDismissOpen] = useState(false);
   const [discussOpen, setDiscussOpen] = useState(false);
   const [createPrFeedbackOpen, setCreatePrFeedbackOpen] = useState(false);
@@ -242,19 +241,6 @@ export default function ReportDetailScreen() {
     }
     setSignalsExpanded(next);
   }, [report, tracker, signalsExpanded]);
-
-  useEffect(() => {
-    if (!reportId) return;
-    let cancelled = false;
-    getReportRepository(reportId)
-      .then((repo) => {
-        if (!cancelled) setReportRepo(repo);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [reportId]);
 
   // ── Derive artefact bits ────────────────────────────────────────────────
   const artefacts = artefactsQuery.data?.results ?? [];

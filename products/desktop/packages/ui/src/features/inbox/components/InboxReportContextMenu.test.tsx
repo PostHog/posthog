@@ -81,10 +81,6 @@ vi.mock("@posthog/ui/features/inbox/hooks/useReportTasks", () => ({
   ) => tasks?.find((entry) => entry.purpose === "implementation")?.task ?? null,
 }));
 
-vi.mock("@posthog/ui/features/inbox/hooks/useInboxReports", () => ({
-  useInboxReportArtefacts: () => ({ data: { results: [] } }),
-}));
-
 vi.mock("@posthog/ui/features/inbox/hooks/useReportActionTracker", () => ({
   useReportActionTracker: (_report: unknown, surface?: string) => {
     mocks.trackerSurface = surface;

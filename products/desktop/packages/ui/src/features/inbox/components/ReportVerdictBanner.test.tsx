@@ -15,7 +15,6 @@ const {
   setQueryData,
   useDiscussReport,
   useReportTasks,
-  useInboxReportArtefacts,
   openResolveDialog,
   openDismissDialog,
   fireAction,
@@ -29,7 +28,6 @@ const {
   setQueryData: vi.fn(),
   useDiscussReport: vi.fn(),
   useReportTasks: vi.fn(),
-  useInboxReportArtefacts: vi.fn(),
   openResolveDialog: vi.fn(),
   openDismissDialog: vi.fn(),
   fireAction: vi.fn(),
@@ -84,10 +82,6 @@ vi.mock("@posthog/ui/features/inbox/hooks/useInboxReportResolveAction", () => ({
   }),
 }));
 
-vi.mock("@posthog/ui/features/inbox/hooks/useInboxReports", () => ({
-  useInboxReportArtefacts,
-}));
-
 vi.mock("@posthog/ui/features/inbox/hooks/useReportActionTracker", () => ({
   useReportActionTracker: () => fireAction,
 }));
@@ -116,6 +110,7 @@ const report: SignalReport = {
   actionability: "not_actionable",
   implementation_pr_url: null,
   implementation_pr_merged: false,
+  repo_slug: "PostHog/posthog",
 };
 
 const task: Task = {
@@ -151,21 +146,6 @@ const runningImplementationTask = {
   startedAt: "2026-08-26T00:00:00.000Z",
 } satisfies ReportTaskData;
 
-const repoArtefacts = {
-  count: 1,
-  results: [
-    {
-      id: "repo-selection-1",
-      type: "repo_selection",
-      created_at: "2026-08-26T00:00:00.000Z",
-      content: {
-        repository: "PostHog/posthog",
-        reason: "The report concerns this repository.",
-      },
-    },
-  ],
-};
-
 describe("ReportVerdictBanner", () => {
   let onDiscussionCreated: ((task: Task) => void) | undefined;
 
@@ -175,10 +155,6 @@ describe("ReportVerdictBanner", () => {
       startedTaskIdByReport: {},
     });
     useReportTasks.mockReturnValue({ data: [], isLoading: false });
-    useInboxReportArtefacts.mockReturnValue({
-      data: repoArtefacts,
-      isLoading: false,
-    });
     createPrReport.mockReset();
     discussReport.mockReset();
     discussReport.mockResolvedValue(undefined);
@@ -299,75 +275,13 @@ describe("ReportVerdictBanner", () => {
     },
   );
 
-  it("waits for the report repository before opening the task composer", async () => {
-    const user = userEvent.setup();
-    useInboxReportArtefacts.mockReturnValue({
-      data: undefined,
-      isLoading: true,
-    });
-    const actionableReport = {
-      ...report,
-      actionability: "immediately_actionable" as const,
-    };
-    const { rerender } = render(
-      <ReportVerdictBanner report={actionableReport} />,
-    );
-
-    const implementLabel = screen.getByText("Implement");
-    expect(implementLabel.closest("button")).toHaveAttribute(
-      "aria-disabled",
-      "true",
-    );
-    await user.click(implementLabel);
-    expect(openTaskInput).not.toHaveBeenCalled();
-
-    useInboxReportArtefacts.mockReturnValue({
-      data: repoArtefacts,
-      isLoading: false,
-    });
-    rerender(<ReportVerdictBanner report={actionableReport} />);
-
-    await user.click(screen.getByText("Implement"));
-    expect(openTaskInput).toHaveBeenCalledWith(
-      expect.objectContaining({
-        initialCloudRepository: "PostHog/posthog",
-        channelId: "general-channel",
-      }),
-    );
-  });
-
-  it("opens the composer when artefacts are unavailable", async () => {
-    const user = userEvent.setup();
-    useInboxReportArtefacts.mockReturnValue({
-      data: { count: 0, results: [], unavailableReason: "request_failed" },
-      isLoading: false,
-    });
-
-    render(
-      <ReportVerdictBanner
-        report={{ ...report, actionability: "immediately_actionable" }}
-      />,
-    );
-
-    await user.click(screen.getByText("Implement"));
-    expect(openTaskInput).toHaveBeenCalledWith(
-      expect.objectContaining({
-        initialCloudRepository: null,
-        channelId: "general-channel",
-      }),
-    );
-  });
-
   it("opens the task composer when the report selected no repository", async () => {
     const user = userEvent.setup();
-    useInboxReportArtefacts.mockReturnValue({
-      data: { count: 0, results: [] },
-      isLoading: false,
-    });
     render(
       <ReportVerdictBanner
         report={{
           ...report,
+          repo_slug: null,
           status: "pending_input",
           actionability: "requires_human_input",
         }}

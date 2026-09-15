@@ -170,8 +170,9 @@ Detail screens layer additional data on top of the base report:
 
 - `useInboxReportById(reportId)` for the report record.
 - `useInboxReportSignals(reportId)` for contributing findings.
-- `useInboxReportArtefacts(reportId)` for structured outputs such as suggested reviewers and repo selection.
+- `useInboxReportArtefacts(reportId)` for structured outputs such as suggested reviewers.
 - `useReportTasks(reportId, status)` for linked research/implementation tasks.
+- The repository a report selected is `report.repo_slug` on the list row, so cards and menus need no artefact fetch for it.
 
 Ready and pending-input report details offer Resolve and Dismiss beside the other report actions. Resolve records why the work is done; Dismiss records why the report should leave the inbox. Reviewer detail lives in the sidebar, not the title header.
 

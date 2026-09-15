@@ -6,7 +6,6 @@ import {
   EyeSlashIcon,
   GitPullRequestIcon,
 } from "@phosphor-icons/react";
-import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
 import {
   canCreateImplementationPr,
   canResolveReport,
@@ -31,7 +30,6 @@ import { useCreatePrReport } from "@posthog/ui/features/inbox/hooks/useCreatePrR
 import { useDiscussReport } from "@posthog/ui/features/inbox/hooks/useDiscussReport";
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
 import { useInboxReportResolveAction } from "@posthog/ui/features/inbox/hooks/useInboxReportResolveAction";
-import { useInboxReportArtefacts } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
 import {
   findContinuableImplementationTask,
@@ -129,11 +127,7 @@ export function ReportVerdictBanner({
   const compact = variant === "header-actions";
   const triageActions = variant === "triage-actions";
   const buttonClass = BIG_BUTTON;
-  const { data: artefactsResp, isLoading: artefactsLoading } =
-    useInboxReportArtefacts(report.id);
-  const cloudRepository = extractRepoSelectionRepository(
-    artefactsResp?.results,
-  );
+  const cloudRepository = report.repo_slug ?? null;
 
   // Structural dedupe guard: re-engaging a report that already has live
   // implementation work (an open PR, or a run still in flight) should continue
@@ -264,7 +258,7 @@ export function ReportVerdictBanner({
   }, [createPrReport, fireAction, prFeedback]);
 
   const handleComposeImplementation = useCallback(() => {
-    if (artefactsLoading || awaitingChannel) return;
+    if (awaitingChannel) return;
     fireAction("implement");
     openTaskInput({
       initialPrompt: "Implement the recommended next step in this report.",
@@ -276,7 +270,6 @@ export function ReportVerdictBanner({
       },
     });
   }, [
-    artefactsLoading,
     awaitingChannel,
     cloudRepository,
     fireAction,
@@ -424,8 +417,7 @@ export function ReportVerdictBanner({
           type="button"
           variant="primary"
           onClick={handleComposeImplementation}
-          loading={artefactsLoading}
-          disabled={artefactsLoading || awaitingChannel}
+          disabled={awaitingChannel}
           className={buttonClass}
           data-attr="inbox-report-implement"
         >

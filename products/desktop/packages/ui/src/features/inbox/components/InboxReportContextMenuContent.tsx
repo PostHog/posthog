@@ -10,7 +10,6 @@ import {
   GlobeIcon,
   UsersThreeIcon,
 } from "@phosphor-icons/react";
-import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
 import {
   canCreateImplementationPr,
   canResolveReport,
@@ -37,7 +36,6 @@ import { useCreatePrReport } from "@posthog/ui/features/inbox/hooks/useCreatePrR
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
 import { useInboxReportReadState } from "@posthog/ui/features/inbox/hooks/useInboxReportReadState";
 import { useInboxReportResolveAction } from "@posthog/ui/features/inbox/hooks/useInboxReportResolveAction";
-import { useInboxReportArtefacts } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useInboxRestoreReport } from "@posthog/ui/features/inbox/hooks/useInboxRestoreReport";
 import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
 import {
@@ -49,10 +47,8 @@ import { Fragment, useRef, useState } from "react";
 
 export function InboxReportContextMenuContent({
   report,
-  open,
 }: {
   report: SignalReport;
-  open: boolean;
 }): React.JSX.Element {
   const {
     isUnread,
@@ -65,16 +61,13 @@ export function InboxReportContextMenuContent({
   const resolve = useInboxReportResolveAction(report, "context_menu");
   const dismiss = useInboxReportDismissAction(report, "context_menu");
   const restore = useInboxRestoreReport();
-  const { data: artefacts } = useInboxReportArtefacts(report.id, {
-    enabled: open,
-  });
   const {
     data: reportTasks,
     isLoading: reportTasksLoading,
     isError: reportTasksFailed,
   } = useReportTasks(report.id, report.status);
   const continuableTask = findContinuableImplementationTask(reportTasks);
-  const cloudRepository = extractRepoSelectionRepository(artefacts?.results);
+  const cloudRepository = report.repo_slug ?? null;
   const { createPrReport, isCreatingPr } = useCreatePrReport({
     reportId: report.id,
     reportTitle: report.title,

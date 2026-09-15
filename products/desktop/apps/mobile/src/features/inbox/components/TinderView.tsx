@@ -14,7 +14,7 @@ import { formatDistanceToNow } from "date-fns";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import { Check, GithubLogo, Lightning, X } from "phosphor-react-native";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -42,7 +42,6 @@ import {
 import { logger } from "@/lib/logger";
 import { getPostHogApiClient } from "@/lib/posthogApiClient";
 import { useThemeColors } from "@/lib/theme";
-import { getReportRepository } from "../api";
 import { useDismissedReportsStore } from "../stores/dismissedReportsStore";
 import { useInboxStore } from "../stores/inboxStore";
 import { ConventionalCommitTag } from "./ConventionalCommitTag";
@@ -234,8 +233,8 @@ export function TinderView({
       try {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-        // 1. Get the repo from the report artefacts
-        const repo = await getReportRepository(report.id);
+        // 1. Get the repo the report selected
+        const repo = report.repo_slug ?? null;
 
         // 2. Find matching repository option to get integrationId
         const match = repo
@@ -294,23 +293,6 @@ export function TinderView({
   const currentReport =
     currentIndex < reports.length ? reports[currentIndex] : null;
 
-  // ── Repo resolution ────────────────────────────────────────────────────────
-  const [repoMap, setRepoMap] = useState<Record<string, string | null>>({});
-  const fetchingRef = useRef<Set<string>>(new Set());
-
-  // Lazily resolve repos for the next few visible cards
-  useEffect(() => {
-    const upcoming = reports.slice(currentIndex, currentIndex + 3);
-    for (const r of upcoming) {
-      if (r.id in repoMap || fetchingRef.current.has(r.id)) continue;
-      fetchingRef.current.add(r.id);
-      getReportRepository(r.id)
-        .then((repo) => setRepoMap((prev) => ({ ...prev, [r.id]: repo })))
-        .catch(() => setRepoMap((prev) => ({ ...prev, [r.id]: null })))
-        .finally(() => fetchingRef.current.delete(r.id));
-    }
-  }, [reports, currentIndex, repoMap]);
-
   const STACK_OFFSET = 12; // px between each stacked card
   const MAX_VISIBLE = 3;
 
@@ -344,7 +326,7 @@ export function TinderView({
                     onExpand={setExpandedReport}
                     isTopCard={depth === 0}
                     stackOffset={depth * STACK_OFFSET}
-                    repo={repoMap[report.id]}
+                    repo={report.repo_slug}
                   />
                 );
               })}
@@ -474,7 +456,7 @@ export function TinderView({
                 </View>
 
                 {/* Repo pill */}
-                {repoMap[expandedReport.id] && (
+                {expandedReport.repo_slug && (
                   <View className="mt-4 flex-row">
                     <View className="flex-row items-center gap-1.5 rounded-full border border-gray-6 bg-gray-2 px-2.5 py-1">
                       <GithubLogo
@@ -483,7 +465,7 @@ export function TinderView({
                         weight="fill"
                       />
                       <Text className="text-[11px] text-gray-9">
-                        {repoMap[expandedReport.id]}
+                        {expandedReport.repo_slug}
                       </Text>
                     </View>
                   </View>
