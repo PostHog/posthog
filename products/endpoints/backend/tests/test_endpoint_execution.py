@@ -913,8 +913,15 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             self.assertIn("greaterorequals", query_sql)
             self.assertIn("less(", query_sql)
 
-    def test_materialized_count_with_range_variables_reaggregates(self):
-        """When range variables exist, read-time SQL should re-aggregate with sum()."""
+    @parameterized.expand(
+        [
+            ("bare_aggregate", "count()", "sum(`count()`) AS `count()`"),
+            ("aliased_aggregate", "count() AS impressions", "sum(impressions) AS impressions"),
+        ]
+    )
+    def test_materialized_count_with_range_variables_reaggregates(self, _name, select_expr, expected_select):
+        """When range variables exist, read-time SQL should re-aggregate with sum()
+        and keep the column name the endpoint declares."""
         start_var = InsightVariable.objects.create(
             team=self.team,
             name="Start Timestamp",
@@ -942,7 +949,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query={
                 "kind": "HogQLQuery",
-                "query": "SELECT count() FROM events WHERE timestamp >= {variables.start_ts} AND timestamp < {variables.end_ts} AND properties.$host = {variables.host}",
+                "query": f"SELECT {select_expr} FROM events WHERE timestamp >= {{variables.start_ts}} AND timestamp < {{variables.end_ts}} AND properties.$host = {{variables.host}}",
                 "variables": {
                     str(start_var.id): {
                         "variableId": str(start_var.id),
@@ -977,11 +984,12 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             mock_exec.assert_called()
-            query_sql = mock_exec.call_args[0][0]["query"]["query"].lower()
-            # Re-aggregation: count() column should be wrapped with sum()
-            self.assertIn("sum(", query_sql)
+            query_sql = mock_exec.call_args[0][0]["query"]["query"]
+            # Re-aggregation wraps the column with sum(), then aliases it back to the name
+            # the endpoint declares, so a typed client can still parse the rows.
+            self.assertIn(expected_select, query_sql)
             # Range variable values should be wrapped with toStartOfDay
-            self.assertIn("tostartofday", query_sql)
+            self.assertIn("tostartofday", query_sql.lower())
 
     # =========================================================================
     # MATERIALIZED INSIGHT ENDPOINTS
