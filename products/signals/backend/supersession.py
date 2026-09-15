@@ -22,7 +22,11 @@ from products.signals.backend.artefact_schemas import (
     ImplementationTarget,
     TaskRunArtefact,
 )
-from products.signals.backend.implementation_pr import _close_implementation_pr, fetch_implementation_prs_for_reports
+from products.signals.backend.implementation_pr import (
+    _close_implementation_pr,
+    fetch_implementation_prs_for_reports,
+    implementation_pr_needed_by_another_report,
+)
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
 from products.signals.backend.report_claims import get_active_claim
 from products.tasks.backend.facade import api as tasks_facade
@@ -445,6 +449,14 @@ def reconcile_replacement(team_id: int, replacement_id: str) -> bool:
                 or candidate.automation_artefact_id != target.automation_artefact_id
                 or not verify_target(team_id, target)
             ):
+                progress.results[target.pr_url] = "skipped"
+                continue
+            if implementation_pr_needed_by_another_report(
+                team_id=team_id, report_id=str(report.id), pr_url=target.pr_url
+            ):
+                # The close path refuses a PR another unfinished report still needs, and no attempt
+                # can change that while the other report runs, so record the outcome here instead of
+                # spending the attempt budget on a decision that cannot move.
                 progress.results[target.pr_url] = "skipped"
                 continue
             with transaction.atomic():

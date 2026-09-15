@@ -297,6 +297,30 @@ def report_ids_for_implementation_pr(*, team_id: int, repository: str, pr_number
     ]
 
 
+def implementation_pr_needed_by_another_report(*, team_id: int, report_id: str, pr_url: str) -> bool:
+    """Whether an unfinished report other than ``report_id`` still links this pull request.
+
+    One pull request can back several reports. Closing it for one dismissal would close the work the
+    others still depend on, and the close webhook would then suppress them too, so only the last
+    report still using it closes it. No retry can change the answer while the other report runs, so
+    a caller that reports per-PR outcomes records this as a skip rather than a failure.
+    """
+    parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
+    if parsed is None:
+        return False
+    return (
+        SignalReport.objects.filter(
+            team_id=team_id,
+            id__in=report_ids_for_implementation_pr(
+                team_id=team_id, repository=parsed.repository, pr_number=parsed.number
+            ),
+        )
+        .exclude(id=report_id)
+        .exclude(status__in=_FINISHED_REPORT_STATUSES)
+        .exists()
+    )
+
+
 PrCloseReason = Literal["suppressed", "snoozed", "resolved", "superseded"]
 
 _SUPERSEDED_COMMENT = (
@@ -383,21 +407,7 @@ def _close_implementation_pr(
 
         from products.signals.backend.report_assignments import update_assignments_for_pull_request
 
-        # One pull request can back several reports. Closing it for one dismissal would close the
-        # work the others still depend on, and the close webhook would then suppress them too, so
-        # only the last report still using it closes it.
-        still_used_elsewhere = (
-            SignalReport.objects.filter(
-                team_id=team_id,
-                id__in=report_ids_for_implementation_pr(
-                    team_id=team_id, repository=parsed.repository, pr_number=parsed.number
-                ),
-            )
-            .exclude(id=report_id)
-            .exclude(status__in=_FINISHED_REPORT_STATUSES)
-            .exists()
-        )
-        if still_used_elsewhere:
+        if implementation_pr_needed_by_another_report(team_id=team_id, report_id=report_id, pr_url=pr_url):
             logger.info(
                 "close_implementation_pr_still_used_by_another_report",
                 report_id=str(report_id),

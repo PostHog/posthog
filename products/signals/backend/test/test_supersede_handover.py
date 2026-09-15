@@ -23,7 +23,7 @@ from products.signals.backend.auto_start import (
     maybe_autostart_implementation_task,
 )
 from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportAssignment
 from products.signals.backend.report_assignments import create_claim, release_claim, update_assignments_for_pull_request
 from products.signals.backend.report_claims import ReportClaim, get_active_claim
 from products.signals.backend.report_generation.research import ActionabilityAssessment, ActionabilityChoice
@@ -342,6 +342,23 @@ class TestSupersedeHandover(BaseTest):
         self.prs[1]["head_sha"] = "human-edit"
         assert not reconcile_replacement(self.team.id, str(replacement.id))
         assert self.handover(replacement).results[OLD_PR] == "skipped"
+        self.github.close_pull_request.assert_not_called()
+
+    def test_predecessor_shared_with_another_report_is_recorded_as_skipped(self) -> None:
+        replacement = self.start_replacement()
+        self.complete(replacement)
+        other = SignalReport.objects.create(team=self.team, status="ready", title="Other", summary="Other work")
+        SignalReportAssignment.objects.create(
+            team_id=self.team.id,
+            report_id=other.id,
+            pr_url=OLD_PR,
+            repository="example/repo",
+            pr_number=1,
+            pr_state="open",
+        )
+        assert not reconcile_replacement(self.team.id, str(replacement.id))
+        assert self.handover(replacement).results[OLD_PR] == "skipped"
+        assert self.handover(replacement).status == "needs_attention"
         self.github.close_pull_request.assert_not_called()
 
     def test_transient_failure_retries_without_duplicate_close(self) -> None:
