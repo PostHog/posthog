@@ -29,6 +29,7 @@ PROJECT_ONLY_ACTIONS = {
     "default_release_conditions",
     "default_evaluation_contexts",
     "cancel_deletion",
+    "delete_now",
 }
 
 # Fields the project list carries on top of the shared basic serializer.
