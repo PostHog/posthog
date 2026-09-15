@@ -182,6 +182,10 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     # Off by default, because a ready pull request runs the full CI matrix on every push, which is
     # runner spend a team has to choose. Read only for a reviewer with no preference of their own.
     default_open_pull_request_ready = models.BooleanField(default=False, db_default=False)
+    # Comment back on a GitHub issue that raised a report, pointing at the report (see
+    # github_writeback.py). Off by default, because the comment is public on the issue thread and
+    # tells everybody watching it that we are working on it, which is a team's call to make.
+    github_issue_writeback_enabled = models.BooleanField(default=False, db_default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -966,6 +970,39 @@ class SignalReportTrackerIssue(TeamScopedRootMixin, UUIDModel):
         default_manager_name = "all_teams"
         verbose_name = "Signal report tracker issue"
         verbose_name_plural = "Signal report tracker issues"
+
+
+class SignalReportGithubComment(TeamScopedRootMixin, UUIDModel):
+    """A comment self-driving posted on a GitHub issue that raised a report.
+
+    One row per (report, issue). The row is the claim: it is taken before the comment goes out, so a
+    re-notified report cannot post a second comment on the same issue, and it records which issues
+    already heard back.
+    """
+
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="github_comments")
+
+    # "organization/repository", lowercased: GitHub compares it without case, this column does not.
+    repository = models.CharField(max_length=200)
+    number = models.PositiveBigIntegerField()
+    # Null while the claim is held, set once GitHub accepted the comment.
+    commented_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        default_manager_name = "all_teams"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["report", "repository", "number"], name="signals_report_github_comment_unique"
+            ),
+        ]
+        verbose_name = "Signal report GitHub comment"
+        verbose_name_plural = "Signal report GitHub comments"
 
 
 class SignalReportPullRequest(TeamScopedRootMixin, UUIDModel):
