@@ -29,6 +29,9 @@ const counterReplayMessages = new Counter({
     labelNames: ['outcome'],
 })
 
+/** Refused at start: a replay has to be configured deliberately, because it delivers events. */
+export const UNSET_RUN_ID = 'unset'
+
 /**
  * Backstop for a partition that never delivers its last record, so a run cannot hang forever.
  *
@@ -42,18 +45,6 @@ export interface CdpDlqReplayCounts {
     replayed: number
     queued: number
     skipped: Record<string, number>
-    /**
-     * Parked deliveries in scope for this run, keyed `teamId|sourceId|step`.
-     *
-     * An upper bound on what a real run would deliver, not the exact figure. It counts what the
-     * records name, before the pipeline has a say, and the pipeline still drops a function that
-     * was deleted or disabled, or one whose team is quota limited or whose event is masked.
-     *
-     * Counting after the pipeline would be exact but would stop being a dry run: building
-     * invocations claims masks in Redis and reports billable invocations, so the count itself
-     * would change what a later real run delivers.
-     */
-    byTarget: Record<string, number>
 }
 
 /**
@@ -86,14 +77,13 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
     private endOffsets = new Map<number, number>()
     private drained = new Set<number>()
 
-    public readonly counts: CdpDlqReplayCounts = { replayed: 0, queued: 0, skipped: {}, byTarget: {} }
+    public readonly counts: CdpDlqReplayCounts = { replayed: 0, queued: 0, skipped: {} }
 
     constructor(
         config: PluginsServerConfig,
         deps: CdpConsumerBaseDeps,
         private jobQueues: { hogQueue: JobQueue; hogflowQueue: JobQueue },
-        private policy: ReplayPolicy = readReplayPolicy(config),
-        private dryRun: boolean = config.CDP_DLQ_REPLAY_DRY_RUN
+        private policy: ReplayPolicy = readReplayPolicy(config)
     ) {
         super(config, deps)
 
@@ -194,17 +184,9 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
                 globalsList.push(globals)
             }
             this.counts.replayed += 1
-            this.countTarget(record)
         }
 
         if (!globalsList.length) {
-            return
-        }
-
-        if (this.dryRun) {
-            // Stops before the pipeline on purpose. See `byTarget` for what that costs in accuracy
-            // and why paying it is wrong here.
-            counterReplayMessages.labels({ outcome: 'dry_run' }).inc(globalsList.length)
             return
         }
 
@@ -242,15 +224,6 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
             this.hogFunctionMonitoringService.flush(),
             this.invocationResultsService.invocationResultsRowsService.flush(),
         ])
-    }
-
-    private countTarget(record: DeadLetterRecord): void {
-        const sources = [...record.hogFunctionIds, ...record.hogFlowIds]
-        const keys = sources.length ? sources : ['*']
-        for (const source of keys) {
-            const key = `${record.teamId ?? 'unknown'}|${source}|${record.step}`
-            this.counts.byTarget[key] = (this.counts.byTarget[key] ?? 0) + 1
-        }
     }
 
     /** Rebuilds the globals from the parked bytes, the same conversion the source consumer runs. */
@@ -322,13 +295,22 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
     }
 
     public override async start(): Promise<void> {
+        // A replay delivers events. Refusing to start without an explicit run id means a replica
+        // scaled up before its policy was written stops, rather than replaying everything the
+        // default open policy matches.
+        if (!this.config.CDP_DLQ_REPLAY_RUN_ID || this.config.CDP_DLQ_REPLAY_RUN_ID === UNSET_RUN_ID) {
+            throw new Error(
+                'CDP_DLQ_REPLAY_RUN_ID must be set to a value identifying this run — refusing to start. ' +
+                    'It names the consumer group, so reusing one resumes that run rather than starting over.'
+            )
+        }
+
         await super.start()
         await Promise.all([this.jobQueues.hogQueue.startAsProducer(), this.jobQueues.hogflowQueue.startAsProducer()])
 
         logger.info('☠️', 'cdp_dlq_replay_start', {
             topic: this.config.CDP_DLQ_REPLAY_TOPIC,
             runId: this.config.CDP_DLQ_REPLAY_RUN_ID,
-            dryRun: this.dryRun,
             policy: this.policy,
         })
 

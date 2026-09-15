@@ -14,7 +14,7 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Team } from '../types'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
 import { createIncomingEvent, createKafkaMessage, insertHogFunction } from './_tests/fixtures'
-import { CdpDlqReplayConsumer } from './consumers/cdp-dlq-replay.consumer'
+import { CdpDlqReplayConsumer, UNSET_RUN_ID } from './consumers/cdp-dlq-replay.consumer'
 import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
 import { HogFunctionType } from './types'
 
@@ -117,7 +117,6 @@ describe('CDP dead-letter replay', () => {
 
         hub.CDP_DLQ_REPLAY_TOPIC = dlqTopic
         hub.CDP_DLQ_REPLAY_RUN_ID = `e2e-${event.uuid}`
-        hub.CDP_DLQ_REPLAY_DRY_RUN = false
 
         const replayQueue = createMockJobQueue()
         replayConsumer = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
@@ -174,7 +173,6 @@ describe('CDP dead-letter replay', () => {
 
         hub.CDP_DLQ_REPLAY_TOPIC = dlqTopic
         hub.CDP_DLQ_REPLAY_RUN_ID = `e2e-both-${event.uuid}`
-        hub.CDP_DLQ_REPLAY_DRY_RUN = false
 
         const replayQueue = createMockJobQueue()
         replayConsumer = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
@@ -195,47 +193,19 @@ describe('CDP dead-letter replay', () => {
         )
     })
 
-    it('counts what it would deliver without queueing anything in a dry run', async () => {
-        const broken = await insertHogFunction(hub.postgres, team.id, {
-            ...HOG_EXAMPLES.simple_fetch,
-            ...HOG_FILTERS_EXAMPLES.no_filters,
-            type: 'destination',
-            inputs_schema: [{ key: 'url', type: 'string', label: 'Webhook URL', required: true }],
-            inputs: BROKEN_INPUTS,
-        })
-
-        const sourceQueue = createMockJobQueue()
-        eventsConsumer = new CdpEventsConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
-            hogQueue: sourceQueue,
-            hogflowQueue: sourceQueue,
-        })
-        await eventsConsumer.start()
-
-        const event = createIncomingEvent(team.id, {})
-        const message = createKafkaMessage(event)
-        await eventsConsumer.processBatch(await eventsConsumer._parseKafkaBatch([message]))
-        await eventsConsumer['deadLetterService'].produceForBatch([message])
-        await kafkaProducer.flush()
-
-        await repairInputs(broken)
-
+    it('refuses to start until the run is named', async () => {
+        // The guard that replaced the dry run. A replica scaled up before its policy is written
+        // must stop, not replay everything the default open policy matches.
         hub.CDP_DLQ_REPLAY_TOPIC = dlqTopic
-        hub.CDP_DLQ_REPLAY_RUN_ID = `e2e-dry-${event.uuid}`
-        hub.CDP_DLQ_REPLAY_DRY_RUN = true
+        hub.CDP_DLQ_REPLAY_RUN_ID = UNSET_RUN_ID
 
         const replayQueue = createMockJobQueue()
-        replayConsumer = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
+        const unnamed = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
             hogQueue: replayQueue,
             hogflowQueue: replayQueue,
         })
-        await replayConsumer.start()
 
-        await waitForExpect(() => {
-            expect(replayConsumer!.counts.replayed).toBe(1)
-        }, 30000)
-
-        expect(replayConsumer.counts.queued).toBe(0)
+        await expect(unnamed.start()).rejects.toThrow('CDP_DLQ_REPLAY_RUN_ID must be set')
         expect(replayQueue.queueInvocations).not.toHaveBeenCalled()
-        expect(replayConsumer.counts.byTarget).toEqual({ [`${team.id}|${broken.id}|inputs`]: 1 })
     })
 })

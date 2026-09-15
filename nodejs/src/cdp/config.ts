@@ -143,7 +143,6 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_DLQ_REPLAY_REASON_CONTAINS: string
     CDP_DLQ_REPLAY_MAX_REPLAYS: number
     CDP_DLQ_REPLAY_MAX_AGE_HOURS: number
-    CDP_DLQ_REPLAY_DRY_RUN: boolean
 
     CDP_EMAIL_TRACKING_URL: string
 
@@ -354,6 +353,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_INTERNAL_EVENTS_DLQ_TOPIC: KAFKA_CDP_INTERNAL_EVENTS_DLQ,
         CDP_INTERNAL_EVENTS_DLQ_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
         CDP_DLQ_REPLAY_TOPIC: KAFKA_CDP_EVENTS_DLQ,
+        // Not a usable value: the worker refuses to start until an operator names the run.
         CDP_DLQ_REPLAY_RUN_ID: 'unset',
         CDP_DLQ_REPLAY_STEPS: '',
         CDP_DLQ_REPLAY_FROM: '',
@@ -366,9 +366,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         // topics, so running a replay before the fix is deployed costs one pass, not a loop.
         CDP_DLQ_REPLAY_MAX_REPLAYS: 2,
         CDP_DLQ_REPLAY_MAX_AGE_HOURS: 24 * 30,
-        // Dry run by default: a replay run that was scaled up with a half-written policy counts
-        // what it would deliver instead of delivering it.
-        CDP_DLQ_REPLAY_DRY_RUN: true,
 
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',
 
