@@ -252,8 +252,12 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
         A rejected frequency propagates to the caller. Any other failure disables
         materialization, because the alternative is a query that reports itself materialized
-        while nothing is scheduled to materialize it.
+        while nothing is scheduled to materialize it. A transient Temporal RPC failure is the one
+        exception: it says nothing about whether the schedule landed, so disabling on it would
+        stop a refresh that is most likely still running.
         """
+        from posthog.temporal.common.schedule import is_transient_rpc_error
+
         from products.data_modeling.backend.logic.freshness import (
             UnsatisfiableFrequencyError,
             UnsupportedFrequencyTargetError,
@@ -344,8 +348,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
             # Disable materialization for this view if we failed to schedule the workflow
             # We can re-enable schedules via the resume_schedule API endpoint
-            self.is_materialized = False
-            self.save(update_fields=["is_materialized"])
+            if not is_transient_rpc_error(e):
+                self.is_materialized = False
+                self.save(update_fields=["is_materialized"])
 
     def _start_immediate_materialization(self, triggered_by_id: int | None = None) -> None:
         from products.data_modeling.backend.logic.node_materialization import materialize_saved_query

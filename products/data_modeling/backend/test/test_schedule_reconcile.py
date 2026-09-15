@@ -6,6 +6,7 @@ from unittest import mock
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
 from temporalio.client import ScheduleAlreadyRunningError, ScheduleListActionStartWorkflow
 from temporalio.service import RPCError, RPCStatusCode
 
@@ -196,7 +197,15 @@ class TestReconcileDagSchedules(BaseTest):
         matview.refresh_from_db()
         self.assertIsNone(get_declared_anchor(matview))
 
-    def test_rolls_back_created_tiers_and_keeps_legacy_schedule_on_failure(self):
+    @parameterized.expand(
+        [
+            ("permanent", RuntimeError("temporal rejected the schedule"), True),
+            # a timeout may well have applied the schedule, and a re-run converges either way, so
+            # taking coverage away from the nodes the first tier already covers is the worse move
+            ("transient", RPCError("Timeout expired", RPCStatusCode.DEADLINE_EXCEEDED, b""), False),
+        ]
+    )
+    def test_rolls_back_created_tiers_and_keeps_legacy_schedule_on_failure(self, _name, error, rolls_back):
         dag = DAG.get_or_create_default(self.team)
         source = _table_node(self.team, dag, "events", {"origin": "posthog"})
         ep_fast = _saved_query_node(self.team, dag, "fast", NodeType.ENDPOINT)
@@ -222,7 +231,7 @@ class TestReconcileDagSchedules(BaseTest):
         async def failing_create(*_args, **kwargs):
             created_ids.append(kwargs["id"])
             if len(created_ids) >= 2:  # second tier creation fails partway through the migration
-                raise RuntimeError("temporal unavailable")
+                raise error
 
         with (
             mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal)),
@@ -230,12 +239,15 @@ class TestReconcileDagSchedules(BaseTest):
             mock.patch(f"{RECONCILE}.a_update_schedule", new=mock.AsyncMock()),
             mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()) as delete,
         ):
-            with self.assertRaises(RuntimeError):
+            with self.assertRaises(type(error)):
                 reconcile_dag_schedules(dag)
 
-        # the one successfully-created tier is rolled back; the legacy schedule is never deleted,
-        # so the DAG stays fully covered at its current cadence rather than opening a gap
-        delete.assert_called_once_with(temporal, schedule_id=created_ids[0])
+        # the legacy schedule is never deleted, so the DAG stays fully covered at its current
+        # cadence rather than opening a gap
+        if rolls_back:
+            delete.assert_called_once_with(temporal, schedule_id=created_ids[0])
+        else:
+            delete.assert_not_called()
         self.assertNotEqual(created_ids[0], legacy_id)
 
     def test_refuses_to_unschedule_covered_dag_without_targets(self):
