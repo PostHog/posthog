@@ -5,7 +5,6 @@ import {
   CaretDownIcon,
   CaretRightIcon,
   DotsThreeIcon,
-  FolderPlusIcon,
   LinkIcon,
   PencilSimpleIcon,
   PlusIcon,
@@ -1865,7 +1864,7 @@ function NewChannelButton() {
                   : "opacity-0 focus-visible:opacity-100 group-hover/group-header:opacity-100",
               )}
             >
-              <FolderPlusIcon size={14} />
+              <PlusIcon size={14} />
             </Button>
           }
         />
