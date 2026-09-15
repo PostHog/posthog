@@ -1,11 +1,14 @@
 import uuid
 import threading
 import contextlib
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 
 import pytest
 import time_machine
 from unittest.mock import patch
+
+from django.db import OperationalError, connection, transaction
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
@@ -38,6 +41,7 @@ from posthog.tasks.alerts.utils import (
     send_notifications_for_errors,
 )
 from posthog.temporal.alerts.activities import (
+    _evaluation_inputs_match,
     _load_alert_for_evaluation,
     cleanup_alert_checks,
     evaluate_alert,
@@ -542,6 +546,48 @@ class TestEvaluateAlert:
             saved = await sync_to_async(AlertConfiguration.objects.get)(id=alert.id)
             assert saved.state == alert.state
             assert saved.next_check_at == alert.next_check_at
+
+    @pytest.mark.parametrize("input_kind", ["insight", "threshold"])
+    async def test_evaluation_inputs_cannot_change_between_comparison_and_save(self, alert, input_kind) -> None:
+        def _change_input() -> bool:
+            try:
+                with transaction.atomic():
+                    with connection.cursor() as cursor:
+                        cursor.execute("SET LOCAL lock_timeout = '100ms'")
+                    if input_kind == "insight":
+                        Insight.objects.filter(id=alert.insight_id).update(name="Changed metric")
+                    else:
+                        Threshold.objects.filter(id=alert.threshold_id).update(
+                            configuration={"type": "absolute", "bounds": {"upper": 200.0}}
+                        )
+                return False
+            except OperationalError as error:
+                assert "lock timeout" in str(error)
+                return True
+            finally:
+                connection.close()
+
+        with ThreadPoolExecutor(max_workers=1) as writer:
+
+            def _compare_while_editing(evaluated, current):
+                assert writer.submit(_change_input).result(timeout=5)
+                return _evaluation_inputs_match(evaluated, current)
+
+            with (
+                patch(
+                    "posthog.temporal.alerts.activities._evaluation_inputs_match", side_effect=_compare_while_editing
+                ),
+                patch(
+                    "posthog.temporal.alerts.activities.check_alert_for_insight",
+                    return_value=AlertEvaluationResult(value=5.0, breaches=None),
+                ),
+            ):
+                result = await ActivityEnvironment().run(
+                    evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id))
+                )
+
+            assert result.alert_check_id is not None
+            assert writer.submit(_change_input).result(timeout=5) is False
 
     async def test_retry_keeps_evaluation_id_after_the_schedule_advances(self, alert) -> None:
         evaluation_ids: list[str] = []

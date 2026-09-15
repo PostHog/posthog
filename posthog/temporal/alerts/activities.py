@@ -61,7 +61,7 @@ from products.alerts.backend.evaluation.validation import validate_alert_config
 from products.alerts.backend.facade.api import is_llm_detector_config
 from products.alerts.backend.facade.destinations import count_active_alert_destinations
 from products.alerts.backend.insight_alert_state_machine import apply_unsnooze
-from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -70,6 +70,7 @@ from products.notifications.backend.facade.api import (
     TargetType,
     create_notification,
 )
+from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
 
@@ -355,13 +356,35 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         should_gate_notification = False
         should_run_metrics_investigation = False
         with transaction.atomic():
+            # Insight deletion locks the insight before deleting its alerts. Use the same order.
+            current_insight = (
+                Insight.objects_including_soft_deleted.select_for_update(no_key=True)
+                .filter(id=evaluated_alert.insight_id, team_id=evaluated_alert.team_id)
+                .first()
+            )
             current_alert = (
-                AlertConfiguration.objects.select_for_update(of=("self",))
-                .select_related("insight", "team", "threshold")
+                AlertConfiguration.objects.select_for_update(of=("self",), no_key=True)
+                .select_related("team", "threshold")
                 .filter(id=inputs.alert_id, team_id=evaluated_alert.team_id)
                 .first()
             )
-            if current_alert is None or not _evaluation_inputs_match(evaluated_alert, current_alert):
+            if (
+                current_alert is not None
+                and current_insight is not None
+                and current_alert.insight_id == evaluated_alert.insight_id
+            ):
+                current_alert.insight = current_insight
+            # Threshold is nullable, so PostgreSQL cannot lock it through the outer join.
+            if current_alert is not None and current_alert.threshold_id is not None:
+                current_alert.threshold = Threshold.objects.select_for_update(no_key=True).get(
+                    id=current_alert.threshold_id, team_id=current_alert.team_id
+                )
+            if (
+                current_alert is None
+                or current_insight is None
+                or current_alert.insight_id != evaluated_alert.insight_id
+                or not _evaluation_inputs_match(evaluated_alert, current_alert)
+            ):
                 # Leave the current state and due time intact. The next scheduler tick can
                 # evaluate the edited alert; a disabled or deleted alert needs no further work.
                 return EvaluateAlertResult(
