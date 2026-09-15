@@ -7,20 +7,23 @@ posthog_persondistinctid rows until this job asks personhog to delete them.
 The queue is advisory. A person can be revived in Postgres after it was queued, so the job never
 deletes on the queue's word: it hands each batch to personhog's DeleteTombstonedPersons, which
 deletes a person only while it is still tombstoned, under row locks, and reports the rest back.
-Queue rows are removed once personhog has resolved the person either way. Rows personhog could
-not resolve are stamped blocked_at and skipped for a retry interval: a tombstoned person that
-still owns a live distinct id, a person with more distinct ids than the replica deletes in one
-transaction, or a person whose delete request kept failing.
+Queue rows are removed once personhog has resolved the person either way. A person with more
+dependent rows (distinct ids, hash key overrides, cohort memberships) than one delete transaction
+may touch is trimmed first, one bounded TrimTombstonedPerson step at a time, then deleted. Rows
+personhog could not resolve are stamped blocked_at and skipped for a retry interval: a tombstoned
+person that still owns a live distinct id, or a person whose requests kept failing.
 
 One run pod, sequential requests, every statement and RPC bounded, and a pause after each RPC so
 the persons writer never sees a burst. A request that fails is split in half and retried, so one
-slow or broken person costs its own row, not the run.
+slow or broken person costs its own row, not the run. Run time is the variable that gives: a
+person of any size is deleted in steps that each fit the deadline, and the run keeps going until
+the queue is drained or max_runtime_seconds passes.
 """
 
 import time
 import statistics
 from collections import defaultdict, deque
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import field
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -38,7 +41,12 @@ from posthog.dags.clickhouse_cleanup import PG_CLEANUP_QUEUE_TABLE
 from posthog.dags.common import JobOwners
 from posthog.dataclasses import frozen
 from posthog.personhog_client.client import PersonHogClient, personhog_call, require_personhog_client
-from posthog.personhog_client.proto import DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse
+from posthog.personhog_client.proto import (
+    DeleteTombstonedPersonsRequest,
+    DeleteTombstonedPersonsResponse,
+    TrimTombstonedPersonRequest,
+    TrimTombstonedPersonResponse,
+)
 
 logger = dagster.get_dagster_logger(__name__)
 
@@ -53,6 +61,9 @@ RPC_MAX_UUIDS = 1000
 # uuids (the production BULK_CHUNK_SIZE), one transaction each.
 ROUTER_BACKEND_TIMEOUT_SECONDS = 5.0
 REPLICA_CHUNK_SIZE = 100
+
+# personhog-replica clamps a trim step to TOMBSTONED_TRIM_MAX_ROWS; the config bound mirrors it.
+TRIM_MAX_ROWS = 10_000
 
 RETRY_BACKOFF_CAP_SECONDS = 60.0
 LOG_EVERY_PAGES = 10
@@ -77,7 +88,7 @@ class DrainConfig(dagster.Config):
         description="Page and count the queue without calling personhog or writing to Postgres.",
     )
     max_persons: int = pydantic.Field(
-        default=100_000,
+        default=0,
         description="Stop after reading this many queue rows, 0 for no cap. A capped run leaves the rest for the "
         "next run.",
     )
@@ -99,9 +110,15 @@ class DrainConfig(dagster.Config):
         description="Deadline per personhog request. personhog-router caps every backend call at 5 s, so a longer "
         "deadline only waits on the router's own retries of the same call.",
     )
+    trim_batch_rows: int = pydantic.Field(
+        default=5000,
+        description="Dependent rows deleted per TrimTombstonedPerson step while a person is over the replica's cap, "
+        f"at most {TRIM_MAX_ROWS}. The replica clamps it to its own maximum.",
+    )
     max_runtime_seconds: int = pydantic.Field(
-        default=4 * 3600,
-        description="Stop taking new pages and requests after this many seconds, then finish cleanly.",
+        default=12 * 3600,
+        description="Stop taking new pages, requests and trim steps after this many seconds, then finish cleanly. "
+        "Rows left over wait for the next run; trimmed rows stay deleted.",
     )
     max_consecutive_failures: int = pydantic.Field(
         default=5,
@@ -135,6 +152,8 @@ class DrainConfig(dagster.Config):
             raise ValueError(f"rpc_batch_size must be between 1 and {RPC_MAX_UUIDS}")
         if self.rpc_timeout_seconds <= 0:
             raise ValueError("rpc_timeout_seconds must be positive")
+        if not 1 <= self.trim_batch_rows <= TRIM_MAX_ROWS:
+            raise ValueError(f"trim_batch_rows must be between 1 and {TRIM_MAX_ROWS}")
         if self.max_persons < 0 or self.pause_ms < 0 or self.latency_multiplier < 0 or self.blocked_retry_hours < 0:
             raise ValueError("max_persons, pause_ms, latency_multiplier and blocked_retry_hours must not be negative")
         if self.max_runtime_seconds <= 0 or self.max_consecutive_failures <= 0 or self.max_attempts_per_person <= 0:
@@ -188,7 +207,11 @@ class DrainTotals:
     persons_not_found: int = 0
     persons_blocked: int = 0
     persons_oversized: int = 0
+    persons_trimmed: int = 0
     persons_rpc_failed: int = 0
+    trim_calls: int = 0
+    rows_trimmed: int = 0
+    rows_stamped_blocked: int = 0
     blocked_sample: list[str] = field(default_factory=list)
     queue_rows_deleted: int = 0
     rpc_seconds: list[float] = field(default_factory=list)
@@ -196,9 +219,6 @@ class DrainTotals:
     teams_touched: set[int] = field(default_factory=set)
     queue_rows_estimate_at_start: int = 0
     stopped_reason: str = "drained"
-
-    def rows_stamped_blocked(self) -> int:
-        return self.persons_blocked + self.persons_oversized + self.persons_rpc_failed
 
     def as_metadata(self) -> dict[str, dagster.MetadataValue]:
         return {
@@ -213,7 +233,11 @@ class DrainTotals:
             "persons_not_found": dagster.MetadataValue.int(self.persons_not_found),
             "persons_blocked": dagster.MetadataValue.int(self.persons_blocked),
             "persons_oversized": dagster.MetadataValue.int(self.persons_oversized),
+            "persons_trimmed": dagster.MetadataValue.int(self.persons_trimmed),
             "persons_rpc_failed": dagster.MetadataValue.int(self.persons_rpc_failed),
+            "trim_calls": dagster.MetadataValue.int(self.trim_calls),
+            "rows_trimmed": dagster.MetadataValue.int(self.rows_trimmed),
+            "rows_stamped_blocked": dagster.MetadataValue.int(self.rows_stamped_blocked),
             "blocked_sample": dagster.MetadataValue.text(", ".join(self.blocked_sample) or "none"),
             "queue_rows_deleted": dagster.MetadataValue.int(self.queue_rows_deleted),
             "rpc_seconds_total": dagster.MetadataValue.float(round(sum(self.rpc_seconds, 0.0), 3)),
@@ -449,17 +473,33 @@ class _Drain:
             after = QueueCursor(team_id=last.team_id, person_uuid=last.person_uuid)
 
     def send(self, chunk: Chunk) -> DeleteTombstonedPersonsResponse:
-        """One personhog attempt. Fatal codes and an outage fail the run; anything else is retryable."""
         assert self.client is not None
         client = self.client
         request = DeleteTombstonedPersonsRequest(team_id=chunk.team_id, person_uuids=list(chunk.person_uuids))
+        return self.attempt(
+            chunk,
+            "delete_tombstoned_persons",
+            lambda: client.delete_tombstoned_persons(request, timeout=self.config.rpc_timeout_seconds),
+        )
+
+    def send_trim(self, chunk: Chunk) -> TrimTombstonedPersonResponse:
+        assert self.client is not None
+        client = self.client
+        [uuid] = chunk.person_uuids
+        request = TrimTombstonedPersonRequest(
+            team_id=chunk.team_id, person_uuid=uuid, max_rows=self.config.trim_batch_rows
+        )
+        return self.attempt(
+            chunk,
+            "trim_tombstoned_person",
+            lambda: client.trim_tombstoned_person(request, timeout=self.config.rpc_timeout_seconds),
+        )
+
+    def attempt(self, chunk: Chunk, method: str, invoke: Callable[[], _T]) -> _T:
+        """One personhog attempt. Fatal codes and an outage fail the run; anything else is retryable."""
         started = time.perf_counter()
         try:
-            response = personhog_call(
-                "delete_tombstoned_persons",
-                lambda: client.delete_tombstoned_persons(request, timeout=self.config.rpc_timeout_seconds),
-                caller_tag=PERSONHOG_CALLER_TAG,
-            )
+            response = personhog_call(method, invoke, caller_tag=PERSONHOG_CALLER_TAG)
         except grpc.RpcError as exc:
             code = _status_code(exc)
             self.totals.rpc_errors += 1
@@ -469,19 +509,18 @@ class _Drain:
                 # An older router or replica does not know the RPC. Failing here is the point:
                 # the legacy DeletePersons would hard-delete revived persons.
                 raise dagster.Failure(
-                    "personhog does not serve DeleteTombstonedPersons yet; deploy personhog-router and "
-                    "personhog-replica with it before running the drain",
+                    f"personhog does not serve {method} yet; deploy personhog-router and personhog-replica "
+                    "with it before running the drain",
                     metadata={**self.totals.as_metadata(), **_chunk_metadata(chunk)},
                 ) from exc
             if code in FATAL_RPC_CODES:
                 raise dagster.Failure(
-                    f"personhog rejected DeleteTombstonedPersons with {_code_name(code)}; retrying cannot change that",
+                    f"personhog rejected {method} with {_code_name(code)}; retrying cannot change that",
                     metadata={**self.totals.as_metadata(), **_chunk_metadata(chunk)},
                 ) from exc
             if self.consecutive_failures >= self.config.max_consecutive_failures:
                 raise dagster.Failure(
-                    f"personhog DeleteTombstonedPersons failed {self.consecutive_failures} times in a row "
-                    f"({_code_name(code)})",
+                    f"personhog {method} failed {self.consecutive_failures} times in a row ({_code_name(code)})",
                     metadata={
                         **self.totals.as_metadata(),
                         **_chunk_metadata(chunk),
@@ -506,11 +545,11 @@ class _Drain:
         )
         _pause(pause)
 
-    def resolve(self, chunk: Chunk) -> None:
+    def resolve(self, chunk: Chunk, trim_oversized: bool = True) -> None:
         """Send the chunk, splitting a failed request in half until each person is resolved or given up.
 
         Halves go to the back of the queue, so a single broken person never produces a long run
-        of failures and the outage detector in send() stays meaningful.
+        of failures and the outage detector in attempt() stays meaningful.
         """
         pending: deque[tuple[Chunk, int]] = deque([(chunk, 0)])
         while pending and not self.out_of_time():
@@ -527,12 +566,12 @@ class _Drain:
                 else:
                     self.give_up(current, failed.code)
                 continue
-            self.apply(current, response)
+            self.apply(current, response, trim_oversized)
 
     def give_up(self, chunk: Chunk, code: grpc.StatusCode | None) -> None:
         [uuid] = chunk.person_uuids
         self.context.log.warning(
-            "personhog could not delete person %s of team %d after %d attempts (%s); stamping its row blocked_at",
+            "personhog could not resolve person %s of team %d after %d attempts (%s); stamping its row blocked_at",
             uuid,
             chunk.team_id,
             self.config.max_attempts_per_person,
@@ -540,11 +579,9 @@ class _Drain:
         )
         self.totals.chunks += 1
         self.totals.persons_rpc_failed += 1
-        self.sample("rpc_failed", [uuid])
-        self.timed_pg(lambda cursor: _mark_blocked(cursor, chunk, [uuid]))
-        self.check_blocked_budget(chunk)
+        self.stamp_blocked(chunk, "rpc_failed", [uuid])
 
-    def apply(self, chunk: Chunk, response: DeleteTombstonedPersonsResponse) -> None:
+    def apply(self, chunk: Chunk, response: DeleteTombstonedPersonsResponse, trim_oversized: bool) -> None:
         blocked = sorted(response.blocked_person_uuids)
         oversized = sorted(response.oversized_person_uuids)
         unresolved = set(blocked) | set(oversized)
@@ -557,28 +594,71 @@ class _Drain:
         self.totals.persons_not_found += len(resolved) - response.deleted_count - response.skipped_live_count
         self.totals.persons_blocked += len(blocked)
         self.totals.persons_oversized += len(oversized)
-        self.sample("live_distinct_id", blocked)
-        self.sample("oversized", oversized)
         self.totals.chunks += 1
         self.totals.queue_rows_deleted += self.timed_pg(lambda cursor: _delete_queue_rows(cursor, chunk, resolved))
-        if unresolved:
-            self.timed_pg(lambda cursor: _mark_blocked(cursor, chunk, sorted(unresolved)))
-        self.check_blocked_budget(chunk)
+        if blocked:
+            self.stamp_blocked(chunk, "live_distinct_id", blocked)
         _pause(pause_seconds(self.config.pause_ms, self.config.latency_multiplier, self.totals.rpc_seconds[-1]))
+        for uuid in oversized:
+            if trim_oversized:
+                self.trim_then_delete(chunk, uuid)
+            else:
+                # A person that is still over the cap right after trimming under it has grown
+                # again, which no tombstoned person does. Park it where operators can see it.
+                self.stamp_blocked(chunk, "oversized", [uuid])
 
-    def sample(self, reason: str, uuids: Iterable[str]) -> None:
+    def trim_then_delete(self, chunk: Chunk, uuid: str) -> None:
+        """Take one oversized person under the cap a bounded step at a time, then delete it.
+
+        Every step is one short replica transaction and is committed on its own, so a run that
+        ends mid-way loses nothing: the row stays queued and the next run continues from there.
+        """
+        single = Chunk(team_id=chunk.team_id, deleted_at=chunk.deleted_at, person_uuids=(uuid,))
+        attempts = 0
+        while not self.out_of_time():
+            try:
+                step = self.send_trim(single)
+            except _AttemptFailed as failed:
+                self.backoff(single, failed.code)
+                attempts += 1
+                if attempts >= self.config.max_attempts_per_person:
+                    self.give_up(single, failed.code)
+                return_reason = "gave_up" if attempts >= self.config.max_attempts_per_person else None
+                if return_reason:
+                    return
+                continue
+            attempts = 0
+            deleted = step.distinct_ids_deleted + step.hash_key_overrides_deleted + step.cohort_memberships_deleted
+            self.totals.trim_calls += 1
+            self.totals.rows_trimmed += deleted
+            _pause(pause_seconds(self.config.pause_ms, self.config.latency_multiplier, self.totals.rpc_seconds[-1]))
+            if not step.person_tombstoned or not step.over_cap:
+                self.totals.persons_trimmed += 1
+                self.resolve(single, trim_oversized=False)
+                return
+            if deleted == 0:
+                # Over the cap with nothing left to trim: the remaining rows are live distinct
+                # ids, so the person is blocked, not oversized.
+                self.totals.persons_blocked += 1
+                self.totals.chunks += 1
+                self.stamp_blocked(single, "live_distinct_id", [uuid])
+                return
+
+    def stamp_blocked(self, chunk: Chunk, reason: str, uuids: Sequence[str]) -> None:
+        self.totals.rows_stamped_blocked += len(uuids)
         room = max(0, BLOCKED_SAMPLE_SIZE - len(self.totals.blocked_sample))
         self.totals.blocked_sample.extend(f"{reason}:{uuid}" for uuid in list(uuids)[:room])
+        self.timed_pg(lambda cursor: _mark_blocked(cursor, chunk, list(uuids)))
+        self.check_blocked_budget(chunk)
 
     def check_blocked_budget(self, chunk: Chunk) -> None:
         totals = self.totals
-        if totals.rows_stamped_blocked() <= self.config.max_blocked:
+        if totals.rows_stamped_blocked <= self.config.max_blocked:
             return
         raise dagster.Failure(
-            f"{totals.rows_stamped_blocked()} queue rows stamped blocked_at this run "
-            f"({totals.persons_blocked} with a live distinct id, {totals.persons_oversized} over the distinct-id "
-            f"cap, {totals.persons_rpc_failed} with failing requests), more than max_blocked={self.config.max_blocked}; "
-            "this needs investigation, not more retries",
+            f"{totals.rows_stamped_blocked} queue rows stamped blocked_at this run "
+            f"({totals.persons_blocked} with a live distinct id, {totals.persons_rpc_failed} with failing "
+            f"requests), more than max_blocked={self.config.max_blocked}; this needs investigation, not more retries",
             metadata={**totals.as_metadata(), **_chunk_metadata(chunk)},
         )
 
@@ -590,9 +670,12 @@ class _Drain:
             ("not_found", after.persons_not_found - before.persons_not_found),
             ("blocked", after.persons_blocked - before.persons_blocked),
             ("oversized", after.persons_oversized - before.persons_oversized),
+            ("trimmed", after.persons_trimmed - before.persons_trimmed),
             ("rpc_failed", after.persons_rpc_failed - before.persons_rpc_failed),
         ):
             _emit(self.metrics, "person_pg_cleanup_drain_persons", {"outcome": outcome}, delta)
+        _emit(self.metrics, "person_pg_cleanup_drain_trim_calls", {}, after.trim_calls - before.trim_calls)
+        _emit(self.metrics, "person_pg_cleanup_drain_rows_trimmed", {}, after.rows_trimmed - before.rows_trimmed)
         _emit(
             self.metrics,
             "person_pg_cleanup_drain_queue_rows_deleted",
@@ -613,7 +696,10 @@ class _Drain:
             persons_not_found=self.totals.persons_not_found,
             persons_blocked=self.totals.persons_blocked,
             persons_oversized=self.totals.persons_oversized,
+            persons_trimmed=self.totals.persons_trimmed,
             persons_rpc_failed=self.totals.persons_rpc_failed,
+            trim_calls=self.totals.trim_calls,
+            rows_trimmed=self.totals.rows_trimmed,
             queue_rows_deleted=self.totals.queue_rows_deleted,
             rpc_calls=self.totals.rpc_calls,
         )
@@ -648,8 +734,8 @@ class _Drain:
     def log_progress(self) -> None:
         totals = self.totals
         self.context.log.info(
-            "%d pages, %d rows: deleted=%d skipped_live=%d not_found=%d blocked=%d oversized=%d rpc_failed=%d, "
-            "rpc p50 %.3fs, %d rpc errors, %d splits",
+            "%d pages, %d rows: deleted=%d skipped_live=%d not_found=%d blocked=%d oversized=%d trimmed=%d "
+            "(%d steps, %d rows) rpc_failed=%d, rpc p50 %.3fs, %d rpc errors, %d splits",
             totals.pages,
             totals.rows_read,
             totals.persons_deleted,
@@ -657,6 +743,9 @@ class _Drain:
             totals.persons_not_found,
             totals.persons_blocked,
             totals.persons_oversized,
+            totals.persons_trimmed,
+            totals.trim_calls,
+            totals.rows_trimmed,
             totals.persons_rpc_failed,
             statistics.median(totals.rpc_seconds) if totals.rpc_seconds else 0.0,
             totals.rpc_errors,

@@ -102,18 +102,33 @@ def seed_blocked(fake: FakePersonHogClient, team_id: int, person_id: int) -> str
     return uuid
 
 
-def seed_oversized(fake: FakePersonHogClient, team_id: int, person_id: int) -> str:
-    # Three distinct ids against a cap of two; seed_tombstoned's two stay under it.
+def seed_oversized(fake: FakePersonHogClient, team_id: int, person_id: int, distinct_ids: int = 3) -> str:
+    # Over a cap of two; seed_tombstoned's two distinct ids stay under it.
     uuid = str(uuid4())
-    distinct_ids = [f"{person_id}-a", f"{person_id}-b", f"{person_id}-c"]
-    fake.max_distinct_ids_per_tombstoned_person = 2
+    fake.max_dependent_rows_per_tombstoned_person = 2
     fake.add_person(
         team_id=team_id,
         person_id=person_id,
         uuid=uuid,
-        distinct_ids=distinct_ids,
+        distinct_ids=[f"{person_id}-{i}" for i in range(distinct_ids)],
         is_deleted=True,
-        tombstoned_distinct_ids=distinct_ids,
+        tombstoned_distinct_ids=[f"{person_id}-{i}" for i in range(distinct_ids)],
+    )
+    return uuid
+
+
+def seed_tombstoned_with_live_ids_only(fake: FakePersonHogClient, team_id: int, person_id: int) -> str:
+    # Tombstoned, over the cap of two, and every distinct id still live: trimming has nothing to
+    # delete, so the person must end up blocked rather than trimmed forever.
+    uuid = str(uuid4())
+    fake.max_dependent_rows_per_tombstoned_person = 2
+    fake.add_person(
+        team_id=team_id,
+        person_id=person_id,
+        uuid=uuid,
+        distinct_ids=[f"{person_id}-a", f"{person_id}-b", f"{person_id}-c"],
+        is_deleted=True,
+        tombstoned_distinct_ids=[],
     )
     return uuid
 
@@ -126,6 +141,15 @@ def delete_requests(fake: FakePersonHogClient) -> list:
     return [call.request for call in fake.calls if call.method == "delete_tombstoned_persons"]
 
 
+def trim_requests(fake: FakePersonHogClient) -> list:
+    return [call.request for call in fake.calls if call.method == "trim_tombstoned_person"]
+
+
+def distinct_id_count(fake: FakePersonHogClient, team_id: int, uuid: str) -> int:
+    person = fake.get_person_by_uuid(GetPersonByUuidRequest(team_id=team_id, uuid=uuid)).person
+    return len(fake._distinct_ids.get((team_id, person.id), []))
+
+
 class _RpcError(grpc.RpcError):
     def __init__(self, code: grpc.StatusCode) -> None:
         super().__init__()
@@ -135,19 +159,22 @@ class _RpcError(grpc.RpcError):
         return self._code
 
 
-def fail_with(monkeypatch: pytest.MonkeyPatch, fake: FakePersonHogClient, codes: list[grpc.StatusCode]) -> None:
-    # The first len(codes) calls raise the given status; later calls reach the fake.
+def fail_with(
+    monkeypatch: pytest.MonkeyPatch,
+    fake: FakePersonHogClient,
+    codes: list[grpc.StatusCode],
+    method: str = "delete_tombstoned_persons",
+) -> None:
+    # The first len(codes) calls of the method raise the given status; later calls reach the fake.
     pending = list(codes)
-    original = fake.delete_tombstoned_persons
+    original = getattr(fake, method)
 
-    def wrapped(
-        request: DeleteTombstonedPersonsRequest, timeout: float | None = None
-    ) -> DeleteTombstonedPersonsResponse:
+    def wrapped(request, timeout: float | None = None):
         if pending:
             raise _RpcError(pending.pop(0))
         return original(request, timeout=timeout)
 
-    monkeypatch.setattr(fake, "delete_tombstoned_persons", wrapped)
+    monkeypatch.setattr(fake, method, wrapped)
 
 
 def record_emits(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, dict[str, str]]]:
@@ -204,16 +231,16 @@ def test_removes_rows_for_live_and_unknown_persons_without_deleting_them(cluster
     "seed,counter,reason",
     [
         (seed_blocked, "persons_blocked", "live_distinct_id"),
-        (seed_oversized, "persons_oversized", "oversized"),
+        (seed_tombstoned_with_live_ids_only, "persons_blocked", "live_distinct_id"),
     ],
 )
 def test_unresolved_rows_stay_queued_and_are_skipped_inside_the_retry_window(
     cluster: ClickhouseCluster, persons_database, seed, counter, reason
 ):
-    # personhog reports a tombstoned person it will not delete: one that still owns a live distinct
-    # id, or one with more distinct ids than a transaction may touch. The row must survive with
-    # blocked_at set: deleting it would hide the problem, and re-sending it every run would hammer
-    # personhog for nothing.
+    # personhog reports a tombstoned person it will not delete because a live distinct id still
+    # points at it, either straight away or after a trim step found nothing left to remove. The
+    # row must survive with blocked_at set: deleting it would hide the problem, and re-sending it
+    # every run would hammer personhog for nothing.
     fake = get_active_fake()
     unresolved = seed(fake, TEAM_A, 1)
     gone = seed_tombstoned(fake, TEAM_A, 2)
@@ -233,6 +260,78 @@ def test_unresolved_rows_stay_queued_and_are_skipped_inside_the_retry_window(
 
     third = run_job(cluster, blocked_retry_hours=0)
     assert getattr(totals_of(third), counter) == 1, "past the window the row is retried and reported again"
+
+
+@pytest.mark.django_db
+def test_an_oversized_person_is_trimmed_in_steps_then_deleted(cluster: ClickhouseCluster, persons_database):
+    # A person over the replica's cap is never deleted in one go: the drain trims it one bounded
+    # step at a time until it fits, then deletes it like any other. The small person in the same
+    # request must not wait for that.
+    fake = get_active_fake()
+    big = seed_oversized(fake, TEAM_A, 1, distinct_ids=5)
+    small = seed_tombstoned(fake, TEAM_A, 2)
+    queue(persons_database, [(TEAM_A, big, SWEEP_1), (TEAM_A, small, SWEEP_1)])
+
+    result = run_job(cluster, trim_batch_rows=1)
+
+    totals = totals_of(result)
+    assert queued(persons_database) == []
+    assert not present(fake, TEAM_A, big) and not present(fake, TEAM_A, small)
+    # 5 distinct ids against a cap of 2: three single-row steps bring it to 2, then one delete.
+    assert (totals.persons_oversized, totals.trim_calls, totals.rows_trimmed, totals.persons_trimmed) == (1, 3, 3, 1)
+    assert totals.persons_deleted == 2
+    assert [len(request.person_uuids) for request in delete_requests(fake)] == [2, 1]
+    assert [request.max_rows for request in trim_requests(fake)] == [1, 1, 1]
+    assert totals.rows_stamped_blocked == 0
+
+
+@pytest.mark.django_db
+def test_a_run_that_ends_mid_trim_keeps_its_progress_and_leaves_the_row(
+    cluster: ClickhouseCluster, persons_database, monkeypatch
+):
+    # Each trim step is committed on its own. When the deadline lands between steps, the rows
+    # already trimmed stay gone, the queue row stays put and unstamped, and the next run continues.
+    fake = get_active_fake()
+    big = seed_oversized(fake, TEAM_A, 1, distinct_ids=5)
+    queue(persons_database, [(TEAM_A, big, SWEEP_1)])
+    # Read at start, before the page, before the request, before each attempt inside it, then
+    # before the first trim step; the next check, before the second step, is past the deadline.
+    clock = itertools.chain([0.0] * 5, itertools.repeat(10**9))
+    monkeypatch.setattr(drain, "_now_monotonic", lambda: next(clock))
+
+    first = run_job(cluster, trim_batch_rows=1)
+
+    totals = totals_of(first)
+    assert (totals.stopped_reason, totals.trim_calls, totals.rows_trimmed) == ("max_runtime", 1, 1)
+    assert queued(persons_database) == [(TEAM_A, big, SWEEP_1, None)]
+    assert distinct_id_count(fake, TEAM_A, big) == 4
+
+    second = run_job(cluster, trim_batch_rows=1)
+
+    assert queued(persons_database) == []
+    assert not present(fake, TEAM_A, big)
+    assert totals_of(second).trim_calls == 2
+
+
+@pytest.mark.django_db
+def test_a_trim_that_keeps_failing_stamps_the_row_and_the_run_moves_on(
+    cluster: ClickhouseCluster, persons_database, monkeypatch
+):
+    fake = get_active_fake()
+    big = seed_oversized(fake, TEAM_A, 1, distinct_ids=5)
+    small = seed_tombstoned(fake, TEAM_A, 2)
+    queue(persons_database, [(TEAM_A, big, SWEEP_1), (TEAM_A, small, SWEEP_1)])
+    fail_with(monkeypatch, fake, [grpc.StatusCode.UNAVAILABLE] * 10, method="trim_tombstoned_person")
+
+    result = run_job(cluster, max_attempts_per_person=2)
+
+    totals = totals_of(result)
+    assert (totals.persons_rpc_failed, totals.rpc_errors, totals.persons_deleted) == (1, 2, 1)
+    [(team_id, person_uuid, _, blocked_at)] = queued(persons_database)
+    assert (team_id, person_uuid) == (TEAM_A, big)
+    assert blocked_at is not None
+    assert totals.blocked_sample == [f"rpc_failed:{big}"]
+    assert present(fake, TEAM_A, big) and not present(fake, TEAM_A, small)
 
 
 @pytest.mark.django_db
@@ -561,6 +660,7 @@ def test_pauses_after_every_request_by_pause_ms_plus_latency(cluster: Clickhouse
         ({"rpc_timeout_seconds": 0}, "rpc_timeout_seconds must be positive"),
         ({"rpc_batch_size": drain.RPC_MAX_UUIDS + 1}, "rpc_batch_size must be between"),
         ({"page_size": 0}, "page_size must be between"),
+        ({"trim_batch_rows": drain.TRIM_MAX_ROWS + 1}, "trim_batch_rows must be between"),
         ({"max_attempts_per_person": 0}, "must be positive"),
         ({"max_blocked": -1}, "must not be negative"),
     ],
