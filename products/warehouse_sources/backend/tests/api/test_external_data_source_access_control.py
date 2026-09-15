@@ -316,6 +316,20 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], str(self.source.id))
 
+    def test_exists_ignores_inaccessible_sources(self):
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self._create_access_control(
+            self.viewer_user,
+            resource_id=str(self.source.id),
+            access_level="none",
+        )
+
+        self.client.force_login(self.viewer_user)
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/exists/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"exists": False})
+
     def test_connections_includes_only_ready_managed_warehouse_regardless_of_source_access(self):
         external_source = ExternalDataSource.objects.create(
             team=self.team,
@@ -626,6 +640,25 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
 
         response = self.client.get(
             f"/api/environments/{self.team.pk}/external_data_sources/connections/",
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+
+    @parameterized.expand(
+        [
+            ("external_data_source_read", "external_data_source:read", status.HTTP_200_OK),
+            ("query_read", "query:read", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_exists_preserves_external_data_source_api_scope(
+        self, _name: str, scope: str, expected_status: int
+    ) -> None:
+        api_key = self.create_personal_api_key_with_scopes([scope])
+        self.client.force_authenticate(None)
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/exists/",
             headers={"authorization": f"Bearer {api_key}"},
         )
 
