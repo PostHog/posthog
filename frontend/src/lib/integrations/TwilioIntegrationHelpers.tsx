@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
-import { LemonInputSelect, LemonInputSelectOption, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInputSelect, LemonInputSelectOption, Link } from '@posthog/lemon-ui'
 
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 
@@ -41,9 +41,12 @@ export function TwilioPhoneNumberPicker({
     integration,
     disabled,
 }: TwilioPhoneNumberPickerProps): JSX.Element {
-    const { twilioPhoneNumbers, allTwilioPhoneNumbersLoading, getPhoneNumberRefreshButtonDisabledReason } = useValues(
-        twilioIntegrationLogic({ id: integration.id })
-    )
+    const {
+        twilioPhoneNumbers,
+        allTwilioPhoneNumbersLoading,
+        getPhoneNumberRefreshButtonDisabledReason,
+        twilioPhoneNumbersErrorMessage,
+    } = useValues(twilioIntegrationLogic({ id: integration.id }))
     const { loadAllTwilioPhoneNumbers } = useActions(twilioIntegrationLogic({ id: integration.id }))
 
     usePeriodicRerender(15000) // Re-render every 15 seconds for up-to-date `getPhoneNumberRefreshButtonDisabledReason`
@@ -89,12 +92,18 @@ export function TwilioPhoneNumberPicker({
                     disabledReason: getPhoneNumberRefreshButtonDisabledReason(),
                 }}
                 emptyStateComponent={
-                    <p className="text-secondary italic p-1">
-                        No phone numbers found. Make sure your Twilio account has phone numbers configured.{' '}
-                        <Link to="https://posthog.com/docs/cdp/destinations/twilio" target="_blank">
-                            See the docs for more information.
-                        </Link>
-                    </p>
+                    // A Twilio failure is not an empty account, so it must not claim the account owns
+                    // no numbers.
+                    twilioPhoneNumbersErrorMessage ? (
+                        <p className="text-secondary italic p-1">{twilioPhoneNumbersErrorMessage}</p>
+                    ) : (
+                        <p className="text-secondary italic p-1">
+                            No phone numbers found. Buy a phone number in Twilio, then refresh this list.{' '}
+                            <Link to="https://posthog.com/docs/cdp/destinations/twilio" target="_blank">
+                                See the docs for more information.
+                            </Link>
+                        </p>
+                    )
                 }
                 options={
                     twilioPhoneNumberOptions ??
@@ -109,6 +118,12 @@ export function TwilioPhoneNumberPicker({
                 }
                 loading={allTwilioPhoneNumbersLoading}
             />
+
+            {twilioPhoneNumbersErrorMessage ? (
+                <LemonBanner type="warning" className="mt-1">
+                    {twilioPhoneNumbersErrorMessage}
+                </LemonBanner>
+            ) : null}
         </>
     )
 }
