@@ -1,4 +1,5 @@
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { CanvasUnavailable } from "@posthog/ui/features/canvas/components/CanvasUnavailable";
 import { FreeformCanvasView } from "@posthog/ui/features/canvas/freeform/FreeformCanvasView";
 import { GridCanvasView } from "@posthog/ui/features/canvas/grid/GridCanvasView";
 import { useDashboard } from "@posthog/ui/features/canvas/hooks/useDashboards";
@@ -26,6 +27,14 @@ export function WebsiteDashboard({ dashboardId }: { dashboardId: string }) {
       template_id: dashboard.templateId,
     });
   }, [dashboard]);
+
+  // `null` (not `undefined`) is the settled answer that the canvas will not
+  // open — the service returns it for both a miss and a space the reader is not
+  // in. Without this the canvas surface renders its own empty frame, which
+  // reads as a canvas that never finished loading.
+  if (dashboard === null) {
+    return <CanvasUnavailable canvasId={dashboardId} />;
+  }
 
   if (dashboard?.kind === "grid") {
     return <GridCanvasView canvasId={dashboardId} interactive={editing} />;
