@@ -5,7 +5,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 # Canonical homes of the judgment/finding shapes are the artefact content schemas (they are
 # persisted as artefacts); re-exported here because this module is where research callers and
@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from products.signals.backend.artefact_schemas import (
     ActionabilityAssessment,
     ActionabilityChoice,
+    NoteArtefact,
     Priority,
     PriorityAssessment,
     SignalFinding,
@@ -22,7 +23,7 @@ from products.signals.backend.artefact_schemas import (
 # `posthog.schema` onto the research path.
 from products.signals.backend.pipeline_identity import AI_STAGE_RESEARCH
 from products.signals.backend.report_actionability import ACTIONABILITY_CRITERIA
-from products.signals.backend.report_charts import MAX_REPORT_CHARTS, ReportChart
+from products.signals.backend.report_charts import MAX_REPORT_CHARTS, WHEN_TO_CHART, ReportChart
 from products.signals.backend.report_metrics import (
     DEFAULT_LIVE_METRIC_DATE_FROM,
     MAX_LIVE_METRIC_QUERY_POINTS,
@@ -48,16 +49,27 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "ActionabilityAssessment",
     "ActionabilityChoice",
+    "FixVerificationOutput",
     "Priority",
     "PriorityAssessment",
     "ReportPresentationOutput",
     "ReportResearchOutput",
     "ResearchArtefactContent",
     "SignalFinding",
+    "build_fix_verification_prompt",
     "run_multi_turn_research",
 ]
 
 # TODO: Signals deduplication step before the research
+
+
+def _rejection_reason(error: Exception) -> str:
+    """Why a chart was rejected, as failing field and rule only — never the rejected content."""
+    if not isinstance(error, ValidationError):
+        return type(error).__name__
+    return ", ".join(
+        f"{'.'.join(str(part) for part in entry['loc']) or 'chart'}: {entry['type']}" for entry in error.errors()
+    )
 
 
 class ReportPresentationOutput(BaseModel):
@@ -82,10 +94,11 @@ The bar to clear: if someone dropped this report (or the PR) on you and said not
 
 Start with a one-sentence tl;dr on its very first line, before any heading. This single sentence is shown on its own in the inbox list, so it has to stand alone and make someone get the gist without the rest of the summary. Ideally lead with "Users …", spelling out how they're impacted, how many, or how important they are; if it's not users but the team building the product who's affected, say that instead; otherwise just say plainly what's going on. Keep it to one sentence, no heading, no bold, followed by a blank line.
 
-Then give it light structure so a busy reader can scan the rest, three short sections under H2 headings:
+Then give it light structure so a busy reader can scan the rest, with short sections under H2 headings:
 - '## Problem' – what's actually going wrong. Name the real culprit (the specific API, component, query, or behavior) in plain terms an engineer who knows this code will immediately recognize.
 - '## Impact' – who it hurts and how much: users (how many, how badly, how important), or, if it's not users, the team building the product. Lead with the thing that matters.
 - '## Solution' – what you'd do about it: the shape of the fix, not a spec. Omit this section entirely if the report isn't actionable.
+- '## Expected impact' – when the Solution section is present, estimate the expected change in one metric the solution should directly affect. Use a baseline from data you queried during this research. State the baseline, the expected post-fix value or credible range, and the absolute or relative delta. Show the short calculation and its important assumptions. Do not use a metric that the solution cannot change. If the solution improves recovery or diagnosis without changing the observed failure rate, say that the existing rate should stay stable and name the recovery metric to add. If the evidence has no usable baseline or denominator, say that no credible estimate is possible, name the missing data, and do not guess.
 
 Within each section write a sentence or two of natural, flowing prose, not bullet soup. Bold the few phrases a reader should catch at a glance (the core symptom, the key number, the root cause, the proposed change) so it's scannable without becoming a wall of labels. Don't over-bold: if everything's bold, nothing is.
 
@@ -120,12 +133,68 @@ Hard rules:
         ),
     )
 
+    @field_validator("charts", mode="before")
+    @classmethod
+    def drop_charts_that_do_not_validate(cls, v: object) -> object:
+        # Title, summary, and charts arrive as one response, so a single malformed node used to fail
+        # the whole presentation step and end the run with no report at all. Validating each entry
+        # here keeps the cost of a bad chart to that chart: it is dropped, the prose still lands,
+        # and the prompt can ask for charts without hedging against the response failing.
+        if not isinstance(v, list):
+            return v
+        kept: list[ReportChart] = []
+        for index, entry in enumerate(v):
+            try:
+                kept.append(ReportChart.model_validate(entry))
+            except Exception as e:
+                # Report the failing fields and rules, never the error itself: pydantic renders the
+                # rejected `input_value`, which would copy the chart's query — HogQL text and filter
+                # values — into application logs.
+                logger.warning(
+                    "presentation: dropped chart at index %d that did not validate (%s)", index, _rejection_reason(e)
+                )
+        return kept
+
     @field_validator("title", "summary")
     @classmethod
     def fields_must_not_be_empty(cls, v: str) -> str:
         if not v.strip():
             raise ValueError("Title and summary must not be empty")
         return v
+
+
+class FixVerificationOutput(BaseModel):
+    """Session output for the final, actionable-only fix verification turn."""
+
+    current_state: str = Field(
+        description=(
+            "Free-form guidance to confirm whether the reported issue still occurs. State the evidence to collect, "
+            "the result that supports a conclusion, and the result that is inconclusive."
+        ),
+    )
+    outcome: str = Field(
+        description=(
+            "Free-form guidance to confirm the intended outcome after the chosen resolution. State the evidence to "
+            "collect, the result that supports a conclusion, and the result that is inconclusive."
+        ),
+    )
+
+    @field_validator("current_state", "outcome")
+    @classmethod
+    def sections_must_not_be_empty(cls, section: str) -> str:
+        section = section.strip()
+        if not section:
+            raise ValueError("Verification plan sections must not be empty")
+        return section
+
+    def to_note(self) -> NoteArtefact:
+        return NoteArtefact(
+            note=(
+                f"## Verification plan\n\n"
+                f"### Confirm the current state\n\n{self.current_state}\n\n"
+                f"### Confirm the outcome\n\n{self.outcome}"
+            )
+        )
 
 
 # The report artefacts a research run produces: one finding per signal plus the two assessments.
@@ -151,6 +220,13 @@ class ReportResearchOutput(BaseModel):
         default=None,
         description="UUID of the sandbox task that performed the research; artefacts persisted from "
         "this output are attributed to it. None for saved fixtures / pre-existing outputs.",
+    )
+    verification_note: NoteArtefact | None = Field(
+        default=None,
+        description=(
+            "An optional final note with checks to reproduce the issue and verify a hypothetical fix after deployment. "
+            "Present only when the report is actionable."
+        ),
     )
     # The run's findings and assessments split by whether they changed: `old_artefacts` were
     # confirmed unchanged (already persisted — a re-research reusing them writes nothing) and
@@ -375,13 +451,11 @@ def _render_previous_presentation_context(previous_title: str | None, previous_s
 # team that isn't opted in is never shown or steered toward charts on the delicate fleet-wide path.
 _REPORT_CHARTS_GUIDANCE = f"""## Attaching charts
 
-You may attach charts under `charts`, which the inbox draws on the report itself so a data move is visible next to the sentence describing it rather than a number the reader has to go and reproduce.
+`charts` carries queries the inbox draws on the report itself, so a data move is visible next to the sentence describing it rather than a number the reader has to go and reproduce.
 
-**When the finding rests on data moving, attach the chart that shows it.** A metric that broke, a rate that slid, a distribution that shifted, a funnel step that collapsed: each of those is a shape, and a reader takes a shape in at a glance where a paragraph of figures makes them rebuild it in their head. The test is the result you got back, never the tool you got it from: a query that returned a series over time, a distribution across buckets, or a set of funnel steps has a shape to draw, and the same tool returning one aggregate row does not. Attaching is what keeps the prose short, because the summary can state the finding and leave the detail to the picture.
+{WHEN_TO_CHART}
 
-Attach nothing when there is no shape to show. A finding that lives entirely in code, in a config, or in a single count has nothing to draw, and a chart restating one number the summary already gives is noise, so write the number instead. One or two charts is the usual answer for a data-shaped report, and none for the rest.
-
-- **Each chart is `chart_id` + `title` + `query`.** `chart_id` is your own slug (lowercase letters, numbers, `_`, `-`); `title` is the heading above it; `query` is a query node — `InsightVizNode` (an ad-hoc product-analytics chart), `DataVisualizationNode` (a `HogQLQuery` source, plus `display` and `chartSettings` for a graph rather than a result table), or `SavedInsightNode` (an existing insight by `shortId`). Any other kind is refused. `query` is that outer node, never the bare query you ran: a `TrendsQuery` goes inside `InsightVizNode.source` and a `HogQLQuery` inside `DataVisualizationNode.source`. Getting that wrong costs more than the chart, because the title, the summary, and the charts are validated as one response, so a malformed node fails the whole thing and the research run ends with no report. When in doubt about a chart, leave it out and keep the prose. Add a `caption` when there's a specific thing to look at.
+- **Each chart is `chart_id` + `title` + `query`.** `chart_id` is your own slug (lowercase letters, numbers, `_`, `-`); `title` is the heading above it; `query` is a query node — `InsightVizNode` (an ad-hoc product-analytics chart), `DataVisualizationNode` (a `HogQLQuery` source, plus `display` and `chartSettings` for a graph rather than a result table), or `SavedInsightNode` (an existing insight by `shortId`). Any other kind is refused. `query` is that outer node, never the bare query you ran: a `TrendsQuery` goes inside `InsightVizNode.source` and a `HogQLQuery` inside `DataVisualizationNode.source`. A chart whose node is malformed is dropped on its own and the rest of the report still lands, so a chart you are unsure about costs you that chart and nothing else. Add a `caption` when there's a specific thing to look at.
 - **A graph from SQL needs its axes named.** Setting `display` on a `DataVisualizationNode` without `chartSettings` draws every row at one x position instead of a series: `chartSettings.xAxis.column` and `chartSettings.yAxis[].column` say which columns of your result are which, naming them exactly as your `SELECT` aliases them. A daily count aliased `SELECT toDate(timestamp) AS day, count() AS occurrences` needs `"chartSettings": {{"xAxis": {{"column": "day"}}, "yAxis": [{{"column": "occurrences"}}]}}`. Leave `display` off entirely and the node renders the result table instead, which reads better than a chart for a handful of rows.
 - **Only attach a query you actually ran this session.** A well-formed node of an allowed kind holding a broken query is stored without complaint and then fails to draw when the reader opens the report, with nothing to tell you. So build each chart from a query you already executed through `mcp__posthog__exec` (`call query-trends {{...}}`, `call execute-sql {{...}}`, or read the exact node off an existing insight) – never one written from memory.
 - **A chart renders data, it does not run code.** HogVM `bytecode`, a nested `HogQuery`, `sendRawQuery`, and a nested `SuggestedQuestionsQuery` are each refused wherever they sit in the node. A warehouse query is fine through HogQL — keep `connectionId`, drop `sendRawQuery`.
@@ -756,6 +830,39 @@ Respond with a JSON object matching this schema:
 </jsonschema>"""
 
 
+def build_fix_verification_prompt() -> str:
+    """Build the final follow-up for actionable reports after all research and presentation work."""
+    schema = json.dumps(FixVerificationOutput.model_json_schema(), indent=2)
+    return f"""As the final step, write the **verification plan** for this actionable report.
+
+Base the plan only on the evidence and successful checks from this research session. Do not do more research in this turn. Do not prescribe a resolution or claim that one exists.
+
+Return two self-contained, free-form sections. Do not add headings because the pipeline adds them:
+
+- In `current_state`, explain how to confirm whether the reported issue still occurs.
+- In `outcome`, explain how to confirm the intended outcome after the chosen resolution.
+
+Each section must state:
+
+- What evidence to collect.
+- What result supports the conclusion.
+- What result is inconclusive.
+
+Choose the most direct method supported by the research. It can be a query, test, log search, replay, code review, or manual check. Include the details needed to perform the check, such as known commands, inputs, IDs, filters, or time bounds. Do not force a product metric when another method gives better evidence.
+
+State the observed baseline and comparison criterion when the research established them. Missing data, insufficient traffic, and failed checks are inconclusive. They do not show that the issue is resolved.
+
+- Do not invent tool arguments, IDs, events, baselines, or numerical thresholds. If a required input or success criterion is unknown, name it and say what must be established before drawing a conclusion.
+
+Do not include implementation instructions.
+
+Respond with a JSON object matching this schema. The pipeline will format it as a note with the heading `Verification plan`:
+
+<jsonschema>
+{schema}
+</jsonschema>"""
+
+
 def _enforce_signal_id(finding: SignalFinding, expected_id: str) -> SignalFinding:
     """Correct the finding's signal_id if the model returned a wrong one."""
     if finding.signal_id != expected_id:
@@ -1001,6 +1108,30 @@ async def run_multi_turn_research(
         if output_fn:
             output_fn(f"Report title: {presentation_result.title}")
 
+        # Final turn, and only for reports with a path to code work: turn the evidence already
+        # gathered into a short operational check that the downstream implementation can run.
+        verification_note: NoteArtefact | None = None
+        if actionability_result.actionability != ActionabilityChoice.NOT_ACTIONABLE:
+            if output_fn:
+                output_fn("Generating fix verification steps...")
+            verification_prompt = build_fix_verification_prompt()
+            try:
+                verification_result = await session.send_followup(
+                    verification_prompt,
+                    FixVerificationOutput,
+                    label="fix_verification",
+                )
+                verification_note = verification_result.to_note()
+            except Exception:
+                logger.exception(
+                    "multi_turn_research: failed to generate fix verification note",
+                    extra={
+                        "research_task_id": str(session.task.id),
+                        "team_id": context.team_id,
+                        "report_id": signal_report_id,
+                    },
+                )
+
         await session.end()
     except (Exception, asyncio.CancelledError) as e:
         # Shield so the session ending cannot itself be canceled - must complete
@@ -1021,6 +1152,7 @@ async def run_multi_turn_research(
         charts=presentation_result.charts if charts_enabled else [],
         metrics=presentation_result.metrics if metrics_enabled else [],
         research_task_id=str(session.task.id),
+        verification_note=verification_note,
         old_artefacts=old_artefacts,
         new_artefacts=new_artefacts,
     )

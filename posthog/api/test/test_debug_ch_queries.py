@@ -257,6 +257,30 @@ class TestDebugCHQuery(APIBaseTest):
         for stat in ("avg_duration_ms", "p50_duration_ms", "p90_duration_ms", "avg_read_bytes"):
             self.assertIsNone(entry[stat])
 
+    def test_precompute_overview_surfaces_unexpected_paths_instead_of_overwriting_direct_scan(self):
+        # The SQL folds untagged rows into direct_scan inside the GROUP BY. If an untagged ('')
+        # group still reaches the merge loop, it must surface as its own bucket — the old
+        # `or "direct_scan"` fallback folded it in by replacing the percentiles with the last
+        # row's (counts summed, stats lied).
+        self.user.is_staff = True
+        self.user.save()
+        no_skips = (0,) * 7
+
+        def read_row(path, p50):
+            return (path, 3, 0, *no_skips, 3, 3, 0, 0, p50, p50, p50, 1024.0, 4096)
+
+        with patch(
+            "posthog.api.debug_ch_queries.sync_execute",
+            side_effect=[[read_row("direct_scan", 100.0), read_row("", 999.0)], []],
+        ):
+            resp = self.client.get("/api/debug_ch_queries/precompute_overview/?hours=24")
+
+        self.assertEqual(resp.status_code, HTTP_200_OK, resp.content)
+        by_path = resp.json()["reads"]["by_exposures_path"]
+        self.assertEqual(by_path["direct_scan"]["p50_duration_ms"], 100.0)
+        self.assertEqual(by_path[""]["p50_duration_ms"], 999.0)
+        self.assertEqual(resp.json()["reads"]["total"], 6)
+
     @patch("posthog.api.debug_ch_queries.sync_execute", return_value=[])
     def test_slowest_queries_pat_with_scope_and_staff_allowed(self, _mock_execute):
         self.user.is_staff = True

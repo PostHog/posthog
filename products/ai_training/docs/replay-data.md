@@ -9,12 +9,12 @@ Its storage and deletion implementation is separate from production session repl
 
 ## Session versions
 
-The cutoff is **Tuesday, 2026-09-15 at 10:00 UTC**, which is 11:00 in Europe/London.
+The cutoff is **Tuesday, 2026-09-15 at 12:00 UTC**, which is 13:00 in Europe/London.
 The session UUIDv7 timestamp selects the version:
 
 - Before the cutoff: v1 uses HMAC team and session IDs.
 - At or after the cutoff: v2 uses raw team and session IDs and encrypted payloads.
-- An invalid UUIDv7 timestamp or a start year beyond 9999 selects v1.
+- The ML mirror drops a session if its ID is not UUIDv7 or its start year is beyond 9999.
 
 Event timestamps, arrival times, retries, and flushes do not change the version.
 Both versions can occur in one ingestion batch.
@@ -180,6 +180,9 @@ New privacy settings use `AI_RESEARCH_REPLAY_*`:
 - `KEY_CACHE_MAX`, `KEY_CACHE_LIFETIME_MS`, and `KMS_REQUESTS_PER_SECOND` bound ingestion key caching and KMS traffic.
 - `IMAGE_FETCH_V2_DYNAMODB_TABLE` selects the fresh v2 frontier.
 - `S3_PREFIX` selects v2 replay storage and defaults to `rrweb_2`.
+
+The v2 producer requires `AI_RESEARCH_REPLAY_KEY_TABLE` and `AI_RESEARCH_REPLAY_KMS_KEY_ARN` at startup.
+Missing values stop startup before it consumes Kafka messages.
 
 Established HMAC settings retain their transition aliases.
 When both aliases are set, the `AI_RESEARCH_REPLAY_*` value takes precedence, including an explicit empty value.

@@ -201,10 +201,12 @@ MIDDLEWARE = [
     "posthog.middleware.ImpersonationReadOnlyMiddleware",
     "posthog.middleware.ImpersonationBlockedPathsMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    "posthog.middleware.ActiveOrganizationMiddleware",
     "posthog.middleware.CsvNeverCacheMiddleware",
     "axes.middleware.AxesMiddleware",
     "posthog.middleware.AutoProjectMiddleware",
+    # Must stay after AutoProjectMiddleware, which switches the user into the organization a
+    # `/project/<id>` URL names. Ahead of it, the check judges the organization being left.
+    "posthog.middleware.ActiveOrganizationMiddleware",
     "posthog.middleware.CHQueries",
     "django_prometheus.middleware.PrometheusAfterMiddleware",
     "posthog.middleware.PostHogTokenCookieMiddleware",
@@ -619,6 +621,8 @@ SPECTACULAR_SETTINGS = {
             "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",
             "QuarantineModeEnum": "products.engineering_analytics.backend.facade.contracts.QuarantineMode",
             "CITestRunnerEnum": "products.engineering_analytics.backend.facade.contracts.CITestRunner",
+            "PRTimelineSegmentKindEnum": "products.engineering_analytics.backend.facade.contracts.PRTimelineSegmentKind",
+            "DeliveryScopeKindEnum": "products.engineering_analytics.backend.facade.contracts.DeliveryScopeKind",
             "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
             "DesktopAccessReasonEnum": "products.tasks.backend.facade.contracts.DESKTOP_ACCESS_REASON_SCHEMA_VALUES",
             "LifecycleStatusEnum": "products.notebooks.backend.widget_models.WIDGET_LIFECYCLE_STATUS_CHOICES",
@@ -1111,6 +1115,13 @@ ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS = get_list(get_from_env("ERROR_TRACK
 
 # webhook secret used initially for ET weekly digest workflow webhook but feel free to adopt it
 WORKFLOWS_WEBHOOK_SECRET = get_from_env("WORKFLOWS_WEBHOOK_SECRET", "")
+
+####
+# Inbound webhook ingress (see posthog/ingress/)
+# Wall-clock seconds one request's consumers share. Providers give a delivery a short window
+# and mostly never retry it, so this sits under the tightest of those (GitHub's ten seconds)
+# and leaves room for verification and the response itself.
+INGRESS_DELIVERY_BUDGET_SECONDS = get_from_env("INGRESS_DELIVERY_BUDGET_SECONDS", 8.0, type_cast=float)
 
 ####
 # OAuth

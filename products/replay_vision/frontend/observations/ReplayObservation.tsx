@@ -196,7 +196,8 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     const observationLogic = replayObservationLogic({ id: observationId })
     useAttachedLogic(observationLogic, replayObservationSceneLogic)
 
-    const { observation, observationLoading, retrying } = useValues(observationLogic)
+    const { observation, observationLoading, retrying, previousObservationId, nextObservationId, neighborsPending } =
+        useValues(observationLogic)
     const { retryObservation } = useActions(observationLogic)
 
     if (observationLoading && !observation) {
@@ -297,13 +298,10 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             icon={<IconArrowLeft />}
                             type="secondary"
                             size="small"
-                            to={
-                                observation.previous_observation_id
-                                    ? observationUrl(observation.previous_observation_id)
-                                    : undefined
-                            }
+                            loading={neighborsPending}
+                            to={previousObservationId ? observationUrl(previousObservationId) : undefined}
                             disabledReason={
-                                observation.previous_observation_id
+                                previousObservationId || neighborsPending
                                     ? undefined
                                     : neighborsFiltered
                                       ? 'No previous observation matching your filters'
@@ -322,13 +320,10 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             sideIcon={<IconArrowRight />}
                             type="secondary"
                             size="small"
-                            to={
-                                observation.next_observation_id
-                                    ? observationUrl(observation.next_observation_id)
-                                    : undefined
-                            }
+                            loading={neighborsPending}
+                            to={nextObservationId ? observationUrl(nextObservationId) : undefined}
                             disabledReason={
-                                observation.next_observation_id
+                                nextObservationId || neighborsPending
                                     ? undefined
                                     : neighborsFiltered
                                       ? 'No next observation matching your filters'

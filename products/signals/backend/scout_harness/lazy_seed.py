@@ -84,6 +84,12 @@ HARNESS_SEEDED_BY = "signals_scout_harness"
 # product treats `category` as an opaque string; this is the value the harness writes.
 SCOUT_SKILL_CATEGORY = "scout"
 
+ScoutRole = Literal["specialist", "operational"]
+
+SCOUT_ROLE_SPECIALIST: ScoutRole = "specialist"
+SCOUT_ROLE_OPERATIONAL: ScoutRole = "operational"
+SCOUT_ROLES: tuple[ScoutRole, ...] = (SCOUT_ROLE_SPECIALIST, SCOUT_ROLE_OPERATIONAL)
+
 
 @dataclass(frozen=True)
 class CanonicalSkillFile:
@@ -101,7 +107,8 @@ class CanonicalSkill:
     The agentskills.io spec uses `allowed-tools` (hyphen); we accept both, preferring the
     spec form. `files` is the recursive content of the `_ALLOWED_BUNDLE_SUBDIRS` directories
     alongside SKILL.md. `config_tags` is the optional `scout-tags` frontmatter list, seeded onto
-    the scout's `SignalScoutConfig` when that row is first created.
+    the scout's `SignalScoutConfig` when that row is first created. `role` is the optional
+    `scout-role` frontmatter value — what the harness is allowed to do to the scout.
     """
 
     name: str
@@ -111,6 +118,7 @@ class CanonicalSkill:
     files: tuple[CanonicalSkillFile, ...]
     source_path: Path
     config_tags: tuple[str, ...] = ()
+    role: ScoutRole = SCOUT_ROLE_SPECIALIST
 
 
 @dataclass(frozen=True)
@@ -197,6 +205,32 @@ def _parse_config_tags(frontmatter: dict, skill_file: Path, *, is_scout: bool) -
     return tuple(sorted(tags))
 
 
+def _parse_scout_role(frontmatter: dict, skill_file: Path, *, is_scout: bool) -> ScoutRole:
+    """Read the optional `scout-role` frontmatter value — the posture the harness seeds the scout on.
+
+    A scout that watches the self-driving system itself declares `operational`, and the harness
+    stops treating its quiet as waste: it seeds enabled and exempt from the inactivity sweep, is
+    not gated by the launch allowlist, and is not blocked by the per-team cap. Everything else is
+    a `specialist` and keeps the normal posture, so the default is the safe one.
+
+    Only scouts have a config for the role to shape, so the key is rejected on a companion skill.
+    An unknown value fails the parse rather than falling back: a typo that silently downgraded an
+    operational scout to a specialist is exactly the silencing this role exists to prevent.
+    """
+    if "scout-role" not in frontmatter:
+        return SCOUT_ROLE_SPECIALIST
+    if not is_scout:
+        raise CanonicalSkillParseError(f"Only a signals-scout-* skill may declare 'scout-role': {skill_file}")
+    raw_role = frontmatter["scout-role"]
+    if raw_role == SCOUT_ROLE_OPERATIONAL:
+        return SCOUT_ROLE_OPERATIONAL
+    if raw_role == SCOUT_ROLE_SPECIALIST:
+        return SCOUT_ROLE_SPECIALIST
+    raise CanonicalSkillParseError(
+        f"SKILL.md frontmatter 'scout-role' must be one of {', '.join(SCOUT_ROLES)}: got {raw_role!r} in {skill_file}"
+    )
+
+
 def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> CanonicalSkill:
     skill_file = skill_dir / "SKILL.md"
     raw = skill_file.read_text(encoding="utf-8")
@@ -258,6 +292,8 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
         )
 
     config_tags = _parse_config_tags(frontmatter, skill_file, is_scout=is_scout)
+    role = _parse_scout_role(frontmatter, skill_file, is_scout=is_scout)
+
     body = raw[match.end() :]
     if len(body.encode("utf-8")) > _MAX_SKILL_BODY_BYTES:
         raise CanonicalSkillParseError(f"SKILL.md body exceeds the {_MAX_SKILL_BODY_BYTES} byte limit: {skill_file}")
@@ -302,6 +338,7 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
         files=tuple(files),
         source_path=skill_dir,
         config_tags=config_tags,
+        role=role,
     )
 
 
@@ -399,6 +436,31 @@ def canonical_config_tags_for(skill_name: str) -> tuple[str, ...]:
     return _canonical_config_tags().get(skill_name, ())
 
 
+@lru_cache(maxsize=1)
+def _canonical_operational_scouts() -> frozenset[str]:
+    """Names of the canonical scouts that declare `scout-role: operational`.
+
+    Cached for the process like `canonical_skill_names` — the shipped fleet only changes on
+    deploy — and degrades to empty on a malformed canonical, which leaves every scout on the
+    specialist posture rather than failing config registration.
+    """
+    try:
+        return frozenset(skill.name for skill in discover_canonical_skills() if skill.role == SCOUT_ROLE_OPERATIONAL)
+    except CanonicalSkillParseError:
+        logger.warning("canonical_operational_scouts: malformed canonical skill on disk; seeding no operational roles")
+        return frozenset()
+
+
+def is_operational_scout(skill_name: str) -> bool:
+    """Whether the canonical scout of this name watches the self-driving system itself.
+
+    False for a custom scout, and for a canonical specialist. Callers must confirm the name is
+    canonical first — a team's own `signals-scout-*` skill can share a canonical name, and it
+    inherits nothing from disk, least of all a role that exempts it from the harness's controls.
+    """
+    return skill_name in _canonical_operational_scouts()
+
+
 def scout_skill_origin(skill_name: str, metadata: dict | None) -> Literal["canonical", "custom"]:
     """Classify a scout skill row as `"canonical"` or `"custom"` by who owns it.
 
@@ -432,9 +494,9 @@ def _compute_canonical_hash(canonical: CanonicalSkill) -> str:
     SHA-256 is overkill cryptographically but content-addressable hashes are cheap and we want
     no false positives.
 
-    Deliberately excludes `config_tags`: the hash is compared against `_compute_row_hash` over the
-    team's `LLMSkill` row, which stores no tags (they live on the config), so folding them in here
-    would make every seeded row read as diverged forever.
+    Deliberately excludes `config_tags` and `role`: the hash is compared against
+    `_compute_row_hash` over the team's `LLMSkill` row, which stores neither (both shape the
+    config instead), so folding them in here would make every seeded row read as diverged forever.
     """
     payload = {
         "description": canonical.description,

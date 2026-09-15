@@ -27326,7 +27326,8 @@
                 "Sequenzy",
                 "Skio",
                 "Smartlead",
-                "Substack"
+                "Substack",
+                "ElectricityMaps"
             ],
             "type": "string"
         },
@@ -52689,6 +52690,11 @@
             },
             "required": ["id", "tool_call_id", "content"],
             "type": "object"
+        },
+        "SubscriptionAIContextLimit": {
+            "const": 3,
+            "description": "Maximum number of dashboards and insights an AI subscription may use as context.",
+            "type": "number"
         },
         "SubscriptionAIPromptMaxLength": {
             "const": 4000,
