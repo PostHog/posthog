@@ -549,15 +549,15 @@ Notes:
 
 Per-team singleton config for Signals settings, including the default autonomy priority threshold.
 
-| Field                            | Type            | Description                                                                  |
-| -------------------------------- | --------------- | ---------------------------------------------------------------------------- |
-| `id`                             | UUID (PK)       | Primary key (UUIDModel)                                                      |
-| `team`                           | OneToOne → Team | Owning team (`related_name="signal_team_config"`)                            |
-| `default_autostart_priority`     | CharField       | Default severity threshold for auto-start (`P0`–`P4`, where `P0` is highest) |
-| `github_issue_writeback_enabled` | Boolean         | Opt-in public comments on source GitHub issues. Defaults to `false`.         |
+| Field                            | Type                | Description                                                                                                                           |
+| -------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                             | UUID (PK)           | Primary key (UUIDModel)                                                                                                               |
+| `team`                           | OneToOne → Team     | Owning team (`related_name="signal_team_config"`)                                                                                     |
+| `default_autostart_priority`     | CharField           | Default severity threshold for auto-start (`P0`–`P4`, where `P0` is highest)                                                          |
+| `github_issue_writeback_enabled` | Boolean             | Opt-in public comments on source GitHub issues. Defaults to `false`.                                                                  |
 | `repo_selection_ask_raised_at`   | DateTime (nullable) | When the pipeline last asked the team to connect a repository. Pipeline bookkeeping, not a setting — see Repository availability gate |
-| `created_at`                     | DateTime        | Auto-set on creation                                                         |
-| `updated_at`                     | DateTime        | Auto-set on save                                                             |
+| `created_at`                     | DateTime            | Auto-set on creation                                                                                                                  |
+| `updated_at`                     | DateTime            | Auto-set on save                                                                                                                      |
 
 Notes:
 
