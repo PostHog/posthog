@@ -20,7 +20,7 @@ from posthog.schema import WebOverviewQuery, WebStatsTableQuery, WebVitalsPathBr
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders
-from posthog.hogql.property import get_property_type, property_to_expr
+from posthog.hogql.property import get_property_key, get_property_type, property_to_expr
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
@@ -201,9 +201,9 @@ class MissingDateRange(LazyPrecomputeIneligible):
 
 
 class DateRangeOverMax(LazyPrecomputeIneligible):
-    def __init__(self, days: int):
+    def __init__(self, days: int, max_days: int = MAX_PRECOMPUTE_DAYS):
         self.days = days
-        super().__init__(f"days={days} max={MAX_PRECOMPUTE_DAYS}")
+        super().__init__(f"days={days} max={max_days}")
 
 
 def can_use_lazy_precompute(
@@ -212,6 +212,8 @@ def can_use_lazy_precompute(
     log_prefix: str,
     extra_check: Optional[Callable[[LazyPrecomputeRunner], None]] = None,
     require_integer_timezone: bool = True,
+    allow_channel_type_filter: bool = False,
+    max_days: int = MAX_PRECOMPUTE_DAYS,
 ) -> bool:
     """Return True iff the lazy precompute gate is eligible. Logs the rejection
     reason at INFO level so every fall-through can be attributed.
@@ -224,7 +226,12 @@ def can_use_lazy_precompute(
     timezone (and therefore aligns cleanly for half-hour-offset teams too).
     """
     try:
-        check_common_eligible(runner, require_integer_timezone=require_integer_timezone)
+        check_common_eligible(
+            runner,
+            require_integer_timezone=require_integer_timezone,
+            allow_channel_type_filter=allow_channel_type_filter,
+            max_days=max_days,
+        )
         if extra_check is not None:
             extra_check(runner)
     except LazyPrecomputeIneligible as exc:
@@ -246,7 +253,13 @@ def can_use_lazy_precompute(
     return True
 
 
-def check_common_eligible(runner: LazyPrecomputeRunner, *, require_integer_timezone: bool = True) -> None:
+def check_common_eligible(
+    runner: LazyPrecomputeRunner,
+    *,
+    require_integer_timezone: bool = True,
+    allow_channel_type_filter: bool = False,
+    max_days: int = MAX_PRECOMPUTE_DAYS,
+) -> None:
     """Raise a `LazyPrecomputeIneligible` subclass if the query can't go through
     the lazy path on grounds that apply to every web analytics runner. Returns
     None on success.
@@ -298,7 +311,7 @@ def check_common_eligible(runner: LazyPrecomputeRunner, *, require_integer_timez
     # web stats table has no session-uniq column (it stores `uniq, UUID` user
     # state only), so this gate is conservative there — kept shared for
     # simplicity until the web overview column is re-typed in a follow-up.
-    if query.modifiers and query.modifiers.sessionsV2JoinMode == "uuid":
+    if query.modifiers and query.modifiers.sessionsV2JoinMode == "uuid" and not allow_channel_type_filter:
         raise SessionsV2UuidMode()
 
     # Any event/person filter shape is accepted (any key, operator, count), translated
@@ -309,6 +322,12 @@ def check_common_eligible(runner: LazyPrecomputeRunner, *, require_integer_timez
     # them entirely), so precomputing them would serve a different population than the
     # live fallback. Those queries fall through to the live path, which applies them right.
     for prop in query.properties or []:
+        if (
+            allow_channel_type_filter
+            and get_property_type(prop) == "session"
+            and get_property_key(prop) == "$channel_type"
+        ):
+            continue
         if get_property_type(prop) not in ("event", "person"):
             raise UnsupportedFilterType(get_property_type(prop))
 
@@ -325,8 +344,8 @@ def check_common_eligible(runner: LazyPrecomputeRunner, *, require_integer_timez
         raise MissingDateRange()
 
     days = (date_to - date_from).days
-    if days > MAX_PRECOMPUTE_DAYS:
-        raise DateRangeOverMax(days)
+    if days > max_days:
+        raise DateRangeOverMax(days, max_days)
 
 
 def is_constant_true(expr: ast.Expr) -> bool:

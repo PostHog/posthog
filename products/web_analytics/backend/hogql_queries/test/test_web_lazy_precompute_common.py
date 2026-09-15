@@ -1154,3 +1154,20 @@ class TestPrecomputeShapeCapWiring(BaseTest):
             _team_shape_set_key(self.team.pk),
             compute_shape_cap_key(self._runner().query, self.team.timezone),
         )
+
+    @override_settings(WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM=1)
+    @mock.patch(f"{_COMMON}.enqueue_stale_revalidation")
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_changed_channel_rules_consume_a_distinct_shape(self, mock_ensure, _enqueue):
+        mock_ensure.return_value = LazyComputationResult(ready=False, job_ids=[], memory_exceeded=False)
+        with tags_context(trigger="webAnalyticsQueryWarming"):
+            for rules_key in ("first-rule-set", "first-rule-set", "second-rule-set"):
+                web_ensure_precomputed(
+                    team=self.team,
+                    runner=self._runner(),
+                    family="web_overview",
+                    ttl_seconds={"default": 3600},
+                    table=None,
+                    shape_key_extra=rules_key,
+                )
+        assert [call.kwargs["run_inserts"] for call in mock_ensure.call_args_list] == [True, True, False]
