@@ -19,6 +19,8 @@ from posthog.query_scan.flag import QueryScanFlag
 from posthog.query_scan.job import Execution, QueryScanJob, run_query_scan
 from posthog.query_scan.stub import stub_in_subqueries
 
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+
 FIXTURES = Path(__file__).parent / "fixtures"
 FLAG = QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
 
@@ -191,10 +193,22 @@ class TestQueryScanJobOnClickhouse(ClickhouseTestMixin, BaseTest):
         _create_event(
             team=self.team, event="$pageview", distinct_id="user_1", timestamp=datetime.now(UTC) - timedelta(days=1)
         )
+        # The warehouse join is planned against its empty stand-in, so the file behind the table
+        # need not exist and its credentials never reach ClickHouse.
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="customers",
+            format="Parquet",
+            url_pattern="http://localhost/customers/*.parquet",
+            credential=credential,
+            columns={"id": "String"},
+        )
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         tree = prepare_ast_for_printing(
             parse_select(
                 "SELECT count() FROM events AS e JOIN persons AS p ON e.person_id = p.id "
+                "JOIN customers AS c ON e.distinct_id = c.id "
                 "WHERE e.event = '$pageview' AND e.timestamp >= now() - interval 7 day AND e.timestamp < now() "
                 "AND e.distinct_id IN (SELECT distinct_id FROM events "
                 "WHERE event = '$pageview' AND timestamp >= now() - interval 7 day)"

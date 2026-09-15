@@ -12,6 +12,8 @@ from posthog.hogql.printer.utils import prepare_ast_for_printing, print_prepared
 
 from posthog.query_scan.stub import stub_in_subqueries
 
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+
 
 def print_hogql(node: ast.Expr) -> str:
     # HogQLPrinter serializes a parsed tree with no database, so the stub can be checked without one.
@@ -168,3 +170,27 @@ class TestStubPrintsAsClickHouse(BaseTest):
         assert "(SELECT" not in sql.replace("\n", " ")
         assert len(stub.subqueries) == 2
         assert "events" in subquery_sql and "IN (SELECT" not in subquery_sql
+
+    def test_a_warehouse_table_prints_as_an_empty_table_without_its_credentials(self) -> None:
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="customers",
+            format="Parquet",
+            url_pattern="http://localhost/customers/*.parquet",
+            credential=credential,
+            columns={"id": "String", "plan": "String"},
+        )
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        prepared = prepare_ast_for_printing(
+            node=parse_select("SELECT count() FROM events AS e JOIN customers AS c ON e.distinct_id = c.id"),
+            context=context,
+            dialect="clickhouse",
+        )
+        assert prepared is not None
+
+        sql = print_prepared_ast(stub_in_subqueries(prepared).stubbed, context, dialect="clickhouse")
+
+        assert "null(" in sql and "s3(" not in sql
+        assert "`id` String, `plan` String" in context.values.values()
+        assert not any(key.endswith("_sensitive") for key in context.values)

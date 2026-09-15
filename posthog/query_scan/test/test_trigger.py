@@ -67,6 +67,16 @@ def _lose_the_slot_claim(test: "TestQueryScanTrigger") -> None:
     test.redis.set.return_value = None
 
 
+def _printing(values: dict[str, Any]) -> Any:
+    """A printer stand-in that adds to the context the values a real print would."""
+
+    def print_with_values(node: Any, context: HogQLContext, dialect: str) -> str:
+        context.values.update(values)
+        return "SELECT 1"
+
+    return print_with_values
+
+
 class TestQueryScanTrigger(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
@@ -114,12 +124,6 @@ class TestQueryScanTrigger(SimpleTestCase):
                 {"query": HogQLQuery(query="select 1", connectionId="connection_1")},
                 None,
                 "direct_connection",
-            ),
-            (
-                "an execution carries a sensitive value",
-                {"stats": _stats(executions=[_execution(values={"hogql_val_0_sensitive": "warehouse-secret"})])},
-                None,
-                "sensitive_values",
             ),
             ("result not cacheable", {"cacheable": False}, None, "not_cacheable"),
             ("slot already exists", {}, _store_a_slot, "slot_exists"),
@@ -219,25 +223,34 @@ class TestQueryScanTrigger(SimpleTestCase):
         # The job groups the analytics event by the error kind, so it travels on the payload.
         assert self.delay.call_args.kwargs["error_type"] == "ClickHouseQueryTimeOut"
 
-    def test_an_oversized_selected_execution_aborts_the_whole_scan(self) -> None:
+    @parameterized.expand(
+        [
+            # The values count because one large literal can outweigh the SQL around it.
+            ("too large to ship", {"hogql_val_0": "x" * (MAX_EXECUTION_BYTES + 1)}, "too_large"),
+            # A warehouse table is stubbed out before the print, so a sensitive value the print
+            # still adds is one with no stand-in, and it must not reach the broker.
+            ("carrying a sensitive value", {"hogql_val_0_sensitive": "warehouse-secret"}, "sensitive_values"),
+        ]
+    )
+    def test_an_unshippable_selected_execution_aborts_the_whole_scan(
+        self, _name: str, printed_values: dict[str, Any], expected_reason: str
+    ) -> None:
         # A person reads the advice as if it covered the whole run, so a run with a selected
-        # execution too large to ship is not analyzed in part. The claimed slot is dropped, so a
+        # execution that cannot ship is not analyzed in part. The claimed slot is dropped, so a
         # later run can try again.
-        heavy = _execution(rows_read=100)
-        # The values count because one large literal can outweigh the SQL around it.
-        oversized = _execution(rows_read=50, values={"hogql_val_0": "x" * (MAX_EXECUTION_BYTES + 1)})
+        self.print.side_effect = _printing(printed_values)
 
-        result = self._trigger(stats=_stats(executions=[heavy, oversized]))
+        result = self._trigger(stats=_stats(executions=[_execution(rows_read=100), _execution(rows_read=50)]))
 
-        assert result == "too_large"
+        assert result == expected_reason
         self.delay.assert_not_called()
         self.redis.delete.assert_called_once_with(slot_key(1, "cache_key_1", FLAG.thresholds_fingerprint))
 
     def test_ships_several_printable_executions_heaviest_first(self) -> None:
         # An insight fans out into several executions; the job explains the heaviest, so the payload
         # carries them ordered by rows read.
-        light = _execution(rows_read=50)
-        heavy = _execution(rows_read=100)
+        light = _execution(rows_read=50, values={"hogql_val_0": "from the run"})
+        heavy = _execution(rows_read=100, values={"hogql_val_0_sensitive": "from the run"})
 
         result = self._trigger(stats=_stats(executions=[light, heavy]))
 
@@ -246,6 +259,9 @@ class TestQueryScanTrigger(SimpleTestCase):
         assert [execution["rows_read"] for execution in enqueued] == [100, 50]
         assert enqueued[0]["stubbed_sql"] == "SELECT 1"
         assert enqueued[0]["subqueries"] == ["SELECT 1"]
+        # The run's own values stay behind: a warehouse run's hold its source credentials, and the
+        # job's SQL refers only to what its own print added.
+        assert [execution["values"] for execution in enqueued] == [{}, {}]
 
     @parameterized.expand(
         [

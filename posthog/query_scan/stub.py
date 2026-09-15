@@ -8,9 +8,16 @@ constant keeps the outer query's shape, so the plan still shows how it reads the
 A subquery that is a query source is kept, because the plan needs it: the root query, a ``FROM`` or
 ``JOIN`` table, a ``UNION`` member, and a subquery ``WITH`` body (``WITH a AS (SELECT ...)``). The
 value subqueries taken out of the tree are collected so each can be explained on its own.
+
+A warehouse table is swapped for a stand-in with its columns and no rows. The real one prints as
+``s3(url, key, secret, ...)``, which puts the source's credentials in the printed values, and
+EXPLAIN lists the bucket to plan it. The stand-in keeps the join's shape around the events read,
+which is all the plan is read for.
 """
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.s3_table import DataWarehouseTable
 from posthog.hogql.visitor import CloningVisitor
 
 from posthog.dataclasses import frozen
@@ -25,6 +32,40 @@ def _stubbed_value() -> ast.Constant:
     # accepted wherever a stand-in can land (``toStartOfDay(NULL)``, ``concat('a', NULL)``), and
     # the ClickHouse printer inlines a ``None`` constant as ``NULL`` without a type.
     return ast.Constant(value=None)
+
+
+class EmptyWarehouseTable(DataWarehouseTable):
+    """A warehouse table's stand-in for the plan: ``null(structure)`` is an empty table with the
+    same columns. Subclassing keeps the printer's warehouse-table handling, such as the subquery
+    wrap around a joined table, so the printed shape matches the real query's.
+    """
+
+    def to_printed_clickhouse(self, context: HogQLContext) -> str:
+        return f"null({context.add_value(self.structure)})"
+
+
+def _stand_in_join_type(join_type: ast.Type | None) -> ast.TableType | ast.TableAliasType | None:
+    """The join's type with its warehouse table swapped for the stand-in, or None to leave it."""
+    if isinstance(join_type, ast.TableAliasType):
+        inner = _stand_in_table_type(join_type.table_type)
+        return None if inner is None else ast.TableAliasType(alias=join_type.alias, table_type=inner)
+    if isinstance(join_type, ast.TableType):
+        return _stand_in_table_type(join_type)
+    return None
+
+
+def _stand_in_table_type(table_type: ast.TableType | ast.LazyTableType) -> ast.TableType | None:
+    if not isinstance(table_type, ast.TableType):
+        return None
+    table = table_type.table
+    # A table with no column list has nothing to print as its stand-in, so it keeps its real
+    # printing, and the trigger's sensitive-value check keeps the run out.
+    if not isinstance(table, DataWarehouseTable) or isinstance(table, EmptyWarehouseTable) or not table.structure:
+        return None
+    stand_in = EmptyWarehouseTable(
+        name=table.name, url="", format=table.format, structure=table.structure, fields=table.fields
+    )
+    return ast.TableType(table=stand_in)
 
 
 @frozen
@@ -74,7 +115,13 @@ class _StubVisitor(CloningVisitor):
         # ``super()`` passes this same table node to ``self.visit``, so marking it here is enough.
         if isinstance(node.table, (ast.SelectQuery, ast.SelectSetQuery)):
             self.mark_source(node.table)
-        return super().visit_join_expr(node)
+        cloned = super().visit_join_expr(node)
+        # The printer reads the join's type for the table to print, and the clone shares the type
+        # with the run's tree, so the swap builds a new type rather than editing that one.
+        stand_in = _stand_in_join_type(cloned.type)
+        if stand_in is not None:
+            cloned.type = stand_in
+        return cloned
 
     def visit_cte(self, node: ast.CTE) -> ast.CTE:
         # A column CTE (``WITH (SELECT ...) AS a``) is a value, so it falls through to the value stub.

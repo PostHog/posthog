@@ -7,6 +7,7 @@ the query result.
 
 from __future__ import annotations
 
+import copy
 import json
 from typing import Any, Literal, TypeGuard
 
@@ -119,12 +120,6 @@ def maybe_trigger_query_scan(
         # A direct connection reads the external warehouse instead of ClickHouse, so the job
         # would park a pending slot for an analysis that cannot happen.
         return "direct_connection"
-    if _carries_sensitive_values(stats):
-        # The job needs the parameter values to EXPLAIN, so they ship as printed, and a warehouse
-        # table prints its source's credentials among them. The broker would then hold those in
-        # plain text. Any value marked sensitive keeps the run out: a restricted-property list or
-        # an access-control list costs that run its analysis, which is the safe side.
-        return "sensitive_values"
     if not cacheable:
         return "not_cacheable"
     if get_slot(team_id, cache_key, thresholds=flag.thresholds_fingerprint) is not None:
@@ -136,11 +131,11 @@ def maybe_trigger_query_scan(
         return "slot_exists"
 
     executions = _print_executions(stats)
-    if executions is None:
+    if isinstance(executions, str):
         # A selected execution could not be shipped, so analyzing the rest would advise on a run the
         # job never saw whole.
         clear_slot(team_id, cache_key, thresholds=flag.thresholds_fingerprint)
-        return "too_large"
+        return executions
     if not executions:
         # The run had no executions to print: it bypassed the executor, or fanned out into none.
         clear_slot(team_id, cache_key, thresholds=flag.thresholds_fingerprint)
@@ -179,28 +174,31 @@ def maybe_trigger_query_scan(
     return None
 
 
-def _print_executions(stats: QueryStats) -> list[dict[str, Any]] | None:
+def _print_executions(stats: QueryStats) -> list[dict[str, Any]] | SkipReason:
     """Print the heaviest executions for the job to EXPLAIN: each with its subqueries stubbed, and
-    each subquery on its own. None when any of the heaviest could not be shipped, so the job never
-    analyzes part of a run and advises as if it saw the whole. An empty list means the run carried no
-    executions to print.
+    each subquery on its own. The skip reason when any of the heaviest could not be shipped, so the
+    job never analyzes part of a run and advises as if it saw the whole. An empty list means the run
+    carried no executions to print.
     """
     heaviest = sorted(stats.executions, key=lambda execution: execution.rows_read, reverse=True)[:MAX_EXECUTIONS]
     printed: list[dict[str, Any]] = []
     subquery_budget = MAX_SUBQUERIES
     for execution in heaviest:
         entry = _print_execution(execution, subquery_budget)
-        if entry is None:
-            return None
+        if isinstance(entry, str):
+            return entry
         subquery_budget -= len(entry["subqueries"])
         printed.append(entry)
     return printed
 
 
-def _print_execution(execution: RecordedExecution, subquery_budget: int) -> dict[str, Any] | None:
-    """One execution as the job's payload entry, or None when it cannot or should not be shipped."""
+def _print_execution(execution: RecordedExecution, subquery_budget: int) -> dict[str, Any] | SkipReason:
+    """One execution as the job's payload entry, or why it cannot be shipped."""
     try:
-        context = execution.context
+        # The run's context still holds every value the run printed, credentials included, so the
+        # job's print goes into a fresh set and the payload carries only what its SQL refers to.
+        context = copy.copy(execution.context)
+        context.values = {}
         stub = stub_in_subqueries(execution.tree)
         entry = {
             "stubbed_sql": print_prepared_ast(stub.stubbed, context, dialect="clickhouse"),
@@ -216,20 +214,19 @@ def _print_execution(execution: RecordedExecution, subquery_budget: int) -> dict
             # Classify here, where the prepared tree is held; the job folds it into the plan.
             "event_filter": _event_filter_verdict(execution.tree),
         }
+        if any(key.endswith("_sensitive") for key in context.values):
+            # A value the printer marks sensitive is a credential or an access-control list, and the
+            # broker must not hold either. A warehouse table is stubbed out before the print, so
+            # this is the backstop for any other source of one.
+            return "sensitive_values"
         if len(json.dumps(entry, default=str).encode("utf-8")) > MAX_EXECUTION_BYTES:
-            return None
+            return "too_large"
         return entry
     except Exception:
         # A tree that will not print is one the job could not EXPLAIN either. Dropping it drops the
         # run's analysis, never the query result the person already waited for.
         logger.warning("query_scan_print_failed", exc_info=True)
-        return None
-
-
-def _carries_sensitive_values(stats: QueryStats) -> bool:
-    """Whether any execution's parameter values include one the printer marked sensitive, the way
-    ``HogQLContext.add_sensitive_value`` names them."""
-    return any(key.endswith("_sensitive") for execution in stats.executions for key in execution.context.values)
+        return "too_large"
 
 
 def _event_filter_verdict(tree: ast.Expr) -> dict[str, str | None] | None:
