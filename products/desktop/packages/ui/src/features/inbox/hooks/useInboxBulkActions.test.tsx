@@ -60,11 +60,16 @@ describe("useInboxBulkActions", () => {
   });
 
   it.each([
-    ["suppressSelected", "dismiss", "1 report dismissed"],
-    ["snoozeSelected", "snooze", "1 report paused until new signals arrive"],
+    ["suppressSelected", "dismiss", "other", "1 report dismissed"],
+    [
+      "snoozeSelected",
+      "snooze",
+      "already_fixed",
+      "1 report paused until new signals arrive",
+    ],
   ] as const)(
     "%s confirms success after an optimistic rerender",
-    async (actionName, actionType, message) => {
+    async (actionName, actionType, reason, message) => {
       let finishRequest: (() => void) | undefined;
       mocks.updateState.mockReturnValue(
         new Promise<void>((resolve) => {
@@ -85,7 +90,7 @@ describe("useInboxBulkActions", () => {
       let action = Promise.resolve(false);
       act(() => {
         action = result.current[actionName]({
-          reason: "already_fixed",
+          reason,
           note: "",
         });
       });
@@ -107,11 +112,11 @@ describe("useInboxBulkActions", () => {
   );
 
   it.each([
-    ["suppressSelected", "suppressed"],
-    ["snoozeSelected", "potential"],
+    ["suppressSelected", "suppressed", "other"],
+    ["snoozeSelected", "potential", "already_fixed"],
   ] as const)(
     "%s updates the report before the request finishes",
-    async (actionName, status) => {
+    async (actionName, status, reason) => {
       mocks.updateState.mockReturnValue(new Promise<void>(() => {}));
       const queryClient = new QueryClient({
         defaultOptions: { mutations: { retry: false } },
@@ -123,7 +128,7 @@ describe("useInboxBulkActions", () => {
       );
 
       act(() => {
-        void result.current[actionName]({ reason: "already_fixed", note: "" });
+        void result.current[actionName]({ reason, note: "" });
       });
 
       await waitFor(() =>
@@ -134,7 +139,7 @@ describe("useInboxBulkActions", () => {
         ).toEqual(
           expect.objectContaining({
             status,
-            dismissal_reason: "already_fixed",
+            dismissal_reason: reason,
             dismissal_note: null,
           }),
         ),
@@ -142,9 +147,12 @@ describe("useInboxBulkActions", () => {
     },
   );
 
-  it.each(["suppressSelected", "snoozeSelected"] as const)(
+  it.each([
+    ["suppressSelected", "other"],
+    ["snoozeSelected", "already_fixed"],
+  ] as const)(
     "%s restores the report and reports a failed request",
-    async (actionName) => {
+    async (actionName, reason) => {
       mocks.updateState.mockRejectedValue(new Error("Request failed"));
       const queryClient = new QueryClient({
         defaultOptions: { mutations: { retry: false } },
@@ -156,7 +164,7 @@ describe("useInboxBulkActions", () => {
       );
 
       await expect(
-        result.current[actionName]({ reason: "already_fixed", note: "" }),
+        result.current[actionName]({ reason, note: "" }),
       ).resolves.toBe(false);
       expect(
         queryClient.getQueryData(inboxReportDetailQueryKey(report.id)),
