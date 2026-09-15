@@ -698,16 +698,15 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.json()["results"][0]["query"]["source"]["series"][0]["event"], "$pageview")
 
     @parameterized.expand([("full", ""), ("basic", "&basic=true")])
-    def test_listing_an_insight_with_only_filters_serves_them(self, _name: str, query_string: str) -> None:
+    def test_listing_an_insight_with_only_filters_serves_no_definition(self, _name: str, query_string: str) -> None:
         # `unique_users` is not a math value the query schema accepts, so this definition cannot be
         # expressed as a query at all. Reading it used to raise out of the serializer and fail the
         # whole list request.
-        stored_filters = {"events": [{"id": "$pageview", "math": "unique_users"}]}
         Insight.objects.create(
             team=self.team,
             saved=True,
             short_id="brokenfl",
-            filters=stored_filters,
+            filters={"events": [{"id": "$pageview", "math": "unique_users"}]},
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id=brokenfl{query_string}")
@@ -715,10 +714,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         result = response.json()["results"][0]
         self.assertIsNone(result["query"])
-        # The stored definition survives the read, and the absent `insight` key is not filled in:
-        # the client's converter defaults it, the same way the server's converter does.
-        self.assertEqual(result["filters"]["events"], stored_filters["events"])
-        self.assertNotIn("insight", result["filters"])
+        self.assertNotIn("filters", result)
 
     @parameterized.expand(
         [
@@ -797,7 +793,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "name",
                 "derived_name",
                 "favorited",
-                "filters",
                 "query",
                 "dashboard_tiles",
                 "description",

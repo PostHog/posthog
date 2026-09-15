@@ -351,7 +351,7 @@ def _record_deprecated_dashboards_field_used(context: dict, usage: str) -> None:
     ).inc()
 
 
-@extend_schema_serializer(exclude_fields=["filters", "saved"], deprecate_fields=["dashboards"])
+@extend_schema_serializer(exclude_fields=["saved"], deprecate_fields=["dashboards"])
 class InsightBasicSerializer(
     SearchMatchTypeSerializerMixin,
     TaggedItemSerializerMixin,
@@ -375,7 +375,6 @@ class InsightBasicSerializer(
             "short_id",
             "name",
             "derived_name",
-            "filters",
             "query",
             "dashboards",
             "dashboard_tiles",
@@ -425,14 +424,8 @@ class InsightBasicSerializer(
         else:
             representation.pop("dashboards", None)
 
-        if instance.query is not None:
-            representation["filters"] = {}
-            representation["query"] = instance.query
-        else:
-            representation["filters"] = instance.dashboard_filters()
-
         # upgrade the query to the latest version
-        representation["query"] = upgrade(representation["query"])
+        representation["query"] = upgrade(instance.query)
 
         return representation
 
@@ -597,7 +590,6 @@ class InsightSerializer(InsightBasicSerializer):
             "short_id",
             "name",
             "derived_name",
-            "filters",
             "query",
             "order",
             "deleted",
@@ -648,8 +640,6 @@ class InsightSerializer(InsightBasicSerializer):
             "timezone",
             "refreshing",
             "is_cached",
-            # A read still serves the stored filters of an insight written before queries.
-            "filters",
         )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
@@ -1216,12 +1206,8 @@ class InsightSerializer(InsightBasicSerializer):
                     dashboard_variables_override or {},
                     instance.team,
                 )
-            representation["filters"] = {}
             representation["query"] = query
         else:
-            representation["filters"] = instance.dashboard_filters(
-                dashboard=dashboard, dashboard_filters_override=dashboard_filters_override
-            )
             representation["query"] = instance.get_effective_query(
                 dashboard=dashboard,
                 dashboard_filters_override=dashboard_filters_override,
