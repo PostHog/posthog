@@ -566,6 +566,36 @@ def test_max_runtime_stops_between_pages_unless_disabled(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("failing", ["rpc", "pg"])
+def test_max_runtime_ends_a_retry_loop_cleanly(cluster: ClickhouseCluster, persons_database, monkeypatch, failing):
+    # A request or statement that keeps failing must not retry past the deadline: the run stops
+    # with max_runtime instead of failing, the row stays queued and nothing is stamped.
+    fake = get_active_fake()
+    gone = seed_tombstoned(fake, TEAM_A, 1)
+    queue(persons_database, [(TEAM_A, gone, SWEEP_1)])
+    if failing == "rpc":
+        fail_with(monkeypatch, fake, [grpc.StatusCode.UNAVAILABLE] * 50)
+    else:
+        monkeypatch.setattr(
+            drain, "_delete_queue_rows", lambda *args: (_ for _ in ()).throw(psycopg2.OperationalError("lost"))
+        )
+    record_pauses(monkeypatch)
+    # Read at start, before the page and before the request; the check inside the retry loop is
+    # past the deadline.
+    clock = itertools.chain([0.0] * 3, itertools.repeat(10**9))
+    monkeypatch.setattr(drain, "_now_monotonic", lambda: next(clock))
+
+    result = run_job(cluster)
+
+    assert result.success
+    totals = totals_of(result)
+    assert totals.stopped_reason == "max_runtime"
+    assert (totals.rpc_errors, totals.rpc_calls) == ((1, 0) if failing == "rpc" else (0, 1))
+    assert queued(persons_database) == [(TEAM_A, gone, SWEEP_1, None)]
+    assert totals.rows_stamped_blocked == 0
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     "errors,window,expect_success,expected_connects,message",
     [

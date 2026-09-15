@@ -266,6 +266,10 @@ class DrainTotals:
         }
 
 
+class _OutOfTime(Exception):
+    """The run's deadline passed while a request or statement was being retried."""
+
+
 def chunks_for_page(rows: Sequence[QueueRow], rpc_batch_size: int) -> list[Chunk]:
     """Group a page into personhog requests: one team and one sweep run per request.
 
@@ -518,6 +522,8 @@ class _Drain:
                     ) from exc
                 if recovery == "reconnect":
                     self.close()
+                if self.out_of_time():
+                    raise _OutOfTime from exc
                 pause = backoff_seconds(PG_RETRY_BACKOFF_SECONDS, failures)
                 self.context.log.warning(
                     "persons Postgres %s (%s); attempt %d in %.1fs",
@@ -602,6 +608,8 @@ class _Drain:
                             "grpc_code": dagster.MetadataValue.text(_code_name(code)),
                         },
                     ) from exc
+                if self.out_of_time():
+                    raise _OutOfTime from exc
                 pause = backoff_seconds(self.config.retry_backoff_seconds, failures)
                 self.context.log.warning(
                     "personhog delete of %d persons failed (%s); attempt %d in %.1fs with a %d-row budget",
@@ -732,6 +740,9 @@ class _Drain:
                 if self.totals.stopped_reason == "max_runtime":
                     # Requests left in this page were never sent, so their rows stay queued.
                     break
+        except _OutOfTime:
+            # Raised inside a retry, so the rows of that request stay queued for the next run.
+            pass
         except Exception:
             self.totals.stopped_reason = "failed"
             raise
