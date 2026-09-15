@@ -63,9 +63,10 @@ vi.mock("@posthog/ui/features/sidebar/useCwd", () => ({
   useCwd: () => "/repo",
 }));
 
-const { useFileAsBase64 } = vi.hoisted(() => ({
-  useFileAsBase64: vi.fn<
+const { useWorkspaceFileAsBase64 } = vi.hoisted(() => ({
+  useWorkspaceFileAsBase64: vi.fn<
     (
+      workspaceRoot: string,
       filePath: string,
       enabled: boolean,
     ) => {
@@ -75,7 +76,7 @@ const { useFileAsBase64 } = vi.hoisted(() => ({
   >(() => ({ data: null, isPending: false })),
 }));
 vi.mock("@posthog/ui/features/code-editor/hooks/useFileContent", () => ({
-  useFileAsBase64,
+  useWorkspaceFileAsBase64,
 }));
 
 import { SessionTaskIdProvider } from "@posthog/ui/features/sessions/useSessionTaskId";
@@ -123,7 +124,10 @@ Verdict: valid.
   });
 
   it("renders local workspace images from the filesystem", () => {
-    useFileAsBase64.mockReturnValue({ data: "aGVsbG8=", isPending: false });
+    useWorkspaceFileAsBase64.mockReturnValue({
+      data: "aGVsbG8=",
+      isPending: false,
+    });
 
     const html = renderStatic(
       <SessionTaskIdProvider taskId="task-1">
@@ -133,7 +137,8 @@ Verdict: valid.
 
     expect(html).toContain('src="data:image/png;base64,aGVsbG8="');
     expect(html).toContain('alt="Agent list"');
-    expect(useFileAsBase64).toHaveBeenCalledWith(
+    expect(useWorkspaceFileAsBase64).toHaveBeenCalledWith(
+      "/repo",
       "/repo/.qa/agent-list.png",
       true,
     );

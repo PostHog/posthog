@@ -10,7 +10,7 @@ import {
   TableRow,
   Text,
 } from "@posthog/quill";
-import { useFileAsBase64 } from "@posthog/ui/features/code-editor/hooks/useFileContent";
+import { useWorkspaceFileAsBase64 } from "@posthog/ui/features/code-editor/hooks/useFileContent";
 import { ArtifactRefChip } from "@posthog/ui/features/editor/components/ArtifactRefChip";
 import { EvidenceRefChip } from "@posthog/ui/features/editor/components/EvidenceRefChip";
 import { githubRefChipFor } from "@posthog/ui/features/editor/components/githubRefChipFor";
@@ -122,7 +122,8 @@ function LocalMarkdownImage({
   const taskId = useSessionTaskId();
   const cwd = useCwd(taskId ?? "");
   const localImage = resolveLocalImage(src, cwd);
-  const image = useFileAsBase64(
+  const image = useWorkspaceFileAsBase64(
+    cwd ?? "",
     localImage?.path ?? "",
     Boolean(taskId && localImage),
   );
