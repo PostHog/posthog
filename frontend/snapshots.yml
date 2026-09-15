@@ -8245,9 +8245,9 @@ snapshots:
     scenes-app-inbox-scoutrepositoriespicker--scout-settings-variant--light:
         hash: v1.k794b7964.a11cdab2114ddd1b6bc8d929da0d0b2c4e9cbc292d60e1adef64f93227e5a324.rL3wPJRk_-nRwk5unPytYNbzIlxyYLEjIf2lPkh_0Oc
     scenes-app-inbox-scoutsroster--large-fleet--dark:
-        hash: v1.k794b7964.0935f58ac25bf8c7e69b63e0f0ba886884cfeae40e38a06c5caeb3b02c6f04aa.d5dtzhkLQlptLsRnJGK9shW1t9afixiCw9ED3C7RKWw
+        hash: v1.k794b7964.bc5496dd845ecda6f0ad12cfb26aef001eebb616144626a43170c8a67febd43b.OvZS68_NkWoY-DVfy1T244ykeLC7vL8vDumGQzNbnic
     scenes-app-inbox-scoutsroster--large-fleet--light:
-        hash: v1.k794b7964.f5c00cf2fb44451f4511761abe19b6bca2e6361e9c19d406f4d8e4aa50d20544.bE3rZKXYarLJkruBNc7r5RIESzpTp-nypt-5-G8tlVY
+        hash: v1.k794b7964.ed67ad70f3fa88f0a8ec479cb91870ad1d9baab13bb4be71428c960c391bf0db.o6Eahjl27mO8luIjeK97HT62W6KldZEJDcPJDMaCx4c
     scenes-app-inbox-scoutsroster--narrow--dark:
         hash: v1.k794b7964.563269374213e79108bbb022152b0489ff74bebfc5346e9f963f998953304f1f.9FmxupASPfGYeA0dT5MMVMmpnpuenKbo9I0_j3EmGT8
     scenes-app-inbox-scoutsroster--narrow--light:
@@ -8257,13 +8257,13 @@ snapshots:
     scenes-app-inbox-scoutsroster--roster--light:
         hash: v1.k794b7964.9641b33b8a0ebdb5f80a54278c0fb1328904398cf933ee06bfa4ccf58eb00415.2jp3o2jztnpwRlJ3x9o_KtVLLiGu42UoAmE71dud5go
     scenes-app-inbox-scoutsroster--roster-costs--dark:
-        hash: v1.k794b7964.6acdbab584d3a31c67341b7a62fbe506fc55234ef066062e7a0d97f85dd570a5.VjiV6tC8H5gSwPwSj0e-LS-1eyddDSudRF034szDLeQ
+        hash: v1.k794b7964.beeccb8195997c1c1877f549c6b6902b9b69cb1d9c720940ab7f5968f0335a71.1Jm1H94ElUbRIL-n5q9IJY-TmEDzSzxPqAms52-08F4
     scenes-app-inbox-scoutsroster--roster-costs--light:
-        hash: v1.k794b7964.cf98780f2c385172c2e94d3ed9e0a2d016832a7d86869a4a452f606e4016c027.PJ1As4PpQKJWW3YVukPRLYBGfta-gdBmvRnSo_oDEmw
+        hash: v1.k794b7964.75d202bfe5d3ed9019278d4a9730bfd7e1c9ccda3b7358eb167472499b65445b.Hz5OA1f_5_lQmDuCNFUw-HWUbfnWNyN5qfnvGPevHcU
     scenes-app-inbox-scoutsroster--roster-costs-non-staff--dark:
-        hash: v1.k794b7964.0935f58ac25bf8c7e69b63e0f0ba886884cfeae40e38a06c5caeb3b02c6f04aa.9TMRxEhxtmNpELzoGMoyVvsFL86jGOSGdRyvVK3b2zQ
+        hash: v1.k794b7964.bc5496dd845ecda6f0ad12cfb26aef001eebb616144626a43170c8a67febd43b.JldNfdDLfUnEixxUwEc-HN7yzxRYqQesLQWPuf0gLrk
     scenes-app-inbox-scoutsroster--roster-costs-non-staff--light:
-        hash: v1.k794b7964.f5c00cf2fb44451f4511761abe19b6bca2e6361e9c19d406f4d8e4aa50d20544.nNrhqiasW5eZKsNoXanhEK7AHgw0fx1Bfp4JelYUmI8
+        hash: v1.k794b7964.ed67ad70f3fa88f0a8ec479cb91870ad1d9baab13bb4be71428c960c391bf0db.kS-qICwDGcauBM7y48IGpq2cxtE4M9qmalLa716nJN4
     scenes-app-inbox-scoutsroster--roster-costs-table--dark:
         hash: v1.k794b7964.508b273094f6e08573ddd45fd3eb9eb0ad462d2b3834dcac401272a61eb6f1e7.RPEKTl6gEq0dtaS5iWq-6zYyPZeHWxRwXyU8UJNPA_o
     scenes-app-inbox-scoutsroster--roster-costs-table--light:
