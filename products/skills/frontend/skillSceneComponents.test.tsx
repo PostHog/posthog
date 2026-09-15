@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 import { Form } from 'kea-forms'
 
@@ -53,11 +53,18 @@ describe('skillSceneComponents', () => {
             openPublishToCommunityDialog({ skillName: 'my-skill', githubLogin: null, onPublish: jest.fn() })
 
             expect(dialogConfig?.initialValues.consent).toBe(false)
-            expect(dialogConfig?.errors?.consent(false)).toBe('Confirm you understand this skill becomes public')
-            expect(dialogConfig?.errors?.consent(true)).toBeUndefined()
+            expect(dialogConfig?.title).toBe('Publish to the PostHog community?')
+            expect(dialogConfig?.description).toBe(
+                'All PostHog users can find and use this skill. Its contents will also be public on GitHub.'
+            )
+            expect(dialogConfig?.errors?.consent(false, {})).toBe(
+                'Review the skill and confirm that you can share it publicly'
+            )
+            expect(dialogConfig?.errors?.consent(true, {})).toBeUndefined()
+            expect(dialogConfig?.primaryButtonProps?.children).toBe('Publish to community')
         })
 
-        it('names the destination repo, the version, and every file the commit would carry', async () => {
+        it('names the destination and version, with the file list behind Review files', async () => {
             openPublishToCommunityDialog({ skillName: 'my-skill', githubLogin: null, onPublish: jest.fn() })
 
             render(
@@ -70,6 +77,8 @@ describe('skillSceneComponents', () => {
 
             expect(screen.getByText('PostHog/community-skills')).toBeInTheDocument()
             await waitFor(() => expect(screen.getByText('v3')).toBeInTheDocument())
+            expect(screen.queryByText('SKILL.md')).not.toBeInTheDocument()
+            fireEvent.click(screen.getByText('Review files'))
             expect(screen.getByText('SKILL.md')).toBeInTheDocument()
             expect(screen.getByText('scripts/run.sh')).toBeInTheDocument()
             expect(screen.getByText('references/guide.md')).toBeInTheDocument()
@@ -78,11 +87,11 @@ describe('skillSceneComponents', () => {
 
     describe('publishToCommunityDisabledReason', () => {
         it.each([
-            ['in flight', { publishing: true }, 'Sharing…'],
-            ['no owners', { ownerUuids: [] }, 'Add an owner before you share this skill'],
-            ['not an owner', { currentUserUuid: 'other' }, "Only the skill's owners can share it"],
-            ['historical version', { isHistoricalVersion: true }, 'Switch to the latest version to share'],
-        ])('blocks a share %s', (_label, overrides, expected) => {
+            ['in flight', { publishing: true }, 'Publishing…'],
+            ['no owners', { ownerUuids: [] }, 'Add an owner before you publish this skill'],
+            ['not an owner', { currentUserUuid: 'other' }, "Only the skill's owners can publish it"],
+            ['historical version', { isHistoricalVersion: true }, 'Switch to the latest version to publish'],
+        ])('blocks publishing %s', (_label, overrides, expected) => {
             expect(
                 publishToCommunityDisabledReason({
                     ownerUuids: ['me'],
@@ -93,7 +102,7 @@ describe('skillSceneComponents', () => {
             ).toBe(expected)
         })
 
-        it('allows an owner to share the latest version', () => {
+        it('allows an owner to publish the latest version', () => {
             expect(
                 publishToCommunityDisabledReason({
                     ownerUuids: ['me'],

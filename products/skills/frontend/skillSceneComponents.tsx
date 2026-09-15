@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Suspense } from 'react'
 
-import { LemonButton, LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -79,30 +79,30 @@ export function publishToCommunityDisabledReason({
     isHistoricalVersion?: boolean
 }): string | undefined {
     if (publishing) {
-        return 'Sharing…'
+        return 'Publishing…'
     }
     if (ownerUuids.length === 0) {
-        return 'Add an owner before you share this skill'
+        return 'Add an owner before you publish this skill'
     }
     if (!currentUserUuid || !ownerUuids.includes(currentUserUuid)) {
-        return "Only the skill's owners can share it"
+        return "Only the skill's owners can publish it"
     }
     // The backend shares the latest version by name, so block sharing from a historical version to
     // avoid pushing content the user is not looking at.
     if (isHistoricalVersion) {
-        return 'Switch to the latest version to share'
+        return 'Switch to the latest version to publish'
     }
     return undefined
 }
 
-/** What the pending share sends: the destination repo, the version, and every file in the commit. */
+/** What the pending publish sends: the destination repo, the version, and every file in the commit. */
 function PublishToCommunityContents({ skillName }: { skillName: string }): JSX.Element {
     const { publishPreview, publishPreviewLoading } = useValues(skillPublishPreviewLogic({ skillName }))
 
     return (
         <div className="flex flex-col gap-1 rounded border p-2 bg-primary-highlight">
             <div className="flex items-center gap-2">
-                <span className="font-semibold">Goes to</span>
+                <span className="font-semibold">Public destination</span>
                 <Link to={COMMUNITY_SKILLS_REPO_URL} target="_blank">
                     {COMMUNITY_SKILLS_REPO}
                 </Link>
@@ -115,22 +115,33 @@ function PublishToCommunityContents({ skillName }: { skillName: string }): JSX.E
                     <div>
                         <span className="font-semibold">Version</span> v{publishPreview.version}
                     </div>
-                    <div className="font-semibold">Files in the commit</div>
-                    <ul className="m-0 pl-4 list-disc font-mono text-xs max-h-40 overflow-y-auto">
-                        <li>SKILL.md</li>
-                        {publishPreview.files.map((file) => (
-                            <li key={file.path}>{file.path}</li>
-                        ))}
-                    </ul>
+                    <LemonCollapse
+                        embedded
+                        size="small"
+                        panels={[
+                            {
+                                key: 'files',
+                                header: 'Review files',
+                                content: (
+                                    <ul className="m-0 pl-4 list-disc font-mono text-xs max-h-40 overflow-y-auto">
+                                        <li>SKILL.md</li>
+                                        {publishPreview.files.map((file) => (
+                                            <li key={file.path}>{file.path}</li>
+                                        ))}
+                                    </ul>
+                                ),
+                            },
+                        ]}
+                    />
                 </>
             ) : (
-                <div className="text-secondary">Couldn't load the file list, but the share still sends every file.</div>
+                <div className="text-secondary">Couldn't load the file list. Publishing still sends every file.</div>
             )}
         </div>
     )
 }
 
-/** Collect the share fields, then hand them to `onPublish`. Shared so the list view and the
+/** Collect the publish fields, then hand them to `onPublish`. Shared so the list view and the
  * single-skill view open the identical dialog. */
 export function openPublishToCommunityDialog({
     skillName,
@@ -142,9 +153,8 @@ export function openPublishToCommunityDialog({
     onPublish: (skillName: string, options: PublishToCommunityOptions) => void
 }): void {
     LemonDialog.openForm({
-        title: 'Share this skill publicly on GitHub',
-        description:
-            "Sharing commits the skill's instructions, every bundled file, and any template variables (their prompts and defaults) to a public GitHub repo, then opens a pull request for a maintainer to review. Everything is public from the moment you submit, and you can't take it back, so don't include credentials or internal details.",
+        title: 'Publish to the PostHog community?',
+        description: 'All PostHog users can find and use this skill. Its contents will also be public on GitHub.',
         initialValues: {
             display_name: skillName.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
             tags: '',
@@ -171,16 +181,17 @@ export function openPublishToCommunityDialog({
                             checked={!!value}
                             onChange={onChange}
                             data-attr="llma-publish-consent"
-                            label="I understand this skill becomes public and can't be taken back"
+                            label="I reviewed this skill and can share it publicly"
                         />
                     )}
                 </LemonField>
             </div>
         ),
         errors: {
-            consent: (consent: boolean) => (consent ? undefined : 'Confirm you understand this skill becomes public'),
+            consent: (consent: boolean) =>
+                consent ? undefined : 'Review the skill and confirm that you can share it publicly',
         },
-        primaryButtonProps: { children: 'Share publicly' },
+        primaryButtonProps: { children: 'Publish to community' },
         onSubmit: ({ display_name, tags, author_handle }) =>
             onPublish(skillName, {
                 display_name: display_name?.trim() || undefined,

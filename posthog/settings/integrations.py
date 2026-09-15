@@ -89,7 +89,7 @@ STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS = get_list(get_from_env("STAMPHOG_SANDBOX_
 # unpinned. Set per region in charts (temporal-worker-stamphog); pin every model the Agent SDK
 # uses in a review, including its small utility model.
 STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS = get_list(get_from_env("STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS", ""))
-# The in-product "Share publicly on GitHub" flow runs as its own dedicated GitHub App, installed on the
+# The in-product "Publish to community" flow runs as its own dedicated GitHub App, installed on the
 # PostHog/community-skills repo alone. It does not fall back to the core GITHUB_APP_* App above,
 # which is installed across the whole PostHog org: a dedicated App cannot reach another repository
 # whatever the publish path asks it for. One App serves every region, so the client id and the
