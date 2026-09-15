@@ -246,6 +246,27 @@ def _wildcard_bounds(value: str) -> tuple[str, str]:
 
 GROUP_KEY_PATTERN = re.compile(r"^\$group_[0-4]$")
 
+# The group's key is a column on the groups table, not an entry in its property JSON. Flag matching and
+# the release-condition blast radius already resolve it that way; HogQL has to agree everywhere.
+GROUP_KEY_PROPERTY = "$group_key"
+
+
+def group_property_chain(group_type_index: int | float | None, key: str) -> list[str]:
+    """Field chain that reads group property `key` through the events table's `group_N` lazy join.
+
+    `$group_key` is the `key` column, `$virt_*` properties are expression fields on the groups table, and
+    anything else lives in the property JSON. The breakdown builders and `property_to_expr` all go through
+    here so the three shapes cannot drift apart.
+    """
+    if group_type_index is None:
+        raise QueryError("A group property needs a group_type_index")
+    prefix = f"group_{int(group_type_index)}"
+    if key == GROUP_KEY_PROPERTY:
+        return [prefix, "key"]
+    if key.startswith("$virt_"):
+        return [prefix, key]
+    return [prefix, "properties", key]
+
 
 def _stringify_group_key_value(value: object) -> str | list[str]:
     """Group keys ($group_0–$group_4) are always stored as strings. A numeric filter
@@ -1268,7 +1289,13 @@ def property_to_expr(
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
         value = property.value
 
-        if property.key and GROUP_KEY_PATTERN.match(str(property.key)):
+        # `$group_key` is the group's key column, not an entry in its property JSON. Flag
+        # matching and the blast radius already resolve it that way, so resolve it here too;
+        # otherwise the same filter silently matches nothing in insights, cohorts and the
+        # groups list.
+        is_group_key_column = property.type == "group" and property.key == GROUP_KEY_PROPERTY
+
+        if property.key and (is_group_key_column or GROUP_KEY_PATTERN.match(str(property.key))):
             value = _stringify_group_key_value(value)
 
         if property.type == "person" and property.key == "distinct_id":
@@ -1328,6 +1355,8 @@ def property_to_expr(
                 property.key = key
             else:
                 raise QueryError("Data warehouse person property filter value must be a string")
+        elif is_group_key_column:
+            chain = ["key"] if scope == "group" else group_property_chain(property.group_type_index, GROUP_KEY_PROPERTY)
         elif property.type == "group" and scope != "group":
             chain = [f"group_{property.group_type_index}", "properties"]
         elif property.type == "session" and scope in ["event", "replay"]:
@@ -1365,7 +1394,7 @@ def property_to_expr(
         # We pretend elements chain is a property, but it is actually a column on the events table
         if chain == ["properties"] and property.key == "$elements_chain":
             field = ast.Field(chain=["elements_chain"])
-        elif property.key == "":
+        elif property.key == "" or is_group_key_column:
             field = ast.Field(chain=[*chain])
         else:
             field = ast.Field(chain=[*chain, property.key])
