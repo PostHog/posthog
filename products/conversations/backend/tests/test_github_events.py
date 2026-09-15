@@ -126,6 +126,19 @@ class TestConversationsGitHubDeliveries(BaseTest):
         assert answer == DeliveryOwnership.ELSEWHERE
 
     @patch(f"{GITHUB_EVENTS_MODULE}.process_github_event")
+    @patch(f"{GITHUB_EVENTS_MODULE}.Integration.objects.filter")
+    def test_a_lookup_that_hits_its_timeout_fails_the_dispatch_rather_than_receipting_it(self, mock_filter, mock_task):
+        # Swallowing it would return quietly, the dispatcher would mark the delivery done for 24
+        # hours, and GitHub does not redeliver a receipted event, so the issue event is lost here.
+        mock_task.delay = MagicMock()
+        mock_filter.side_effect = OperationalError("canceling statement due to statement timeout")
+
+        with self.assertRaises(OperationalError):
+            conversations_facade.accept_github_event(_delivery(_issue_event()))
+
+        mock_task.delay.assert_not_called()
+
+    @patch(f"{GITHUB_EVENTS_MODULE}.process_github_event")
     def test_accepting_a_delivery_enqueues_it_for_the_owning_team(self, mock_task):
         mock_task.delay = MagicMock()
 

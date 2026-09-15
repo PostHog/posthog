@@ -49,21 +49,14 @@ def _team_for_github_installation(external_id: str) -> tuple[int | None, bool]:
     constraint is per-team). We iterate all matches and only accept the one
     whose conversations_settings.github_integration_id explicitly points back
     to the Integration row, ensuring deterministic routing.
+
+    A cancelled statement raises, because a lookup that never finished is not an answer. Each
+    caller decides what to do with it.
     """
-    try:
-        with bounded_statement_timeout(_INSTALLATION_LOOKUP_TIMEOUT_MS, models=[Integration]):
-            integrations = list(
-                Integration.objects.filter(kind="github", integration_id=external_id)
-                .select_related("team")
-                .order_by("id")
-            )
-    except OperationalError as error:
-        if not is_statement_timeout(error):
-            raise
-        # Not found rather than an error: the caller's two answers are "this region owns it" and
-        # "somebody else does", and a lookup that never finished has not shown ownership here.
-        logger.warning("github_issues_webhook_installation_lookup_timed_out", installation_id=external_id)
-        return None, False
+    with bounded_statement_timeout(_INSTALLATION_LOOKUP_TIMEOUT_MS, models=[Integration]):
+        integrations = list(
+            Integration.objects.filter(kind="github", integration_id=external_id).select_related("team").order_by("id")
+        )
 
     for integration in integrations:
         settings_dict = integration.team.conversations_settings or {}
@@ -92,7 +85,16 @@ def github_delivery_ownership(delivery: WebhookDelivery) -> DeliveryOwnership:
     if external_id is None:
         return DeliveryOwnership.UNDECIDED
 
-    team_id, github_enabled = _team_for_github_installation(external_id)
+    try:
+        team_id, github_enabled = _team_for_github_installation(external_id)
+    except OperationalError as error:
+        if not is_statement_timeout(error):
+            raise
+        # Elsewhere rather than an error: the two answers here are "this region owns it" and
+        # "somebody else does", and a lookup that never finished has not shown ownership here.
+        logger.warning("github_issues_webhook_installation_lookup_timed_out", installation_id=external_id)
+        return DeliveryOwnership.ELSEWHERE
+
     if team_id and github_enabled:
         return DeliveryOwnership.LOCAL
     return DeliveryOwnership.ELSEWHERE
@@ -106,6 +108,8 @@ def accept_github_event(delivery: WebhookDelivery) -> None:
         logger.warning("github_issues_webhook_no_installation")
         return
 
+    # Unguarded on purpose: a timed-out lookup fails the delivery, so the dispatcher releases the
+    # dedup mark and a redelivery reaches this consumer instead of the event being lost.
     team_id, github_enabled = _team_for_github_installation(external_id)
     if not (team_id and github_enabled):
         # Quiet on purpose: ingress reports a delivery no region here owns, off the ownership
