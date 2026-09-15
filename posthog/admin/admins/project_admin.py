@@ -298,11 +298,11 @@ class ProjectAdmin(admin.ModelAdmin):
             )
             messages.error(
                 request,
-                f"Failed to start deletion immediately: {e}. The deletion stays on its original schedule.",
+                f"Failed to start deletion: {e}.",
             )
             return redirect(change_url)
 
         project.deletion_scheduled_at = timezone.now()
         project.save(update_fields=["deletion_scheduled_at"])
-        messages.success(request, f"Started deletion immediately for project {project.name} ({project.pk}).")
+        messages.success(request, f"Started deletion for project {project.name} ({project.pk}).")
         return redirect(change_url)
