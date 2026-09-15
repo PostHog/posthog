@@ -46,6 +46,9 @@ DEFAULT_CANCELLED_RECOVERY_HINT = (
 _TASK_FIELD_LIMIT = 256
 _MARKDOWN_CHUNK_LIMIT = 12000
 _SECTION_TEXT_LIMIT = 3000
+_MESSAGE_BLOCK_LIMIT = 50
+# One tool call's args or outcome line inside a task card's rich text.
+_CARD_LINE_LIMIT = 200
 
 # Slack rejects the request outright for these, and repeating the same blocks cannot change the
 # answer, so the reply is posted plainly instead. The same pair is what the scout delivery in
@@ -91,6 +94,43 @@ def _task_update_chunk(
     if output:
         chunk["output"] = output[:_TASK_FIELD_LIMIT]
     return chunk
+
+
+def _rich_text_lines(lines: list[str]) -> dict[str, Any]:
+    return {
+        "type": "rich_text",
+        "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": line}]} for line in lines],
+    }
+
+
+def _task_card_block(task_id: str, calls: list[dict[str, Any]], *, complete: bool) -> dict[str, Any]:
+    """One task_card block for a burst of tool calls: args per call in details,
+    outcomes per call in output, count in the title."""
+    titles = {str(call.get("title") or "") for call in calls}
+    if len(titles) == 1:
+        only = next(iter(titles))
+        title = only if len(calls) == 1 else f"{only} ({len(calls)})"
+    else:
+        title = f"{len(calls)} tool calls"
+    block: dict[str, Any] = {
+        "type": "task_card",
+        "task_id": task_id,
+        "title": title[:_TASK_FIELD_LIMIT],
+        "status": "complete" if complete else "in_progress",
+    }
+    detail_lines = [str(call.get("details") or call.get("title") or "")[:_CARD_LINE_LIMIT] for call in calls]
+    if any(detail_lines):
+        block["details"] = _rich_text_lines(detail_lines)
+    output_lines: list[str] = []
+    for call in calls:
+        output = call.get("output")
+        if call.get("failed"):
+            output_lines.append((f"Failed: {output}" if output else "Failed")[:_CARD_LINE_LIMIT])
+        elif output:
+            output_lines.append(str(output)[:_CARD_LINE_LIMIT])
+    if output_lines:
+        block["output"] = _rich_text_lines(output_lines)
+    return block
 
 
 def _format_task_error(error: str) -> str:
@@ -391,6 +431,69 @@ class SlackThreadHandler:
                 for piece in _split_markdown_text(normalize_labeled_mentions_to_bare(str(chunk["text"]))):
                     chunks.append({"type": "markdown_text", "text": piece})
         return chunks
+
+    def render_agent_design_message(
+        self,
+        ts: str | None,
+        segments: list[dict[str, Any]],
+        artifact_blocks: list[dict[str, Any]] | None = None,
+        closing: bool = False,
+    ) -> str | None:
+        """Post the agent-design reply, or rewrite it in place from its full segment
+        list: markdown prose, task cards holding tool-call bursts, and artifact
+        blocks, in reading order. The closing render appends the trailing @-mention,
+        the provenance footer, and the interactive blocks."""
+        blocks: list[dict[str, Any]] = []
+        for index, segment in enumerate(segments):
+            if segment.get("kind") == "text" and segment.get("text"):
+                normalized = normalize_labeled_mentions_to_bare(str(segment["text"]))
+                for piece in _split_markdown_text(normalized, SLACK_MARKDOWN_TEXT_MAX_LEN):
+                    blocks.append(slack_markdown_block(piece))
+            elif segment.get("kind") == "cards" and segment.get("calls"):
+                blocks.append(
+                    _task_card_block(f"task-{index}", segment["calls"], complete=bool(segment.get("complete")))
+                )
+            elif segment.get("kind") == "blocks" and segment.get("blocks"):
+                blocks.extend(segment["blocks"])
+        blocks.extend(artifact_blocks or [])
+        fallback = next(
+            (str(s["text"]) for s in segments if s.get("kind") == "text" and s.get("text")),
+            "Working on it…",
+        )[:150]
+        if closing:
+            if self.context.mentioning_slack_user_id:
+                blocks.append(slack_markdown_block(f"<@{self.context.mentioning_slack_user_id}>"))
+            for block in (self._footer_block(), self._fork_menu_actions_block(), self._feedback_block()):
+                if block:
+                    blocks.append(block)
+        if len(blocks) > _MESSAGE_BLOCK_LIMIT:
+            # Keep the head and the freshest tail; the middle is where stale
+            # progress lives once a message outgrows Slack's block cap.
+            keep_tail = _MESSAGE_BLOCK_LIMIT - 11
+            blocks = [
+                *blocks[:10],
+                slack_markdown_block("_…earlier steps trimmed to fit this message…_"),
+                *blocks[-keep_tail:],
+            ]
+        if not blocks:
+            return ts
+        try:
+            if ts is None:
+                response = self._post_in_thread(text=fallback, blocks=blocks)
+                if response is None:
+                    return None
+                posted_ts = response.get("ts")
+                return posted_ts if isinstance(posted_ts, str) else None
+            self._get_client().chat_update(
+                channel=self.context.channel,
+                ts=ts,
+                text=fallback,
+                blocks=blocks,
+            )
+            return ts
+        except Exception as e:
+            logger.warning("slack_app_agent_design_render_failed", error=str(e))
+            return ts
 
     def append_stream_chunks(self, ts: str, chunks: list[dict[str, Any]]) -> None:
         """Append an ordered mix of task_update and markdown_text chunks."""

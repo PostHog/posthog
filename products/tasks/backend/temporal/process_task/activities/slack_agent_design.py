@@ -26,10 +26,15 @@ logger = get_logger(__name__)
 STREAM_MODE_TIMELINE = "timeline"
 STREAM_MODE_FINAL_ONLY = "final_only"
 
-# TaskRun.state key holding the ts of the currently open agent-design stream, so
-# out-of-workflow writers (living-artifact delivery) can append into it. Written on
-# stream start, cleared on stop.
+# TaskRun.state key holding the ts of the currently open agent-design reply, so
+# out-of-workflow writers (living-artifact delivery) know one is open. Written on
+# the first render, cleared on the closing one.
 SLACK_STREAM_TS_STATE_KEY = "slack_stream_ts"
+
+# TaskRun.state key holding blocks queued by artifact delivery for the open reply.
+# The next render pops them into the message at its current end, so a chart lands
+# roughly where the agent created it.
+SLACK_PENDING_BLOCKS_STATE_KEY = "slack_stream_pending_blocks"
 
 
 @dataclass
@@ -52,6 +57,48 @@ class StreamChunk:
 
     markdown_text: Optional[str] = None
     task_update: Optional[TaskUpdateChunk] = None
+
+
+@dataclass
+class CardCall:
+    """One tool call inside a task card segment."""
+
+    title: str
+    details: Optional[str] = None
+    output: Optional[str] = None
+    failed: bool = False
+
+
+@dataclass
+class MessageSegment:
+    """One piece of the agent-design reply, in reading order: prose, a task card
+    holding a burst of tool calls, or raw blocks (delivered artifacts)."""
+
+    kind: str  # "text" | "cards" | "blocks"
+    text: Optional[str] = None
+    calls: list[CardCall] = field(default_factory=list)
+    complete: bool = False
+    blocks: list[dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass
+class RenderSlackAgentDesignMessageInput:
+    slack_thread_context: dict[str, Any]
+    segments: list[MessageSegment] = field(default_factory=list)
+    # None posts the reply; set, it chat.updates the existing one in place.
+    ts: Optional[str] = None
+    # The closing render marks open cards complete and appends mention/footer/feedback.
+    closing: bool = False
+    run_id: Optional[str] = None
+    trace_id: Optional[str] = None
+
+
+@dataclass
+class RenderSlackAgentDesignMessageOutput:
+    ts: Optional[str] = None
+    # Artifact blocks popped from TaskRun.state and rendered at the message's current
+    # end. The workflow appends them to its segments so later renders keep them there.
+    artifact_blocks: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -152,6 +199,94 @@ def _register_open_stream(run_id: Optional[str], ts: Optional[str]) -> None:
         TaskRun.mutate_state_atomic(run_id, _mutate)
     except Exception:
         logger.warning("slack_app_stream_ts_state_write_failed", run_id=run_id)
+
+
+def _pop_pending_artifact_blocks(run_id: Optional[str]) -> list[dict[str, Any]]:
+    """Read the artifact blocks queued for the open reply. The caller acks them
+    with _ack_pending_artifact_blocks only after the render carried them, so a
+    failed render leaves them queued for the next one."""
+    if not run_id:
+        return []
+    from products.tasks.backend.models import TaskRun
+
+    try:
+        state = TaskRun.objects.filter(id=run_id).values_list("state", flat=True).first() or {}
+        pending = state.get(SLACK_PENDING_BLOCKS_STATE_KEY)
+        return list(pending) if isinstance(pending, list) else []
+    except Exception:
+        logger.warning("slack_app_pending_blocks_read_failed", run_id=run_id)
+        return []
+
+
+def _ack_pending_artifact_blocks(run_id: str, count: int) -> None:
+    from products.tasks.backend.models import TaskRun
+
+    def _mutate(state: dict[str, Any]) -> None:
+        pending = state.get(SLACK_PENDING_BLOCKS_STATE_KEY)
+        if isinstance(pending, list):
+            state[SLACK_PENDING_BLOCKS_STATE_KEY] = pending[count:]
+
+    try:
+        TaskRun.mutate_state_atomic(run_id, _mutate)
+    except Exception:
+        logger.warning("slack_app_pending_blocks_ack_failed", run_id=run_id)
+
+
+def _segment_dicts(segments: list[MessageSegment], integration_id: int, closing: bool) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for segment in segments:
+        if segment.kind == "text" and segment.text:
+            out.append({"kind": "text", "text": _rewrite_object_tags(segment.text, integration_id)})
+        elif segment.kind == "cards" and segment.calls:
+            out.append(
+                {
+                    "kind": "cards",
+                    "complete": segment.complete or closing,
+                    "calls": [
+                        {"title": c.title, "details": c.details, "output": c.output, "failed": c.failed}
+                        for c in segment.calls
+                    ],
+                }
+            )
+        elif segment.kind == "blocks" and segment.blocks:
+            out.append({"kind": "blocks", "blocks": segment.blocks})
+    return out
+
+
+@activity.defn
+@close_db_connections
+def render_slack_agent_design_message(
+    input: RenderSlackAgentDesignMessageInput,
+) -> RenderSlackAgentDesignMessageOutput:
+    """Post or chat.update the agent-design reply from its full segment list.
+
+    Also carries artifact blocks queued on TaskRun.state into the message, acking
+    them only once rendered. Best-effort: a Slack failure keeps the previous ts."""
+    from products.slack_app.backend.services.slack_messages import load_run_footer
+    from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
+
+    try:
+        context = SlackThreadContext.from_dict(input.slack_thread_context)
+        pending = _pop_pending_artifact_blocks(input.run_id)
+        handler = SlackThreadHandler(context, turn_trace_id=input.trace_id)
+        if input.closing:
+            handler.run_footer = load_run_footer(input.run_id)
+        ts = handler.render_agent_design_message(
+            ts=input.ts,
+            segments=_segment_dicts(input.segments, context.integration_id, input.closing),
+            artifact_blocks=pending,
+            closing=input.closing,
+        )
+        if ts is None:
+            return RenderSlackAgentDesignMessageOutput(ts=input.ts)
+        if input.run_id:
+            if pending:
+                _ack_pending_artifact_blocks(input.run_id, len(pending))
+            _register_open_stream(input.run_id, None if input.closing else ts)
+        return RenderSlackAgentDesignMessageOutput(ts=ts, artifact_blocks=pending)
+    except Exception as e:
+        logger.warning("slack_app_render_agent_design_message_failed", error=str(e))
+        return RenderSlackAgentDesignMessageOutput(ts=input.ts)
 
 
 @activity.defn

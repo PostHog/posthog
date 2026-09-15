@@ -1,21 +1,22 @@
 """Per-turn child of ProcessTaskWorkflow.
 
-Three stream surfaces, chosen by ``stream_mode`` on the input:
+Three reply surfaces, chosen by ``stream_mode`` on the input:
 
-- ``timeline`` — narrative streams as markdown_text and every tool call is a
-  step in one live plan block (opened in_progress, flipped to complete with its
-  outcome in the step's output field). Prose renders around the plan in arrival
-  order; Slack keeps a single plan per streamed message.
-- ``final_only`` — nothing streams while the turn runs; when the turn completes
-  the final answer posts in one batch through the same start/stop lifecycle.
-- unset — the legacy plan-block surface, kept for relays whose start was
-  recorded before ``stream_mode`` existed. Two phases in a single
-  chat.startStream lifecycle: before the first tool call, text_deltas stream as
-  markdown_text; after it, they buffer between tool calls and surface as 💭
-  steps in the plan block. On turn_completed the last narrative burst streams
-  as the final markdown_text.
+- ``timeline`` — a regular message rewritten in place with chat.update: markdown
+  prose, one task_card block per burst of tool calls (args and outcomes per call
+  in rich text, status live), and artifact blocks, interleaved in arrival order.
+  Not the chat.startStream API: streamed chunks cannot interleave multiple task
+  groups with text, and raw task blocks do not render mid-stream.
+- ``final_only`` — nothing posts while the turn runs; when the turn completes the
+  final answer lands in one closing render.
+- unset — the legacy streamed plan-block surface, kept for relays whose start was
+  recorded before ``stream_mode`` existed. Two phases in a single chat.startStream
+  lifecycle: before the first tool call, text_deltas stream as markdown_text;
+  after it, they buffer between tool calls and surface as 💭 steps in the plan
+  block. On turn_completed the last narrative burst streams as the final
+  markdown_text.
 
-Whatever the surface, the stream closes with the trailing @-mention and the
+Whatever the surface, the reply closes with the trailing @-mention and the
 provenance footer.
 """
 
@@ -35,11 +36,15 @@ with workflow.unsafe.imports_passed_through():
         STREAM_MODE_FINAL_ONLY,
         STREAM_MODE_TIMELINE,
         AppendSlackAgentDesignStepsInput,
+        CardCall,
+        MessageSegment,
+        RenderSlackAgentDesignMessageInput,
+        RenderSlackAgentDesignMessageOutput,
         StartSlackAgentDesignStreamInput,
         StopSlackAgentDesignStreamInput,
-        StreamChunk,
         TaskUpdateChunk,
         append_slack_agent_design_steps,
+        render_slack_agent_design_message,
         start_slack_agent_design_stream,
         stop_slack_agent_design_stream,
     )
@@ -114,18 +119,18 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         # reports it. The closing reply carries the thumbs, so this is what a rating on
         # them names.
         self._trace_id: Optional[str] = None
-        # Timeline surface: prose and steps in arrival order, consumed up to
-        # (_consumed, _consumed_text_offset). The offset only ever points into a
-        # QueuedText at index _consumed, and only moves forward — deltas append.
+        # Timeline surface: prose and steps in arrival order, folded into segments
+        # up to _consumed. The last consumed QueuedText keeps growing in place, so
+        # _absorbed_tail_len tracks how much of it the segments already carry.
         self._events: list[Union[PendingStep, QueuedText, QueuedToolResult]] = []
         self._consumed: int = 0
-        self._consumed_text_offset: int = 0
+        self._absorbed_tail_len: int = 0
         # Bumped by every content signal, so the final_only wait can tell live
         # silence from a turn that is still producing.
         self._signal_seq: int = 0
-        # Maps a tool call to its timeline card so the call's outcome can flip that
-        # card's status and fill its output field.
-        self._cards_by_tool_id: dict[str, tuple[str, str, Optional[str]]] = {}
+        # The reply's canonical composition, rewritten wholesale on every render.
+        self._segments: list[MessageSegment] = []
+        self._calls_by_tool_id: dict[str, CardCall] = {}
 
     @workflow.signal
     async def agent_status_update(self, payload: dict[str, Any] | str) -> None:
@@ -245,150 +250,95 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
     # ─── Timeline surface ───
 
     def _has_unsent_events(self) -> bool:
-        if self._consumed >= len(self._events):
-            return False
-        if self._consumed == len(self._events) - 1:
-            tail = self._events[self._consumed]
-            if isinstance(tail, QueuedText):
-                return len(tail.text) > self._consumed_text_offset
-        return True
+        if self._consumed < len(self._events):
+            return True
+        if self._consumed and isinstance(self._events[-1], QueuedText):
+            return len(self._events[-1].text) > self._absorbed_tail_len
+        return False
 
-    def _timeline_marker(self) -> tuple[int, int]:
-        """Changes whenever content arrives, so a hold on an unfinished tag can wait
-        for growth rather than re-flushing the same unsendable suffix."""
-        tail = self._events[-1] if self._events else None
-        return (len(self._events), len(tail.text) if isinstance(tail, QueuedText) else -1)
-
-    def _card_chunks_for_step(self, step: PendingStep) -> list[StreamChunk]:
-        """Open a card for the tool call; a still-running previous card completes.
-
-        One card per call, so each renders as its own point on the timeline. The
-        call's outcome later flips this card's status and fills its output field.
-        """
-        chunks: list[StreamChunk] = []
-        if self._current_task_id and self._current_task_title:
-            chunks.append(
-                StreamChunk(
-                    task_update=TaskUpdateChunk(
-                        id=self._current_task_id,
-                        title=self._current_task_title,
-                        status="complete",
-                        details=self._current_task_details,
-                    )
-                )
-            )
-        new_id = str(workflow.uuid4())
-        chunks.append(
-            StreamChunk(
-                task_update=TaskUpdateChunk(id=new_id, title=step.title, status="in_progress", details=step.details)
-            )
-        )
-        self._current_task_id = new_id
-        self._current_task_title = step.title
-        self._current_task_details = step.details
-        if step.tool_call_id:
-            self._cards_by_tool_id[step.tool_call_id] = (new_id, step.title, step.details)
-        return chunks
-
-    def _card_chunk_for_result(self, result: QueuedToolResult) -> Optional[StreamChunk]:
-        """Flip the call's card to its outcome, carrying the result preview."""
-        card = self._cards_by_tool_id.get(result.tool_call_id)
-        if card is None:
-            return None
-        card_id, title, details = card
-        if card_id == self._current_task_id:
-            # The outcome closed this card; the stop path must not complete it again.
-            self._current_task_id = None
-            self._current_task_title = None
-            self._current_task_details = None
-        # Failures render as a completed step with a "Failed:" output — Slack's plan
-        # display documents no error status for its tasks.
-        output = result.output
-        if result.failed:
-            output = f"Failed: {output}" if output else "Failed"
-        return StreamChunk(
-            task_update=TaskUpdateChunk(
-                id=card_id,
-                title=title,
-                status="complete",
-                details=details,
-                output=output,
-            )
-        )
-
-    def _collect_timeline_chunks(self, final: bool) -> list[StreamChunk]:
-        """Consume unsent events into ordered chunks, advancing the consumed pointer.
-
-        Mid-turn the trailing prose is held back at an unfinished object tag or code
-        fence so it never posts as raw XML; at turn end (``final``) the text is whole
-        and goes out as written.
-        """
-        chunks: list[StreamChunk] = []
-        i = self._consumed
-        offset = self._consumed_text_offset
-        while i < len(self._events):
-            item = self._events[i]
-            if isinstance(item, QueuedToolResult):
-                result_chunk = self._card_chunk_for_result(item)
-                if result_chunk is not None and result_chunk.task_update is not None:
-                    # The outcome supersedes the call's open chunk when both sit in
-                    # this flush, so the card goes out once, in its final state.
-                    if (
-                        chunks
-                        and chunks[-1].task_update is not None
-                        and chunks[-1].task_update.id == result_chunk.task_update.id
-                    ):
-                        chunks[-1] = result_chunk
-                    else:
-                        chunks.append(result_chunk)
-                i += 1
-                offset = 0
-                continue
+    def _consume_events_into_segments(self) -> bool:
+        """Fold unsent events into the segment list. Consecutive tool calls join the
+        open card segment; prose closes it. Returns whether anything changed."""
+        changed = False
+        if self._consumed and isinstance(self._events[self._consumed - 1], QueuedText):
+            tail = self._events[self._consumed - 1]
+            assert isinstance(tail, QueuedText)
+            if len(tail.text) > self._absorbed_tail_len:
+                tail_segment = self._segments[-1]
+                tail_segment.text = (tail_segment.text or "") + tail.text[self._absorbed_tail_len :]
+                self._absorbed_tail_len = len(tail.text)
+                changed = True
+        while self._consumed < len(self._events):
+            item = self._events[self._consumed]
+            self._consumed += 1
+            last: Optional[MessageSegment] = self._segments[-1] if self._segments else None
             if isinstance(item, PendingStep):
-                chunks.extend(self._card_chunks_for_step(item))
-                i += 1
-                offset = 0
-                continue
-            text = item.text[offset:]
-            if i == len(self._events) - 1 and not final:
-                split = split_incomplete_tag_suffix(text)
-                if split.sendable:
-                    chunks.append(StreamChunk(markdown_text=split.sendable))
-                    offset += len(split.sendable)
-                break
-            if text:
-                chunks.append(StreamChunk(markdown_text=text))
-            i += 1
-            offset = 0
-        self._consumed = i
-        self._consumed_text_offset = offset
-        return chunks
+                new_call = CardCall(title=item.title, details=item.details)
+                if last is not None and last.kind == "cards" and not last.complete:
+                    last.calls.append(new_call)
+                else:
+                    self._segments.append(MessageSegment(kind="cards", calls=[new_call]))
+                if item.tool_call_id:
+                    self._calls_by_tool_id[item.tool_call_id] = new_call
+                changed = True
+            elif isinstance(item, QueuedToolResult):
+                known_call = self._calls_by_tool_id.get(item.tool_call_id)
+                if known_call is not None:
+                    known_call.output = item.output
+                    known_call.failed = item.failed
+                    changed = True
+            else:
+                if last is not None and last.kind == "cards":
+                    last.complete = True
+                if last is not None and last.kind == "text":
+                    last.text = (last.text or "") + item.text
+                else:
+                    self._segments.append(MessageSegment(kind="text", text=item.text))
+                self._absorbed_tail_len = len(item.text)
+                changed = True
+        return changed
 
-    async def _dispatch_timeline_chunks(self, input: SlackAgentDesignRelayInput, chunks: list[StreamChunk]) -> bool:
-        """Open the stream with the first flush, append after. False when the open failed."""
-        if self._stream_ts is None:
-            self._stream_ts = await workflow.execute_activity(
-                start_slack_agent_design_stream,
-                StartSlackAgentDesignStreamInput(
-                    slack_thread_context=input.slack_thread_context,
-                    ordered_chunks=chunks,
-                    # Steps render inside one connected plan block; "timeline" names the
-                    # relay's interleaving surface, not Slack's display mode.
-                    task_display_mode="plan",
-                    run_id=input.run_id,
-                ),
-                **_ACTIVITY_OPTIONS,
-            )
-            return self._stream_ts is not None
-        await workflow.execute_activity(
-            append_slack_agent_design_steps,
-            AppendSlackAgentDesignStepsInput(
+    def _render_payload(self, closing: bool) -> list[MessageSegment]:
+        """The segments as rendered now: mid-turn, the trailing prose is held back
+        at an unfinished object tag or code fence so it never posts as raw XML."""
+        if closing or not self._segments:
+            return self._segments
+        last = self._segments[-1]
+        if last.kind != "text" or not last.text:
+            return self._segments
+        split = split_incomplete_tag_suffix(last.text)
+        if not split.held:
+            return self._segments
+        head = self._segments[:-1]
+        if split.sendable:
+            head = [*head, MessageSegment(kind="text", text=split.sendable)]
+        return head
+
+    async def _render(self, input: SlackAgentDesignRelayInput, closing: bool) -> bool:
+        """Post or rewrite the reply from the current segments. False when the first
+        post failed — the prompt is gone, so the relay gives up."""
+        payload = self._render_payload(closing)
+        if not payload:
+            return True
+        output: RenderSlackAgentDesignMessageOutput = await workflow.execute_activity(
+            render_slack_agent_design_message,
+            RenderSlackAgentDesignMessageInput(
                 slack_thread_context=input.slack_thread_context,
+                segments=payload,
                 ts=self._stream_ts,
-                ordered_chunks=chunks,
+                closing=closing,
+                run_id=input.run_id,
+                trace_id=self._trace_id,
             ),
             **_ACTIVITY_OPTIONS,
         )
+        if output.ts is None and self._stream_ts is None:
+            return False
+        self._stream_ts = output.ts or self._stream_ts
+        if output.artifact_blocks:
+            # Rendered at the message's current end; recorded as a segment so the
+            # next rewrite keeps them there, with later prose flowing below.
+            self._segments.append(MessageSegment(kind="blocks", blocks=output.artifact_blocks))
         return True
 
     async def _run_timeline(self, input: SlackAgentDesignRelayInput) -> None:
@@ -414,37 +364,14 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
                 if elapsed < STATUS_MIN_INTERVAL_SECONDS:
                     await workflow.sleep(STATUS_MIN_INTERVAL_SECONDS - elapsed)
 
-                chunks = self._collect_timeline_chunks(final=False)
-                if not chunks:
-                    # The only unsent content is an unfinished tag suffix — wait for
-                    # it to grow into something sendable, or for the turn to end.
-                    marker = self._timeline_marker()
-
-                    def _grew(held: tuple[int, int] = marker) -> bool:
-                        return self._timeline_marker() != held or self._turn_complete
-
-                    try:
-                        await workflow.wait_condition(
-                            _grew,
-                            timeout=timedelta(minutes=TURN_IDLE_TIMEOUT_MINUTES),
-                        )
-                    except TimeoutError:
-                        workflow.logger.warning(
-                            "slack_app_agent_design_relay_idle_timeout",
-                            extra={"workflow_id": workflow.info().workflow_id},
-                        )
-                        return
+                if not self._consume_events_into_segments():
                     continue
-
                 self._last_dispatched_at = workflow.now().timestamp()
-                if not await self._dispatch_timeline_chunks(input, chunks):
+                if not await self._render(input, closing=False):
                     return
         finally:
-            final_chunks = self._collect_timeline_chunks(final=True)
-            if final_chunks:
-                await self._dispatch_timeline_chunks(input, final_chunks)
-            if self._stream_ts is not None:
-                await self._stop_stream(input)
+            self._consume_events_into_segments()
+            await self._render(input, closing=True)
 
     # ─── Final-only surface ───
 
@@ -472,17 +399,8 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         finally:
             final_answer = self._current_narrative.strip()
             if final_answer:
-                self._stream_ts = await workflow.execute_activity(
-                    start_slack_agent_design_stream,
-                    StartSlackAgentDesignStreamInput(
-                        slack_thread_context=input.slack_thread_context,
-                        first_markdown_text=final_answer,
-                        run_id=input.run_id,
-                    ),
-                    **_ACTIVITY_OPTIONS,
-                )
-            if self._stream_ts is not None:
-                await self._stop_stream(input)
+                self._segments = [MessageSegment(kind="text", text=final_answer)]
+                await self._render(input, closing=True)
 
     async def _stop_stream(self, input: SlackAgentDesignRelayInput, final_markdown: Optional[str] = None) -> None:
         assert self._stream_ts is not None
