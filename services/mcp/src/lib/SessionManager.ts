@@ -6,6 +6,7 @@ import type { State } from '@/tools/types'
 
 export class SessionManager {
     private cache: ScopedCache<State>
+    private mintedUuids = new Map<string, string>()
 
     constructor(cache: ScopedCache<State>) {
         this.cache = cache
@@ -23,10 +24,14 @@ export class SessionManager {
             return existingSession.uuid
         }
 
-        const newSessionUuid = uuidv7()
-        await this.cache.set(key, { uuid: newSessionUuid })
+        // Losing this write costs session continuity in the analytics, not the request, so a
+        // tool error still reaches the agent. The uuid is held so every event of this request
+        // reports one session even while the write keeps failing.
+        const mintedUuid = this.mintedUuids.get(sessionId) ?? uuidv7()
+        this.mintedUuids.set(sessionId, mintedUuid)
+        await this.cache.warm(key, { uuid: mintedUuid })
 
-        return newSessionUuid
+        return mintedUuid
     }
 
     async hasSession(sessionId: string): Promise<boolean> {

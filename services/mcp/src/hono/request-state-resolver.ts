@@ -150,7 +150,8 @@ export class RequestStateResolver {
         const contextPromise = reqCtx.getContext()
         const pinnedSessionContextPromise = projectId ? this.resolveSessionContext(requestContext) : undefined
 
-        await reqCtx.tokenCache.setMany({
+        // Pinned context is re-sent on every request, so losing this write costs nothing.
+        await reqCtx.tokenCache.warmMany({
             ...(organizationId ? { orgId: organizationId } : {}),
             ...(projectId ? { projectId } : {}),
         })
