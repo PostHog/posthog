@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime
 
 from unittest import mock
@@ -5,60 +6,93 @@ from unittest import mock
 from django.test import SimpleTestCase
 
 from posthog.query_cache import single_flight, storage
+from posthog.query_cache.failures import BUDGET_EXTENDED, BUDGET_INTERACTIVE
 from posthog.query_cache.single_flight import FlightWait, QuerySingleFlight
 
 
+def _cache_key() -> str:
+    return f"test_{uuid.uuid4().hex}"
+
+
 class TestQuerySingleFlight(SimpleTestCase):
-    def setUp(self):
-        super().setUp()
-        storage.query_cache_raw_client().flushdb()
-
     def test_only_one_leader_until_release(self):
-        flight = QuerySingleFlight("cache_key_1")
-        assert flight.acquire() is True
-        assert QuerySingleFlight("cache_key_1").acquire() is False
-        assert QuerySingleFlight("cache_key_other").acquire() is True
+        key = _cache_key()
+        leader = QuerySingleFlight(key)
+        assert leader.acquire(budget=BUDGET_INTERACTIVE) is True
+        assert QuerySingleFlight(key).acquire(budget=BUDGET_INTERACTIVE) is False
+        assert QuerySingleFlight(_cache_key()).acquire(budget=BUDGET_INTERACTIVE) is True
 
-        flight.release()
-        assert QuerySingleFlight("cache_key_1").acquire() is True
+        leader.release()
+        assert QuerySingleFlight(key).acquire(budget=BUDGET_INTERACTIVE) is True
 
     def test_release_keeps_a_replacement_leaders_lock(self):
-        expired_leader = QuerySingleFlight("cache_key_2")
-        assert expired_leader.acquire() is True
+        key = _cache_key()
+        expired_leader = QuerySingleFlight(key)
+        assert expired_leader.acquire(budget=BUDGET_INTERACTIVE) is True
         storage.query_cache_raw_client().delete(expired_leader.lock_key)  # the TTL ran out mid-query
-        replacement_leader = QuerySingleFlight("cache_key_2")
-        assert replacement_leader.acquire() is True
+        replacement_leader = QuerySingleFlight(key)
+        assert replacement_leader.acquire(budget=BUDGET_INTERACTIVE) is True
 
         expired_leader.release(last_refresh=datetime(2026, 1, 1, tzinfo=UTC))
-        assert QuerySingleFlight("cache_key_2").acquire() is False  # the replacement still holds it
-        assert replacement_leader.wait(timeout_seconds=0) == FlightWait(outcome="timeout")  # and published nothing
+        assert QuerySingleFlight(key).acquire(budget=BUDGET_INTERACTIVE) is False  # the replacement still holds it
+        assert QuerySingleFlight(key).wait(timeout_seconds=0) == FlightWait(outcome="timeout")  # and published nothing
+
+    def test_acquire_drops_the_previous_flights_published_result(self):
+        key = _cache_key()
+        first_leader = QuerySingleFlight(key)
+        first_leader.acquire(budget=BUDGET_INTERACTIVE)
+        first_leader.release(last_refresh=datetime(2026, 1, 1, tzinfo=UTC))
+
+        second_leader = QuerySingleFlight(key)
+        assert second_leader.acquire(budget=BUDGET_INTERACTIVE) is True
+        second_leader.release()  # failed without a result
+
+        assert QuerySingleFlight(key).wait(timeout_seconds=1) == FlightWait(outcome="released")
 
     def test_released_with_a_result_tells_followers_which_entry_to_serve(self):
-        leader = QuerySingleFlight("cache_key_3")
-        leader.acquire()
+        key = _cache_key()
+        leader = QuerySingleFlight(key)
+        leader.acquire(budget=BUDGET_INTERACTIVE)
         written_at = datetime(2026, 1, 1, 12, 0, 0, 123456, tzinfo=UTC)
         leader.release(last_refresh=written_at)
 
-        assert QuerySingleFlight("cache_key_3").wait(timeout_seconds=1) == FlightWait(
-            outcome="done", last_refresh=written_at
-        )
-        assert QuerySingleFlight("cache_key_3").acquire() is True  # the published result does not hold the lock
+        assert QuerySingleFlight(key).wait(timeout_seconds=1) == FlightWait(outcome="done", last_refresh=written_at)
+        assert QuerySingleFlight(key).acquire(budget=BUDGET_INTERACTIVE) is True  # the result does not hold the lock
 
     def test_released_without_a_result_tells_followers_to_run_it_themselves(self):
-        leader = QuerySingleFlight("cache_key_4")
-        leader.acquire()
+        key = _cache_key()
+        leader = QuerySingleFlight(key)
+        leader.acquire(budget=BUDGET_INTERACTIVE)
         leader.release()
 
-        assert QuerySingleFlight("cache_key_4").wait(timeout_seconds=1) == FlightWait(outcome="released")
+        assert QuerySingleFlight(key).wait(timeout_seconds=1) == FlightWait(outcome="released")
+
+    def test_followers_can_read_the_leaders_budget(self):
+        key = _cache_key()
+        assert QuerySingleFlight(key).leader_budget() is None
+        leader = QuerySingleFlight(key)
+        leader.acquire(budget=BUDGET_EXTENDED)
+        assert QuerySingleFlight(key).leader_budget() == BUDGET_EXTENDED
+
+        leader.release()
+        assert QuerySingleFlight(key).leader_budget() is None
 
     def test_wait_times_out_while_leader_holds_the_lock(self):
-        QuerySingleFlight("cache_key_5").acquire()
+        key = _cache_key()
+        QuerySingleFlight(key).acquire(budget=BUDGET_INTERACTIVE)
         with mock.patch.object(single_flight, "FLIGHT_POLL_INTERVAL", 0.01):
-            assert QuerySingleFlight("cache_key_5").wait(timeout_seconds=0.05) == FlightWait(outcome="timeout")
+            assert QuerySingleFlight(key).wait(timeout_seconds=0.05) == FlightWait(outcome="timeout")
+
+    def test_malformed_published_result_reads_as_released(self):
+        flight = QuerySingleFlight(_cache_key())
+        storage.query_cache_raw_client().set(flight.result_key, "not a timestamp")
+
+        assert flight.wait(timeout_seconds=1) == FlightWait(outcome="released")
 
     def test_storage_errors_fail_open(self):
-        flight = QuerySingleFlight("cache_key_6")
+        flight = QuerySingleFlight(_cache_key())
         with mock.patch.object(single_flight.storage, "query_cache_raw_client", side_effect=RuntimeError("redis down")):
-            assert flight.acquire() is True  # act alone rather than block the query
+            assert flight.acquire(budget=BUDGET_INTERACTIVE) is True  # act alone rather than block the query
+            assert flight.leader_budget() is None
             assert flight.wait(timeout_seconds=1) == FlightWait(outcome="released")  # run it yourself
             flight.release(last_refresh=datetime(2026, 1, 1, tzinfo=UTC))  # swallowed

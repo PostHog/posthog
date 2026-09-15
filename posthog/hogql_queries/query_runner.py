@@ -161,6 +161,7 @@ from posthog.models.team.event_retention import events_retention_months_for_team
 from posthog.query_cache import QueryCache, count_query_cache_hit, retention_ttl
 from posthog.query_cache.failures import (
     BUDGET_EXTENDED,
+    BUDGET_INTERACTIVE,
     QUERY_FAILURE_CACHE_COUNTER,
     QUERY_FAILURE_CACHING_FLAG,
     Budget,
@@ -2342,13 +2343,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         # QUERY_PERFORMANCE_ERROR is FAILURE (so captured) even though a minority of
                         # those are user-input limits — see _classify_error_for_slo.
                         capture_exception(exc)
-                    if self._query_failure_caching_enabled:
-                        # Transient error classes classify to None and are never recorded.
-                        failure_kind = classify_failure(exc, self.team.pk)
-                        if failure_kind is not None:
-                            QueryCache(team_id=self.team.pk, cache_key=cache_key).record_failure(
-                                failure_kind, str(exc), budget=budget_for_limit_context(self.limit_context)
-                            )
                     raise
 
     def _execute_and_cache_blocking(
@@ -2369,12 +2363,22 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self._raise_if_breaker_forbids(cache_manager)
 
         flight: Optional[QuerySingleFlight] = None
-        if self._query_single_flight_enabled:
+        # A runner that requires a fresh calculation exists so a stored result is never served,
+        # which rules out serving a leader's entry too.
+        if self._query_single_flight_enabled and not self.requires_fresh_calculation():
             flight = cache_manager.flight()
-            if flight.acquire():
-                QUERY_SINGLE_FLIGHT_COUNTER.labels(action="leader").inc()
-            else:
-                served = self._await_flight(flight, cache_manager, user=user, analytics_props=analytics_props)
+            budget = budget_for_limit_context(self.limit_context)
+            deadline = perf_counter() + FLIGHT_WAIT_SECONDS
+            while not flight.acquire(budget=budget):
+                if budget == BUDGET_INTERACTIVE and flight.leader_budget() == BUDGET_EXTENDED:
+                    # An extended-budget leader may run for minutes, so an interactive request
+                    # keeps its own latency and runs itself, as it did without single flight.
+                    QUERY_SINGLE_FLIGHT_COUNTER.labels(action="follower_skipped_extended_leader").inc()
+                    flight = None
+                    break
+                served = self._await_flight(
+                    flight, cache_manager, deadline=deadline, user=user, analytics_props=analytics_props
+                )
                 if served is not None:
                     self._report_result_from_cache(
                         served,
@@ -2389,10 +2393,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         execution_path="single_flight_follower",
                     )
                     return served
-                # The leader failed or vanished, so this run executes the query itself. The
-                # leader's failure may have just opened the breaker, hence the recheck.
+                # The leader failed or vanished, and its failure may have just opened the breaker.
+                # Otherwise the next acquire makes one waiter the new leader, so the rest keep
+                # waiting instead of all running the query at once.
                 self._raise_if_breaker_forbids(cache_manager)
-                flight = None
+                if perf_counter() >= deadline:
+                    QUERY_SINGLE_FLIGHT_COUNTER.labels(action="follower_gave_up").inc()
+                    flight = None
+                    break
+            if flight is not None:
+                QUERY_SINGLE_FLIGHT_COUNTER.labels(action="leader").inc()
+
         try:
             response = self._calculate_and_cache_blocking(
                 cache_key=cache_key,
@@ -2405,32 +2416,43 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 start_time=start_time,
                 analytics_props=analytics_props,
             )
-            if flight is not None:
-                flight.release(last_refresh=last_refresh_from_cached_result(response))
-                flight = None
-            return response
-        finally:
+        except Exception as exc:
+            # Recorded before the release so a follower that rechecks the breaker sees this failure.
+            self._record_breaker_failure(cache_manager, exc)
             if flight is not None:
                 flight.release()
+            raise
+        if flight is not None:
+            flight.release(last_refresh=last_refresh_from_cached_result(response))
+        return response
 
     def _raise_if_breaker_forbids(self, cache_manager: QueryCache) -> None:
         if not self._query_failure_caching_enabled:
             return
         self._raise_if_failure_fresh_for(cache_manager.open_failure(), budget_for_limit_context(self.limit_context))
 
+    def _record_breaker_failure(self, cache_manager: QueryCache, exc: Exception) -> None:
+        if not self._query_failure_caching_enabled:
+            return
+        # Transient error classes classify to None and are never recorded.
+        failure_kind = classify_failure(exc, self.team.pk)
+        if failure_kind is not None:
+            cache_manager.record_failure(failure_kind, str(exc), budget=budget_for_limit_context(self.limit_context))
+
     def _await_flight(
         self,
         flight: QuerySingleFlight,
         cache_manager: QueryCache,
         *,
+        deadline: float,
         user: Optional[User],
         analytics_props: Optional["AnalyticsProps"],
     ) -> Optional[CR]:
-        wait = flight.wait(FLIGHT_WAIT_SECONDS)
+        wait = flight.wait(max(0.0, deadline - perf_counter()))
         # The follower serves the entry the leader published and nothing else. Any other entry
         # means the leader's write did not land, and the follower must run the query itself so
         # that failure is not masked by earlier data, even data still fresh for this request.
-        if wait.outcome == "done":
+        if wait.outcome == "done" and self._published_entry_present(cache_manager, wait.last_refresh):
             served = self.handle_cache_and_async_logic(
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 cache_manager=cache_manager,
@@ -2443,8 +2465,24 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             ):
                 QUERY_SINGLE_FLIGHT_COUNTER.labels(action="follower_served_cache").inc()
                 return served
+        # The full read adopts an entry's raw results onto this runner, and a fresh response must
+        # not carry them.
+        self.raw_cached_results_bytes = None
         QUERY_SINGLE_FLIGHT_COUNTER.labels(action=f"follower_fallback_{wait.outcome}").inc()
         return None
+
+    @staticmethod
+    def _published_entry_present(cache_manager: QueryCache, published: Optional[datetime]) -> bool:
+        """A Redis-only probe ahead of the full read, which resolves blobs and adopts the entry."""
+        if published is None:
+            return False
+        probe = cache_manager.freshness()
+        if probe is None or probe.last_refresh is None:
+            return False
+        try:
+            return datetime.fromisoformat(probe.last_refresh) == published
+        except ValueError:
+            return False
 
     def _report_result_from_cache(
         self,
