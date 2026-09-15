@@ -1,48 +1,41 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
-import {
-  DEEPSEEK_MODEL_FLAG,
-  GLM_MODEL_FLAG,
-  GLM53_FLASH_MODEL_FLAG,
-  GLM53_MODEL_FLAG,
-  KIMI_MODEL_FLAG,
-} from "@posthog/shared";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   type ModelRolloutFlags,
   stripDisabledModelOption,
   stripDisabledModels,
 } from "./modelOptionFilters";
 
-describe("modelOptionFilters", () => {
-  // The flag beside each id is the one the catalog records for it, so a case fails if the
-  // two ever disagree about which flag gates the model.
-  const rolloutModels: { flag: string; id: string; name: string }[] = [
-    {
-      flag: DEEPSEEK_MODEL_FLAG,
-      id: "deepseek-ai/deepseek-v4-flash-0731",
-      name: "DeepSeek V4 Flash",
-    },
-    { flag: GLM_MODEL_FLAG, id: "@cf/zai-org/glm-5.2", name: "GLM-5.2" },
-    { flag: GLM53_MODEL_FLAG, id: "zai-org/glm-5.3", name: "GLM-5.3" },
-    {
-      flag: GLM53_FLASH_MODEL_FLAG,
-      id: "zai-org/glm-5.3-flash",
-      name: "GLM-5.3 Flash",
-    },
-    { flag: KIMI_MODEL_FLAG, id: "moonshotai/kimi-k3", name: "Kimi K3" },
-  ];
-  const enabledFlags: ModelRolloutFlags = {
-    [DEEPSEEK_MODEL_FLAG]: true,
-    [GLM_MODEL_FLAG]: true,
-    [GLM53_MODEL_FLAG]: true,
-    [GLM53_FLASH_MODEL_FLAG]: true,
-    [KIMI_MODEL_FLAG]: true,
-  };
+const GATED_MODEL = "acme/gated-model";
+const GATED_FLAG = "acme-gated-model";
 
-  it.each(rolloutModels)(
-    "selects an available model when $flag is disabled",
-    ({ flag, id, name }) => {
-      const flags = { ...enabledFlags, [flag]: false };
+// The catalog gates no model at the moment, so the strip paths need a stand-in to be
+// exercised at all. Naming a real model here would instead tie these cases to a rollout
+// that ends, which is how the open-weights models stayed hidden after their flags were
+// fully rolled out.
+vi.mock("@posthog/shared/model-catalog", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@posthog/shared/model-catalog")>();
+  return {
+    ...actual,
+    accessFlagForModel: (modelId: string): string | undefined =>
+      modelId === GATED_MODEL ? GATED_FLAG : actual.accessFlagForModel(modelId),
+  };
+});
+
+describe("modelOptionFilters", () => {
+  const openWeightsModels = [
+    { id: "deepseek-ai/deepseek-v4-flash-0731", name: "DeepSeek V4 Flash" },
+    { id: "@cf/zai-org/glm-5.2", name: "GLM-5.2" },
+    { id: "zai-org/glm-5.3", name: "GLM-5.3" },
+    { id: "zai-org/glm-5.3-flash", name: "GLM-5.3 Flash" },
+    { id: "moonshotai/kimi-k3", name: "Kimi K3" },
+  ];
+  const noFlags: ModelRolloutFlags = {};
+
+  it.each(openWeightsModels)(
+    "offers $name, which the catalog does not gate",
+    ({ id, name }) => {
       const option: SessionConfigOption = {
         type: "select",
         id: "model",
@@ -54,12 +47,30 @@ describe("modelOptionFilters", () => {
         ],
       };
 
-      expect(stripDisabledModelOption(option, flags)).toMatchObject({
-        currentValue: "claude-opus-4-8",
-        options: [{ value: "claude-opus-4-8" }],
-      });
+      expect(stripDisabledModelOption(option, noFlags)).toEqual(option);
+      expect(stripDisabledModels([{ id }], noFlags)).toEqual([{ id }]);
     },
   );
+
+  it("selects an available model when the gated one is not reachable", () => {
+    const option: SessionConfigOption = {
+      type: "select",
+      id: "model",
+      name: "Model",
+      currentValue: GATED_MODEL,
+      options: [
+        { value: GATED_MODEL, name: "Gated model" },
+        { value: "claude-opus-4-8", name: "Claude Opus 4.8" },
+      ],
+    };
+
+    expect(
+      stripDisabledModelOption(option, { [GATED_FLAG]: false }),
+    ).toMatchObject({
+      currentValue: "claude-opus-4-8",
+      options: [{ value: "claude-opus-4-8" }],
+    });
+  });
 
   it("drops a group emptied by a disabled flag, heading and all", () => {
     const option: SessionConfigOption = {
@@ -74,36 +85,30 @@ describe("modelOptionFilters", () => {
           options: [{ value: "claude-opus-5", name: "Claude Opus 5" }],
         },
         {
-          group: "moonshotai",
-          name: "Moonshot AI",
-          options: [{ value: "moonshotai/kimi-k3", name: "Kimi K3" }],
+          group: "acme",
+          name: "Acme",
+          options: [{ value: GATED_MODEL, name: "Gated model" }],
         },
       ],
     };
 
     expect(
-      stripDisabledModelOption(option, {
-        ...enabledFlags,
-        [KIMI_MODEL_FLAG]: false,
-      }),
+      stripDisabledModelOption(option, { [GATED_FLAG]: false }),
     ).toMatchObject({
       currentValue: "claude-opus-5",
       options: [{ group: "anthropic" }],
     });
   });
 
-  it.each(rolloutModels)(
-    "removes only $flag models when its flag is disabled",
-    ({ flag, id }) => {
-      const flags = { ...enabledFlags, [flag]: false };
-      const models = [
-        ...rolloutModels.map(({ id, name }) => ({ id, name })),
-        { id: "gpt-5.6-terra", name: "GPT-5.6 Terra" },
-      ];
+  it("removes only the models whose flag is off", () => {
+    const models = [
+      ...openWeightsModels.map(({ id }) => ({ id })),
+      { id: GATED_MODEL },
+      { id: "gpt-5.6-terra" },
+    ];
 
-      expect(stripDisabledModels(models, flags)).toEqual(
-        models.filter((model) => model.id !== id),
-      );
-    },
-  );
+    expect(stripDisabledModels(models, { [GATED_FLAG]: false })).toEqual(
+      models.filter((model) => model.id !== GATED_MODEL),
+    );
+  });
 });

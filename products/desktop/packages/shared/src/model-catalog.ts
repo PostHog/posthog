@@ -72,6 +72,21 @@ export function reasoningEffortsForModel(
  * products/tasks/backend/model_catalog.py, so both surfaces name a model identically.
  */
 /**
+ * Every access flag the catalog gates a model behind, without duplicates.
+ *
+ * A picker resolves these and hands the answers back to the filter, so gating a model is
+ * done by giving it an `access_flag` in products/tasks/backend/model_catalog.py and no
+ * picker has to learn the flag's name. Empty while no model is behind a rollout.
+ */
+export const MODEL_ACCESS_FLAGS: readonly string[] = [
+  ...new Set(
+    MODELS.map((model) => model.accessFlag).filter(
+      (flag): flag is string => flag !== undefined,
+    ),
+  ),
+];
+
+/**
  * The feature flag a person needs before a picker offers this model, or `undefined` when
  * it is generally available.
  *
