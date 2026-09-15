@@ -1,5 +1,8 @@
 # Back up settings and sounds
 
+The section is behind the `posthog-desktop-settings-backup` feature flag while it rolls out.
+When the flag is off, the section and its search entry are hidden.
+
 Open **Settings → Advanced → Back up settings and sounds**.
 Choose **Settings and sounds** or **Sounds only**, then select **Export backup** and choose where to save the JSON file.
 Copy the file to the other machine and use **Import backup** in the same section.

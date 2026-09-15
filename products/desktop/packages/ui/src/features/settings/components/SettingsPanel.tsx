@@ -23,8 +23,6 @@ import {
   TreeStructure,
   Wrench,
 } from "@phosphor-icons/react";
-import { useServiceOptional } from "@posthog/di/react";
-import { SETTINGS_BACKUP_FILES } from "@posthog/platform/settings-backup-files";
 import { Input, MenuLabel } from "@posthog/quill";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
@@ -33,6 +31,7 @@ import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useQuickAskAvailable } from "@posthog/ui/features/quick-ask/useQuickAskAvailable";
 import { SettingsPageContent } from "@posthog/ui/features/settings/components/SettingsPageContent";
 import { closeSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import { useSettingsBackupAvailable } from "@posthog/ui/features/settings/hooks/useSettingsBackupAvailable";
 import {
   type SettingsSearchEntry,
   searchSettings,
@@ -151,7 +150,7 @@ export function SettingsPanel({
   const { data: user } = useCurrentUser({ client });
   const { localWorkspaces } = useHostCapabilities();
   const quickAskAvailable = useQuickAskAvailable();
-  const settingsBackupFiles = useServiceOptional(SETTINGS_BACKUP_FILES);
+  const backupAvailable = useSettingsBackupAvailable();
 
   const hiddenCategories = getHiddenSettingsCategories({
     localWorkspaces,
@@ -164,7 +163,7 @@ export function SettingsPanel({
   const searchResults = searchSettings(
     searchQuery,
     hiddenCategories,
-    settingsBackupFiles !== null,
+    backupAvailable,
   );
 
   // Guard direct navigation (URL, deep link, programmatic openSettings) to a

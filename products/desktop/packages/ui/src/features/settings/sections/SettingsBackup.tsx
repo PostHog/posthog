@@ -5,14 +5,14 @@ import {
   type SettingsBackupService,
   SOUND_SETTINGS,
 } from "@posthog/core/settings/settingsBackup";
-import { useService, useServiceOptional } from "@posthog/di/react";
-import { SETTINGS_BACKUP_FILES } from "@posthog/platform/settings-backup-files";
+import { useService } from "@posthog/di/react";
 import { Button } from "@posthog/quill";
 import {
   SettingsCard,
   SettingsSection,
 } from "@posthog/ui/features/settings/components/SettingsCard";
 import { SettingsSelect } from "@posthog/ui/features/settings/components/SettingsSelect";
+import { useSettingsBackupAvailable } from "@posthog/ui/features/settings/hooks/useSettingsBackupAvailable";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { useMutation } from "@tanstack/react-query";
 import { Download, Upload } from "lucide-react";
@@ -301,6 +301,6 @@ function SettingsBackupConnected(): React.ReactElement {
 }
 
 export function SettingsBackup(): React.ReactElement | null {
-  const files = useServiceOptional(SETTINGS_BACKUP_FILES);
-  return files ? <SettingsBackupConnected /> : null;
+  const available = useSettingsBackupAvailable();
+  return available ? <SettingsBackupConnected /> : null;
 }
