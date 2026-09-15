@@ -481,7 +481,7 @@ class TestWidgetGeneration(SimpleTestCase):
                     '<PythonV2 nodeId="source" returnVariable="locations_df" />\n\n'
                     '<SQLV2 nodeId="summary" returnVariable="summary_df" />\n\n'
                     '<Query nodeId="saved" returnVariable="saved_df" />\n\n'
-                    '<Insight nodeId="insight" returnVariable="insight_df" />\n\n'
+                    '<Insight nodeId="insight" dataframeQuery="SELECT 1" />\n\n'
                     '<Widget nodeId="globe" prompt="Render a globe" />\n\n'
                     '<PythonV2 nodeId="later" returnVariable="future_df" />'
                 )

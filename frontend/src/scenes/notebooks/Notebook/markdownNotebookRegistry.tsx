@@ -293,11 +293,15 @@ export const MARKDOWN_NODE_DEFINITIONS: {
             // New cells get a durable nodeId up front: parsed markdown block ids are content
             // fingerprints, so without a persisted id every prop change (running the cell
             // writes runId/result) would orphan the cell's run history and cross-cell refs.
-            defaultProps: () => ({
-                ...getDefaultPropsForNodeType(NotebookNodeType.SQLV2),
-                ...INPUT_PANEL_OPEN_PROPS,
-                nodeId: uuid(),
-            }),
+            defaultProps: () => {
+                const nodeId = uuid()
+                return {
+                    ...getDefaultPropsForNodeType(NotebookNodeType.SQLV2),
+                    ...INPUT_PANEL_OPEN_PROPS,
+                    nodeId,
+                    returnVariable: `sql_df_${nodeId.slice(0, 8)}`,
+                }
+            },
         },
     },
     {

@@ -85,6 +85,8 @@ def extract_cells(content: Any) -> list[NotebookCellState]:
             continue
         code = props.get("dataframeQuery") if cell_type == "saved_insight" else props.get("code")
         dataframe_name = props.get("returnVariable")
+        if "returnVariable" not in props and cell_type == "saved_insight" and isinstance(code, str) and code.strip():
+            dataframe_name = "insight_df"
         cells.append(
             NotebookCellState(
                 node_id=node_id,
@@ -131,16 +133,24 @@ def _referenced_names(cell: NotebookCellState, candidates: set[str]) -> set[str]
     return set()
 
 
+def get_dataframe_owners(cells: list[NotebookCellState]) -> dict[str, str]:
+    eligible_cells = [cell for cell in cells if _DATAFRAME_NAME.fullmatch(cell.dataframe_name)]
+    preferred_owners: dict[str, str] = {}
+    for cell_type in ("sql", "saved_insight", "python"):
+        for cell in eligible_cells:
+            if cell.cell_type == cell_type:
+                preferred_owners.setdefault(cell.dataframe_name, cell.node_id)
+    owners: dict[str, str] = {}
+    for cell in eligible_cells:
+        if preferred_owners.get(cell.dataframe_name) == cell.node_id:
+            owners.setdefault(cell.dataframe_name, cell.node_id)
+    return owners
+
+
 def build_dependency_edges(cells: list[NotebookCellState]) -> None:
     """Populate depends_on/dependents in place. Names follow the run-ref convention:
     SQL cells win dataframe-name collisions, unnamed cells export nothing."""
-    owner_by_name: dict[str, str] = {}
-    for cell in cells:
-        if cell.cell_type in ("sql", "saved_insight") and _DATAFRAME_NAME.match(cell.dataframe_name):
-            owner_by_name.setdefault(cell.dataframe_name, cell.node_id)
-    for cell in cells:
-        if cell.cell_type == "python" and _DATAFRAME_NAME.match(cell.dataframe_name):
-            owner_by_name.setdefault(cell.dataframe_name, cell.node_id)
+    owner_by_name = get_dataframe_owners(cells)
 
     by_node: dict[str, NotebookCellState] = {cell.node_id: cell for cell in cells}
     for cell in cells:

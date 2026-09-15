@@ -117,15 +117,40 @@ class TestCellExtractionAndEdges(SimpleTestCase):
         assert cells[1].depends_on == expected_depends_on
         assert cells[0].dependents == (["b"] if expected_depends_on else [])
 
-    def test_sql_wins_dataframe_name_collision(self) -> None:
+    @parameterized.expand(
+        [
+            ("python", '<PythonV2 nodeId="p" code="df = 1" returnVariable="df" />'),
+            ("insight", '<Insight nodeId="i" dataframeQuery="select 2" returnVariable="df" />'),
+        ]
+    )
+    def test_sql_wins_dataframe_name_collision(self, _name: str, other_source: str) -> None:
         content = markdown_content(
-            '<PythonV2 nodeId="p" code="df = 1" returnVariable="df" />\n\n'
+            f"{other_source}\n\n"
             '<SQLV2 nodeId="s" code="select 1" returnVariable="df" />\n\n'
             '<SQLV2 nodeId="user" code="select * from df" returnVariable="" />\n'
         )
         cells = extract_cells(content)
         build_dependency_edges(cells)
         assert cells[2].depends_on == ["s"]
+
+    @parameterized.expand(
+        [
+            ("missing_name", 'dataframeQuery="select 1"', "insight_df", ["a"]),
+            ("blank_name", 'dataframeQuery="select 1" returnVariable=""', "", []),
+            ("missing_query", "", "", []),
+        ]
+    )
+    def test_insight_default_dataframe_binding(
+        self, _name: str, props: str, expected_name: str, expected_depends_on: list[str]
+    ) -> None:
+        cells = extract_cells(
+            markdown_content(
+                f'<Insight nodeId="a" id="example" {props} />\n\n<SQLV2 nodeId="b" code="select * from insight_df" />'
+            )
+        )
+        build_dependency_edges(cells)
+        assert cells[0].dataframe_name == expected_name
+        assert cells[1].depends_on == expected_depends_on
 
 
 def cells_markdown(count: int) -> dict[str, Any]:

@@ -28,7 +28,7 @@ Notebooks can generate interactive widgets from instructions and the notebook's 
 New widgets default to Claude Sonnet 5. An explicitly selected model stays selected.
 Widget IDs are saved when their settings, title, or panel visibility change, so editing a widget keeps its generation history attached.
 
-SQL cells start with `sql_df`; Python cells receive a unique name beginning with `df_`.
+New SQL cells receive a unique name beginning with `sql_df_`; Python cells receive one beginning with `df_`.
 You can rename a dataframe in its result panel.
 Insights that expose SQL have the same dataframe name field below their results, starting with `insight_df` (with a numeric suffix when needed).
 The insight prepares its dataframe automatically, so SQL, Python, and generated widgets can reference that name without another cell.

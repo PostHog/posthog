@@ -140,11 +140,14 @@ describe('markdownNotebookRegistry', () => {
             )
 
             commands.find((command) => command.key === commandKey)?.run('target-node')
+            commands.find((command) => command.key === commandKey)?.run('target-node')
 
-            expect(insertedNodes).toHaveLength(1)
+            expect(insertedNodes).toHaveLength(2)
+            expect(insertedNodes[0].props.nodeId).not.toEqual(insertedNodes[1].props.nodeId)
             expect(getInsertedComponentPanelVisibility(insertedNodes[0]).filters).toBe(true)
             if (_label !== 'Widget') {
                 expect(insertedNodes[0].props.returnVariable).toMatch(/^[A-Za-z_][A-Za-z0-9_]*$/)
+                expect(insertedNodes[0].props.returnVariable).not.toEqual(insertedNodes[1].props.returnVariable)
             }
         })
     })
@@ -465,6 +468,19 @@ describe('markdownNotebookRegistry', () => {
         expect(getSerializableAttributeInputValue(NotebookNodeType.Group, 'groupTypeIndex', ' not-a-number ')).toEqual(
             'not-a-number'
         )
+    })
+
+    it.each(['Query', 'Insight'])('assigns distinct render IDs to identical ID-less %s blocks', (tagName) => {
+        const nodes = parseMarkdownNotebook(`<${tagName} id="example" />\n\n<${tagName} id="example" />`)
+            .nodes as NotebookComponentBlockNode[]
+        const attributes = nodes.map((node) =>
+            getNodeAttributes(node.props, node.id, KNOWN_NODES[NotebookNodeType.Query], NotebookNodeType.Query, false)
+        )
+
+        expect(attributes.map(({ nodeId }) => nodeId)).toEqual(nodes.map(({ id }) => id))
+        expect(attributes[0].nodeId).toBeTruthy()
+        expect(attributes[1].nodeId).toBeTruthy()
+        expect(attributes[0].nodeId).not.toEqual(attributes[1].nodeId)
     })
 
     it('renders a SQL cell whose query arrived as a query prop', () => {
