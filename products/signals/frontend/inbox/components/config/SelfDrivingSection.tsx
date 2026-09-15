@@ -171,7 +171,8 @@ function BaseBranchOverridePicker(): JSX.Element {
 }
 
 /**
- * Where agents branch from, per repository. Only shown while PR generation is on: the list and the
+ * Where agents branch from, per repository. Renders regardless of the auto-start toggle, because the
+ * inbox "Create PR" button resolves the same overrides for a PR opened by hand. The list and the
  * picker stay in view so a configured team can read its overrides without opening anything.
  */
 function BaseBranchesRow(): JSX.Element {
@@ -624,8 +625,8 @@ function MyThresholdRow(): JSX.Element {
 /**
  * Team-wide PR-generation control, backed by `autostart_enabled` and `default_autostart_priority`
  * on `signalTeamConfigLogic`. The switch is the master opt-out for autonomous inbox PRs; reports
- * keep generating and notifying either way. The threshold and base branches only matter while it
- * is on, so they nest under it.
+ * keep generating and notifying either way. The threshold only matters while it is on, so it nests
+ * under it.
  */
 function PullRequestGenerationRow(): JSX.Element {
     const { teamConfigUpdating, autostartEnabled } = useValues(signalTeamConfigLogic)
@@ -649,12 +650,7 @@ function PullRequestGenerationRow(): JSX.Element {
                 />
             }
         >
-            {autostartEnabled && (
-                <>
-                    <ProjectThresholdRow />
-                    <BaseBranchesRow />
-                </>
-            )}
+            {autostartEnabled && <ProjectThresholdRow />}
         </AutonomySettingRow>
     )
 }
@@ -683,6 +679,7 @@ export function SelfDrivingSection(): JSX.Element {
         >
             <AutonomySettingGroup title="Pull requests" description="Applies to everyone in this project.">
                 <PullRequestGenerationRow />
+                <BaseBranchesRow />
                 <ProjectPullRequestStateRow />
                 <GitHubIssueWritebackRow />
                 <IssueTrackerRow />

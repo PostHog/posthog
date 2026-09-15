@@ -149,7 +149,7 @@ export const SettingsTabBaseBranchesWithoutGitHub: Story = {
     render: () => <SettingsCard width="wide" baseBranches={{ 'posthog/posthog.com': 'develop' }} />,
 }
 
-// Master switch off in the Settings tab: the project threshold and base branches hide, your own threshold stays.
+// Master switch off in the Settings tab: the project threshold hides. Base branches and your own threshold stay.
 export const SettingsTabDisabled: Story = {
     parameters: REDESIGN,
     render: () => <SettingsCard width="wide" enabled={false} />,
