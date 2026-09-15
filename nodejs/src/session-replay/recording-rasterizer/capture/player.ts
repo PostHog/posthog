@@ -84,6 +84,12 @@ export class PlayerController {
                 this.state.ended = true
                 break
             case 'error':
+                if (msg.stack) {
+                    // Same level policy as the activity failure boundary: a non-retryable code is the
+                    // recording's own fault and routine, so it stays off the level infra alerts on.
+                    const logStack = msg.retryable ? this.log.error.bind(this.log) : this.log.warn.bind(this.log)
+                    logStack({ code: msg.code, retryable: msg.retryable, stack: msg.stack }, 'player reported an error')
+                }
                 this.rejectWithError(msg)
                 break
             case 'inactivity_periods':

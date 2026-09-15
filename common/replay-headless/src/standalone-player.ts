@@ -50,18 +50,20 @@ async function init(config: PlayerConfig, bridge: HostBridge): Promise<void> {
     controller.start(Math.max(0, startOffset))
 }
 
+function describeError(err: unknown): { message: string; stack?: string } {
+    return err instanceof Error ? { message: err.message, stack: err.stack } : { message: String(err) }
+}
+
 const bridge = new HostBridge()
 try {
     const config = bridge.getConfig()
     init(config, bridge).catch((err) => {
-        const message = err instanceof Error ? err.message : String(err)
         const retryable = err instanceof DataLoadError ? err.retryable : true
         const code = err instanceof DataLoadError ? 'DATA_LOAD_FAILED' : 'INIT_FAILED'
-        bridge.setError({ code, message, retryable })
+        bridge.setError({ code, retryable, ...describeError(err) })
         bridge.signalEnded()
     })
 } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    bridge.setError({ code: 'INIT_FAILED', message, retryable: true })
+    bridge.setError({ code: 'INIT_FAILED', retryable: true, ...describeError(err) })
     bridge.signalEnded()
 }

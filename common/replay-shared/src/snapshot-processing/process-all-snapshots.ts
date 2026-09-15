@@ -338,7 +338,21 @@ function processSnapshot(
     // Like the FullSnapshot guard below: decompressEvent fails open, so a Mutation or StyleSheetRule
     // incremental whose compressed fields didn't decompress still carries strings where rrweb expects
     // arrays and would throw inside the Replayer at play time. Drop it rather than crash playback.
-    if (snapshot.type === EventType.IncrementalSnapshot && isObject(snapshot.data)) {
+    if (snapshot.type === EventType.IncrementalSnapshot) {
+        // Snapshot parsing only requires type, timestamp and windowId, so an incremental with no `data`
+        // reaches here too. rrweb dereferences `event.data.source` when play() computes event delays,
+        // so one such snapshot throws for every window of the recording.
+        if (!isObject(snapshot.data)) {
+            throttleCapture(`${sessionRecordingId}-incremental-snapshot-without-data`, () => {
+                telemetry.captureException(new Error('Incremental snapshot has no data'), {
+                    sessionRecordingId,
+                    sourceKey,
+                    feature: 'session-recording-incremental-snapshot-decoding',
+                })
+            })
+            return
+        }
+
         const data = snapshot.data as Record<string, unknown>
         const compressedFields =
             data.source === IncrementalSource.Mutation

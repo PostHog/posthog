@@ -5,6 +5,7 @@ import { BlockProxy } from '~/session-replay/recording-rasterizer/capture/block-
 import { CapturePage } from '~/session-replay/recording-rasterizer/capture/capture-page'
 import { PlayerController } from '~/session-replay/recording-rasterizer/capture/player'
 import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
+import type { Logger } from '~/session-replay/recording-rasterizer/logger'
 
 jest.mock('~/session-replay/recording-rasterizer/capture/request-interceptor', () => ({
     RequestInterceptor: jest.fn().mockImplementation(() => ({
@@ -192,6 +193,35 @@ describe('PlayerController', () => {
 
         await expect(startPromise).rejects.toMatchObject({ code: 'NO_SNAPSHOTS', retryable: true })
     })
+
+    it.each([
+        { retryable: true, level: 'error' as const, otherLevel: 'warn' as const },
+        { retryable: false, level: 'warn' as const, otherLevel: 'error' as const },
+    ])(
+        // A 4xx block fetch is non-retryable and routine, so its stack must not reach the level infra
+        // alerts on. The activity failure boundary applies the same rule to the classified record.
+        'logs the stack of a retryable=$retryable player error at $level level',
+        async ({ retryable, level, otherLevel }) => {
+            const mp = mockCapturePage()
+            const log = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }
+            const controller = new PlayerController(mp.capturePage, mockBlockProxy, jest.fn(), log as unknown as Logger)
+            await controller.load(basePlayerConfig())
+
+            mp._emit({
+                type: 'error',
+                code: 'DATA_LOAD_FAILED',
+                message: 'Failed to fetch block: 404 Not Found',
+                retryable,
+                stack: 'DataLoadError: Failed to fetch block: 404 Not Found\n    at fetchBlock',
+            })
+
+            expect(log[level]).toHaveBeenCalledWith(
+                expect.objectContaining({ code: 'DATA_LOAD_FAILED', retryable }),
+                'player reported an error'
+            )
+            expect(log[otherLevel]).not.toHaveBeenCalled()
+        }
+    )
 
     it('isEnded() returns true after ended message', async () => {
         const mp = mockCapturePage()

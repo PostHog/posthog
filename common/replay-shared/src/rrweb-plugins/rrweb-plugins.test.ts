@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  */
-import { CorsPlugin, createHLSPlayerPlugin, WindowTitlePlugin } from './index'
+import { AudioMuteReplayerPlugin, CorsPlugin, createHLSPlayerPlugin, WindowTitlePlugin } from './index'
 
 describe('CorsPlugin', () => {
     it.each(['https://some-external.js'])('should replace JS urls', (jsUrl) => {
@@ -272,5 +272,27 @@ describe('WindowTitlePlugin', () => {
             { replayer: null as unknown as any }
         )
         expect(mockCallback).not.toHaveBeenCalled()
+    })
+
+    // Snapshot parsing only requires type, timestamp and windowId, so a snapshot with no
+    // `data` field reaches the handler.
+    it.each([2, 3])('does not fail on a type %s snapshot that has no data', async (type) => {
+        const mockCallback = jest.fn()
+        const plugin = WindowTitlePlugin(mockCallback)
+        await expect(
+            plugin.handler?.({ type, timestamp: 1, windowId: 'window-1' } as any, true, {
+                replayer: null as unknown as any,
+            })
+        ).resolves.toBeUndefined()
+        expect(mockCallback).not.toHaveBeenCalled()
+    })
+})
+
+describe('AudioMuteReplayerPlugin', () => {
+    it('does not fail on an incremental snapshot that has no data', () => {
+        const plugin = AudioMuteReplayerPlugin(true)
+        expect(() =>
+            plugin.handler?.({ type: 3, timestamp: 1 } as any, false, { replayer: null as unknown as any })
+        ).not.toThrow()
     })
 })
