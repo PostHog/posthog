@@ -9,6 +9,8 @@ thread.
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from django.conf import settings
 from django.utils import timezone
 
@@ -25,9 +27,11 @@ from products.signals.backend.models import SignalReport, SignalReportGithubComm
 logger = structlog.get_logger(__name__)
 
 EGRESS_SOURCE = "signals_github_writeback"
+CLAIM_LEASE = timedelta(minutes=10)
+MAX_COMMENT_PAGES = 10
 
 
-def _comment_body(report_url: str) -> str:
+def _comment_body(report_url: str, marker: str) -> str:
     """A pointer, deliberately carrying none of the report's own content.
 
     The comment is public on the issue thread, while the report is behind the PostHog project's own
@@ -36,7 +40,7 @@ def _comment_body(report_url: str) -> str:
     """
     return (
         "PostHog self-driving picked up this issue and researched it. Somebody may already be "
-        f"working on it, so ask before you start a fix.\n\nReport (team access only): {report_url}"
+        f"working on it, so ask before you start a fix.\n\nReport (team access only): {report_url}\n\n{marker}"
     )
 
 
@@ -62,19 +66,40 @@ def _issue_refs(signals: list[dict]) -> list[PullRequestRef]:
     return list(refs.values())
 
 
+def _has_existing_comment(github: GitHubIntegration, repository: str, number: int, marker: str) -> bool | None:
+    # An incomplete read cannot prove that a previous POST failed.
+    for page in range(1, MAX_COMMENT_PAGES + 1):
+        response = github.api_request(
+            "GET",
+            f"/repos/{repository}/issues/{number}/comments",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
+            params={"per_page": 100, "page": page},
+            retry_transient=False,
+        )
+        response.raise_for_status()
+        comments = response.json()
+        if not isinstance(comments, list):
+            return None
+        if any(isinstance(comment, dict) and marker in str(comment.get("body") or "") for comment in comments):
+            return True
+        if len(comments) < 100:
+            return False
+    return None
+
+
 def _post_to_issue(
     *,
     team_id: int,
     report_id: str,
     ref: PullRequestRef,
     body: str,
+    marker: str,
     integrations: dict[str, GitHubIntegration | None],
 ) -> bool:
     """Comment on one issue, once per (report, issue). Returns whether a comment went out.
 
-    The ledger row is the claim, taken before the call: a report notifies again whenever a new
-    signal carries it to its next bucket, and the unique row is what stops a second comment on an
-    issue that already heard back. A call that fails releases the claim, so a later settle retries.
+    Pending claims survive uncertain POST outcomes. After the lease expires, a later settle checks
+    for the stable comment marker before it retries. The lease exceeds the activity timeout.
 
     ``integrations`` memoizes the integration per repository for one run, because resolving one
     costs an authenticated GitHub call per integration the team has.
@@ -91,22 +116,51 @@ def _post_to_issue(
         number=ref.number,
         defaults={"team_id": team_id},
     )
-    if not created:
+    if claim.commented_at is not None:
         return False
+
+    claims = SignalReportGithubComment.objects.for_team(team_id).filter(pk=claim.pk, commented_at__isnull=True)
+    if not created:
+        acquired_at = timezone.now()
+        if not claims.filter(updated_at__lt=acquired_at - CLAIM_LEASE).update(updated_at=acquired_at):
+            return False
+        claim.updated_at = acquired_at
+    owned_claim = claims.filter(updated_at=claim.updated_at)
 
     try:
         if repository not in integrations:
-            # BATCH, so the limiter sheds this errand before an interactive GitHub call on the same
-            # installation. A shed raises, and the except below releases the claim for a later settle.
+            # Background comments must leave the interactive GitHub budget available.
             integrations[repository] = GitHubIntegration.first_for_team_repository(
                 team_id, repository, source=EGRESS_SOURCE, priority=Priority.BATCH
             )
         github = integrations[repository]
-        outcome = (
-            {"success": False, "error": "No GitHub integration can reach the repository"}
-            if github is None
-            else github.comment_on_issue(repository, ref.number, body)
+        if github is None:
+            return False
+        if not created:
+            existing = _has_existing_comment(github, repository, ref.number, marker)
+            if existing is not False:
+                if existing:
+                    owned_claim.update(commented_at=timezone.now())
+                return False
+
+        response = github.api_request(
+            "GET",
+            f"/repos/{repository}/issues/{ref.number}",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}",
+            retry_transient=False,
         )
+        response.raise_for_status()
+        issue = response.json()
+        if (
+            not isinstance(issue, dict)
+            or issue.get("state") != "open"
+            or issue.get("locked") is not False
+            or "pull_request" in issue
+        ):
+            return False
+        if not owned_claim.filter(updated_at__gt=timezone.now() - CLAIM_LEASE).exists():
+            return False
+        outcome = github.comment_on_issue(repository, ref.number, body)
     except Exception:
         logger.exception(
             "signals.github_writeback_failed",
@@ -115,7 +169,6 @@ def _post_to_issue(
             repository=repository,
             number=ref.number,
         )
-        claim.delete()
         return False
 
     if not outcome.get("success"):
@@ -127,11 +180,9 @@ def _post_to_issue(
             number=ref.number,
             error=outcome.get("error"),
         )
-        claim.delete()
         return False
 
-    claim.commented_at = timezone.now()
-    claim.save(update_fields=["commented_at", "updated_at"])
+    owned_claim.update(commented_at=timezone.now())
     return True
 
 
@@ -148,13 +199,16 @@ def post_report_link_to_github_issues(team: Team, report_id: str, signals: list[
     if not refs:
         return 0
 
-    if not SignalReport.objects.filter(id=report_id, team_id=team.pk).exists():
+    if not SignalReport.objects.filter(id=report_id, team_id=team.pk, status=SignalReport.Status.READY).exists():
         return 0
 
-    body = _comment_body(f"{settings.SITE_URL}/project/{team.pk}/inbox/reports/{report_id}")
+    marker = f"<!-- posthog:signal-report:{report_id} -->"
+    body = _comment_body(f"{settings.SITE_URL}/project/{team.pk}/inbox/reports/{report_id}", marker)
     integrations: dict[str, GitHubIntegration | None] = {}
     posted = sum(
-        _post_to_issue(team_id=team.pk, report_id=report_id, ref=ref, body=body, integrations=integrations)
+        _post_to_issue(
+            team_id=team.pk, report_id=report_id, ref=ref, body=body, marker=marker, integrations=integrations
+        )
         for ref in refs
     )
     logger.info(

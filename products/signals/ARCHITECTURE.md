@@ -532,19 +532,26 @@ Notes:
 
 Per-team singleton config for Signals settings, including the default autonomy priority threshold.
 
-| Field                        | Type            | Description                                                                  |
-| ---------------------------- | --------------- | ---------------------------------------------------------------------------- |
-| `id`                         | UUID (PK)       | Primary key (UUIDModel)                                                      |
-| `team`                       | OneToOne → Team | Owning team (`related_name="signal_team_config"`)                            |
-| `default_autostart_priority` | CharField       | Default severity threshold for auto-start (`P0`–`P4`, where `P0` is highest) |
-| `created_at`                 | DateTime        | Auto-set on creation                                                         |
-| `updated_at`                 | DateTime        | Auto-set on save                                                             |
+| Field                            | Type            | Description                                                                  |
+| -------------------------------- | --------------- | ---------------------------------------------------------------------------- |
+| `id`                             | UUID (PK)       | Primary key (UUIDModel)                                                      |
+| `team`                           | OneToOne → Team | Owning team (`related_name="signal_team_config"`)                            |
+| `default_autostart_priority`     | CharField       | Default severity threshold for auto-start (`P0`–`P4`, where `P0` is highest) |
+| `github_issue_writeback_enabled` | Boolean         | Opt-in public comments on source GitHub issues. Defaults to `false`.         |
+| `created_at`                     | DateTime        | Auto-set on creation                                                         |
+| `updated_at`                     | DateTime        | Auto-set on save                                                             |
 
 Notes:
 
 - Auto-created as a team extension via `register_team_extension_signal`
 - `default_autostart_priority` defaults to `P4` (every report priority auto-starts). The inbox UI exposes it as the "Project threshold" control on the PR generation card.
 - `SignalUserAutonomyConfig.autostart_priority` holds a per-user override (`null` = use the team default). The inbox UI exposes it as the "My threshold" control on the same card, where a "Default" segment maps to `null` and inherits the project threshold.
+- `github_issue_writeback_enabled` adds a report link to each source GitHub issue after the report notification completes. The comment contains no report title or research. The report requires project access.
+- GitHub comments run in a separate Temporal activity on every settle, including settles after the first notification. GitHub failures cannot prevent the report notification.
+- `SignalReportGithubComment` holds one claim per report and issue, with a lowercase repository name. Completed claims prevent repeat comments. Pending claims expire after ten minutes.
+- A later settle checks existing comments for a stable marker before it retries an expired claim. An incomplete comment read leaves the claim pending. GitHub provides no atomic comment idempotency key, so this is best-effort recovery.
+- The worker checks the current issue state immediately before posting. Closed issues, locked issues, and pull requests receive no comment.
+- See [GitHub issue comments](../../docs/internal/signals-github-writeback.md) for recovery limits and diagnostic logs.
 
 ### `SignalUserAutonomyConfig`
 

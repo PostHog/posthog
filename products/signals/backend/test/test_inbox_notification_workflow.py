@@ -8,6 +8,7 @@ from django.test import override_settings
 from django.utils import timezone
 
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -124,6 +125,8 @@ class _Recorder:
         self._states = states
         self.state_calls = 0
         self.dispatch_calls = 0
+        self.github_calls = 0
+        self.github_fails = False
 
     def next_state(self) -> InboxNotificationState:
         state = self._states[min(self.state_calls, len(self._states) - 1)]
@@ -141,12 +144,20 @@ async def _run_workflow(recorder: _Recorder) -> int:
         recorder.dispatch_calls += 1
         return 1
 
+    @activity.defn(name="send_report_github_comments_activity")
+    async def fake_github(_input: InboxNotificationInput) -> int:
+        assert recorder.dispatch_calls == 1
+        recorder.github_calls += 1
+        if recorder.github_fails:
+            raise ApplicationError("GitHub unavailable", non_retryable=True)
+        return 1
+
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue=TASK_QUEUE,
             workflows=[SignalReportInboxNotificationWorkflow],
-            activities=[fake_state, fake_dispatch],
+            activities=[fake_state, fake_dispatch, fake_github],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             return await env.client.execute_workflow(
@@ -209,17 +220,10 @@ async def test_workflow_notifies_even_without_pr(states, timeout_seconds, polls)
 
 @pytest.mark.django_db
 def test_send_stamps_the_report_and_refuses_a_second_send(team):
-    """One report, one card. A report re-researches whenever a new signal carries it to its next
-    bucket, and every settle starts this workflow again, so the second send must be refused. Both
-    write-backs still run on both sends, because each one records per source rather than per report:
-    a ticket or a GitHub issue that joins the report after its card has heard nothing yet."""
     report = _make_report(team)
     with (
         patch("products.signals.backend.slack_inbox_notifications.dispatch_inbox_item_notifications") as dispatch,
         patch("products.signals.backend.temporal.inbox_notification.post_report_findings_to_tickets") as writeback,
-        patch(
-            "products.signals.backend.temporal.inbox_notification.post_report_link_to_github_issues"
-        ) as github_writeback,
     ):
         dispatch.return_value = 1
         first = _send_report_inbox_notifications(team.id, str(report.id))
@@ -228,9 +232,19 @@ def test_send_stamps_the_report_and_refuses_a_second_send(team):
     assert (first, second) == (1, 0)
     assert dispatch.call_count == 1
     assert writeback.call_count == 2
-    assert github_writeback.call_count == 2
     report.refresh_from_db()
     assert report.inbox_notified_at is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", [NO_TASK, ALREADY_NOTIFIED])
+@pytest.mark.parametrize("github_fails", [False, True])
+async def test_github_writeback_runs_after_dispatch_and_cannot_fail_the_notification(state, github_fails):
+    recorder = _Recorder([state])
+    recorder.github_fails = github_fails
+    assert await _run_workflow(recorder) == 1
+    assert recorder.dispatch_calls == 1
+    assert recorder.github_calls == 1
 
 
 @pytest.mark.django_db

@@ -1,12 +1,14 @@
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+
+from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.egress.limiter.policies import Priority
 
-from products.signals.backend.github_writeback import post_report_link_to_github_issues
+from products.signals.backend.github_writeback import CLAIM_LEASE, MAX_COMMENT_PAGES, post_report_link_to_github_issues
 from products.signals.backend.models import SignalReport, SignalReportGithubComment, SignalTeamConfig
 
 WRITEBACK_MODULE_PATH = "products.signals.backend.github_writeback"
@@ -41,9 +43,13 @@ class TestPostReportLinkToGithubIssues(BaseTest):
         )
         self.signal = _signal()
 
-    def _post(self, signals):
+    def _post(self, signals, *, issue=None):
         with patch(f"{WRITEBACK_MODULE_PATH}.GitHubIntegration") as integration:
-            comment = integration.first_for_team_repository.return_value.comment_on_issue
+            github = integration.first_for_team_repository.return_value
+            github.api_request.return_value.json.return_value = (
+                issue if issue is not None else {"state": "open", "locked": False}
+            )
+            comment = github.comment_on_issue
             comment.return_value = {"success": True}
             posted = post_report_link_to_github_issues(self.team, str(self.report.id), signals)
         return posted, comment
@@ -109,6 +115,10 @@ class TestPostReportLinkToGithubIssues(BaseTest):
         other_issue = _signal(html_url="https://github.com/acme/widgets/issues/43", number=43)
 
         with patch(f"{WRITEBACK_MODULE_PATH}.GitHubIntegration") as integration:
+            integration.first_for_team_repository.return_value.api_request.return_value.json.return_value = {
+                "state": "open",
+                "locked": False,
+            }
             integration.first_for_team_repository.return_value.comment_on_issue.return_value = {"success": True}
             posted = post_report_link_to_github_issues(self.team, str(self.report.id), [self.signal, other_issue])
 
@@ -129,19 +139,70 @@ class TestPostReportLinkToGithubIssues(BaseTest):
         assert posted == 1
         assert comment.call_count == 1
 
-    def test_a_failed_call_leaves_the_issue_eligible_for_a_retry(self):
+    @parameterized.expand(
+        [
+            ("closed", {"state": "closed", "locked": False}),
+            ("locked", {"state": "open", "locked": True}),
+            ("pull request", {"state": "open", "locked": False, "pull_request": {}}),
+        ]
+    )
+    def test_rechecks_the_current_issue_before_posting(self, _name, issue):
+        posted, comment = self._post([self.signal], issue=issue)
+        assert posted == 0
+        comment.assert_not_called()
+
+    @parameterized.expand([("accepted", True, 0), ("not accepted", False, 1)])
+    def test_reconciles_an_uncertain_post_after_the_lease_expires(self, _name, accepted, expected_posts):
         with patch(f"{WRITEBACK_MODULE_PATH}.GitHubIntegration") as integration:
-            integration.first_for_team_repository.return_value.comment_on_issue.return_value = {
+            github = integration.first_for_team_repository.return_value
+            github.api_request.return_value.json.return_value = {"state": "open", "locked": False}
+            github.comment_on_issue.return_value = {
                 "success": False,
                 "error": "Failed to comment on issue",
             }
             failed = post_report_link_to_github_issues(self.team, str(self.report.id), [self.signal])
+            body = github.comment_on_issue.call_args.args[2]
 
         assert failed == 0
-        assert not SignalReportGithubComment.objects.for_team(self.team.pk).exists()
+        claim = SignalReportGithubComment.objects.for_team(self.team.pk).get()
+        assert claim.commented_at is None
+        immediate, comment = self._post([self.signal])
+        assert immediate == 0
+        comment.assert_not_called()
 
-        retried, _ = self._post([self.signal])
-        assert retried == 1
+        SignalReportGithubComment.objects.for_team(self.team.pk).filter(pk=claim.pk).update(
+            updated_at=timezone.now() - CLAIM_LEASE
+        )
+        with patch(f"{WRITEBACK_MODULE_PATH}.GitHubIntegration") as integration:
+            github = integration.first_for_team_repository.return_value
+            github.api_request.side_effect = [
+                MagicMock(json=lambda: [{"body": "unrelated"}] * 100),
+                MagicMock(json=lambda: [{"body": body}] if accepted else []),
+                MagicMock(json=lambda: {"state": "open", "locked": False}),
+            ]
+            github.comment_on_issue.return_value = {"success": True}
+            retried = post_report_link_to_github_issues(self.team, str(self.report.id), [self.signal])
+        assert retried == expected_posts
+        assert github.comment_on_issue.call_count == expected_posts
+        claim.refresh_from_db()
+        assert claim.commented_at is not None
+
+    @parameterized.expand([("incomplete", [{"body": "unrelated"}] * 100), ("invalid", {})])
+    def test_does_not_retry_when_the_comment_read_is_incomplete(self, _name, comments):
+        claim = SignalReportGithubComment.objects.for_team(self.team.pk).create(
+            team=self.team, report=self.report, repository="acme/widgets", number=42
+        )
+        SignalReportGithubComment.objects.for_team(self.team.pk).filter(pk=claim.pk).update(
+            updated_at=timezone.now() - CLAIM_LEASE
+        )
+        with patch(f"{WRITEBACK_MODULE_PATH}.GitHubIntegration") as integration:
+            github = integration.first_for_team_repository.return_value
+            github.api_request.return_value.json.return_value = comments
+            assert post_report_link_to_github_issues(self.team, str(self.report.id), [self.signal]) == 0
+        github.comment_on_issue.assert_not_called()
+        assert github.api_request.call_count <= MAX_COMMENT_PAGES
+        claim.refresh_from_db()
+        assert claim.commented_at is None
 
     def test_skips_a_repository_no_integration_can_reach(self):
         with patch(f"{WRITEBACK_MODULE_PATH}.GitHubIntegration") as integration:
@@ -149,4 +210,4 @@ class TestPostReportLinkToGithubIssues(BaseTest):
             posted = post_report_link_to_github_issues(self.team, str(self.report.id), [self.signal])
 
         assert posted == 0
-        assert not SignalReportGithubComment.objects.for_team(self.team.pk).exists()
+        assert SignalReportGithubComment.objects.for_team(self.team.pk).get().commented_at is None

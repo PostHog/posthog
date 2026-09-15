@@ -27,7 +27,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 
 from products.signals.backend.github_writeback import post_report_link_to_github_issues
-from products.signals.backend.models import SignalReport
+from products.signals.backend.models import SignalReport, SignalTeamConfig
 from products.signals.backend.support_writeback import post_report_findings_to_tickets
 from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.temporal.signal_queries import fetch_signals_for_report_sync
@@ -147,14 +147,6 @@ def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
     except Exception:
         logger.exception("inbox notification: support write-back failed", report_id=report_id, team_id=team_id)
 
-    # Same errand for a GitHub issue that raised this report, and guarded the same way. Its ledger
-    # row is per issue rather than per report, so an issue that joins the report after its card
-    # still gets a comment, and an issue that already has one is left alone.
-    try:
-        post_report_link_to_github_issues(team, report_id, signals)
-    except Exception:
-        logger.exception("inbox notification: GitHub write-back failed", report_id=report_id, team_id=team_id)
-
     # Claim the report immediately before the send. One conditional UPDATE, so a concurrent settle that
     # got past the workflow's already-notified check loses here instead of sending a second card.
     # Nothing else runs under the claim, because a worker that dies while holding it never reaches the
@@ -187,6 +179,23 @@ def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
 @scoped_temporal()
 async def send_report_inbox_notifications_activity(input: InboxNotificationInput) -> int:
     return await database_sync_to_async(_send_report_inbox_notifications, thread_sensitive=False)(
+        input.team_id, input.report_id
+    )
+
+
+def _send_report_github_comments(team_id: int, report_id: str) -> int:
+    if not SignalTeamConfig.objects.filter(team_id=team_id, github_issue_writeback_enabled=True).exists():
+        return 0
+    team = Team.objects.filter(id=team_id).first()
+    if team is None:
+        return 0
+    return post_report_link_to_github_issues(team, report_id, fetch_signals_for_report_sync(team, report_id))
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+async def send_report_github_comments_activity(input: InboxNotificationInput) -> int:
+    return await database_sync_to_async(_send_report_github_comments, thread_sensitive=False)(
         input.team_id, input.report_id
     )
 
@@ -265,6 +274,16 @@ class SignalReportInboxNotificationWorkflow:
             "inbox notification: dispatch complete",
             extra={**log_ctx, "messages_sent": sent, "pr_available": state.pr_available},
         )
+        if workflow.patched("signals-github-writeback-after-notification"):
+            try:
+                await workflow.execute_activity(
+                    send_report_github_comments_activity,
+                    inputs,
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+            except temporalio.exceptions.ActivityError:
+                workflow.logger.exception("inbox notification: GitHub write-back failed", extra=log_ctx)
         return sent
 
     async def _fetch_state(self, inputs: InboxNotificationInput) -> InboxNotificationState:
