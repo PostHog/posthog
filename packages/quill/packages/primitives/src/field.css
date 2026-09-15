@@ -61,7 +61,7 @@
     }
 
     .quill-field__title {
-        font-size: var(--quill-ui-text, 0.8125rem);
+        font-size: var(--text-ui, 0.8125rem);
         font-weight: 500;
         line-height: 1.375;
     }

@@ -12,7 +12,7 @@
     /* Trigger shared base. Full-row sizing is scoped away from the icon-only
        trigger, whose square dimensions come from the Button icon size. */
     .quill-collapsible__trigger {
-        font-size: var(--quill-ui-text, 0.8125rem);
+        font-size: var(--text-ui, 0.8125rem);
         line-height: 1.625;
     }
 

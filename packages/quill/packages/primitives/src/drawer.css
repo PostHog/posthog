@@ -23,7 +23,7 @@
     .quill-drawer__content {
         position: absolute;
         padding: 0.5rem;
-        font-size: var(--quill-ui-text, 0.8125rem);
+        font-size: var(--text-ui, 0.8125rem);
         line-height: 1.625;
         pointer-events: auto;
 

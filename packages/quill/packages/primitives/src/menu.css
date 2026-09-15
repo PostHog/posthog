@@ -179,7 +179,7 @@
     .quill-menubar__trigger {
         padding-block: calc(var(--spacing, 0.25rem) * 0.85);
         padding-inline: 0.5rem;
-        font-size: var(--quill-ui-text, 0.8125rem);
+        font-size: var(--text-ui, 0.8125rem);
         font-weight: 500;
         line-height: 1.625;
         border-radius: calc(var(--radius-sm) - 2px);

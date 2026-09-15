@@ -30,7 +30,7 @@
         height: 100%;
         padding-block: 0.125rem;
         padding-inline: 0.5rem;
-        font-size: var(--quill-ui-text, 0.8125rem);
+        font-size: var(--text-ui, 0.8125rem);
         font-variant-numeric: tabular-nums;
         text-align: center;
         background-color: transparent;

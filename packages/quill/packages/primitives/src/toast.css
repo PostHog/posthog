@@ -24,7 +24,7 @@
     }
 
     .quill-toast-card__title {
-        font-size: var(--quill-ui-text, 0.8125rem);
+        font-size: var(--text-ui, 0.8125rem);
         font-weight: 500;
         line-height: 1.375;
     }
@@ -33,21 +33,6 @@
         font-size: var(--text-xs, 0.75rem);
         line-height: var(--text-xs--line-height, 1rem);
         color: var(--muted-foreground);
-    }
-
-    .quill-toast-card__action {
-        padding-block: 0.25rem;
-        padding-inline: 0.5rem;
-        font-size: var(--text-xs, 0.75rem);
-        font-weight: 500;
-        background-color: var(--card);
-        border: 1px solid var(--border);
-        border-radius: var(--radius-sm);
-        transition: background-color 0.15s ease;
-    }
-
-    .quill-toast-card__action:hover {
-        background-color: var(--fill-hover);
     }
 
     /* Toast icon tiles by type */
