@@ -47,6 +47,7 @@ const ERROR_SCENES: string[] = [
 const HIGH_TRAFFIC_SCENES: [name: string, path: string][] = [
     ['home', '/home'],
     ['max (/ai)', '/ai'],
+    ['max task (/ai?task=0199ed4a-5c03-0000-3220-df21df612e95)', '/ai?task=0199ed4a-5c03-0000-3220-df21df612e95'],
     ['insights', '/insights'],
     ['insight (new)', '/insights/new'],
     ['dashboards', '/dashboard'],

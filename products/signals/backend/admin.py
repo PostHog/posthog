@@ -21,7 +21,7 @@ class SignalReportArtefactInline(admin.TabularInline):
     model = SignalReportArtefact
     extra = 0
     fields = ("id", "type", "content_preview", "created_at")
-    readonly_fields = fields
+    readonly_fields = (*fields, "claim", "pull_request")
     can_delete = False
 
     @admin.display(description="Content preview")

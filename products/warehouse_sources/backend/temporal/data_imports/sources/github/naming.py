@@ -9,7 +9,9 @@ Legacy single-repo sources keep bare endpoint names (`issues`); those resolve to
 `repository` field.
 """
 
+import re
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.settings import ENDPOINTS
 
@@ -23,6 +25,46 @@ SCHEMA_METADATA_ENDPOINT_KEY = "source_endpoint"
 
 # Longest first so `pull_requests` wins over any shorter overlapping endpoint name.
 _ENDPOINT_SUFFIXES = sorted(ENDPOINTS, key=lambda name: len(name), reverse=True)
+
+
+# GitHub hosts whose URLs name a repository the API can serve.
+_GITHUB_URL_HOSTS = ("github.com", "www.github.com")
+
+# The scp-style clone URL (`git@github.com:owner/repo.git`), which has no scheme for urlsplit to read.
+_GITHUB_SCP_URL = re.compile(r"^(?:ssh://)?git@github\.com[:/](?P<path>.+)$", re.IGNORECASE)
+
+
+def normalize_repository(repository: str) -> str:
+    """`owner/repo` when the value is a GitHub URL, the stripped input otherwise.
+
+    A clone URL, a browser URL and a bare `github.com/owner/repo` all name the repository as
+    unambiguously as `owner/repo` does, so read them rather than rejecting input whose meaning
+    is clear."""
+    value = repository.strip()
+    scp_match = _GITHUB_SCP_URL.match(value)
+    if scp_match:
+        path = scp_match.group("path")
+    elif "://" in value or value.lower().startswith(tuple(f"{host}/" for host in _GITHUB_URL_HOSTS)):
+        parsed = urlsplit(value if "://" in value else f"https://{value}")
+        if (parsed.hostname or "").lower() not in _GITHUB_URL_HOSTS:
+            return value
+        path = parsed.path
+    else:
+        return value
+
+    # Anything past owner/repo is a browser URL's view of the repo (/tree/main, /issues), not part
+    # of its name.
+    parts = [part for part in path.split("/") if part]
+    if len(parts) < 2:
+        return value
+    owner, repo = parts[0], parts[1]
+    # GitHub rejects a repository name ending in `.git`, so any casing of that suffix belongs to
+    # the clone URL rather than to the name.
+    if repo.lower().endswith(".git"):
+        repo = repo[: -len(".git")]
+    if not repo:
+        return value
+    return f"{owner}/{repo}"
 
 
 def qualified_schema_name(repository: str, endpoint: str) -> str:
@@ -68,7 +110,7 @@ def schema_repo_endpoint(
     if parsed_repository is not None:
         return parsed_repository.strip().lower(), parsed_endpoint
 
-    normalized_legacy = (legacy_repository or "").strip().lower()
+    normalized_legacy = normalize_repository(legacy_repository or "").lower()
     return (normalized_legacy or None), parsed_endpoint
 
 

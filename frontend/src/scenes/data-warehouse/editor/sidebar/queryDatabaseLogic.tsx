@@ -1942,26 +1942,8 @@ export interface queryDatabaseLogicActions {
         }
     } // dataWarehouseViewsLogic
     updateDataWarehouseSavedQuery: (
-        view: Partial<DataWarehouseSavedQuery> & {
-            edited_history_id?: string
-            folder_id?: string | null
-            id: string
-            lifecycle?: string
-            shouldRematerialize?: boolean
-            soft_update?: boolean
-            sync_frequency?: string
-            types?: string[][]
-        }
-    ) => Partial<DataWarehouseSavedQuery> & {
-        edited_history_id?: string
-        folder_id?: string | null
-        id: string
-        lifecycle?: string
-        shouldRematerialize?: boolean
-        soft_update?: boolean
-        sync_frequency?: string
-        types?: string[][]
-    } // dataWarehouseViewsLogic
+        view: import('../../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
+    ) => import('../../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate // dataWarehouseViewsLogic
     updateDataWarehouseSavedQueryFailure: (
         error: string,
         errorObject?: any
@@ -1971,30 +1953,10 @@ export interface queryDatabaseLogicActions {
     } // dataWarehouseViewsLogic
     updateDataWarehouseSavedQuerySuccess: (
         dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
-        payload?:
-            | (Partial<DataWarehouseSavedQuery> & {
-                  edited_history_id?: string
-                  folder_id?: string | null
-                  id: string
-                  lifecycle?: string
-                  shouldRematerialize?: boolean
-                  soft_update?: boolean
-                  sync_frequency?: string
-                  types?: string[][]
-              })
-            | undefined
+        payload?: import('../../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate | undefined
     ) => {
         dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
-        payload?: Partial<DataWarehouseSavedQuery> & {
-            edited_history_id?: string
-            folder_id?: string | null
-            id: string
-            lifecycle?: string
-            shouldRematerialize?: boolean
-            soft_update?: boolean
-            sync_frequency?: string
-            types?: string[][]
-        }
+        payload?: import('../../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
     } // dataWarehouseViewsLogic
     ensureAllTableFields: () => {
         value: true

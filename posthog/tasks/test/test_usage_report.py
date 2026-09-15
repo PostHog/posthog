@@ -2846,6 +2846,34 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
                 records_completed=100 * (i + 1),  # 100, 200, 300
             )
 
+        # The HogQL model is free while it is in closed beta, so its rows are not counted.
+        hogql_batch_export = BatchExport.objects.create(
+            team_id=3,
+            name="Test HogQL export",
+            destination=batch_export_destination,
+            paused=False,
+            model=BatchExport.Model.HOGQL,
+        )
+        with team_scope(team_id=3, canonical=True):
+            hogql_batch_export_on_demand = BatchExportOnDemand.objects.create(
+                team_id=3,
+                destination=batch_export_on_demand_destination,
+                model=BatchExportOnDemand.Model.HOGQL,
+            )
+
+        for hogql_export_kwargs in (
+            {"batch_export": hogql_batch_export},
+            {"batch_export_on_demand": hogql_batch_export_on_demand},
+        ):
+            BatchExportRun.objects.create(
+                data_interval_end=now(),
+                data_interval_start=now() - timedelta(hours=1),
+                finished_at=now(),
+                status=BatchExportRun.Status.COMPLETED,
+                records_completed=5000,
+                **hogql_export_kwargs,
+            )
+
         period = get_previous_day(at=now() + relativedelta(days=1))
         all_reports = _get_all_org_reports(period=period)
 

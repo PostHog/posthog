@@ -97,7 +97,7 @@ class MailerLiteSource(
             name=SchemaExternalDataSourceType.MAILER_LITE,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="MailerLite",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your MailerLite API key to pull your MailerLite data into the PostHog Data warehouse.
 
 You can create an API key in your [MailerLite integrations settings](https://dashboard.mailerlite.com/integrations/api).""",
