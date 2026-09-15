@@ -234,6 +234,7 @@ export type MinimalAppMetric = {
         | 'masked'
         | 'filtering_failed'
         | 'inputs_failed'
+        | 'missing_credential'
         | 'missing_addon'
         | 'fetch'
         | 'billable_invocation'

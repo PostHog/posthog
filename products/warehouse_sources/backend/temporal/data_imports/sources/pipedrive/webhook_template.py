@@ -24,9 +24,10 @@ if (not inputs.bypass_auth_check) {
   if (empty(inputs.http_auth_user) or empty(inputs.http_auth_password)) {
     return {
       'httpResponse': {
-        'status': 400,
-        'body': 'HTTP auth credentials not configured',
-      }
+        'status': 200,
+        'body': 'HTTP auth credentials not configured, delivery dropped',
+      },
+      'appMetric': 'missing_credential'
     }
   }
 

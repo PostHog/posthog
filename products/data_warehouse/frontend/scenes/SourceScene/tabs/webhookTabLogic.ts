@@ -8,11 +8,12 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 
-import { SourceConfig } from '~/queries/schema/schema-general'
+import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
 import { ExternalDataSource, WebhookInfo } from '~/types'
 
 import type { WebhookCreateResult } from '../../../shared/components/forms/WebhookSetupForm'
 import { getErrorsForFields } from '../../NewSourceScene/sourceWizardLogic'
+import { missingWebhookCredentials } from './webhookCredentials'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
 
 export interface WebhookTabLogicProps {
@@ -39,6 +40,7 @@ export interface webhookTabLogicValues {
     }
     isWebhookFieldInputsSubmitting: boolean
     isWebhookFieldInputsValid: boolean
+    missingCredentialFields: SourceFieldConfig[]
     mappedTables: {
         objectType: string
         tableName: string
@@ -145,7 +147,14 @@ export interface webhookTabLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         source: (arg: ExternalDataSource | null) => ExternalDataSource | null
         sourceConfig: (arg: SourceConfig | null) => SourceConfig | null
-        internalStateLabel: (webhookInfo: WebhookInfo | null) => {
+        missingCredentialFields: (
+            webhookInfo: WebhookInfo | null,
+            sourceConfig: SourceConfig | null
+        ) => SourceFieldConfig[]
+        internalStateLabel: (
+            webhookInfo: WebhookInfo | null,
+            missingCredentialFields: SourceFieldConfig[]
+        ) => {
             label: string
             tagType: 'danger' | 'default' | 'success' | 'warning'
         }
@@ -246,11 +255,23 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
             ],
             (sourceFieldConfig: SourceConfig | null): SourceConfig | null => sourceFieldConfig,
         ],
+        missingCredentialFields: [
+            (s) => [s.webhookInfo, s.sourceConfig],
+            (webhookInfo: WebhookInfo | null, sourceConfig: SourceConfig | null): SourceFieldConfig[] =>
+                missingWebhookCredentials(webhookInfo, sourceConfig),
+        ],
         internalStateLabel: [
-            (s) => [s.webhookInfo],
+            (s) => [s.webhookInfo, s.missingCredentialFields],
             (
-                webhookInfo: WebhookInfo | null
+                webhookInfo: WebhookInfo | null,
+                missingCredentialFields: SourceFieldConfig[]
             ): { label: string; tagType: 'success' | 'warning' | 'danger' | 'default' } => {
+                // The hog watcher never sees this fault, because a dropped delivery is a healthy
+                // run. Without this branch the tab reports "Healthy" while no data arrives.
+                if (missingCredentialFields.length > 0) {
+                    return { label: 'Needs setup', tagType: 'warning' }
+                }
+
                 const state = webhookInfo?.hog_function?.status?.state
                 switch (state) {
                     case 1:

@@ -28,9 +28,10 @@ if (request.method != 'POST') {
 if (empty(inputs.signing_secret)) {
   return {
     'httpResponse': {
-      'status': 400,
-      'body': 'Webhook secret not configured',
-    }
+      'status': 200,
+      'body': 'Webhook secret not configured, delivery dropped',
+    },
+    'appMetric': 'missing_credential'
   }
 }
 

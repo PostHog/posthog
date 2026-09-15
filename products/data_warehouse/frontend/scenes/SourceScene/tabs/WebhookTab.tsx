@@ -32,18 +32,23 @@ const SECTION_LABELS: Record<WebhookSection, string> = {
     activity: 'Activity',
 }
 
-const WEBHOOK_METRIC_KEYS = ['succeeded', 'failed'] as const
+const WEBHOOK_METRIC_KEYS = ['succeeded', 'failed', 'missing_credential'] as const
 
 const WEBHOOK_METRICS_INFO: Record<string, { name: string; description: string; color: string }> = {
     succeeded: {
         name: 'Received',
-        description: 'Total number of webhook events received and processed successfully',
+        description: 'Total number of webhook events received and answered, including any that were dropped',
         color: getColorVar('success'),
     },
     failed: {
         name: 'Failed',
         description: 'Total number of webhook events that had errors during processing',
         color: getColorVar('danger'),
+    },
+    missing_credential: {
+        name: 'Dropped',
+        description: 'Total number of webhook events dropped because this webhook is missing a required credential',
+        color: getColorVar('warning'),
     },
 }
 
@@ -61,6 +66,7 @@ export function WebhookTab({ id }: { id: string }): JSX.Element {
         canDeleteWebhook,
         webhookDeleting,
         currentSection,
+        missingCredentialFields,
     } = useValues(webhookTabLogic({ id }))
     const { createWebhook, loadWebhookInfo, deleteWebhook, setCurrentSection } = useActions(webhookTabLogic({ id }))
 
@@ -126,6 +132,13 @@ export function WebhookTab({ id }: { id: string }): JSX.Element {
                         externalStateLabel={externalStateLabel}
                         onRefresh={loadWebhookInfo}
                     />
+                    {missingCredentialFields.length > 0 && (
+                        <WebhookMissingCredentialsSection
+                            missingFields={missingCredentialFields}
+                            sourceName={sourceConfig?.label ?? source?.source_type ?? 'source'}
+                            onGoToConfiguration={() => setCurrentSection('configuration')}
+                        />
+                    )}
                     {externalMissing && (
                         <WebhookRecreateSection
                             id={id}
@@ -330,6 +343,34 @@ function WebhookRecreateSection({
             formLogic={webhookTabLogic({ id })}
             formKey="webhookFieldInputs"
         />
+    )
+}
+
+function WebhookMissingCredentialsSection({
+    missingFields,
+    sourceName,
+    onGoToConfiguration,
+}: {
+    missingFields: SourceFieldConfig[]
+    sourceName: string
+    onGoToConfiguration: () => void
+}): JSX.Element {
+    const fieldLabels = missingFields.map((field) => field.label).join(', ')
+
+    return (
+        <LemonBanner
+            type="warning"
+            action={{
+                children: 'Add it now',
+                onClick: onGoToConfiguration,
+            }}
+        >
+            <p className="mb-0">
+                This webhook is missing {fieldLabels}, so we cannot check that a delivery really came from{' '}
+                {sourceName}. Until you add it, we accept every delivery and drop it, and no data reaches your tables.
+                Find it in your {sourceName} dashboard.
+            </p>
+        </LemonBanner>
     )
 }
 

@@ -116,11 +116,26 @@ class TestMailjetWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
         assert res.result["httpResponse"]["status"] == 200
         self.mock_produce_to_warehouse_webhooks.assert_not_called()
 
+    def test_missing_authorization_header_value_drops_delivery(self):
+        # PostHog registers the callback before the header value is stored, so a delivery can
+        # arrive with nothing to check it against. A 4xx would only start Mailjet's retry loop.
+        globals = self._request(self._event())
+
+        res = self.run_function(self._inputs(authorization_header=""), globals=globals)
+
+        assert res.result == {
+            "httpResponse": {
+                "status": 200,
+                "body": "Authorization header value not configured, delivery dropped",
+            },
+            "appMetric": "missing_credential",
+        }
+        self.mock_produce_to_warehouse_webhooks.assert_not_called()
+
     @parameterized.expand(
         [
             ("wrong_credentials", "Basic " + base64.b64encode(b"posthog:wrong").decode(), {}, 401),
             ("missing_header", None, {}, 401),
-            ("no_expected_header_configured", AUTHORIZATION_HEADER, {"authorization_header": ""}, 400),
         ]
     )
     def test_unauthenticated_delivery_is_rejected(self, _name, header, input_overrides, expected_status):

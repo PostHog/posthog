@@ -32,9 +32,10 @@ if (not inputs.bypass_signature_check) {
   if (empty(inputs.signing_secret)) {
     return {
       'httpResponse': {
-        'status': 400,
-        'body': 'Signing secret not configured',
-      }
+        'status': 200,
+        'body': 'Signing secret not configured, delivery dropped',
+      },
+      'appMetric': 'missing_credential'
     }
   }
 
