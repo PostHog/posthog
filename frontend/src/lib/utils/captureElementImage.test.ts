@@ -26,10 +26,17 @@ describe('captureElementImage', () => {
     })
 
     it('bounds the resource fetches so a stalled asset cannot hang the capture', async () => {
-        await captureElementImage(document.createElement('div'))
+        jest.useFakeTimers()
+        try {
+            await captureElementImage(document.createElement('div'))
 
-        const { fetchRequestInit } = (toBlob as jest.Mock).mock.calls[0][1]
-        expect(fetchRequestInit.signal).toBeInstanceOf(AbortSignal)
-        expect(fetchRequestInit.signal.aborted).toBe(false)
+            const { fetchRequestInit } = (toBlob as jest.Mock).mock.calls[0][1]
+            expect(fetchRequestInit.signal.aborted).toBe(false)
+
+            await jest.advanceTimersByTimeAsync(60000)
+            expect(fetchRequestInit.signal.aborted).toBe(true)
+        } finally {
+            jest.useRealTimers()
+        }
     })
 })

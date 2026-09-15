@@ -47,12 +47,34 @@ function populateIframe(iframe: HTMLIFrameElement): void {
     copyCanvases(doc)
 }
 
+/**
+ * A canvas that drew a cross-origin image is tainted, and reading it back throws `SecurityError`.
+ * Copying its bitmap carries the taint across, which then breaks the capture: html-to-image exports
+ * every canvas it clones. Probing a 1x1 copy answers for any context type without exporting the page.
+ */
+function canBeCopied(canvas: HTMLCanvasElement): boolean {
+    try {
+        const probe = document.createElement('canvas')
+        probe.width = 1
+        probe.height = 1
+        const context = probe.getContext('2d')
+        if (!context) {
+            return false
+        }
+        context.drawImage(canvas, 0, 0, 1, 1)
+        context.getImageData(0, 0, 1, 1)
+        return true
+    } catch {
+        return false
+    }
+}
+
 function copyCanvases(doc: Document): void {
     const liveCanvases = document.querySelectorAll('canvas')
     const clonedCanvases = doc.querySelectorAll('canvas')
     clonedCanvases.forEach((cloned, index) => {
         const live = liveCanvases[index] as HTMLCanvasElement | undefined
-        if (!live || live.width === 0 || live.height === 0) {
+        if (!live || live.width === 0 || live.height === 0 || !canBeCopied(live)) {
             return
         }
         try {
