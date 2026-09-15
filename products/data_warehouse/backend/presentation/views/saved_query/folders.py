@@ -87,27 +87,30 @@ class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControl
         from products.data_modeling.backend.facade.api import dependent_saved_query_ids
 
         folder: DataWarehouseSavedQueryFolder = self.get_object()
-        saved_queries = list(
-            DataWarehouseSavedQuery.objects.filter(folder=folder)
-            .exclude(deleted=True)
-            .select_related("managed_viewset", "folder")
-        )
-
-        # `get_object()` checked the folder only; each view carries its own grant.
-        for saved_query in saved_queries:
-            self.check_object_permissions(request, saved_query)
-
-        in_folder_ids = {saved_query.id for saved_query in saved_queries}
-        dependents = dependent_saved_query_ids(self.team_id, in_folder_ids)
-        blocked_names = sorted(
-            saved_query.name for saved_query in saved_queries if dependents[saved_query.id] - in_folder_ids
-        )
-        if blocked_names:
-            raise serializers.ValidationError(
-                f"Cannot delete this folder because these views still have dependencies outside the folder: {', '.join(blocked_names)}"
+        with transaction.atomic():
+            # A view moved into the folder after we list its contents would survive `folder.delete()`
+            # with `folder=NULL`; holding the row makes that move wait and then fail its FK check.
+            DataWarehouseSavedQueryFolder.objects.select_for_update().get(pk=folder.pk)
+            saved_queries = list(
+                DataWarehouseSavedQuery.objects.filter(folder=folder)
+                .exclude(deleted=True)
+                .select_related("managed_viewset", "folder")
             )
 
-        with transaction.atomic():
+            # `get_object()` checked the folder only; each view carries its own grant.
+            for saved_query in saved_queries:
+                self.check_object_permissions(request, saved_query)
+
+            in_folder_ids = {saved_query.id for saved_query in saved_queries}
+            dependents = dependent_saved_query_ids(self.team_id, in_folder_ids)
+            blocked_names = sorted(
+                saved_query.name for saved_query in saved_queries if dependents[saved_query.id] - in_folder_ids
+            )
+            if blocked_names:
+                raise serializers.ValidationError(
+                    f"Cannot delete this folder because these views still have dependencies outside the folder: {', '.join(blocked_names)}"
+                )
+
             self._delete_in_dependency_order(saved_queries)
             folder.delete()
         return response.Response(status=status.HTTP_204_NO_CONTENT)
