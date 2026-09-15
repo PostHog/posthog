@@ -134,6 +134,7 @@ from products.workflows.backend.api.message_assets import (
     MessageAssetsRequestSerializer,
     fetch_message_asset_html,
     fetch_message_assets,
+    with_new_tab_link_target,
 )
 from products.workflows.backend.api.publish_impact import build_publish_impact
 from products.workflows.backend.models.hog_flow.hog_flow import (
@@ -5219,13 +5220,18 @@ class HogFlowViewSet(
         )
         if html is None:
             raise exceptions.NotFound("Asset content is no longer available.")
-        response = HttpResponse(html, content_type="text/html; charset=utf-8")
+        response = HttpResponse(with_new_tab_link_target(html), content_type="text/html; charset=utf-8")
         # Enforce sandboxing at the response layer so direct navigation to the asset URL
-        # (bypassing the iframe with `sandbox=""` on the frontend) still can't execute
-        # scripts or make same-origin requests as the viewer. `sandbox` (no allow-list)
-        # is the most restrictive CSP mode; the other directives are defense-in-depth.
+        # (bypassing the iframe sandbox on the frontend) still can't execute scripts or make
+        # same-origin requests as the viewer. The allow-list withholds `allow-scripts` and
+        # `allow-same-origin`, which are the capabilities that would make captured email HTML
+        # dangerous. It grants popups so that a link click can open its destination in a new
+        # tab, and lets that tab escape the sandbox, because a tab that inherits an opaque
+        # origin with no scripts renders the destination as a broken page. The other
+        # directives are defense-in-depth.
         response["Content-Security-Policy"] = (
-            "sandbox; default-src 'none'; img-src https: data:; style-src 'unsafe-inline'"
+            "sandbox allow-popups allow-popups-to-escape-sandbox; "
+            "default-src 'none'; img-src https: data:; style-src 'unsafe-inline'"
         )
         response["X-Content-Type-Options"] = "nosniff"
         response["Referrer-Policy"] = "no-referrer"
