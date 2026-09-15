@@ -156,13 +156,14 @@ describe('ImplementButton', () => {
         )
     })
 
-    it('opens the implementation prompt in the selected agent', async () => {
+    it('opens the implementation prompt from the agent list without changing the copy action', async () => {
         const user = await openMenu()
         const open = jest.spyOn(window, 'open').mockImplementation()
 
-        await user.click(screen.getByLabelText('Choose prompt and destination'))
+        await user.click(screen.getByLabelText('Open prompt in an agent'))
+
+        expect(screen.queryByText('PostHog AI')).not.toBeInTheDocument()
         await user.click(screen.getByText('Claude Code'))
-        await user.click(screen.getByText('Open implementation prompt'))
 
         expect(open).toHaveBeenCalledWith(expect.stringMatching(/^claude-cli:\/\/open\?q=/), '_blank')
         expect(captureInboxReportAction).toHaveBeenCalledWith(
@@ -170,6 +171,13 @@ describe('ImplementButton', () => {
                 actionType: 'copy_implementation_prompt',
                 extra: { agent: 'claude-code' },
             })
+        )
+
+        await user.click(screen.getByTestId('inbox-report-copy-implementation-prompt'))
+
+        expect(copyToClipboard).toHaveBeenCalledWith(
+            expect.stringContaining('report ID: report-1'),
+            'implementation prompt'
         )
     })
 })

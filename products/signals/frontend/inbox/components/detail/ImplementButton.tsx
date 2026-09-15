@@ -113,6 +113,8 @@ export function ImplementButton({ report }: { report: SignalReport }): JSX.Eleme
                                 <AgentPromptButton
                                     storageKey="inbox-report-implementation-prompt"
                                     defaultAgentKey="clipboard"
+                                    agentKeys={['posthog-code', 'claude-code', 'cursor', 'codex', 'clipboard']}
+                                    agentSelectionMode="run"
                                     size="sm"
                                     data-attr="inbox-report-copy-implementation-prompt"
                                     actions={[
