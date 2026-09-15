@@ -468,6 +468,28 @@ describe('LogsIngestionConsumer', () => {
                 team_id: 'unknown',
             })
         })
+
+        it('should fail the batch when the team lookup hits an unavailable dependency', async () => {
+            jest.spyOn(hub.teamManager, 'getTeamByToken').mockRejectedValue(
+                new DependencyUnavailableError('deadlock detected', 'Postgres', new Error('deadlock detected'))
+            )
+
+            const logData = createLogMessage()
+            const messages = await createKafkaMessages([logData], {
+                token: team.api_token,
+            })
+
+            // The token is fine — Postgres just could not answer. Dropping the message would lose
+            // customer logs, and quarantining it would move good data into the DLQ.
+            await expect(waitForBackgroundTasks(consumer.processKafkaBatch(messages))).rejects.toThrow(
+                'deadlock detected'
+            )
+            expect(getProducedKafkaMessages().filter((m) => m.topic === KAFKA_LOGS_INGESTION_DLQ)).toHaveLength(0)
+            expect(logMessageDroppedCounterSpy).not.toHaveBeenCalledWith({
+                reason: 'team_lookup_error',
+                team_id: 'unknown',
+            })
+        })
     })
 
     describe('batch processing', () => {
