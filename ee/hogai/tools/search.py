@@ -8,7 +8,7 @@ import structlog
 from langchain_core.output_parsers import SimpleJsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, create_model
 
 from posthog.api.embedding_worker import async_generate_embedding
 from posthog.sync import database_sync_to_async
@@ -18,7 +18,7 @@ from products.business_knowledge.backend.logic import has_ready_sources, search_
 
 from ee.hogai.context.entity_search.context import EntityKind
 from ee.hogai.tool import MaxSubtool, MaxTool, ToolMessagesArtifact
-from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolRetryableError
 from ee.hogai.tools.full_text_search.tool import EntitySearchTool
 from ee.hogai.utils.feature_flags import has_business_knowledge_feature_flag
 from ee.hogai.utils.helpers import sanitize_for_system_reminder
@@ -81,13 +81,26 @@ INVALID_ENTITY_KIND_PROMPT = """
 Invalid entity kind: {{{kind}}}. Please provide a valid entity kind for the tool.
 """.strip()
 
+DOCS_UNAVAILABLE_PROMPT = """
+Documentation search is not configured for this project. Retry with a different kind, or answer without documentation. Do not select kind="docs" again.
+""".strip()
+
+BUSINESS_KNOWLEDGE_UNAVAILABLE_PROMPT = """
+Business knowledge search is not available: this project has no ready knowledge sources. Retry with a different kind, or answer without business knowledge. Do not select kind="business-knowledge" again.
+""".strip()
+
 ENTITIES = [f"{entity}" for entity in EntityKind]
 
-SearchKind = Literal["docs", "business-knowledge", *ENTITIES]  # type: ignore
+DOCS_KIND = "docs"
+BUSINESS_KNOWLEDGE_KIND = "business-knowledge"
+
+KIND_FIELD_DESCRIPTION = "Select the entity you want to find"
+
+SearchKind = Literal[*ENTITIES]  # type: ignore
 
 
 class SearchToolArgs(BaseModel):
-    kind: SearchKind = Field(description="Select the entity you want to find")
+    kind: SearchKind = Field(description=KIND_FIELD_DESCRIPTION)
     query: str = Field(
         description="Describe what you want to find. Include as much details from the context as possible."
     )
@@ -133,6 +146,14 @@ class SearchTool(MaxTool):
             flag_enabled=flag_enabled,
             has_ready_sources=has_ready,
         )
+        # Offer only the kinds this project can serve, so the model cannot select a dead one.
+        optional_kinds: list[str] = []
+        description = SEARCH_TOOL_PROMPT
+        if settings.INKEEP_API_KEY:
+            optional_kinds.append(DOCS_KIND)
+        if has_ready:
+            optional_kinds.append(BUSINESS_KNOWLEDGE_KIND)
+            description += "\n\n" + BUSINESS_KNOWLEDGE_SEARCH_PROMPT
         instance = cls(
             team=team,
             user=user,
@@ -140,18 +161,20 @@ class SearchTool(MaxTool):
             state=state,
             config=config,
             context_manager=context_manager,
+            args_schema=create_model(
+                "SearchToolArgs",
+                __base__=SearchToolArgs,
+                kind=(Literal[*optional_kinds, *ENTITIES], Field(description=KIND_FIELD_DESCRIPTION)),
+            ),
+            description=description,
         )
         instance._has_business_knowledge = has_ready
-        if has_ready:
-            instance.description = SEARCH_TOOL_PROMPT + "\n\n" + BUSINESS_KNOWLEDGE_SEARCH_PROMPT
         return instance
 
     async def _arun_impl(self, kind: str, query: str) -> tuple[str, ToolMessagesArtifact | None]:
-        if kind == "docs":
+        if kind == DOCS_KIND:
             if not settings.INKEEP_API_KEY:
-                raise MaxToolFatalError(
-                    "Documentation search is not available: INKEEP_API_KEY environment variable is not configured. "
-                )
+                raise MaxToolRetryableError(DOCS_UNAVAILABLE_PROMPT)
             docs_tool = InkeepDocsSearchTool(
                 team=self._team,
                 user=self._user,
@@ -161,11 +184,9 @@ class SearchTool(MaxTool):
             )
             return await docs_tool.execute(query, self.tool_call_id)
 
-        if kind == "business-knowledge":
+        if kind == BUSINESS_KNOWLEDGE_KIND:
             if not self._has_business_knowledge:
-                raise MaxToolFatalError(
-                    "Business knowledge search is not available: this project has no ready knowledge sources."
-                )
+                raise MaxToolRetryableError(BUSINESS_KNOWLEDGE_UNAVAILABLE_PROMPT)
             if not self.user_access_control.check_access_level_for_resource("business_knowledge", "viewer"):
                 raise MaxToolAccessDeniedError("business_knowledge", "viewer", action="search")
             return await self._search_business_knowledge(query), None
