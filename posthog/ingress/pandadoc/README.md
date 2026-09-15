@@ -33,6 +33,6 @@ A missing secret answers 404 too, and neither rejection carries a body, because 
 
 ## Consumers
 
-No product registers a PandaDoc consumer yet.
-The legal documents endpoint moves to ingress in its own PR.
+`legal_documents_signatures`, declared in `products/legal_documents/backend/webhook_consumers.py`.
+It records signatures for the document signing flow.
 See the [Endpoints table](../README.md#endpoints).
