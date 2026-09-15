@@ -762,7 +762,14 @@ export const sceneLogic = kea<sceneLogicType>([
                         } else {
                             // A nested setScene opened another scene while this one was mounting,
                             // so release this logic rather than overwrite the scene now open.
-                            unmount()
+                            try {
+                                unmount()
+                            } catch (error) {
+                                console.error('Error unmounting superseded scene logic:', error)
+                            }
+                            // Stop here. The rest of the listener would send a failed release to
+                            // Error404 and record this stale scene as viewed, over the open one.
+                            return
                         }
                     }
                 } catch (error) {

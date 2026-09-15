@@ -245,6 +245,19 @@ describe('sceneLogic', () => {
                 consoleError.mockRestore()
             }
         })
+
+        it('records the open scene as viewed, not the one it navigated away from', async () => {
+            router.actions.push(urls.savedInsights())
+            await expectLogic(logic).delay(1)
+
+            router.actions.push(urls.dashboards())
+            await expectLogic(logic).delay(1)
+
+            // The superseded setScene carries the redirecting scene's id. Reaching the tracking
+            // block with it files a recently-viewed entry for a scene nobody landed on. No
+            // selector exposes that, so assert the cache entry which feeds it.
+            expect(logic.cache.lastTrackedScene).toEqual({ sceneId: Scene.Notebooks, sceneKey: 'notebooks' })
+        })
     })
 
     describe('/home honors the configured homepage', () => {
