@@ -117,7 +117,7 @@ class BuildBetterSource(ResumableSource[BuildBetterSourceConfig, BuildBetterResu
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="BuildBetter",
             releaseStatus=ReleaseStatus.GA,
-            caption="Connect your BuildBetter workspace to sync interviews, extractions, persons, and companies.",
+            caption="Connect your BuildBetter workspace to sync interviews, transcripts, extractions, documents, persons, and companies.",
             iconPath="/static/services/buildbetter.png",
             fields=cast(
                 list[FieldType],

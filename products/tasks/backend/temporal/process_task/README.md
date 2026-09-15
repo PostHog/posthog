@@ -168,7 +168,8 @@ If no token arrives within 120 seconds, the run fails with setup instructions.
 
 Subscription runs require the `--claudeSubscription` startup option.
 The launcher checks support before starting the process.
-Subscription health checks have a 155-second command limit, leaving time for setup and diagnostics within the five-minute activity.
+Health polls stop at a wall-clock budget (120 seconds, or 150 for subscription runs) even when each poll is slow, and the exec limit sits a few seconds above that budget, leaving time for setup and diagnostics within the five-minute activity.
+When the exec limit is still hit, the launcher collects the same startup diagnostics as a failed poll and raises `SandboxTimeoutError` with them, because the Modal SDK reports an expired exec as return code -1 rather than raising.
 The PID check applies only when the PID file exists, so servers launched before deployment can still pass the health check.
 Continuation inherits the selected billing mode unless the caller explicitly changes it.
 Subscription runs do not reuse prewarmed sessions, because those processes have already selected their credentials.

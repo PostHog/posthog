@@ -3,6 +3,12 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/billing/api'
+import {
+    BillingSpendBreakdownsSchema,
+    BillingTeamIdsSchema,
+    BillingUsageBreakdownsSchema,
+    BillingUsageTypesSchema,
+} from '@/schema/tool-inputs'
 import { omitResponseFields, withInformationalResponse, type WithInformationalResponse } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -61,15 +67,9 @@ const BillingSpendGetSchema = () => {
         end_date: BillingSpendRetrieveQueryParams.shape['end_date'].describe(
             "End date (YYYY-MM-DD), inclusive. Pass this whenever start_date is set; use today's date if the user did not name one."
         ),
-        team_ids: BillingSpendRetrieveQueryParams.shape['team_ids'].describe(
-            "JSON-encoded array of numeric team (project) IDs to filter by, NOT a comma-separated string. Pass as e.g. `[1,2]`. Omit for every project this request can see: all org teams for full billing-access callers, or the member's visible/project-scoped teams for member read-only callers."
-        ),
-        usage_types: BillingSpendRetrieveQueryParams.shape['usage_types'].describe(
-            'JSON-encoded array of usage type identifiers to filter on, NOT a comma-separated string. Pass as e.g. `["event_count_in_period"]` or `["event_count_in_period","recording_count_in_period"]`. Omit for all usage types.'
-        ),
-        breakdowns: BillingSpendRetrieveQueryParams.shape['breakdowns'].describe(
-            'JSON-encoded array of dimensions to break down by, NOT a comma-separated string. Valid dimensions are "type" (by product) and "team" (by project). Pass `["type"]` for per-product series, `["team"]` for one series per project summed across products, or `["type","team"]` for per-project series within each product. Omit for a single aggregate series. Sending a bare string like "type,team" will fail with a 400 error.'
-        ),
+        team_ids: BillingTeamIdsSchema,
+        usage_types: BillingUsageTypesSchema,
+        breakdowns: BillingSpendBreakdownsSchema,
         interval: BillingSpendRetrieveQueryParams.shape['interval'].describe(
             'Time bucket size, one of "day", "week" or "month". Default "day".'
         ),
@@ -118,15 +118,9 @@ const BillingUsageGetSchema = () => {
         end_date: BillingUsageRetrieveQueryParams.shape['end_date'].describe(
             "End date (YYYY-MM-DD), inclusive. Pass this whenever start_date is set; use today's date if the user did not name one."
         ),
-        team_ids: BillingUsageRetrieveQueryParams.shape['team_ids'].describe(
-            "JSON-encoded array of numeric team (project) IDs to filter by, NOT a comma-separated string. Pass as e.g. `[1,2]`. Omit for every project this request can see: all org teams for full billing-access callers, or the member's visible/project-scoped teams for member read-only callers."
-        ),
-        usage_types: BillingUsageRetrieveQueryParams.shape['usage_types'].describe(
-            'JSON-encoded array of usage type identifiers to filter on, NOT a comma-separated string. Pass as e.g. `["event_count_in_period"]` or `["event_count_in_period","recording_count_in_period"]`. Omit for all usage types.'
-        ),
-        breakdowns: BillingUsageRetrieveQueryParams.shape['breakdowns'].describe(
-            'JSON-encoded array of dimensions to break down by, NOT a comma-separated string. Valid dimensions are "type" (by usage type) and "team" (by project). Pass `["type"]` for per-usage-type series, or `["type","team"]` for per-project series within each usage type. Team breakdowns require "type"; do not pass `["team"]` by itself. Omit for a single aggregate series. Sending a bare string like "type,team" will fail with a 400 error.'
-        ),
+        team_ids: BillingTeamIdsSchema,
+        usage_types: BillingUsageTypesSchema,
+        breakdowns: BillingUsageBreakdownsSchema,
         interval: BillingUsageRetrieveQueryParams.shape['interval'].describe(
             'Time bucket size, one of "day" or "week". Default "day".'
         ),

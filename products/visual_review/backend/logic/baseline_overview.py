@@ -13,7 +13,8 @@ from posthog.dataclasses import frozen
 
 from ..facade.enums import INTENTIONAL_TOLERATE_REASONS, RunStatus, SnapshotResult
 from ..models import QuarantinedIdentifier, Run, RunSnapshot, ToleratedHash
-from . import run_queries
+from . import run_queries, toleration
+from .run_queries import SnapshotKey
 
 
 def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
@@ -28,6 +29,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
       - 1 query for the universe runs (one row per run_type, indexed)
       - 1 query for the universe rows (with thumbnail + artifact prefetch)
       - 2 grouped queries for tolerate counts (30d + 90d)
+      - 2 queries for the accepted variants standing against the current baseline
       - 1 grouped query for active quarantines
       - 1 grouped query for lifetime baseline-flip count
       - 2 queries for the recent-drift average (resolve last-N runs, aggregate)
@@ -35,32 +37,19 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
     """
     from datetime import timedelta
 
-    from ..facade.contracts import BASELINE_DRIFT_RECENT_RUN_COUNT, BASELINE_OVERVIEW_MAX_ENTRIES
+    from ..facade.contracts import BASELINE_DRIFT_RECENT_RUN_COUNT, BASELINE_OVERVIEW_MAX_ENTRIES, VARIANT_PILEUP_MIN
 
     now = timezone.now()
 
-    # 1. Find the latest *completed* run on the default branch per (repo,
-    # branch, run_type). Filtering on `superseded_by IS NULL` looks tempting
-    # but is wrong here: a freshly started PENDING/PROCESSING master run is
-    # un-superseded yet has zero (or sparse) RunSnapshots ingested, and would
-    # collapse the universe to whatever it has loaded so far. `status=completed`
-    # makes the universe fall through to the most recent fully-ingested run.
-    universe_runs = list(
-        Run.objects.filter(
-            repo_id=repo_id,
-            branch__in=run_queries._DEFAULT_BRANCHES,
-            status=RunStatus.COMPLETED,
-        )
-        .order_by("repo_id", "branch", "run_type", "-created_at")
-        .distinct("repo_id", "branch", "run_type")
-        .only("id", "run_type", "completed_at", "created_at")
-    )
+    # 1. Find the latest *completed* run on the default branch per (repo, branch, run_type).
+    universe_runs = run_queries.latest_default_branch_runs(repo_id)
     universe_run_ids = [r.id for r in universe_runs]
     if not universe_run_ids:
         return _BaselineOverviewRaw(
             entries=[],
             tolerate_30d_by_id={},
             tolerate_90d_by_id={},
+            active_variants_by_key={},
             active_quarantines_by_key={},
             change_count_by_key={},
             recent_drift_by_key={},
@@ -68,6 +57,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
             totals_recent=0,
             totals_frequent=0,
             totals_quarantined=0,
+            totals_variant_pileups=0,
             by_run_type={},
             truncated=False,
             generated_at=now,
@@ -135,6 +125,12 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
         ):
             tolerate_90d_by_id[identifier] = count
 
+    # 3a-bis. Accepted variants still standing against each baseline's current hash. Scoped to the
+    # whole universe rather than the truncated slice, because the totals below read it too.
+    active_variants_by_key = toleration.count_active_variants_against_current_baseline(
+        repo_id, now=now, newest_run_by_type=run_queries.newest_run_by_run_type(universe_runs)
+    )
+
     # 3b. Active quarantines for this repo, scoped to the universe identifiers
     # AND the run_types they live on (quarantine is per (repo, run_type, id)).
     # We hydrate the full row (not just identity) so the overview can render
@@ -143,7 +139,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
     # `BASELINE_OVERVIEW_MAX_ENTRIES`. `Run.metadata` (JSONField) and
     # `Run.error_message` (TextField) can be large and aren't needed by the
     # summary — defer them to keep the response light.
-    active_quarantines_by_key: dict[tuple[str, str], QuarantinedIdentifier] = {}
+    active_quarantines_by_key: dict[SnapshotKey, QuarantinedIdentifier] = {}
     if universe_identifiers:
         for q in (
             QuarantinedIdentifier.objects.filter(
@@ -155,7 +151,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
             .defer("source_run__metadata", "source_run__error_message")
             .order_by("-created_at")
         ):
-            key = (q.run_type, q.identifier)
+            key = SnapshotKey(run_type=q.run_type, identifier=q.identifier)
             # Multiple active rows for the same key shouldn't happen — create
             # auto-supersedes prior — but if it does, keep the latest (sorted
             # above) and ignore the rest.
@@ -185,8 +181,8 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
     #     resolve the run IDs first (sub-ms) and aggregate via PK-indexed
     #     run_id__in, otherwise the planner inlines a CTE that produces a
     #     ROW_NUMBER plan over the full RunSnapshot table.
-    change_count_by_key: dict[tuple[str, str], int] = {}
-    recent_drift_by_key: dict[tuple[str, str], float] = {}
+    change_count_by_key: dict[SnapshotKey, int] = {}
+    recent_drift_by_key: dict[SnapshotKey, float] = {}
     if universe_identifiers:
         for identifier, run_type, c in (
             RunSnapshot.objects.filter(
@@ -199,7 +195,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
             .annotate(c=Count("id"))
             .values_list("identifier", "run__run_type", "c")
         ):
-            change_count_by_key[(run_type, identifier)] = c
+            change_count_by_key[SnapshotKey(run_type=run_type, identifier=identifier)] = c
 
         # Top-N per run_type via window function. There's no pure-ORM
         # equivalent: Postgres doesn't allow filtering on a window result,
@@ -237,7 +233,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
                 .values_list("identifier", "run__run_type", "drift_avg")
             ):
                 if drift_avg is not None:
-                    recent_drift_by_key[(run_type, identifier)] = drift_avg
+                    recent_drift_by_key[SnapshotKey(run_type=run_type, identifier=identifier)] = drift_avg
 
     # 4. Totals computed across the *full* universe (not the truncated slice)
     # so the stat row stays correct when the entries are clipped.
@@ -295,7 +291,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
             .count()
         )
     else:
-        quarantined_id_count = len({identifier for _, identifier in active_quarantines_by_key})
+        quarantined_id_count = len({key.identifier for key in active_quarantines_by_key})
 
     # by_run_type counts every entry in the universe. Aggregate query under
     # truncation so it doesn't undercount; in-memory Counter when not truncated
@@ -314,6 +310,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
         entries=universe,
         tolerate_30d_by_id=tolerate_30d_by_id,
         tolerate_90d_by_id=tolerate_90d_by_id,
+        active_variants_by_key=active_variants_by_key,
         active_quarantines_by_key=active_quarantines_by_key,
         change_count_by_key=change_count_by_key,
         recent_drift_by_key=recent_drift_by_key,
@@ -321,6 +318,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
         totals_recent=len(recent_ids),
         totals_frequent=len(frequent_ids),
         totals_quarantined=quarantined_id_count,
+        totals_variant_pileups=sum(1 for count in active_variants_by_key.values() if count >= VARIANT_PILEUP_MIN),
         by_run_type=by_run_type,
         truncated=truncated,
         generated_at=now,
@@ -337,20 +335,24 @@ class _BaselineOverviewRaw:
     entries: list[RunSnapshot]
     tolerate_30d_by_id: dict[str, int]
     tolerate_90d_by_id: dict[str, int]
+    # Accepted variants standing against each baseline's current hash. Only non-zero counts
+    # are present.
+    active_variants_by_key: dict[SnapshotKey, int]
     # Latest active QuarantinedIdentifier (with `source_run` preloaded) for each
     # `(run_type, identifier)` in the universe — lets the facade build the rich
     # quarantine summary embedded on each BaselineEntry. Membership doubles as
     # the "is_quarantined" signal — no separate set needed.
-    active_quarantines_by_key: dict[tuple[str, str], QuarantinedIdentifier]
-    # Stability signals keyed by `(run_type, identifier)` because the same
-    # identifier in different run types is a different baseline; merging would
-    # bleed storybook stability into playwright stability.
-    change_count_by_key: dict[tuple[str, str], int]
-    recent_drift_by_key: dict[tuple[str, str], float]
+    active_quarantines_by_key: dict[SnapshotKey, QuarantinedIdentifier]
+    # Stability signals keyed per identity because the same identifier in
+    # different run types is a different baseline; merging would bleed storybook
+    # stability into playwright stability.
+    change_count_by_key: dict[SnapshotKey, int]
+    recent_drift_by_key: dict[SnapshotKey, float]
     totals_all: int
     totals_recent: int
     totals_frequent: int
     totals_quarantined: int
+    totals_variant_pileups: int
     by_run_type: dict[str, int]
     truncated: bool
     generated_at: datetime

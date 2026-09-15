@@ -56,6 +56,7 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
 
 from products.slack_app.backend import inbox_channel, onboarding
+from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.discussion_replies import try_ingest_discussion_reply
 from products.slack_app.backend.feature_flags import (
     ASSISTANT_REQUIRED_SCOPES,
@@ -88,6 +89,7 @@ from products.slack_app.backend.services.slack_messages import (
     SLACK_WEBHOOK_TIMEOUT_SECONDS,
     TURN_FEEDBACK_ACTION_ID,
     SlackThreadMessage,
+    parse_slack_file_refs,
     post_slack_thread_reply,
 )
 from products.slack_app.backend.services.slack_settings import resolve_untagged_followup_mode
@@ -1326,6 +1328,24 @@ def _thread_message_event_has_files(event: dict[str, Any]) -> bool:
     return isinstance(files, list) and len(files) > 0
 
 
+def _slack_attachment_props(event: dict[str, Any]) -> dict[str, Any]:
+    """Analytics context for whatever a message carried alongside its text.
+
+    The agent reads images now, so how often people send one is the question the mention
+    event has to answer, and it can only do that by counting the uploads as they arrive.
+    Distinct mimetypes ride along so a screenshot is separable from a log or a CSV without
+    a second event.
+    """
+    files = parse_slack_file_refs(event.get("files"))
+    image_count = sum(1 for file in files if file.mimetype.startswith("image/"))
+    return {
+        "slack_attachment_count": len(files),
+        "slack_image_count": image_count,
+        "slack_has_image": image_count > 0,
+        "slack_attachment_mimetypes": sorted({file.mimetype for file in files if file.mimetype}),
+    }
+
+
 def _thread_message_ignore_reason(event: dict[str, Any]) -> str | None:
     """Return a short reason if this ``message`` event shouldn't be considered as an
     untagged thread follow-up, else None.
@@ -1971,6 +1991,9 @@ def _route_assistant_event(
     posthog_user = resolution.user
 
     if event_type == "assistant_thread_started":
+        capture_slack_event(
+            probe, "slack app assistant thread started", slack_user_id=fields.slack_user_id, posthog_user=posthog_user
+        )
         return _handle_assistant_thread_started(SlackIntegration(probe), fields.dm_channel_id, fields.thread_ts)
     if event_type == "assistant_thread_context_changed":
         _store_assistant_channel_context(probe.id, fields.dm_channel_id, fields.thread_ts, fields.viewed_channel_id)
@@ -2114,6 +2137,21 @@ def _handle_app_uninstalled(request: HttpRequest, slack_team_id: str) -> str:
     """
     deleted = clear_workspace_profile_cache(slack_team_id)
     logger.info("slack_app_uninstalled_profile_cache_cleared", slack_team_id=slack_team_id, rows_deleted=deleted)
+    # A workspace linked to several projects matches several rows, but the uninstall is
+    # one act: capture once per region so plain event counts stay honest, with
+    # `linked_project_count` carrying how many links it severed.
+    linked_integrations = list(
+        Integration.objects.filter(kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id)
+        .select_related("team", "team__organization")
+        .order_by("id")
+    )
+    if linked_integrations:
+        capture_slack_event(
+            linked_integrations[0],
+            "slack app uninstalled",
+            was_proxied=was_proxied(request),
+            linked_project_count=len(linked_integrations),
+        )
     if not was_proxied(request) and cross_region_routing_enabled():
         _proxy_event_to_region(request, other_region_domain(request.get_host()))
     return ROUTE_HANDLED_LOCALLY
@@ -3315,6 +3353,12 @@ def _handle_untagged_followup_run(payload: dict) -> HttpResponse:
         slack_channel_id=context.get("slack_channel_id"),
         slack_user_id=clicker_slack_user_id,
     )
+    capture_slack_event(
+        integration,
+        "slack app untagged followup confirmed",
+        slack_user_id=clicker_slack_user_id,
+        posthog_user=posthog_user,
+    )
     _delete_ephemeral_via_response_url(response_url)
     return HttpResponse(status=200)
 
@@ -3323,9 +3367,34 @@ def _handle_untagged_followup_dismiss(payload: dict) -> HttpResponse:
     """Drop the message the replier declined. Nothing is persisted — the choice
     covers this one message, not the thread."""
     context_token = _extract_context_token(payload)
+    context = _decode_picker_context(context_token) if context_token else None
     if context_token:
         cache.delete(_picker_context_cache_key(context_token))
     _delete_ephemeral_via_response_url(payload.get("response_url", ""))
+    # Only a live untagged-followup context names the integration that raised the prompt,
+    # so resolving it there matches the confirm path's attribution instead of an
+    # arbitrary row of a multi-project workspace.
+    if not context or context.get("kind") != UNTAGGED_FOLLOWUP_CONTEXT_KIND:
+        return HttpResponse(status=200)
+    slack_team_id = payload.get("team", {}).get("id", "")
+    integration_id = context.get("integration_id")
+    dismissing_integration = (
+        Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+            id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+            kind=SLACK_INTEGRATION_KIND,
+            integration_id=slack_team_id,
+        )
+        .select_related("team", "team__organization")
+        .first()
+        if integration_id and slack_team_id
+        else None
+    )
+    if dismissing_integration is not None:
+        capture_slack_event(
+            dismissing_integration,
+            "slack app untagged followup dismissed",
+            slack_user_id=payload.get("user", {}).get("id"),
+        )
     return HttpResponse(status=200)
 
 
@@ -3381,8 +3450,20 @@ def _report_slack_mention_received(
             "slack_team_id": slack_team_id,
             "slack_channel": channel,
             "slack_thread_ts": thread_ts,
+            # Identifies the individual message, so an accepted mention can be ordered against
+            # the drops in its thread and joined to the agent turn that answered it.
+            "slack_message_ts": message_ts,
             "slack_user_id": slack_user_id,
+            # Whether the message tagged the bot. ``app_mention`` is a tagged message;
+            # ``message`` is an untagged thread reply that the follow-up mode let through,
+            # because the ``message`` copy of a tagged reply drops earlier as ``tagged_reply``.
+            # ``posthog code slack mention dropped`` reports the same field, so the two sides
+            # add up to a funnel.
+            "slack_event_type": event.get("type"),
+            # "im" marks an assistant DM; channel mentions carry "channel"/"group" or no type at all.
+            "slack_channel_type": event.get("channel_type"),
             "posthog_user_identified": identified_distinct_id is not None,
+            **_slack_attachment_props(event),
         }
         if posthog_user is not None and identified_distinct_id is not None:
             properties["$set"] = posthog_user.get_analytics_metadata()

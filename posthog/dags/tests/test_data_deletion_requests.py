@@ -102,15 +102,14 @@ def _truncate_writable_events(client: Client) -> None:
     client.execute("TRUNCATE TABLE IF EXISTS sharded_events")
 
 
-def _insert_flag_evaluations_with_properties(rows: list[tuple], client: Client, column: str = "properties") -> None:
-    # Rows of (team_id, distinct_id, <column>_json, uuid, timestamp, inserted_at). The event name is
+def _insert_flag_evaluations_with_properties(rows: list[tuple], client: Client) -> None:
+    # Rows of (team_id, distinct_id, properties_json, uuid, timestamp, inserted_at). The event name is
     # stamped here because a property-removal request narrows on it. inserted_at is set explicitly
     # rather than left to its `DEFAULT timestamp` so a test can place a row before or after the
-    # removal marker, which is what the marker-bounded gate keys on. `column` selects which JSON blob
-    # column the row's properties land in: `properties` (event) or `person_properties`.
+    # removal marker, which is what the marker-bounded gate keys on.
     client.execute(
-        f"INSERT INTO writable_flag_evaluations "
-        f"(team_id, distinct_id, {column}, uuid, timestamp, inserted_at, event) VALUES",
+        "INSERT INTO writable_flag_evaluations "
+        "(team_id, distinct_id, properties, uuid, timestamp, inserted_at, event) VALUES",
         [(*row, FLAG_EVALUATIONS_SOURCE_EVENT) for row in rows],
     )
 
@@ -137,6 +136,15 @@ def _truncate_adhoc_events_deletion(client: Client) -> None:
 def _adhoc_pending_uuids(team_id: int, client: Client) -> set:
     result = client.execute(
         f"SELECT uuid FROM {ADHOC_EVENTS_DELETION_TABLE} FINAL WHERE team_id = %(team_id)s AND is_deleted = 0",
+        {"team_id": team_id},
+    )
+    return {row[0] for row in result}
+
+
+def _adhoc_pending_request_ids(team_id: int, client: Client) -> set:
+    result = client.execute(
+        f"SELECT data_deletion_request_id FROM {ADHOC_EVENTS_DELETION_TABLE} FINAL "
+        "WHERE team_id = %(team_id)s AND is_deleted = 0",
         {"team_id": team_id},
     )
     return {row[0] for row in result}
@@ -535,6 +543,8 @@ def test_full_job_event_deletion_deferred(cluster: ClickhouseCluster):
     assert cluster.any_host(partial(_count_events_by_name, DEFERRED_TEAM_ID, "$pageview")).result() == 15
     queued = cluster.any_host(partial(_adhoc_pending_uuids, DEFERRED_TEAM_ID)).result()
     assert queued == set(target_uuids)
+    request_ids = cluster.any_host(partial(_adhoc_pending_request_ids, DEFERRED_TEAM_ID)).result()
+    assert request_ids == {request.pk}
 
     request.refresh_from_db()
     assert request.status == RequestStatus.QUEUED
@@ -2205,34 +2215,24 @@ def test_get_property_removal_shards_refuses_when_flag_evaluations_holds_matchin
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "properties, person_properties, insert_column, insert_value, expect_refusal",
+    "properties, person_properties, insert_value, expect_refusal",
     [
-        pytest.param(
-            [], ["email"], "person_properties", '{"email": "a@example.com"}', False, id="person_properties_only"
-        ),
-        pytest.param(
-            ["$ip"],
-            ["email"],
-            "person_properties",
-            '{"email": "a@example.com"}',
-            False,
-            id="mixed_matches_person_property",
-        ),
-        pytest.param(["$ip"], ["email"], "properties", '{"$ip": "1.2.3.4"}', True, id="mixed_matches_event_property"),
+        pytest.param([], ["email"], '{"email": "a@example.com"}', False, id="person_properties_only"),
+        pytest.param(["$ip"], ["email"], '{"email": "a@example.com"}', False, id="mixed_row_holds_only_the_person_key"),
+        pytest.param(["$ip"], ["email"], '{"$ip": "1.2.3.4"}', True, id="mixed_matches_event_property"),
     ],
 )
 def test_get_property_removal_shards_narrows_person_properties_on_flag_evaluations(
     cluster: ClickhouseCluster,
     properties: list[str],
     person_properties: list[str],
-    insert_column: str,
     insert_value: str,
     expect_refusal: bool,
 ) -> None:
-    # flag_evaluations' person_properties column no longer receives real data (#95693), so the gate
-    # drops the person_properties half of its check: a row matching only that half now survives,
-    # which is the accepted cost. The target itself is still checked, so a row matching the request's
-    # event property must still refuse.
+    # flag_evaluations has no person_properties column (#95693), so the gate drops the
+    # person_properties half of its check. A row that holds only the key named there survives, which
+    # is the accepted cost, and a gate that kept that half would query a column the table does not
+    # have. The event-property half still applies, so a row matching it must still refuse.
     request = DataDeletionRequest.objects.create(
         team_id=PROP_TEAM_ID,
         request_type=RequestType.PROPERTY_REMOVAL,
@@ -2254,7 +2254,6 @@ def test_get_property_removal_shards_narrows_person_properties_on_flag_evaluatio
         partial(
             _insert_flag_evaluations_with_properties,
             [(PROP_TEAM_ID, "someone", insert_value, str(uuid4()), before_marker, before_marker)],
-            column=insert_column,
         )
     ).result()
 

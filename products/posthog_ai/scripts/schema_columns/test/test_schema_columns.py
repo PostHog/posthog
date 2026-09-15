@@ -8,7 +8,48 @@ import pytest
 from products.posthog_ai.scripts.build_skills import SkillRenderer
 from products.posthog_ai.scripts.schema_columns import schema_columns
 
+REPO_ROOT = Path(__file__).resolve().parents[5]
 REFERENCES = Path(__file__).resolve().parents[3] / "skills" / "querying-posthog-data" / "references"
+
+# Every doc that teaches the `execute-sql` schema-discovery path. The guidelines file is copied
+# verbatim into the MCP bundle and the section file is spliced into the `execute-sql` tool
+# description, so a wrong field name here reaches every agent that reads one of them.
+SCHEMA_DISCOVERY_DOCS = (
+    REFERENCES / "guidelines.md",
+    REPO_ROOT / "services" / "mcp" / "src" / "templates" / "sections" / "schema-discovery.md",
+    REPO_ROOT / "products" / "customer_analytics" / "skills" / "SKILL.md",
+)
+
+# `- `tables` — one row per table. Fields: table_catalog, table_schema, …`
+DOCUMENTED_FIELDS = re.compile(r"^- `(\w+)` — .*?Fields: ([^.]+)\.", re.MULTILINE)
+
+# A `SELECT … FROM system.information_schema.<surface>`, fenced or inline. The select list may
+# span lines but must not swallow an intervening `FROM`, or a query over another table pairs up
+# with the next information_schema one.
+DOCUMENTED_QUERY = re.compile(
+    r"SELECT\s+((?:(?!\bFROM\b)[\s\S])+?)\s+FROM\s+system\.information_schema\.(\w+)", re.IGNORECASE
+)
+
+
+def _live_fields(surface: str) -> list[str]:
+    from posthog.hogql.database.models import Table
+    from posthog.hogql.database.schema.information_schema import information_schema_node
+
+    table = information_schema_node().children[surface].table
+    assert isinstance(table, Table)
+    return list(table.fields)
+
+
+def _projected_names(select_list: str) -> list[str]:
+    names = []
+    for item in select_list.split(","):
+        # Strip an alias, then keep the projection only when it is a bare column reference —
+        # `count()` and other expressions are not fields and have nothing to check against.
+        expression = re.split(r"\s+AS\s+", item.strip(), flags=re.IGNORECASE)[0].strip()
+        if re.fullmatch(r"\w+", expression):
+            names.append(expression)
+    return names
+
 
 # A four-column row (`col` | type | nullable | description) is a schema table. The two-column
 # `field` | description tables in these docs describe nested JSON, not columns.
@@ -84,3 +125,34 @@ def test_renders_usage_metric_contract() -> None:
     )
     assert "`format` | String | NOT NULL | Display format: 'numeric' or 'currency'." in rendered
     assert "`math` | String | NOT NULL | Aggregation: 'count' or 'sum'; 'sum' aggregates math_property." in rendered
+
+
+def test_documented_information_schema_fields_match_the_catalog() -> None:
+    documented = DOCUMENTED_FIELDS.findall((REFERENCES / "guidelines.md").read_text())
+    assert {surface for surface, _ in documented} == {"tables", "columns", "relationships", "data_types"}
+
+    for surface, field_list in documented:
+        fields = [field.strip() for field in field_list.split(",")]
+        assert fields == _live_fields(surface), (
+            f"guidelines.md documents the wrong fields for system.information_schema.{surface}. "
+            "Agents project what this list says, so a stale entry fails their query."
+        )
+
+
+def test_documented_information_schema_queries_project_real_fields() -> None:
+    for path in SCHEMA_DISCOVERY_DOCS:
+        text = path.read_text()
+        queries = DOCUMENTED_QUERY.findall(text)
+        assert queries, f"{path.name} documents no information_schema query"
+
+        for select_list, surface in queries:
+            live = _live_fields(surface)
+            for name in _projected_names(select_list):
+                assert name in live, (
+                    f"{path.name} projects `{name}` from system.information_schema.{surface}, "
+                    f"which only exposes {live}."
+                )
+
+        # The namespace is only reachable under `system.`; querying an unqualified
+        # `information_schema.*` fails on an unknown table.
+        assert not re.search(r"\bFROM\s+information_schema\.", text, re.IGNORECASE)

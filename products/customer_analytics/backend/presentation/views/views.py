@@ -70,6 +70,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     AccountEmailThreadSerializer,
     AccountNotebookSerializer,
     AccountNoteSerializer,
+    AccountPresenceViewerSerializer,
     AccountRelationshipDefinitionSerializer,
     AccountRelationshipSerializer,
     AccountRelationshipWriteSerializer,
@@ -115,8 +116,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     UserCustomerAnalyticsConfigSerializer,
     UserCustomerAnalyticsConfigUpdateSerializer,
 )
-
-from ee.hogai.tools.create_notebook.tiptap import markdown_to_tiptap_nodes
+from products.notebooks.backend.facade.content import build_markdown_notebook_content
 
 # Object-level access levels for the resource ViewSets, matching what
 # ``AccessControlPermission._get_required_access_level`` derives for these scope objects:
@@ -1722,6 +1722,27 @@ class AccountViewSet(
             raise PermissionDenied()
         return Response(AccountSerializer(instance=account).data)
 
+    @extend_schema(
+        parameters=[_ACCOUNT_ID_PARAM],
+        request=None,
+        responses={200: AccountPresenceViewerSerializer(many=True)},
+    )
+    @action(methods=["POST"], detail=True, pagination_class=None, required_scopes=["account:read"])
+    def presence(self, request: Request, *args, **kwargs) -> Response:
+        if is_service_auth(request):
+            if api.get_account(self.team_id, self.kwargs["pk"]) is None:
+                return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response([])
+        viewers = api.list_account_presence_viewers(
+            self.team_id,
+            self.kwargs["pk"],
+            self.user_access_control,
+            cast(User, request.user),
+        )
+        if viewers is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(AccountPresenceViewerSerializer(instance=viewers, many=True).data)
+
     @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: SupportTicketSerializer(many=True)})
     @action(methods=["GET"], detail=True, pagination_class=None)
     def support_tickets(self, request: Request, *args, **kwargs) -> Response:
@@ -2129,18 +2150,18 @@ class AccountNotebookViewSet(
 
 def _synthesize_notebook_content(text_content, existing_content):
     """When the caller passed Markdown ``text_content`` but no usable ProseMirror ``content``
-    tree, build one from the Markdown. Agents calling the MCP notebook-create tool typically
-    send ``text_content`` only (hand-writing ProseMirror is awkward), and NotebookScene only
-    renders ``content`` — so without this the result is a blank page. The tiptap helper lives
-    in ``ee.hogai`` and stays in the view so it never reaches the facade import path. Returns
-    ``None`` when the caller already supplied usable content (or no markdown)."""
+    tree, build a markdown notebook document from the Markdown. Agents calling the MCP
+    notebook-create tool typically send ``text_content`` only, because hand-writing ProseMirror
+    is awkward, and NotebookScene renders ``content`` only, so without this the result is a
+    blank page. Returns ``None`` when the caller already supplied usable content (or no
+    markdown)."""
     has_usable_content = (
         isinstance(existing_content, dict)
         and existing_content.get("type") == "doc"
         and isinstance(existing_content.get("content"), list)
     )
     if text_content and not has_usable_content:
-        return {"type": "doc", "content": markdown_to_tiptap_nodes(text_content) or [{"type": "paragraph"}]}
+        return build_markdown_notebook_content(text_content)
     return None
 
 

@@ -31,10 +31,13 @@ use crate::service::validation::{
 };
 use crate::storage::IdentityStorage;
 
+const RESOLVE_KEYS_PER_CALL: &str = "personhog_identity_resolve_keys_per_call";
+
 pub struct PersonHogIdentityService {
     pub(crate) storage: Arc<dyn IdentityStorage>,
     pub(crate) property_writer: Arc<dyn PropertyWriter>,
     pub(crate) limits: RequestLimits,
+    pub(crate) property_write_concurrency: usize,
     merge: MergeEntrance,
 }
 
@@ -44,11 +47,14 @@ impl PersonHogIdentityService {
         property_writer: Arc<dyn PropertyWriter>,
         limits: RequestLimits,
         merge: MergeEntrance,
+        property_write_concurrency: usize,
     ) -> Self {
         Self {
             storage,
             property_writer,
             limits,
+            // Clamped to 1: a zero-width buffered stream never polls.
+            property_write_concurrency: property_write_concurrency.max(1),
             merge,
         }
     }
@@ -118,6 +124,7 @@ impl PersonHogIdentity for PersonHogIdentityService {
         request: Request<GetPersonsByDistinctIdsRequest>,
     ) -> Result<Response<GetPersonsByDistinctIdsResponse>, Status> {
         let keys = request.into_inner().keys;
+        common_metrics::histogram(RESOLVE_KEYS_PER_CALL, &[], keys.len() as f64);
         validate_batch_size(&self.limits, keys.len())?;
         for key in &keys {
             validate_team_id(key.team_id)?;

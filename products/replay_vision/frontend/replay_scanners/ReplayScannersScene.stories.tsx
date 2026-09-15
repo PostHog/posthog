@@ -193,6 +193,8 @@ const observation = (overrides: Partial<ReplayObservationApi> = {}): ReplayObser
         status: 'succeeded',
         error_reason: '',
         workflow_id: 'vision-observation-1',
+        // The API always sends this, and only a configured scanner has a page to link to.
+        scanner_origin: 'configured',
         scanner_snapshot: {
             name: summarizerScanner.name,
             scanner_type: 'summarizer',
@@ -201,6 +203,7 @@ const observation = (overrides: Partial<ReplayObservationApi> = {}): ReplayObser
             provider: 'google',
             emits_signals: false,
             scanner_config: { prompt: 'Summarize this session.', length: 'medium' },
+            verify_positives: 'off',
         },
         scanner_result: {
             model_output: {
@@ -278,7 +281,15 @@ const observationDetail = observation({
                 'The user spent most of the session in checkout, retrying an invalid coupon three times before abandoning the cart at the payment step.',
         },
         signals_count: 1,
+        verification: null,
     },
+})
+
+// Rated wrong with no feedback written yet, the only state where the feedback placeholder shows.
+const thumbsDownObservationDetail = observation({
+    id: '00000000-0000-0000-0000-0000000000d3',
+    session_id: '01966b3f-70a1-7c52-a4d5-3f9b2e8c1d12',
+    label: { is_correct: false, feedback: '' },
 })
 
 // A monitor observation, so the detail page renders the prompt row and the reasoning card that a
@@ -301,6 +312,7 @@ const monitorObservationDetail = observation({
             prompt: 'Did the user struggle at checkout? Count it as struggling if they retried a coupon code more than once, resubmitted the payment form after an error, or moved back and forth between the cart and the payment step without completing the order. Ignore sessions that never reached the checkout page at all.',
             allow_inconclusive: true,
         },
+        verify_positives: 'off',
     },
     scanner_result: {
         model_output: {
@@ -311,6 +323,7 @@ const monitorObservationDetail = observation({
                 'The user entered a coupon code three times, each time getting a validation error, then switched to the payment form and submitted it twice before leaving the page. That is a retry loop at checkout rather than ordinary browsing.',
         },
         signals_count: 1,
+        verification: null,
     },
 })
 
@@ -647,9 +660,46 @@ export const ScannerCalibration: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=calibration` },
 }
 
+export const ScannerCalibrationTestNudge: StoryObj = {
+    parameters: {
+        pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=calibration`,
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_TEST_NUDGE]: 'test' },
+    },
+}
+
+const neverRatedStats = {
+    ...summarizerStats,
+    labels: { ...summarizerStats.labels, up_total: 0, down_total: 0 },
+}
+
+export const ScannerCalibrationActivationBadge: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVision(summarizerScanner.id),
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_ACTIVATION]: 'badge' },
+    },
+    decorators: [
+        mswDecorator({
+            get: { '/api/projects/:team_id/vision/scanners/:id/observations/stats/': neverRatedStats },
+        }),
+    ],
+}
+
+export const ScannerCalibrationActivationPrompt: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVision(summarizerScanner.id),
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_ACTIVATION]: 'prompt' },
+    },
+    decorators: [
+        mswDecorator({
+            get: { '/api/projects/:team_id/vision/scanners/:id/observations/stats/': neverRatedStats },
+        }),
+    ],
+}
+
 const digestScoutConfig = {
     id: '00000000-0000-0000-0000-0000000000c1',
     skill_name: 'signals-scout-daily-digest-confused-checkout',
+    display_name: 'Checkout / daily digest',
     description: 'Daily digest of what the scanner observed since the last run.',
     scout_origin: 'custom',
     owners: [alice],
@@ -660,7 +710,7 @@ const digestScoutConfig = {
     source_id: summarizerScanner.id,
     run_cron_schedule: '0 9 * * *',
     run_interval_minutes: 1440,
-    output_destinations: [],
+    output_destinations: {},
     created_at: '2026-05-02T09:00:00Z',
 }
 
@@ -668,6 +718,7 @@ const trendScoutConfig = {
     ...digestScoutConfig,
     id: '00000000-0000-0000-0000-0000000000c2',
     skill_name: 'signals-scout-checkout-trend-watch',
+    display_name: '',
     description: 'Watches for week-over-week movement in checkout friction themes.',
     owners: [bob],
     created_at: '2026-05-06T09:00:00Z',
@@ -691,6 +742,9 @@ export const ScannerScouts: StoryObj = {
             get: {
                 '/api/projects/:team_id/signals/scout/configs/': [digestScoutConfig, trendScoutConfig],
                 '/api/projects/:team_id/vision/scanners/:scannerId/scout_reports/': [scoutReport],
+                '/api/projects/:team_id/llm_skills/name/:skillName/': {
+                    body: 'Review new scanner observations and report changes in checkout friction.',
+                },
             },
         }),
     ],
@@ -806,6 +860,25 @@ export const ObservationDetailMonitor: StoryObj = {
             get: {
                 '/api/projects/:team_id/vision/observations/:id/': monitorObservationDetail,
             },
+        }),
+    ],
+}
+
+export const ObservationDetailCalibrationEntryPoint: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionObservation(observationDetail.id),
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_ENTRY_POINT]: 'test' },
+    },
+}
+
+export const ObservationDetailFeedbackPrompt: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionObservation(thumbsDownObservationDetail.id),
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_CALIBRATION_FEEDBACK_PROMPT]: 'test' },
+    },
+    decorators: [
+        mswDecorator({
+            get: { '/api/projects/:team_id/vision/observations/:id/': thumbsDownObservationDetail },
         }),
     ],
 }

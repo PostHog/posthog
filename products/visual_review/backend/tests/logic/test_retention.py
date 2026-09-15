@@ -1,13 +1,13 @@
 """Unit tests for logic/retention.py, the run and artifact retention sweep."""
 
-from datetime import timedelta
+from datetime import date, timedelta
 
 import pytest
 
 from django.utils import timezone
 
 from products.visual_review.backend.facade.enums import RunStatus, RunType, ToleratedReason
-from products.visual_review.backend.logic import artifact_store, repos, retention
+from products.visual_review.backend.logic import artifact_store, repos, retention, story_index
 from products.visual_review.backend.models import Artifact, QuarantinedIdentifier, Run, RunSnapshot, ToleratedHash
 from products.visual_review.backend.tasks.tasks import sweep_visual_review_retention
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
@@ -287,6 +287,23 @@ class TestRetentionSweep:
         assert result.artifacts_deleted == 1
         assert Artifact.objects.filter(repo_id=repo.id).count() == 1
 
+    def test_a_story_index_goes_with_the_last_run_that_names_it(self, repo, now, stub_object_delete):
+        released, shared = "a" * 64, "b" * 64
+        latest = self._run(repo, now, age_days=1)
+        for story_index_hash, run in (
+            (shared, latest),
+            (released, self._run(repo, now, age_days=400, superseded_by=latest)),
+            (shared, self._run(repo, now, age_days=400, superseded_by=latest)),
+        ):
+            run.metadata = {story_index.METADATA_KEY: story_index_hash}
+            run.save(update_fields=["metadata"])
+
+        result = retention.sweep_repo(repo, now=now)
+
+        # The shared map is still named by the run that stays, so only the released one goes.
+        assert result.story_indexes_deleted == 1
+        stub_object_delete.assert_called_once_with([f"visual_review/{repo.id}/story-index/{released}.json"])
+
     def test_sweeping_one_repo_leaves_another_repo_alone(self, repo, other_repo, now):
         kept_latest = self._run(other_repo, now, age_days=200)
         kept_superseded = self._run(other_repo, now, age_days=300, superseded_by=kept_latest)
@@ -323,3 +340,21 @@ class TestRetentionSweep:
         sweep_visual_review_retention()
 
         assert sweep_repo.call_count == 0
+
+
+class TestRotateForDay:
+    def test_every_item_leads_the_list_once_over_a_full_cycle(self):
+        items = ["a", "b", "c", "d"]
+        first_day = date(2026, 9, 10)
+
+        leaders = [retention.rotate_for_day(items, first_day + timedelta(days=n))[0] for n in range(len(items))]
+
+        assert sorted(leaders) == sorted(items)
+
+    def test_rotation_keeps_every_item(self):
+        items = ["a", "b", "c", "d"]
+
+        assert sorted(retention.rotate_for_day(items, date(2026, 9, 10))) == sorted(items)
+
+    def test_an_empty_list_stays_empty(self):
+        assert retention.rotate_for_day([], date(2026, 9, 10)) == []

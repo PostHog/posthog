@@ -339,6 +339,18 @@ function SpaceAttentionDot({
 }
 
 /**
+ * The caret opens a space onto its sessions without entering it, so it reports
+ * on its own rather than as a nav click.
+ */
+function trackSpaceDisclosure(channelId: string, expanded: boolean): void {
+  track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+    action_type: expanded ? "collapse_channel" : "expand_channel",
+    surface: "sidebar",
+    channel_id: channelId,
+  });
+}
+
+/**
  * The tree's disclosure caret, in its own fixed slot ahead of the space glyph.
  * Always drawn: a control that only appears on hover moves the row's contents
  * as the pointer crosses the list, and leaves the tree invisible to anyone who
@@ -418,6 +430,12 @@ function useOpenSpaceTask(): (spaceId: string, taskId: string) => void {
   const setCurrentChannel = useCurrentChannelStore((s) => s.setCurrentChannel);
 
   return (spaceId, taskId) => {
+    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+      action_type: "open_task",
+      surface: "sidebar",
+      channel_id: spaceId,
+      task_id: taskId,
+    });
     keepListForRoute(spaceId);
     // Still scoped: the space is where the session lives, so anything that then
     // asks for the channel pane opens on the right one.
@@ -528,7 +546,7 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
             <span className="sr-only">Archiving</span>
           </>
         ) : (
-          <TaskStatusDot dot={taskDot(status ?? {})} />
+          <TaskStatusDot dot={taskDot(status ?? {})} hitArea="row" />
         )}
         <span
           className={cn(
@@ -611,7 +629,14 @@ function ViewAllRow({
     <SpaceRowSurface
       asOption={asOption}
       optionValue={viewAllValue(spaceId)}
-      onClick={onOpenSpace}
+      onClick={() => {
+        track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+          action_type: "view_more_tasks",
+          surface: "sidebar",
+          channel_id: spaceId,
+        });
+        onOpenSpace();
+      }}
       className={cn("pl-8 text-[13px]", ROW_LABEL_TONE)}
     >
       {/* The arrow takes the slot a session's status dot has, so the guide's
@@ -1218,7 +1243,10 @@ const ChannelSection = memo(
                       <SpaceDisclosure
                         expanded={expanded}
                         spaceName={channel.name}
-                        onToggle={() => onToggleExpanded(channel.id)}
+                        onToggle={() => {
+                          trackSpaceDisclosure(channel.id, expanded);
+                          onToggleExpanded(channel.id);
+                        }}
                       />
                     )}
                     {glyph}
@@ -1302,39 +1330,44 @@ const ChannelSection = memo(
                 <ChannelActionItems actions={actions} kind="context" />
               </ContextMenuContent>
             </ContextMenu>
-          </SpaceHoverCard>
-          {/* Hover actions stay visible while the menu is open. */}
-          <div className="absolute top-1 right-1">
-            <ButtonGroup>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="outline"
-                      size="icon-xs"
-                      aria-label={`New task in ${channel.name}`}
-                      className={cn(
-                        "gap-1 transition-opacity group-hover:border-border",
-                        menuOpen
-                          ? "opacity-100"
-                          : "opacity-0 group-hover/chan:opacity-100",
-                      )}
-                      onClick={newTask}
-                    >
-                      <PlusIcon size={12} weight="bold" />
-                    </Button>
-                  }
+            {/* Inside the card's trigger rather than beside it. These overlay
+                the row's own right edge, so reaching for one is not leaving
+                the row — and the card, which the trigger's bounds decide,
+                should read it that way too. Still positioned against
+                `group/chan`, which is the nearest positioned ancestor either
+                way. */}
+            <div className="absolute top-1 right-1">
+              <ButtonGroup>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="outline"
+                        size="icon-xs"
+                        aria-label={`New task in ${channel.name}`}
+                        className={cn(
+                          "gap-1 transition-opacity group-hover:border-border",
+                          menuOpen
+                            ? "opacity-100"
+                            : "opacity-0 group-hover/chan:opacity-100",
+                        )}
+                        onClick={newTask}
+                      >
+                        <PlusIcon size={12} weight="bold" />
+                      </Button>
+                    }
+                  />
+                  <TooltipContent side="top">New task</TooltipContent>
+                </Tooltip>
+                <ChannelMenu
+                  channelName={channel.name}
+                  actions={actions}
+                  open={menuOpen}
+                  onOpenChange={setMenuOpen}
                 />
-                <TooltipContent side="top">New task</TooltipContent>
-              </Tooltip>
-              <ChannelMenu
-                channelName={channel.name}
-                actions={actions}
-                open={menuOpen}
-                onOpenChange={setMenuOpen}
-              />
-            </ButtonGroup>
-          </div>
+              </ButtonGroup>
+            </div>
+          </SpaceHoverCard>
           {/* One modal for both the dropdown and context-menu "Rename" actions. */}
           {renameMounted && (
             <RenameChannelModal
@@ -1598,7 +1631,10 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
             <SpaceDisclosure
               expanded={expanded}
               spaceName={PERSONAL_CHANNEL_LABEL}
-              onToggle={() => onToggleExpanded(meChannel.id)}
+              onToggle={() => {
+                trackSpaceDisclosure(meChannel.id, expanded);
+                onToggleExpanded(meChannel.id);
+              }}
             />
           )}
           {glyph}

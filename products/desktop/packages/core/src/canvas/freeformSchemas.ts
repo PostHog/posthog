@@ -1,4 +1,4 @@
-import { isSafePostHogUrl } from "@posthog/shared";
+import { isSafeGitHubPullRequestUrl, isSafePostHogUrl } from "@posthog/shared";
 import { z } from "zod";
 import { textCommentAnchorDataSchema } from "../comments/anchors";
 
@@ -40,6 +40,11 @@ export type CanvasDataQueryInput = z.infer<typeof canvasDataQueryInput>;
 
 export const canvasDataResultSchema = z.object({
   columns: z.array(z.string()),
+  // True when the host served a cached result older than the canvas's declared
+  // refresh window and kicked off a background recompute. The bridge uses it to
+  // shorten its client-cache lifetime so the canvas's next read picks up the
+  // fresh numbers; it is stripped before the result reaches canvas code.
+  stale: z.boolean().optional(),
   // The result rows. SHAPE DEPENDS ON THE QUERY KIND (true for both `ph.query`
   // and `ph.loadInsight`):
   //   • HogQLQuery / SQL insight → an array of ROWS, each row an array of cell
@@ -276,6 +281,15 @@ export type HostToCanvasMessage = z.infer<typeof hostToCanvasMessageSchema>;
 export const canvasNavIntentSchema = z.discriminatedUnion("target", [
   z.object({ target: z.literal("task"), taskId: z.string().min(1) }),
   z.object({ target: z.literal("new-task") }),
+  z.object({
+    target: z.literal("compose-task"),
+    prompt: z.string().max(16_000).optional(),
+    repository: z
+      .string()
+      .max(200)
+      .regex(/^[a-z0-9-]+\/[a-z0-9_.-]+$/i)
+      .optional(),
+  }),
   z.object({ target: z.literal("canvas"), dashboardId: z.string().min(1) }),
   z.object({ target: z.literal("new-canvas") }),
   // ph.connectors.connect(provider): the host maps the provider to its own
@@ -337,12 +351,16 @@ export const canvasToHostMessageSchema = z.discriminatedUnion("type", [
     type: z.literal("navigate"),
     nav: canvasNavIntentSchema,
   }),
-  // Open a URL outside the sandbox. The PostHog-only https allowlist is part
+  // Open a URL outside the sandbox. The HTTPS allowlist is part
   // of the schema, so no consumer can forward an unvalidated URL.
   z.object({
     channel: z.literal(CANVAS_CHANNEL),
     type: z.literal("open-external"),
-    url: z.string().refine(isSafePostHogUrl),
+    url: z
+      .string()
+      .refine(
+        (url) => isSafePostHogUrl(url) || isSafeGitHubPullRequestUrl(url),
+      ),
   }),
   z.object({
     channel: z.literal(CANVAS_CHANNEL),

@@ -27,7 +27,6 @@ if TYPE_CHECKING:
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
-from posthog.llm.wizard_gateway_token import wizard_product_node
 from posthog.metrics import LABEL_PATH, LABEL_ROUTE, LABEL_TEAM_ID
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team.team import Team
@@ -733,6 +732,19 @@ class ReplayVisionEstimateSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "200/hour"
 
 
+# The watch feed windows, ranks and hydrates a slice of the team's observation history per call, and
+# its primary caller is the session-authenticated home tab, which the default Burst/Sustained
+# throttles bypass. Team-wide bucket so minting keys doesn't multiply the budget.
+class ReplayVisionWatchFeedBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_watch_feed_burst"
+    rate = "60/minute"
+
+
+class ReplayVisionWatchFeedSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_watch_feed_sustained"
+    rate = "600/hour"
+
+
 # Each observation search makes a synchronous embedding request and a brute-force cosine scan over
 # the team's embedding rows, and its primary caller is the session-authenticated Search tab, which
 # the default Burst/Sustained throttles bypass. The burst bucket is per credential so one user
@@ -1151,34 +1163,6 @@ class OnboardingSkipThrottle(UserRateThrottle):
     rate = "30/hour"
 
 
-class SetupWizardAuthenticationRateThrottle(UserRateThrottle):
-    # Throttle class that is applied for authenticating the setup wizard
-    # This is more aggressive than other throttles because the wizard makes LLM calls
-    scope = "wizard_authentication"
-    rate = "20/day"
-
-
-class SetupWizardQueryRateThrottle(SimpleRateThrottle):
-    def get_rate(self):
-        if settings.DEBUG:
-            return "1000/day"
-        return "20/day"
-
-    # Throttle per wizard hash
-    def get_cache_key(self, request, view):
-        hash = request.headers.get("X-PostHog-Wizard-Hash")
-
-        authorization_header = request.headers.get("Authorization")
-
-        value = (hash or authorization_header or "").strip() or self.get_ident(request)
-
-        sha_hash = hashlib.sha256(value.encode()).hexdigest()
-
-        # this value isn't use controllable and can't generate html/js, so there's no risk of xss
-        # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
-        return f"throttle_wizard_query_{sha_hash}"
-
-
 class SetupWizardGatewayTokenRateThrottle(SimpleRateThrottle):
     """Derives the per-user, per-program mint bucket. `reserve_wizard_mint` counts it.
 
@@ -1214,7 +1198,15 @@ class SetupWizardGatewayTokenRateThrottle(SimpleRateThrottle):
         return True
 
     def get_cache_key(self, request, view):
-        """The per-user, per-program bucket identity. Read by the view's reservation."""
+        """The per-user bucket identity. Read by the view's reservation.
+
+        Keyed on the user alone, not (user, program): caps do not pool across a
+        run's tokens, so a per-program key hands each program its own quota and
+        the per-account ceiling becomes the tier times the program count. One
+        bucket per account is the only aggregate bound. Spray is unaffected:
+        program_unknown is refused before the reservation, so invented names
+        never reach this counter.
+        """
         # request.user is anonymous here: the viewset authenticates sessions only and
         # the bearer is checked in the action body, after throttling. get_ident would
         # then key on the caller-chosen X-Forwarded-For, so resolve the token and fall
@@ -1231,21 +1223,12 @@ class SetupWizardGatewayTokenRateThrottle(SimpleRateThrottle):
                 ident = f"user:{user.pk}"
         if ident is None:
             ident = f"ip:{get_trusted_client_ip(request) or 'unknown'}"
-        # Bucket per program, on the resolved node rather than the raw field: keying
-        # on what the caller sent would hand out a fresh quota per invented name.
-        try:
-            program = request.data.get("program") if isinstance(request.data, dict) else None
-        except Exception:
-            program = None
-        # One shared bucket for anything unrecognized: a per-name bucket would hand
-        # out a fresh quota for every invented program, even though each is refused.
-        ident = f"{ident}|{wizard_product_node(program) or 'unknown-program'}"
         # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
         return f"throttle_wizard_gateway_token_{hashlib.sha256(ident.encode()).hexdigest()}"
 
 
 def reserve_wizard_mint(request, view, limit: int | None = None) -> str | None:
-    """Atomically consume one of this user's weekly mints for this program, or raise.
+    """Atomically consume one of this user's weekly mints across all programs, or raise.
 
     `limit` replaces the throttle's weekly count; None keeps the configured rate.
 
@@ -1284,7 +1267,7 @@ def reserve_wizard_mint(request, view, limit: int | None = None) -> str | None:
         capture_exception(e)
         return None
     if count > (throttle.num_requests if limit is None else limit):
-        raise exceptions.Throttled(detail="This wizard program has used its weekly run limit. Try again next week.")
+        raise exceptions.Throttled(detail="This account has used its weekly wizard run limit. Try again next week.")
     return counter
 
 

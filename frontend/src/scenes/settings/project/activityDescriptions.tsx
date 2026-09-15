@@ -1,9 +1,9 @@
 import {
     ActivityLogItem,
+    ActivityLogUserName,
     Describer,
     HumanizedChange,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
 const projectNameForLog = (logItem: ActivityLogItem): string => {
@@ -21,7 +21,7 @@ export const projectSecretAPIKeyActivityDescriber: Describer = (logItem: Activit
         return { description: null }
     }
 
-    const actor = <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>
+    const actor = <ActivityLogUserName logItem={logItem} />
     const keyName = <strong>{keyLabel(logItem)}</strong>
     const scopeName = <strong>{projectNameForLog(logItem)}</strong>
 

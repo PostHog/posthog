@@ -1264,7 +1264,11 @@ export class ApiRequest {
     }
 
     public task(id: Task['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.tasks(teamId).addPathComponent(id)
+        if (id === '.' || id === '..') {
+            throw new Error('Invalid task ID')
+        }
+
+        return this.tasks(teamId).addEncodedPathComponent(id)
     }
 
     public taskRuns(taskId: Task['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1937,10 +1941,6 @@ export class ApiRequest {
         return this.coreMemory().addPathComponent(id)
     }
 
-    public authenticateWizard(): ApiRequest {
-        return this.wizard().addPathComponent('authenticate')
-    }
-
     public messagingTemplates(): ApiRequest {
         return this.environmentsDetail().addPathComponent('messaging_templates')
     }
@@ -2015,10 +2015,6 @@ export class ApiRequest {
 
     public hogFlowTemplate(hogFlowTemplateId: HogFlowTemplate['id']): ApiRequest {
         return this.hogFlowTemplates().addPathComponent(hogFlowTemplateId)
-    }
-
-    public wizard(): ApiRequest {
-        return this.addPathComponent('wizard')
     }
 
     public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
@@ -3625,7 +3621,7 @@ const api = {
 
         async listForOrg(
             organizationId: OrganizationType['id'],
-            params: { limit?: number; offset?: number; search?: string } = {}
+            params: { limit?: number; offset?: number; search?: string; levels?: string; ordering?: string } = {}
         ): Promise<CountedPaginatedResponse<Pick<OrganizationMemberType, 'id' | 'user' | 'level' | 'last_login'>>> {
             return await new ApiRequest()
                 .organizationMembersForAccount()
@@ -6522,11 +6518,6 @@ const api = {
             return await new ApiRequest().coreMemoryDetail(coreMemoryId).update({ data: coreMemory })
         },
     },
-    wizard: {
-        async authenticateWizard(data: { hash: string; projectId: number }): Promise<{ success: boolean }> {
-            return await new ApiRequest().authenticateWizard().create({ data })
-        },
-    },
     messaging: {
         async getTemplates(): Promise<PaginatedResponse<MessageTemplate>> {
             return await new ApiRequest().messagingTemplates().get()
@@ -6589,7 +6580,7 @@ const api = {
             search?: string
             status?: HogFlow['status']
             created_by?: string
-            type?: 'messaging' | 'automation'
+            type?: 'messaging' | 'automation' | 'loop'
             /** JSON-encoded object the stored trigger must contain, e.g. `{"type":"batch"}`. */
             trigger?: string
             limit?: number

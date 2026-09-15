@@ -8,6 +8,13 @@ const require = createRequire(import.meta.url);
 const skipNotarize =
   process.env.SKIP_NOTARIZE === "1" || !process.env.APPLE_TEAM_ID;
 
+// Fork PRs and local builds have no Azure credentials, so they package
+// unsigned instead of failing inside Invoke-TrustedSigning.
+const signWindowsWithAzure =
+  !!process.env.AZURE_TENANT_ID &&
+  !!process.env.AZURE_CLIENT_ID &&
+  !!process.env.AZURE_CLIENT_SECRET;
+
 // A test build installs beside a release build, so it must not claim the
 // release deep-link scheme: the OS would route one of the two builds'
 // callbacks to the wrong app.
@@ -116,6 +123,20 @@ const config: Configuration = {
     // electron-builder generates the multi-size .ico from this 1024px PNG; a real
     // .ico must be >=256px and the committed app-icon.ico is only 32px.
     icon: "build/app-icon.png",
+    ...(signWindowsWithAzure
+      ? {
+          azureSignOptions: {
+            // electron-updater compares this against the certificate subject
+            // before installing an update, so it must match the Azure
+            // certificate profile exactly.
+            publisherName:
+              "CN=PostHog Inc., O=PostHog Inc., L=San Francisco, S=California, C=US",
+            endpoint: "https://wus2.codesigning.azure.net",
+            codeSigningAccountName: "posthog-desktop",
+            certificateProfileName: "posthog-desktop-public",
+          },
+        }
+      : {}),
   },
 
   nsis: {

@@ -13,6 +13,7 @@ import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { splitFullName } from 'lib/utils/strings'
 import { getRelativeNextPath } from 'lib/utils/url'
+import { readPendingOAuthConnection } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import {
     clearPendingVerificationEmail,
     setPendingVerificationEmail,
@@ -485,7 +486,8 @@ export const signupLogic = kea<signupLogicType>([
                 name: '',
                 organization_name: '',
                 role_at_organization: '',
-                referral_source: '',
+                // The partner that started the OAuth connection is where this person heard about PostHog
+                referral_source: readPendingOAuthConnection()?.clientName ?? '',
                 referral_source_ai_prompt: '',
             } as SignupPanelOnboardingForm,
             errors: ({ name, role_at_organization }) => ({

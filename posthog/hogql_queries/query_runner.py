@@ -51,6 +51,7 @@ from posthog.schema import (
     MarketingAnalyticsTableQuery,
     MCPHarnessBreakdownQuery,
     MCPMissingCapabilitiesQuery,
+    MCPModelBreakdownQuery,
     MCPToolCallBreakdownQuery,
     MCPToolCallsAndErrorsQuery,
     MCPToolCategoriesQuery,
@@ -115,6 +116,7 @@ from posthog.api_queries_budget import (
     BudgetSpec,
     budget_enabled,
     budget_spec_for,
+    claim_limited_event,
     refill_and_read,
     seconds_until_positive,
 )
@@ -132,7 +134,7 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_acc
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
-from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_action
+from posthog.event_usage import AnalyticsProps, groups, report_team_action, report_user_or_team_action
 from posthog.exceptions import APIQueriesBudgetExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
@@ -459,6 +461,7 @@ RunnableQueryNode = Union[
     EndpointsUsageTrendsQuery,
     MetricsQuery,
     MCPHarnessBreakdownQuery,
+    MCPModelBreakdownQuery,
     MCPToolCallBreakdownQuery,
     MCPToolCallsAndErrorsQuery,
     MCPToolTopUsersQuery,
@@ -1161,6 +1164,17 @@ def get_query_runner(
 
         return MCPHarnessBreakdownQueryRunner(
             query=cast(MCPHarnessBreakdownQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPModelBreakdownQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPModelBreakdownQueryRunner
+
+        return MCPModelBreakdownQueryRunner(
+            query=cast(MCPModelBreakdownQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -2549,6 +2563,26 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             retry_after_seconds=status.retry_after_seconds,
             outcome=outcome,
         )
+        if claim_limited_event(str(self.team.pk)):
+            try:
+                access_method = get_query_tag_value("access_method")
+                product = get_query_tag_value("product")
+                report_team_action(
+                    self.team,
+                    "api queries budget limited",
+                    {
+                        "outcome": outcome,
+                        "team_id": self.team.pk,
+                        "bytes_per_hour": status.spec.bytes_per_hour,
+                        "remaining_bytes": status.remaining_bytes,
+                        "retry_after_seconds": status.retry_after_seconds,
+                        "access_method": str(access_method) if access_method else None,
+                        "product": str(product) if product else None,
+                    },
+                )
+            except Exception as e:
+                API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="limited_event").inc()
+                capture_exception(e)
         if outcome == "enforced":
             raise APIQueriesBudgetExceeded(wait=status.retry_after_seconds)
 

@@ -1,8 +1,8 @@
 import {
     ActivityLogItem,
+    ActivityLogUserName,
     HumanizedChange,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
 import { ActivityScope, DataWarehouseSyncInterval, ExternalDataSourceSyncSchema } from '~/types'
@@ -77,8 +77,7 @@ export function externalDataSourceActivityDescriber(
             return {
                 description: (
                     <>
-                        <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created schema{' '}
-                        <strong>{displayName}</strong>
+                        <ActivityLogUserName logItem={logItem} /> created schema <strong>{displayName}</strong>
                     </>
                 ),
             }
@@ -86,8 +85,7 @@ export function externalDataSourceActivityDescriber(
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created source{' '}
-                    <strong>{displayName}</strong>
+                    <ActivityLogUserName logItem={logItem} /> created source <strong>{displayName}</strong>
                 </>
             ),
         }
@@ -102,8 +100,7 @@ export function externalDataSourceActivityDescriber(
             return {
                 description: (
                     <>
-                        <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted schema{' '}
-                        <strong>{displayName}</strong>
+                        <ActivityLogUserName logItem={logItem} /> deleted schema <strong>{displayName}</strong>
                     </>
                 ),
             }
@@ -111,8 +108,7 @@ export function externalDataSourceActivityDescriber(
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted source{' '}
-                    <strong>{displayName}</strong>
+                    <ActivityLogUserName logItem={logItem} /> deleted source <strong>{displayName}</strong>
                 </>
             ),
         }
@@ -127,8 +123,7 @@ export function externalDataSourceActivityDescriber(
                 return {
                     description: (
                         <>
-                            <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> {verb} schema{' '}
-                            <strong>{displayName}</strong>
+                            <ActivityLogUserName logItem={logItem} /> {verb} schema <strong>{displayName}</strong>
                         </>
                     ),
                 }
@@ -136,8 +131,7 @@ export function externalDataSourceActivityDescriber(
             return {
                 description: (
                     <>
-                        <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> updated schema{' '}
-                        <strong>{displayName}</strong>
+                        <ActivityLogUserName logItem={logItem} /> updated schema <strong>{displayName}</strong>
                     </>
                 ),
             }
@@ -145,8 +139,7 @@ export function externalDataSourceActivityDescriber(
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> updated source{' '}
-                    <strong>{displayName}</strong>
+                    <ActivityLogUserName logItem={logItem} /> updated source <strong>{displayName}</strong>
                 </>
             ),
         }

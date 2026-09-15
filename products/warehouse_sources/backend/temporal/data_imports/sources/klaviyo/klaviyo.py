@@ -1,7 +1,8 @@
 import dataclasses
 from collections.abc import Iterator
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, tzinfo
 from typing import Any, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -18,13 +19,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.se
     KLAVIYO_ENDPOINTS,
     KlaviyoEndpointConfig,
     KlaviyoFanOutConfig,
+    KlaviyoValuesReportConfig,
 )
 
 KLAVIYO_BASE_URL = "https://a.klaviyo.com/api"
 
-# Klaviyo's reporting API requires a conversion metric on every values report. Placed Order is the
-# metric its own reporting defaults to, so it's the fallback when the source doesn't name one.
-DEFAULT_CONVERSION_METRIC_NAME = "Placed Order"
+# Klaviyo's reporting API only accepts a value-tracking metric (one that carries a monetary
+# $value, like an order metric) as a values report's conversion metric; engagement metrics such as
+# opens and clicks are rejected. Klaviyo has no "account default" flag to read and its /metrics
+# response has no eligibility field, so resolution prefers these names its ecommerce integrations
+# give the order metric, most likely first, before falling back to the account's first metric.
+CONVERSION_METRIC_NAME_PREFERENCES = ("Placed Order", "Ordered Product")
 # Accounts have tens of metrics, so the fallback lookup stays bounded rather than walking forever.
 MAX_CONVERSION_METRIC_PAGES = 20
 
@@ -36,6 +41,15 @@ CONVERSION_METRIC_INELIGIBLE_DETAIL = "does not support querying for values data
 
 class KlaviyoRetryableError(Exception):
     pass
+
+
+class KlaviyoConversionMetricError(Exception):
+    """A values report can't run because no eligible conversion metric is available.
+
+    Raised instead of returning empty so the run fails visibly rather than finalizing green with
+    zero rows. The outcome is deterministic — the same metric resolves on every retry — so it is
+    registered as a non-retryable error that pauses the table with an actionable message.
+    """
 
 
 @dataclasses.dataclass
@@ -437,26 +451,36 @@ def _resolve_conversion_metric_id(
     """Pick the metric that conversion statistics in the values reports are attributed to.
 
     Klaviyo requires a conversion metric on every values report but has no "account default" to
-    read, so fall back to the Placed Order metric its own reporting defaults to, then to whatever
-    metric the account defines first. A user who wants a different one sets it on the source.
+    read, so prefer a value-tracking metric by name (see CONVERSION_METRIC_NAME_PREFERENCES), then
+    fall back to whatever metric the account defines first. A user who wants a different one, or
+    whose account has no value-tracking metric, sets one on the source.
     """
     url = f"{KLAVIYO_BASE_URL}/metrics"
     first_metric_id: str | None = None
+    # Best preferred-name match so far; a lower rank is a stronger preference.
+    best_preferred_id: str | None = None
+    best_preferred_rank: int | None = None
 
     for _ in range(MAX_CONVERSION_METRIC_PAGES):
         data = _fetch_page(session, url, headers, logger)
         for item in data.get("data", []):
             if first_metric_id is None:
                 first_metric_id = item["id"]
-            if item.get("attributes", {}).get("name") == DEFAULT_CONVERSION_METRIC_NAME:
-                return item["id"]
+            name = item.get("attributes", {}).get("name")
+            if name in CONVERSION_METRIC_NAME_PREFERENCES:
+                rank = CONVERSION_METRIC_NAME_PREFERENCES.index(name)
+                if rank == 0:
+                    return item["id"]  # top preference, nothing can beat it
+                if best_preferred_rank is None or rank < best_preferred_rank:
+                    best_preferred_rank = rank
+                    best_preferred_id = item["id"]
 
         next_url = data.get("links", {}).get("next")
         if not next_url:
             break
         url = next_url
 
-    return first_metric_id
+    return best_preferred_id or first_metric_id
 
 
 def _series_rows(
@@ -476,6 +500,60 @@ def _series_rows(
             for statistic, values in statistics.items():
                 row[statistic] = values[index] if isinstance(values, list) and index < len(values) else None
             yield row
+
+
+def _get_account_timezone(session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger) -> tzinfo:
+    """Read the IANA timezone of the account the API key belongs to.
+
+    Klaviyo ignores the offset on a custom timeframe's start and end and reads both as wall-clock
+    times in this timezone, so a window computed in any other timezone is off by the difference.
+    """
+    accounts = _fetch_page(session, f"{KLAVIYO_BASE_URL}/accounts", headers, logger).get("data") or []
+    name = accounts[0].get("attributes", {}).get("timezone") if accounts else None
+    if isinstance(name, str):
+        try:
+            return ZoneInfo(name)
+        except (ValueError, ZoneInfoNotFoundError):
+            pass
+    logger.warning(f"Klaviyo: account timezone {name!r} is unknown, computing the report window in UTC")
+    return UTC
+
+
+def _build_timeframe(report: KlaviyoValuesReportConfig, now: datetime) -> tuple[dict[str, str], str]:
+    """Build a report's timeframe attribute, and the label every row records the window under.
+
+    Klaviyo takes a timeframe either as one of its predefined keys or as a custom start/end pair.
+    A window no key matches goes as the custom pair: `timeframe_weeks` calendar weeks that open on
+    a Monday, Klaviyo's first day of the week, and end at `now`, which must be in the account's
+    timezone because Klaviyo reads the pair as wall-clock times in it.
+    """
+    if report.timeframe_weeks is None:
+        assert report.timeframe_key is not None
+        return {"key": report.timeframe_key}, report.timeframe_key
+
+    end = now.replace(microsecond=0)
+    this_monday = datetime.combine(end.date() - timedelta(days=end.weekday()), datetime.min.time(), tzinfo=end.tzinfo)
+    start = this_monday - timedelta(weeks=report.timeframe_weeks - 1)
+    return {"start": start.isoformat(), "end": end.isoformat()}, f"last_{report.timeframe_weeks}_weeks"
+
+
+def _no_activity_statistics(statistics: list[str]) -> dict[str, Any]:
+    return {statistic: None if statistic.endswith("_rate") else 0 for statistic in statistics}
+
+
+def _rows_for_ids_the_report_omitted(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    report: KlaviyoValuesReportConfig,
+    reported_ids: set[str],
+    common: dict[str, Any],
+) -> Iterator[dict[str, Any]]:
+    assert report.list_all_ids_path is not None
+    id_column = report.group_by[0]
+    for entity_id in _iter_resource_ids(session, headers, logger, report.list_all_ids_path, page_size=100):
+        if entity_id not in reported_ids:
+            yield {id_column: entity_id, **_no_activity_statistics(report.statistics), **common}
 
 
 def _get_values_report_rows(
@@ -503,14 +581,16 @@ def _get_values_report_rows(
     if report.requires_conversion_metric:
         metric_id = conversion_metric_id or _resolve_conversion_metric_id(session, headers, logger)
         if not metric_id:
-            logger.warning(
-                f"Klaviyo: no conversion metric found for {config.name}; set a conversion metric ID on the source"
+            raise KlaviyoConversionMetricError(
+                f"Klaviyo needs a conversion metric to sync {config.name}, but the account has none. "
+                f"Set a conversion metric ID on the source, then re-enable this table."
             )
-            return
 
+    account_tz = _get_account_timezone(session, headers, logger) if report.timeframe_weeks is not None else UTC
+    timeframe, timeframe_label = _build_timeframe(report, datetime.now(account_tz))
     attributes: dict[str, Any] = {
         "statistics": report.statistics,
-        "timeframe": {"key": report.timeframe_key},
+        "timeframe": timeframe,
     }
     if report.group_by:
         attributes["group_by"] = report.group_by
@@ -526,9 +606,12 @@ def _get_values_report_rows(
 
     # Tagged onto every row so each row records the window (and conversion metric)
     # it was computed over.
-    common: dict[str, Any] = {"timeframe_key": report.timeframe_key}
+    common: dict[str, Any] = {"timeframe_key": timeframe_label}
     if metric_id:
         common["conversion_metric_id"] = metric_id
+
+    lists_all_ids = report.list_all_ids_path is not None and not report.interval and len(report.group_by) == 1
+    reported_ids: set[str] = set()
 
     try:
         while True:
@@ -542,6 +625,8 @@ def _get_values_report_rows(
                 rows = ({**r.get("groupings", {}), **r.get("statistics", {}), **common} for r in results)
 
             for row in rows:
+                if lists_all_ids and row.get(report.group_by[0]) is not None:
+                    reported_ids.add(str(row[report.group_by[0]]))
                 batcher.batch(row)
                 if batcher.should_yield():
                     yield batcher.get_table()
@@ -550,17 +635,23 @@ def _get_values_report_rows(
             if not next_url:
                 break
             url = next_url
+
+        if lists_all_ids:
+            for row in _rows_for_ids_the_report_omitted(session, headers, logger, report, reported_ids, common):
+                batcher.batch(row)
+                if batcher.should_yield():
+                    yield batcher.get_table()
     except requests.HTTPError as exc:
         if (
             exc.response is not None
             and exc.response.status_code == 400
             and CONVERSION_METRIC_INELIGIBLE_DETAIL in exc.response.text
         ):
-            logger.warning(
-                f"Klaviyo: conversion metric {metric_id} isn't eligible for values reporting on "
-                f"{config.name}; set a different conversion metric ID on the source, skipping"
-            )
-            return
+            raise KlaviyoConversionMetricError(
+                f"Klaviyo rejected conversion metric {metric_id} for {config.name}: it isn't eligible "
+                f"for values reporting. Set an eligible conversion metric ID on the source, then "
+                f"re-enable this table."
+            ) from exc
         raise
 
 

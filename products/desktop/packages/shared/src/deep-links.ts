@@ -1,5 +1,3 @@
-import { scoutSkillSlug } from "./scout-naming";
-
 const DEEPLINK_PROTOCOL_PRODUCTION = "posthog-code";
 const DEEPLINK_PROTOCOL_DEVELOPMENT = "posthog-code-dev";
 const DEEPLINK_PROTOCOL_TEST = "posthog-code-test";
@@ -69,19 +67,17 @@ export function buildLoopDeeplink(
 
 /**
  * Build a canonical deep link to a scout's detail page, optionally focused on a
- * specific finding (`<scheme>://scout/<skillSlug>?finding=<id>`).
+ * specific finding (`<scheme>://scout/<skillName>?finding=<id>`).
  *
- * `skillName` may be the full scout skill name (`signals-scout-error-tracking`)
- * or an already-stripped route slug (`error-tracking`); the `signals-scout-`
- * prefix is removed so the path always matches the renderer route param.
+ * The path carries the full scout skill name, so a scout named without the
+ * `signals-scout-` prefix routes to itself.
  */
 export function buildScoutDeeplink(
   skillName: string,
   findingId: string | null | undefined,
   { isDevBuild }: { isDevBuild: boolean },
 ): string {
-  const slug = scoutSkillSlug(skillName);
-  const base = `${getDeeplinkProtocol(isDevBuild)}://scout/${encodeURIComponent(slug)}`;
+  const base = `${getDeeplinkProtocol(isDevBuild)}://scout/${encodeURIComponent(skillName)}`;
   return findingId ? `${base}?finding=${encodeURIComponent(findingId)}` : base;
 }
 

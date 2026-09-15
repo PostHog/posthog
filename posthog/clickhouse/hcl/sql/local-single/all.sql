@@ -4,6 +4,7 @@
 CREATE TABLE posthog.adhoc_events_deletion (
   team_id Int64,
   uuid UUID,
+  data_deletion_request_id Nullable(UUID),
   created_at DateTime64(6, 'UTC') DEFAULT now64(),
   deleted_at DateTime,
   is_deleted UInt8 DEFAULT 0
@@ -473,12 +474,6 @@ CREATE TABLE posthog.kafka_flag_evaluations (
   distinct_id String,
   created_at DateTime64(6, 'UTC'),
   person_id UUID,
-  person_properties String,
-  group0_properties String,
-  group1_properties String,
-  group2_properties String,
-  group3_properties String,
-  group4_properties String,
   inserted_at DateTime64(6, 'UTC')
 ) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_flag_evaluations', kafka_skip_broken_messages = 100, kafka_topic_list = 'clickhouse_flag_evaluations';
 CREATE TABLE posthog.kafka_groups (
@@ -728,6 +723,11 @@ CREATE TABLE posthog.kafka_person_overrides (
   oldest_event DateTime64(6, 'UTC'),
   version Int32
 ) ENGINE = Kafka() SETTINGS kafka_broker_list = 'kafka:9092', kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse-person-overrides', kafka_topic_list = 'clickhouse_person_override';
+CREATE TABLE posthog.kafka_person_property_mutation_log (
+  team_id Int64,
+  uuid UUID,
+  properties String
+) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_person_property_mutation_log', kafka_skip_broken_messages = 100, kafka_topic_list = 'clickhouse_events_json';
 CREATE TABLE posthog.kafka_plugin_log_entries (
   id UUID,
   team_id Int64,
@@ -1320,7 +1320,8 @@ CREATE TABLE posthog.metric_series2 (
   INDEX idx_service_set service_name TYPE set(1000) GRANULARITY 1,
   INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attr_keys mapKeys(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
-  INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1
+  INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+  INDEX idx_last_seen_minmax last_seen TYPE minmax GRANULARITY 1
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.metric_series2', '{replica}-{shard}', last_seen) ORDER BY (team_id, metric_name, series_fingerprint) TTL original_expiry_timestamp SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.metric_series_distributed (
   team_id Int32,
@@ -1566,6 +1567,12 @@ CREATE TABLE posthog.person_overrides (
   created_at DateTime64(6, 'UTC') DEFAULT now(),
   version Int32
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.person_overrides', '{replica}-{shard}', version) ORDER BY (team_id, old_person_id) PARTITION BY toYYYYMM(oldest_event) SETTINGS index_granularity = 8192;
+CREATE TABLE posthog.person_property_mutation_log_data (
+  team_id Int64,
+  event_uuid UUID,
+  properties String,
+  ingested_at DateTime('UTC')
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.person_property_mutation_log_data', '{replica}-{shard}', ingested_at) ORDER BY (team_id, event_uuid) PARTITION BY toDate(ingested_at) TTL ingested_at + toIntervalDay(30) SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.person_static_cohort (
   id UUID,
   person_id UUID,
@@ -2169,12 +2176,6 @@ CREATE TABLE posthog.sharded_flag_evaluations (
   distinct_id String,
   created_at DateTime64(6, 'UTC'),
   person_id UUID,
-  person_properties String,
-  group0_properties String,
-  group1_properties String,
-  group2_properties String,
-  group3_properties String,
-  group4_properties String,
   inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
   $group_0 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0',
   $group_1 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1',
@@ -2741,11 +2742,7 @@ CREATE TABLE posthog.sharded_session_replay_events (
   distinct_id String,
   min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
   max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
-  block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
-  block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
-  block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
   first_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-  all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   click_count SimpleAggregateFunction(sum, Int64),
   keypress_count SimpleAggregateFunction(sum, Int64),
   mouse_activity_count SimpleAggregateFunction(sum, Int64),
@@ -2756,15 +2753,19 @@ CREATE TABLE posthog.sharded_session_replay_events (
   size SimpleAggregateFunction(sum, Int64),
   message_count SimpleAggregateFunction(sum, Int64),
   event_count SimpleAggregateFunction(sum, Int64),
-  snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
-  snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
   _timestamp SimpleAggregateFunction(max, DateTime),
+  snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+  all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+  snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+  block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+  block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+  block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
+  retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
   is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   surfacing_score SimpleAggregateFunction(max, Nullable(Float32)),
-  retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
   snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))
 ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/posthog.session_replay_events', '{replica}') ORDER BY (toDate(min_first_timestamp), team_id, session_id) PARTITION BY toYYYYMM(min_first_timestamp) SETTINGS index_granularity = 512;
 CREATE TABLE posthog.sharded_session_replay_features (
@@ -3748,12 +3749,6 @@ CREATE TABLE posthog.writable_flag_evaluations (
   distinct_id String,
   created_at DateTime64(6, 'UTC'),
   person_id UUID,
-  person_properties String,
-  group0_properties String,
-  group1_properties String,
-  group2_properties String,
-  group3_properties String,
-  group4_properties String,
   inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
   _timestamp DateTime,
   _offset UInt64,
@@ -4554,7 +4549,7 @@ CREATE MATERIALIZED VIEW posthog.events_recent_json_mv TO posthog.writable_event
   _timestamp,
   _offset
 FROM posthog.sharded_events;
-CREATE MATERIALIZED VIEW posthog.flag_evaluations_mv TO posthog.writable_flag_evaluations (uuid UUID, event LowCardinality(String), properties String, timestamp DateTime64(6, 'UTC'), team_id Int64, distinct_id String, created_at DateTime64(6, 'UTC'), person_id UUID, person_properties String, group0_properties String, group1_properties String, group2_properties String, group3_properties String, group4_properties String, inserted_at Nullable(DateTime64(6, 'UTC')), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
+CREATE MATERIALIZED VIEW posthog.flag_evaluations_mv TO posthog.writable_flag_evaluations (uuid UUID, event LowCardinality(String), properties String, timestamp DateTime64(6, 'UTC'), team_id Int64, distinct_id String, created_at DateTime64(6, 'UTC'), person_id UUID, inserted_at Nullable(DateTime64(6, 'UTC')), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
   uuid,
   event,
   properties,
@@ -4563,12 +4558,6 @@ CREATE MATERIALIZED VIEW posthog.flag_evaluations_mv TO posthog.writable_flag_ev
   distinct_id,
   created_at,
   person_id,
-  person_properties,
-  group0_properties,
-  group1_properties,
-  group2_properties,
-  group3_properties,
-  group4_properties,
   if(inserted_at = toDateTime64('1970-01-01 00:00:00', 6, 'UTC'), _timestamp, inserted_at) AS inserted_at,
   _timestamp,
   _offset,
@@ -4774,74 +4763,6 @@ CREATE MATERIALIZED VIEW posthog.kafka_metrics_avro_kafka_metrics_mv TO posthog.
 FROM posthog.kafka_metrics_avro
 GROUP BY
   _partition, _topic;
-CREATE MATERIALIZED VIEW posthog.kafka_metrics_avro_mv TO posthog.metrics1 (uuid String, trace_id String, span_id String, trace_flags Int32, timestamp DateTime64(6), observed_timestamp DateTime64(6), service_name String, metric_name String, metric_type String, value Float64, count UInt64, histogram_bounds Array(Float64), histogram_counts Array(UInt64), unit String, aggregation_temporality String, is_monotonic UInt8, resource_attributes Map(String, String), instrumentation_scope String, attributes_map_str Map(String, String), attributes_map_float Map(String, Nullable(Float64)), team_id Int32) AS SELECT
-  uuid,
-  trace_id,
-  span_id,
-  ifNull(trace_flags, 0) AS trace_flags,
-  timestamp,
-  observed_timestamp,
-  ifNull(service_name, '') AS service_name,
-  ifNull(metric_name, '') AS metric_name,
-  ifNull(metric_type, '') AS metric_type,
-  ifNull(value, 0) AS value,
-  toUInt64(ifNull(count, 1)) AS count,
-  histogram_bounds,
-  arrayMap(x -> toUInt64(x), histogram_counts) AS histogram_counts,
-  ifNull(unit, '') AS unit,
-  ifNull(aggregation_temporality, '') AS aggregation_temporality,
-  ifNull(is_monotonic, 0) AS is_monotonic,
-  mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
-  ifNull(instrumentation_scope, '') AS instrumentation_scope,
-  mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
-  mapSort(
-    mapFilter(
-      (k, v) -> isNotNull(v),
-      mapApply(
-        (k, v) -> (concat(k, '__float'), toFloat64OrNull(JSONExtract(v, 'String'))),
-        attributes
-      )
-    )
-  ) AS attributes_map_float,
-  toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id
-FROM posthog.kafka_metrics_avro
-SETTINGS
-  min_insert_block_size_rows = 0,
-  min_insert_block_size_bytes = 0;
-CREATE MATERIALIZED VIEW posthog.kafka_metrics_avro_to_metric_samples TO posthog.metric_samples1 (team_id Int32, metric_name String, series_fingerprint UInt64, timestamp DateTime64(6), value Float64, count UInt64, histogram_bounds Array(Float64), histogram_counts Array(UInt64), trace_id String, span_id String, trace_flags Int32) AS SELECT
-  toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
-  ifNull(metric_name, '') AS metric_name,
-  reinterpretAsUInt64(assumeNotNull(series_fingerprint)) AS series_fingerprint,
-  timestamp,
-  ifNull(value, 0) AS value,
-  toUInt64(ifNull(count, 1)) AS count,
-  histogram_bounds,
-  arrayMap(x -> toUInt64(x), histogram_counts) AS histogram_counts,
-  trace_id,
-  span_id,
-  ifNull(trace_flags, 0) AS trace_flags
-FROM posthog.kafka_metrics_avro
-WHERE kafka_metrics_avro.series_fingerprint IS NOT NULL
-SETTINGS
-  min_insert_block_size_rows = 0,
-  min_insert_block_size_bytes = 0;
-CREATE MATERIALIZED VIEW posthog.kafka_metrics_avro_to_metric_series TO posthog.metric_series1 (team_id Int32, metric_name String, series_fingerprint UInt64, metric_type String, unit String, aggregation_temporality String, is_monotonic UInt8, service_name String, resource_attributes Map(String, String), attributes Map(String, String), last_seen DateTime64(6)) AS SELECT
-  toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
-  ifNull(metric_name, '') AS metric_name,
-  reinterpretAsUInt64(assumeNotNull(series_fingerprint)) AS series_fingerprint,
-  ifNull(metric_type, '') AS metric_type,
-  ifNull(unit, '') AS unit,
-  ifNull(aggregation_temporality, '') AS aggregation_temporality,
-  ifNull(is_monotonic, 0) AS is_monotonic,
-  ifNull(service_name, '') AS service_name,
-  mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
-  mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes)) AS attributes,
-  timestamp AS last_seen
-FROM posthog.kafka_metrics_avro
-WHERE kafka_metrics_avro.series_fingerprint IS NOT NULL
-SETTINGS
-  min_insert_block_size_rows = 0,
-  min_insert_block_size_bytes = 0;
 CREATE MATERIALIZED VIEW posthog.kafka_trace_spans_avro_mv TO posthog.trace_spans (uuid String, trace_id String, span_id String, parent_span_id String, trace_state String, name String, kind Int8, flags UInt32, timestamp DateTime64(6), end_time DateTime64(6), observed_timestamp DateTime64(6), service_name String, resource_attributes Map(LowCardinality(String), String), instrumentation_scope String, attributes_map_str Map(LowCardinality(String), String), dropped_attributes_count UInt32, events Array(String), dropped_events_count UInt32, links Array(String), dropped_links_count UInt32, status_code Int16, team_id Int32, original_expiry_timestamp DateTime64(6)) AS SELECT
   * EXCEPT(attributes, resource_attributes, kind, flags, dropped_attributes_count, dropped_events_count, dropped_links_count, status_code),
   toInt8(kind) AS kind,
@@ -5056,57 +4977,6 @@ CREATE MATERIALIZED VIEW posthog.message_assets_mv TO posthog.message_assets_dat
   _offset,
   _partition
 FROM posthog.kafka_message_assets;
-CREATE MATERIALIZED VIEW posthog.metrics1_to_metric_attributes TO posthog.metric_attributes (team_id Int32, time_bucket DateTime64(0), service_name LowCardinality(String), resource_fingerprint UInt64, attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
-  team_id,
-  time_bucket,
-  service_name,
-  resource_fingerprint,
-  attribute_key,
-  attribute_value,
-  attribute_type,
-  attribute_count
-FROM
-  (
-    SELECT
-      team_id AS team_id,
-      toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket,
-      service_name AS service_name,
-      resource_fingerprint,
-      mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS attributes,
-      arrayJoin(attributes) AS attribute,
-      'metric' AS attribute_type,
-      attribute.1 AS attribute_key,
-      attribute.2 AS attribute_value,
-      sumSimpleState(1) AS attribute_count
-    FROM posthog.metrics1
-    GROUP BY
-      team_id, time_bucket, service_name, resource_fingerprint, attributes
-  );
-CREATE MATERIALIZED VIEW posthog.metrics1_to_resource_attributes TO posthog.metric_attributes (team_id Int32, time_bucket DateTime64(0), service_name LowCardinality(String), resource_fingerprint UInt64, attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
-  team_id,
-  time_bucket,
-  service_name,
-  resource_fingerprint,
-  attribute_key,
-  attribute_value,
-  attribute_type,
-  attribute_count
-FROM
-  (
-    SELECT
-      team_id AS team_id,
-      toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket,
-      service_name AS service_name,
-      resource_fingerprint,
-      arrayJoin(resource_attributes) AS attribute,
-      'resource' AS attribute_type,
-      attribute.1 AS attribute_key,
-      attribute.2 AS attribute_value,
-      sumSimpleState(1) AS attribute_count
-    FROM posthog.metrics1
-    GROUP BY
-      team_id, time_bucket, service_name, resource_fingerprint, resource_attributes
-  );
 CREATE MATERIALIZED VIEW posthog.metrics2_input_to_metric_attributes TO posthog.metric_attributes2 (team_id Int32, time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), service_name LowCardinality(String), attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
   time_bucket,
@@ -6363,12 +6233,6 @@ CREATE TABLE posthog.flag_evaluations (
   distinct_id String,
   created_at DateTime64(6, 'UTC'),
   person_id UUID,
-  person_properties String,
-  group0_properties String,
-  group1_properties String,
-  group2_properties String,
-  group3_properties String,
-  group4_properties String,
   inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
   $group_0 String COMMENT 'column_materializer::$group_0',
   $group_1 String COMMENT 'column_materializer::$group_1',
@@ -6667,6 +6531,12 @@ CREATE TABLE posthog.performance_events (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_performance_events', sipHash64(session_id));
+CREATE TABLE posthog.person_property_mutation_log (
+  team_id Int64,
+  event_uuid UUID,
+  properties String,
+  ingested_at DateTime('UTC')
+) ENGINE = Distributed('aux', 'posthog', 'person_property_mutation_log_data');
 CREATE TABLE posthog.preaggregation_results (
   team_id Int64,
   job_id UUID,
@@ -6947,11 +6817,7 @@ CREATE TABLE posthog.session_replay_events (
   distinct_id String,
   min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
   max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
-  block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
-  block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
-  block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
   first_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-  all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   click_count SimpleAggregateFunction(sum, Int64),
   keypress_count SimpleAggregateFunction(sum, Int64),
   mouse_activity_count SimpleAggregateFunction(sum, Int64),
@@ -6962,15 +6828,19 @@ CREATE TABLE posthog.session_replay_events (
   size SimpleAggregateFunction(sum, Int64),
   message_count SimpleAggregateFunction(sum, Int64),
   event_count SimpleAggregateFunction(sum, Int64),
-  snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
-  snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
   _timestamp SimpleAggregateFunction(max, DateTime),
+  snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+  all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+  snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+  block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+  block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+  block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
+  retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
   is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   surfacing_score SimpleAggregateFunction(max, Nullable(Float32)),
-  retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
   snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_session_replay_events', sipHash64(distinct_id));
 CREATE TABLE posthog.session_replay_features (
@@ -7218,6 +7088,31 @@ CREATE MATERIALIZED VIEW posthog.ops_query_log_archive_mv TO posthog.writable_qu
   ProfileEvents
 FROM system.query_log
 WHERE type != 'QueryStart';
+CREATE MATERIALIZED VIEW posthog.person_property_mutation_log_mv TO posthog.person_property_mutation_log (team_id Int64, event_uuid UUID, properties String, ingested_at DateTime('UTC')) AS SELECT
+  team_id,
+  uuid AS event_uuid,
+  concat(
+    '{',
+    arrayStringConcat(
+      arrayMap(
+        property -> concat(toJSONString(property.1), ':', property.2),
+        arrayFilter(
+          property -> property.1 IN ('$set', '$set_once', '$unset'),
+          JSONExtractKeysAndValuesRaw(source.properties)
+        )
+      ),
+      ','
+    ),
+    '}'
+  ) AS properties,
+  toDateTime(_timestamp, 'UTC') AS ingested_at
+FROM kafka_person_property_mutation_log AS source
+WHERE
+  JSONHas(source.properties, '$set')
+OR
+  JSONHas(source.properties, '$set_once')
+OR
+  JSONHas(source.properties, '$unset');
 CREATE VIEW posthog.custom_metrics AS SELECT * REPLACE(toFloat64(value) AS value)
 FROM posthog.custom_metrics_test
 UNION ALL
