@@ -64,7 +64,7 @@ jobs:
         permissions: {}
         steps:
             - name: Ask Trunk which jobs this diff needs
-              uses: trunk-io/dynamic-ci@v1
+              uses: trunk-io/dynamic-ci@7e3af9331e8ebdfe0c71ba7d0ff6b7424dde8c57 # v1
               with:
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
