@@ -30,6 +30,7 @@ from posthog.tasks.alerts.utils import (
     record_alert_delivery,
 )
 from posthog.temporal.ai.anomaly_investigation.charts import png_to_b64, render_series_chart
+from posthog.temporal.ai.anomaly_investigation.emitter_version import describe_emitter_version_shift
 from posthog.temporal.ai.anomaly_investigation.event_provenance import alerted_series_event, describe_event_provenance
 from posthog.temporal.ai.anomaly_investigation.metric_definition import describe_metric_definition
 from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_markdown
@@ -146,43 +147,50 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
 
     await _update_status(alert_check, InvestigationStatus.RUNNING)
 
-    insight = alert.insight
-    metric_description = insight.name or f"Insight {insight.short_id}"
-    detector_type = (alert.detector_config or {}).get("type") or "threshold"
-    series_index = (alert.config or {}).get("series_index", 0)
+    # Heartbeating starts before the preflight work, not at the agent run: Temporal counts the
+    # heartbeat deadline from activity start, and the queries below can take minutes together.
+    async with Heartbeater():
+        insight = alert.insight
+        metric_description = insight.name or f"Insight {insight.short_id}"
+        detector_type = (alert.detector_config or {}).get("type") or "threshold"
+        series_index = (alert.config or {}).get("series_index", 0)
 
-    # Measured up front rather than left to a tool call: without it the agent has only the
-    # event's name to go on, and an opaque name invites it to invent the machinery behind it.
-    event = alerted_series_event(insight.query, series_index=series_index)
-    event_provenance = ""
-    if event:
-        event_provenance = await sync_to_async(describe_event_provenance, thread_sensitive=False)(
-            team=team, event=event
+        # Measured up front rather than left to a tool call: without it the agent has only the
+        # event's name to go on, and an opaque name invites it to invent the machinery behind it.
+        event = alerted_series_event(insight.query, series_index=series_index)
+        event_provenance = ""
+        emitter_version = ""
+        if event:
+            event_provenance = await sync_to_async(describe_event_provenance, thread_sensitive=False)(
+                team=team, event=event
+            )
+            emitter_version = await sync_to_async(describe_emitter_version_shift, thread_sensitive=False)(
+                team=team, event=event, triggered_dates=list(alert_check.triggered_dates or [])
+            )
+
+        anomaly_context_text = build_anomaly_context(
+            alert_name=alert.name or "Unnamed alert",
+            metric_description=metric_description,
+            detector_type=detector_type,
+            triggered_dates=list(alert_check.triggered_dates or []),
+            triggered_metadata=alert_check.triggered_metadata,
+            calculated_value=alert_check.calculated_value,
+            interval=alert_check.interval,
+            # The alerted series, not series 0 — matching how the check and the chart pick it.
+            metric_definition=describe_metric_definition(insight.query, series_index=series_index),
+            event_provenance=event_provenance,
+            emitter_version=emitter_version,
         )
 
-    anomaly_context_text = build_anomaly_context(
-        alert_name=alert.name or "Unnamed alert",
-        metric_description=metric_description,
-        detector_type=detector_type,
-        triggered_dates=list(alert_check.triggered_dates or []),
-        triggered_metadata=alert_check.triggered_metadata,
-        calculated_value=alert_check.calculated_value,
-        interval=alert_check.interval,
-        # The alerted series, not series 0 — matching how the check and the chart pick it.
-        metric_definition=describe_metric_definition(insight.query, series_index=series_index),
-        event_provenance=event_provenance,
-    )
+        # Render a chart of the metric with the detector's anomaly points marked and
+        # attach it to the HumanMessage so the multimodal model can reason visually
+        # before spending any tool-call budget.
+        anomaly_context = await sync_to_async(_build_multimodal_context, thread_sensitive=False)(
+            alert=alert,
+            context_text=anomaly_context_text,
+        )
 
-    # Render a chart of the metric with the detector's anomaly points marked and
-    # attach it to the HumanMessage so the multimodal model can reason visually
-    # before spending any tool-call budget.
-    anomaly_context = await sync_to_async(_build_multimodal_context, thread_sensitive=False)(
-        alert=alert,
-        context_text=anomaly_context_text,
-    )
-
-    try:
-        async with Heartbeater():
+        try:
             result = await run_investigation(
                 team=team,
                 user=user,
@@ -190,10 +198,10 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
                 alert=alert,
                 heartbeat=activity.heartbeat,
             )
-    except Exception as err:
-        logger.exception("anomaly_investigation.agent_failed", alert_id=str(alert.id))
-        await _mark_failed(alert_check, f"Agent run failed: {err}")
-        raise
+        except Exception as err:
+            logger.exception("anomaly_investigation.agent_failed", alert_id=str(alert.id))
+            await _mark_failed(alert_check, f"Agent run failed: {err}")
+            raise
 
     notebook_markdown = build_investigation_markdown(
         NotebookRenderContext(

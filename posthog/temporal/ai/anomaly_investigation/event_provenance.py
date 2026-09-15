@@ -61,22 +61,41 @@ def alerted_series_event(query: Any, *, series_index: int = 0) -> str | None:
 
     Returns None for actions, warehouse tables, SQL insights and the null-event node that
     matches every event — none of those name one event whose emitter can be measured.
+
+    A formula alert's ``series_index`` numbers the formula results rather than the series,
+    so it cannot pick a node. Such a query resolves only when every series counts the same
+    event, which is the shape of a rate built from two filtered views of one event.
     """
     try:
         source = unwrap_query_source(query)
         if not source:
             return None
         series = source.get("series")
-        if not isinstance(series, list) or not 0 <= series_index < len(series):
+        if not isinstance(series, list) or not series:
             return None
-        node = series[series_index]
-        if not isinstance(node, dict) or node.get("kind") != "EventsNode":
+        if _has_formulas(source):
+            events = {_events_node_event(node) for node in series}
+            return events.pop() if len(events) == 1 else None
+        if not 0 <= series_index < len(series):
             return None
-        event = node.get("event")
-        return event if isinstance(event, str) and event else None
+        return _events_node_event(series[series_index])
     except Exception:
         logger.warning("anomaly_investigation.alerted_series_event_failed", exc_info=True)
         return None
+
+
+def _has_formulas(source: dict[str, Any]) -> bool:
+    trends_filter = source.get("trendsFilter")
+    if not isinstance(trends_filter, dict):
+        return False
+    return any(trends_filter.get(key) for key in ("formulaNodes", "formulas", "formula"))
+
+
+def _events_node_event(node: Any) -> str | None:
+    if not isinstance(node, dict) or node.get("kind") != "EventsNode":
+        return None
+    event = node.get("event")
+    return event if isinstance(event, str) and event else None
 
 
 def describe_event_provenance(*, team: Team, event: str) -> str:

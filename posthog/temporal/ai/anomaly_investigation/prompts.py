@@ -71,6 +71,21 @@ Ground the metric (do this before forming any hypothesis):
   one page, one event, or one property value carries no information about
   anything outside that filter.
 
+Check the producer before blaming the subject:
+- A metric whose value is written by a program — an LLM judge's verdict, a classifier's
+  label, a scorer's band, an SDK's own measurement — moves when that program changes,
+  while the thing it measures holds still. Rule that out before you attribute the move
+  to the subject, because the two look identical in the series.
+- The emitter version block, when present, measures it: a version value that takes over
+  the triggered window is a producer boundary, and the two sides of it are two different
+  measurements, not one trend. A flat mix rules the producer out.
+- Do not read a version field in the metric definition as that evidence. Such a field is
+  written by the producer's own body, so a body that changes without bumping it reads as
+  stable — which is exactly the case the block exists to catch.
+- On a boundary, say which version each side was scored by, and recommend splitting or
+  pinning the metric by the emitter's version so the next change reads as a boundary
+  rather than a trend.
+
 Corroborating with a second data stream:
 - When you cite another event stream as the cause (exception volume, error
   counts, a backend signal), high absolute volume is not evidence. A busy
@@ -149,6 +164,7 @@ def build_anomaly_context(
     interval: str | None,
     metric_definition: str,
     event_provenance: str = "",
+    emitter_version: str = "",
 ) -> str:
     """First user message — packs the alert context the agent needs to act."""
     md = triggered_metadata or {}
@@ -159,6 +175,7 @@ def build_anomaly_context(
             metadata_line = "Trigger metadata: " + ", ".join(parts) + "."
 
     provenance_block = f"{event_provenance}\n\n" if event_provenance else ""
+    emitter_version_block = f"{emitter_version}\n\n" if emitter_version else ""
 
     return (
         f"Alert: {alert_name}\n"
@@ -170,6 +187,7 @@ def build_anomaly_context(
         f"{metadata_line}\n\n"
         f"{metric_definition}\n\n"
         f"{provenance_block}"
+        f"{emitter_version_block}"
         "Use your tools to validate the anomaly and investigate the likely cause. "
         "Read the metric definition above before forming a hypothesis, and state what the "
         "metric measures in `metric_meaning`. "
