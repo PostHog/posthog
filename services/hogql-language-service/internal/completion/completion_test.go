@@ -3,8 +3,10 @@ package completion
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
 )
@@ -127,15 +129,19 @@ func TestCompletesSQLSyntaxForCursorContext(t *testing.T) {
 		label      string
 		kind       string
 		insertText string
-		excluded   string
+		excluded   []string
+		total      int
 	}{
 		{name: "function in select", query: "SELECT cou FROM orders", position: len("SELECT cou"), label: "count", kind: "function", insertText: "count()"},
 		{name: "embedded function in select", query: "SELECT geoD FROM orders", position: len("SELECT geoD"), label: "geoDistance", kind: "function", insertText: "geoDistance()"},
 		{name: "function in where", query: "SELECT * FROM orders WHERE coa", position: len("SELECT * FROM orders WHERE coa"), label: "coalesce", kind: "function", insertText: "coalesce()"},
-		{name: "operator after field", query: "SELECT * FROM orders WHERE amount ", position: len("SELECT * FROM orders WHERE amount "), label: "=", kind: "operator", insertText: "=", excluded: "AND"},
-		{name: "boolean after predicate", query: "SELECT * FROM orders WHERE amount > 0 ", position: len("SELECT * FROM orders WHERE amount > 0 "), label: "AND", kind: "keyword", insertText: "AND", excluded: "="},
+		{name: "operator after field", query: "SELECT * FROM orders WHERE amount ", position: len("SELECT * FROM orders WHERE amount "), label: "=", kind: "operator", insertText: "=", excluded: []string{"AND"}},
+		{name: "boolean after predicate", query: "SELECT * FROM orders WHERE amount > 0 ", position: len("SELECT * FROM orders WHERE amount > 0 "), label: "AND", kind: "keyword", insertText: "AND", excluded: []string{"="}},
+		{name: "between separator", query: "SELECT * FROM orders WHERE amount BETWEEN 1 ", position: len("SELECT * FROM orders WHERE amount BETWEEN 1 "), label: "AND", kind: "keyword", insertText: "AND", excluded: []string{"OR", "GROUP BY", "ORDER BY", "LIMIT"}, total: 1},
 		{name: "field after boolean", query: "SELECT * FROM orders WHERE amount > 0 AND ", position: len("SELECT * FROM orders WHERE amount > 0 AND "), label: "amount", kind: "field"},
-		{name: "field after select comma", query: "SELECT amount,  FROM orders", position: len("SELECT amount, "), label: "amount", kind: "field", excluded: "orders"},
+		{name: "field after select comma", query: "SELECT amount,  FROM orders", position: len("SELECT amount, "), label: "amount", kind: "field", excluded: []string{"orders"}},
+		{name: "double-quoted clause identifier", query: `SELECT "FROM"  FROM orders`, position: len(`SELECT "FROM" `), label: "count", kind: "function", insertText: "count()", excluded: []string{"orders"}},
+		{name: "backtick-quoted clause identifier", query: "SELECT `JOIN`  FROM orders", position: len("SELECT `JOIN` "), label: "count", kind: "function", insertText: "count()", excluded: []string{"orders"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -143,12 +149,17 @@ func TestCompletesSQLSyntaxForCursorContext(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if test.total > 0 && result.Total != test.total {
+				t.Fatalf("suggestion total = %d, want %d; suggestions = %#v", result.Total, test.total, result.Suggestions)
+			}
 			suggestion, ok := findSuggestion(result.Suggestions, test.label)
 			if !ok || suggestion.Kind != test.kind || suggestion.InsertText != test.insertText {
 				t.Fatalf("suggestion %q = %#v; all suggestions = %#v; parse error = %q", test.label, suggestion, result.Suggestions, result.ParseError)
 			}
-			if test.excluded != "" && hasSuggestion(result.Suggestions, test.excluded) {
-				t.Fatalf("unexpected suggestion %q in %#v", test.excluded, result.Suggestions)
+			for _, excluded := range test.excluded {
+				if hasSuggestion(result.Suggestions, excluded) {
+					t.Fatalf("unexpected suggestion %q in %#v", excluded, result.Suggestions)
+				}
 			}
 		})
 	}
@@ -220,7 +231,7 @@ func findSuggestion(suggestions []Suggestion, label string) (Suggestion, bool) {
 	return Suggestion{}, false
 }
 
-func BenchmarkCompleteContextualCatalog(b *testing.B) {
+func largeContextualCatalog() *catalog.Catalog {
 	schema := &catalog.Catalog{Tables: make(map[string]catalog.Table, 1024)}
 	for tableIndex := 0; tableIndex < 1024; tableIndex++ {
 		fields := make(map[string]catalog.Field, 25)
@@ -231,6 +242,53 @@ func BenchmarkCompleteContextualCatalog(b *testing.B) {
 		name := fmt.Sprintf("table_%04d", tableIndex)
 		schema.Tables[name] = catalog.Table{Name: name, Type: "data_warehouse", Fields: fields}
 	}
+	return schema
+}
+
+func TestCompleteContextualCatalogStaysWithinLatencyBudget(t *testing.T) {
+	const sampleCount = 20
+	const callsPerSample = 100
+	const maxAverage = 5 * time.Millisecond
+	const maxStandardDeviation = 5 * time.Millisecond
+
+	schema := largeContextualCatalog()
+	query := "SELECT countD FROM table_0500"
+	position := len("SELECT countD")
+	durations := make([]float64, sampleCount)
+	for sample := range sampleCount {
+		startedAt := time.Now()
+		for range callsPerSample {
+			if _, err := Complete(schema, query, position, PositionEncodingUTF8, ""); err != nil {
+				t.Fatal(err)
+			}
+		}
+		durations[sample] = float64(time.Since(startedAt)) / callsPerSample
+	}
+
+	var total float64
+	for _, duration := range durations {
+		total += duration
+	}
+	average := total / sampleCount
+	var squaredDifferences float64
+	for _, duration := range durations {
+		difference := duration - average
+		squaredDifferences += difference * difference
+	}
+	standardDeviation := math.Sqrt(squaredDifferences / sampleCount)
+	if time.Duration(average) > maxAverage || time.Duration(standardDeviation) > maxStandardDeviation {
+		t.Fatalf(
+			"completion latency average = %s (max %s), standard deviation = %s (max %s)",
+			time.Duration(average),
+			maxAverage,
+			time.Duration(standardDeviation),
+			maxStandardDeviation,
+		)
+	}
+}
+
+func BenchmarkCompleteContextualCatalog(b *testing.B) {
+	schema := largeContextualCatalog()
 	for _, benchmark := range []struct {
 		name     string
 		query    string

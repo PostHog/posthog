@@ -14,6 +14,7 @@ const (
 	completionModeTable
 	completionModeExpression
 	completionModeComparison
+	completionModeBetweenSeparator
 	completionModePredicateContinuation
 	completionModePostExpression
 )
@@ -113,6 +114,14 @@ func predicateMode(tokens []sqlToken, depth int) completionMode {
 		}
 	}
 	if comparisonIndex >= 0 {
+		if betweenPending && segment[comparisonIndex].text == "BETWEEN" {
+			for _, token := range segment[comparisonIndex+1:] {
+				if token.depth <= depth && token.text != "NOT" {
+					return completionModeBetweenSeparator
+				}
+			}
+			return completionModeExpression
+		}
 		for _, token := range segment[comparisonIndex+1:] {
 			if token.depth <= depth && token.text != "NOT" {
 				return completionModePredicateContinuation

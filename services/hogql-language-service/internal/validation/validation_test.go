@@ -19,7 +19,12 @@ func schema() *catalog.Catalog {
 		"postgres.synced.orders": {Name: "postgres.synced.orders", Type: "data_warehouse", Fields: map[string]catalog.Field{
 			"synced_id": {Name: "synced_id", Type: "string"},
 		}},
-		"events":  {Name: "events", Type: "posthog", Fields: map[string]catalog.Field{"properties": {Name: "properties", Type: "json"}}},
+		"events": {Name: "events", Type: "posthog", Fields: map[string]catalog.Field{
+			"event":      {Name: "event", Type: "string"},
+			"properties": {Name: "properties", Type: "json"},
+			"timestamp":  {Name: "timestamp", Type: "datetime"},
+			"uuid":       {Name: "uuid", Type: "uuid"},
+		}},
 		"persons": {Name: "persons", Type: "posthog", Fields: map[string]catalog.Field{"properties": {Name: "properties", Type: "json"}}},
 	}, Properties: map[string][]catalog.Property{
 		"event":   {{Name: "$geo_city", ValueType: "String"}},
@@ -98,12 +103,21 @@ func TestValidateUnknownAliasedFieldSuggestsVisibleMatch(t *testing.T) {
 }
 
 func TestValidateAcceptsKnownFieldsAndFunctions(t *testing.T) {
-	result := Validate(schema(), "SELECT sum(o.amount), o.order_id FROM warehouse_orders AS o WHERE o.amount > 0")
-	if !result.Valid || len(result.Diagnostics) != 0 {
-		t.Fatalf("result = %#v", result)
-	}
-	if len(result.TableNames) != 1 || result.TableNames[0] != "warehouse_orders" {
-		t.Fatalf("table names = %#v", result.TableNames)
+	for _, test := range []struct {
+		query     string
+		tableName string
+	}{
+		{query: "SELECT sum(o.amount), o.order_id FROM warehouse_orders AS o WHERE o.amount > 0", tableName: "warehouse_orders"},
+		{query: "SELECT uuid FROM events WHERE event = '$pageview' AND timestamp > now() - interval 1 month", tableName: "events"},
+		{query: "SELECT extract(month FROM timestamp) FROM events", tableName: "events"},
+	} {
+		result := Validate(schema(), test.query)
+		if !result.Valid || len(result.Diagnostics) != 0 {
+			t.Fatalf("query %q returned %#v", test.query, result)
+		}
+		if len(result.TableNames) != 1 || result.TableNames[0] != test.tableName {
+			t.Fatalf("query %q returned table names %#v", test.query, result.TableNames)
+		}
 	}
 }
 
