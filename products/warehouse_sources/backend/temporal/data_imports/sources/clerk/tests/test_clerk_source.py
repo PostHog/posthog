@@ -37,6 +37,8 @@ class TestClerkSource:
             "400 Client Error: Bad Request for url: https://api.clerk.com/v1/api_keys?limit=100",
             # `redirect_urls` endpoint, not available on the account's Clerk plan or instance.
             "404 Client Error: Not Found for url: https://api.clerk.com/v1/redirect_urls?limit=100 | api error: code=resource_not_found",
+            # `jwt_templates` endpoint, not available on the account's Clerk plan or instance.
+            "404 Client Error: Not Found for url: https://api.clerk.com/v1/jwt_templates?limit=100 | api error: code=resource_not_found",
         ],
     )
     def test_non_retryable_errors_matches_observed_error_message(self, observed_error):
