@@ -144,6 +144,26 @@ describe('CdpEventsConsumer', () => {
                 await expect(processor._parseKafkaBatch(messages)).resolves.toEqual([])
             }
         })
+
+        it('lets a retriable failure escape the batch handler, and processes the batch on a later attempt', async () => {
+            // The consumer stores offsets only after this handler resolves, so the handler
+            // rejecting is what leaves the batch unacknowledged. A try/catch added around
+            // _parseKafkaBatch here would swallow the rejection and silently restore the old
+            // drop-everything behaviour, which the unit assertion above cannot see.
+            const error = new DependencyUnavailableError('connection reset', 'Postgres', new Error('reset'))
+            const getTeam = jest.spyOn(processor['deps'].teamManager, 'getTeam').mockRejectedValue(error)
+            const handleBatch = (processor['kafkaConsumer'].connect as jest.Mock).mock.calls[0][0]
+            const messages = [createKafkaMessage(createIncomingEvent(team.id, {}))]
+
+            await expect(handleBatch(messages)).rejects.toThrow(error)
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+
+            getTeam.mockRestore()
+            const { backgroundTask } = await handleBatch(messages)
+            await backgroundTask
+
+            expect(mockQueueInvocations).toHaveBeenCalledWith([expect.objectContaining({ teamId: team.id })])
+        })
     })
 
     describe('general event processing', () => {

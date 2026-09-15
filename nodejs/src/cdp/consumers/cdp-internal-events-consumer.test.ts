@@ -98,6 +98,16 @@ describe('CDP Internal Events Consumer', () => {
             ).rejects.toThrow(error)
         })
 
+        it('should let that failure escape the batch handler rather than swallowing it', async () => {
+            // Offsets are stored only after the handler resolves, so the rejection reaching the
+            // consumer is what leaves the batch unacknowledged.
+            const error = new DependencyUnavailableError('connection reset', 'Postgres', new Error('reset'))
+            jest.spyOn(processor['deps'].teamManager, 'getTeam').mockRejectedValue(error)
+            const handleBatch = (processor['kafkaConsumer'].connect as jest.Mock).mock.calls[0][0]
+
+            await expect(handleBatch([createKafkaMessage(createInternalEvent(team.id, {}))])).rejects.toThrow(error)
+        })
+
         describe('with an existing team and hog function', () => {
             beforeEach(async () => {
                 await insertHogFunction({
