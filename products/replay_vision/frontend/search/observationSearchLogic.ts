@@ -13,6 +13,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
@@ -127,6 +128,17 @@ export type observationSearchLogicType = MakeLogicType<
     ObservationSearchLogicProps,
     observationSearchLogicMeta
 >
+
+// The query text stays out of the event: it is free text that can carry customer names or emails.
+function captureSearchOutcome(
+    scannerId: string | null,
+    outcome: { succeeded: boolean; result_count?: number; error_status?: number; error_code?: string }
+): void {
+    posthog.capture('replay vision observation search completed', {
+        ...outcome,
+        scope: scannerId ? 'scanner' : 'cross-scanner',
+    })
+}
 
 export const observationSearchLogic = kea<observationSearchLogicType>([
     path(['products', 'replay_vision', 'frontend', 'search', 'observationSearchLogic']),
@@ -287,11 +299,18 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
                 })
                 // Drop out-of-order responses. The newest search owns the results.
                 breakpoint()
-                actions.searchSuccess(response.results ?? [], query, response.truncated ?? false)
+                const results = response.results ?? []
+                captureSearchOutcome(props.scannerId, { succeeded: true, result_count: results.length })
+                actions.searchSuccess(results, query, response.truncated ?? false)
             } catch (error: any) {
                 if (error instanceof Error && isBreakpoint(error)) {
                     throw error
                 }
+                captureSearchOutcome(props.scannerId, {
+                    succeeded: false,
+                    error_status: error?.status,
+                    error_code: error?.code,
+                })
                 if (error?.code === AI_CONSENT_REQUIRED_CODE) {
                     lemonToast.error('AI data processing is turned off for your organization.', {
                         button: {

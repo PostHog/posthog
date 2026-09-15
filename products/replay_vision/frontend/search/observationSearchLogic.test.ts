@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { urls } from 'scenes/urls'
@@ -152,6 +153,28 @@ describe('observationSearchLogic', () => {
         })
         await expectLogic(logic).toFinishAllListeners()
         expect(searchSpy).toHaveBeenCalledTimes(1)
+        logic.unmount()
+    })
+
+    it.each([
+        ['a failed', () => [500, { detail: 'embedding service down' }], { succeeded: false, error_status: 500 }],
+        ['a successful', undefined, { succeeded: true, result_count: 1 }],
+    ])('%s search is captured, so the failure rate is measurable', async (_name, mockResponse, expected) => {
+        if (mockResponse) {
+            searchSpy.mockImplementation(mockResponse as () => any)
+        }
+        const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+        const logic = observationSearchLogic({ scannerId: null, teamId: 1, userId: 'user-1' })
+        logic.mount()
+        router.actions.push(urls.replayVision(), { tab: 'search' })
+        logic.actions.setQuery('rage clicks')
+        await expectLogic(logic, () => logic.actions.search()).toFinishAllListeners()
+
+        expect(captureSpy).toHaveBeenCalledWith(
+            'replay vision observation search completed',
+            expect.objectContaining({ ...expected, scope: 'cross-scanner' })
+        )
+        captureSpy.mockRestore()
         logic.unmount()
     })
 

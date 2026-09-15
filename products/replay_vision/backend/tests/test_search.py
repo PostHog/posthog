@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 from django.core.cache import cache
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
@@ -253,3 +254,21 @@ class TestQueryVectorCache(APIBaseTest):
         self.assertEqual(query_vector_for(self.team, "confused users"), [0.1, 0.2])
         query_vector_for(self.team, "happy users")
         self.assertEqual(mock_embed.call_count, 2)
+
+    @parameterized.expand([("unreachable", requests.ConnectionError), ("slow", requests.Timeout)])
+    @patch("products.replay_vision.backend.search.time.sleep")
+    @patch("products.replay_vision.backend.search.generate_embedding")
+    def test_a_transport_failure_is_retried_once(
+        self, _name: str, exception_class: type, mock_embed: MagicMock, _mock_sleep: MagicMock
+    ) -> None:
+        mock_embed.side_effect = [exception_class("embedding service down"), MagicMock(embedding=[0.1, 0.2])]
+        self.assertEqual(query_vector_for(self.team, "confused users"), [0.1, 0.2])
+        self.assertEqual(mock_embed.call_count, 2)
+
+    @patch("products.replay_vision.backend.search.time.sleep")
+    @patch("products.replay_vision.backend.search.generate_embedding")
+    def test_a_rejected_request_is_not_retried(self, mock_embed: MagicMock, _mock_sleep: MagicMock) -> None:
+        mock_embed.side_effect = requests.HTTPError("rejected")
+        with self.assertRaises(requests.HTTPError):
+            query_vector_for(self.team, "confused users")
+        self.assertEqual(mock_embed.call_count, 1)

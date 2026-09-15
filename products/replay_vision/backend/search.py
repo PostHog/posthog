@@ -6,6 +6,7 @@ a single ClickHouse query here. Callers resolve scanner scope and access control
 readable scanner ids in.
 """
 
+import time
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime
@@ -15,6 +16,8 @@ from zoneinfo import ZoneInfo
 from django.core.cache import cache
 from django.db.models import F
 
+import requests
+import structlog
 from asgiref.sync import sync_to_async
 
 from posthog.hogql import ast
@@ -41,6 +44,8 @@ from products.replay_vision.backend.models.replay_observation import (
 from products.replay_vision.backend.scanner_access import accessible_observations
 from products.replay_vision.backend.tags import clickhouse_slugify_sql, slugify_tag
 
+logger = structlog.get_logger(__name__)
+
 # Default and hard cap on how many observations a search returns.
 DEFAULT_SEARCH_LIMIT = 20
 MAX_SEARCH_LIMIT = 50
@@ -60,6 +65,10 @@ _MATCHED_CONTENT_MAX_CHARS = 1500
 _QUERY_VECTOR_CACHE_TTL_S = 3600
 # Bound the synchronous embedding call: it pins a request thread, and a searcher will not wait longer.
 _EMBEDDING_TIMEOUT_S = 10.0
+# A transport failure gets one retry, because the worker's blips are usually shorter than a search. The two
+# attempts share the budget above, so a retry never makes a searcher wait longer than one attempt did before.
+_EMBEDDING_ATTEMPT_TIMEOUT_S = _EMBEDDING_TIMEOUT_S / 2
+_EMBEDDING_RETRY_BACKOFF_S = 0.25
 # The cosine-distance scan is exact (brute-force), so cap how many of a team's most-recent embedding rows it
 # ranks over. Set well above realistic per-team volume so it only bites a runaway team, keeping latency
 # predictable without an HNSW index (which our mandatory tenant/scanner metadata filters wouldn't engage anyway).
@@ -335,15 +344,24 @@ def _query_vector_cache_key(text: str) -> str:
     return f"replay_vision:query_vector:{OBSERVATION_EMBEDDING_MODEL.value}:{digest}"
 
 
+def _embed_once(team: Team, text: str) -> list[float]:
+    return generate_embedding(
+        team, text, model=OBSERVATION_EMBEDDING_MODEL.value, timeout=_EMBEDDING_ATTEMPT_TIMEOUT_S
+    ).embedding
+
+
 def query_vector_for(team: Team, text: str) -> list[float]:
-    """Embed search text, serving repeats from cache. Raises the embedding client's transport errors."""
+    """Embed search text, serving repeats from cache. A transport error is retried once, then raised."""
     key = _query_vector_cache_key(text)
     cached = cache.get(key)
     if cached is not None:
         return cached
-    vector = generate_embedding(
-        team, text, model=OBSERVATION_EMBEDDING_MODEL.value, timeout=_EMBEDDING_TIMEOUT_S
-    ).embedding
+    try:
+        vector = _embed_once(team, text)
+    except (requests.ConnectionError, requests.Timeout):
+        logger.warning("replay_vision.search.embedding_retry", team_id=team.id, exc_info=True)
+        time.sleep(_EMBEDDING_RETRY_BACKOFF_S)
+        vector = _embed_once(team, text)
     cache.set(key, vector, timeout=_QUERY_VECTOR_CACHE_TTL_S)
     return vector
 
