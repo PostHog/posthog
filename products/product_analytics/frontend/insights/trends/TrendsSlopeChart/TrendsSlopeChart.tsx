@@ -60,13 +60,14 @@ export function TrendsSlopeChart({ context }: TrendsSlopeChartProps): JSX.Elemen
             // insight's "Show legend" toggle, so there's only ever one legend and no in-chart names.
             showSeriesLabels: false,
             legend: { show: !!showLegend },
+            hideXAxis: context?.hideAxes,
             xTickFormatter: createXAxisTickCallback({
                 interval: interval ?? 'day',
                 allDays: currentPeriodResult?.days ?? [],
                 timezone,
             }),
         }),
-        [trendsFilter, baseCurrency, showLegend, interval, currentPeriodResult, timezone]
+        [trendsFilter, baseCurrency, showLegend, interval, currentPeriodResult, timezone, context?.hideAxes]
     )
 
     if (series.length === 0) {
