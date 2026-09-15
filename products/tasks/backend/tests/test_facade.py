@@ -560,6 +560,86 @@ class TestFacadeReadsAndMappers(TestCase):
 
         self.assertEqual(facade.get_latest_pr_url_by_task([]), {})
 
+    def test_get_prior_pr_output_by_task_picks_the_newest_pr_carrying_run(self):
+        task = self._make_task()
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_url": "https://x/pull/1"}
+        )
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_urls": ["https://x/pull/2"]}
+        )
+        # A resume opens no PR of its own, so it must not hide the run that did.
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+        no_pr_task = self._make_task()
+        TaskRun.objects.create(task=no_pr_task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        prior = facade.get_prior_pr_output_by_task(self.team.id, [task.id, no_pr_task.id])
+
+        self.assertEqual(prior, {str(task.id): {"pr_urls": ["https://x/pull/2"]}})
+        self.assertEqual(facade.get_prior_pr_output_by_task(self.team.id, []), {})
+
+    def test_task_detail_keeps_the_pr_on_latest_run_across_a_resume(self):
+        task = self._make_task()
+        TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={
+                "pr_url": "https://x/pull/7",
+                "pr_urls": ["https://x/pull/7"],
+                "pr_state": "open",
+                "commit_push": {"repository": "posthog/posthog"},
+            },
+        )
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"final_message": "done"}
+        )
+
+        dto = facade.get_task_detail(task.id, self.team.id, self.user.id)
+
+        assert dto is not None and dto.latest_run is not None
+        self.assertEqual(dto.latest_run.output["pr_url"], "https://x/pull/7")
+        self.assertEqual(dto.latest_run.output["pr_urls"], ["https://x/pull/7"])
+        self.assertEqual(dto.latest_run.output["pr_state"], "open")
+        self.assertEqual(dto.latest_run.output["final_message"], "done")
+        # Only the PR travels; the rest of an earlier run's output stays where it was written.
+        self.assertNotIn("commit_push", dto.latest_run.output)
+
+    def test_task_detail_leaves_a_run_that_opened_its_own_pr_alone(self):
+        task = self._make_task()
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_url": "https://x/pull/1"}
+        )
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"pr_url": "https://x/pull/2"}
+        )
+
+        dto = facade.get_task_detail(task.id, self.team.id, self.user.id)
+
+        assert dto is not None and dto.latest_run is not None
+        self.assertEqual(dto.latest_run.output["pr_url"], "https://x/pull/2")
+
+    def test_list_tasks_resolves_inherited_prs_in_one_query(self):
+        tasks = [self._make_task(title=f"pr-task-{i}") for i in range(4)]
+        for index, task in enumerate(tasks):
+            TaskRun.objects.create(
+                task=task,
+                team=self.team,
+                status=TaskRun.Status.COMPLETED,
+                output={"pr_url": f"https://x/pull/{index}"},
+            )
+            TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        # The page costs one inherited-PR query, whatever the number of tasks on it.
+        with self.assertNumQueries(6):
+            dtos = facade.list_tasks(self.team.id, self.user.id, filters={})
+
+        by_title = {dto.title: dto for dto in dtos}
+        for index, task in enumerate(tasks):
+            latest_run = by_title[task.title].latest_run
+            assert latest_run is not None
+            self.assertEqual(latest_run.output["pr_url"], f"https://x/pull/{index}")
+
     def test_get_conversation_task_dtos_carries_latest_run_id_not_nested_run(self):
         task = self._make_task(title="Conversation task")
         TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)

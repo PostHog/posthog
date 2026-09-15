@@ -5,7 +5,7 @@ import logging
 from collections import Counter
 from collections.abc import Collection, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from typing import Any, Literal
 from urllib.parse import urlparse
@@ -301,6 +301,7 @@ __all__ = [
     "task_exists",
     "task_ids_with_pr_url_subquery",
     "get_pull_requests_for_tasks",
+    "get_prior_pr_output_by_task",
     "read_pr_urls",
     "task_run_has_slack_mapping",
     "task_run_is_terminal",
@@ -545,6 +546,23 @@ class _LatestRunUnset:
 _LATEST_RUN_UNSET = _LatestRunUnset()
 
 
+class _PriorPrOutputUnset:
+    pass
+
+
+_PRIOR_PR_OUTPUT_UNSET = _PriorPrOutputUnset()
+
+# The fields that identify the PR a task points at. A run that opened no PR of its own
+# borrows these from the run that did; everything else in an output stays run-local.
+_INHERITED_PR_OUTPUT_KEYS = ("pr_url", "pr_urls", "pr_summaries", "pr_state", "pr_merged")
+
+
+def _inherited_pr_fields(output: object) -> dict[str, Any]:
+    if not isinstance(output, dict):
+        return {}
+    return {key: output[key] for key in _INHERITED_PR_OUTPUT_KEYS if key in output}
+
+
 def _task_slack_thread_references(task: Task) -> list[contracts.SlackThreadReferenceDTO]:
     references: list[contracts.SlackThreadReferenceDTO] = []
     for item in (task.state or {}).get("slack_thread_references", []):
@@ -637,8 +655,14 @@ def _task_detail_to_dto(
     *,
     include_latest_run: bool = True,
     latest_run: TaskRun | None | _LatestRunUnset = _LATEST_RUN_UNSET,
+    prior_pr_output: dict[str, Any] | None | _PriorPrOutputUnset = _PRIOR_PR_OUTPUT_UNSET,
 ) -> contracts.TaskDetailDTO:
-    """Map a ``Task`` to its HTTP detail DTO."""
+    """Map a ``Task`` to its HTTP detail DTO.
+
+    ``prior_pr_output`` is the task's most recent PR-carrying run output, which backfills
+    the PR onto ``latest_run`` when that run opened none itself. Callers that map a page of
+    tasks pass it to keep the lookup to one query; leave it unset for a single task.
+    """
     if not include_latest_run:
         resolved_latest_run = None
     elif isinstance(latest_run, _LatestRunUnset):
@@ -648,6 +672,19 @@ def _task_detail_to_dto(
     latest_run_id = getattr(task, "_latest_run_id", None)
     if latest_run_id is None and resolved_latest_run is not None:
         latest_run_id = resolved_latest_run.id
+    latest_run_dto = _task_run_detail_to_dto(resolved_latest_run) if resolved_latest_run is not None else None
+    if latest_run_dto is not None and not read_pr_urls(latest_run_dto.output):
+        # A resumed run starts with an empty output, so the PR an earlier run opened drops
+        # out of `latest_run` — and with it the PR button every client reads from there.
+        # Logs and artifacts already survive a resume; the PR has to as well.
+        resolved_prior_pr_output = (
+            get_prior_pr_output_by_task(task.team_id, [task.id]).get(str(task.id))
+            if isinstance(prior_pr_output, _PriorPrOutputUnset)
+            else prior_pr_output
+        )
+        inherited = _inherited_pr_fields(resolved_prior_pr_output)
+        if inherited:
+            latest_run_dto = replace(latest_run_dto, output={**(latest_run_dto.output or {}), **inherited})
     return contracts.TaskDetailDTO(
         id=task.id,
         task_number=task.task_number,
@@ -667,7 +704,7 @@ def _task_detail_to_dto(
         archived=task.archived,
         archived_at=task.archived_at,
         ci_prompt=task.ci_prompt,
-        latest_run=_task_run_detail_to_dto(resolved_latest_run) if resolved_latest_run is not None else None,
+        latest_run=latest_run_dto,
         created_at=task.created_at,
         updated_at=task.updated_at,
         last_activity_at=task.last_activity_at or task.updated_at,
@@ -1031,6 +1068,26 @@ def get_latest_pr_url_by_task(task_ids: Iterable[str | UUID], *conditions: Q) ->
         .distinct("task_id")
     )
     return {str(row["task_id"]): row["output_pr_url_text"] for row in rows if row["output_pr_url_text"]}
+
+
+def get_prior_pr_output_by_task(team_id: int, task_ids: Iterable[str | UUID]) -> dict[str, dict[str, Any]]:
+    """Most recent run ``output`` that carries a PR, per task.
+
+    A run records the PR it opened in its own ``output``. A later run — a resume, a follow-up
+    message — starts with an empty ``output``, so a reader that sees only the newest run finds
+    no PR on a task that plainly has one. This supplies the PR that run inherits.
+    """
+    ids = [str(task_id) for task_id in task_ids]
+    if not ids:
+        return {}
+    rows = (
+        TaskRun.objects.filter(team_id=team_id, task_id__in=ids)
+        .filter((Q(output__pr_url__isnull=False) & ~Q(output__pr_url="")) | Q(output__pr_urls__0__isnull=False))
+        .order_by("task_id", "-created_at", "-id")
+        .distinct("task_id")
+        .values_list("task_id", "output")
+    )
+    return {str(task_id): output for task_id, output in rows if isinstance(output, dict)}
 
 
 def task_ids_with_pr_url_subquery(team_id: int, *conditions: Q) -> QuerySet[TaskRun, Any]:
@@ -5653,7 +5710,21 @@ def _latest_runs_by_task_id(task_ids: Iterable[UUID], team_id: int) -> dict[UUID
 def _tasks_to_dtos(tasks: Iterable[Task], team_id: int) -> list[contracts.TaskDetailDTO]:
     task_list = list(tasks)
     latest_runs_by_task_id = _latest_runs_by_task_id((task.id for task in task_list), team_id)
-    return [_task_detail_to_dto(task, latest_run=latest_runs_by_task_id.get(task.id)) for task in task_list]
+    # Resolved for the whole page in one query, rather than one per task inside the mapper.
+    needs_prior_pr = [
+        task.id
+        for task in task_list
+        if (run := latest_runs_by_task_id.get(task.id)) is not None and not read_pr_urls(run.output)
+    ]
+    prior_pr_output_by_task_id = get_prior_pr_output_by_task(team_id, needs_prior_pr)
+    return [
+        _task_detail_to_dto(
+            task,
+            latest_run=latest_runs_by_task_id.get(task.id),
+            prior_pr_output=prior_pr_output_by_task_id.get(str(task.id)),
+        )
+        for task in task_list
+    ]
 
 
 def list_tasks(team_id: int, user_id: int | None, *, filters: dict) -> list[contracts.TaskDetailDTO]:
