@@ -9,8 +9,13 @@ import { urls } from 'scenes/urls'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
-import { resolveToolCall, runnerPanelLogic, toolStreamEventsLogic } from 'products/posthog_ai/frontend/api/logics'
-import type { ActiveCreation } from 'products/posthog_ai/frontend/api/logics'
+import {
+    composerSeedLogic,
+    resolveToolCall,
+    runnerPanelLogic,
+    toolStreamEventsLogic,
+} from 'products/posthog_ai/frontend/api/logics'
+import type { ActiveCreation, ComposerSeed } from 'products/posthog_ai/frontend/api/logics'
 import type { ToolStreamEvent } from 'products/posthog_ai/frontend/api/types'
 
 // pinned: MCP tool name from products/workflows/mcp/tools.yaml
@@ -60,6 +65,9 @@ export interface newWorkflowAgentLogicActions {
     emitToolEvent: (event: ToolStreamEvent) => {
         event: ToolStreamEvent
     } // toolStreamEventsLogic
+    setSeed: (seed: ComposerSeed) => {
+        seed: ComposerSeed
+    } // composerSeedLogic
     composerShown: () => {
         value: true
     }
@@ -89,6 +97,8 @@ export const newWorkflowAgentLogic = kea<newWorkflowAgentLogicType>([
             ['openSidePanel', 'closeSidePanel'],
             toolStreamEventsLogic,
             ['emitToolEvent'],
+            composerSeedLogic({ panelId: MAX_SIDE_PANEL_ID }),
+            ['setSeed'],
         ],
     })),
     actions({
@@ -102,6 +112,10 @@ export const newWorkflowAgentLogic = kea<newWorkflowAgentLogicType>([
             // not take the place of the composer, and a second copy of it beside the page is noise.
             actions.clearActiveCreation()
             actions.setHistoryExpanded(false)
+            // A prompt typed in the panel and never sent is still in the shared form, where it would greet
+            // the person under the new-workflow headline. An empty seed is how a host prefills this
+            // composer, so it is also how a host empties it.
+            actions.setSeed({ prompt: '', autoSubmit: false })
             if (values.sidePanelOpen && values.selectedTab === SidePanelTab.Max) {
                 actions.closeSidePanel()
             }

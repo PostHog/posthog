@@ -10,7 +10,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
-import { runnerPanelLogic, toolStreamEventsLogic } from 'products/posthog_ai/frontend/api/logics'
+import { composerSeedLogic, runnerPanelLogic, toolStreamEventsLogic } from 'products/posthog_ai/frontend/api/logics'
 import type { ToolStreamEvent } from 'products/posthog_ai/frontend/api/types'
 
 import { newWorkflowAgentLogic } from './newWorkflowAgentLogic'
@@ -81,6 +81,21 @@ describe('newWorkflowAgentLogic', () => {
         }).toFinishAllListeners()
 
         expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
+    })
+
+    // The composer is the panel's own instance, so a prompt typed in the panel and never sent is still in
+    // the form this page renders. Seeding an empty prompt is how a host prefills that composer.
+    it('empties the shared composer when the composer is shown', async () => {
+        const seeds = composerSeedLogic({ panelId: MAX_SIDE_PANEL_ID })
+        seeds.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.composerShown()
+        }).toFinishAllListeners()
+
+        expect(seeds.values.seed).toEqual({ prompt: '', autoSubmit: false })
+
+        seeds.unmount()
     })
 
     it('opens the side panel and routes to the draft once this run creates a workflow', async () => {
