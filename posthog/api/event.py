@@ -11,12 +11,13 @@ from typing import Any, Iterator, List, Optional, Union, cast  # noqa: UP035
 from django.conf import settings
 from django.utils import timezone
 
+import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import mixins, request, response, serializers, viewsets
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, Throttled
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.renderers import BaseRenderer
 from rest_framework.settings import api_settings
@@ -34,6 +35,7 @@ from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.clickhouse.client.limit import CONCURRENCY_LIMIT_USER_MESSAGE, ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties
@@ -53,6 +55,8 @@ from posthog.rate_limit import (
 )
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from posthog.utils import convert_property_value, flatten, refresh_requested_by_client, relative_date_parse
+
+logger = structlog.get_logger(__name__)
 
 tracer = trace.get_tracer(__name__)
 
@@ -331,6 +335,11 @@ class EventViewSet(
                 }
             return response.Response({"next": next_url, "results": result}, headers=headers)
 
+        except ConcurrencyLimitExceeded as ex:
+            # A deliberate throttle, so it must reach the client as a 429 it can retry, and it
+            # must stay out of error tracking.
+            logger.warning("events_list_concurrency_limit_exceeded", team_id=self.team_id, detail=str(ex))
+            raise Throttled(detail=CONCURRENCY_LIMIT_USER_MESSAGE)
         except Exception as ex:
             capture_exception(ex)
             raise
