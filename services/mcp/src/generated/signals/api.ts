@@ -1873,6 +1873,12 @@ export const signalsScoutEmitReportBodyIdempotencyKeyMax = 200
 
 export const SignalsScoutEmitReportBody = () => zod
     .object({
+        space_id: zod
+            .string()
+            .nullish()
+            .describe(
+                "The space (task channel) this report belongs to, when the scout knows it — for example a report about a goal read from that space's CONTEXT.md. The report is assigned to the space on creation, so it shows on the space's Context page and Reports tab. An unknown space is ignored; a report without one may still be routed from its evidence."
+            ),
         title: zod
             .string()
             .max(signalsScoutEmitReportBodyTitleMax)
