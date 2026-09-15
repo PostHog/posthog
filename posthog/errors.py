@@ -963,7 +963,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     # string keeps that value out of the response while still returning a 400 for the bad query.
     691: ErrorCodeMeta(
         "UNKNOWN_ELEMENT_OF_ENUM",
-        user_safe="The query compares an enum column with a value that the column does not allow. Check the values in your comparisons and IN clauses.",
+        user_safe="The query uses a value that an enum type does not allow. Check the enum values in your comparisons, IN clauses, casts, and function arguments.",
     ),
     692: ErrorCodeMeta("TOO_MANY_MUTATIONS"),
     693: ErrorCodeMeta("AWS_ERROR"),

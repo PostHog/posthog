@@ -53,7 +53,7 @@ class TestWrapClickhouseQueryError:
             (
                 691,
                 "UNKNOWN_ELEMENT_OF_ENUM",
-                "The query compares an enum column with a value that the column does not allow. Check the values in your comparisons and IN clauses.",
+                "The query uses a value that an enum type does not allow. Check the enum values in your comparisons, IN clauses, casts, and function arguments.",
             ),
         ]
     )
