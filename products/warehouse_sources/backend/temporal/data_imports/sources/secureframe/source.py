@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -56,7 +54,7 @@ class SecureframeSource(ResumableSource[SecureframeSourceConfig, SecureframeResu
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SECUREFRAME,
+            name=ExternalDataSourceType.SECUREFRAME,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Secureframe",
             caption="""Enter your Secureframe API credentials to pull your compliance data (controls, tests, personnel, devices, vendors, and more) into the PostHog Data warehouse.

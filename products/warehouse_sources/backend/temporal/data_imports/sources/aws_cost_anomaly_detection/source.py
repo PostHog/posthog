@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_anomaly_detection.aws_cost_anomaly_detection import (
     AwsCostAnomalyDetectionResumeConfig,
     aws_cost_anomaly_detection_source,
@@ -133,7 +131,7 @@ class AwsCostAnomalyDetectionSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.AWS_COST_ANOMALY_DETECTION,
+            name=ExternalDataSourceType.AWSCOSTANOMALYDETECTION,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="AWS Cost Anomaly Detection",
             caption="""Sync the cost anomalies AWS detected on your account into the PostHog Data warehouse.

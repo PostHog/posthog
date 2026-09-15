@@ -1,11 +1,6 @@
 from typing import cast
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    SourceConfig,
-)
-
+from products.warehouse_sources.backend.source_config import DataWarehouseSourceCategory, SourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cin7 import Cin7SourceConfig
@@ -21,7 +16,7 @@ class Cin7Source(SimpleSource[Cin7SourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CIN7,
+            name=ExternalDataSourceType.CIN7,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Cin7",
             iconPath="/static/services/cin7.png",

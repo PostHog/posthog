@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.autumn.autumn import (
     AutumnResumeConfig,
     autumn_source,
@@ -109,7 +107,7 @@ class AutumnSource(ResumableSource[AutumnSourceConfig, AutumnResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.AUTUMN,
+            name=ExternalDataSourceType.AUTUMN,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Autumn",
             caption=(

@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.aha_ideas.aha_ideas import (
     AhaIdeasResumeConfig,
     aha_ideas_source,
@@ -55,7 +53,7 @@ class AhaIdeasSource(ResumableSource[AhaIdeasSourceConfig, AhaIdeasResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.AHA_IDEAS,
+            name=ExternalDataSourceType.AHAIDEAS,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Aha! Ideas",
             releaseStatus=ReleaseStatus.ALPHA,

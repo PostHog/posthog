@@ -1,7 +1,6 @@
 import pytest
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
-
+from products.warehouse_sources.backend.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
 from products.warehouse_sources.backend.temporal.data_imports.sources.buzzsprout.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.buzzsprout.source import BuzzsproutSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.buzzsprout import (

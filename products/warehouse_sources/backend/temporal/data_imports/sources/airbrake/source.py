@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.airbrake.airbrake import (
     AirbrakeResumeConfig,
     airbrake_source,
@@ -44,7 +42,7 @@ class AirbrakeSource(ResumableSource[AirbrakeSourceConfig, AirbrakeResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.AIRBRAKE,
+            name=ExternalDataSourceType.AIRBRAKE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Airbrake",
             releaseStatus=ReleaseStatus.ALPHA,

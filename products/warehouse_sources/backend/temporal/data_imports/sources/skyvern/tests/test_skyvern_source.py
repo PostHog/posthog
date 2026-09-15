@@ -1,7 +1,6 @@
 import pytest
 
-from posthog.schema import SourceFieldInputConfig
-
+from products.warehouse_sources.backend.source_config import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.skyvern import (
     SkyvernSourceConfig,
 )

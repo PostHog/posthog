@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.coin_api.coin_api import (
     CoinApiResumeConfig,
     coin_api_source,
@@ -45,7 +43,7 @@ class CoinApiSource(ResumableSource[CoinApiSourceConfig, CoinApiResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.COIN_API,
+            name=ExternalDataSourceType.COINAPI,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="CoinAPI",
             releaseStatus=ReleaseStatus.ALPHA,

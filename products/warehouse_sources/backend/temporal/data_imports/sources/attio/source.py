@@ -1,13 +1,11 @@
 from typing import cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.attio.attio import (
     attio_source,
     validate_credentials as validate_attio_credentials,
@@ -57,7 +55,7 @@ class AttioSource(SimpleSource[AttioSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ATTIO,
+            name=ExternalDataSourceType.ATTIO,
             category=DataWarehouseSourceCategory.CRM,
             caption="""Enter your Attio API key to automatically pull your Attio data into the PostHog Data warehouse.
 

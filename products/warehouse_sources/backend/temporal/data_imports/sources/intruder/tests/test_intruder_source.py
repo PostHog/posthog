@@ -2,13 +2,12 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.intruder import (
     IntruderSourceConfig,
 )

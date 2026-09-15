@@ -2,8 +2,7 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig
-
+from products.warehouse_sources.backend.source_config import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.g2.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.g2.source import G2Source
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.g2 import G2SourceConfig

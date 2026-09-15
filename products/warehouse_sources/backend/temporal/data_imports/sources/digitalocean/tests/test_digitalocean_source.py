@@ -1,8 +1,7 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import ReleaseStatus
-
+from products.warehouse_sources.backend.source_config import ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.digitalocean.source import DigitalOceanSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.digitalocean import (

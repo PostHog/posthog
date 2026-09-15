@@ -2,9 +2,8 @@ from typing import Optional, cast
 
 import structlog
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -12,7 +11,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.cimis.cimis import (
     cimis_source,
     parse_targets,
@@ -48,7 +46,7 @@ class CimisSource(SimpleSource[CimisSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CIMIS,
+            name=ExternalDataSourceType.CIMIS,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="CIMIS",
             releaseStatus=ReleaseStatus.ALPHA,

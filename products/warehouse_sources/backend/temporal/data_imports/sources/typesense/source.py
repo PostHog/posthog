@@ -1,11 +1,6 @@
 from typing import cast
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    SourceConfig,
-)
-
+from products.warehouse_sources.backend.source_config import DataWarehouseSourceCategory, SourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.typesense import (
@@ -23,7 +18,7 @@ class TypesenseSource(SimpleSource[TypesenseSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.TYPESENSE,
+            name=ExternalDataSourceType.TYPESENSE,
             category=DataWarehouseSourceCategory.DATABASES,
             label="Typesense",
             iconPath="/static/services/typesense.png",

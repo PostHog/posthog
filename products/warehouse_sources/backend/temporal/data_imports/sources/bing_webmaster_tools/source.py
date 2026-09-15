@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_webmaster_tools.bing_webmaster_tools import (
     bing_webmaster_tools_source,
     validate_credentials as validate_bing_webmaster_tools_credentials,
@@ -116,7 +114,7 @@ class BingWebmasterToolsSource(SimpleSource[BingWebmasterToolsSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BING_WEBMASTER_TOOLS,
+            name=ExternalDataSourceType.BINGWEBMASTERTOOLS,
             category=DataWarehouseSourceCategory.ANALYTICS,
             keywords=["bing", "seo", "organic search", "search analytics"],
             label="Bing Webmaster Tools",

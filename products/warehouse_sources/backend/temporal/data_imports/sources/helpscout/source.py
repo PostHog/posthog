@@ -1,15 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from posthog.models.integration import Integration, OauthIntegration
+
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldOauthConfig,
 )
-
-from posthog.models.integration import Integration, OauthIntegration
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -72,7 +70,7 @@ class HelpScoutSource(OAuthMixin, ResumableSource[HelpScoutSourceConfig, HelpSco
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.HELP_SCOUT,
+            name=ExternalDataSourceType.HELPSCOUT,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             keywords=["helpscout", "helpdesk"],
             label="Help Scout",

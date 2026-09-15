@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.circleci_insights.circleci_insights import (
     CircleciInsightsResumeConfig,
     circleci_insights_source,
@@ -60,7 +58,7 @@ class CircleciInsightsSource(ResumableSource[CircleciInsightsSourceConfig, Circl
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CIRCLECI_INSIGHTS,
+            name=ExternalDataSourceType.CIRCLECIINSIGHTS,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="CircleCI Insights",
             caption="""Enter your CircleCI personal API token and project slugs to pull pipeline health metrics — workflow and job durations, success rates, credit usage, recent runs, and flaky tests — from the CircleCI Insights API into the PostHog Data warehouse.

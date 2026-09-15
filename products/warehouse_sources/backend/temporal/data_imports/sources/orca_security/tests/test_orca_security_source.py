@@ -1,7 +1,6 @@
 from unittest import mock
 
-from posthog.schema import ReleaseStatus
-
+from products.warehouse_sources.backend.source_config import ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.orca_security.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.orca_security.source import OrcaSecuritySource
 

@@ -1,11 +1,6 @@
 from typing import cast
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    SourceConfig,
-)
-
+from products.warehouse_sources.backend.source_config import DataWarehouseSourceCategory, SourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sodacloud import (
@@ -23,7 +18,7 @@ class SodaCloudSource(SimpleSource[SodaCloudSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SODA_CLOUD,
+            name=ExternalDataSourceType.SODACLOUD,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Soda Data (Soda Cloud)",
             iconPath="/static/services/soda_cloud.png",

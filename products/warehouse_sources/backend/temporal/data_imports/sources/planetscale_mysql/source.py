@@ -1,17 +1,15 @@
 import re
 from typing import Optional, cast
 
-from posthog.schema import (
+from posthog.exceptions_capture import capture_exception
+
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
-from posthog.exceptions_capture import capture_exception
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
@@ -120,7 +118,7 @@ class PlanetScaleMySQLSource(MySQLSource):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.PLANET_SCALE_MY_SQL,
+            name=ExternalDataSourceType.PLANETSCALEMYSQL,
             category=DataWarehouseSourceCategory.DATABASES,
             keywords=["sql", "mysql", "vitess", "planetscale"],
             label="PlanetScale MySQL",

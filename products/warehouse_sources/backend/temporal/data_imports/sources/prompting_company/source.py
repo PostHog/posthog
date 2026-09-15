@@ -1,11 +1,6 @@
 from typing import cast
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    SourceConfig,
-)
-
+from products.warehouse_sources.backend.source_config import DataWarehouseSourceCategory, SourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.promptingcompany import (
@@ -23,7 +18,7 @@ class PromptingCompanySource(SimpleSource[PromptingCompanySourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.PROMPTING_COMPANY,
+            name=ExternalDataSourceType.PROMPTINGCOMPANY,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="The Prompting Company",
             iconPath="/static/services/prompting_company.png",

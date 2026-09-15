@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.checkmarx import (
     AUTH_ERROR_PREFIX,
     CheckmarxResumeConfig,
@@ -46,7 +44,7 @@ class CheckmarxSource(ResumableSource[CheckmarxSourceConfig, CheckmarxResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CHECKMARX,
+            name=ExternalDataSourceType.CHECKMARX,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Checkmarx (Checkmarx One)",
             releaseStatus=ReleaseStatus.ALPHA,

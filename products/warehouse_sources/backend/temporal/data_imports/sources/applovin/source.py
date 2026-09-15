@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.applovin import (
     AUTH_ERROR_PREFIX,
     BAD_REQUEST_ERROR_PREFIX,
@@ -64,7 +62,7 @@ class AppLovinSource(ResumableSource[AppLovinSourceConfig, AppLovinResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.APP_LOVIN,
+            name=ExternalDataSourceType.APPLOVIN,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="AppLovin",
             caption="""Connect your AppLovin account to pull MAX mediation revenue, campaign spend, and cohort reporting into the PostHog Data warehouse.

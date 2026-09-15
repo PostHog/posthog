@@ -1,12 +1,6 @@
 from typing import Optional, cast
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    ReleaseStatus,
-    SourceConfig,
-)
-
+from products.warehouse_sources.backend.source_config import DataWarehouseSourceCategory, ReleaseStatus, SourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -97,7 +91,7 @@ class TVMazeSource(ResumableSource[TVMazeSourceConfig, TVMazeResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.TV_MAZE,
+            name=ExternalDataSourceType.TVMAZE,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="TVmaze",
             caption="Import TV show and people data from the free public TVmaze API. No API key is required. TVmaze data is licensed CC BY-SA, which requires attribution and share-alike.",

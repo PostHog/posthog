@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -52,7 +50,7 @@ class SentineloneSource(ResumableSource[SentineloneSourceConfig, SentinelOneResu
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SENTINELONE,
+            name=ExternalDataSourceType.SENTINELONE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="SentinelOne",
             releaseStatus=ReleaseStatus.ALPHA,

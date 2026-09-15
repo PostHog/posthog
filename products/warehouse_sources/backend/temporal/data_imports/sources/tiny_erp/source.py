@@ -1,11 +1,6 @@
 from typing import cast
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    SourceConfig,
-)
-
+from products.warehouse_sources.backend.source_config import DataWarehouseSourceCategory, SourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tinyerp import (
@@ -23,7 +18,7 @@ class TinyErpSource(SimpleSource[TinyErpSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.TINY_ERP,
+            name=ExternalDataSourceType.TINYERP,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Olist Tiny ERP (API v3)",
             iconPath="/static/services/tiny_erp.png",

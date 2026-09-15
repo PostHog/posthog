@@ -1,8 +1,7 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldOauthConfig
-
+from products.warehouse_sources.backend.source_config import ReleaseStatus, SourceFieldOauthConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.helpscout import (
     HelpScoutSourceConfig,

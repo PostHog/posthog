@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse_cloud.clickhouse_cloud import (
     ClickhouseCloudResumeConfig,
     clickhouse_cloud_source,
@@ -44,7 +42,7 @@ class ClickhouseCloudSource(ResumableSource[ClickhouseCloudSourceConfig, Clickho
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CLICKHOUSE_CLOUD,
+            name=ExternalDataSourceType.CLICKHOUSECLOUD,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="ClickHouse Cloud (ClickHouse, Inc.)",
             releaseStatus=ReleaseStatus.ALPHA,

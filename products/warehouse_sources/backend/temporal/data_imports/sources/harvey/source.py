@@ -1,9 +1,8 @@
 import datetime
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -11,7 +10,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FieldType,
     ResumableSource,
@@ -66,7 +64,7 @@ class HarveySource(ResumableSource[HarveySourceConfig, HarveyResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.HARVEY,
+            name=ExternalDataSourceType.HARVEY,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Harvey",
             caption="""Enter your Harvey API token to pull audit logs, usage and query history, client matters, and Vault project metadata into the PostHog Data warehouse.

@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.aiven.aiven import (
     aiven_source,
     validate_credentials as validate_aiven_credentials,
@@ -44,7 +42,7 @@ class AivenSource(SimpleSource[AivenSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.AIVEN,
+            name=ExternalDataSourceType.AIVEN,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Aiven",
             releaseStatus=ReleaseStatus.ALPHA,

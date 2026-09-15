@@ -1,11 +1,6 @@
 from typing import cast
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    SourceConfig,
-)
-
+from products.warehouse_sources.backend.source_config import DataWarehouseSourceCategory, SourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.abnormalsecurity import (
@@ -23,7 +18,7 @@ class AbnormalSecuritySource(SimpleSource[AbnormalSecuritySourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ABNORMAL_SECURITY,
+            name=ExternalDataSourceType.ABNORMALSECURITY,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Abnormal Security (Abnormal AI)",
             iconPath="/static/services/abnormal_security.png",

@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.canvas_lms.canvas_lms import (
     HOST_NOT_ALLOWED_ERROR,
     CanvasLmsResumeConfig,
@@ -57,7 +55,7 @@ class CanvasLmsSource(ResumableSource[CanvasLmsSourceConfig, CanvasLmsResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CANVAS_LMS,
+            name=ExternalDataSourceType.CANVASLMS,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Instructure Canvas LMS",
             releaseStatus=ReleaseStatus.ALPHA,

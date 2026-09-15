@@ -4,8 +4,7 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
-
+from products.warehouse_sources.backend.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
 from products.warehouse_sources.backend.temporal.data_imports.sources.airwallex.source import AirwallexSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 

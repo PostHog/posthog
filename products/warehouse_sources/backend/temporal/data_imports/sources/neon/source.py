@@ -1,6 +1,5 @@
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldFileUploadConfig,
@@ -11,7 +10,6 @@ from posthog.schema import (
     SourceFieldSSHTunnelConfig,
     SourceFieldSwitchGroupConfig,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresSourceConfig,
@@ -88,7 +86,7 @@ class NeonSource(PostgresSource):
         fields = [self._adjust_field(field) for field in super().get_source_config.fields]
 
         return SourceConfig(
-            name=SchemaExternalDataSourceType.NEON,
+            name=ExternalDataSourceType.NEON,
             category=DataWarehouseSourceCategory.DATABASES,
             keywords=["serverless postgres", "postgresql"],
             iconPath="/static/services/neon.png",

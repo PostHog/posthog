@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.agilecrm.agilecrm import (
     AgileCRMResumeConfig,
     agilecrm_source,
@@ -52,7 +50,7 @@ class AgileCRMSource(ResumableSource[AgileCRMSourceConfig, AgileCRMResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.AGILE_CRM,
+            name=ExternalDataSourceType.AGILECRM,
             category=DataWarehouseSourceCategory.CRM,
             label="AgileCRM",
             releaseStatus=ReleaseStatus.ALPHA,

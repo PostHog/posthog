@@ -1,13 +1,11 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -47,7 +45,7 @@ class PaddleSource(ResumableSource[PaddleSourceConfig, PaddleResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.PADDLE,
+            name=ExternalDataSourceType.PADDLE,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Paddle",
             iconPath="/static/services/paddle.png",

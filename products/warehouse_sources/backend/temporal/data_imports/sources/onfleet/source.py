@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -51,7 +49,7 @@ class OnfleetSource(ResumableSource[OnfleetSourceConfig, OnfleetResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ONFLEET,
+            name=ExternalDataSourceType.ONFLEET,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Onfleet",
             caption="""Enter your Onfleet API key to pull your Onfleet last-mile delivery data into the PostHog Data warehouse.

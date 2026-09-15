@@ -4,13 +4,12 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.app_store_connect import (
     APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,
     APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR,

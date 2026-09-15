@@ -1,5 +1,4 @@
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
-
+from products.warehouse_sources.backend.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 
 # TEXT connection strings only prefill the credential fields the connection uses, so the edit form

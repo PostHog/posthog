@@ -29,17 +29,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from sshtunnel import BaseSSHTunnelForwarderError
 
-from posthog.schema import (
-    SourceFieldFileUploadConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldOauthAccountSelectConfig,
-    SourceFieldOauthConfig,
-    SourceFieldSelectConfig,
-    SourceFieldSSHTunnelConfig,
-    SourceFieldSwitchGroupConfig,
-)
-
 from posthog.hogql.database.database import Database
 from posthog.hogql.direct_sql.capability import direct_capable_source_types
 
@@ -188,7 +177,17 @@ from products.warehouse_sources.backend.presentation.views.source_api_versions i
     ExternalDataSourceApiVersionDeprecationSerializer,
     api_version_deprecation_payload,
 )
-from products.warehouse_sources.backend.source_config import SourceConfigMapResponse
+from products.warehouse_sources.backend.source_config import (
+    SourceConfigMapResponse,
+    SourceFieldFileUploadConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldOauthAccountSelectConfig,
+    SourceFieldOauthConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSSHTunnelConfig,
+    SourceFieldSwitchGroupConfig,
+)
 
 logger = structlog.get_logger(__name__)
 

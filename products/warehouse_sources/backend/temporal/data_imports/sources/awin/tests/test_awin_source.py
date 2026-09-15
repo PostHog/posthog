@@ -4,8 +4,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldSelectConfig
-
+from products.warehouse_sources.backend.source_config import SourceFieldSelectConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.awin import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.awin.source import AwinSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awin import AwinSourceConfig

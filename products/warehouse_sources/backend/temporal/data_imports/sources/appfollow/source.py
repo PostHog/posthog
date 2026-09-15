@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.appfollow.appfollow import (
     AppfollowResumeConfig,
     appfollow_source,
@@ -47,7 +45,7 @@ class AppfollowSource(ResumableSource[AppfollowSourceConfig, AppfollowResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.APPFOLLOW,
+            name=ExternalDataSourceType.APPFOLLOW,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="AppFollow",
             releaseStatus=ReleaseStatus.ALPHA,

@@ -4,8 +4,7 @@ from typing import cast
 import pytest
 from unittest import mock
 
-from posthog.schema import SourceFieldInputConfig
-
+from products.warehouse_sources.backend.source_config import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.planetscalemysql import (
     PlanetScaleMySQLSourceConfig,

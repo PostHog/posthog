@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.boldsign.boldsign import (
     BoldSignResumeConfig,
     boldsign_source,
@@ -48,7 +46,7 @@ class BoldSignSource(ResumableSource[BoldSignSourceConfig, BoldSignResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BOLD_SIGN,
+            name=ExternalDataSourceType.BOLDSIGN,
             category=DataWarehouseSourceCategory.SALES,
             label="BoldSign",
             releaseStatus=ReleaseStatus.ALPHA,

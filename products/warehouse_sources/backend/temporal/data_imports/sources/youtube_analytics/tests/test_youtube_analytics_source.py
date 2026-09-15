@@ -7,10 +7,14 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldOauthConfig
-
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED
 
+from products.warehouse_sources.backend.source_config import (
+    ReleaseStatus,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldOauthConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )

@@ -3,8 +3,7 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig
-
+from products.warehouse_sources.backend.source_config import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.configcat.source import ConfigCatSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.configcat import (
     ConfigCatSourceConfig,

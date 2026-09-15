@@ -3,8 +3,7 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import SourceFieldInputConfig
-
+from products.warehouse_sources.backend.source_config import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.chargedesk import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.chargedesk.source import ChargedeskSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chargedesk import (

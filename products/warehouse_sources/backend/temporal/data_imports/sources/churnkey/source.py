@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.churnkey.churnkey import (
     ChurnkeyResumeConfig,
     churnkey_source,
@@ -51,7 +49,7 @@ class ChurnkeySource(ResumableSource[ChurnkeySourceConfig, ChurnkeyResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CHURNKEY,
+            name=ExternalDataSourceType.CHURNKEY,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Churnkey",
             releaseStatus=ReleaseStatus.ALPHA,

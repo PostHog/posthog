@@ -5,15 +5,13 @@ import structlog
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.chatwoot import (
     HOST_NOT_ALLOWED_ERROR,
     HTTP_NOT_ALLOWED_ERROR,
@@ -81,7 +79,7 @@ class ChatwootSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CHATWOOT,
+            name=ExternalDataSourceType.CHATWOOT,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Chatwoot",
             releaseStatus=ReleaseStatus.ALPHA,

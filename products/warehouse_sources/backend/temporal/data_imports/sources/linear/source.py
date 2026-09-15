@@ -1,15 +1,13 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from posthog.models.integration import OauthIntegration
+
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldOauthConfig,
 )
-
-from posthog.models.integration import OauthIntegration
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -49,7 +47,7 @@ class LinearSource(ResumableSource[LinearSourceConfig, LinearResumeConfig], OAut
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.LINEAR,
+            name=ExternalDataSourceType.LINEAR,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Linear",
             releaseStatus=ReleaseStatus.GA,
