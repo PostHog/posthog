@@ -5375,6 +5375,42 @@ class TestPrinter(BaseTest):
         self.assertNotIn(forbidden_substring, printed)
         self.assertIn(expected_substring, printed)
 
+    @parameterized.expand(
+        [
+            ("exact", "exact", "has(foobars.tags, "),
+            ("is_not", "is_not", "not(has(foobars.tags, "),
+        ]
+    )
+    def test_data_warehouse_array_column_filter_uses_membership(self, _name, operator, expected_substring):
+        # equals() against an Array(String) column fails the whole query with CANNOT_READ_ARRAY_FROM_TEXT,
+        # so the insight cannot load at all.
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="foobars",
+            format="Parquet",
+            url_pattern="http://s3/folder/",
+            credential=credential,
+            columns={
+                "id": {"hogql": "StringDatabaseField", "clickhouse": "String"},
+                "tags": {"hogql": "StringArrayDatabaseField", "clickhouse": "Array(String)"},
+            },
+        )
+        query = cast(ast.SelectQuery, parse_select("SELECT id FROM foobars"))
+        query.where = property_to_expr(
+            {"type": "data_warehouse", "key": "foobars.tags", "operator": operator, "value": "blue"},
+            team=self.team,
+        )
+
+        printed = prepare_and_print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "clickhouse",
+        )[0]
+
+        self.assertIn(expected_substring, printed)
+        self.assertNotIn("quals(foobars.tags", printed)
+
 
 class TestNewEventsSchemaDefaults(BaseTest):
     @parameterized.expand([("json", True), ("legacy", False)])

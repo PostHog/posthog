@@ -49,6 +49,11 @@ class TestWrapClickhouseQueryError:
                 "CANNOT_CONVERT_TYPE",
                 "Cannot convert one type to another in the query. Check the types in your comparisons and IN clauses.",
             ),
+            (
+                130,
+                "CANNOT_READ_ARRAY_FROM_TEXT",
+                "Cannot read an array from a text value. Check any filter that compares an array column with text.",
+            ),
             (407, "DECIMAL_OVERFLOW", "Decimal overflow while executing query."),
         ]
     )
