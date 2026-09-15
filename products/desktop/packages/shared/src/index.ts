@@ -82,7 +82,6 @@ export {
   getClaudeModelRecency,
   getCloudTaskGatewayUrl,
   getProviderName,
-  HARNESS_DISPLAY_NAMES,
   isAnthropicModel,
   isAnthropicModelId,
   isBasetenModel,
