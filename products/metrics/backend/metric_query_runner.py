@@ -155,16 +155,16 @@ def _render_bounds(bounds: Sequence[float]) -> str:
     return f"[{shown}] ({len(bounds)} buckets)"
 
 
-def _bounds_mismatch_message(time: Any, labels: dict[str, str], layouts: set[tuple[float, ...]]) -> str:
+def _bounds_mismatch_message(time: str, labels: dict[str, str], layouts: set[tuple[float, ...]]) -> str:
     """Explain which point mixes bucket layouts, and how to separate them."""
-    when = time.isoformat() if isinstance(time, dt.datetime) else time
     where = f" for {', '.join(f'{key}={value}' for key, value in labels.items())}" if labels else ""
     rendered = "; ".join(sorted(_render_bounds(layout) for layout in layouts))
     return (
-        f"the series reporting this histogram at {when}{where} use {len(layouts)} different bucket layouts, "
+        f"the series reporting this histogram at {time}{where} use {len(layouts)} different bucket layouts, "
         f"so their counts cannot be added together: {rendered}. "
-        "Group by the attribute that separates them (service_name is a good first try) "
-        "to get one quantile per layout, or filter down to a single layout."
+        "Group by an attribute that separates them (try service_name), or filter down to one layout. "
+        "If no attribute separates them, the metric reports two layouts under one identity, "
+        "which only the service that emits it can fix."
     )
 
 
@@ -499,20 +499,21 @@ class MetricQueryRunner:
         group_count = len(self.group_by)
         rows: list[dict[str, Any]] = []
         for row in response.results:
-            bounds = list(row[1 + group_count])
-            counts = list(row[3 + group_count])
+            counts = list(row[2 + group_count])
             if sum(counts) <= 0:
                 # The bucket has no computable increase. Return a gap, not zero.
                 continue
+            time = row[0].isoformat() if isinstance(row[0], dt.datetime) else row[0]
             labels = {group.key: row[1 + index] for index, group in enumerate(self.group_by)}
             # Each point holds one summed distribution, so only a layout change
             # inside a point makes the counts unusable.
-            layouts = {tuple(variant) for variant in row[2 + group_count] if variant}
+            layouts = {tuple(variant) for variant in row[1 + group_count] if variant}
             if len(layouts) > 1:
-                raise ValueError(_bounds_mismatch_message(row[0], labels, layouts))
+                raise ValueError(_bounds_mismatch_message(time, labels, layouts))
+            bounds = list(next(iter(layouts), ()))
             rows.append(
                 {
-                    "time": row[0].isoformat() if isinstance(row[0], dt.datetime) else row[0],
+                    "time": time,
                     "value": _finite_or_none(_histogram_quantile(self.quantile, bounds, counts)),
                     "labels": labels,
                 }
@@ -671,7 +672,6 @@ class MetricQueryRunner:
             """
                 SELECT
                     toStartOfInterval(sample_timestamp, {interval}) AS time,
-                    anyIf(histogram_bounds, arrayExists(c -> c > 0, contribution_counts)) AS bounds,
                     groupUniqArrayIf(histogram_bounds, arrayExists(c -> c > 0, contribution_counts)) AS bounds_variants,
                     sumForEach(contribution_counts) AS counts
                 FROM (
