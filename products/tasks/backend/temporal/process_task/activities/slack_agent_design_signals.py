@@ -35,6 +35,7 @@ from .relay_sandbox_events import (
     SSE_CONNECT_TIMEOUT_SECONDS,
     SSE_READ_TIMEOUT_SECONDS,
     _extract_agent_message_text,
+    _extract_tool_call_result,
     _extract_tool_call_step,
     _is_session_update,
     _resolve_stream_mode,
@@ -74,6 +75,7 @@ class SlackAgentDesignSignalEmitter:
         # starts disarmed and waits for the next prompt.
         self._awaiting_turn = awaiting_turn
         self._emitted_tool_call_ids: set[str] = set()
+        self._emitted_tool_result_ids: set[str] = set()
 
     @property
     def turn_active(self) -> bool:
@@ -107,6 +109,11 @@ class SlackAgentDesignSignalEmitter:
             step_payload = _extract_tool_call_step(event_data, self._emitted_tool_call_ids)
             if step_payload is not None:
                 signals.append(("agent_status_update", step_payload))
+            result_payload = _extract_tool_call_result(
+                event_data, self._emitted_tool_call_ids, self._emitted_tool_result_ids
+            )
+            if result_payload is not None:
+                signals.append(("agent_status_update", result_payload))
             if _is_session_update(event_data):
                 text_delta = _extract_agent_message_text(event_data)
                 if text_delta:

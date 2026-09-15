@@ -40,6 +40,16 @@ def _tool_call(tool_call_id: str, tool_name: str, file_path: str) -> dict[str, A
     }
 
 
+def _tool_result(tool_call_id: str, output: str | None = None, status: str = "completed") -> dict[str, Any]:
+    update: dict[str, Any] = {"sessionUpdate": "tool_call_update", "toolCallId": tool_call_id, "status": status}
+    if output is not None:
+        update["rawOutput"] = {"output": output}
+    return {
+        "type": "notification",
+        "notification": {"method": "session/update", "params": {"update": update}},
+    }
+
+
 def _turn_complete(trace_id: str | None = None) -> dict[str, Any]:
     notification: dict[str, Any] = {"method": TURN_COMPLETE_METHOD}
     if trace_id:
@@ -77,8 +87,46 @@ class TestSlackAgentDesignSignalEmitter:
         first = emitter.process(_tool_call("call-1", "Read", "/etc/hosts"))
         repeat = emitter.process(_tool_call("call-1", "Read", "/etc/hosts"))
 
-        assert first == [("agent_status_update", {"title": "Read", "details": "/etc/hosts"})]
+        assert first == [("agent_status_update", {"title": "Read", "details": "/etc/hosts", "tool_call_id": "call-1"})]
         assert repeat == []
+
+    def test_finished_tool_call_emits_its_outcome_once(self) -> None:
+        # The outcome annotates the step's line in the card; without it a reader
+        # only ever sees what was asked, never what came back.
+        emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
+        emitter.process(_text_chunk("thinking"))
+        emitter.process(_tool_call("call-1", "Read", "/etc/hosts"))
+
+        first = emitter.process(_tool_result("call-1", "127.0.0.1 localhost"))
+        repeat = emitter.process(_tool_result("call-1", "127.0.0.1 localhost"))
+
+        assert first == [
+            (
+                "agent_status_update",
+                {"kind": "tool_result", "tool_call_id": "call-1", "output": "127.0.0.1 localhost", "failed": False},
+            )
+        ]
+        assert repeat == []
+
+    def test_tool_outcomes_without_a_rendered_step_or_content_stay_silent(self) -> None:
+        emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
+        emitter.process(_text_chunk("thinking"))
+        emitter.process(_tool_call("call-1", "Read", "/etc/hosts"))
+
+        # No rendered step for this id, and a clean finish with nothing to show.
+        assert emitter.process(_tool_result("call-unknown", "data")) == []
+        assert emitter.process(_tool_result("call-1")) == []
+
+    def test_failed_tool_call_reports_even_without_output(self) -> None:
+        emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
+        emitter.process(_text_chunk("thinking"))
+        emitter.process(_tool_call("call-1", "Read", "/etc/hosts"))
+
+        signals = emitter.process(_tool_result("call-1", status="failed"))
+
+        assert signals == [
+            ("agent_status_update", {"kind": "tool_result", "tool_call_id": "call-1", "output": None, "failed": True})
+        ]
 
     def test_turn_completed_emitted_only_when_turn_active(self) -> None:
         emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)

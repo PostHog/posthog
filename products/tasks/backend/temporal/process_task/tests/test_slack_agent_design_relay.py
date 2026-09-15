@@ -135,10 +135,16 @@ async def test_timeline_merges_consecutive_tool_calls_into_one_card():
     async with _RelayEnv() as relay:
         handle = await relay.start_relay(STREAM_MODE_TIMELINE)
         await handle.signal(
-            SlackAgentDesignRelayWorkflow.agent_status_update, {"title": "posthog/exec", "details": "insight list"}
+            SlackAgentDesignRelayWorkflow.agent_status_update,
+            {"title": "posthog/exec", "details": "insight list", "tool_call_id": "tc-1"},
         )
         await handle.signal(
-            SlackAgentDesignRelayWorkflow.agent_status_update, {"title": "posthog/exec", "details": "query run"}
+            SlackAgentDesignRelayWorkflow.agent_status_update,
+            {"title": "posthog/exec", "details": "query run", "tool_call_id": "tc-2"},
+        )
+        await handle.signal(
+            SlackAgentDesignRelayWorkflow.agent_status_update,
+            {"kind": "tool_result", "tool_call_id": "tc-1", "output": "12 rows", "failed": False},
         )
         await handle.signal(SlackAgentDesignRelayWorkflow.complete_turn, None)
         await handle.result()
@@ -149,7 +155,7 @@ async def test_timeline_merges_consecutive_tool_calls_into_one_card():
     assert last.status == "in_progress"
     assert last.title == "posthog/exec (2)"
     assert last.details is not None
-    assert "insight list" in last.details
+    assert "insight list → 12 rows" in last.details
     assert "query run" in last.details
 
     stop_input = relay.rec.calls[-1][1]

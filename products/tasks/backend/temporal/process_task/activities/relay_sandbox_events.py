@@ -441,8 +441,10 @@ async def _relay_loop(
     last_audit_ts_ns: list[int] = [0]  # track last agentsh audit timestamp
     # Brackets turn_started / turn_completed signals to the parent.
     slack_turn_active: list[bool] = [False]
-    # ACP emits one tool_call + N tool_call_update per id; only render the start.
+    # ACP emits one tool_call + N tool_call_update per id; render the start once,
+    # and the terminal update once as the step's result line.
     emitted_tool_call_ids: set[str] = set()
+    emitted_tool_result_ids: set[str] = set()
     # Buffered prose + last flush time (monotonic); see TEXT_DELTA_FLUSH_INTERVAL_SECONDS.
     pending_text_parts: list[str] = []
     last_text_flush: list[float] = [0.0]
@@ -576,6 +578,13 @@ async def _relay_loop(
                                         await _flush_pending_text(workflow_handle, pending_text_parts, last_text_flush)
                                         asyncio.create_task(
                                             _signal_safely(workflow_handle, "agent_status_update", arg=step_payload)
+                                        )
+                                    result_payload = _extract_tool_call_result(
+                                        event_data, emitted_tool_call_ids, emitted_tool_result_ids
+                                    )
+                                    if result_payload is not None:
+                                        asyncio.create_task(
+                                            _signal_safely(workflow_handle, "agent_status_update", arg=result_payload)
                                         )
                                 if slack_turn_active[0] and _is_session_update(event_data):
                                     text_delta = _extract_agent_message_text(event_data)
@@ -798,6 +807,16 @@ _TOOL_ARGS_PREVIEW_KEYS = (
 )
 _TOOL_ARGS_PREVIEW_LIMIT = 240
 
+# Priority order for picking the step's result line from a finished tool call's rawOutput.
+_TOOL_RESULT_PREVIEW_KEYS = (
+    "output",
+    "result",
+    "text",
+    "message",
+    "error",
+)
+_TOOL_RESULT_PREVIEW_LIMIT = 240
+
 
 def _extract_tool_call_step(event_data: dict, seen: set[str]) -> dict[str, Any] | None:
     """Build {title, details} from an ACP tool_call/tool_call_update.
@@ -829,7 +848,57 @@ def _extract_tool_call_step(event_data: dict, seen: set[str]) -> dict[str, Any] 
         return None
 
     seen.add(tool_call_id)
-    return {"title": title, "details": details}
+    return {"title": title, "details": details, "tool_call_id": tool_call_id}
+
+
+def _extract_tool_call_result(event_data: dict, emitted: set[str], seen_results: set[str]) -> dict[str, Any] | None:
+    """Build a {kind: tool_result} payload from a terminal tool_call_update, once per
+    call whose start was rendered as a step. A completion with nothing worth showing
+    returns None; a failure always reports, so the step's line can mark it."""
+    if not _is_session_update(event_data):
+        return None
+    update = (event_data.get("notification", {}).get("params") or {}).get("update") or {}
+    if update.get("sessionUpdate") != "tool_call_update":
+        return None
+    tool_call_id = update.get("toolCallId")
+    if not isinstance(tool_call_id, str) or tool_call_id not in emitted or tool_call_id in seen_results:
+        return None
+    status = update.get("status")
+    if status not in _TERMINAL_TOOL_CALL_STATUSES:
+        return None
+    seen_results.add(tool_call_id)
+    output = _tool_result_preview(update)
+    failed = status == "failed"
+    if not output and not failed:
+        return None
+    return {"kind": "tool_result", "tool_call_id": tool_call_id, "output": output, "failed": failed}
+
+
+def _tool_result_preview(update: dict) -> str | None:
+    """First presentable string from a tool_call_update's rawOutput or content blocks."""
+    raw_output = update.get("rawOutput")
+    if isinstance(raw_output, dict):
+        for key in _TOOL_RESULT_PREVIEW_KEYS:
+            value = raw_output.get(key)
+            if isinstance(value, str) and value.strip():
+                return _squash_preview(value)
+    elif isinstance(raw_output, str) and raw_output.strip():
+        return _squash_preview(raw_output)
+    for entry in update.get("content") or []:
+        if not isinstance(entry, dict):
+            continue
+        content = entry.get("content")
+        text = content.get("text") if isinstance(content, dict) else None
+        if isinstance(text, str) and text.strip():
+            return _squash_preview(text)
+    return None
+
+
+def _squash_preview(text: str) -> str:
+    one_line = " ".join(text.split())
+    if len(one_line) > _TOOL_RESULT_PREVIEW_LIMIT:
+        return one_line[: _TOOL_RESULT_PREVIEW_LIMIT - 1] + "…"
+    return one_line
 
 
 def _tool_args_preview(raw_input: Any) -> str | None:

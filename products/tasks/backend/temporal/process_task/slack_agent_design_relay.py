@@ -64,6 +64,7 @@ _ACTIVITY_OPTIONS: dict[str, Any] = {
 class PendingStep:
     title: str
     details: Optional[str]
+    tool_call_id: Optional[str] = None
 
 
 @dataclass
@@ -71,6 +72,15 @@ class QueuedText:
     """A run of narrative between two tool calls, grown in place as deltas arrive."""
 
     text: str
+
+
+@dataclass
+class QueuedToolResult:
+    """A finished tool call's outcome, to annotate its line in the open card."""
+
+    tool_call_id: str
+    output: Optional[str]
+    failed: bool
 
 
 @dataclass
@@ -110,15 +120,18 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         # Timeline surface: prose and steps in arrival order, consumed up to
         # (_consumed, _consumed_text_offset). The offset only ever points into a
         # QueuedText at index _consumed, and only moves forward — deltas append.
-        self._events: list[Union[PendingStep, QueuedText]] = []
+        self._events: list[Union[PendingStep, QueuedText, QueuedToolResult]] = []
         self._consumed: int = 0
         self._consumed_text_offset: int = 0
         # Bumped by every content signal, so the final_only wait can tell live
         # silence from a turn that is still producing.
         self._signal_seq: int = 0
         # The open timeline card: consecutive tool calls with no narrative between
-        # them merge into it rather than each opening a card of their own.
+        # them merge into it rather than each opening a card of their own. Line ids
+        # map tool calls to their line so a finished call can annotate its outcome.
         self._card_step_lines: list[str] = []
+        self._card_line_ids: list[Optional[str]] = []
+        self._card_results: dict[str, str] = {}
         self._card_step_count: int = 0
         self._card_title_base: Optional[str] = None
         self._card_titles_uniform: bool = True
@@ -126,19 +139,36 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
 
     @workflow.signal
     async def agent_status_update(self, payload: dict[str, Any] | str) -> None:
-        """New tool call → queue a step (and on the plan surface, transition to phase 2)."""
+        """New tool call → queue a step (and on the plan surface, transition to phase 2).
+        A tool_result payload only annotates the timeline card's line for that call."""
+        tool_call_id: Optional[str] = None
         if isinstance(payload, str):
             title = payload
             details = None
             if not title:
                 return
         else:
+            if payload.get("kind") == "tool_result":
+                result_id = payload.get("tool_call_id")
+                if isinstance(result_id, str) and result_id:
+                    output_raw = payload.get("output")
+                    self._events.append(
+                        QueuedToolResult(
+                            tool_call_id=result_id,
+                            output=output_raw if isinstance(output_raw, str) and output_raw else None,
+                            failed=bool(payload.get("failed")),
+                        )
+                    )
+                    self._signal_seq += 1
+                return
             raw_title = payload.get("title") or payload.get("text")
             if not isinstance(raw_title, str) or not raw_title:
                 return
             title = raw_title
             details_raw = payload.get("details")
             details = details_raw if isinstance(details_raw, str) and details_raw else None
+            id_raw = payload.get("tool_call_id")
+            tool_call_id = id_raw if isinstance(id_raw, str) and id_raw else None
 
         # Any pending narrative becomes a 💭 step preceding the tool call step.
         # In phase 1 → phase 2 transition, this converts the last (unstreamed)
@@ -150,7 +180,7 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
 
         self._has_seen_tool_call = True
         self._pending_steps.append(PendingStep(title=title, details=details))
-        self._events.append(PendingStep(title=title, details=details))
+        self._events.append(PendingStep(title=title, details=details, tool_call_id=tool_call_id))
         self._signal_seq += 1
 
     @workflow.signal
@@ -252,27 +282,15 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
             self._card_step_count += 1
             if len(self._card_step_lines) < _CARD_MAX_LINES:
                 self._card_step_lines.append(line)
+                self._card_line_ids.append(step.tool_call_id)
             if step.title != self._card_title_base:
                 self._card_titles_uniform = False
-            details_lines = [f"• {entry}" for entry in self._card_step_lines]
-            overflow = self._card_step_count - len(self._card_step_lines)
-            if overflow:
-                details_lines.append(f"…+{overflow} more")
             if self._card_titles_uniform and self._card_title_base:
                 self._current_task_title = f"{self._card_title_base} ({self._card_step_count})"
             else:
                 self._current_task_title = f"{self._card_step_count} tool calls"
-            self._current_task_details = "\n".join(details_lines)
-            return [
-                StreamChunk(
-                    task_update=TaskUpdateChunk(
-                        id=self._current_task_id,
-                        title=self._current_task_title,
-                        status="in_progress",
-                        details=self._current_task_details,
-                    )
-                )
-            ]
+            self._current_task_details = self._render_card_details()
+            return [self._open_card_update_chunk()]
 
         chunks: list[StreamChunk] = []
         if self._current_task_id and self._current_task_title:
@@ -296,10 +314,48 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         self._current_task_title = step.title
         self._current_task_details = step.details
         self._card_step_lines = [line]
+        self._card_line_ids = [step.tool_call_id]
+        self._card_results = {}
         self._card_step_count = 1
         self._card_title_base = step.title
         self._card_titles_uniform = True
         return chunks
+
+    def _card_chunk_for_result(self, result: QueuedToolResult) -> Optional[StreamChunk]:
+        """Annotate the open card's line for a finished tool call, or None when the
+        call's card has already completed — a late outcome is not worth reopening it."""
+        if self._current_task_id is None or result.tool_call_id not in self._card_line_ids:
+            return None
+        suffix = f"✗ {result.output}" if result.failed else f"→ {result.output}"
+        if result.output is None:
+            suffix = "✗ failed" if result.failed else ""
+        if not suffix:
+            return None
+        self._card_results[result.tool_call_id] = suffix
+        self._current_task_details = self._render_card_details()
+        return self._open_card_update_chunk()
+
+    def _render_card_details(self) -> str:
+        lines: list[str] = []
+        for entry, line_id in zip(self._card_step_lines, self._card_line_ids):
+            suffix = self._card_results.get(line_id) if line_id else None
+            text = f"{entry} {suffix}" if suffix else entry
+            lines.append(f"• {text[:_CARD_LINE_LIMIT]}")
+        overflow = self._card_step_count - len(self._card_step_lines)
+        if overflow:
+            lines.append(f"…+{overflow} more")
+        return "\n".join(lines)
+
+    def _open_card_update_chunk(self) -> StreamChunk:
+        assert self._current_task_id is not None and self._current_task_title is not None
+        return StreamChunk(
+            task_update=TaskUpdateChunk(
+                id=self._current_task_id,
+                title=self._current_task_title,
+                status="in_progress",
+                details=self._current_task_details,
+            )
+        )
 
     def _collect_timeline_chunks(self, final: bool) -> list[StreamChunk]:
         """Consume unsent events into ordered chunks, advancing the consumed pointer.
@@ -313,6 +369,23 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         offset = self._consumed_text_offset
         while i < len(self._events):
             item = self._events[i]
+            if isinstance(item, QueuedToolResult):
+                result_chunk = self._card_chunk_for_result(item)
+                # An outcome annotates the card without breaking the burst, so the
+                # consumed-kind marker stays whatever the last step or text set.
+                if result_chunk is not None and result_chunk.task_update is not None:
+                    if (
+                        chunks
+                        and chunks[-1].task_update is not None
+                        and chunks[-1].task_update.id == result_chunk.task_update.id
+                        and chunks[-1].task_update.status == "in_progress"
+                    ):
+                        chunks[-1] = result_chunk
+                    else:
+                        chunks.append(result_chunk)
+                i += 1
+                offset = 0
+                continue
             if isinstance(item, PendingStep):
                 step_chunks = self._card_chunks_for_step(item)
                 # A merge update supersedes the previous update to the same card,
