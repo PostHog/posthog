@@ -46,7 +46,10 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr
 
 from posthog.api.app_metrics2 import (
+    AppMetricResponseSerializer,
     AppMetricsMixin,
+    AppMetricsTotalsResponseSerializer,
+    HogFlowMetricsRequestSerializer,
     fetch_app_metric_totals,
     fetch_app_metric_totals_by_source,
     fetch_app_metric_totals_by_team_and_source,
@@ -4301,6 +4304,10 @@ def mint_audience_confirm_token(
 
 @extend_schema(extensions={"x-product": "workflows"})
 @extend_schema_view(
+    metrics=extend_schema(parameters=[HogFlowMetricsRequestSerializer], responses=AppMetricResponseSerializer),
+    metrics_totals=extend_schema(
+        parameters=[HogFlowMetricsRequestSerializer], responses=AppMetricsTotalsResponseSerializer
+    ),
     list=extend_schema(
         parameters=[
             OpenApiParameter(
@@ -4331,7 +4338,7 @@ def mint_audience_confirm_token(
                 description='Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {"type": "event"}.',
             ),
         ]
-    )
+    ),
 )
 class HogFlowViewSet(
     TeamAndOrgViewSetMixin, AccessControlViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet
@@ -4382,6 +4389,7 @@ class HogFlowViewSet(
     log_source = "hog_flow"
     app_source = "hog_flow"
     function_kind = "hog_flow"
+    metrics_request_serializer_class = HogFlowMetricsRequestSerializer
 
     def dangerously_get_required_scopes(self, request, view) -> Optional[list[str]]:
         # Dual-method custom actions need method-aware scopes — the action-name-based read/write

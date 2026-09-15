@@ -101376,7 +101376,7 @@ export namespace Schemas {
      */
     name?: string;
     /**
-     * Read one workflow version's series: every run of that version, keyed on the workflow. The unversioned read keys batch and broadcast runs on the run instead, so it is not the sum of the versions; compare versions with each other, not with it. Workflow metrics only: any other object answers 400, since nothing mirrors its metrics per version.
+     * Read one workflow version's series: every run of that version, keyed on the workflow. The unversioned read keys batch and broadcast runs on the run instead, so it is not the sum of the versions; compare versions with each other, not with it.
      */
     version?: number;
     };
@@ -101442,7 +101442,7 @@ export namespace Schemas {
      */
     name?: string;
     /**
-     * Read one workflow version's series: every run of that version, keyed on the workflow. The unversioned read keys batch and broadcast runs on the run instead, so it is not the sum of the versions; compare versions with each other, not with it. Workflow metrics only: any other object answers 400, since nothing mirrors its metrics per version.
+     * Read one workflow version's series: every run of that version, keyed on the workflow. The unversioned read keys batch and broadcast runs on the run instead, so it is not the sum of the versions; compare versions with each other, not with it.
      */
     version?: number;
     };
@@ -101645,10 +101645,6 @@ export namespace Schemas {
      * @minLength 1
      */
     name?: string;
-    /**
-     * Read one workflow version's series: every run of that version, keyed on the workflow. The unversioned read keys batch and broadcast runs on the run instead, so it is not the sum of the versions; compare versions with each other, not with it. Workflow metrics only: any other object answers 400, since nothing mirrors its metrics per version.
-     */
-    version?: number;
     };
 
     export type HogFunctionsMetricsRetrieveBreakdownBy = typeof HogFunctionsMetricsRetrieveBreakdownBy[keyof typeof HogFunctionsMetricsRetrieveBreakdownBy];
@@ -101711,10 +101707,6 @@ export namespace Schemas {
      * @minLength 1
      */
     name?: string;
-    /**
-     * Read one workflow version's series: every run of that version, keyed on the workflow. The unversioned read keys batch and broadcast runs on the run instead, so it is not the sum of the versions; compare versions with each other, not with it. Workflow metrics only: any other object answers 400, since nothing mirrors its metrics per version.
-     */
-    version?: number;
     };
 
     export type HogFunctionsMetricsTotalsRetrieveBreakdownBy = typeof HogFunctionsMetricsTotalsRetrieveBreakdownBy[keyof typeof HogFunctionsMetricsTotalsRetrieveBreakdownBy];

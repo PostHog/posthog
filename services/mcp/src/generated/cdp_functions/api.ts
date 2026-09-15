@@ -1146,12 +1146,6 @@ export const HogFunctionsMetricsRetrieveQueryParams = () => zod.object({
         ),
     kind: zod.string().min(1).optional().describe("Comma-separated metric kinds to filter by, e.g. 'success,failure'."),
     name: zod.string().min(1).optional().describe('Comma-separated metric names to filter by.'),
-    version: zod
-        .number()
-        .optional()
-        .describe(
-            "Read one workflow version's series: every run of that version, keyed on the workflow. The unversioned read keys batch and broadcast runs on the run instead, so it is not the sum of the versions; compare versions with each other, not with it. Workflow metrics only: any other object answers 400, since nothing mirrors its metrics per version."
-        ),
 })
 
 export const HogFunctionsPublishCreateParams = () => zod.object({

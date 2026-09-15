@@ -100,13 +100,19 @@ class AppMetricsRequestSerializer(serializers.Serializer):
         default="kind",
         help_text="Group the series by metric 'name' or 'kind'. Defaults to 'kind'.",
     )
+
+
+class HogFlowMetricsRequestSerializer(AppMetricsRequestSerializer):
+    """The workflow metrics request: the shared parameters plus `version`, which only workflows can
+    answer. Kept off the shared serializer so the hog function tools never advertise a parameter
+    their endpoint refuses."""
+
     version = serializers.IntegerField(
         required=False,
         help_text=(
             "Read one workflow version's series: every run of that version, keyed on the workflow. "
             "The unversioned read keys batch and broadcast runs on the run instead, so it is not the "
-            "sum of the versions; compare versions with each other, not with it. Workflow metrics "
-            "only: any other object answers 400, since nothing mirrors its metrics per version."
+            "sum of the versions; compare versions with each other, not with it."
         ),
     )
 
@@ -478,6 +484,9 @@ def fetch_app_metric_daily_totals_by_team(
 
 
 class AppMetricsMixin(viewsets.GenericViewSet):
+    # A viewset whose object records metrics per version swaps in the serializer that accepts one.
+    metrics_request_serializer_class: type[AppMetricsRequestSerializer] = AppMetricsRequestSerializer
+
     app_source: str  # Should be set by the inheriting class
 
     def get_app_metrics_instance_id(self) -> Optional[str]:
@@ -491,7 +500,7 @@ class AppMetricsMixin(viewsets.GenericViewSet):
     @action(detail=True, methods=["GET"])
     def metrics(self, request: Request, *args, **kwargs):
         obj = self.get_object()
-        param_serializer = AppMetricsRequestSerializer(data=request.query_params)
+        param_serializer = self._metrics_params(request)
 
         if not self.app_source:
             raise ValidationError("app_source not set on the viewset")
@@ -532,6 +541,14 @@ class AppMetricsMixin(viewsets.GenericViewSet):
         serializer = AppMetricResponseSerializer(instance=data)
         return Response(serializer.data)
 
+    def _metrics_params(self, request: Request) -> AppMetricsRequestSerializer:
+        serializer = self.metrics_request_serializer_class(data=request.query_params)
+        # A serializer ignores a parameter it does not declare, so a `version` sent to an object
+        # that records none would read the whole history and answer 200. Refuse it instead.
+        if "version" in request.query_params and "version" not in serializer.fields:
+            raise serializers.ValidationError({"version": "Only workflow metrics are recorded per version."})
+        return serializer
+
     def _metric_series_for(self, obj, version: int | None) -> "MetricSeries":
         """Which app-metric series to read: the object's whole history, or one workflow version.
 
@@ -550,7 +567,7 @@ class AppMetricsMixin(viewsets.GenericViewSet):
     @action(detail=True, methods=["GET"], url_path="metrics/totals")
     def metrics_totals(self, request: Request, *args, **kwargs):
         obj = self.get_object()
-        param_serializer = AppMetricsRequestSerializer(data=request.query_params)
+        param_serializer = self._metrics_params(request)
 
         if not self.app_source:
             raise ValidationError("app_source not set on the viewset")
