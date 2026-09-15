@@ -148,7 +148,7 @@ describe('failure drill-down', () => {
     // Guards the stale-response race: bucket A selected, then bucket B before A resolves.
     // Without the loader breakpoint, A's late response would overwrite B's occurrences
     // while the modal header still shows B.
-    it('discards a superseded bucket load so a slow earlier bucket cannot overwrite the latest one', async () => {
+    it.each(['select another bucket', 'deselect'])('discards a pending failure load on %s', async (change) => {
         const logic = mcpAnalyticsToolDetailLogic({ toolName: 'query_run' })
         logic.mount()
         const occurrenceFor = (id: string): Record<string, string> => ({
@@ -178,14 +178,22 @@ describe('failure drill-down', () => {
         })
         await expectLogic(logic, () => {
             logic.actions.selectFailure(bucket('api_5xx'))
-            logic.actions.selectFailure(bucket('internal'))
-        }).toDispatchActions(['loadFailureOccurrencesSuccess'])
-        expect(logic.values.failureOccurrences).toEqual([occurrenceFor('bucketB')])
+            if (change === 'select another bucket') {
+                logic.actions.selectFailure(bucket('internal'))
+            } else {
+                logic.actions.selectFailure(null)
+            }
+        }).toMatchValues({ selectedFailure: change === 'deselect' ? null : bucket('internal') })
+        const expected = change === 'deselect' ? [] : [occurrenceFor('bucketB')]
+        if (change === 'select another bucket') {
+            await expectLogic(logic).toMatchValues({ failureOccurrences: expected })
+        }
 
         // Bucket A's request resolves late — its stale result must be discarded.
-        resolveSlowA({ results: [occurrenceFor('bucketA')] })
-        await new Promise((resolve) => setTimeout(resolve, 0))
-        expect(logic.values.failureOccurrences).toEqual([occurrenceFor('bucketB')])
+        await expectLogic(logic, () => {
+            resolveSlowA({ results: [occurrenceFor('bucketA')] })
+        }).toFinishAllListeners()
+        expect(logic.values.failureOccurrences).toEqual(expected)
     })
 
     it.each(['deselect', 'properties', 'test accounts'])('clears the open failure on %s', async (change) => {

@@ -552,6 +552,9 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
                     // Bail if a newer bucket was selected while this request was in flight,
                     // so a slow earlier bucket can't overwrite the latest one.
                     breakpoint()
+                    if (values.selectedFailure !== bucket) {
+                        return []
+                    }
                     return response?.results ?? []
                 },
             },
