@@ -4,6 +4,7 @@ import * as construction from '@posthog/brand/hoggies/png/construction-1'
 import * as cursor from '@posthog/brand/hoggies/png/cursor'
 import * as director from '@posthog/brand/hoggies/png/director'
 import * as experiment from '@posthog/brand/hoggies/png/experiment'
+import * as handClasp from '@posthog/brand/hoggies/png/hand-clasp'
 import * as judge from '@posthog/brand/hoggies/png/judge'
 import * as megaphone from '@posthog/brand/hoggies/png/megaphone'
 import * as noir from '@posthog/brand/hoggies/png/noir-1'
@@ -35,6 +36,7 @@ const HedgehogConstruction = pngHoggie(construction)
 const HedgehogCursor = pngHoggie(cursor)
 const HedgehogDirector = pngHoggie(director)
 const HedgehogExperiment = pngHoggie(experiment)
+const HedgehogHandClasp = pngHoggie(handClasp)
 const HedgehogJudge = pngHoggie(judge)
 const HedgehogMegaphone = pngHoggie(megaphone)
 const HedgehogNoir = pngHoggie(noir)
@@ -176,8 +178,11 @@ export const PRODUCT_PUSH_DISPLAY: Partial<Record<ProductKey, ProductPushDisplay
         accentColor: 'var(--color-accent)',
         tagline: 'Click any element on your own site to see how it performs, then turn it into an action.',
     },
-    // Marketing analytics is feature-flag gated, so it only reaches the card through a
-    // TAM-scheduled push to an org that has the flag.
+    [ProductKey.MCP_ANALYTICS]: {
+        Hoggie: HedgehogHandClasp,
+        accentColor: 'var(--color-product-mcp-analytics-light)',
+        tagline: 'See which of your MCP tools agents reach for, how long each call takes, and where they fail.',
+    },
     [ProductKey.MARKETING_ANALYTICS]: {
         Hoggie: HedgehogMegaphone,
         accentColor: 'var(--color-product-marketing-analytics-light)',

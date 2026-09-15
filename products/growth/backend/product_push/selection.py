@@ -48,16 +48,14 @@ BLESSED_PRODUCT_ORDER: list[ProductKey] = [
 
 # Unordered pool for orgs that exhausted the blessed order; picked at random,
 # weighted by the roles the org's members stated at signup (see role_affinity.py).
-# Only broadly-available products belong here — nothing feature-flag-gated or
-# unreleased in the catalog, since the promo card would link to a product most
-# users can't open. Gated products can still be pushed to a specific org via a
-# TAM-scheduled row once the flag is enabled for them.
-# A product also needs a ProductIntent registered somewhere in the app, or its
-# campaign can never close as adopted and every push counts as skipped. That
-# rules out Data catalog, Early access features, Heatmaps, Skills and Web
-# scripts, which are released and unflagged but never record an intent.
-# `flag` is stripped from products.json, so no test can check the gating half of
-# this; keep it in mind when adding a product below.
+# A feature-flag-gated product may sit here: the card checks the flag and renders
+# nothing without it, so the push only shows where the product is available, and
+# an org without the flag spends the campaign window on a hidden card.
+# Nothing unreleased in the catalog belongs here, and a product needs a
+# ProductIntent registered somewhere in the app, or its campaign can never close
+# as adopted and every push counts as skipped. That rules out Data catalog, Early
+# access features, Heatmaps, Skills and Web scripts, which are released but never
+# record an intent.
 FALLBACK_PRODUCT_ORDER: list[ProductKey] = [
     ProductKey.CONVERSATIONS,
     ProductKey.DATA_WAREHOUSE,
@@ -67,6 +65,8 @@ FALLBACK_PRODUCT_ORDER: list[ProductKey] = [
     ProductKey.LLM_EVALUATIONS,
     ProductKey.LLM_PROMPTS,
     ProductKey.LOGS,
+    ProductKey.MARKETING_ANALYTICS,
+    ProductKey.MCP_ANALYTICS,
     ProductKey.NOTEBOOKS,
     ProductKey.REPLAY_VISION,
     ProductKey.SURVEYS,
@@ -97,9 +97,8 @@ PUSH_PRODUCT_PATHS: dict[ProductKey, str] = {
     ProductKey.LLM_EVALUATIONS: "Evaluations",
     ProductKey.LLM_PROMPTS: "Prompts",
     ProductKey.LOGS: "Logs",
-    # Marketing analytics sits behind a feature flag, so it stays out of the pools
-    # above. The entry is here for a TAM-scheduled push to an org that has the flag.
     ProductKey.MARKETING_ANALYTICS: "Marketing analytics",
+    ProductKey.MCP_ANALYTICS: "MCP analytics",
     ProductKey.NOTEBOOKS: "Notebooks",
     ProductKey.REPLAY_VISION: "Replay vision",
     ProductKey.SURVEYS: "Surveys",

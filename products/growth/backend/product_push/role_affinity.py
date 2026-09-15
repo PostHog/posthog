@@ -33,6 +33,7 @@ ROLE_PRODUCT_AFFINITIES: dict[str, frozenset[ProductKey]] = {
             ProductKey.LLM_ANALYTICS,
             ProductKey.LLM_PROMPTS,
             ProductKey.LLM_EVALUATIONS,
+            ProductKey.MCP_ANALYTICS,
             ProductKey.TOOLBAR,
         }
     ),
@@ -49,6 +50,7 @@ ROLE_PRODUCT_AFFINITIES: dict[str, frozenset[ProductKey]] = {
         {
             ProductKey.CONVERSATIONS,
             ProductKey.LLM_CLUSTERS,
+            ProductKey.MCP_ANALYTICS,
             ProductKey.NOTEBOOKS,
             ProductKey.REPLAY_VISION,
             ProductKey.SURVEYS,
@@ -57,6 +59,7 @@ ROLE_PRODUCT_AFFINITIES: dict[str, frozenset[ProductKey]] = {
     ),
     "marketing": frozenset(
         {
+            ProductKey.MARKETING_ANALYTICS,
             ProductKey.SURVEYS,
             ProductKey.TOOLBAR,
             ProductKey.WORKFLOWS,
@@ -66,6 +69,7 @@ ROLE_PRODUCT_AFFINITIES: dict[str, frozenset[ProductKey]] = {
         {
             ProductKey.CONVERSATIONS,
             ProductKey.DATA_WAREHOUSE,
+            ProductKey.MARKETING_ANALYTICS,
             ProductKey.SURVEYS,
         }
     ),
