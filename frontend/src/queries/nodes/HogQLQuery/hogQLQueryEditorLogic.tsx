@@ -71,12 +71,10 @@ export interface hogQLQueryEditorLogicActions {
     } // dataWarehouseSettingsSceneLogic
     createDataWarehouseSavedQuery: (
         view: Partial<DataWarehouseSavedQuery> & {
-            dag_id?: string
             folder_id?: string | null
             types: string[][]
         }
     ) => Partial<DataWarehouseSavedQuery> & {
-        dag_id?: string
         folder_id?: string | null
         types: string[][]
     } // dataWarehouseViewsLogic
