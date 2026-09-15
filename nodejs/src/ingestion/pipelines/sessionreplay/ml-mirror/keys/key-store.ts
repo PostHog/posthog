@@ -1,40 +1,54 @@
-import { TransactWriteItem, TransactionCanceledException } from '@aws-sdk/client-dynamodb'
-
 import { logger } from '~/common/utils/logger'
 import { sessionStartMonth } from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format'
 
 import { MlDataKey, MlKeyEncryption } from './crypto'
-import { DynamoItem, MlKeyDynamoDB, encodeKey } from './dynamodb'
+import { DynamoItem, MlKeyDynamoDB } from './dynamodb'
 import {
     MlKeyIdentity,
     MlSessionIdentity,
     TableKey,
     imageKeyId,
     keySessionMonth,
-    monthBlockId,
     monthKeyIndexId,
     sessionKeyId,
     tableKeyString,
     teamBlockId,
 } from './schema'
 
-// The month and team block markers are single items that every commit in the fleet checks, so DynamoDB cancels concurrent commits as TransactionConflict under normal load. The budget counts the re-reads as well as the waits and stays under the consumer's 60 s loop stall threshold.
+// Commits retry transient DynamoDB and KMS failures; the budget counts the re-reads as well as the waits and stays under the consumer's 60 s loop stall threshold.
 const COMMIT_ATTEMPTS = 10
 const COMMIT_BUDGET_MS = 45_000
 const COMMIT_BACKOFF_BASE_MS = 100
 const COMMIT_BACKOFF_CAP_MS = 3_000
+const TRANSIENT_ERRORS = new Set([
+    'ProvisionedThroughputExceededException',
+    'ThrottlingException',
+    'RequestLimitExceeded',
+    'InternalServerError',
+    'ServiceUnavailableException',
+    'TransactionConflictException',
+    'KMSInternalException',
+    'DependencyTimeoutException',
+    'TimeoutError',
+    'AbortError',
+])
+const TRANSIENT_ERROR_CODES = new Set(['ECONNRESET', 'ECONNREFUSED', 'EPIPE', 'ETIMEDOUT', 'EAI_AGAIN'])
+
+function isTransientError(error: unknown): boolean {
+    if (!(error instanceof Error)) {
+        return false
+    }
+    const { code, $retryable, $fault } = error as Error & { code?: string; $retryable?: unknown; $fault?: string }
+    return (
+        TRANSIENT_ERRORS.has(error.name) ||
+        TRANSIENT_ERROR_CODES.has(code ?? '') ||
+        $retryable !== undefined ||
+        $fault === 'server'
+    )
+}
 
 function commitRetryDelayMs(attempt: number): number {
     return Math.random() * Math.min(COMMIT_BACKOFF_CAP_MS, COMMIT_BACKOFF_BASE_MS * 2 ** attempt)
-}
-
-function cancellationCodes(error: unknown): string[] {
-    if (!(error instanceof TransactionCanceledException)) {
-        return []
-    }
-    return (error.CancellationReasons ?? []).flatMap((reason) =>
-        reason.Code && reason.Code !== 'None' ? [reason.Code] : []
-    )
 }
 
 export interface MlSessionKeys {
@@ -46,47 +60,6 @@ function storedKeyId(identity: MlKeyIdentity): TableKey {
     return identity.sessionId
         ? sessionKeyId(identity.teamId, identity.sessionId)
         : imageKeyId(identity.teamId, keySessionMonth(identity))
-}
-
-function actionId(action: TransactWriteItem): string {
-    const operation = action.ConditionCheck ?? action.Put ?? action.Update ?? action.Delete
-    if (!operation) {
-        throw new Error('Empty ML key manager transaction action')
-    }
-    const key = 'Item' in operation ? operation.Item : 'Key' in operation ? operation.Key : undefined
-    if (!key?.pk?.S || !key.sk?.S) {
-        throw new Error('Missing ML key manager transaction key')
-    }
-    return JSON.stringify([key.pk.S, key.sk.S])
-}
-
-export function groupTransactions(units: TransactWriteItem[][]): TransactWriteItem[][] {
-    const transactions: TransactWriteItem[][] = []
-    let current = new Map<string, TransactWriteItem>()
-    for (const unit of units) {
-        const next = new Map(current)
-        for (const action of unit) {
-            const id = actionId(action)
-            const existing = next.get(id)
-            if (existing && JSON.stringify(existing) !== JSON.stringify(action)) {
-                throw new Error('Conflicting ML key manager transaction actions')
-            }
-            next.set(id, action)
-        }
-        if (next.size > 100 || Buffer.byteLength(JSON.stringify([...next.values()])) > 3_500_000) {
-            if (!current.size) {
-                throw new Error('ML key manager transaction unit exceeds limits')
-            }
-            transactions.push([...current.values()])
-            current = new Map(unit.map((action) => [actionId(action), action]))
-        } else {
-            current = next
-        }
-    }
-    if (current.size) {
-        transactions.push([...current.values()])
-    }
-    return transactions
 }
 
 export class MlSessionKeyStore {
@@ -122,20 +95,18 @@ export class MlKeyBatch {
         private readonly identities: MlSessionIdentity[]
     ) {}
 
-    public async read(): Promise<void> {
+    public async read(deadline?: AbortSignal): Promise<void> {
         this.keys.clear()
         const initial = this.identities.flatMap((identity) => [
-            monthBlockId(sessionStartMonth(identity.sessionId)),
             teamBlockId(identity.teamId),
             sessionKeyId(identity.teamId, identity.sessionId),
         ])
-        this.state = await this.db.read(initial)
+        this.state = await this.db.read(initial, deadline)
         const keyIdentities = new Map<string, MlKeyIdentity>()
         for (const identity of this.identities) {
             const id = tableKeyString(sessionKeyId(identity.teamId, identity.sessionId))
             if (
                 this.state.has(tableKeyString(teamBlockId(identity.teamId))) ||
-                this.state.has(tableKeyString(monthBlockId(sessionStartMonth(identity.sessionId)))) ||
                 this.state.get(id)?.deleted?.BOOL === true
             ) {
                 continue
@@ -150,7 +121,7 @@ export class MlKeyBatch {
             }
         }
         const remaining = [...keyIdentities.values()].filter((identity) => !identity.sessionId).map(storedKeyId)
-        for (const [id, item] of await this.db.read(remaining)) {
+        for (const [id, item] of await this.db.read(remaining, deadline)) {
             this.state.set(id, item)
         }
         await Promise.all(
@@ -186,63 +157,45 @@ export class MlKeyBatch {
         return image ? { session, image } : undefined
     }
 
-    private guards(identity: MlKeyIdentity): TransactWriteItem[] {
-        return [
-            this.db.check(monthBlockId(keySessionMonth(identity)), 'attribute_not_exists(pk)'),
-            this.db.check(teamBlockId(identity.teamId), 'attribute_not_exists(pk)'),
-        ]
-    }
-
-    private put(key: TableKey, attributes: DynamoItem, condition?: string): TransactWriteItem {
-        return {
-            Put: {
-                TableName: this.db.tableName,
-                Item: { ...encodeKey(key), ...attributes },
-                ...(condition ? { ConditionExpression: condition } : {}),
-            },
-        }
-    }
-
-    private async persist(): Promise<void> {
-        const creations: TransactWriteItem[][] = []
-        for (const [id, key] of this.keys) {
-            if (this.state.has(id)) {
-                continue
-            }
-            creations.push([
-                ...this.guards(key.identity),
-                this.put(
-                    storedKeyId(key.identity),
+    // The index entry goes first and is idempotent, so every stored key has an index entry even when the key put fails or a retried put reports the batch's own write as a competitor's. An index entry without a key is harmless: the month sweep leaves a tombstone that a later key put respects.
+    private async persist(deadline: AbortSignal): Promise<void> {
+        const before = [...this.keys.keys()]
+        const results = await Promise.allSettled(
+            [...this.keys].map(async ([id, key]) => {
+                if (this.state.has(id)) {
+                    return
+                }
+                const location = storedKeyId(key.identity)
+                await this.db.put(
+                    monthKeyIndexId(key.identity, location),
+                    { key_pk: { S: location.pk }, key_sk: { S: location.sk } },
+                    deadline
+                )
+                const created = await this.db.putIfAbsent(
+                    location,
                     {
                         wrapped_key: { B: key.wrapped },
                         organization_id: { S: key.identity.organizationId },
                         team_id: { N: String(key.identity.teamId) },
                         session_month: { S: keySessionMonth(key.identity) },
                     },
-                    'attribute_not_exists(pk)'
-                ),
-                this.put(monthKeyIndexId(key.identity, storedKeyId(key.identity)), {
-                    key_pk: { S: storedKeyId(key.identity).pk },
-                    key_sk: { S: storedKeyId(key.identity).sk },
-                }),
-            ])
+                    deadline
+                )
+                if (created) {
+                    this.encryption.rememberCommitted(key)
+                }
+            })
+        )
+        const failures = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+        const failure = failures.find(({ reason }) => !isTransientError(reason)) ?? failures[0]
+        if (failure) {
+            throw failure.reason
         }
-        await this.db.write(groupTransactions(creations))
-        const validations: TransactWriteItem[][] = []
-        for (const identity of this.identities) {
-            const key = this.get(identity.teamId, identity.sessionId)?.session
-            if (!key) {
-                continue
-            }
-            validations.push([
-                ...this.guards(key.identity),
-                this.db.check(
-                    sessionKeyId(identity.teamId, identity.sessionId),
-                    'attribute_exists(wrapped_key) AND attribute_not_exists(deleted)'
-                ),
-            ])
+        await this.read(deadline)
+        const dropped = before.filter((id) => !this.keys.has(id)).length
+        if (dropped) {
+            logger.info('🔑', 'ml_key_commit_dropped_blocked', { dropped })
         }
-        await this.db.write(groupTransactions(validations))
     }
 
     public async commit(): Promise<void> {
@@ -250,26 +203,29 @@ export class MlKeyBatch {
             throw new Error('ML batch already committed')
         }
         const startedAt = Date.now()
+        const deadline = AbortSignal.timeout(COMMIT_BUDGET_MS)
         for (let attempt = 0; attempt < COMMIT_ATTEMPTS; attempt++) {
             try {
-                await this.persist()
-                for (const key of this.keys.values()) {
-                    this.encryption.rememberCommitted(key)
-                }
+                await this.persist(deadline)
                 this.committed = true
                 return
             } catch (error) {
                 const delayMs = commitRetryDelayMs(attempt)
-                if (attempt === COMMIT_ATTEMPTS - 1 || Date.now() - startedAt + delayMs > COMMIT_BUDGET_MS) {
+                if (
+                    !isTransientError(error) ||
+                    deadline.aborted ||
+                    attempt === COMMIT_ATTEMPTS - 1 ||
+                    Date.now() - startedAt + delayMs > COMMIT_BUDGET_MS
+                ) {
                     throw error
                 }
                 logger.warn('🔑', 'ml_key_commit_retry', {
                     attempt: attempt + 1,
-                    codes: cancellationCodes(error),
+                    errorName: error instanceof Error ? error.name : undefined,
                     error: String(error),
                 })
                 await new Promise((resolve) => setTimeout(resolve, delayMs))
-                await this.read()
+                await this.read(deadline)
             }
         }
     }

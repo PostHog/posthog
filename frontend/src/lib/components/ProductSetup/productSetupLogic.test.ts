@@ -1,12 +1,15 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ActivationTaskStatus, TeamType } from '~/types'
 
+import { globalSetupLogic } from './globalSetupLogic'
 import { productSetupLogic } from './productSetupLogic'
 import type { SetupTaskWithState } from './types'
 
@@ -22,6 +25,7 @@ describe('productSetupLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+        jest.restoreAllMocks()
     })
 
     const task = (id: SetupTaskId): SetupTaskWithState =>
@@ -52,6 +56,43 @@ describe('productSetupLogic', () => {
 
         expect(task(SetupTaskId.IngestFirstEvent).completed).toBe(false)
         expect(task(SetupTaskId.CreateFirstInsight).lockedReason).toContain('Ingest your first event')
+    })
+
+    // The reported bug: the highlight used to outlive the route that asked for it, so the pulse
+    // landed on whatever matched the selector on a page the user opened later.
+    it('drops a pending highlight when the user navigates away', async () => {
+        await expectLogic(logic, () => logic.actions.runTask(SetupTaskId.CreateFirstInsight)).toFinishAllListeners()
+
+        expect(globalSetupLogic.values.highlight).toEqual({
+            selector: '[data-attr="saved-insights-new-insight-button"]',
+            // getUrl() is project-relative, so the binding reads the route the router landed on
+            pathname: expect.stringContaining(urls.insights()),
+        })
+
+        router.actions.push(urls.featureFlag('new'))
+
+        expect(globalSetupLogic.values.highlight).toBeNull()
+    })
+
+    // Staying put must not drop the highlight - a query string change is still the same page.
+    it('keeps a pending highlight while the route stays the same', async () => {
+        await expectLogic(logic, () => logic.actions.runTask(SetupTaskId.CreateFirstInsight)).toFinishAllListeners()
+
+        router.actions.push(router.values.location.pathname, { tab: 'yours' })
+
+        expect(globalSetupLogic.values.highlight).not.toBeNull()
+    })
+
+    // A task with no target selector used to leave the previous pulse polling, because nothing
+    // cleared it and a docs task never changes the route.
+    it('drops a pending highlight when a task without a target selector runs', async () => {
+        jest.spyOn(window, 'open').mockReturnValue(null)
+        await expectLogic(logic, () => logic.actions.runTask(SetupTaskId.CreateFirstInsight)).toFinishAllListeners()
+        expect(globalSetupLogic.values.highlight).not.toBeNull()
+
+        await expectLogic(logic, () => logic.actions.runTask(SetupTaskId.UsePosthogMcp)).toFinishAllListeners()
+
+        expect(globalSetupLogic.values.highlight).toBeNull()
     })
 
     // A skipped dependency counts as satisfied — skipping used to leave dependents locked forever.
