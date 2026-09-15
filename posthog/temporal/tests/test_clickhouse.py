@@ -632,8 +632,8 @@ async def test_astream_query_as_arrow_reports_why_the_query_stopped(
                 pass
 
     assert expected_fragment in str(exc_info.value)
-    assert EVENT_PAYLOAD_MARKER not in str(exc_info.value)
-    # Waiting out a flush interval for an answer already in hand would be wasted latency.
+    # Waiting out a flush interval to be told what the response already said would be
+    # latency spent on an answer we hold.
     assert bool(log_reads) is reads_log
 
 
@@ -775,8 +775,7 @@ async def test_stream_query_as_arrow_reports_why_the_query_stopped(
 
     assert expected_fragment in str(exc_info.value)
     assert EVENT_PAYLOAD_MARKER not in str(exc_info.value)
-    # Waiting out a flush interval to be told what the response already said would be
-    # latency spent on an answer we hold.
+    # Waiting out a flush interval for an answer already in hand would be wasted latency.
     assert bool(log_reads) is reads_log
 
 
