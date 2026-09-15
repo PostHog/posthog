@@ -83,7 +83,7 @@ async def run_investigation(
     # (Temporal workflow sandbox restrictions).
     from ee.hogai.llm import MaxChatAnthropic
 
-    toolkit = InvestigationToolkit(team=team, alert=alert)
+    toolkit = InvestigationToolkit(team=team, alert=alert, user=user)
     handlers: dict[str, ToolHandler] = {
         "run_hogql_query": lambda raw: toolkit.run_hogql_query(RunHogQLQueryArgs.model_validate(raw)),
         "top_breakdowns": lambda raw: toolkit.top_breakdowns(TopBreakdownArgs.model_validate(raw)),

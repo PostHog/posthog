@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import Team
+from posthog.models import Team, User
 
 from products.alerts.backend.models.alert import AlertConfiguration
 
@@ -128,12 +128,13 @@ def _run_detector_simulation(
         return str(err)
 
 
-@dataclass
+@dataclass(frozen=False, kw_only=True)
 class InvestigationToolkit:
     """Bundles the tool implementations bound to a team and alert. Returned strings are
     compact — rough cap ~2KB per response to keep LLM context lean."""
 
     team: Team
+    user: User
     alert: AlertConfiguration | None = None
 
     async def run_hogql_query(self, args: RunHogQLQueryArgs) -> str:
@@ -143,6 +144,9 @@ class InvestigationToolkit:
         response = await sync_to_async(execute_hogql_query, thread_sensitive=False)(
             query=sql,
             team=self.team,
+            # Warehouse access control fails closed, so a userless query denies every warehouse
+            # table and saved view, including the one the alert's own insight reads.
+            user=self.user,
         )
         rows = response.results or []
         truncated = rows[:MAX_HOGQL_ROWS]

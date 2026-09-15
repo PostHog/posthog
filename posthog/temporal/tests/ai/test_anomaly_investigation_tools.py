@@ -1,6 +1,8 @@
+import json
 from typing import Any
 
-from unittest.mock import MagicMock, patch
+from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
+from unittest.mock import MagicMock, Mock, patch
 
 from posthog.schema import (
     BaseMathType,
@@ -13,9 +15,14 @@ from posthog.schema import (
 )
 
 from posthog.caching.insight_result import InsightResult
-from posthog.temporal.ai.anomaly_investigation.tools import _run_detector_simulation
+from posthog.temporal.ai.anomaly_investigation.tools import (
+    InvestigationToolkit,
+    RunHogQLQueryArgs,
+    _run_detector_simulation,
+)
 
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -94,3 +101,30 @@ def test_run_detector_simulation_scores_the_configured_column_of_a_multi_numeric
     assert not isinstance(result, str)
     # Scores failure_rate_pct, not run_count. The data is the tail of the configured column.
     assert result["data"] == failure_rate[-len(result["data"]) :]
+
+
+_VIEW_QUERY = RunHogQLQueryArgs(query="SELECT amount FROM investigated_view")
+
+
+# Non-atomic, because run_hogql_query runs off the caller's thread, so an uncommitted saved query
+# would be invisible to it and the view would read as unknown rather than access-denied.
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
+class TestToolkitWarehouseAccess(ClickhouseTestMixin, NonAtomicBaseTest):
+    # NonAtomicBaseTest TRUNCATEs after each test, so class-level fixtures must not be reused.
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="investigated_view",
+            query={"query": "SELECT 1 AS amount"},
+            columns={"amount": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+
+    async def test_run_hogql_query_reads_a_warehouse_view_for_the_investigation_user(self) -> None:
+        toolkit = InvestigationToolkit(team=self.team, user=self.user)
+
+        payload = json.loads(await toolkit.run_hogql_query(_VIEW_QUERY))
+
+        assert payload["rows"] == [[1]]
