@@ -7,6 +7,7 @@ events see the full picture.
 """
 
 import json
+import uuid
 from typing import Any, Optional
 
 from django.db import transaction
@@ -99,13 +100,19 @@ def produce_issue_lifecycle_event_on_commit(
     # the mutation.
     fingerprint = _issue_fingerprint_for_links(issue)
     current_assignee = _current_assignee_property(issue)
+    issue_id = str(issue.id)
+    issue_name = issue.name
+    issue_description = issue.description
+    # The notification id names both the internal event and the alert delivery
+    # workflow, so redelivered starts and retries stay idempotent per transition.
+    notification_id = str(uuid.uuid4())
     # Same issue-property set the ingestion-driven producer emits (see
     # produce_issue_lifecycle_internal_event), so destination property filters
     # match both paths.
     properties: dict[str, Any] = {
-        "name": issue.name,
-        "description": issue.description,
-        "issue_description": issue.description,
+        "name": issue_name,
+        "description": issue_description,
+        "issue_description": issue_description,
         "first_seen": issue.created_at.isoformat(),
         "severity": issue.severity,
         "status": status_label(status if status is not None else issue.status),
@@ -113,9 +120,10 @@ def produce_issue_lifecycle_event_on_commit(
         **({"assignee": current_assignee} if current_assignee is not None else {}),
         **(extra_properties or {}),
     }
-    internal_event = InternalEventEvent(event=event, distinct_id=str(issue.id), properties=properties)
+    internal_event = InternalEventEvent(event=event, distinct_id=issue_id, properties=properties, uuid=notification_id)
 
     person = None
+    actor_email: Optional[str] = None
     if user is not None:
         # Deliberately a minimal actor subset: person reaches customer-configured
         # destinations verbatim (the default webhook body sends `{person}`), so no
@@ -129,13 +137,36 @@ def produce_issue_lifecycle_event_on_commit(
                 "first_name": user.first_name,
             },
         )
+        actor_email = user.email
 
     def _produce() -> None:
+        # Importing the dispatcher pulls in the temporal package aggregator, which
+        # loads every worker-only workflow module; keep it off the web import path.
+        from products.error_tracking.backend.temporal.alerts.dispatch import (  # noqa: PLC0415
+            start_alert_delivery_workflow,
+        )
+
         try:
             produce_internal_event(team_id=team_id, event=internal_event, person=person)
         except Exception:
             # Already logged by produce_internal_event; alert emission must never
             # fail the mutation that triggered it.
             pass
+        # Dispatch is deliberately synchronous here: it is double-gated (alert rows,
+        # then flag), swallows every failure, and only flagged teams with alerts pay
+        # the cost. A queued dispatch is planned before any broad rollout.
+        status_property = properties.get("status")
+        assignee_property_value = properties.get("assignee")
+        start_alert_delivery_workflow(
+            team_id=team_id,
+            event=event,
+            issue_id=issue_id,
+            notification_id=notification_id,
+            issue_name=issue_name,
+            issue_description=issue_description,
+            status=status_property if isinstance(status_property, str) else None,
+            assignee=assignee_property_value if isinstance(assignee_property_value, str) else None,
+            actor_email=actor_email,
+        )
 
     transaction.on_commit(_produce)
