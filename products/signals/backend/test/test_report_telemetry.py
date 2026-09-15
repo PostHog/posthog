@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.models import SignalReport
+from products.signals.backend.models import SignalReport, SignalTeamConfig
 from products.signals.backend.temporal.summary import (
     MarkReportFailedInput,
     MarkReportInProgressInput,
@@ -224,10 +224,12 @@ async def test_ready_is_idempotent_after_partial_commit(ateam, preexisting_statu
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "pending_reason",
-    ["repo_selection_required", "agent_requested"],
+    "pending_reason,expected_ask_recorded",
+    [("repo_selection_required", True), ("agent_requested", False)],
 )
-async def test_pending_input_fires_completed_and_status_changed_with_pending_reason(ateam, pending_reason):
+async def test_pending_input_fires_completed_and_status_changed_with_pending_reason(
+    ateam, pending_reason, expected_ask_recorded
+):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
         status=SignalReport.Status.IN_PROGRESS,
@@ -258,6 +260,11 @@ async def test_pending_input_fires_completed_and_status_changed_with_pending_rea
     # reporting a team as opted out of charts.
     assert "charts_enabled" not in calls_by_event["signal_report_completed"]["properties"]
     assert calls_by_event["signal_report_status_changed"]["properties"]["pending_reason"] == pending_reason
+    # The repo-selection dead end also records the ask against the team, which is what holds the
+    # team's later reports at promotion. `ateam` has no GitHub integration, so the standing cause
+    # applies. A report the agent researched and asked about must not record it.
+    config = await database_sync_to_async(SignalTeamConfig.objects.get)(team=ateam)
+    assert (config.repo_selection_ask_raised_at is not None) is expected_ask_recorded
 
 
 @pytest.mark.asyncio

@@ -525,6 +525,12 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 
 field_exclusions: dict[AuditableScope, list[str]] = {
     "DataQualityCheckSchedule": ["subject_type", "subject_uuid", "next_run_at", "last_run_at", "last_suite_run"],
+    "SignalTeamConfig": [
+        # Pipeline bookkeeping: when the report pipeline last asked the team to connect a
+        # repository. Nobody edits it, so a diff entry for it reads as a settings change that
+        # never happened.
+        "repo_selection_ask_raised_at",
+    ],
     "StamphogRepoConfig": [
         # Reverse relation to the repo's review history. The diff would read every pull request row
         # on each settings toggle, and none of it is configuration.

@@ -188,6 +188,11 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     # github_writeback.py). Off by default, because the comment is public on the issue thread and
     # tells everybody watching it that we are working on it, which is a team's call to make.
     github_issue_writeback_enabled = models.BooleanField(default=False, db_default=False)
+    # When the pipeline last asked this team to connect a repository (see repo_availability.py).
+    # A team with no GitHub source answers every report the same way, so the ask is raised once and
+    # later promotions are held instead. Cleared as soon as a source resolves again, so a team that
+    # disconnects later is asked again rather than held silently.
+    repo_selection_ask_raised_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

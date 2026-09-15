@@ -35,6 +35,7 @@ from products.signals.backend.quota import (
     record_quota_check_failed_open,
     self_driving_quota_gate,
 )
+from products.signals.backend.repo_availability import note_repo_selection_ask_raised
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.temporal import metrics
@@ -1105,6 +1106,11 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
         )
         return
 
+    # Stamped after the transition, so the team is only recorded as asked once a report is actually
+    # showing the ask. The promotion gate reads the stamp and holds the team's later reports.
+    await database_sync_to_async(note_repo_selection_ask_raised, thread_sensitive=False)(
+        input.team_id, pending_reason=input.pending_reason
+    )
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
     _capture_report_event(
         event="signal_report_completed",

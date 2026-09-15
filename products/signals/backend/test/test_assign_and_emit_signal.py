@@ -911,3 +911,50 @@ async def test_daily_limit_gate_emits_no_event_when_signal_would_not_promote(ate
 
     events = [call.kwargs.get("event") for call in patch_side_effects["capture"].call_args_list]
     assert "signal_report_daily_limit_paused" not in events
+
+
+# ---------------------------------------------------------------------------
+# Repo availability gate: promotion held once the repo-selection ask is open
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("holds_promotion", "expected_status", "expected_promoted"),
+    [
+        # The team has no GitHub source and already carries the ask, so a summary run would only
+        # repeat it. The status is untouched, so the first signal after a repository is connected
+        # re-evaluates promotion.
+        (True, SignalReport.Status.POTENTIAL, False),
+        # The ask is not open yet: this report is the one that raises it, so it must promote.
+        (False, SignalReport.Status.CANDIDATE, True),
+    ],
+)
+async def test_repo_ask_withholds_promotion_once_the_ask_is_open(
+    ateam, patch_side_effects, holds_promotion, expected_status, expected_promoted
+):
+    with patch(f"{GROUPING_MODULE_PATH}.repo_ask_holds_promotion", return_value=holds_promotion):
+        result = await assign_and_emit_signal_activity(_build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD))
+
+    assert result.promoted is expected_promoted
+    report = await database_sync_to_async(SignalReport.objects.get)(id=result.report_id)
+    assert report.status == expected_status
+    assert report.signal_count == 1
+
+    held_events = [
+        call
+        for call in patch_side_effects["capture"].call_args_list
+        if call.kwargs.get("event") == "signal_report_repo_ask_held"
+    ]
+    assert len(held_events) == (1 if holds_promotion else 0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_repo_ask_emits_no_event_when_signal_would_not_promote(ateam, patch_side_effects):
+    with patch(f"{GROUPING_MODULE_PATH}.repo_ask_holds_promotion", return_value=True):
+        await assign_and_emit_signal_activity(_build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD * 0.5))
+
+    events = [call.kwargs.get("event") for call in patch_side_effects["capture"].call_args_list]
+    assert "signal_report_repo_ask_held" not in events
