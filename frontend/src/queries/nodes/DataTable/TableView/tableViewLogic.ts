@@ -1,5 +1,5 @@
 import { deepEqual as equal } from 'fast-equals'
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { lazyLoaders } from 'kea-loaders'
@@ -508,7 +508,7 @@ export const tableViewLogic = kea<tableViewLogicType>([
         },
     })),
 
-    listeners(({ props, actions, values }) => ({
+    listeners(({ props, actions, values, cache }) => ({
         applyView: ({ view }) => {
             props.setQuery(getQueryFromView(props.query, view))
         },
@@ -544,6 +544,22 @@ export const tableViewLogic = kea<tableViewLogicType>([
             lemonToast.error('Error deleting view')
         },
 
+        loadViewsSuccess: () => {
+            // Restoring on mount would apply the columns of a view its creator has since deleted,
+            // because the pick lives in this browser's storage, and clearing the pick afterwards
+            // does not take those columns back off the table. The reducer runs before this, so
+            // currentView is already null when the list dropped the view. Restore on the first
+            // list only, so the refresh after saving a view does not apply the pick again.
+            if (cache.restoredStoredView) {
+                return
+            }
+            cache.restoredStoredView = true
+
+            if (values.currentView && isUntouchedDefaultQuery(props.contextKey, props.query)) {
+                actions.applyView(values.currentView)
+            }
+        },
+
         loadViewsFailure: (error) => {
             posthog.captureException(error)
             lemonToast.error('Error loading views')
@@ -562,14 +578,4 @@ export const tableViewLogic = kea<tableViewLogicType>([
             lemonToast.error('Error creating view')
         },
     })),
-
-    afterMount(({ values, actions, props }) => {
-        if (!values.currentView) {
-            return
-        }
-
-        if (isUntouchedDefaultQuery(props.contextKey, props.query)) {
-            actions.applyView(values.currentView)
-        }
-    }),
 ])

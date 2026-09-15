@@ -71,7 +71,7 @@ describe('tableViewLogic', () => {
         expect(setQuery).not.toHaveBeenCalled()
     })
 
-    it('reapplies the picked view on mount when the query is the untouched default', async () => {
+    it('reapplies the picked view once the list confirms it, when the query is the untouched default', async () => {
         persistSelection(SHARED_VIEW)
         const { logic, setQuery } = mountLogic(defaultSelect)
 
@@ -96,14 +96,17 @@ describe('tableViewLogic', () => {
         expect(setQuery).not.toHaveBeenCalled()
     })
 
-    it('clears a picked view that the list no longer returns', async () => {
+    // The untouched default is the only query shape a view gets applied to, so a deleted view
+    // paired with a changed query would pass whether or not the list is consulted first.
+    it('clears a picked view the list no longer returns without touching the table', async () => {
         persistSelection({ ...SHARED_VIEW, id: 'fedcba98-7654-3210-fedc-ba9876543210', name: 'Deleted view' })
-        const { logic } = mountLogic([...defaultSelect, 'properties.email'])
+        const { logic, setQuery } = mountLogic(defaultSelect)
 
         await expectLogic(logic, () => {
             logic.actions.loadViews()
         }).toFinishAllListeners()
 
         expect(logic.values.currentView).toBeNull()
+        expect(setQuery).not.toHaveBeenCalled()
     })
 })
