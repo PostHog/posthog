@@ -1863,10 +1863,10 @@ class LLMSkillViewSet(
     @monitor(feature=None, endpoint="llma_skills_list", method="GET")
     def list(self, request: Request, *args, **kwargs) -> HttpResponseBase:
         version = team_skills_version(self.team)
-        response = self._list_response(request)
-        validators = self._list_validators(request, response, version)
+        list_response = self._list_response(request)
+        validators = self._list_validators(request, list_response, version)
         # Validate and apply access rules before a conditional response can reuse a cached body.
-        response = get_conditional_response(request._request, etag=validators.etag) or response
+        response = get_conditional_response(request._request, etag=validators.etag) or list_response
         response["ETag"] = validators.etag
         response["X-Skills-Version"] = validators.version
         patch_cache_control(response, private=True, no_cache=True)
