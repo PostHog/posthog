@@ -40,11 +40,13 @@ export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
                 : node.type
             : node?.type
     const typeTag = nodeType ? NODE_TYPE_TAG_SETTINGS[nodeType] : null
-    const canEdit = userHasAccess(
-        AccessControlResourceType.WarehouseObjects,
-        AccessControlLevel.Editor,
-        savedQuery?.user_access_level
-    )
+    const canEdit =
+        node?.type !== 'metric' &&
+        userHasAccess(
+            AccessControlResourceType.WarehouseObjects,
+            AccessControlLevel.Editor,
+            savedQuery?.user_access_level
+        )
 
     return (
         <>

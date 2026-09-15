@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -7,6 +8,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api, { ApiConfig } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import {
@@ -626,6 +628,17 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         updateDataWarehouseSavedQueryFailure: ({ errorObject }) => {
             lemonToast.error(errorObject?.detail || 'Failed to update view')
             actions.loadDataWarehouseSavedQueries()
+        },
+        deleteDataWarehouseSavedQueryFailure: ({ errorObject }) => {
+            const nodeId = errorObject?.extra?.node_id
+            lemonToast.error(errorObject?.detail || 'Failed to delete view', {
+                button: nodeId
+                    ? {
+                          label: 'Open lineage',
+                          action: () => router.actions.push(urls.nodeDetail(nodeId, 'lineage')),
+                      }
+                    : undefined,
+            })
         },
         deleteDataWarehouseSavedQuerySuccess: () => {
             lemonToast.success('View deleted')

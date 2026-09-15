@@ -10,6 +10,7 @@ import {
     IconPlay,
     IconPlayFilled,
     IconTarget,
+    IconWarning,
 } from '@posthog/icons'
 import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
@@ -17,6 +18,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 
 import { DataModelingNode } from '~/types'
 
+import { MATERIALIZING_TYPES } from 'products/data_modeling/frontend/freshness'
 import { servingSuspension } from 'products/data_modeling/frontend/suspension'
 import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
 
@@ -39,6 +41,7 @@ export type LineageNodeShape = Pick<
     | 'downstream_count'
     | 'user_tag'
     | 'suspended'
+    | 'lineage_issue'
 >
 
 export interface LineageNodeState {
@@ -65,6 +68,23 @@ export interface LineageNodeData extends Record<string, unknown> {
     state: LineageNodeState
     callbacks: LineageNodeCallbacks
     handles: NodeHandle[]
+}
+
+export function lineageIssueMessage(issue: NonNullable<DataModelingNode['lineage_issue']>): string {
+    if (issue.kind === 'sync_failed') {
+        return `Lineage could not be refreshed: ${issue.detail}`
+    }
+    return `Couldn't find ${issue.detail}. This may read a table that was renamed or removed.`
+}
+
+function LineageIssueMarker({ issue }: { issue: NonNullable<DataModelingNode['lineage_issue']> }): JSX.Element {
+    return (
+        <Tooltip title={lineageIssueMessage(issue)}>
+            <span className="flex items-center">
+                <IconWarning className="text-warning text-sm" />
+            </span>
+        </Tooltip>
+    )
 }
 
 function StatusDot({ node }: { node: LineageNodeShape }): JSX.Element {
@@ -171,7 +191,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
     const { node, variant, direction, state, callbacks } = data
     const [isHovered, setIsHovered] = useState(false)
 
-    const showMetadata = node.type === 'matview' || node.type === 'endpoint'
+    const showMetadata = MATERIALIZING_TYPES.has(node.type)
     const showRunArrows = variant === 'canvas' && isHovered && !state.isRunning
     const { color } = NODE_TYPE_TAG_SETTINGS[node.type]
 
@@ -189,6 +209,21 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
         fn?.()
     }
 
+    const handleKeyDown = (e: React.KeyboardEvent): void => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            callbacks.onClick?.()
+        }
+    }
+
+    const destination = node.type === 'metric' ? 'the metric' : 'the model'
+    const ariaLabel = [
+        `${node.name}, ${NODE_TYPE_TAG_SETTINGS[node.type].label.toLowerCase()}, opens ${destination}`,
+        node.lineage_issue && lineageIssueMessage(node.lineage_issue),
+    ]
+        .filter(Boolean)
+        .join('. ')
+
     return (
         <Tooltip title={node.name} delayMs={500}>
             <div
@@ -197,6 +232,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                     state.isRunning && 'border-warning ring-2 ring-warning/30 animate-pulse',
                     !state.isRunning && state.isHighlighted && 'border-link ring-2 ring-link/30',
                     !state.isRunning && !state.isHighlighted && !state.isCurrent && 'border-border',
+                    node.lineage_issue && !state.isRunning && !state.isHighlighted && 'border-warning',
                     state.isCurrent && 'border-2'
                 )}
                 // eslint-disable-next-line react/forbid-dom-props
@@ -206,6 +242,10 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                 onMouseEnter={handleMouseEnter}
                 onMouseLeave={handleMouseLeave}
                 onClick={callbacks.onClick}
+                onKeyDown={callbacks.onClick ? handleKeyDown : undefined}
+                role={callbacks.onClick ? 'link' : undefined}
+                tabIndex={callbacks.onClick ? 0 : undefined}
+                aria-label={callbacks.onClick ? ariaLabel : undefined}
             >
                 {data.handles.map((handle) => (
                     <Handle
@@ -242,6 +282,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                                 </Tooltip>
                             )}
                             <NodeTypeTag type={node.type} />
+                            {node.lineage_issue && <LineageIssueMarker issue={node.lineage_issue} />}
                         </div>
                         {node.user_tag && (
                             <span className="text-[10px] text-muted lowercase tracking-wide px-1 rounded bg-primary dark:bg-primary/20 border-1 border-black/20">
@@ -259,7 +300,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                                 onClick={stop(callbacks.onEdit)}
                             />
                         )}
-                        {callbacks.onMaterialize && (node.type === 'matview' || node.type === 'endpoint') && (
+                        {callbacks.onMaterialize && MATERIALIZING_TYPES.has(node.type) && (
                             <Tooltip title={state.isRunning ? null : 'Run this node'}>
                                 <LemonButton
                                     size="xsmall"

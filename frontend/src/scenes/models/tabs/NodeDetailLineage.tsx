@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 import { DataModelingJobStatus, DataModelingNode } from '~/types'
 
 import { LineageGraph } from 'products/data_modeling/frontend/lineage/LineageGraph'
+import { lineageNodeUrl } from 'products/data_modeling/frontend/lineage/lineageNodeUrl'
 
 import { nodeDetailSceneLogic } from '../nodeDetailSceneLogic'
 
@@ -43,7 +44,7 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
     }, [lineageGraph, effectiveLastRunAt, effectiveLastRunStatus])
 
     const openNode = (node: DataModelingNode): void => {
-        router.actions.push(urls.nodeDetail(node.id, 'lineage'))
+        router.actions.push(lineageNodeUrl(node, 'lineage'))
     }
 
     if (lineageGraphLoading) {

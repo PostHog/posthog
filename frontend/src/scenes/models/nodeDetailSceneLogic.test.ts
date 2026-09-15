@@ -30,7 +30,7 @@ function buildNode(type: DataModelingNodeType, overrides: Partial<DataModelingNo
         updated_at: '2024-01-01T00:00:00Z',
         upstream_count: 0,
         downstream_count: 0,
-        saved_query_id: type === 'table' ? undefined : SAVED_QUERY_ID,
+        saved_query_id: type === 'table' || type === 'metric' ? undefined : SAVED_QUERY_ID,
         ...overrides,
     }
 }
@@ -111,12 +111,13 @@ describe('nodeDetailSceneLogic', () => {
         expect(logic.values.currentTab).toEqual(expectedTab)
     })
 
-    it('offers a table only its lineage, so the scene renders no tab bar', async () => {
-        node = buildNode('table')
+    it.each(['table', 'metric'] as const)('offers a %s only its lineage, and opens on it', async (type) => {
+        node = buildNode(type)
 
         await mountScene(urls.nodeDetail(NODE_ID))
 
         expect(logic.values.availableTabs).toEqual(['lineage'])
+        expect(logic.values.currentTab).toEqual('lineage')
     })
 
     it('shows ten columns on each query page', async () => {

@@ -83,7 +83,12 @@ import { QueryContext } from '~/queries/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
 import type { CohortRealtimeReadinessApi } from 'products/cohorts/frontend/generated/api.schemas'
-import type { NodeApiSuspended, NodeEndpointApi } from 'products/data_modeling/frontend/generated/api.schemas'
+import {
+    type LineageIssueApi,
+    type NodeApiSuspended,
+    type NodeEndpointApi,
+    NodeTypeEnumApi,
+} from 'products/data_modeling/frontend/generated/api.schemas'
 import type {
     DataWarehouseSavedQueryApi,
     DataWarehouseSavedQueryApiSuspended,
@@ -6282,7 +6287,7 @@ export interface DataWarehouseSavedQueryDependencies {
     downstream_count: number
 }
 
-export type DataModelingNodeType = 'table' | 'view' | 'matview' | 'endpoint'
+export type DataModelingNodeType = NodeTypeEnumApi
 
 export interface DataModelingNode {
     /** UUID */
@@ -6295,6 +6300,9 @@ export interface DataModelingNode {
     /** Human-readable DAG name */
     dag_name?: string
     saved_query_id?: string
+    /** UUID of the data catalog metric a metric node stands for */
+    metric_id?: string | null
+    lineage_issue?: LineageIssueApi | null
     created_at: string
     updated_at: string
     upstream_count: number
