@@ -602,21 +602,21 @@ describe('getNullBreakdownNotes()', () => {
             NULL,
             { breakdown: '$pathname', breakdown_type: 'event' } as BreakdownFilter,
             undefined,
-            'No value for the event property Path name. Results without that property set are grouped here.',
+            'No value for the event property Path name. Results where it is missing or empty are grouped here.',
         ],
         [
             'names a person property',
             NULL,
             { breakdown: 'email', breakdown_type: 'person' } as BreakdownFilter,
             undefined,
-            'No value for the person property Email address. Results without that property set are grouped here.',
+            'No value for the person property Email address. Results where it is missing or empty are grouped here.',
         ],
         [
             'falls back to the raw key for a property with no definition',
             NULL,
             { breakdown: 'plan_tier', breakdown_type: 'event' } as BreakdownFilter,
             undefined,
-            'No value for the event property plan_tier. Results without that property set are grouped here.',
+            'No value for the event property plan_tier. Results where it is missing or empty are grouped here.',
         ],
         [
             'picks the breakdown named by the column index',
@@ -628,7 +628,7 @@ describe('getNullBreakdownNotes()', () => {
                 ],
             } as BreakdownFilter,
             1,
-            'No value for the event property Path name. Results without that property set are grouped here.',
+            'No value for the event property Path name. Results where it is missing or empty are grouped here.',
         ],
         [
             'finds the breakdown that has no value when no index is given',
@@ -640,7 +640,7 @@ describe('getNullBreakdownNotes()', () => {
                 ],
             } as BreakdownFilter,
             undefined,
-            'No value for the event property Path name. Results without that property set are grouped here.',
+            'No value for the event property Path name. Results where it is missing or empty are grouped here.',
         ],
         // Explaining a column that has a value would put the note on every row of the table
         [
@@ -654,6 +654,25 @@ describe('getNullBreakdownNotes()', () => {
             } as BreakdownFilter,
             0,
             null,
+        ],
+        [
+            'says that a histogram breakdown also groups values it cannot read as numbers',
+            NULL,
+            { breakdown: 'load_time', breakdown_type: 'event', breakdown_histogram_bin_count: 10 } as BreakdownFilter,
+            undefined,
+            'No value for the event property load_time. Results where it is missing, empty, or not a number are grouped here.',
+        ],
+        [
+            'reads the bin count of the breakdown that has no value',
+            ['Chrome', NULL],
+            {
+                breakdowns: [
+                    { property: '$browser', type: 'event' },
+                    { property: 'load_time', type: 'event', histogram_bin_count: 10 },
+                ],
+            } as BreakdownFilter,
+            1,
+            'No value for the event property load_time. Results where it is missing, empty, or not a number are grouped here.',
         ],
         ['says nothing for a value', '/pricing', { breakdown: '$pathname', breakdown_type: 'event' }, undefined, null],
         ['says nothing for a cohort breakdown', NULL, { breakdown: 2, breakdown_type: 'cohort' }, undefined, null],

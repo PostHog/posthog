@@ -349,8 +349,14 @@ export function getNullBreakdownNotes(
               )?.label
             : null) || property
 
+    // A histogram bins numbers, so a value it cannot read as one lands in this bucket too.
+    const histogramBinCount = nestedBreakdown
+        ? nestedBreakdown.histogram_bin_count
+        : breakdownFilter?.breakdown_histogram_bin_count
+    const groupedValues = histogramBinCount ? 'missing, empty, or not a number' : 'missing or empty'
+
     return {
-        explanation: `No value for the ${noun} ${name}. Results without that property set are grouped here.`,
+        explanation: `No value for the ${noun} ${name}. Results where it is ${groupedValues} are grouped here.`,
         personPropertyHint:
             type === 'person' || type === 'data_warehouse_person_property'
                 ? null
