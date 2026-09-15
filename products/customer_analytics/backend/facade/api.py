@@ -52,7 +52,6 @@ from django.db.models import (
     TextField,
     Value,
 )
-from django.db.models.deletion import RestrictedError
 from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone
@@ -4678,8 +4677,7 @@ def update_account_relationship_definition(
 
 def delete_account_relationship_definition(*, team_id: int, definition_id: str | UUID) -> bool:
     """Hard-deletes the definition and (by cascade) its assignment history. Returns False when
-    no definition matches the id for this team (→ 404). A controlled definition raises instead,
-    as does the claim target, which the team config's foreign key restricts."""
+    no definition matches the id for this team (→ 404). A controlled definition raises instead."""
     with transaction.atomic():
         # Locked, so control cannot start between the check and the delete.
         definition = _ownership.lock_definition(team_id, definition_id)
@@ -4687,10 +4685,7 @@ def delete_account_relationship_definition(*, team_id: int, definition_id: str |
             return False
         if definition.is_controlled:
             raise AccountRelationshipDefinitionControlledError(str(definition_id))
-        try:
-            definition.delete()
-        except RestrictedError:
-            raise AccountRelationshipDefinitionControlledError(str(definition_id))
+        definition.delete()
     return True
 
 

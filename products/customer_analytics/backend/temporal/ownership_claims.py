@@ -36,7 +36,6 @@ with workflow.unsafe.imports_passed_through():
 
     from products.customer_analytics.backend.logic.ownership_claims import (
         ClaimReconciliation,
-        ClaimSourceMisconfigured,
         list_ownership_claim_team_ids,
         reconcile_ownership_claims,
     )
@@ -97,9 +96,8 @@ def _sweep(input: OwnershipClaimsSweepInput, should_stop: Callable[[], bool]) ->
         team = Team.objects.get(id=input.team_id)
         with team_scope(team.id):
             return reconcile_ownership_claims(team, should_stop=should_stop)
-    except (Team.DoesNotExist, ClaimSourceMisconfigured) as error:
-        # Neither heals by retrying: a deleted project stays deleted, and a retry cannot add a column
-        # to the view. The next tick lists the projects and reads the view again.
+    except Team.DoesNotExist as error:
+        # A deleted project does not heal by retrying; the next tick lists the projects again.
         raise ApplicationError(str(error), non_retryable=True) from error
 
 

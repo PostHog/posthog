@@ -1,9 +1,10 @@
 """
-Pull-based delivery of Salesforce Task decisions into a controlled relationship.
+Pull-based delivery of Salesforce Task decisions into controlled relationships.
 
-A project names the controlled relationship definition a Task allocation fills
-(``TeamCustomerAnalyticsConfig.ownership_claim_relationship_definition``) and binds a warehouse view
-that maps the frozen decision fields on Salesforce Tasks onto one row per Task with these columns:
+A controlled relationship definition binds the warehouse view whose rows fill it
+(``AccountRelationshipDefinition.claim_saved_query``, read while ``claims_enabled``), so a project can
+feed as many relationships as it has views. Each view maps the frozen decision fields on Salesforce
+Tasks onto one row per Task with these columns:
 
 - ``task_id``: the Task id; the idempotency key of the decision.
 - ``organization_id``: the PostHog organization the Task's account is linked to.
@@ -31,33 +32,31 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
+from uuid import UUID
 
+from django.apps import apps
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 
 import structlog
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
+from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
-from posthog.models.team.extensions import get_or_create_team_extension
 
-from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.facade.enums import AccountRelationshipSource
 from products.customer_analytics.backend.logic import ownership, relationships
-from products.customer_analytics.backend.models import (
-    Account,
-    AccountRelationship,
-    AccountRelationshipDefinition,
-    TeamCustomerAnalyticsConfig,
-)
+from products.customer_analytics.backend.models import Account, AccountRelationship, AccountRelationshipDefinition
 
 logger = structlog.get_logger(__name__)
 
@@ -74,7 +73,8 @@ DECISION_COLUMNS = (
 
 
 class ClaimSourceMisconfigured(Exception):
-    """The bound view does not answer one of the documented decision columns."""
+    """The claim binding cannot be made or used: no such definition or view, a definition that is not
+    controlled, or a view that does not answer one of the documented decision columns."""
 
 
 class SweepStopped(Exception):
@@ -107,39 +107,139 @@ DECISION_PAGE_SIZE = 1000
 MAX_DECISION_ROWS = MAX_SELECT_RETURNED_ROWS
 
 
+# The definitions a sweep fills. The coordinator wakes the teams that have one and the sweep reads
+# them, so both ask the same question here.
+CLAIM_BOUND = Q(is_controlled=True, claims_enabled=True, claim_saved_query__isnull=False)
+
+
 def list_ownership_claim_team_ids() -> list[int]:
+    """Every team with at least one definition the sweep fills; the coordinator reads this across
+    teams, which is why the query is unscoped."""
     return list(
-        TeamCustomerAnalyticsConfig.objects.filter(
-            ownership_claims_enabled=True, ownership_claim_saved_query__isnull=False
-        )
+        AccountRelationshipDefinition.objects.unscoped()
+        .filter(CLAIM_BOUND)
         .order_by("team_id")
         .values_list("team_id", flat=True)
+        .distinct()
     )
+
+
+def claim_bound_definitions(team_id: int) -> list[AccountRelationshipDefinition]:
+    return list(
+        AccountRelationshipDefinition.objects.for_team(team_id)
+        .filter(CLAIM_BOUND)
+        .select_related("claim_saved_query")
+        .order_by("name")
+    )
+
+
+def _locked_definition(team_id: int, definition_id: UUID) -> AccountRelationshipDefinition:
+    """The definition under its row lock; call inside ``transaction.atomic()``."""
+    definition = ownership.lock_definition(team_id, definition_id)
+    if definition is None:
+        raise ClaimSourceMisconfigured(f"No relationship definition {definition_id} in this project")
+    return definition
+
+
+def bind_claim_view(team_id: int, definition_id: UUID, saved_query_id: UUID | None) -> AccountRelationshipDefinition:
+    """Bind the warehouse view whose rows fill the definition, or unbind it with None, which also
+    switches its sweep off. Only a controlled definition can take a view, because a claim fills only
+    a managed relationship; the view must answer every decision column; and a view feeds one
+    definition, because a Task id is unique per team and a second definition would only ever see
+    ``already_applied``."""
+    with transaction.atomic():
+        definition = _locked_definition(team_id, definition_id)
+        view = None
+        if saved_query_id is not None:
+            if not definition.is_controlled:
+                raise ClaimSourceMisconfigured(
+                    f"{definition.name} is not controlled; a claim can only fill a controlled relationship"
+                )
+            saved_query_model = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
+            view = saved_query_model.objects.filter(team_id=team_id, id=saved_query_id).exclude(deleted=True).first()
+            if view is None:
+                raise ClaimSourceMisconfigured(f"No warehouse view {saved_query_id} in this project")
+            check_decision_columns(view.name, view.columns)
+            elsewhere = (
+                AccountRelationshipDefinition.objects.for_team(team_id)
+                .filter(claim_saved_query=view)
+                .exclude(id=definition.id)
+                .first()
+            )
+            if elsewhere is not None:
+                raise ClaimSourceMisconfigured(
+                    f"View {view.name} already fills {elsewhere.name}; a view feeds one definition"
+                )
+        definition.claim_saved_query = view
+        if view is None:
+            definition.claims_enabled = False
+        definition.save(update_fields=["claim_saved_query", "claims_enabled", "updated_at"])
+        return definition
+
+
+def set_claims_enabled(team_id: int, definition_id: UUID, enabled: bool) -> AccountRelationshipDefinition:
+    """Switch the sweep for the definition's view. Enabling needs a bound view, so an enabled
+    definition always names what the sweep reads."""
+    with transaction.atomic():
+        definition = _locked_definition(team_id, definition_id)
+        if enabled and definition.claim_saved_query_id is None:
+            raise ClaimSourceMisconfigured(
+                f"{definition.name} has no claim view bound; bind one before enabling claims"
+            )
+        definition.claims_enabled = enabled
+        definition.save(update_fields=["claims_enabled", "updated_at"])
+        return definition
 
 
 def reconcile_ownership_claims(team: Team, *, should_stop: Callable[[], bool] = _never) -> ClaimReconciliation:
-    """Read the project's bound view and apply every decision in it. A project with claims off or no
-    usable view bound is skipped, so the scheduled sweep can run for every team. Callers must not run
-    two sweeps for one team at once: an older read could apply a claim that a newer read has already
-    seen released. The schedule guarantees this through a fixed workflow id per team, a single
-    attempt per sweep, and ``should_stop``, which a timed-out activity sets so its thread stops
-    between two pages or two decisions; at most the one decision already in flight can still commit
-    beside the next sweep, and the tick after that repairs it."""
-    config = get_or_create_team_extension(
-        team, TeamCustomerAnalyticsConfig, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT}
-    )
-    view = config.ownership_claim_saved_query
-    if not config.ownership_claims_enabled or view is None or view.deleted:
-        if view is not None and view.deleted:
-            logger.warning("ownership_claims.view_deleted", team_id=team.id, view_id=str(view.id))
+    """Read every view bound to one of the project's definitions and apply the decisions in it to
+    that definition. A project with nothing bound is skipped, so the scheduled sweep can run for every
+    team, and a view that cannot be read is counted as ``misconfigured`` while the others still run.
+    Callers must not run two sweeps for one team at once: an older read could apply a claim that
+    a newer read has already seen released. The schedule guarantees this through a fixed workflow id
+    per team, a single attempt per sweep, and ``should_stop``, which a timed-out activity sets so its
+    thread stops between two pages or two decisions; at most the one decision already in flight can
+    still commit beside the next sweep, and the tick after that repairs it."""
+    bound: list[tuple[AccountRelationshipDefinition, Any]] = []
+    for definition in claim_bound_definitions(team.id):
+        view = definition.claim_saved_query
+        if view is None:
+            continue
+        if view.deleted:
+            logger.warning(
+                "ownership_claims.view_deleted", team_id=team.id, definition_id=str(definition.id), view_id=str(view.id)
+            )
+            continue
+        bound.append((definition, view))
+    if not bound:
         return ClaimReconciliation(team_id=team.id, decisions=0, outcomes={}, skipped=True)
-    check_decision_columns(view.name, view.columns)
-    rows = _read_decision_rows(team, view.name, should_stop)
-    outcomes = _apply_rows(team, rows, should_stop)
-    return ClaimReconciliation(team_id=team.id, decisions=len(rows), outcomes=outcomes)
+    decisions = 0
+    outcomes: Counter[str] = Counter()
+    for definition, view in bound:
+        # One unusable view must not stop the project's other definitions: it is counted, reported,
+        # and read again next tick. A stop request is a different exception and still ends the sweep.
+        try:
+            check_decision_columns(view.name, view.columns)
+            rows = _read_decision_rows(team, view.name, should_stop)
+        except ClaimSourceMisconfigured as error:
+            capture_exception(error, {"team_id": team.id, "definition_id": str(definition.id)})
+            logger.warning(
+                "ownership_claims.view_misconfigured",
+                team_id=team.id,
+                definition_id=str(definition.id),
+                view_id=str(view.id),
+                error=str(error),
+            )
+            outcomes["misconfigured"] += 1
+            continue
+        decisions += len(rows)
+        outcomes.update(_apply_rows(team, definition, rows, should_stop))
+    return ClaimReconciliation(team_id=team.id, decisions=decisions, outcomes=dict(outcomes))
 
 
-def _apply_rows(team: Team, rows: list[dict[str, Any]], should_stop: Callable[[], bool]) -> dict[str, int]:
+def _apply_rows(
+    team: Team, definition: AccountRelationshipDefinition, rows: list[dict[str, Any]], should_stop: Callable[[], bool]
+) -> dict[str, int]:
     outcomes: Counter[str] = Counter()
     for decision in _decisions_by_task(rows, outcomes):
         if should_stop():
@@ -149,13 +249,19 @@ def _apply_rows(team: Team, rows: list[dict[str, Any]], should_stop: Callable[[]
         # the infrastructure or a bug, never one bad decision: it ends the sweep, and the next tick
         # reads the view again.
         try:
-            result = (
-                release(team=team, decision=decision) if decision.is_release else claim(team=team, decision=decision)
-            )
+            if decision.is_release:
+                result = release(team=team, decision=decision)
+            else:
+                result = claim(team=team, definition=definition, decision=decision)
         except IntegrityError as error:
             capture_exception(error, {"team_id": team.id, "source_ref": decision.source_ref})
             outcomes["error"] += 1
             continue
+        if result.reason == "binding_changed":
+            # The view's rows now belong to another definition, or to none; the next tick reads them
+            # under the binding of that moment.
+            outcomes["binding_changed"] += 1
+            break
         outcome = result.outcome if result.reason is None else f"{result.outcome}:{result.reason}"
         outcomes[outcome] += 1
         logger.info(
@@ -220,9 +326,14 @@ def _read_decision_rows(team: Team, view_name: str, should_stop: Callable[[], bo
                 ],
                 limit=ast.Constant(value=DECISION_PAGE_SIZE),
             )
-            response = execute_hogql_query(
-                query, team=team, workload=Workload.OFFLINE, bypass_warehouse_access_control=True
-            )
+            try:
+                response = execute_hogql_query(
+                    query, team=team, workload=Workload.OFFLINE, bypass_warehouse_access_control=True
+                )
+            except (ExposedHogQLError, ExposedCHQueryError) as error:
+                # A view whose SQL no longer resolves (a dropped source table, a renamed column) is
+                # the view's fault and is reported as such; infrastructure failures still propagate.
+                raise ClaimSourceMisconfigured(f"View {view_name} cannot be read: {error}") from error
             page = response.results or []
             if len(page) < DECISION_PAGE_SIZE:
                 rows.extend(dict(zip(DECISION_COLUMNS, row)) for row in page)
@@ -290,9 +401,10 @@ def _as_datetime(value: object) -> datetime:
     return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
 
 
-def claim(*, team: Team, decision: contracts.OwnershipClaimDecision) -> contracts.OwnershipClaimResult:
-    """Apply an initial allocation frozen on a Salesforce Task to the team's claim target
-    relationship.
+def claim(
+    *, team: Team, definition: AccountRelationshipDefinition, decision: contracts.OwnershipClaimDecision
+) -> contracts.OwnershipClaimResult:
+    """Apply an initial allocation frozen on a Salesforce Task to the definition whose view listed it.
 
     Under the Account lock, an accepted claim for the same Task is recognized first, so a Task read
     again on a later run is answered with the original decision even after the relationship has
@@ -307,6 +419,17 @@ def claim(*, team: Team, decision: contracts.OwnershipClaimDecision) -> contract
     """
     actor = relationships.Actor(source=AccountRelationshipSource.SALESFORCE_CLAIM)
     with transaction.atomic():
+        # Definition before account, the order every writer takes. The view was read before this
+        # transaction, so the binding is checked again here: an operator may have moved the view
+        # to another definition or switched its sweep off in between, and a claim under the old
+        # definition would leave the Task unable to fill the new one.
+        current = ownership.lock_definition(team.id, definition.id)
+        if (
+            current is None
+            or not current.claims_enabled
+            or current.claim_saved_query_id != definition.claim_saved_query_id
+        ):
+            return _claim_result("blocked", "binding_changed")
         try:
             locked_account = _lock_account_by_external_id(team.id, decision.organization_id)
         except AmbiguousAccountIdentity:
@@ -319,9 +442,6 @@ def claim(*, team: Team, decision: contracts.OwnershipClaimDecision) -> contract
                 return _claim_result("blocked", "identity_mismatch", accepted)
             return _claim_result("already_applied", None, accepted)
 
-        definition = claim_target(team.id)
-        if definition is None:
-            return _claim_result("blocked", "claim_target_unset")
         control = ownership.control_for(locked_account, definition)
         if control is None:
             return _claim_result("blocked", "role_not_managed")
@@ -435,17 +555,6 @@ def _lock_account_by_external_id(team_id: int, external_id: str) -> Account | No
     if locked is None or (locked.external_id or "").lower() != external_id.lower():
         return None
     return locked
-
-
-def claim_target(team_id: int) -> AccountRelationshipDefinition | None:
-    """The controlled definition a Salesforce Task allocation fills for this team, or None while
-    none is bound."""
-    config = (
-        TeamCustomerAnalyticsConfig.objects.filter(team_id=team_id)
-        .select_related("ownership_claim_relationship_definition")
-        .first()
-    )
-    return config.ownership_claim_relationship_definition if config is not None else None
 
 
 def _claim_result(

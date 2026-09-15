@@ -33,12 +33,28 @@ class AccountRelationshipDefinition(TeamScopedRootMixin, UUIDModel, CreatedMetaF
             "relationship and an empty relationship is a deliberate decision."
         ),
     )
+    # The warehouse view of external decisions that fill this relationship, and whether the sweep reads
+    # it. The view maps the source's frozen fields onto the columns `logic/ownership_claims.py`
+    # documents, so source field names stay out of this codebase. Only a controlled definition can
+    # bind one, because a claim fills only a managed relationship. RESTRICT keeps a bound view from
+    # being hard-deleted underneath the sweep, which would leave claims enabled with nothing to read.
+    claim_saved_query = models.ForeignKey(
+        "data_modeling.DataWarehouseSavedQuery", on_delete=models.RESTRICT, null=True, blank=True, related_name="+"
+    )
+    claims_enabled = models.BooleanField(default=False, db_default=False)
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "name"],
                 name="unique_relationship_definition_name",
+            ),
+            # A Task id is unique per team, so a view read into two definitions would fill only the
+            # first and answer `already_applied` for the second without a trace.
+            models.UniqueConstraint(
+                fields=["team", "claim_saved_query"],
+                condition=Q(claim_saved_query__isnull=False),
+                name="unique_claim_view_per_definition",
             ),
         ]
 

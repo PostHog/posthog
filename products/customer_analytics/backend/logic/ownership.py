@@ -31,7 +31,6 @@ from products.customer_analytics.backend.models import (
     AccountRelationship,
     AccountRelationshipControl,
     AccountRelationshipDefinition,
-    TeamCustomerAnalyticsConfig,
 )
 
 # An automated claim must be later than the fence by more than this, so a clock difference between
@@ -41,7 +40,7 @@ CLAIM_CLOCK_SKEW_TOLERANCE = timedelta(minutes=5)
 
 class InvalidControlChangeError(Exception):
     """The definition cannot take or give up control: wrong team, multi-holder, accounts still
-    enrolled under it, or it is the claim target."""
+    enrolled under it, or a claim view bound to it."""
 
 
 def controlled_definitions(team_id: int) -> QuerySet[AccountRelationshipDefinition]:
@@ -74,8 +73,8 @@ def set_controlled(team_id: int, definition_id: UUID, controlled: bool) -> Accou
     """Let customer analytics take control of the definition per account, or stop it.
 
     Taking control enrolls no account. Giving it up is refused while any account is enrolled, because
-    those accounts would fall back to legacy authority at once, and while the definition is the
-    Salesforce claim target, because a claim can only fill a controlled relationship.
+    those accounts would fall back to legacy authority at once, and while a claim view is bound to the
+    definition, because a claim can only fill a controlled relationship.
     """
     with transaction.atomic():
         definition = lock_definition(team_id, definition_id)
@@ -93,10 +92,8 @@ def set_controlled(team_id: int, definition_id: UUID, controlled: bool) -> Accou
                 raise InvalidControlChangeError(
                     f"{enrolled} account(s) are enrolled under {definition.name}; control cannot end while they are"
                 )
-            if TeamCustomerAnalyticsConfig.objects.filter(
-                team_id=team_id, ownership_claim_relationship_definition=definition
-            ).exists():
-                raise InvalidControlChangeError(f"{definition.name} is the claim target; clear the claim target first")
+            if definition.claim_saved_query_id is not None:
+                raise InvalidControlChangeError(f"{definition.name} has a claim view bound; clear that binding first")
         definition.is_controlled = controlled
         definition.save(update_fields=["is_controlled", "updated_at"])
         return definition

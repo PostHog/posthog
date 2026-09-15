@@ -11,7 +11,6 @@ from parameterized import parameterized
 
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.customer_analytics.backend.facade import api as facade
@@ -22,7 +21,6 @@ from products.customer_analytics.backend.models import (
     AccountRelationship,
     AccountRelationshipControl,
     AccountRelationshipDefinition,
-    TeamCustomerAnalyticsConfig,
 )
 from products.customer_analytics.backend.test.factories import create_account, enroll_account
 
@@ -584,11 +582,8 @@ class TestControlledRelationshipPolicy(BaseTest):
         holders = AccountRelationship.objects.for_team(self.team.id).filter(account=self.account, ended_at__isnull=True)
         assert [holder.user_id for holder in holders] == [self.user.id]
 
-    def test_team_deletion_cascades_through_controls_and_the_claim_target(self):
+    def test_team_deletion_cascades_through_controls(self):
         self._manage_ae()
-        config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
-        config.ownership_claim_relationship_definition = self.ae_definition
-        config.save(update_fields=["ownership_claim_relationship_definition"])
 
         self.team.delete()
 

@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -882,17 +883,21 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.team.refresh_from_db()
         self.assertEqual(self.team.customer_analytics_config.activity_event, "$pageview")
 
-    def test_customer_analytics_config_save_keeps_ownership_fields_written_meanwhile(self):
+    def test_customer_analytics_config_save_keeps_track_rules_written_meanwhile(self):
         config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
         serializer = TeamCustomerAnalyticsConfigSerializer(config, data={"activity_event": "$pageview"}, partial=True)
         self.assertTrue(serializer.is_valid(), serializer.errors)
-        TeamCustomerAnalyticsConfig.objects.filter(pk=config.pk).update(ownership_claims_enabled=True)
+        enabled_at = timezone.now()
+        rules = {**config.account_track_rules, "written": "meanwhile"}
+        TeamCustomerAnalyticsConfig.objects.filter(pk=config.pk).update(
+            account_track_rules=rules, account_track_rules_enabled_at=enabled_at
+        )
 
         serializer.save()
 
         config.refresh_from_db()
         self.assertEqual(config.activity_event, "$pageview")
-        self.assertTrue(config.ownership_claims_enabled)
+        self.assertEqual((config.account_track_rules, config.account_track_rules_enabled_at), (rules, enabled_at))
 
     def test_settings_as_of_action_available_on_projects(self):
         # This action previously existed only on /api/environments/ — it must now work on /api/projects/ too.

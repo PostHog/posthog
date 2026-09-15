@@ -922,8 +922,8 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcc
     ) -> TeamCustomerAnalyticsConfig:
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
-        # The ownership claim controls on this row are written by their own command, so a settings
-        # save must not carry a stale copy of them back to the database.
+        # The account track rules on this row are written by their own path, so a settings save must
+        # not carry a stale copy of them back to the database.
         instance.save(update_fields=list(validated_data))
         return instance
 

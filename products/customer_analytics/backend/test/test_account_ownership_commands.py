@@ -3,6 +3,8 @@ import shutil
 import tempfile
 from io import StringIO
 from pathlib import Path
+from typing import Any
+from uuid import UUID
 
 from posthog.test.base import BaseTest
 
@@ -12,9 +14,7 @@ from parameterized import parameterized
 
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.team.extensions import get_or_create_team_extension
 
-from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 from products.customer_analytics.backend.facade.enums import AccountRelationshipSource
 from products.customer_analytics.backend.logic import ownership, relationships
 from products.customer_analytics.backend.logic.ownership_claims import DECISION_COLUMNS
@@ -23,7 +23,6 @@ from products.customer_analytics.backend.models import (
     AccountRelationship,
     AccountRelationshipControl,
     AccountRelationshipDefinition,
-    TeamCustomerAnalyticsConfig,
 )
 from products.customer_analytics.backend.test.factories import create_account, create_saved_query, enroll_account
 
@@ -40,55 +39,45 @@ class TestConfigureAccountOwnershipCommand(BaseTest):
         call_command("configure_account_ownership", "--team-id", str(self.team.id), *args, stdout=out)
         return out.getvalue()
 
-    def _is_controlled(self, definition: AccountRelationshipDefinition) -> bool:
+    def _state(self, definition: AccountRelationshipDefinition) -> tuple[bool, bool, UUID | None]:
         definition.refresh_from_db()
-        return definition.is_controlled
+        return (definition.is_controlled, definition.claims_enabled, definition.claim_saved_query_id)
 
-    def test_controls_definitions_and_claim_controls(self):
-        view = create_saved_query(
-            team_id=self.team.id, name="ownership_decisions", columns=dict.fromkeys(DECISION_COLUMNS, {})
+    def _decision_view(self, team_id: int) -> Any:
+        return create_saved_query(
+            team_id=team_id, name="ownership_decisions", columns=dict.fromkeys(DECISION_COLUMNS, {})
         )
+
+    def test_controls_definitions_and_binds_claim_views(self):
+        view = self._decision_view(self.team.id)
+        definition_id = str(self.ae_definition.id)
 
         self._configure(
             "--control",
-            str(self.ae_definition.id),
-            "--claim-definition",
-            str(self.ae_definition.id),
-            "--claims",
-            "enabled",
-            "--claim-saved-query",
+            definition_id,
+            "--claim-view",
+            definition_id,
             str(view.id),
+            "--claims",
+            definition_id,
+            "enabled",
         )
 
-        config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
-        assert self._is_controlled(self.ae_definition) is True
-        assert config.ownership_claim_relationship_definition_id == self.ae_definition.id
-        assert config.ownership_claims_enabled is True
-        assert config.ownership_claim_saved_query_id == view.id
+        assert self._state(self.ae_definition) == (True, True, view.id)
 
-        self._configure("--clear-claim-definition", "--uncontrol", str(self.ae_definition.id))
+        self._configure("--clear-claim-view", definition_id, "--uncontrol", definition_id)
 
-        config.refresh_from_db()
-        assert self._is_controlled(self.ae_definition) is False
-        assert config.ownership_claim_relationship_definition_id is None
-
-    def test_a_config_row_this_command_creates_carries_the_product_default(self):
-        TeamCustomerAnalyticsConfig.objects.filter(team=self.team).delete()
-
-        self._configure("--control", str(self.ae_definition.id))
-
-        config = TeamCustomerAnalyticsConfig.objects.get(team=self.team)
-        assert config.activity_event == DEFAULT_ACTIVITY_EVENT
+        assert self._state(self.ae_definition) == (False, False, None)
 
     def test_rejects_a_view_without_the_decision_columns(self):
         view = create_saved_query(team_id=self.team.id, name="partial", columns={"task_id": {}})
 
         with self.assertRaises(CommandError):
-            self._configure("--control", str(self.ae_definition.id), "--claim-saved-query", str(view.id))
+            self._configure(
+                "--control", str(self.ae_definition.id), "--claim-view", str(self.ae_definition.id), str(view.id)
+            )
 
-        config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
-        assert config.ownership_claim_saved_query_id is None
-        assert self._is_controlled(self.ae_definition) is False
+        assert self._state(self.ae_definition) == (False, False, None)
 
     def test_control_cannot_end_while_accounts_are_enrolled(self):
         self._configure("--control", str(self.ae_definition.id))
@@ -97,23 +86,64 @@ class TestConfigureAccountOwnershipCommand(BaseTest):
         with self.assertRaises(CommandError):
             self._configure("--uncontrol", str(self.ae_definition.id))
 
-        assert self._is_controlled(self.ae_definition) is True
+        assert self._state(self.ae_definition)[0] is True
 
-    @parameterized.expand(["targeting_an_uncontrolled_definition", "uncontrolling_the_target"])
-    def test_the_claim_target_must_stay_controlled(self, case):
-        if case == "uncontrolling_the_target":
-            self._configure("--control", str(self.ae_definition.id), "--claim-definition", str(self.ae_definition.id))
-            args = ["--uncontrol", str(self.ae_definition.id)]
+    @parameterized.expand(
+        [
+            ("binding_a_view_to_an_uncontrolled_definition", False, False),
+            ("uncontrolling_a_definition_with_a_view", True, True),
+            ("enabling_claims_without_a_view", True, False),
+            ("binding_a_view_of_another_team", True, False),
+            ("binding_a_view_that_fills_another_definition", True, False),
+            ("binding_and_clearing_in_one_call", True, False),
+            ("naming_a_definition_twice_with_different_views", True, False),
+        ]
+    )
+    def test_a_claim_view_binding_is_refused(self, case, controlled, bound):
+        view = self._decision_view(self.team.id)
+        definition_id = str(self.ae_definition.id)
+        if controlled:
+            self._configure("--control", definition_id)
+        if case == "binding_a_view_to_an_uncontrolled_definition":
+            args = ["--claim-view", definition_id, str(view.id)]
+        elif case == "uncontrolling_a_definition_with_a_view":
+            self._configure("--claim-view", definition_id, str(view.id))
+            args = ["--uncontrol", definition_id]
+        elif case == "enabling_claims_without_a_view":
+            args = ["--claims", definition_id, "enabled"]
+        elif case == "binding_a_view_of_another_team":
+            other_team = Team.objects.create(organization=self.organization, name="other")
+            args = ["--claim-view", definition_id, str(self._decision_view(other_team.id).id)]
+        elif case == "binding_a_view_that_fills_another_definition":
+            AccountRelationshipDefinition.objects.for_team(self.team.id).create(
+                team_id=self.team.id, name="CSM", is_controlled=True, claim_saved_query=view
+            )
+            args = ["--claim-view", definition_id, str(view.id)]
+        elif case == "naming_a_definition_twice_with_different_views":
+            other = create_saved_query(
+                team_id=self.team.id, name="other_decisions", columns=dict.fromkeys(DECISION_COLUMNS, {})
+            )
+            args = ["--claim-view", definition_id, str(view.id), "--claim-view", definition_id, str(other.id)]
         else:
-            args = ["--claim-definition", str(self.ae_definition.id)]
+            args = ["--claim-view", definition_id, str(view.id), "--clear-claim-view", definition_id]
 
         with self.assertRaises(CommandError):
             self._configure(*args)
 
-        config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
-        expected_target = self.ae_definition.id if case == "uncontrolling_the_target" else None
-        assert config.ownership_claim_relationship_definition_id == expected_target
-        assert self._is_controlled(self.ae_definition) is (case == "uncontrolling_the_target")
+        assert self._state(self.ae_definition) == (controlled, False, view.id if bound else None)
+
+    def test_a_view_moves_between_definitions_in_one_call(self):
+        view = self._decision_view(self.team.id)
+        csm_definition = AccountRelationshipDefinition.objects.for_team(self.team.id).create(
+            team_id=self.team.id, name="CSM"
+        )
+        ae_id, csm_id = str(self.ae_definition.id), str(csm_definition.id)
+        self._configure("--control", ae_id, "--control", csm_id, "--claim-view", ae_id, str(view.id))
+
+        self._configure("--clear-claim-view", ae_id, "--claim-view", csm_id, str(view.id))
+
+        assert self._state(self.ae_definition) == (True, False, None)
+        assert self._state(csm_definition) == (True, False, view.id)
 
     @parameterized.expand(["other_team", "multi_holder"])
     def test_rejects_an_unusable_definition(self, case):
@@ -130,7 +160,7 @@ class TestConfigureAccountOwnershipCommand(BaseTest):
         with self.assertRaises(CommandError):
             self._configure("--control", str(definition.id))
 
-        assert self._is_controlled(definition) is False
+        assert self._state(definition)[0] is False
 
 
 class TestAdoptAccountOwnershipCommand(BaseTest):

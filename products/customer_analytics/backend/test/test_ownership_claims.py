@@ -9,6 +9,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.db import IntegrityError, OperationalError, transaction
+from django.db.models.deletion import RestrictedError
 from django.test import override_settings
 from django.utils import timezone
 
@@ -18,10 +19,11 @@ from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.workflow import ParentClosePolicy
 
+from posthog.hogql.errors import QueryError
+
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team import Team
-from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.logic import ownership_claims, relationships
@@ -30,7 +32,6 @@ from products.customer_analytics.backend.models import (
     AccountRelationship,
     AccountRelationshipControl,
     AccountRelationshipDefinition,
-    TeamCustomerAnalyticsConfig,
 )
 from products.customer_analytics.backend.temporal.ownership_claims import (
     OWNERSHIP_CLAIMS_COORDINATOR_EXECUTION_TIMEOUT,
@@ -53,26 +54,17 @@ TASK = "example-salesforce-task-17"
 class TestOwnershipClaims(BaseTest):
     def setUp(self):
         super().setUp()
-        self.ae_definition = AccountRelationshipDefinition.objects.for_team(self.team.id).create(
-            team_id=self.team.id, name="Account executive", is_controlled=True
-        )
-        self.view = create_saved_query(
-            team_id=self.team.id, name="ownership_decisions", columns=dict.fromkeys(DECISION_COLUMNS, {})
-        )
-        self.config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
-        self.config.ownership_claim_relationship_definition = self.ae_definition
-        self.config.ownership_claims_enabled = True
-        self.config.ownership_claim_saved_query = self.view
-        self.config.save(
-            update_fields=[
-                "ownership_claim_relationship_definition",
-                "ownership_claims_enabled",
-                "ownership_claim_saved_query",
-            ]
-        )
+        self.ae_definition, self.view = self._claim_bound_definition("Account executive", "ownership_decisions")
         self.account = create_account(team_id=self.team.id, name="Acme Corp", external_id="org-1")
         self.control = enroll_account(self.account, self.ae_definition, controlled_at=FENCE)
         self.human = relationships.Actor.human(self.user)
+
+    def _claim_bound_definition(self, name: str, view_name: str) -> tuple[AccountRelationshipDefinition, Any]:
+        view = create_saved_query(team_id=self.team.id, name=view_name, columns=dict.fromkeys(DECISION_COLUMNS, {}))
+        definition = AccountRelationshipDefinition.objects.for_team(self.team.id).create(
+            team_id=self.team.id, name=name, is_controlled=True, claims_enabled=True, claim_saved_query=view
+        )
+        return definition, view
 
     def _decision(self, **overrides) -> contracts.OwnershipClaimDecision:
         base = contracts.OwnershipClaimDecision(
@@ -91,7 +83,9 @@ class TestOwnershipClaims(BaseTest):
         )
 
     def _claim(self, **overrides) -> contracts.OwnershipClaimResult:
-        return ownership_claims.claim(team=self.team, decision=self._decision(**overrides))
+        return ownership_claims.claim(
+            team=self.team, definition=self.ae_definition, decision=self._decision(**overrides)
+        )
 
     def _release_claim(self, **overrides) -> contracts.OwnershipClaimResult:
         return ownership_claims.release(team=self.team, decision=self._release(**overrides))
@@ -155,7 +149,6 @@ class TestOwnershipClaims(BaseTest):
             ("allocated_before_a_human_clear", "rejected", "stale_allocation"),
             ("allocated_in_the_future", "rejected", "future_allocation"),
             ("role_not_managed", "blocked", "role_not_managed"),
-            ("claim_target_unset", "blocked", "claim_target_unset"),
             ("unknown_organization", "blocked", "account_not_found"),
             ("region_mismatch", "blocked", "identity_mismatch"),
             ("two_accounts_differ_only_by_case", "blocked", "identity_mismatch"),
@@ -177,9 +170,6 @@ class TestOwnershipClaims(BaseTest):
             overrides["allocated_at"] = timezone.now() + timedelta(days=1)
         elif case == "role_not_managed":
             self.control.delete()
-        elif case == "claim_target_unset":
-            self.config.ownership_claim_relationship_definition = None
-            self.config.save(update_fields=["ownership_claim_relationship_definition"])
         elif case == "unknown_organization":
             overrides["organization_id"] = "org-2"
         elif case == "two_accounts_differ_only_by_case":
@@ -251,15 +241,13 @@ class TestOwnershipClaims(BaseTest):
         assert self._active_ae() == holder_before
         assert self._fence() == fence_before
 
-    def test_release_ends_its_own_row_after_the_claim_target_moved(self):
+    def test_release_ends_its_own_row_when_another_definition_takes_claims_too(self):
         first = self._claim()
-        csm_definition = AccountRelationshipDefinition.objects.for_team(self.team.id).create(
-            team_id=self.team.id, name="CSM", is_controlled=True
-        )
+        csm_definition, _ = self._claim_bound_definition("CSM", "csm_decisions")
         enroll_account(self.account, csm_definition, controlled_at=FENCE)
-        self.config.ownership_claim_relationship_definition = csm_definition
-        self.config.save(update_fields=["ownership_claim_relationship_definition"])
-        second = self._claim(source_ref="task-2")
+        second = ownership_claims.claim(
+            team=self.team, definition=csm_definition, decision=self._decision(source_ref="task-2")
+        )
 
         released = self._release_claim()
 
@@ -373,9 +361,10 @@ class TestOwnershipClaims(BaseTest):
         with (
             patch.object(ownership_claims, "DECISION_PAGE_SIZE", 2),
             patch.object(ownership_claims, "execute_hogql_query", return_value=SimpleNamespace(results=rows)),
-            self.assertRaises(ownership_claims.ClaimSourceMisconfigured),
         ):
-            ownership_claims.reconcile_ownership_claims(self.team)
+            result = ownership_claims.reconcile_ownership_claims(self.team)
+
+        assert result.outcomes == {"misconfigured": 1}
 
     def test_a_view_past_the_row_ceiling_is_refused_before_anything_is_applied(self):
         all_rows = self._view_rows(*(self._decision(source_ref=f"task-{index}") for index in range(4)))
@@ -388,10 +377,10 @@ class TestOwnershipClaims(BaseTest):
             patch.object(ownership_claims, "DECISION_PAGE_SIZE", 2),
             patch.object(ownership_claims, "MAX_DECISION_ROWS", 1),
             patch.object(ownership_claims, "execute_hogql_query", side_effect=read_after_cursor),
-            self.assertRaises(ownership_claims.ClaimSourceMisconfigured),
         ):
-            ownership_claims.reconcile_ownership_claims(self.team)
+            result = ownership_claims.reconcile_ownership_claims(self.team)
 
+        assert result.outcomes == {"misconfigured": 1}
         assert self._active_ae() is None
 
     def test_a_sweep_stops_between_decisions_when_asked(self):
@@ -410,10 +399,10 @@ class TestOwnershipClaims(BaseTest):
     def _claim_raising_on_first_task(self, error):
         real_claim = ownership_claims.claim
 
-        def claim(*, team, decision):
+        def claim(*, team, definition, decision):
             if decision.source_ref == "boom":
                 raise error
-            return real_claim(team=team, decision=decision)
+            return real_claim(team=team, definition=definition, decision=decision)
 
         return claim
 
@@ -459,11 +448,11 @@ class TestOwnershipClaims(BaseTest):
     @parameterized.expand(["claims_disabled", "no_view_bound", "view_deleted"])
     def test_reconciliation_skips_a_project_that_is_not_set_up(self, case):
         if case == "claims_disabled":
-            self.config.ownership_claims_enabled = False
-            self.config.save(update_fields=["ownership_claims_enabled"])
+            self.ae_definition.claims_enabled = False
+            self.ae_definition.save(update_fields=["claims_enabled"])
         elif case == "no_view_bound":
-            self.config.ownership_claim_saved_query = None
-            self.config.save(update_fields=["ownership_claim_saved_query"])
+            self.ae_definition.claim_saved_query = None
+            self.ae_definition.save(update_fields=["claim_saved_query"])
         else:
             self.view.soft_delete()
 
@@ -473,26 +462,97 @@ class TestOwnershipClaims(BaseTest):
         assert result.skipped is True
         read.assert_not_called()
 
-    def test_reconciliation_refuses_a_view_missing_decision_columns(self):
-        self.view.columns = {"task_id": {}}
-        self.view.save(update_fields=["columns"])
+    @parameterized.expand(["missing_columns", "query_error"])
+    def test_one_unusable_view_is_counted_and_the_others_still_run(self, fault):
+        if fault == "missing_columns":
+            self.view.columns = {"task_id": {}}
+            self.view.save(update_fields=["columns"])
+        csm_definition, _ = self._claim_bound_definition("CSM", "csm_decisions")
+        enroll_account(self.account, csm_definition, controlled_at=FENCE)
+        rows = self._view_rows(self._decision(source_ref="task-csm"))
 
-        with self.assertRaises(ownership_claims.ClaimSourceMisconfigured):
-            ownership_claims.reconcile_ownership_claims(self.team)
+        def read_view(query, **_kwargs):
+            if query.select_from.table.chain[0] == self.view.name:
+                raise QueryError("Unknown table 'salesforce_task'")
+            return SimpleNamespace(results=rows)
+
+        with (
+            patch.object(ownership_claims, "execute_hogql_query", side_effect=read_view) as read,
+            patch.object(ownership_claims, "capture_exception") as captured,
+        ):
+            result = ownership_claims.reconcile_ownership_claims(self.team)
+
+        assert (result.decisions, result.outcomes, result.skipped) == (1, {"misconfigured": 1, "accepted": 1}, False)
+        assert read.call_count == (1 if fault == "missing_columns" else 2)
+        captured.assert_called_once()
+        holder = AccountRelationship.objects.for_team(self.team.id).get(account=self.account, ended_at__isnull=True)
+        assert (holder.definition_id, holder.source_ref) == (csm_definition.id, "task-csm")
+
+    def test_a_view_moved_mid_sweep_is_applied_under_its_new_definition_next_tick(self):
+        csm_definition = AccountRelationshipDefinition.objects.for_team(self.team.id).create(
+            team_id=self.team.id, name="CSM", is_controlled=True
+        )
+        enroll_account(self.account, csm_definition, controlled_at=FENCE)
+        rows = self._view_rows(self._decision(source_ref="task-moved"))
+
+        def move_view_then_answer(query, **_kwargs):
+            ownership_claims.bind_claim_view(self.team.id, self.ae_definition.id, None)
+            ownership_claims.bind_claim_view(self.team.id, csm_definition.id, self.view.id)
+            ownership_claims.set_claims_enabled(self.team.id, csm_definition.id, True)
+            return SimpleNamespace(results=rows)
+
+        with patch.object(ownership_claims, "execute_hogql_query", side_effect=move_view_then_answer):
+            during_move = ownership_claims.reconcile_ownership_claims(self.team)
+        with patch.object(ownership_claims, "execute_hogql_query", return_value=SimpleNamespace(results=rows)):
+            next_tick = ownership_claims.reconcile_ownership_claims(self.team)
+
+        assert during_move.outcomes == {"binding_changed": 1}
+        assert next_tick.outcomes == {"accepted": 1}
+        holder = AccountRelationship.objects.for_team(self.team.id).get(account=self.account, ended_at__isnull=True)
+        assert (holder.definition_id, holder.source_ref) == (csm_definition.id, "task-moved")
+
+    def test_a_bound_view_cannot_be_hard_deleted(self):
+        with self.assertRaises(RestrictedError):
+            self.view.delete()
 
     def test_only_projects_with_claims_on_and_a_view_bound_are_swept(self):
         claims_off = Team.objects.create(organization=self.organization, name="claims off")
-        claims_off_config = get_or_create_team_extension(claims_off, TeamCustomerAnalyticsConfig)
-        claims_off_config.ownership_claim_saved_query = create_saved_query(
-            team_id=claims_off.id, name="decisions", columns=dict.fromkeys(DECISION_COLUMNS, {})
+        AccountRelationshipDefinition.objects.for_team(claims_off.id).create(
+            team_id=claims_off.id,
+            name="AE",
+            is_controlled=True,
+            claim_saved_query=create_saved_query(
+                team_id=claims_off.id, name="decisions", columns=dict.fromkeys(DECISION_COLUMNS, {})
+            ),
         )
-        claims_off_config.save(update_fields=["ownership_claim_saved_query"])
         no_view = Team.objects.create(organization=self.organization, name="no view")
-        no_view_config = get_or_create_team_extension(no_view, TeamCustomerAnalyticsConfig)
-        no_view_config.ownership_claims_enabled = True
-        no_view_config.save(update_fields=["ownership_claims_enabled"])
+        AccountRelationshipDefinition.objects.for_team(no_view.id).create(
+            team_id=no_view.id, name="AE", is_controlled=True, claims_enabled=True
+        )
+        self._claim_bound_definition("CSM", "csm_decisions")
 
         assert ownership_claims.list_ownership_claim_team_ids() == [self.team.id]
+
+    def test_each_claim_bound_definition_reads_its_own_view(self):
+        csm_definition, csm_view = self._claim_bound_definition("CSM", "csm_decisions")
+        enroll_account(self.account, csm_definition, controlled_at=FENCE)
+        rows_by_view = {
+            self.view.name: self._view_rows(self._decision(source_ref="task-ae")),
+            csm_view.name: self._view_rows(self._decision(source_ref="task-csm")),
+        }
+
+        def read_view(query, **_kwargs):
+            return SimpleNamespace(results=rows_by_view[query.select_from.table.chain[0]])
+
+        with patch.object(ownership_claims, "execute_hogql_query", side_effect=read_view):
+            result = ownership_claims.reconcile_ownership_claims(self.team)
+
+        assert (result.decisions, result.outcomes) == (2, {"accepted": 2})
+        holders = AccountRelationship.objects.for_team(self.team.id).filter(account=self.account, ended_at__isnull=True)
+        assert {holder.definition_id: holder.source_ref for holder in holders} == {
+            self.ae_definition.id: "task-ae",
+            csm_definition.id: "task-csm",
+        }
 
 
 @pytest.mark.asyncio

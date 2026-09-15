@@ -49,30 +49,19 @@ class Migration(migrations.Migration):
             field=models.CharField(blank=True, max_length=400, null=True),
         ),
         migrations.AddField(
-            model_name="teamcustomeranalyticsconfig",
-            name="ownership_claim_relationship_definition",
+            model_name="accountrelationshipdefinition",
+            name="claim_saved_query",
             field=models.ForeignKey(
                 blank=True,
                 null=True,
                 on_delete=django.db.models.deletion.RESTRICT,
                 related_name="+",
-                to="customer_analytics.accountrelationshipdefinition",
-            ),
-        ),
-        migrations.AddField(
-            model_name="teamcustomeranalyticsconfig",
-            name="ownership_claim_saved_query",
-            field=models.ForeignKey(
-                blank=True,
-                null=True,
-                on_delete=django.db.models.deletion.SET_NULL,
-                related_name="+",
                 to="data_modeling.datawarehousesavedquery",
             ),
         ),
         migrations.AddField(
-            model_name="teamcustomeranalyticsconfig",
-            name="ownership_claims_enabled",
+            model_name="accountrelationshipdefinition",
+            name="claims_enabled",
             field=models.BooleanField(db_default=False, default=False),
         ),
         migrations.CreateModel(

@@ -606,7 +606,7 @@ class ExternalAccountOwnership:
 OwnershipClaimOutcome = Literal["accepted", "already_applied", "cleared", "not_held", "rejected", "blocked"]
 OwnershipClaimReason = Literal[
     "account_not_found",
-    "claim_target_unset",
+    "binding_changed",
     "role_not_managed",
     "identity_mismatch",
     "assignee_not_member",
