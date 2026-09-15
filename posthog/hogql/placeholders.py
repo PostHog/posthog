@@ -1,12 +1,12 @@
 import time
-from copy import deepcopy
 from datetime import timedelta
 from typing import Optional
 
 from posthog.hogql import ast
+from posthog.hogql.base import AST
 from posthog.hogql.errors import QueryError
 from posthog.hogql.utils import deserialize_hx_ast, is_simple_value
-from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from common.hogvm.python.stl import BLOCKING_FUNCTIONS
 
@@ -88,12 +88,20 @@ class ReplacePlaceholders(CloningVisitor):
             )
 
         # A one-name placeholder bound to a value is a dictionary lookup. Resolve it here so that the
-        # time budget below only governs placeholders that hold an expression to evaluate. The copy
-        # keeps each occurrence of a name an independent node, as the VM's global lookup does.
+        # time budget below only governs placeholders that hold an expression to evaluate.
         if self.placeholders is not None and isinstance(node.expr, ast.Field) and len(node.expr.chain) == 1:
             name = node.expr.chain[0]
             if name in self.placeholders:
-                return self._to_expr(deepcopy(self.placeholders[name]), node)
+                value = self.placeholders[name]
+                # _to_expr writes this occurrence's position onto the node it returns, so an AST value
+                # needs a node of its own. Clone the node structure but keep the value a constant holds
+                # by reference, because one query can reference a bound value up to
+                # MAX_PLACEHOLDER_EXPANSIONS times, and a copy of the value for each occurrence
+                # multiplies it. A non-AST value needs no clone, because _to_expr builds a new node
+                # around it.
+                if isinstance(value, AST):
+                    value = clone_expr(value, clear_types=False)
+                return self._to_expr(value, node)
 
         if self._deadline is None:
             self._deadline = time.monotonic() + PLACEHOLDER_EXPANSION_BUDGET.total_seconds()

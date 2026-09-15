@@ -1,6 +1,6 @@
 import time
 from datetime import timedelta
-from typing import cast
+from typing import Any, cast
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -112,14 +112,26 @@ class TestParser(BaseTest):
             replace_placeholders(ast.Placeholder(expr=parse_expr("1 + 2")), {})
         self.assertIn("took too long", str(context.exception))
 
-    def test_replace_placeholders_gives_each_occurrence_its_own_node(self):
+    @parameterized.expand(
+        [
+            ("bound_to_an_ast_node", True),
+            # Metadata requests bind plain values, which reach the same path.
+            ("bound_to_a_plain_value", False),
+        ]
+    )
+    def test_replace_placeholders_gives_each_occurrence_its_own_node_sharing_the_value(
+        self, _name: str, bind_as_ast: bool
+    ):
         # Two occurrences of one name must not share a node. A shared node picks up the type that
-        # the resolver attaches at the first position.
-        value = ast.Constant(value=1)
-        expr = cast(ast.Tuple, replace_placeholders(parse_expr("({x}, {x})"), {"x": value}))
+        # the resolver attaches at the first position. The bound value itself stays shared, because
+        # a copy for each occurrence lets one query multiply a caller-supplied value up to the cap.
+        payload = ["charge", "refund"]
+        bound: Any = ast.Constant(value=payload) if bind_as_ast else payload
+        expr = cast(ast.Tuple, replace_placeholders(parse_expr("({x}, {x})"), {"x": bound}))
         self.assertIsNot(expr.exprs[0], expr.exprs[1])
-        self.assertIsNot(expr.exprs[0], value)
-        self.assertEqual([cast(ast.Constant, e).value for e in expr.exprs], [1, 1])
+        self.assertIsNot(expr.exprs[0], bound)
+        self.assertIs(cast(ast.Constant, expr.exprs[0]).value, payload)
+        self.assertIs(cast(ast.Constant, expr.exprs[1]).value, payload)
 
     def test_replace_placeholders_comparison(self):
         expr = clear_locations(parse_expr("timestamp < {timestamp}"))
