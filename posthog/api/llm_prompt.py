@@ -113,6 +113,16 @@ class LLMPromptViewSet(
             return ["llm_prompt:write"] if request.method == "PATCH" else ["llm_prompt:read"]
         return None
 
+    def _is_browser_session(self, request: Request) -> bool:
+        # A session cookie means a browser. So does an OAuth token: the app frontend
+        # authenticates that way when Django does not serve it. OAuth also carries
+        # third-party API clients, and this counts those as browsing. Missing some of
+        # their unlabeled list reads costs less than one fetch event per prompt per
+        # page view, which would distort the number this tracking exists to report.
+        # A JWT means a background job impersonating a user, which serves prompts
+        # like any other API caller.
+        return isinstance(request.successful_authenticator, SessionAuthentication | OAuthAccessTokenAuthentication)
+
     def _ensure_web_authenticated(self, request: Request) -> Response | None:
         if not isinstance(
             request.successful_authenticator,
@@ -223,12 +233,12 @@ class LLMPromptViewSet(
 
         report_team_action(self.team, "llma prompt fetched", properties)
 
-    def _track_labeled_list_fetches(self, prompts: Sequence[LLMPrompt], label: str) -> None:
+    def _track_list_fetches(self, prompts: Sequence[LLMPrompt], label: str | None) -> None:
         # One batch call, not one capture_internal per prompt: capture_internal is a
         # synchronous HTTP request, so per-prompt calls would multiply request latency
         # by the page size.
         properties_per_prompt = [
-            self._prompt_fetch_properties(self._labeled_list_fetch_payload(prompt, label), fetch_path="list")
+            self._prompt_fetch_properties(self._list_fetch_payload(prompt, label), fetch_path="list")
             for prompt in prompts
         ]
         if not settings.TEST and properties_per_prompt:
@@ -646,7 +656,7 @@ class LLMPromptViewSet(
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    def _labeled_list_fetch_payload(self, prompt: LLMPrompt, label: str) -> dict[str, Any]:
+    def _list_fetch_payload(self, prompt: LLMPrompt, label: str | None) -> dict[str, Any]:
         first_version_created_at = getattr(prompt, "first_version_created_at", None) or prompt.created_at
         return {
             "id": str(prompt.id),
@@ -682,11 +692,12 @@ class LLMPromptViewSet(
         serializer = LLMPromptListSerializer(prompts, many=True, context=context)
 
         label = self._get_list_params(request).get("label")
-        if label:
-            # Each prompt served through a labeled list counts as one fetch, matching
-            # get_by_name, so usage counts survive a caller migrating from per-name
-            # calls. The unlabeled list backs the prompts UI page and stays untracked.
-            self._track_labeled_list_fetches(prompts, label)
+        if label or not self._is_browser_session(request):
+            # Each prompt served through a list counts as one fetch, matching get_by_name,
+            # so usage counts survive a caller migrating from per-name calls. The unlabeled
+            # list also backs the prompts UI page, so the browser session is what separates
+            # a prompt served to an application from someone reading the page.
+            self._track_list_fetches(prompts, label)
 
         if page is not None:
             return self.get_paginated_response(serializer.data)

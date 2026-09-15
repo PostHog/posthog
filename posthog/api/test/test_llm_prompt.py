@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest
@@ -6,6 +7,7 @@ from unittest.mock import patch
 from django.db import connection
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -21,7 +23,11 @@ from posthog.api.llm_prompt_serializers import (
     validate_prompt_label_name_value,
 )
 from posthog.api.services.llm_prompt import MAX_PROMPT_VERSION
+from posthog.jwt import PosthogJwtAudience, encode_jwt
+from posthog.models import PersonalAPIKey
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrottle, SustainedRateThrottle
 
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptLabel
@@ -1460,32 +1466,82 @@ class TestLLMPromptLabelsAPI(APIBaseTest):
         assert results[0]["prompt"] == "Prompt content"
 
     @patch("posthog.api.llm_prompt.report_team_action")
-    def test_list_with_label_reports_one_fetch_per_returned_prompt(self, mock_report: Any) -> None:
+    def test_list_reports_one_fetch_per_returned_prompt_unless_the_caller_is_the_ui(self, mock_report: Any) -> None:
         self.create_prompt_version(name="prompt-a", version=1, is_latest=False)
         self.create_prompt_version(name="prompt-a", version=2)
         self.create_prompt_version(name="prompt-b", version=1)
         assert self._set_label("prompt-a", "production", 1).status_code == status.HTTP_201_CREATED
         assert self._set_label("prompt-b", "production", 1).status_code == status.HTTP_201_CREATED
+
+        def fetched_prompts() -> list[tuple[Any, ...]]:
+            return sorted(
+                (
+                    call.args[2]["prompt_name"],
+                    call.args[2]["prompt_version"],
+                    call.args[2]["prompt_label"],
+                    call.args[2]["prompt_is_latest"],
+                    call.args[2]["prompt_fetch_path"],
+                )
+                for call in mock_report.call_args_list
+                if call.args[1] == "llma prompt fetched"
+            )
+
         mock_report.reset_mock()
-
         response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/?label=production")
-
         assert response.status_code == status.HTTP_200_OK
-        fetch_properties = [
-            call.args[2] for call in mock_report.call_args_list if call.args[1] == "llma prompt fetched"
-        ]
-        assert sorted(
-            (p["prompt_name"], p["prompt_version"], p["prompt_label"], p["prompt_is_latest"], p["prompt_fetch_path"])
-            for p in fetch_properties
-        ) == [
+        assert fetched_prompts() == [
             ("prompt-a", 1, "production", False, "list"),
             ("prompt-b", 1, "production", True, "list"),
         ]
 
-        # The unlabeled list backs the prompts UI page and must not count as fetches.
+        # An unlabeled list serves every prompt's latest version, so an API client counts as fetches.
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(value), scopes=["*"])
         mock_report.reset_mock()
-        assert self.client.get(f"/api/environments/{self.team.id}/llm_prompts/").status_code == status.HTTP_200_OK
-        assert not any(call.args[1] == "llma prompt fetched" for call in mock_report.call_args_list)
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_prompts/", headers={"authorization": f"Bearer {value}"}
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert fetched_prompts() == [
+            ("prompt-a", 2, None, True, "list"),
+            ("prompt-b", 1, None, True, "list"),
+        ]
+
+        # A JWT means a background job impersonating a user, which is still an API caller.
+        impersonation_token = encode_jwt(
+            {"id": self.user.id}, timedelta(minutes=15), PosthogJwtAudience.IMPERSONATED_USER
+        )
+        mock_report.reset_mock()
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            headers={"authorization": f"Bearer {impersonation_token}"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert [entry[0] for entry in fetched_prompts()] == ["prompt-a", "prompt-b"]
+
+        # The same list backs the prompts UI page, where reading it is not a fetch. That
+        # page runs on an OAuth token when Django does not serve the frontend.
+        oauth_application = OAuthApplication.objects.create(
+            name="Test OAuth App",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        oauth_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=oauth_application,
+            token="pha_prompt_list_token",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="llm_prompt:read",
+        )
+        for headers in ({}, {"authorization": f"Bearer {oauth_token.token}"}):
+            mock_report.reset_mock()
+            response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/", headers=headers)
+            assert response.status_code == status.HTTP_200_OK
+            assert fetched_prompts() == []
 
     def test_archive_prompt_deletes_its_labels(self):
         self.create_prompt_version(version=1)
