@@ -355,6 +355,18 @@ class TestSupersedeHandover(BaseTest):
         assert not reconcile_replacement(self.team.id, str(replacement.id))
         assert self.handover(replacement).status == "completed"
 
+    def test_replacement_links_survive_an_attempt_that_ends_early(self) -> None:
+        replacement = self.start_replacement()
+        self.complete(replacement)
+        self.github.close_pull_request.side_effect = None
+        self.github.close_pull_request.return_value = {"success": False}
+        assert reconcile_replacement(self.team.id, str(replacement.id))
+        assert self.handover(replacement).replacement_pr_urls == [NEW_PR]
+        SignalReport.objects.filter(id=self.report.id).update(run_count=3)
+        assert not reconcile_replacement(self.team.id, str(replacement.id))
+        assert self.handover(replacement).status == "needs_attention"
+        assert self.handover(replacement).replacement_pr_urls == [NEW_PR]
+
     def test_lost_close_response_recovers_from_github_state(self) -> None:
         replacement = self.start_replacement()
         self.complete(replacement)

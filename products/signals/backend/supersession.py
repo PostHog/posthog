@@ -348,6 +348,7 @@ def reconcile_replacement(team_id: int, replacement_id: str) -> bool:
             status="processing",
             attempt=(previous.attempt if previous else 0) + 1,
             results=previous.results if previous else {},
+            replacement_pr_urls=previous.replacement_pr_urls if previous else [],
             worker_token=uuid4(),
             lease_until=timezone.now() + timedelta(seconds=HANDOVER_LEASE_SECONDS),
         )
