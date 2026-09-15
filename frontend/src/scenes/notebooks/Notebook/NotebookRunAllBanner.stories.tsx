@@ -20,7 +20,11 @@ const runStatus = (currentIndex: number, cellCount: number): any => ({
     finished_at: null,
 })
 
-/** Seeds the logic the banner reads, so each story shows one state without a live run. */
+/** Seeds the logic the banner reads, so each story shows one state without a live run.
+ *
+ * Both actions are plain reducer writes. `startRun` would be the truer trigger, but it posts
+ * to the run endpoint, and the failure that follows in a story clears the state again.
+ */
 const withRun = (run: any | null) => {
     return function Decorator(Story: () => JSX.Element): JSX.Element {
         const logic = notebookRunLogic({ shortId: SHORT_ID })
@@ -28,7 +32,7 @@ const withRun = (run: any | null) => {
         if (run) {
             logic.actions.setRun(run)
         } else {
-            logic.actions.startRun()
+            logic.actions.setStarting(true)
         }
         return <Story />
     }
@@ -46,7 +50,12 @@ const meta: Meta<typeof NotebookRunAllBanner> = {
             </div>
         ),
     ],
-    parameters: { layout: 'padded' },
+    parameters: {
+        layout: 'padded',
+        // The banner only exists while a run is in flight, so its spinner never stops. Without
+        // this the snapshot runner waits for every loader to disappear and times out.
+        testOptions: { waitForLoadersToDisappear: false },
+    },
 }
 export default meta
 
