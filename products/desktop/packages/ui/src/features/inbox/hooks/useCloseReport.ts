@@ -1,50 +1,37 @@
 import { isDismissedReport } from "@posthog/core/inbox/reportMembership";
 import type { SignalReport } from "@posthog/shared/types";
 import { useInboxTriageOrigin } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
+import { navigateToReportSource } from "@posthog/ui/router/navigationBridge";
 import {
   resolveNavigationSource,
   useReportSourceHref,
 } from "@posthog/ui/router/reportNavigation";
-import { getRouterOrNull } from "@posthog/ui/router/routerRef";
-import { useCallback, useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 /**
  * Puts the report down and leaves its list standing, the way Activity closes an
- * item. Null when the report names no source: there is no list beside it and
- * nothing to close back to.
+ * item. Null when the report names no source, because then no list sits beside
+ * it to close back to.
  */
 export function useCloseReport(): (() => void) | null {
-  const source = resolveNavigationSource(useReportSourceHref());
-  // TanStack blanks history state on a plain navigate, so triage's place in
-  // the queue has to travel with the navigation or the queue restarts at the top.
+  const href = resolveNavigationSource(useReportSourceHref())?.href;
   const triageOrigin = useInboxTriageOrigin();
-  const href = source?.href;
-  const closeReport = useCallback(() => {
-    if (!href) return;
-    void getRouterOrNull()?.navigate({
-      href,
-      state: (previous) => ({
-        ...previous,
-        ...(triageOrigin ? { inboxTriageOrigin: triageOrigin } : {}),
-      }),
-    });
-  }, [href, triageOrigin]);
-  return href ? closeReport : null;
+  return useMemo(
+    () => (href ? () => navigateToReportSource(href, triageOrigin) : null),
+    [href, triageOrigin],
+  );
 }
 
 /**
- * Resolving or archiving a report ends it, so the report closes itself and the
- * list it came from comes back, instead of holding a terminal report on screen
- * with its actions gone. Only the transition closes: a report opened out of the
- * Archive is already terminal, and its read-only detail is where the reader
- * meant to be. Triage keeps its own advance-to-next behavior, since the focus
- * view renders the queue rather than this page.
+ * A report that ends while it is open closes itself, so the list comes back
+ * instead of a terminal report with its actions gone. Only the transition into
+ * a terminal status closes, because a report opened out of the Archive is
+ * already terminal and its read-only detail is the destination.
  */
 export function useCloseReportWhenTerminal(report: SignalReport): void {
   const closeReport = useCloseReport();
   const terminal = isDismissedReport(report);
-  // The page swaps reports without remounting, so which report was read live is
-  // part of what decides whether this is a transition.
+  // The page swaps reports without remounting, so the id says whose transition this is.
   const activeReportId = useRef<string | null>(null);
 
   useEffect(() => {
