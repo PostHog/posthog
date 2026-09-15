@@ -18,6 +18,7 @@ export function DataQualityGateToggle(): JSX.Element | null {
 
     return (
         <LemonSwitch
+            bordered
             checked={gateConfig.gate_materialization_on_checks}
             onChange={setGateEnabled}
             loading={gateSaving}
@@ -26,7 +27,6 @@ export function DataQualityGateToggle(): JSX.Element | null {
                 AccessControlLevel.Editor
             )}
             label="Block materialization on failing checks"
-            tooltip="Applies to all materialized views in this project. When an error-severity check fails, the previous version keeps serving."
             data-attr="data-quality-gate-toggle"
         />
     )

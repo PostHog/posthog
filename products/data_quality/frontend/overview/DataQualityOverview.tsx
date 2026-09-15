@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { IconChevronRight, IconEllipsis } from '@posthog/icons'
+import { IconChevronRight, IconEllipsis, IconGear } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -16,6 +16,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { urls } from 'scenes/urls'
 
 import { CheckEditorModal } from '../CheckEditorModal'
 import { CheckRunsTable } from '../CheckRunsTable'
@@ -30,7 +31,6 @@ import { CheckStatusCell } from '../CheckStatusCell'
 import { DataQualityCheckEditorLogicProps, dataQualityCheckEditorLogic } from '../dataQualityCheckEditorLogic'
 import type { DataQualityOverviewCheckApi } from '../generated/api.schemas'
 import { DataQualityEmptyState } from './DataQualityEmptyState'
-import { DataQualityGateToggle } from './DataQualityGateToggle'
 import {
     NEW_CHECK_ACTION_ID,
     OverviewStatusFilter,
@@ -104,6 +104,17 @@ export function DataQualityOverview(): JSX.Element {
 
     const runningAll = (startingRun || isRunning) && runTarget?.kind === 'all'
     const anyRunActive = startingRun || isRunning
+    const settingsButton = (
+        <LemonButton
+            type="tertiary"
+            size="small"
+            icon={<IconGear />}
+            to={urls.settings('environment-data-quality')}
+            tooltip="Data quality settings"
+            aria-label="Data quality settings"
+            data-attr="data-quality-overview-settings"
+        />
+    )
     const newCheckButton = (
         <LemonButton
             id={NEW_CHECK_ACTION_ID}
@@ -140,7 +151,10 @@ export function DataQualityOverview(): JSX.Element {
         <BindLogic logic={dataQualityCheckEditorLogic} props={editorProps}>
             <div className="flex flex-col gap-3">
                 {checks.length === 0 ? (
-                    <div className="flex justify-end">{newCheckButton}</div>
+                    <div className="flex justify-end gap-2">
+                        {settingsButton}
+                        {newCheckButton}
+                    </div>
                 ) : (
                     <div className="flex flex-wrap items-center gap-2">
                         <div className="flex flex-wrap items-center gap-2 grow basis-full @2xl/main-content:basis-0">
@@ -160,6 +174,7 @@ export function DataQualityOverview(): JSX.Element {
                             />
                         </div>
                         <div className="flex flex-wrap items-center gap-2 ml-auto">
+                            {settingsButton}
                             <LemonButton
                                 type="secondary"
                                 size="small"
@@ -175,10 +190,7 @@ export function DataQualityOverview(): JSX.Element {
                     </div>
                 )}
 
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 empty:hidden">
-                    {overviewSummary && <p className="mb-0 text-secondary flex-1 min-w-0">{overviewSummary}</p>}
-                    <DataQualityGateToggle />
-                </div>
+                {overviewSummary && <p className="mb-0 text-secondary">{overviewSummary}</p>}
 
                 {overviewError && snapshotLoaded && (
                     <LemonBanner type="warning" action={{ children: 'Retry', onClick: loadOverview }}>
