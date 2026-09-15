@@ -208,6 +208,8 @@ export type CyclotronV2WorkerConfig = {
     queueName: string
     batchMaxSize?: number
     pollDelayMs?: number
+    /** Ceiling for the poll delay while the queue stays empty. Defaults to 1000ms. */
+    maxPollDelayMs?: number
     heartbeatTimeoutMs?: number
     includeEmptyBatches?: boolean
 }
