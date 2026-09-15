@@ -37,7 +37,7 @@ export function LegendOptionsFilter(): JSX.Element {
                 size="small"
             />
             <LemonSelect
-                size="small"
+                size="xsmall"
                 value={(legendPosition ?? (showLegend ? 'right' : 'bottom')) as LegendPosition}
                 options={POSITION_OPTIONS}
                 disabledReason={!showLegend ? 'Enable the legend to set its position' : undefined}
