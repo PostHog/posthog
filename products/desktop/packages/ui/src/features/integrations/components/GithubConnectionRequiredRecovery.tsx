@@ -55,7 +55,8 @@ export function GithubConnectionRequiredRecovery({
   const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
   const { localWorkspaces } = useHostCapabilities();
   const { folders } = useFolders();
-  const { hasGithubIntegration } = useRepositoryIntegration();
+  const { hasGithubIntegration, isLoadingIntegrations } =
+    useRepositoryIntegration();
   const sessionService = useService<SessionService>(SESSION_SERVICE);
   const repository = getTaskRepository(task);
   const localFolder = useMemo(
@@ -93,7 +94,12 @@ export function GithubConnectionRequiredRecovery({
   const { error, isConnecting, isTimedOut, hasError, isPending, connect } =
     useGithubConnect({
       projectId,
-      projectHasTeamIntegration: hasGithubIntegration,
+      // Unknown until the list lands: an empty list reads as "no team
+      // integration", which would send an admin through an org install they
+      // do not need.
+      projectHasTeamIntegration: isLoadingIntegrations
+        ? null
+        : hasGithubIntegration,
       onConnected: () => {
         if (!connectStartedRef.current) return;
         connectStartedRef.current = false;
@@ -150,6 +156,7 @@ export function GithubConnectionRequiredRecovery({
           : GITHUB_CLOUD_TASK_CONNECTION_REQUIRED_MESSAGE
       }
       approvalPending={isPending}
+      canConnect={!isLoadingIntegrations}
       canRunLocally={localWorkspaces && !!localFolder}
       onOpenChange={onOpenChange}
       onConnect={() => {

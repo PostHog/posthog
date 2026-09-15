@@ -22,6 +22,8 @@ interface GithubConnectionRequiredDialogProps {
   connectionMessage?: string;
   requirementMessage?: string;
   approvalPending?: boolean;
+  /** False until the caller knows which connection flow this project needs. */
+  canConnect?: boolean;
   canRunLocally: boolean;
   onOpenChange: (open: boolean) => void;
   onConnect: () => void;
@@ -34,6 +36,7 @@ export function GithubConnectionRequiredDialog({
   connectionMessage,
   requirementMessage = GITHUB_CLOUD_TASK_CONNECTION_REQUIRED_MESSAGE,
   approvalPending = false,
+  canConnect = true,
   canRunLocally,
   onOpenChange,
   onConnect,
@@ -135,7 +138,7 @@ export function GithubConnectionRequiredDialog({
             type="button"
             variant="primary"
             loading={isConnecting}
-            disabled={isConnecting}
+            disabled={isConnecting || !canConnect}
             data-attr="connect-github-for-code-context"
             onClick={onConnect}
           >

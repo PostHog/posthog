@@ -12,6 +12,12 @@ const connectState = vi.hoisted(() => ({
   connect: vi.fn(async () => undefined),
   /** Every mounted hook hears the host-wide GitHub callback. */
   onConnected: [] as Array<() => void>,
+  projectHasTeamIntegration: undefined as boolean | null | undefined,
+}));
+
+const integrationState = vi.hoisted(() => ({
+  hasGithubIntegration: false,
+  isLoadingIntegrations: false,
 }));
 
 vi.mock("@posthog/core/sessions/sessionService", () => ({
@@ -26,7 +32,7 @@ vi.mock("@posthog/ui/features/folders/useFolders", () => ({
   useFolders: () => ({ folders: [] }),
 }));
 vi.mock("@posthog/ui/features/integrations/useIntegrations", () => ({
-  useRepositoryIntegration: () => ({ hasGithubIntegration: false }),
+  useRepositoryIntegration: () => integrationState,
 }));
 vi.mock("@posthog/ui/shell/useHostCapabilities", () => ({
   useHostCapabilities: () => ({ localWorkspaces: false }),
@@ -36,8 +42,15 @@ vi.mock("@posthog/ui/primitives/toast", () => ({
   toast: { error: vi.fn() },
 }));
 vi.mock("@posthog/ui/features/integrations/useGithubUserConnect", () => ({
-  useGithubConnect: ({ onConnected }: { onConnected?: () => void }) => {
+  useGithubConnect: ({
+    onConnected,
+    projectHasTeamIntegration,
+  }: {
+    onConnected?: () => void;
+    projectHasTeamIntegration: boolean | null;
+  }) => {
     if (onConnected) connectState.onConnected.push(onConnected);
+    connectState.projectHasTeamIntegration = projectHasTeamIntegration;
     return {
       error: null,
       isConnecting: false,
@@ -66,7 +79,50 @@ describe("GithubConnectionRequiredRecovery", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     connectState.onConnected = [];
+    connectState.projectHasTeamIntegration = undefined;
+    integrationState.hasGithubIntegration = false;
+    integrationState.isLoadingIntegrations = false;
   });
+
+  it.each([
+    {
+      name: "holds the connect action while the integrations load",
+      isLoadingIntegrations: true,
+      disabled: true,
+      projectHasTeamIntegration: null,
+    },
+    {
+      name: "offers the connect action once the integrations land",
+      isLoadingIntegrations: false,
+      disabled: false,
+      projectHasTeamIntegration: false,
+    },
+  ])(
+    "$name",
+    ({ isLoadingIntegrations, disabled, projectHasTeamIntegration }) => {
+      integrationState.isLoadingIntegrations = isLoadingIntegrations;
+
+      render(
+        <GithubConnectionRequiredRecovery
+          task={makeTask("task-1")}
+          open
+          onOpenChange={() => undefined}
+        />,
+      );
+
+      const connectButton = document.querySelector<HTMLButtonElement>(
+        '[data-attr="connect-github-for-code-context"]',
+      );
+      expect(connectButton?.getAttribute("aria-disabled")).toBe(
+        disabled ? "true" : "false",
+      );
+      fireEvent.click(connectButton as HTMLButtonElement);
+      expect(connectState.connect).toHaveBeenCalledTimes(disabled ? 0 : 1);
+      expect(connectState.projectHasTeamIntegration).toBe(
+        projectHasTeamIntegration,
+      );
+    },
+  );
 
   it("retries only the task whose dialog started the connection", async () => {
     render(
