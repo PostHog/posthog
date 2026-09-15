@@ -861,6 +861,7 @@ describe('HogFunctionHandler', () => {
                     deadlineAt,
                     dispatch: { id: 't1', run_id: 'r1' },
                     label: 'task',
+                    parkedAt: DateTime.now().minus({ minutes: 5 }).toISO()!,
                 }
             })
 
@@ -912,6 +913,11 @@ describe('HogFunctionHandler', () => {
                 expect(invocationResult.invocation.state.currentAction?.awaitingResume).toBeUndefined()
                 expect(invocationResult.invocation.state.currentAction?.resumeResult).toBeUndefined()
                 expect(await finishedCount('completed')).toBe(1)
+                const waited = await register.getSingleMetric('cdp_hogflow_awaited_step_wait_seconds')!.get()
+                const sum = waited.values.find(
+                    (v) => v.metricName?.endsWith('_sum') && v.labels.outcome === 'completed'
+                )
+                expect(sum?.value).toBeGreaterThanOrEqual(300)
             })
 
             it.each([4000, 4700])('fits the resumed result with %s bytes of existing variables', async (usedBytes) => {
