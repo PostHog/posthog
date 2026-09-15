@@ -38,6 +38,7 @@ from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url
 from products.tasks.backend.logic.services.sandbox import (
     WORKING_DIR,
     SandboxBase,
+    agent_server_fatal_message,
     build_agent_runtime_env_prefix,
     build_health_check_command,
     health_check_timeout_seconds,
@@ -51,6 +52,9 @@ logger = logging.getLogger(__name__)
 
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
 AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
+AGENT_SERVER_LOG_FILE = "/tmp/agent-server.log"
+AGENT_SERVER_PID_FILE = "/tmp/agent-server.pid"
+NO_HEALTH_RESPONSE = "no-health-response"
 # The whole diagnostics dict rides in the Temporal failure payload, which is capped at about 2 MiB.
 STARTUP_LOG_MAX_BYTES = 64 * 1024
 AGENT_SERVER_HEALTH_DURATION_PREFIX = "__posthog_agent_health_ms="
@@ -157,8 +161,60 @@ def _egress_failure_reason(egress: str) -> str | None:
     )
 
 
+def _stalled_boot_phase(health_response: str) -> str | None:
+    """The boot phase the agent-server was still in, from a health payload that answered.
+
+    The payload reports ``boot.currentPhase`` and the time spent in each phase, which names the
+    startup dependency that stalled. Without it the reader only learns that a session never
+    opened, and every phase looks equally likely.
+    """
+    try:
+        boot = json.loads(health_response).get("boot", {})
+        phase = boot.get("currentPhase")
+    except (ValueError, AttributeError):
+        return None
+    if not isinstance(phase, str) or not phase:
+        return None
+    elapsed = boot.get("phasesMs", {}).get(phase) if isinstance(boot.get("phasesMs"), dict) else None
+    if isinstance(elapsed, int | float) and not isinstance(elapsed, bool):
+        return f"{phase} after {int(elapsed)}ms"
+    return phase
+
+
+def _startup_failure_reason(
+    *,
+    fatal_message: str | None,
+    stalled_phase: str | None,
+    health_response: str,
+    egress_reason: str | None,
+) -> str:
+    """Name what stopped the startup, preferring the most specific evidence available.
+
+    The agent-server's own fatal message is the proximate cause whenever it wrote one, so it
+    outranks every probe. An egress block is appended instead of replacing that message, because
+    a blocked host is usually why the server gave up and both halves matter to the reader.
+    """
+    if fatal_message:
+        reason = f"agent-server exited during startup: {fatal_message}"
+    elif stalled_phase:
+        reason = f"agent-server is alive but still in boot phase {stalled_phase}; hasSession never became true"
+    elif health_response in ("", NO_HEALTH_RESPONSE):
+        reason = (
+            f"agent-server did not answer on port {AGENT_SERVER_PORT} and named no fatal error, "
+            "so it exited silently or never bound the port"
+        )
+    else:
+        reason = "agent-server answered but never reported hasSession=true; inspect the agent-server log"
+    return f"{reason}; {egress_reason}" if egress_reason else reason
+
+
 def _start_and_wait_command(command: str, max_attempts: int = AGENT_SERVER_HEALTH_MAX_ATTEMPTS) -> str:
-    health_command = build_health_check_command(AGENT_SERVER_PORT, max_attempts, pid_file="/tmp/agent-server.pid")
+    health_command = build_health_check_command(
+        AGENT_SERVER_PORT,
+        max_attempts,
+        pid_file=AGENT_SERVER_PID_FILE,
+        fatal_log_file=AGENT_SERVER_LOG_FILE,
+    )
     return (
         f"{command}; launch_status=$?; "
         'if [ "$launch_status" -ne 0 ]; then exit "$launch_status"; fi; '
@@ -292,19 +348,24 @@ class AgentServerLaunchMixin(SandboxBase):
             )
             server_cmd = f"bash -c {shlex.quote(wait_for_repo)}"
 
-        inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
+        inner = f"cd /scripts && {server_cmd} > {AGENT_SERVER_LOG_FILE} 2>&1"
         initialize_env_file = f"bash {shlex.quote(BASH_ENV_SCRIPT)}"
         launch_started_prefix = "" if repo_ready_file else f"{launch_started_at} && "
+        # Empty the log here rather than relying on the launch redirect, which runs inside the
+        # backgrounded process. The health poll fails the attempt as soon as the log names a fatal
+        # error, so a line left by the previous attempt would fail this one before it even starts.
+        reset_log = f": > {AGENT_SERVER_LOG_FILE} && "
 
         if allowed_domains is not None:
             return (
-                f"cd /scripts && {launch_started_prefix}{initialize_env_file} && "
-                f"({build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} & echo $! > /tmp/agent-server.pid)"
+                f"cd /scripts && {reset_log}{launch_started_prefix}{initialize_env_file} && "
+                f"({build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} "
+                f"& echo $! > {AGENT_SERVER_PID_FILE})"
             )
         else:
             return (
-                f"cd /scripts && {launch_started_prefix}{initialize_env_file} && "
-                f"(nohup {server_cmd} > /tmp/agent-server.log 2>&1 & echo $! > /tmp/agent-server.pid)"
+                f"cd /scripts && {reset_log}{launch_started_prefix}{initialize_env_file} && "
+                f"(nohup {server_cmd} > {AGENT_SERVER_LOG_FILE} 2>&1 & echo $! > {AGENT_SERVER_PID_FILE})"
             )
 
     def _termination_failure_reason(self) -> str:
@@ -324,28 +385,34 @@ class AgentServerLaunchMixin(SandboxBase):
 
             diagnostics["sandbox_terminated"] = "false"
             log_result = self.execute(
-                f"tail -c {STARTUP_LOG_MAX_BYTES} /tmp/agent-server.log 2>/dev/null || echo 'No log file'",
+                f"tail -c {STARTUP_LOG_MAX_BYTES} {AGENT_SERVER_LOG_FILE} 2>/dev/null || echo 'No log file'",
                 timeout_seconds=5,
             )
             diagnostics["log"] = log_result.stdout
             if len(log_result.stdout.encode()) >= STARTUP_LOG_MAX_BYTES:
                 diagnostics["log_truncated"] = "true"
             health_result = self.execute(
-                f"curl -s --max-time 3 http://localhost:{AGENT_SERVER_PORT}/health || echo 'no-health-response'",
+                f"curl -s --max-time 3 http://localhost:{AGENT_SERVER_PORT}/health || echo '{NO_HEALTH_RESPONSE}'",
                 timeout_seconds=5,
             )
-            diagnostics["health_response"] = health_result.stdout.strip()[:500]
+            health_response = health_result.stdout.strip()
+            diagnostics["health_response"] = health_response[:500]
+
+            fatal_message = agent_server_fatal_message(log_result.stdout)
+            if fatal_message:
+                diagnostics["agent_server_fatal"] = fatal_message
+            stalled_phase = _stalled_boot_phase(health_response)
+            if stalled_phase:
+                diagnostics["boot_phase"] = stalled_phase
 
             egress = self._probe_session_init_egress()
             diagnostics["egress_probe"] = egress
-            egress_reason = _egress_failure_reason(egress)
-            if egress_reason:
-                diagnostics["failure_reason"] = egress_reason
-            else:
-                diagnostics["failure_reason"] = (
-                    "agent server alive but never reported hasSession=true; no egress block detected, "
-                    "inspect agent-server log"
-                )
+            diagnostics["failure_reason"] = _startup_failure_reason(
+                fatal_message=fatal_message,
+                stalled_phase=stalled_phase,
+                health_response=health_response,
+                egress_reason=_egress_failure_reason(egress),
+            )
         except Exception as e:
             diagnostics.setdefault("failure_reason", f"health check failed; diagnostics unavailable: {e}")
         # Last, and guarded on its own: a starved box can stall this probe too, and that must
@@ -674,7 +741,13 @@ class AgentServerLaunchMixin(SandboxBase):
     ) -> bool:
         """Poll health endpoint until server is ready (single remote call)."""
         return wait_for_health_check(
-            self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval, pid_file="/tmp/agent-server.pid"
+            self.execute,
+            self.id,
+            AGENT_SERVER_PORT,
+            max_attempts,
+            poll_interval,
+            pid_file=AGENT_SERVER_PID_FILE,
+            fatal_log_file=AGENT_SERVER_LOG_FILE,
         )
 
     def _agent_server_is_healthy(self) -> bool:
