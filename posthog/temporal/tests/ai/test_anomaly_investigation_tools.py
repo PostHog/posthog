@@ -7,8 +7,10 @@ from unittest.mock import MagicMock, Mock, patch
 from posthog.schema import (
     BaseMathType,
     ChartDisplayType,
+    DataWarehouseSyncWarning,
     EventsNode,
     HogQLQuery,
+    HogQLQueryResponse,
     IntervalType,
     TrendsFilter,
     TrendsQuery,
@@ -102,6 +104,30 @@ def test_run_detector_simulation_scores_the_configured_column_of_a_multi_numeric
 
 
 _VIEW_QUERY = RunHogQLQueryArgs(query="SELECT amount FROM investigated_view")
+
+
+@patch("posthog.temporal.ai.anomaly_investigation.tools.execute_hogql_query")
+async def test_run_hogql_query_surfaces_the_responses_warnings(mock_execute: MagicMock) -> None:
+    mock_execute.return_value = HogQLQueryResponse(
+        results=[[1]],
+        columns=["amount"],
+        warnings=[
+            DataWarehouseSyncWarning(
+                message="The last sync of investigated_view failed",
+                schema_name="investigated_view",
+                source_type="Postgres",
+                status="Failed",
+                table_name="investigated_view",
+            )
+        ],
+    )
+
+    toolkit = InvestigationToolkit(team=MagicMock(), user=MagicMock())
+
+    payload = json.loads(await toolkit.run_hogql_query(_VIEW_QUERY))
+
+    assert payload["rows"] == [[1]]
+    assert payload["warnings"] == ["The last sync of investigated_view failed"]
 
 
 # Non-atomic, because run_hogql_query runs off the caller's thread, so an uncommitted saved query

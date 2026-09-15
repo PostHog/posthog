@@ -159,6 +159,11 @@ class InvestigationToolkit:
             "row_count": len(rows),
             "truncated": len(rows) > MAX_HOGQL_ROWS,
         }
+        if response.warnings:
+            # A failed warehouse sync or an access-control filter makes the result partial. Without
+            # these messages the agent reads stale or filtered rows as complete, so it can report
+            # that artifact as the cause of the anomaly.
+            payload["warnings"] = [warning.message for warning in response.warnings]
         return json.dumps(payload, default=str)
 
     async def top_breakdowns(self, args: TopBreakdownArgs) -> str:
