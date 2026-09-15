@@ -22,7 +22,6 @@ from products.tracing.backend.span_identity import identity_value_expr
 if TYPE_CHECKING:
     from posthog.models import Team
 
-# Enough top values for a drill-down popover; a fuller list belongs to a facet.
 TOP_IDENTITY_VALUES = 5
 
 
@@ -49,7 +48,7 @@ class TraceSpansImpactQueryRunner(TraceSpansScalarQueryRunnerMixin, AnalyticsQue
     @cached_property
     def settings(self) -> HogQLGlobalSettings:
         # Unlike the bare count, this decompresses the attribute maps over a mostly identical
-        # window on every filter tweak, so it opts into the uncompressed block cache.
+        # window on every filter tweak, hence the uncompressed block cache.
         return fail_fast_scalar_settings(use_uncompressed_cache=True)
 
     def _calculate(self) -> TraceSpansQueryResponse:
@@ -76,8 +75,8 @@ class TraceSpansImpactQueryRunner(TraceSpansScalarQueryRunnerMixin, AnalyticsQue
         )
 
     def to_query(self) -> ast.SelectQuery:
-        # uniq() and topK() are HyperLogLog-based, so about 1-2% off an exact count(DISTINCT)
-        # and much cheaper. They skip NULLs, so spans carrying no identity need no predicate.
+        # uniq()/topK() are HyperLogLog-based: ~1-2% off an exact count(DISTINCT), much cheaper,
+        # and NULL-skipping, so spans carrying no identity need no predicate.
         query = parse_select(
             """
             SELECT

@@ -79,9 +79,8 @@ export const tracingImpactLogic = kea<tracingImpactLogicType>([
             null as _TracingImpactResponseApi | null,
             {
                 loadImpact: async (_, breakpoint) => {
-                    // Read up front, so the scope recorded as done is the one the response covers,
-                    // and claimed before the request so a runQuery arriving mid-flight starts no
-                    // second scan. An abort closes the connection; ClickHouse finishes the query.
+                    // Read up front so the recorded scope is the one the response covers, and
+                    // claimed so a runQuery arriving mid-flight starts no second scan.
                     const scopeKey = dataScopeKey(values)
                     cache.inFlightScope = scopeKey
                     await breakpoint(300)
@@ -107,8 +106,8 @@ export const tracingImpactLogic = kea<tracingImpactLogicType>([
                         // Passive decoration, so a failure shows nothing rather than a toast.
                     }
                     breakpoint()
-                    // Released either way, so a failure retries instead of being cached as done.
                     cache.inFlightScope = undefined
+                    // Only on success, so a failure retries instead of being cached as done.
                     if (response) {
                         cache.impactScope = scopeKey
                     }
