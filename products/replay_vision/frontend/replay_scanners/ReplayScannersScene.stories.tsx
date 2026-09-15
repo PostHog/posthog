@@ -898,8 +898,8 @@ export const StartupProgramCap: StoryObj = {
     ],
 }
 
-// The goal-based creation flow's two questions replace the template gallery when the flag's test
-// variant is on.
+// The goal-based creation flow when the flag's test variant is on: the two questions (goal, budget)
+// lead, with the template gallery kept below them as a start-from-a-template alternative.
 export const ScannerEditorGoalFlow: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerTemplate('new'),
