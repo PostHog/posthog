@@ -419,6 +419,23 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         bytecode = self.filters_to_bytecode(filters=filters)
         assert execute_bytecode(bytecode, hog_globals).result is expected
 
+    @parameterized.expand(
+        [
+            ("matching_row", {"organization": "acme"}, True),
+            ("other_row", {"organization": "other"}, False),
+        ]
+    )
+    def test_warehouse_row_filter_reads_the_row_from_properties(self, _name: str, row: dict, expected: bool):
+        # A warehouse-row invocation carries the synced row under `properties`, so a column filter
+        # must compile against `properties.<column>` rather than a bare global.
+        bytecode = self.filters_to_bytecode(
+            filters={
+                "source": "data-warehouse-view",
+                "properties": [{"key": "organization", "value": "acme", "operator": "exact", "type": "data_warehouse"}],
+            }
+        )
+        assert execute_bytecode(bytecode, {"event": "$warehouse_view_row", "properties": row}).result is expected
+
 
 class TestCohortExprHelpers(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_build_behavioral_event_expr_supported_with_event_filters(self):

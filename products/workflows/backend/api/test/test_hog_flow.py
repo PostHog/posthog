@@ -41,6 +41,8 @@ from products.workflows.backend.models.hog_flow.hog_flow import SUPPORTED_ACTION
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 
+from common.hogvm.python.execute import execute_bytecode
+
 _AUDIENCE_CONDITION = {"key": "email", "type": "person", "value": "x", "operator": "icontains"}
 _WIDER_AUDIENCE_CONDITION = {"key": "email", "type": "person", "value": "@", "operator": "icontains"}
 
@@ -2367,7 +2369,11 @@ class TestHogFlowAPI(APIBaseTest):
             "config": {
                 "type": trigger_type,
                 "table_name": table_name,
-                "filters": {"properties": []},
+                "filters": {
+                    "properties": [
+                        {"key": "organization", "value": "acme", "operator": "exact", "type": "data_warehouse"}
+                    ]
+                },
             },
         }
 
@@ -2385,6 +2391,10 @@ class TestHogFlowAPI(APIBaseTest):
         # Filters should be compiled to bytecode against the trigger's own warehouse source
         assert trigger["filters"]["source"] == trigger_type
         assert "bytecode" in trigger["filters"]
+        # The synced row reaches the executor under `properties`, so the column filter must read it there.
+        bytecode = trigger["filters"]["bytecode"]
+        assert execute_bytecode(bytecode, {"properties": {"organization": "acme"}}).result is True
+        assert execute_bytecode(bytecode, {"properties": {"organization": "other"}}).result is False
         # Row-scoped runs have no person, so the other exit conditions can't be evaluated.
         assert response.json()["exit_condition"] == "exit_only_at_end"
 

@@ -16,7 +16,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr
+from posthog.cdp.filters import DATA_WAREHOUSE_SOURCES, compile_filters_bytecode, compile_filters_expr
 from posthog.models.integration import Integration
 
 from products.cdp.backend.models.hog_functions.hog_function import (
@@ -900,11 +900,6 @@ class InputsSerializer(serializers.DictField):
 
         return result
         # Unlike standard dict validation we are iterating the schema - not the inputs
-
-
-# Filter sources whose rows come from the warehouse rather than from events: one invocation per
-# row, with the row under `event.properties` and no person attached.
-DATA_WAREHOUSE_SOURCES = ("data-warehouse-table", "data-warehouse-view")
 
 
 def _contains_behavioral_property(filters: dict) -> bool:

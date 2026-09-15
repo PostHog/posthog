@@ -15,6 +15,10 @@ from products.cohorts.backend.models.cohort import Cohort
 
 COHORT_FILTER_TYPES = frozenset({"cohort", "static-cohort", "precalculated-cohort", "dynamic-cohort"})
 
+# Filter sources whose rows come from the warehouse rather than from events: one invocation per
+# row, with the row under `event.properties` and no person attached.
+DATA_WAREHOUSE_SOURCES = ("data-warehouse-table", "data-warehouse-view")
+
 # Internal events (e.g. activity logs) carry real nested JSON objects in their properties — such as
 # `detail` on `$activity_log_entry_created`, which the activity log filter UI exposes as `detail.name`
 # and `detail.changes`. Unlike analytics events (whose properties are a flat map), these need dotted
@@ -180,11 +184,33 @@ def _build_test_account_filters(filters: dict, team: Team) -> list[ast.Expr]:
     return result
 
 
+class _WarehouseRowPropertyResolver(CloningVisitor):
+    """Read a warehouse row's columns from `properties`.
+
+    A `data_warehouse` property filter compiles to a bare field chain (`organization`), because in
+    HogQL the column belongs to the table being queried. A warehouse-row invocation carries the row
+    under `event.properties` instead, so the bare chain reads a global that does not exist and the
+    filter never matches.
+    """
+
+    def visit_field(self, node: ast.Field) -> ast.Field:
+        field = super().visit_field(node)
+        field.chain = ["properties", *field.chain]
+        return field
+
+
 def _build_global_property_filters(filters: dict, team: Team) -> list[ast.Expr]:
     """Build global property filters that apply to all events."""
     if not filters.get("properties"):
         return []
-    return [property_to_expr(prop, team) for prop in filters["properties"]]
+    is_warehouse_row = filters.get("source") in DATA_WAREHOUSE_SOURCES
+    exprs: list[ast.Expr] = []
+    for prop in filters["properties"]:
+        expr = property_to_expr(prop, team)
+        if is_warehouse_row and isinstance(prop, dict) and prop.get("type") == "data_warehouse":
+            expr = _WarehouseRowPropertyResolver().visit(expr)
+        exprs.append(expr)
+    return exprs
 
 
 def _build_event_filter_expr(filter: dict) -> ast.Expr:

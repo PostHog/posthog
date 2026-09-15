@@ -44,7 +44,8 @@ export function DataWarehouseColumnsHint({
                                         <code>{'{person}'}</code> and <code>{'{event}'}</code> are also available.{' '}
                                     </>
                                 ) : null}
-                                Click a column to copy its reference.
+                                Click a column to copy that form. Fields that use Liquid, like an email body, need
+                                double braces: <code>{'{{record.<column>}}'}</code>.
                             </p>
                             <div className="flex flex-wrap gap-1">
                                 {schemaColumns.map((column) => (
