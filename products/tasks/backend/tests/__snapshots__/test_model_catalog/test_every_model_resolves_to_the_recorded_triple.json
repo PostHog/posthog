@@ -33,7 +33,7 @@
       "runtime_adapter": "codex"
     }
   ],
-  "pi_reasoning_efforts": [
+  "pi_thinking_levels": [
     "off",
     "minimal",
     "low",

@@ -48,15 +48,14 @@ XHIGH = "xhigh"
 MAX = "max"
 ULTRACODE = "ultracode"
 
-# Every tier an ACP model exposes, shallowest first. A consumer renders an effort ladder
-# from this, so a new tier reaches both projections by being added here and nowhere else.
+# The two vocabularies a depth is spelled in, shallowest first. Neither is a capability
+# list. What a run may actually ask for is a property of the model: an ACP model declares
+# its ladder in `reasoning_efforts` below, and a Pi model carries its own thinking level
+# map, which the Pi SDK reads in the agent against the live gateway list. So these say only
+# which spellings exist, which is what lets a picker render a ladder and a field reject a
+# value from the other vocabulary.
 REASONING_EFFORTS: tuple[str, ...] = (LOW, MEDIUM, HIGH, XHIGH, MAX, ULTRACODE)
-
-# The values `reasoning_effort` accepts on a Pi run. This is the legal value domain of the
-# field, not a capability list: which depths a model offers is a per-model question, and Pi
-# answers it in the agent from each gateway model's own thinking level map, so no
-# checked-in file can. Pi adds `off` and `minimal`, and has no `ultracode`.
-PI_REASONING_EFFORTS: tuple[str, ...] = (OFF, MINIMAL, LOW, MEDIUM, HIGH, XHIGH, MAX)
+PI_THINKING_LEVELS: tuple[str, ...] = (OFF, MINIMAL, LOW, MEDIUM, HIGH, XHIGH, MAX)
 
 _STANDARD = (LOW, MEDIUM, HIGH)
 _THROUGH_MAX = (*_STANDARD, XHIGH, MAX)

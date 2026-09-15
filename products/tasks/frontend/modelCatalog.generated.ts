@@ -45,11 +45,11 @@ export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ult
 
 export const REASONING_EFFORTS: readonly ReasoningEffort[] = ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode']
 
-// The values `reasoningEffort` accepts on a Pi run: the legal value domain of
-// the field, not a capability list. Which depths a model offers is a per-model
-// question, and Pi answers it from each gateway model's own thinking level map
-// at run time. Kept `as const` because the callers need the literal types.
-export const PI_REASONING_EFFORTS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
+// How a Pi model spells its depths, not which ones it offers. That is a
+// per-model fact, and the Pi SDK reads it from each gateway model's own
+// thinking level map at run time. Kept `as const` for the literal types the
+// zod enum and the SDK exhaustiveness check both need.
+export const PI_THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 
 /** A value for each runtime adapter. */
 export type ByRuntimeAdapter<T> = Record<RuntimeAdapter, T>

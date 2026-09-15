@@ -38,7 +38,7 @@ def _resolved_catalog() -> dict[str, Any]:
     """
     return {
         "reasoning_efforts": list(model_catalog.REASONING_EFFORTS),
-        "pi_reasoning_efforts": list(model_catalog.PI_REASONING_EFFORTS),
+        "pi_thinking_levels": list(model_catalog.PI_THINKING_LEVELS),
         "runtimes": [
             {"runtime": option.runtime, "runtime_adapter": option.runtime_adapter, "label": option.label}
             for option in model_catalog.RUNTIME_OPTIONS
@@ -104,7 +104,7 @@ def test_reasoning_effort_enum_is_exactly_both_runtimes() -> None:
     # value the catalog offers and `ReasoningEffort(...)` refuses to build.
     assert {effort.value for effort in ReasoningEffort} == {
         *model_catalog.REASONING_EFFORTS,
-        *model_catalog.PI_REASONING_EFFORTS,
+        *model_catalog.PI_THINKING_LEVELS,
     }
 
 

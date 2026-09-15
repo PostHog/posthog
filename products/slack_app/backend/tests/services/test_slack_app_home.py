@@ -209,7 +209,7 @@ def _stub_picker_facade():
     fake.get_provider_for_runtime_adapter = fake_get_provider
     fake.get_models_for_runtime_adapter = fake_get_models
     fake.validate_model_selection = fake_validate_selection
-    fake.ACP_REASONING_EFFORTS = public_efforts
+    fake.REASONING_EFFORTS = public_efforts
 
     @dataclass(frozen=True)
     class _GatewayModel:
