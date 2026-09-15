@@ -1212,6 +1212,48 @@ export const WidgetTypeEnumApi = {
     Selector: 'selector',
 } as const
 
+/**
+ * * `top_left` - top_left
+ * * `top_center` - top_center
+ * * `top_right` - top_right
+ * * `middle_left` - middle_left
+ * * `middle_center` - middle_center
+ * * `middle_right` - middle_right
+ * * `left` - left
+ * * `center` - center
+ * * `right` - right
+ * * `next_to_trigger` - next_to_trigger
+ */
+export type PositionEnumApi = (typeof PositionEnumApi)[keyof typeof PositionEnumApi]
+
+export const PositionEnumApi = {
+    TopLeft: 'top_left',
+    TopCenter: 'top_center',
+    TopRight: 'top_right',
+    MiddleLeft: 'middle_left',
+    MiddleCenter: 'middle_center',
+    MiddleRight: 'middle_right',
+    Left: 'left',
+    Center: 'center',
+    Right: 'right',
+    NextToTrigger: 'next_to_trigger',
+} as const
+
+/**
+ * * `top` - top
+ * * `left` - left
+ * * `right` - right
+ * * `bottom` - bottom
+ */
+export type TabPositionEnumApi = (typeof TabPositionEnumApi)[keyof typeof TabPositionEnumApi]
+
+export const TabPositionEnumApi = {
+    Top: 'top',
+    Left: 'left',
+    Right: 'right',
+    Bottom: 'bottom',
+} as const
+
 export interface SurveyAppearanceSchemaApi {
     backgroundColor?: string
     submitButtonColor?: string
@@ -1246,6 +1288,36 @@ export interface SurveyAppearanceSchemaApi {
     zIndex?: string
     disabledButtonOpacity?: string
     boxPadding?: string
+    /** CSS border-radius for the survey container, e.g. '8px' or '0px'. */
+    borderRadius?: string
+    /** CSS box-shadow for the survey container, e.g. 'none' or '0 4px 12px rgba(0,0,0,0.1)'. */
+    boxShadow?: string
+    /** Background color for text inputs and rating buttons. */
+    inputBackground?: string
+    /** Text color for inputs and rating buttons. Auto-calculated from inputBackground when unset. */
+    inputTextColor?: string
+    /** Color for secondary or subtle text. */
+    textSubtleColor?: string
+    /** Where a popover survey appears on screen.
+     *
+     * * `top_left` - top_left
+     * * `top_center` - top_center
+     * * `top_right` - top_right
+     * * `middle_left` - middle_left
+     * * `middle_center` - middle_center
+     * * `middle_right` - middle_right
+     * * `left` - left
+     * * `center` - center
+     * * `right` - right
+     * * `next_to_trigger` - next_to_trigger */
+    position?: PositionEnumApi
+    /** Which screen edge a tab-style widget attaches to.
+     *
+     * * `top` - top
+     * * `left` - left
+     * * `right` - right
+     * * `bottom` - bottom */
+    tabPosition?: TabPositionEnumApi
 }
 
 export interface SurveySerializerCreateUpdateOnlySchemaApi {
