@@ -44,6 +44,8 @@ from posthog.models import Team, User
 from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, is_hidden_from_assistant
 
+from products.event_definitions.backend.models import effective_project_id_expr
+
 from ee.hogai.utils.anthropic import SUPPORTED_ANTHROPIC_BLOCKS
 from ee.hogai.utils.types.base import (
     ArtifactRefMessage,
@@ -51,6 +53,10 @@ from ee.hogai.utils.types.base import (
     AssistantMessageUnion,
     ConversationTitleAction,
 )
+
+# Keeps the description lookup bounded on projects with a very large taxonomy. The names arrive
+# most frequent first, so the cap drops the rarest events.
+_MAX_EVENT_DEFINITION_LOOKUP_NAMES = 300
 
 
 def sanitize_for_system_reminder(text: str) -> str:
@@ -297,7 +303,7 @@ def get_event_description(team: Team, event_name: str) -> str | None:
 def _get_event_definition_descriptions(
     team: Team, event_names: list[str], already_described: dict[str, str]
 ) -> dict[str, str]:
-    """Map event name -> user-authored description from the team's event definitions.
+    """Map event name -> user-authored description from the project's event definitions.
 
     Only the enterprise `EventDefinition` model carries a `description` field, so this is a no-op
     on non-EE builds. Skips core taxonomy events and events already described via context, and
@@ -316,12 +322,17 @@ def _get_event_definition_descriptions(
         if name not in already_described
         and name != "All events"
         and name not in CORE_FILTER_DEFINITIONS_BY_GROUP["events"]
-    ]
+    ][:_MAX_EVENT_DEFINITION_LOOKUP_NAMES]
     if not names_to_fetch:
         return {}
 
     rows = (
-        EnterpriseEventDefinition.objects.filter(team_id=team.pk, name__in=names_to_fetch)
+        EnterpriseEventDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+        .filter(
+            # Definitions are project-scoped with a team-scoped legacy fallback; mirrors posthog/api/event_definition.py.
+            effective_project_id=team.project_id,
+            name__in=names_to_fetch,
+        )
         .exclude(description__isnull=True)
         .exclude(description="")
         .values_list("name", "description")
