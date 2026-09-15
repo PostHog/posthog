@@ -197,5 +197,5 @@ class TestDispatchWizardStampRescore:
         connect, run = self._dispatch_mocks()
         with patch(f"{_TRIGGER_MODULE}._dispatch_slots", full):
             with connect as connect_mock, run:
-                dispatch_wizard_stamp_rescore("org-1")
+                assert dispatch_wizard_stamp_rescore("org-1") is False
         connect_mock.assert_not_called()

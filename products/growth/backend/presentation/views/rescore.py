@@ -36,7 +36,7 @@ class RescoreRequestSerializer(serializers.Serializer):
 class RescoreResponseSerializer(serializers.Serializer):
     queued = serializers.BooleanField(help_text="Whether the re-score workflow was dispatched.")
     reason = serializers.ChoiceField(
-        choices=["disabled", "no_enrichment_record"],
+        choices=["disabled", "no_enrichment_record", "dispatch_backlog_full"],
         allow_null=True,
         help_text="Why nothing was dispatched. Null when queued.",
     )

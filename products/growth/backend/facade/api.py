@@ -8,7 +8,7 @@ from posthog.utils import get_instance_region
 from products.growth.backend.models import OrganizationEnrichment
 from products.growth.backend.temporal.signup_enrichment.trigger import dispatch_wizard_stamp_rescore
 
-WizardStampRescoreSkipReason = Literal["disabled", "no_enrichment_record"]
+WizardStampRescoreSkipReason = Literal["disabled", "no_enrichment_record", "dispatch_backlog_full"]
 
 
 @frozen
@@ -32,5 +32,6 @@ def request_wizard_stamp_rescore(organization_id: str) -> WizardStampRescoreOutc
     if not OrganizationEnrichment.objects.filter(organization_id=organization_id).exists():
         return WizardStampRescoreOutcome(queued=False, reason="no_enrichment_record")
 
-    dispatch_wizard_stamp_rescore(organization_id)
+    if not dispatch_wizard_stamp_rescore(organization_id):
+        return WizardStampRescoreOutcome(queued=False, reason="dispatch_backlog_full")
     return WizardStampRescoreOutcome(queued=True)

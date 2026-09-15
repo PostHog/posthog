@@ -79288,6 +79288,7 @@ export namespace Schemas {
     /**
      * * `disabled` - disabled
      * * `no_enrichment_record` - no_enrichment_record
+     * * `dispatch_backlog_full` - dispatch_backlog_full
      */
     export type RescoreResponseReasonEnum = typeof RescoreResponseReasonEnum[keyof typeof RescoreResponseReasonEnum];
 
@@ -79295,6 +79296,7 @@ export namespace Schemas {
     export const RescoreResponseReasonEnum = {
       Disabled: 'disabled',
       NoEnrichmentRecord: 'no_enrichment_record',
+      DispatchBacklogFull: 'dispatch_backlog_full',
     } as const;
 
     export interface RescoreResponse {
@@ -79303,7 +79305,8 @@ export namespace Schemas {
       /** Why nothing was dispatched. Null when queued.
        *
        * * `disabled` - disabled
-       * * `no_enrichment_record` - no_enrichment_record */
+       * * `no_enrichment_record` - no_enrichment_record
+       * * `dispatch_backlog_full` - dispatch_backlog_full */
       reason: RescoreResponseReasonEnum | null;
     }
 

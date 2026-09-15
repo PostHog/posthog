@@ -88,22 +88,24 @@ def start_signup_enrichment_workflow(
     transaction.on_commit(lambda: _submit_dispatch(inputs))
 
 
-def dispatch_wizard_stamp_rescore(organization_id: str) -> None:
+def dispatch_wizard_stamp_rescore(organization_id: str) -> bool:
     """Shares the bounded dispatch pool with signup dispatch so an unreachable Temporal can't pile up threads on the web pod, same as it does for signups."""
-    _submit_rescore_dispatch(organization_id)
+    return _submit_rescore_dispatch(organization_id)
 
 
-def _submit_rescore_dispatch(organization_id: str) -> None:
+def _submit_rescore_dispatch(organization_id: str) -> bool:
     if not _dispatch_slots.acquire(blocking=False):
         logger.warning(
             "wizard_stamp_rescore_dispatch_dropped", organization_id=organization_id, reason="dispatch_backlog_full"
         )
-        return
+        return False
     try:
         _dispatch_executor.submit(_rescore_dispatch_and_release, organization_id)
     except Exception as e:
         _dispatch_slots.release()
         capture_exception(e)
+        return False
+    return True
 
 
 def _rescore_dispatch_and_release(organization_id: str) -> None:

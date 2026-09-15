@@ -172,6 +172,7 @@ export interface RescoreRequestApi {
 /**
  * * `disabled` - disabled
  * * `no_enrichment_record` - no_enrichment_record
+ * * `dispatch_backlog_full` - dispatch_backlog_full
  */
 export type RescoreResponseReasonEnumApi =
     (typeof RescoreResponseReasonEnumApi)[keyof typeof RescoreResponseReasonEnumApi]
@@ -179,6 +180,7 @@ export type RescoreResponseReasonEnumApi =
 export const RescoreResponseReasonEnumApi = {
     Disabled: 'disabled',
     NoEnrichmentRecord: 'no_enrichment_record',
+    DispatchBacklogFull: 'dispatch_backlog_full',
 } as const
 
 export interface RescoreResponseApi {
@@ -187,7 +189,8 @@ export interface RescoreResponseApi {
     /** Why nothing was dispatched. Null when queued.
      *
      * * `disabled` - disabled
-     * * `no_enrichment_record` - no_enrichment_record */
+     * * `no_enrichment_record` - no_enrichment_record
+     * * `dispatch_backlog_full` - dispatch_backlog_full */
     reason: RescoreResponseReasonEnumApi | null
 }
 

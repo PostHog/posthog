@@ -95,6 +95,15 @@ class TestGrowthEnrichmentRescoreAPI(APIBaseTest):
         assert response.json() == {"queued": True, "reason": None}
         dispatch_mock.assert_called_once_with(str(self.organization.id))
 
+    def test_full_dispatch_pool_returns_queued_false(self):
+        OrganizationEnrichment.objects.create(organization=self.organization)
+        with patch(f"{_MODULE}.dispatch_wizard_stamp_rescore", return_value=False) as dispatch_mock:
+            response = self._post(str(self.organization.id))
+
+        assert response.status_code == 202
+        assert response.json() == {"queued": False, "reason": "dispatch_backlog_full"}
+        dispatch_mock.assert_called_once_with(str(self.organization.id))
+
     def test_unknown_organization_id_returns_no_enrichment_record(self):
         with patch(f"{_MODULE}.dispatch_wizard_stamp_rescore") as dispatch_mock:
             response = self._post(str(uuid.uuid4()))
