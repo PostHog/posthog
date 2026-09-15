@@ -59,13 +59,23 @@ Compare `labeled_outcome` on the thumbs-downed `yes` cases against a run without
 
 ## Running it on a GitHub runner
 
-`.github/workflows/ci-replay-vision-evals.yml` runs the same loop on an ephemeral runner, on manual dispatch only, with `per_type` and `trials` as inputs (GitHub only offers the dispatch once the workflow is on master).
-It is deliberately not attached to `pull_request`: Gemini is nondeterministic and the dataset is re-sampled per run, so the score is a directional signal rather than a merge gate, and spending secrets and LLM calls on every push buys nothing that a dispatch after a prompt change does not.
+`.github/workflows/ci-replay-vision-evals.yml` runs the same loop on an ephemeral runner.
+It fires on manual dispatch (with `per_type` and `trials` inputs) and on a pull request that changes the scanner prompts, the scan pipeline (`call_scanner_provider.py`), the model config (`gemini.py`), or the eval suite itself.
+A PR run collects a fixed 20 cases per type; a dispatch uses its inputs.
+
+It is advisory, never a merge gate, and it does not fire on other Replay Vision changes (UI, API, unrelated backend): the suite only measures scan quality, so it triggers on the code that changes scan output, not on every push.
+Gemini is nondeterministic and the dataset is re-sampled per run, so the score is directional. Read `labeled_outcome` and `output_stability` together: a change that only adds churn shows `labeled_outcome` flat or up while `output_stability` drops.
 
 It collects a fresh dataset on the runner (so consent is re-verified every run; nothing is cached, uploaded, or persisted), runs the suite, and writes the aggregate scores to the job's step summary.
 The summary also links the run's `/ai-evals` offline experiment, where the harness publishes the same scores.
 Only those allowlisted summary lines are public: collector and harness output stay in runner-local files, because they carry session and observation ids.
 The job needs `REPLAY_VISION_EVAL_POSTHOG_API_KEY` (a personal API key with scanner, session recording, export, and query read access to the dogfood project) plus the `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `BRAINTRUST_API_KEY` secrets `ci-ai.yml` already uses; if any is missing the job skips green and warns which.
+
+### The benchmark, and its one limit
+
+Each case carries the recorded production output and the human thumbs label, and the scorers grade the PR's prompts against those, so one run already benchmarks a prompt change against production.
+What it is not yet is a standing benchmark comparable across PRs and over time: the collector re-samples per run (deterministic for a fixed source, but the source drifts as observations accumulate and expire), so run-over-run score deltas mix a prompt change with a set change.
+A dataset pinned to the same sessions every run would fix that. It needs two things this workflow deliberately does not do: an internal store to hold the pinned set (the recordings cannot live in this public repo, and the consent model refuses a set older than 30 days), and a data-governance decision on persisting a curated set of customer recordings for reuse. Until both exist, the per-run benchmark above is the signal.
 
 ## Data handling
 
