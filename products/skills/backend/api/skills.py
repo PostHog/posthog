@@ -110,8 +110,8 @@ from .skill_serializers import (
     LLMSkillSerializer,
     LLMSkillVersionSummarySerializer,
     validate_allowed_tool,
+    validate_new_skill_name_value,
     validate_skill_body_size,
-    validate_skill_name_value,
 )
 from .skill_services import (
     LLMSkillDescriptionTooLongError,
@@ -1248,11 +1248,11 @@ class LLMSkillViewSet(
         # (oversized body/files, whitespace-bearing tools) the rest of the system assumes is bounded.
         # _spec_problem_messages already covers the description, the name shape and the file paths.
         problems: list[str] = _spec_problem_messages(skill_export)
-        # The reserved-name rule is all this adds on top of the shape rules above, so calling it for
-        # a malformed name would report that defect twice.
+        # The reserved-name and bundled-name rules are all this adds on top of the shape rules
+        # above, so calling it for a malformed name would report that defect twice.
         if skill_name_is_well_formed(skill_export.name):
             try:
-                validate_skill_name_value(skill_export.name)
+                validate_new_skill_name_value(skill_export.name)
             except serializers.ValidationError as err:
                 problems.append(f"name: {self._first_error(err)}")
         try:

@@ -680,6 +680,10 @@ depends_on = [
     "products.event_definitions",
     "products.ai_observability",
     "products.logs",
+    # The skill build reads the bundled-skill names the skills store validates against, so the
+    # two sides share one definition. The skills product has no facade, so this matches how
+    # review_hog, signals and tasks reach it.
+    "products.skills",
     "products.tasks",
 ]
 layer = "modules"

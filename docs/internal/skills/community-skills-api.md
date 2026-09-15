@@ -50,6 +50,11 @@ Because catalog content originates outside the app, the install path re-validate
 trusting the sync:
 
 - Bundled file paths and sizes are re-checked with the same guards as normal skill creation.
+- The target name is held to the rule a new store skill is held to, which refuses the name of a skill
+  PostHog bundles (`bundled_skill_names()` in `products/skills/backend/bundled_skills.py`). Both sets
+  of skills reach an agent host under one name space, so a store skill under a bundled name leaves the
+  host unable to tell which skill an agent asked for. Install such an entry under a different
+  `new_name`.
 - Installs into auto-running namespaces are refused: the `signals-scout-` and `review-hog-` prefixes,
   whose skills PostHog registers and runs on its own (Signals scouts run with privileged scopes,
   ReviewHog skills auto-enable in a team's PR reviews). The whole `review-hog-` prefix is reserved,
@@ -91,7 +96,8 @@ After a conflict, retrieve the skill again and require new consent before anothe
   also accepts a personal API key, and the inherited throttle key prefers the key hash, so one member
   with several keys would otherwise get a fresh budget with each of them. The API-shaped
   `BurstRateThrottle` would not fire here at all: it only counts personal-API-key traffic.
-- The slug is held to the same rule ingest applies (`SKILL_NAME_PATTERN`, no reserved name), and body,
+- The slug is held to the same rule ingest applies (`SKILL_NAME_PATTERN`, no reserved name, no name
+  PostHog bundles), and body,
   file count, and per-file size to the same caps, so a publish that ingest would silently drop is
   refused before the pull request exists. The manifest is also checked for paths that differ only by
   case and for a name used as both a file and a folder, neither of which a git tree can hold.
