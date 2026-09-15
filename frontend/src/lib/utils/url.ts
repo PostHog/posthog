@@ -139,7 +139,9 @@ export function isDomain(url: string | URL): boolean {
         const parsedUrl = typeof url === 'string' ? new URL(url) : url
         // Trailing slashes do not make a path, but everything else does, including the `//host`
         // path that a doubled protocol such as `https://https://example.com` parses into.
-        return parsedUrl.pathname.replace(/\/+$/, '') === ''
+        // The match is start-anchored, because an end-anchored one retries at every slash and
+        // takes quadratic time on a long run of slashes.
+        return parsedUrl.pathname === '' || /^\/+$/.test(parsedUrl.pathname)
     } catch {
         return false
     }
