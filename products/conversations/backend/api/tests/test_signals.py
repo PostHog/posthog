@@ -110,6 +110,15 @@ class TestTicketMessageSignals(BaseTest):
         self.ticket.refresh_from_db()
         assert "human_outcome" not in (self.ticket.ai_triage or {})
 
+    def test_public_ai_reply_is_not_treated_as_a_draft(self, mock_on_commit):
+        draft = "Add the snippet to the head of every page."
+        self._create_ai_message(draft)
+        self._create_ai_message("Totally different automated billing answer.", is_private=False)
+        self._create_team_message(draft)
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.ai_triage["human_outcome"] == "used"
+
     def test_human_reply_before_ai_note_does_not_block_later_outcome(self, mock_on_commit):
         draft = "Add the snippet to the head of every page."
         self._create_team_message("Looking into this.")

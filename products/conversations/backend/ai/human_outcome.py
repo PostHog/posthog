@@ -68,8 +68,13 @@ def maybe_record_human_outcome(*, team_id: int, ticket_id: str, comment_id: str,
         before_this = Q(created_at__lt=this_comment.created_at) | Q(
             created_at=this_comment.created_at, id__lt=this_comment.id
         )
+        # Only private AI notes are drafts a human can adopt. A public AI reply was auto-sent
+        # to the customer, so a later human reply is a follow-up, not adoption of a draft.
         ai_note = (
-            comments.filter(item_context__author_type="AI").filter(before_this).order_by("-created_at", "-id").first()
+            comments.filter(item_context__author_type="AI", item_context__is_private=True)
+            .filter(before_this)
+            .order_by("-created_at", "-id")
+            .first()
         )
         if ai_note is None or not (ai_note.content or "").strip():
             return
