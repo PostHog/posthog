@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import type { BreakPointFunction } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -257,7 +258,7 @@ export interface scannerScoutLogicActions {
         scoutReports: ScoutReportApi[]
         payload?: any
     }
-    loadSkillPrompt: () => any
+    loadSkillPrompt: (_: void) => void
     loadSkillPromptFailure: (
         error: string,
         errorObject?: any
@@ -271,14 +272,14 @@ export interface scannerScoutLogicActions {
             latestVersion: number
             skillName: string
         } | null,
-        payload?: any
+        payload?: void
     ) => {
         skillPrompt: {
             body: string
             latestVersion: number
             skillName: string
         } | null
-        payload?: any
+        payload?: void
     }
     openCreateModal: (templateKey: ScannerScoutTemplateKey) => {
         templateKey: ScannerScoutTemplateKey
@@ -406,7 +407,7 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
         skillPrompt: [
             null as ScoutPrompt | null,
             {
-                loadSkillPrompt: async (_: any, breakpoint: () => void) => {
+                loadSkillPrompt: async (_: void, breakpoint: BreakPointFunction) => {
                     const projectId = teamLogic.values.currentProjectId
                     const skillName = values.settingsSkillName
                     if (!projectId || !skillName) {
