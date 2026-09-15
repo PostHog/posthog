@@ -878,6 +878,46 @@ class LLMSkillResolveResponseSerializer(serializers.Serializer):
     has_more = serializers.BooleanField()
 
 
+@extend_schema_field(
+    {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "description": {"type": "string"},
+            "license": {"type": "string"},
+            "compatibility": {"type": "string"},
+            "metadata": {"type": "object", "additionalProperties": {"type": "string"}},
+            "allowed-tools": {"type": "string"},
+        },
+        "required": ["name", "description", "metadata"],
+    }
+)
+class SkillFrontmatterField(serializers.DictField):
+    """The Agent Skills frontmatter mapping, passed through with the spec's own key names.
+
+    ``allowed-tools`` is hyphenated in the spec, so the mapping is served verbatim instead of
+    through declared fields: a client must be able to compare it to ``yaml.safe_load`` of the
+    block in ``content`` key for key.
+    """
+
+
+class LLMSkillMarkdownSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Name of the skill, which is also its directory name.")
+    version = serializers.IntegerField(help_text="Version of the skill that this SKILL.md was rendered from.")
+    content = serializers.CharField(
+        help_text=(
+            "The complete SKILL.md file: the YAML frontmatter block, a blank line, then the skill body. "
+            "Serve these bytes as the file; a digest must be taken over this exact string."
+        )
+    )
+    frontmatter = SkillFrontmatterField(
+        help_text=(
+            "The frontmatter block of content as a JSON object. Equal to yaml.safe_load of that block, "
+            "so a listing can carry the same fields the file carries."
+        )
+    )
+
+
 class LLMSkillFileCreateSerializer(LLMSkillFileInputSerializer):
     base_version = serializers.IntegerField(
         min_value=1,
