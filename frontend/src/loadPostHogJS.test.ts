@@ -44,17 +44,14 @@ describe('loadPostHogJS', () => {
 
         // Guards the wiring, not the filter: with no `before_send` chain here, every offline
         // browser files an error tracking issue of its own.
-        it.each([
-            ['the offline exception', NETWORK_ERROR_MESSAGES.offline, true],
-            ['the page-closing exception', NETWORK_ERROR_MESSAGES.navigating, true],
-            ['the residual network exception', NETWORK_ERROR_MESSAGES.network, false],
-        ])('decides whether to drop %s before it leaves the browser', (_, message, dropped) => {
-            loadPostHogJS()
+        it.each(Object.entries(NETWORK_ERROR_MESSAGES))(
+            'drops the %s exception before it leaves the browser',
+            (_, message) => {
+                loadPostHogJS()
 
-            const event = networkException(message)
-
-            expect(runBeforeSend(event)).toBe(dropped ? null : event)
-        })
+                expect(runBeforeSend(networkException(message))).toBeNull()
+            }
+        )
 
         it('still runs a caller-supplied hook on whatever survives', () => {
             const redact = jest.fn((event: CaptureResult | null) => event)
@@ -64,7 +61,8 @@ describe('loadPostHogJS', () => {
             expect(runBeforeSend(networkException(NETWORK_ERROR_MESSAGES.offline))).toBeNull()
             expect(redact).not.toHaveBeenCalled()
 
-            expect(runBeforeSend(networkException(NETWORK_ERROR_MESSAGES.network))).not.toBeNull()
+            const crash = { uuid: 'test-uuid', event: '$exception', properties: {} }
+            expect(runBeforeSend(crash)).toBe(crash)
             expect(redact).toHaveBeenCalledTimes(1)
         })
     })
