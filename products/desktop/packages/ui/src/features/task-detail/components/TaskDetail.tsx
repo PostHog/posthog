@@ -134,17 +134,21 @@ export function TaskDetail({
   const handleTitleEditCancel = useCallback(() => {
     setEditingTaskId(null);
   }, []);
-  // Inside a channel the thread also gets a "copy link" share affordance.
-  // Memoized so the headerContent memo below isn't busted by unrelated renders.
+  const workspace = useWorkspace(taskId);
+  const workspaceMode = workspace?.mode;
+  const branchName =
+    workspace?.branchName ?? task.latest_run?.branch ?? undefined;
   const trailing = useMemo(
     () =>
       channelId ? (
-        <CopyThreadLinkButton channelId={channelId} taskId={taskId} />
+        <CopyThreadLinkButton
+          branchName={branchName}
+          channelId={channelId}
+          taskId={taskId}
+        />
       ) : null,
-    [channelId, taskId],
+    [branchName, channelId, taskId],
   );
-  const workspace = useWorkspace(taskId);
-  const workspaceMode = workspace?.mode;
   const headerContent = useMemo(
     () =>
       // Inside a channel, prefix the editable title with the channel

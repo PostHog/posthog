@@ -1,36 +1,68 @@
-import { LinkIcon } from "@phosphor-icons/react";
+import { CopyIcon, DotsThreeIcon, LinkIcon } from "@phosphor-icons/react";
 import {
   Button,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
 } from "@posthog/quill";
 import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
+import { toast } from "@posthog/ui/primitives/toast";
 
-// Header affordance on a thread (channel-filed task): copies the thread's
-// shareable https link, which deep-links back into this exact thread.
 export function CopyThreadLinkButton({
+  branchName,
   channelId,
   taskId,
 }: {
+  branchName?: string;
   channelId: string;
   taskId: string;
 }) {
+  const copyBranchName = async (): Promise<void> => {
+    if (!branchName) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(branchName);
+      toast.success("Branch name copied");
+    } catch {
+      toast.error("Couldn't copy branch name");
+    }
+  };
+
   return (
-    <Tooltip>
-      <TooltipTrigger
+    <DropdownMenu>
+      <DropdownMenuTrigger
         render={
           <Button
             size="icon-sm"
-            aria-label="Copy link to thread"
+            aria-label="Thread actions"
             className="no-drag"
-            onClick={() => void copyChannelLink(channelId, "title_bar", taskId)}
-          >
-            <LinkIcon size={14} />
-          </Button>
+            data-attr="thread-actions-menu"
+          />
         }
-      />
-      <TooltipContent side="bottom">Copy link to thread</TooltipContent>
-    </Tooltip>
+      >
+        <DotsThreeIcon size={14} weight="bold" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-auto">
+        <DropdownMenuItem
+          data-attr="copy-thread-link"
+          onClick={() => void copyChannelLink(channelId, "title_bar", taskId)}
+        >
+          <LinkIcon size={13} />
+          Copy link to thread
+        </DropdownMenuItem>
+        {branchName ? (
+          <DropdownMenuItem
+            data-attr="copy-thread-branch-name"
+            onClick={() => void copyBranchName()}
+          >
+            <CopyIcon size={13} />
+            Copy branch name
+          </DropdownMenuItem>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
