@@ -3,9 +3,11 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
+import { NetworkError, isTransientServerError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { retryWithBackoff } from 'lib/utils/async'
 import { objectsEqual } from 'lib/utils/objects'
 
 import { experimentsConfigLogic } from '~/scenes/settings/environment/experimentsConfigLogic'
@@ -247,7 +249,8 @@ export interface runningTimeLogicMeta {
             targetSampleSize: number | null,
             currentExposures: number | null,
             dailyExposureRate: number | null,
-            experiment: Experiment
+            experiment: Experiment,
+            isManualMode: boolean
         ) => number | null
         isComplete: (currentExposures: number | null, targetSampleSize: number | null) => boolean
         manualFormPreview: (
@@ -334,7 +337,19 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
             null as RunningTimeCalculationResultApi | null,
             {
                 loadAutomaticCalculation: async (input: RunningTimeCalculationInputApi, breakpoint) => {
-                    const result = await experimentsCalculateRunningTimeCreate(String(values.currentProjectId), input)
+                    // The input subscription does not re-fire on an unchanged input, so a failure here
+                    // leaves the estimate empty for the rest of the page session. Retry a request that
+                    // never reached the server or hit a transient gateway (502/503/504), because both
+                    // usually succeed on a second attempt. A 4xx or a plain 500 would fail the same way,
+                    // so it is not retried.
+                    const result = await retryWithBackoff(
+                        () => experimentsCalculateRunningTimeCreate(String(values.currentProjectId), input),
+                        {
+                            maxAttempts: 2,
+                            initialDelayMs: 300,
+                            shouldRetry: (error) => error instanceof NetworkError || isTransientServerError(error),
+                        }
+                    )
                     breakpoint()
                     return result
                 },
@@ -512,6 +527,9 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 automaticInput: RunningTimeCalculationInputApi | null,
                 automaticCalculation: RunningTimeCalculationResultApi | null
             ): number | null => {
+                // Manual mode persists a sample size the user sets before launch, so read it.
+                // A draft in automatic mode has no results to compute one, and any saved sample size
+                // it holds was copied from a source run by duplicate or reset, so do not read it.
                 if (isManualMode) {
                     // Persisted by the save listener from the same backend calculation.
                     return experiment?.running_time_calculation?.recommended_sample_size ?? null
@@ -538,13 +556,24 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
 
         // Days until we reach target sample size
         remainingDays: [
-            (s) => [s.targetSampleSize, s.currentExposures, s.dailyExposureRate, s.experiment],
+            (s) => [s.targetSampleSize, s.currentExposures, s.dailyExposureRate, s.experiment, s.isManualMode],
             (
                 target: number | null,
                 current: number | null,
                 rate: number | null,
-                experiment: Experiment
+                experiment: Experiment,
+                isManualMode: boolean
             ): number | null => {
+                // A manual draft holds an estimate the user calculated before launch, so read it rather
+                // than recomputing, which keeps the header, the calculator modal and the experiments list
+                // in agreement. A negative value is not a duration. An automatic draft never produces its
+                // own estimate, so any value it holds was copied from a source run by duplicate or reset
+                // and must not be shown as this draft's duration.
+                const savedRunningTime = experiment?.running_time_calculation?.recommended_running_time
+                if (!isLaunched(experiment) && isManualMode && savedRunningTime != null && savedRunningTime >= 0) {
+                    return savedRunningTime
+                }
+
                 if (!target || target <= 0 || !rate || rate <= 0) {
                     return null
                 }
