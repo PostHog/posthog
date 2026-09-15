@@ -22,10 +22,7 @@ use personhog_proto::personhog::lifecycle::v1::{DeletePersonOutcome, DeletePerso
 impl TestContext {
     fn lifecycle_service(&self) -> PersonHogLifecycleService {
         let engine = Arc::new(self.engine());
-        let leader = Arc::new(SimLeader::new(
-            self.pool.clone(),
-            self.tables.person.clone(),
-        ));
+        let leader = Arc::new(SimLeader::new(self.pool.clone(), self.tables.clone()));
         PersonHogLifecycleService::new(
             engine,
             leader.clone(),
@@ -557,7 +554,7 @@ impl FencedHarness {
     async fn new() -> Self {
         let ctx = TestContext::new().await;
         let engine = ctx.engine();
-        let leader = Arc::new(SimLeader::new(ctx.pool.clone(), ctx.tables.person.clone()));
+        let leader = Arc::new(SimLeader::new(ctx.pool.clone(), ctx.tables.clone()));
         let driver = DeleteDriver::new(
             leader.clone(),
             ctx.tables.clone(),

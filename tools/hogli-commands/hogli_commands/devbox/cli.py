@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import sys
 import errno
+import shlex
 import shutil
 import socket
 import tempfile
@@ -44,7 +45,6 @@ from .coder import (
     coder_installed,
     coder_reachable,
     coder_ssh_alias_configured,
-    create_task,
     create_workspace,
     delete_user_secret,
     delete_workspace,
@@ -110,17 +110,16 @@ from .config import (
 _LEGACY_KEYCHAIN_SERVICE = "posthog-claude-oauth-token"
 _POSTHOG_COMMIT_SIGNING_HANDBOOK_URL = "https://posthog.com/handbook/engineering/security#commit-signing"
 
-# Reaching a devbox requires a Tailscale ACL grant. Engineers get it from
-# group:engineering in the cloud-infra tailnet policy; without it the Coder
-# control plane (10.70.0.1:443) is simply unroutable and every devbox command
-# fails at the reachability check.
-_TAILNET_POLICY_URL = "https://github.com/PostHog/posthog-cloud-infra/blob/main/tailnet-policy.hujson"
+# Reaching a devbox requires a Tailscale ACL grant. The cloud-infra tailnet
+# policy grants group:employees the remote-dev VPC (10.70.0.0/16) that hosts the
+# Coder control plane; without it every devbox command fails at the
+# reachability check.
 _TAILNET_ACCESS_PREREQ = (
-    f"Devbox access needs you on the `{EXPECTED_TAILNET}` tailnet (not dev / "
-    "prod-us / prod-eu / internal — those are for CI runners and subnet "
-    "routers), with your email in `group:engineering` in "
-    "posthog-cloud-infra/tailnet-policy.hujson.\n"
-    f"    Not granted yet? Add yourself via PR: {_TAILNET_POLICY_URL}"
+    f"Devbox access needs you on the `{EXPECTED_TAILNET}` tailnet. The dev, "
+    "prod-us, prod-eu and internal tailnets are for CI runners and subnet "
+    "routers and don't reach devboxes. Every PostHog employee has access "
+    "through `group:employees` in posthog-cloud-infra/tailnet-policy.hujson.\n"
+    "    Still blocked on the right tailnet? Ask Team DevEx."
 )
 
 WORKSPACE_STATUS_COLORS = {
@@ -842,9 +841,9 @@ def devbox_doctor() -> None:
 
     Safe for an agent to run as a probe -- it never prompts or mutates host
     config the way `devbox:setup` does. Run it first when a devbox command
-    fails, and as step zero of the `setting-up-devbox` skill. The tailnet ACL
-    grant is the prerequisite people most often miss, so it is surfaced
-    explicitly whenever the control plane is unreachable.
+    fails, and as step zero of the `setting-up-devbox` skill. The wrong tailnet
+    is the prerequisite people most often miss, so the access prerequisite is
+    surfaced explicitly whenever the control plane is unreachable.
     """
     click.echo(click.style("Devbox doctor", bold=True))
     click.echo(f"  Coder URL: {get_coder_url()}")
@@ -948,7 +947,7 @@ def maybe_configure_claude_secret(configure_claude: bool | None, *, known_secret
         click.echo()
         click.echo(click.style("Claude Code: migrating Keychain token to a Coder user secret", bold=True))
         click.echo("  hogli now stores the Claude OAuth token as a Coder user secret so that")
-        click.echo("  workspaces -- and devbox:task runs -- pick it up automatically.")
+        click.echo("  workspaces pick it up automatically.")
         if click.confirm("Migrate the existing Keychain entry now?", default=True):
             upsert_user_secret(
                 CLAUDE_CODE_OAUTH_ENV,
@@ -964,7 +963,7 @@ def maybe_configure_claude_secret(configure_claude: bool | None, *, known_secret
 
     click.echo()
     click.echo(click.style("Claude Code (optional)", bold=True))
-    click.echo("  Workspaces and devbox:task runs can use Claude Code if you provide an OAuth token.")
+    click.echo("  Workspaces can use Claude Code if you provide an OAuth token.")
     click.echo("  The token will be stored as a Coder user secret and injected as")
     click.echo(f"  ${CLAUDE_CODE_OAUTH_ENV} into every workspace you start.")
     click.echo("  To generate one, run `claude setup-token` in another terminal.")
@@ -1750,51 +1749,6 @@ def devbox_logs(workspace: str | None, follow: bool) -> None:
     logs_replace(name, follow)
 
 
-@click.command(name="devbox:task", short_help="Run a background agent task on a fresh devbox")
-@click.argument("prompt", required=False)
-@click.option("--name", "task_name", default=None, help="Task name (auto-generated if omitted)")
-@click.option("-q", "--quiet", is_flag=True, help="Only print the created task's ID")
-@click.option(
-    "-t",
-    "--template",
-    default=DEFAULT_TEMPLATE,
-    show_default=True,
-    help="Coder workspace template to run the task on",
-)
-def devbox_task(prompt: str | None, task_name: str | None, quiet: bool, template: str) -> None:
-    """Start a background Coder task on the chosen workspace template.
-
-    The Coder deployment provisions a fresh workspace per task and hands the
-    prompt to the agent configured in the template. Pass the prompt as a
-    positional argument or pipe it via stdin.
-
-    \b
-    Examples:
-      hogli devbox:task "fix CI on PR #1234"
-      cat prompt.txt | hogli devbox:task
-    """
-    if prompt is None and click.get_text_stream("stdin").isatty():
-        raise click.UsageError(
-            "Provide a prompt as an argument, or pipe it via stdin.\n"
-            'Example: hogli devbox:task "document the ingestion pipeline"'
-        )
-    ensure_runtime_ready()
-    if server_supports_user_secrets() and not has_claude_oauth_secret():
-        click.echo(
-            click.style(
-                f"Warning: no '{CLAUDE_CODE_OAUTH_ENV}' Coder user secret set; the task will run without Claude auth.",
-                fg="yellow",
-            ),
-            err=True,
-        )
-        click.echo(
-            "  Run `hogli devbox:setup --configure-claude` (or `hogli devbox:secret:set "
-            f"{CLAUDE_CODE_OAUTH_ENV}`) to set it.",
-            err=True,
-        )
-    create_task(prompt, task_name=task_name, quiet=quiet, template=template)
-
-
 def _ensure_user_secrets_supported() -> None:
     """Fail fast when the Coder server does not support user secrets."""
     if server_supports_user_secrets():
@@ -2078,12 +2032,14 @@ def devbox_cleanup_disk(workspace: str | None, prune_docker: bool, prune_cargo: 
             _fail(
                 "SSH access for devboxes isn't configured. Run `hogli devbox:setup` (it runs `coder config-ssh`), then retry."
             )
-        remote_cmd = ["hogli", "devbox:cleanup:disk"]
+        remote_cmd = ["./bin/hogli", "devbox:cleanup:disk"]
         if prune_docker:
             remote_cmd.append("--docker")
         if prune_cargo:
             remote_cmd.append("--cargo")
-        exec_replace(name, remote_cmd)
+        # `hogli` is not on the devbox PATH, even in a login shell, so run the
+        # checkout's copy from inside the repo.
+        exec_replace(name, ["bash", "-lc", f"cd ~/posthog && {shlex.join(remote_cmd)}"])
         return  # unreachable; exec_replace replaces the process
 
     home = Path.home()

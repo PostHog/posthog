@@ -9,7 +9,6 @@ import parserRecipeReference from './aiObservability/parserRecipeReference'
 import debugMcpUiApps from './debug/debugMcpUiApps'
 // Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
 import getExperimentResults from './experiments/getResults'
-import experimentListDeprecated from './experiments/listDeprecated'
 // Feature flags
 import featureFlagGetDefinitionByKey from './featureFlags/getDefinitionByKey'
 import updateFeatureFlagPreservingGroups from './featureFlags/updateFeatureFlag'
@@ -95,8 +94,6 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Experiments (results is hand-written; CRUD + lifecycle are codegen)
     'experiment-results-get': getExperimentResults,
-    // Deprecated alias for experiment-list — forwards and annotates the response.
-    'experiment-get-all': experimentListDeprecated,
 
     // Insights
     'insight-query': queryInsight,
