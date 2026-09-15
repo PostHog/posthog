@@ -99,7 +99,7 @@ class TestEmitterVersionAgainstClickHouse(ClickhouseTestMixin, BaseTest):
         # Stubbed rather than ingested: the event fixture escapes a newline, and a newline is
         # one of the characters a crafted value uses to forge a line of its own.
         self._record_taxonomy("judge_version")
-        mock_query.return_value = MagicMock(results=[(crafted, 10, 0), ("17", 0, 30)])
+        mock_query.return_value = MagicMock(results=[(crafted, 10, 0, 10, 30), ("17", 0, 30, 10, 30)])
 
         described = describe_emitter_version_shift(team=self.team, event=JUDGED, triggered_dates=["2026-09-14"])
 
@@ -124,6 +124,22 @@ class TestEmitterVersionAgainstClickHouse(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         assert describe_emitter_version_shift(team=self.team, event=JUDGED, triggered_dates=["2026-09-14"]) == ""
+
+    def test_measures_shares_against_the_period_not_the_returned_rows(self) -> None:
+        _create_person(team_id=self.team.pk, distinct_ids=["judge-0"])
+        self._record_taxonomy("judge_version")
+        self._judge("2026-09-01", "old", 10)
+        self._judge("2026-09-01", "mid", 10)
+        self._judge("2026-09-14", "mid", 10)
+        # A point-release tail that pushes the vanished version past the value limit.
+        for index in range(24):
+            self._judge("2026-09-14", f"f{index}", 1)
+        flush_persons_and_events()
+
+        described = describe_emitter_version_shift(team=self.team, event=JUDGED, triggered_dates=["2026-09-14"])
+
+        assert "old went 50% to 0% of events" in described
+        assert "mid went" not in described
 
     def test_says_nothing_when_the_event_records_no_version_property(self) -> None:
         _create_person(team_id=self.team.pk, distinct_ids=["judge-0"])

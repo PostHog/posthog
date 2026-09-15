@@ -41,8 +41,8 @@ BASELINE_DAYS = 14
 # Version-ish properties on one event are a handful; the cap only trims a pathological
 # taxonomy, and each probed property costs one query.
 MAX_PROBED_PROPERTIES = 3
-# Well above real version cardinality on a single event. Shares are computed over the
-# returned rows, so the cap has to clear the tail rather than land in it.
+# How many values the block can report on. Shares are computed over the whole period, and
+# the biggest movers are kept, so a point-release tail past this cap does not skew them.
 MAX_QUERIED_VALUES = 25
 MAX_DESCRIBED_VALUES = 5
 # Event names, property names and version values are all collected text. A real one is far
@@ -182,15 +182,23 @@ def _query_version_mix(
         query=parse_select(
             """
             SELECT
-                {version} AS value,
-                countIf(toDate(timestamp) >= toDate({window_from})) AS in_window,
-                countIf(toDate(timestamp) < toDate({window_from})) AS before
-            FROM events
-            WHERE event = {event}
-                AND toDate(timestamp) >= toDate({baseline_from})
-                AND toDate(timestamp) <= toDate({window_to})
-            GROUP BY value
-            ORDER BY in_window DESC, before DESC
+                value,
+                in_window,
+                before,
+                sum(in_window) OVER () AS window_total,
+                sum(before) OVER () AS before_total
+            FROM (
+                SELECT
+                    {version} AS value,
+                    countIf(toDate(timestamp) >= toDate({window_from})) AS in_window,
+                    countIf(toDate(timestamp) < toDate({window_from})) AS before
+                FROM events
+                WHERE event = {event}
+                    AND toDate(timestamp) >= toDate({baseline_from})
+                    AND toDate(timestamp) <= toDate({window_to})
+                GROUP BY value
+            )
+            ORDER BY abs(before / before_total - in_window / window_total) DESC, in_window DESC, before DESC
             LIMIT {limit}
             """,
             placeholders={
@@ -204,16 +212,24 @@ def _query_version_mix(
         ),
         team=team,
     )
-    rows = [(_single_line(str(row[0] or _UNSET)), int(row[1]), int(row[2])) for row in response.results or []]
-    window_total = sum(row[1] for row in rows)
-    before_total = sum(row[2] for row in rows)
+    results = response.results or []
+    if not results:
+        return []
+    # Both totals are window sums over every group, so they count the period rather than the
+    # rows the limit returned. Each row carries the same pair.
+    window_total = int(results[0][3])
+    before_total = int(results[0][4])
     if not window_total or not before_total:
         # One side of the boundary is empty, so no share is comparable — an event that only
         # started being emitted inside the window is not a version change.
         return []
     return [
-        _VersionMix(value=value, before_share=before / before_total, window_share=in_window / window_total)
-        for value, in_window, before in rows
+        _VersionMix(
+            value=_single_line(str(row[0] or _UNSET)),
+            before_share=int(row[2]) / before_total,
+            window_share=int(row[1]) / window_total,
+        )
+        for row in results
     ]
 
 
