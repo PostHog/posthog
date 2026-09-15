@@ -123,6 +123,53 @@ class TestResolver(BaseTest):
         resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
         assert resolved.limit_percent is True
 
+    @parameterized.expand(
+        [
+            ("bare string column", "distinct_id", "'distinct_id' is of type String"),
+            ("bare event property", "properties.$browser", "'properties.$browser' is of type JSON"),
+            ("bare timestamp column", "timestamp", "'timestamp' is of type DateTime"),
+            ("string literal", "'anything'", "An expression of type String can't be used as a condition"),
+        ]
+    )
+    def test_condition_operand_must_not_be_a_value(self, _name: str, condition: str, expected: str) -> None:
+        # A value in this position reaches ClickHouse as an argument of and(), which answers with
+        # "Illegal type (String) of 4 argument of function and".
+        expr = self._select(f"SELECT 1 FROM events WHERE {condition} AND event = 'test'")
+
+        with self.assertRaises(QueryError) as context:
+            resolve_types(expr, self.context, dialect="clickhouse")
+        assert expected in str(context.exception)
+
+    def test_condition_operand_allows_booleans_and_numbers(self) -> None:
+        expr = self._select("SELECT 1 FROM events WHERE 1 AND event = 'test' AND NOT (event = 'other')")
+
+        resolve_types(expr, self.context, dialect="clickhouse")
+
+    def test_condition_operand_error_suggests_a_field_that_resolves(self) -> None:
+        # The resolver names a nested property access `a__b`, which the user cannot write, so the
+        # example has to name the chain instead.
+        expr = self._select("SELECT 1 FROM events WHERE properties.a.b AND event = 'test'")
+
+        with self.assertRaises(QueryError) as context:
+            resolve_types(expr, self.context, dialect="clickhouse")
+        assert str(context.exception) == (
+            "'properties.a.b' is of type JSON, so it can't be used as a condition. "
+            "Compare it to something, for example: properties.a.b = 'some value'"
+        )
+
+        suggested = self._select("SELECT 1 FROM events WHERE properties.a.b = 'some value' AND event = 'test'")
+        resolve_types(suggested, self.context, dialect="clickhouse")
+
+    def test_condition_operand_dialect_guard(self) -> None:
+        # A direct query resolves against its target dialect. MySQL coerces a value in a condition
+        # position, so only the ClickHouse pass may reject one.
+        expr = self._select("SELECT 1 FROM events WHERE distinct_id AND event = 'test'")
+
+        resolve_types(expr, self.context, dialect="mysql")
+
+        with self.assertRaises(QueryError):
+            resolve_types(expr, self.context, dialect="clickhouse")
+
     def test_resolve_limit_percent_expression_guard_clickhouse(self):
         expr = self._select("SELECT 1 FROM events LIMIT (60 + 7) %")
 

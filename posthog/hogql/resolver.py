@@ -212,6 +212,52 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
     raise ImpossibleASTError(f"Unsupported constant type: {type(constant)}")
 
 
+# ClickHouse answers an argument of and/or/not that it cannot read as a condition with
+# "Illegal type ... of argument of function and", which names no part of the query. Float and
+# Decimal are rejected by ClickHouse too, and stay out of this list so that a numeric type can
+# never become a false positive here.
+CONDITION_INCOMPATIBLE_TYPES = (
+    ast.StringType,
+    ast.DateType,
+    ast.DateTimeType,
+    ast.ArrayType,
+    ast.TupleType,
+    ast.UUIDType,
+)
+
+
+def resolve_condition_operand_type(expr: ast.Expr, context: HogQLContext, dialect: HogQLDialect) -> ConstantType:
+    constant_type = (expr.type or ast.UnknownType()).resolve_constant_type(context)
+    # Only ClickHouse rejects these types. A direct query resolves against its target dialect, and
+    # an engine such as MySQL coerces a value in a condition position, so the query is valid there.
+    if dialect == "clickhouse" and isinstance(constant_type, CONDITION_INCOMPATIBLE_TYPES):
+        printed_type = constant_type.print_type()
+        # The resolver rewrites a column reference into a field or, for property and lazy-join
+        # access, an alias over the expression that reads it.
+        name = None
+        if isinstance(expr, ast.Field):
+            name = ".".join(str(part) for part in expr.chain)
+        elif isinstance(expr, ast.Alias):
+            # A hidden alias carries the resolver's own name for the access, which the user often
+            # cannot write: `properties.a.b` resolves to an alias named `a__b`. Read the chain under
+            # it, so that the example stays a query the user can run.
+            inner = expr.expr
+            name = (
+                ".".join(str(part) for part in inner.chain)
+                if expr.hidden and isinstance(inner, ast.Field)
+                else expr.alias
+            )
+        if name is not None:
+            raise QueryError(
+                f"'{name}' is of type {printed_type}, so it can't be used as a condition. "
+                f"Compare it to something, for example: {name} = 'some value'"
+            )
+        raise QueryError(
+            f"An expression of type {printed_type} can't be used as a condition. Compare it to something instead."
+        )
+    return constant_type
+
+
 def resolve_table_scope(table_chain: list[str], context: HogQLContext, dialect: HogQLDialect) -> ast.SelectQueryType:
     """Resolve `SELECT * FROM <table_chain>` and return its query scope — the type other expressions
     resolve against to reference the table's columns. Raises `QueryError` if the database/table is
@@ -2561,26 +2607,20 @@ class Resolver(CloningVisitor):
 
     def visit_and(self, node: ast.And):
         node = super().visit_and(node)
-        node.type = ast.BooleanType(
-            nullable=any(
-                (expr.type or ast.UnknownType()).resolve_constant_type(self.context).nullable for expr in node.exprs
-            )
-        )
+        operand_types = [resolve_condition_operand_type(expr, self.context, self.dialect) for expr in node.exprs]
+        node.type = ast.BooleanType(nullable=any(operand_type.nullable for operand_type in operand_types))
         return node
 
     def visit_or(self, node: ast.Or):
         node = super().visit_or(node)
-        node.type = ast.BooleanType(
-            nullable=any(
-                (expr.type or ast.UnknownType()).resolve_constant_type(self.context).nullable for expr in node.exprs
-            )
-        )
+        operand_types = [resolve_condition_operand_type(expr, self.context, self.dialect) for expr in node.exprs]
+        node.type = ast.BooleanType(nullable=any(operand_type.nullable for operand_type in operand_types))
         return node
 
     def visit_not(self, node: ast.Not):
         node = super().visit_not(node)
         node.type = ast.BooleanType(
-            nullable=(node.expr.type or ast.UnknownType()).resolve_constant_type(self.context).nullable
+            nullable=resolve_condition_operand_type(node.expr, self.context, self.dialect).nullable
         )
         return node
 

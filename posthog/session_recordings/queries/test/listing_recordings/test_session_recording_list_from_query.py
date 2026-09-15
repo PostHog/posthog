@@ -17,7 +17,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.conf import settings
 from django.utils.timezone import now
@@ -31,6 +31,7 @@ from posthog.schema import ActionsNode, EventsNode, PersonsOnEventsMode, Recordi
 
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import QueryError
 from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.clickhouse.client import sync_execute
@@ -5138,6 +5139,40 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
         printed_query = self._print_query(session_recording_list_instance.get_query())
 
         assert "entry_utm_source" in printed_query
+
+    def test_malformed_hogql_property_filter_is_rejected(self) -> None:
+        # A hogql filter takes its expression from the key, so a caller that puts the predicate
+        # in the value leaves a bare column behind. ClickHouse answers that with
+        # "Illegal type (String) of 4 argument of function and", which names no filter.
+        query = RecordingsQuery.model_validate(
+            {"properties": [{"key": "distinct_id", "value": "abc123", "type": "hogql"}]},
+        )
+        session_recording_list_instance = SessionRecordingListFromQuery(
+            query=query, team=self.team, hogql_query_modifiers=None
+        )
+
+        with self.assertRaises(QueryError) as context:
+            self._print_query(session_recording_list_instance.get_query())
+        assert "'distinct_id' is of type String, so it can't be used as a condition" in str(context.exception)
+
+    @patch("posthog.session_recordings.queries.session_recording_list_from_query.capture_exception")
+    def test_hogql_property_filter_is_applied_without_an_unexpected_properties_report(
+        self, mock_capture_exception: MagicMock
+    ) -> None:
+        # A hogql filter that names no event, person or session property belongs on the outer
+        # query, so it is an expected filter rather than an unexpected property.
+        query = RecordingsQuery.model_validate(
+            {"properties": [{"key": "distinct_id = 'abc123'", "type": "hogql"}]},
+        )
+        session_recording_list_instance = SessionRecordingListFromQuery(
+            query=query, team=self.team, hogql_query_modifiers=None
+        )
+
+        printed_query = self._print_query(session_recording_list_instance.get_query())
+
+        assert "abc123" not in printed_query  # the value is parameterized
+        assert "s.distinct_id" in printed_query
+        mock_capture_exception.assert_not_called()
 
     @property
     def base_time(self):
