@@ -10,6 +10,8 @@ from uuid import UUID
 
 import structlog
 
+from posthog.hogql.database.database import unentitled_system_tables
+
 from posthog.models import Team, User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -29,15 +31,13 @@ from ..models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from .checks import checks_for_subject
 from .flags import is_data_quality_checks_enabled_for_team_id
 from .subject_access import (
-    DenialContextKey,
+    NoticeReferences,
     ReferenceGate,
-    SubjectMetadata,
-    caller_denial_context,
     can_be_object_denied,
-    denial_context_key,
+    notice_references,
+    reference_gate,
     referenced_subject_names,
     referencing_check_types,
-    subject_metadata,
 )
 from .subjects import resolve_subject
 
@@ -83,8 +83,8 @@ class _WarehouseSubjectResolver(RecipientsResolver):
         # database build the referenced-subject gate runs) so a single failing check doesn't rebuild
         # it -- and its membership, role, and access-control lookups -- once per pass.
         self._access: dict[int, UserAccessControl] = access_cache if access_cache is not None else {}
-        self._gates: dict[DenialContextKey, ReferenceGate] = {}
-        self._subject_metadata: SubjectMetadata | None = None
+        self._references: NoticeReferences | None = None
+        self._unentitled: frozenset[str] | None = None
 
     def _access_of(self, user: User) -> UserAccessControl:
         access = self._access.get(user.id)
@@ -101,18 +101,11 @@ class _WarehouseSubjectResolver(RecipientsResolver):
 
     def resolve(self, target_type: TargetType, target_id: str, team_id: int | None) -> list[int]:
         user_ids = super().resolve(target_type, target_id, team_id)
-        user_ids = self.filter_by_access_control(user_ids, "query", self._team)
-        if self._subject_type == SubjectType.METRIC:
-            user_ids = self.filter_by_access_control(user_ids, "data_catalog", self._team)
         return self._filter_by_subject_access(user_ids)
 
     def _filter_by_subject_access(self, user_ids: list[int]) -> list[int]:
         # Both gates below are per-member, so they share one member query, one access-control object
         # and one denial snapshot each rather than a pass apiece.
-        if not self._object_gate_applies() and not self._reference_gate_applies():
-            return user_ids
-
-        # No warehouse access control means no denials, so skip the per-member work entirely.
         if not self._access_controls_supported(user_ids):
             return user_ids
 
@@ -128,13 +121,19 @@ class _WarehouseSubjectResolver(RecipientsResolver):
 
     def _may_receive(self, user: User) -> bool:
         access = self._access_of(user)
+        if not access.check_access_level_for_resource("query", "viewer"):
+            return False
+        if self._subject_type == SubjectType.METRIC and not access.check_access_level_for_resource(
+            "data_catalog", "viewer"
+        ):
+            return False
         if self._object_gate_applies() and not self._has_object_access(access):
             return False
         if not self._reference_gate_applies():
             return True
         if self._references_unknown and can_be_object_denied(access):
             return False
-        return self._gate_of(user).admits(self._executed_references, self._referenced_names)
+        return self._gate_of(user).admits(self._notice_references())
 
     def _has_object_access(self, access: UserAccessControl) -> bool:
         object_id = UUID(self._subject_uuid)
@@ -145,17 +144,23 @@ class _WarehouseSubjectResolver(RecipientsResolver):
         )
         return object_id in allowed_ids
 
+    def _notice_references(self) -> NoticeReferences:
+        if self._references is None:
+            self._references = notice_references(
+                self._team.id, executed_references=self._executed_references, names=self._referenced_names
+            )
+        return self._references
+
     def _gate_of(self, user: User) -> ReferenceGate:
-        access = self._access_of(user)
-        key = denial_context_key(self._team, user, access)
-        gate = self._gates.get(key)
-        if gate is None:
-            if self._subject_metadata is None:
-                self._subject_metadata = subject_metadata(self._team.id)
-            context = caller_denial_context(self._team, user, access, metadata=self._subject_metadata)
-            gate = ReferenceGate(readable=context.readable, matcher=context.matcher)
-            self._gates[key] = gate
-        return gate
+        if self._unentitled is None:
+            self._unentitled = unentitled_system_tables(self._team)
+        return reference_gate(
+            self._team,
+            user,
+            self._access_of(user),
+            references=self._notice_references(),
+            unentitled=self._unentitled,
+        )
 
 
 def notify_check_started_failing(
