@@ -90,6 +90,7 @@ frequency: "daily" | "weekly" | "monthly" | "yearly"
 interval: 1                            # 1 = every tick; 2 = every other tick; etc.
 start_date: "2026-09-15T09:30:00Z"   # anchors the recurrence + time-of-day; hour and half-hour slots are supported; need not be in the future
 title: "..."                          # display name in the subscriptions list
+send_test_now: false                   # set true only after the user approves an immediate delivery
 ```
 
 There is no `resource_type` argument to send — the kind is **derived**
@@ -100,7 +101,7 @@ from which field you set (`prompt` ⇒ AI report) and returned as the read-only 
 ```yaml
 byweekday: ['monday', 'wednesday'] # weekly only — days the rrule fires
 bysetpos: 1 # most useful with monthly; requires byweekday — e.g. byweekday:['monday']+bysetpos:-1 = last Monday
-count: 10 # cap total deliveries
+count: 10 # limit scheduled recurrence occurrences; manual and immediate deliveries do not count
 until_date: '2026-12-31T00:00:00Z' # stop on/before this date
 integration_id: 42 # Slack only — required; from integrations-list (see "Slack target")
 ```
@@ -132,6 +133,19 @@ webhook — ask the user to create it again with the same template and paste the
 later update, omit `target_value` to keep the saved URL, because the API reads it back as its host
 only and rejects that masked value.
 
+## Before creation
+
+List matching subscriptions before you create one.
+Compare the prompt, title, destination, schedule, and enabled state.
+Prompt text and titles both match `search`.
+
+Creation is not idempotent.
+If the create request times out or returns an uncertain result, list matching subscriptions before you retry.
+Do not use a masked Teams webhook host to identify a duplicate.
+
+Ask whether the user approves an immediate delivery.
+Set `send_test_now: false` unless the user approves it.
+
 ## Examples
 
 ### Weekly Monday-morning AI summary by email
@@ -145,6 +159,7 @@ interval: 1
 byweekday: ['monday']
 start_date: '2026-09-14T08:00:00Z'
 title: 'Weekly product pulse'
+send_test_now: false
 ```
 
 ### Daily Slack report at 9am
@@ -158,6 +173,7 @@ frequency: daily
 interval: 1
 start_date: '2026-09-15T09:00:00Z'
 title: 'Daily onboarding watch'
+send_test_now: false
 ```
 
 ## Pitfalls

@@ -80,8 +80,8 @@ Use these list filters when they reduce ambiguity:
 
 ### Check for duplicates
 
-Use `search` when the user supplied a title, insight name, or dashboard name.
-Prompt subscriptions match their title, not their prompt text.
+Use `search` when the user supplied a title, insight name, dashboard name, or prompt text.
+Prompt subscriptions match their title and prompt text.
 Compare the resource, destination type, target, schedule, and enabled state.
 
 A Teams result contains only the webhook host.
@@ -105,6 +105,7 @@ Check these fields after creation:
 ## Change a subscription
 
 Call `posthog:subscriptions-retrieve` before each update.
+Before an update that can send a delivery, list the current delivery IDs.
 Then call `posthog:subscriptions-partial-update` with the changed fields.
 
 Ask before an update that can send an immediate delivery.
@@ -124,12 +125,17 @@ Create a new subscription when the user wants a different resource type.
 Check the new `next_delivery_date` after a schedule update.
 An exhausted schedule cannot resume until the user extends or removes its end condition.
 
+After an update that sends a delivery, poll for a new `target_change` delivery ID.
+Read that delivery until it reaches a final state.
+Then retrieve the subscription and check its final `enabled` value.
+
 ## Test and inspect delivery
 
 1. Ask for approval unless the user already requested a test.
-2. Call `posthog:subscriptions-test-delivery-create`.
-3. Poll `posthog:subscriptions-deliveries-list` for the new manual delivery.
-4. Read the delivery when the list result needs more detail.
+2. List the current delivery IDs.
+3. Call `posthog:subscriptions-test-delivery-create`.
+4. Poll for a new manual delivery ID.
+5. Read the new delivery when the list result needs more detail.
 
 Wait between polls and stop after two minutes.
 If delivery does not reach a final state, report the last state and suggest another check later.

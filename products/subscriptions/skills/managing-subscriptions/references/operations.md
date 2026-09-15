@@ -8,7 +8,7 @@ Required create fields include `frequency`, `interval`, and `start_date`.
 - Set `interval` to 1 or greater.
 - Use `byweekday` with daily or weekly schedules.
 - Use `bysetpos` with `byweekday` for a monthly position.
-- Use `count` to limit the total deliveries.
+- Use `count` to limit scheduled recurrence occurrences.
 - Use `until_date` to set an end date.
 
 Deliveries run on half-hour cycles at `:00` and `:30`.
@@ -16,6 +16,8 @@ Other minute values move delivery to the next cycle.
 
 `start_date` can be in the past.
 It anchors the recurrence.
+Past occurrences count toward `count`.
+Create-time, manual, and target-change deliveries do not count toward it.
 The next delivery must be more than approximately 15 minutes in the future.
 
 The server calculates `next_delivery_date`.
@@ -31,7 +33,8 @@ Always check it after a create or schedule update.
 - Insight and dashboard subscriptions require viewer access to their saved resources.
 
 Delivery history for an AI prompt report hides query-derived content from callers without query access.
-The prompt and safe delivery errors remain visible.
+MCP returns delivery status but omits errors and recipient details.
+Do not infer a failure cause from status alone.
 
 ## Plan limits
 
@@ -71,6 +74,8 @@ It also requires available AI credits and an available active-summary slot.
 
 The active-summary limit applies across all projects in the organization.
 The exact limit depends on the plan.
+A paused subscription with `summary_enabled: true` still uses an active-summary slot.
+Disable its summary or delete the subscription to free the slot.
 
 If credits run out after setup, PostHog skips the summary.
 PostHog still sends the insight or dashboard snapshot.
@@ -88,6 +93,7 @@ An update can also send immediately after these changes:
 - The recipient or destination changes.
 - The source insight, dashboard, tile selection, or prompt changes.
 - The prompt report display options change.
+- The Slack dashboard image layout changes.
 - The subscription resumes.
 
 The MCP update tool cannot set `send_test_now`.
@@ -133,7 +139,7 @@ MCP hides per-recipient results, so it cannot prove success for each recipient.
 
 The list tool omits large report content and sensitive error payloads.
 Use the retrieve tool for one AI prompt report and its prompt snapshot.
-The MCP retrieve tool still omits query diagnostics and sensitive recipient data.
+The MCP retrieve tool also omits errors, query diagnostics, and recipient data.
 
 ## Failure and retry behavior
 
