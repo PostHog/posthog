@@ -9856,6 +9856,18 @@ snapshots:
         hash: v1.k794b7964.49d053d0783c37817aef5a402d8b00781837f6d4fcf96ce8018dcc439ee744f6.XDbj-HU8eX-2niM5nkM6KmkxOLY_sD30DE6_93XKRsU
     scenes-app-settings-project--settings-project-logs--light:
         hash: v1.k794b7964.a333ea2a5d4895fb9d44471c21df570ce6a1fbe00e5fe56ccde792344dccdc22.eK8MVYW-hmpPBpBMTNecSMjDDT4-7NKqh8ckYPSodS8
+    scenes-app-settings-project--settings-project-logs-json-parsing--dark:
+        hash: v1.k794b7964.4dd7cef4ac288774c712dfedf3c0be67714d4a963e50c57ebd663c99f43cfa1f.3KHt-P80xHoUjPFCizZpAwy-rRw_F5S8qyFaTjK8s8s
+    scenes-app-settings-project--settings-project-logs-json-parsing--light:
+        hash: v1.k794b7964.0b655cfce2e447cc4b2471f757908d8ec68b02250c94080f8ff771d5deae858d.rsRUzuPLmmZc8APCjoXp2LFpllzFFFC1AAThW6a-a94
+    scenes-app-settings-project--settings-project-logs-json-parsing-flag-off--dark:
+        hash: v1.k794b7964.f7c7cba0b4c2a24e13d16a45d2cbe9a2552537fea7601ce304f5f47a27c9fa7f.5rMxKeTX6477lSe2NgCz-lymXydmlFrOSs9huOA6G1I
+    scenes-app-settings-project--settings-project-logs-json-parsing-flag-off--light:
+        hash: v1.k794b7964.f7df29cade88c11f4f11f04666d7fc284d90b3097bcf0409490e8a0de4bfc9d5.LyGeqPBa8mnx7r-NpFPbtDhuytK_J_6fGgwfLe_KRNc
+    scenes-app-settings-project--settings-project-logs-json-parsing-read-only--dark:
+        hash: v1.k794b7964.078e044820cd6934002f0ae5ed97116131ec9e817b7876c1e2c2733e8897b4dc._3R8-bHvJAGFozwpJO0IYYewmRREWViRQTZWXVRuDGc
+    scenes-app-settings-project--settings-project-logs-json-parsing-read-only--light:
+        hash: v1.k794b7964.3e09846283c4bd3f8e185402c5a1284e3e379fa80d11b38873956cdbf32d5d05.BVNQhKgPK2xROesMH0UnXOGBwIFyfMnsPGdNWHQP-lU
     scenes-app-settings-project--settings-project-logs-read-only--dark:
         hash: v1.k794b7964.c48f5aa9adb1e98503493f3f36c4136cfc2846d5d447397987ffe66aa53fc690.wRENzqvVWKmuhtUr6ACFDU1LV90Lz2TZrWFc5SW_VHY
     scenes-app-settings-project--settings-project-logs-read-only--light:

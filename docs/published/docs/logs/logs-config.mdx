@@ -57,3 +57,41 @@ This setting changes only how patterns are derived. The stored log body is never
 ## Propagation
 
 A change reaches log ingestion within a few minutes. Records ingested in that window keep the patterns derived from the previous configuration.
+
+## JSON attribute parsing configuration
+
+In **Settings > Project > Logs > JSON parse log attribute**, enter one attribute key and select **Save**. Clear the key and save to turn it off. This setting is independent of **JSON parse logs**, which parses the log body. The control uses the same project-admin and Logs Editor restrictions as the other Logs settings.
+
+The project API stores the key in `logs_settings.json_parse_logs_attribute_key`, separately from the `logs_config` endpoint above:
+
+- The value must be a string. Leading and trailing whitespace is trimmed, and the trimmed key can be at most 200 characters.
+- The key is matched literally, including dots.
+- The default is off. An empty string disables parsing.
+- The API replaces the entire `logs_settings` object. Include the other current settings when updating it, as the UI does. Sending `logs_settings: null` clears all Logs settings.
+- The API schema describes the known settings and allows additional keys. The API and generated MCP clients preserve those keys.
+
+### Rollout
+
+The `logs-json-attribute-parsing` feature flag controls the setting's visibility. Saving or clearing the key uses the existing project API permissions and does not require that flag.
+
+Ingestion separately requires `LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS`: an empty value (the default) disables attribute parsing, comma-separated team IDs enable selected projects, and `*` enables all projects. Changes to this service configuration take effect when the ingestion workers restart. Removing a project from the allowlist stops extraction from new logs and preserves its saved key. Body parsing and PII scrubbing keep their existing behavior.
+
+### Ingestion and linking
+
+PostHog parses the selected attribute's JSON object or array and adds up to 50 flattened fields, prefixed with the selected key. Selecting `attributes` for `{"sessionId":"example-session","personId":"example-user"}` adds `attributes.sessionId` and `attributes.personId`. Both structured JSON values and JSON stored as a string are supported.
+
+JSON body and attribute parsing share the 1 MiB output limit used by Logs transformations. The limit counts the combined UTF-8 bytes of the body, severity text, and keys and values in both attribute maps. Each parsing step skips extraction if its flattened fields or the combined output exceed the limit. The log keeps its values from before that step, including the source JSON. Flattening checks the byte limit during traversal to prevent oversized intermediate output.
+
+Use `attributes.sessionId` in **Link to session** and `attributes.personId` in **Link to person**, provided their values are the PostHog session ID and one of the person's PostHog distinct IDs. These settings match the flattened keys literally. The fields can also be used in log filters.
+
+The original attribute is preserved. If fields share the same key, PostHog uses this order:
+
+1. Attributes supplied directly with the log.
+2. Fields extracted from the selected JSON attribute.
+3. Fields extracted from the JSON body.
+
+This keeps body parsing from overriding the selected attribute's fields. Body parsing can also create the selected attribute if the log did not supply it directly.
+
+Missing keys, invalid JSON, and scalar values are left unchanged. Strings nested inside the parsed object are not parsed again. Resource attributes are not parsed.
+
+PII scrubbing, when enabled, runs before extraction. Changes apply only to newly ingested logs after the configuration reaches ingestion; existing records are not backfilled.

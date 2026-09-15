@@ -457,7 +457,83 @@
                 }
             ]
         },
-        "logs_settings": {},
+        "logs_settings": {
+            "anyOf": [
+                {
+                    "allOf": [
+                        {
+                            "additionalProperties": {},
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "properties": {
+                                "capture_console_logs": {
+                                    "description": "Capture browser console logs through the PostHog SDK.",
+                                    "type": "boolean"
+                                },
+                                "json_parse_logs": {
+                                    "description": "Extract JSON fields from new log bodies.",
+                                    "type": "boolean"
+                                },
+                                "json_parse_logs_attribute_key": {
+                                    "description": "Literal log attribute key to parse as JSON, at most 200 characters after trimming whitespace. An empty string disables parsing.",
+                                    "pattern": "^(?:[\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]*|[\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]*(?:[\\uD800-\\uDBFF][\\uDC00-\\uDFFF]|[^\\uD800-\\uDFFF\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000])(?:(?:[\\uD800-\\uDBFF][\\uDC00-\\uDFFF]|[^\\uD800-\\uDFFF]){0,198}(?:[\\uD800-\\uDBFF][\\uDC00-\\uDFFF]|[^\\uD800-\\uDFFF\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]))?[\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]*)$",
+                                    "type": "string"
+                                },
+                                "pii_scrub_logs": {
+                                    "description": "Redact supported PII patterns before storing new logs.",
+                                    "type": "boolean"
+                                },
+                                "retention_days": {
+                                    "anyOf": [
+                                        {
+                                            "anyOf": [
+                                                {
+                                                    "const": 14,
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "const": 30,
+                                                    "type": "number"
+                                                }
+                                            ]
+                                        },
+                                        {
+                                            "type": "null"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Log retention in days: 14 or 30. Paid retention requires the matching entitlement."
+                                },
+                                "retention_last_updated": {
+                                    "anyOf": [
+                                        {
+                                            "format": "date-time",
+                                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Timestamp of the last retention change, used to limit how often retention can change."
+                                }
+                            },
+                            "type": "object"
+                        }
+                    ]
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Log ingestion settings. Updates replace the entire object; null clears all settings."
+        },
         "marketing_analytics_config": {
             "properties": {
                 "attribution_mode": {

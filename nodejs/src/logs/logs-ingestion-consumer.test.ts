@@ -554,6 +554,78 @@ describe('LogsIngestionConsumer', () => {
         })
     })
 
+    describe('configured JSON attribute ingestion', () => {
+        it.each([
+            ['disabled', 'attributes', false],
+            ['team', 'attributes', true],
+            ['all', 'attributes', true],
+            ['other team', 'attributes', false],
+            ['malformed', 'attributes', false],
+            ['all', '', false],
+        ])('honors the %s rollout with key %j', async (rollout, attributeKey, enabled) => {
+            const rolloutConfig: Record<string, string> = {
+                disabled: '',
+                team: `0, ${team.id}`,
+                all: '*',
+                'other team': '0',
+                malformed: `${team.id}oops`,
+            }
+            await consumer.stop()
+            consumer = await createLogsIngestionConsumer(hub, {
+                LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS: rolloutConfig[rollout],
+            })
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                'UPDATE posthog_team SET logs_settings = $1 WHERE id = ANY($2)',
+                [
+                    JSON.stringify({ json_parse_logs: false, json_parse_logs_attribute_key: attributeKey }),
+                    [team.id, team2.id],
+                ],
+                'updateTeamLogsSettings'
+            )
+            hub.teamManager['lazyLoader'].markForRefresh([String(team.id), String(team2.id)])
+
+            const sessionId = '01901234-5678-7000-8000-000000000001'
+            const personId = 'example-user'
+            const originalAttribute = JSON.stringify(JSON.stringify({ sessionId, personId }))
+            const messages = await Promise.all(
+                [team, team2].map(async (sourceTeam) => {
+                    const message = await createKafkaMessage(createLogMessage(), { token: sourceTeam.api_token })
+                    const [schema, codec, records] = await decodeLogRecords(message.value!)
+                    records[0].attributes = { attributes: originalAttribute }
+                    message.value = await encodeLogRecords(schema!, codec, records)
+                    message.size = message.value.length
+                    return message
+                })
+            )
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            expect((await hub.teamManager.getTeam(team.id))?.logs_settings?.json_parse_logs_attribute_key).toBe(
+                attributeKey
+            )
+            const produced = getProducedKafkaMessages().filter((message) => message.topic === 'clickhouse_logs_test')
+            expect(produced).toHaveLength(2)
+            for (const message of produced) {
+                const [, codec, records] = await decodeLogRecords(message.value as Buffer)
+                expect(codec).toBe('zstandard')
+                const shouldParse = enabled && (rollout === 'all' || message.headers?.team_id === String(team.id))
+                expect(records[0].attributes).toEqual({
+                    attributes: originalAttribute,
+                    ...(shouldParse
+                        ? {
+                              'attributes.sessionId': JSON.stringify(sessionId),
+                              'attributes.personId': JSON.stringify(personId),
+                          }
+                        : {}),
+                })
+            }
+            expect(
+                getProducedKafkaMessages().filter((message) => message.topic === KAFKA_LOGS_INGESTION_DLQ)
+            ).toHaveLength(0)
+        })
+    })
+
     describe('service interface', () => {
         it('should provide correct service interface', () => {
             const service = consumer.service

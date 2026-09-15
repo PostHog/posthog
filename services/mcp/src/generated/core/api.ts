@@ -66,6 +66,9 @@ export const organizationsProjectsPartialUpdateBodySessionRecordingTriggerMatchT
 
 export const organizationsProjectsPartialUpdateBodyRecordingDomainsItemMax = 200
 
+export const organizationsProjectsPartialUpdateBodyLogsSettingsOneTwoJsonParseLogsAttributeKeyRegExp = new RegExp(
+    '^(?:[\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]\*|[\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]\*(?:[\\uD800-\\uDBFF][\\uDC00-\\uDFFF]|[^\\uD800-\\uDFFF\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000])(?:(?:[\\uD800-\\uDBFF][\\uDC00-\\uDFFF]|[^\\uD800-\\uDFFF]){0,198}(?:[\\uD800-\\uDBFF][\\uDC00-\\uDFFF]|[^\\uD800-\\uDFFF\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]))?[\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]\*)$'
+)
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemOneOperatorDefault = `exact`
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemOneTypeDefault = `event`
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemTwoTypeDefault = `person`
@@ -276,7 +279,46 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
             .nullish()
             .describe('Enables the customer conversations \/ live chat product for this project.'),
         conversations_settings: zod.unknown().optional(),
-        logs_settings: zod.unknown().optional(),
+        logs_settings: zod
+            .union([
+                zod.record(zod.string(), zod.unknown()).and(
+                    zod.object({
+                        capture_console_logs: zod
+                            .boolean()
+                            .optional()
+                            .describe('Capture browser console logs through the PostHog SDK.'),
+                        json_parse_logs: zod.boolean().optional().describe('Extract JSON fields from new log bodies.'),
+                        json_parse_logs_attribute_key: zod
+                            .string()
+                            .regex(
+                                organizationsProjectsPartialUpdateBodyLogsSettingsOneTwoJsonParseLogsAttributeKeyRegExp
+                            )
+                            .optional()
+                            .describe(
+                                'Literal log attribute key to parse as JSON, at most 200 characters after trimming whitespace. An empty string disables parsing.'
+                            ),
+                        pii_scrub_logs: zod
+                            .boolean()
+                            .optional()
+                            .describe('Redact supported PII patterns before storing new logs.'),
+                        retention_days: zod
+                            .union([zod.union([zod.literal(14), zod.literal(30)]), zod.null(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Log retention in days: 14 or 30. Paid retention requires the matching entitlement.'
+                            ),
+                        retention_last_updated: zod.iso
+                            .datetime({ offset: true })
+                            .nullish()
+                            .describe(
+                                'Timestamp of the last retention change, used to limit how often retention can change.'
+                            ),
+                    })
+                ),
+                zod.null(),
+            ])
+            .optional()
+            .describe('Log ingestion settings. Updates replace the entire object; null clears all settings.'),
         proactive_tasks_enabled: zod.boolean().nullish(),
         revenue_analytics_config: zod
             .object({
