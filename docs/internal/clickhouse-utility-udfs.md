@@ -73,6 +73,12 @@ Documents exceeding the shared depth limit produce `{}` in the temporary output;
 Native events retain `temporary_properties` for 60 days after insertion, including historical events; TTL merges clear the column asynchronously.
 Fresh installations use the updated schema definitions. Existing tables require a manual schema rollout and feature-flag query compatibility before native reads are enabled.
 
+Native-event queries derive `$active_feature_flags` from the `$feature_flags` map, excluding empty and `false` values and restricted flags. Array order follows the stored map rather than the original SDK evaluation order. No separate active-flags column is required.
+
+Feature-flag scalar reads still use JSON string encoding when requested: a `control` variant
+becomes `"control"` through `toJSONString`, and `JSONExtractString` returns `control`.
+The virtual `$active_feature_flags` array contains sorted map keys whose values are neither empty nor `false`.
+
 ### Benchmarking the cleaner
 
 `BenchmarkProcessFixture` measures cleaning with a reused processor and output buffer.
@@ -164,6 +170,10 @@ Regression tests cover malformed discarded values, duplicate handling in wide ob
 The buffer-reuse test alternates dotted-object widths and verifies exact output, cleared references, the cache bound, and release after a small row.
 
 These local measurements should be repeated on deployment hardware before estimating fleet capacity.
+
+HogQL `JSONExtract*` calls with `$feature_flags` as their first property key use the same
+restricted-property-aware map as dotted `$feature_flags` access on both event schemas.
+The original extractor still determines the return type and missing-value default.
 
 ### `decompress(data, codec)`
 

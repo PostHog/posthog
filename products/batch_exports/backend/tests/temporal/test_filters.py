@@ -4,6 +4,8 @@ import typing
 
 import pytest
 
+from django.test import override_settings
+
 from products.batch_exports.backend.temporal.filters import InvalidFilterError, compose_filters_clause
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
@@ -93,6 +95,7 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
         "hogql0",
     ],
 )
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
 def test_compose_filters_clause(
     filters: list[dict[str, typing.Any]],
     expected_clause: str,
