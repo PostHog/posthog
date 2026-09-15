@@ -1020,7 +1020,6 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         runner: Callable[..., TraceSpansQueryResponse | CachedTraceSpansQueryResponse],
         *,
         event_name: str,
-        too_much_data_detail: str,
     ) -> Response:
         """Run one of the single-row span aggregates that sit beside the list, over the shared
         `_TracingCountBodySerializer` filters.
@@ -1047,7 +1046,15 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 filter_group=filter_group,
             )
         except CHQueryErrorTooManyBytes:
-            return Response({"detail": too_much_data_detail}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {
+                    "detail": (
+                        "This query scans too much data. Narrow the date range or add serviceNames, "
+                        "statusCodes, or filterGroup filters, then retry."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         self._report_usage(
             request,
@@ -1064,28 +1071,12 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     @extend_schema(request=_TracingCountRequestSerializer, responses={200: _TracingCountResponseSerializer})
     @action(detail=False, methods=["POST"], required_scopes=["tracing:read"])
     def count(self, request: Request, *args, **kwargs) -> Response:
-        return self._run_scalar_span_query(
-            request,
-            run_count_query,
-            event_name="tracing count queried",
-            too_much_data_detail=(
-                "This count scans too much data to run as a pre-flight. Narrow the date "
-                "range or add serviceNames, statusCodes, or filterGroup filters, then retry."
-            ),
-        )
+        return self._run_scalar_span_query(request, run_count_query, event_name="tracing count queried")
 
     @extend_schema(request=_TracingImpactRequestSerializer, responses={200: _TracingImpactResponseSerializer})
     @action(detail=False, methods=["POST"], required_scopes=["tracing:read"])
     def impact(self, request: Request, *args, **kwargs) -> Response:
-        return self._run_scalar_span_query(
-            request,
-            run_impact_query,
-            event_name="tracing impact queried",
-            too_much_data_detail=(
-                "This impact query scans too much data. Narrow the date range or add "
-                "serviceNames, statusCodes, or filterGroup filters, then retry."
-            ),
-        )
+        return self._run_scalar_span_query(request, run_impact_query, event_name="tracing impact queried")
 
     @extend_schema(request=_SymbolStatsRequestSerializer, responses={200: _SymbolStatsResponseSerializer})
     @action(detail=False, methods=["POST"], url_path="symbol-stats", required_scopes=["tracing:read"])

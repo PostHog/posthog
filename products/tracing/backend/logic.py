@@ -390,11 +390,36 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
             read_overflow_mode=None,
         )
 
+
+def fail_fast_scalar_settings(*, use_uncompressed_cache: bool = False) -> HogQLGlobalSettings:
+    """Caps for the single-row aggregates beside the span list: fail fast rather than scan
+    unbounded data, so an over-wide window fails instead of holding a ClickHouse thread the list
+    query needs. A runner that repeatedly decompresses the attribute maps over near-identical
+    windows opts into the uncompressed block cache, guarded to its own read cap."""
+    max_bytes_to_read = 10_000_000_000
+    return HogQLGlobalSettings(
+        max_execution_time=30,
+        max_bytes_to_read=max_bytes_to_read,
+        read_overflow_mode="throw",
+        use_uncompressed_cache=use_uncompressed_cache or None,
+        merge_tree_max_rows_to_use_cache=50_000_000 if use_uncompressed_cache else None,
+        merge_tree_max_bytes_to_use_cache=max_bytes_to_read if use_uncompressed_cache else None,
+    )
+
+
+class TraceSpansScalarQueryRunnerMixin(TraceSpansQueryRunnerMixin):
+    """Scaffolding for the single-row aggregates that run beside the span list.
+
+    Subclasses provide `to_query()`, their own `settings` (the aggregates differ in what they
+    read, so they differ in what they should cache), and turn the single result row into a
+    response.
+    """
+
     def where_with_exact_timestamps(self) -> ast.Expr:
         """`where()` plus per-row timestamp bounds.
 
-        `where()` bounds the window by time_bucket, at day precision. Scalar aggregates over the
-        window have to match the requested range exactly, so they add the half-open bounds.
+        `where()` bounds the window by time_bucket, at day precision. These aggregates have to
+        match the requested range exactly, so they add the half-open bounds.
         """
         return ast.And(
             exprs=[
@@ -407,23 +432,6 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
                     },
                 ),
             ]
-        )
-
-
-class TraceSpansScalarQueryRunnerMixin(TraceSpansQueryRunnerMixin):
-    """Scaffolding for the single-row aggregates that run beside the span list.
-
-    They serve every filter change, so they fail fast rather than scan unbounded data, and an
-    over-wide window must fail rather than hold a ClickHouse thread the list query needs.
-    Subclasses provide `to_query()` and turn the single result row into a response.
-    """
-
-    @cached_property
-    def settings(self) -> HogQLGlobalSettings:
-        return HogQLGlobalSettings(
-            max_execution_time=30,
-            max_bytes_to_read=10_000_000_000,
-            read_overflow_mode="throw",
         )
 
     def execute(self) -> list:
@@ -1137,6 +1145,10 @@ def run_aggregation_query(
     # The runners import `translate_span_filter` from this module, so a module-level import here is circular.
     from .aggregation_query_runner import TraceSpansAggregationQueryRunner  # noqa: PLC0415
 
+    # Resolved here rather than in the runner: with `compareFilter` the runner builds each window
+    # on its own thread, where a Django read would open a second connection.
+    from .models import resolved_tracing_identity_attribute_keys  # noqa: PLC0415 — circular at module level
+
     query = TraceSpansAggregationQuery(
         dateRange=date_range,
         compareFilter=compare_filter,
@@ -1144,7 +1156,13 @@ def run_aggregation_query(
         serviceNames=service_names,
         includeImpact=include_impact,
     )
-    runner = TraceSpansAggregationQueryRunner(query, team, limit=limit, offset=offset)
+    runner = TraceSpansAggregationQueryRunner(
+        query,
+        team,
+        limit=limit,
+        offset=offset,
+        identity_keys=resolved_tracing_identity_attribute_keys(team) if include_impact else None,
+    )
     response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
     assert isinstance(response, TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse)
     return response

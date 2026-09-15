@@ -1,3 +1,4 @@
+from functools import cached_property
 from typing import TYPE_CHECKING
 
 from posthog.schema import (
@@ -9,11 +10,12 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
 
-from products.tracing.backend.logic import TraceSpansScalarQueryRunnerMixin
+from products.tracing.backend.logic import TraceSpansScalarQueryRunnerMixin, fail_fast_scalar_settings
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -28,6 +30,10 @@ class TraceSpansCountQueryRunner(TraceSpansScalarQueryRunnerMixin, AnalyticsQuer
 
     query: TraceSpansQuery
     cached_response: CachedTraceSpansQueryResponse
+
+    @cached_property
+    def settings(self) -> HogQLGlobalSettings:
+        return fail_fast_scalar_settings()
 
     def _calculate(self) -> TraceSpansQueryResponse:
         results = self.execute()

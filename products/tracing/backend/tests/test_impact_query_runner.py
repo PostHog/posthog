@@ -1,7 +1,5 @@
 import datetime as dt
 
-from parameterized import parameterized
-
 from posthog.schema import DateRange
 
 from posthog.clickhouse.client import sync_execute
@@ -73,17 +71,18 @@ class _ImpactTestBase(_TraceSpansTestBase):
 
 
 class TestTraceSpansImpact(_ImpactTestBase):
-    @parameterized.expand(
-        [
-            ("total", "total", TOTAL_SPANS),
-            ("spans_with_session_id", "spansWithSessionId", SPANS_WITH_SESSION),
-            ("spans_with_distinct_id", "spansWithDistinctId", SPANS_WITH_DISTINCT_ID),
-            ("sessions", "sessions", UNIQUE_SESSIONS),
-            ("users", "users", UNIQUE_USERS),
-        ]
-    )
-    def test_impact_count(self, _name, field, expected):
-        self.assertEqual(self._impact()[field], expected)
+    def test_impact_counts(self):
+        impact = self._impact()
+        self.assertEqual(
+            {key: impact[key] for key in ("total", "spansWithSessionId", "spansWithDistinctId", "sessions", "users")},
+            {
+                "total": TOTAL_SPANS,
+                "spansWithSessionId": SPANS_WITH_SESSION,
+                "spansWithDistinctId": SPANS_WITH_DISTINCT_ID,
+                "sessions": UNIQUE_SESSIONS,
+                "users": UNIQUE_USERS,
+            },
+        )
 
     def test_span_attribute_wins_over_resource_attribute(self):
         values = {entry["value"] for entry in self._impact()["topSessions"]}
@@ -124,18 +123,15 @@ class TestOperationsImpactColumns(_ImpactTestBase):
         )
         return {row.service_name: row for row in response.results}
 
-    @parameterized.expand(
-        [
-            # The runner unpacks these rows positionally.
-            ("sessions", "checkout", "sessions", 4),
-            ("users", "checkout", "users", 3),
-            ("spans_with_session_id", "checkout", "spans_with_session_id", 5),
-            ("spans_with_distinct_id", "checkout", "spans_with_distinct_id", 4),
-            ("service_without_identities", "worker", "sessions", 0),
-        ]
-    )
-    def test_impact_column(self, _name, service, field, expected):
-        self.assertEqual(getattr(self._rows(include_impact=True)[service], field), expected)
+    def test_impact_columns(self):
+        # The runner unpacks these rows positionally.
+        rows = self._rows(include_impact=True)
+        checkout = rows["checkout"]
+        self.assertEqual(
+            (checkout.sessions, checkout.users, checkout.spans_with_session_id, checkout.spans_with_distinct_id),
+            (UNIQUE_SESSIONS, UNIQUE_USERS, SPANS_WITH_SESSION, SPANS_WITH_DISTINCT_ID),
+        )
+        self.assertEqual(rows["worker"].sessions, 0)
 
     def test_impact_columns_absent_by_default(self):
         # None rather than 0 is what proves the default path never read the attribute maps.

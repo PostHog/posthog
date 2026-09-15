@@ -1,3 +1,4 @@
+from functools import cached_property
 from typing import TYPE_CHECKING
 
 from posthog.schema import (
@@ -9,12 +10,13 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
 
-from products.tracing.backend.logic import TraceSpansScalarQueryRunnerMixin
-from products.tracing.backend.models import resolved_tracing_identity_attribute_keys
+from products.tracing.backend.logic import TraceSpansScalarQueryRunnerMixin, fail_fast_scalar_settings
+from products.tracing.backend.models import TracingIdentityAttributeKeys, resolved_tracing_identity_attribute_keys
 from products.tracing.backend.span_identity import identity_value_expr
 
 if TYPE_CHECKING:
@@ -40,6 +42,17 @@ class TraceSpansImpactQueryRunner(TraceSpansScalarQueryRunnerMixin, AnalyticsQue
     query: TraceSpansQuery
     cached_response: CachedTraceSpansQueryResponse
 
+    def __init__(self, query: TraceSpansQuery, *args, identity_keys: TracingIdentityAttributeKeys, **kwargs) -> None:
+        super().__init__(query, *args, **kwargs)
+        self._identity_keys = identity_keys
+
+    @cached_property
+    def settings(self) -> HogQLGlobalSettings:
+        # Unlike the bare count, this decompresses the two attribute-map columns over the whole
+        # window and re-runs against a mostly identical window on every filter tweak, so it opts
+        # into the uncompressed block cache.
+        return fail_fast_scalar_settings(use_uncompressed_cache=True)
+
     def _calculate(self) -> TraceSpansQueryResponse:
         results = self.execute()
         (
@@ -64,7 +77,6 @@ class TraceSpansImpactQueryRunner(TraceSpansScalarQueryRunnerMixin, AnalyticsQue
         )
 
     def to_query(self) -> ast.SelectQuery:
-        identity_keys = resolved_tracing_identity_attribute_keys(self.team)
         # uniq() and topK() are HyperLogLog-based, so about 1-2% off an exact count(DISTINCT)
         # and much cheaper. They skip NULLs, so spans carrying no identity need no predicate.
         query = parse_select(
@@ -84,8 +96,8 @@ class TraceSpansImpactQueryRunner(TraceSpansScalarQueryRunnerMixin, AnalyticsQue
             )
             """,
             placeholders={
-                "session_value": identity_value_expr(identity_keys.session),
-                "person_value": identity_value_expr(identity_keys.distinct_id),
+                "session_value": identity_value_expr(self._identity_keys.session),
+                "person_value": identity_value_expr(self._identity_keys.distinct_id),
                 "where": self.where_with_exact_timestamps(),
                 "top_n": ast.Constant(value=TOP_IDENTITY_VALUES),
             },
@@ -109,7 +121,9 @@ def run_impact_query(
         statusCodes=status_codes,
         filterGroup=filter_group,
     )
-    runner = TraceSpansImpactQueryRunner(query, team)
-    response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+    runner = TraceSpansImpactQueryRunner(query, team, identity_keys=resolved_tracing_identity_attribute_keys(team))
+    # Cached, unlike the count beside it: this reads the attribute-map columns, and the strip
+    # re-mounts (and reloads) whenever the user leaves the traces view or turns compare on.
+    response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
     assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
     return response

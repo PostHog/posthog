@@ -11,7 +11,6 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { CompareMenuButton } from './components/Comparison/CompareMenuButton'
 import { TracingImpactStrip } from './components/TracingImpactStrip'
 import { tracingConfigLogic } from './tracingConfigLogic'
-import { TRACING_SCENE_VIEWER_ID } from './tracingFiltersLogic'
 import { tracingSceneLogic, type TracingDisplayMode } from './tracingSceneLogic'
 
 /**
@@ -97,7 +96,7 @@ export function TracingDisplayBar(): JSX.Element {
                 {/* Gated here so the strip's logic (and its query) only mount when the flag is on. */}
                 {showsSingleWindowCounts && (
                     <FlaggedFeature flag={FEATURE_FLAGS.TRACING_IMPACT_STRIP}>
-                        <TracingImpactStrip id={TRACING_SCENE_VIEWER_ID} />
+                        <TracingImpactStrip />
                     </FlaggedFeature>
                 )}
             </div>

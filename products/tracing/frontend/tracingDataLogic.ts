@@ -52,6 +52,7 @@ import {
     type TracingFilters,
     type TracingOrderBy,
     TRACING_SCENE_VIEWER_ID,
+    dataScopeKey,
     tracingFiltersLogic,
 } from './tracingFiltersLogic'
 import type { OverlayWindow, TimeComparison, TracingOrderDirection, TracingViewMode } from './tracingFiltersLogic'
@@ -1106,12 +1107,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     // filters) AND the view mode — but not on sort or compare. Skip the re-fetch (and
                     // its spinner overlay) only when a sort/compare toggle re-runs the query without
                     // changing scope or view mode.
-                    const scopeKey = JSON.stringify([
-                        values.utcDateRange,
-                        values.filters.serviceNames,
-                        values.queryFilterGroup,
-                        values.filters.viewMode,
-                    ])
+                    const scopeKey = JSON.stringify([dataScopeKey(values), values.filters.viewMode])
                     if (scopeKey === cache.sparklineScope) {
                         return values.rawSparklineData
                     }
@@ -1145,11 +1141,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     // response, and the label selects which to show. So a Traces/Spans (or sort/compare)
                     // toggle that re-runs the query must not re-hit the endpoint; only the data scope
                     // (date range, services, filters) changes the result. Skip the fetch when unchanged.
-                    const scopeKey = JSON.stringify([
-                        values.utcDateRange,
-                        values.filters.serviceNames,
-                        values.queryFilterGroup,
-                    ])
+                    const scopeKey = dataScopeKey(values)
                     if (scopeKey === cache.matchingCountsScope) {
                         return values.matchingCounts
                     }
@@ -1181,12 +1173,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     // Same scope semantics as the sparkline: the heatmap depends on the data scope
                     // and the view mode (root spans vs every span), but not on sort or compare.
                     // Skip the re-fetch when a sort toggle re-runs the query without changing scope.
-                    const scopeKey = JSON.stringify([
-                        values.utcDateRange,
-                        values.filters.serviceNames,
-                        values.queryFilterGroup,
-                        values.filters.viewMode,
-                    ])
+                    const scopeKey = JSON.stringify([dataScopeKey(values), values.filters.viewMode])
                     if (scopeKey === cache.latencyHeatmapScope) {
                         return values.rawLatencyHeatmap
                     }

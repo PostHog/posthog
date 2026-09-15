@@ -1,7 +1,5 @@
 import { useMemo } from 'react'
 
-import { Tooltip } from '@posthog/lemon-ui'
-
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { AggregatedSpanRow } from '~/queries/schema/schema-general'
@@ -48,12 +46,13 @@ const impactCell =
             return <span className="text-muted">—</span>
         }
         // An operation whose spans mostly carry no ID has a count covering a fraction of its
-        // traffic, so the cell says which fraction.
+        // traffic, so the cell says which fraction. A `title` rather than a Tooltip: this renders
+        // per row of a virtualized table, and the text is a plain sentence.
         const coverage = formatIdentityCoverage(covered(row), row.count)
         return (
-            <Tooltip title={`Estimated from ${coverage} of this operation's spans, the ones carrying the ID.`}>
-                <span>{humanFriendlyNumber(value)}</span>
-            </Tooltip>
+            <span title={`Estimated from ${coverage} of this operation's spans, the ones carrying the ID.`}>
+                {humanFriendlyNumber(value)}
+            </span>
         )
     }
 
@@ -194,13 +193,18 @@ export interface OperationsTableProps {
     loading: boolean
     /** Resolved aggregation window (ms) — turns span counts into a request rate. */
     windowMs: number
+    /** Show the Sessions and Users columns. Must match the `includeImpact` the rows were fetched with. */
+    showImpact?: boolean
     onRowClick?: (row: AggregatedSpanRow) => void
 }
 
-export function OperationsTable({ rows, loading, windowMs, onRowClick }: OperationsTableProps): JSX.Element {
-    // Driven by the payload rather than the flag, so the columns appear exactly when the backend
-    // aggregated something to put in them.
-    const showImpact = useMemo(() => rows.some((row) => row.sessions != null), [rows])
+export function OperationsTable({
+    rows,
+    loading,
+    windowMs,
+    showImpact = false,
+    onRowClick,
+}: OperationsTableProps): JSX.Element {
     const columns = useMemo(() => buildColumns(windowMs, showImpact), [windowMs, showImpact])
     return (
         <VirtualizedTable<AggregatedSpanRow>
