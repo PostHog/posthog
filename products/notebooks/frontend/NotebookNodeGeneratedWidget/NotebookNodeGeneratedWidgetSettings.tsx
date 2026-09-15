@@ -2,6 +2,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
+import { useComponentPanelState } from 'lib/components/MarkdownNotebook/componentPanelContext'
 import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -12,6 +13,11 @@ import type { NotebookNodeAttributeProperties } from 'scenes/notebooks/types'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { prepareNotebookInsightDataframes } from '../prepareNotebookInsightDataframes'
+import {
+    ReusableWidgetPickerLogicProps,
+    reusableWidgetPickerLogic,
+} from '../ReusableWidgetPicker/reusableWidgetPickerLogic'
+import { ReusableWidgetPickerModal } from '../ReusableWidgetPicker/ReusableWidgetPickerModal'
 import type { NotebookNodeGeneratedWidgetAttributes } from './NotebookNodeGeneratedWidget'
 import {
     formatWidgetElapsed,
@@ -28,12 +34,16 @@ export function NotebookNodeGeneratedWidgetSettings({
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodeGeneratedWidgetAttributes>): JSX.Element {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
+    const componentPanelState = useComponentPanelState()
     const { isEditable, notebookLogic } = useValues(nodeLogic)
     const { currentTeamId } = useValues(teamLogic)
     const logicProps: NotebookNodeGeneratedWidgetLogicProps = {
         projectId: currentTeamId,
         notebookShortId: notebookLogic.props.shortId,
         nodeId: attributes.nodeId,
+        reusableWidgetId: typeof attributes.id === 'string' ? attributes.id : undefined,
+        reusableVersionId: typeof attributes.version === 'string' ? attributes.version : undefined,
+        inputBindings: attributes.inputs,
         prompt: attributes.prompt ?? '',
         model: attributes.model ?? DEFAULT_WIDGET_MODEL,
         isEditable,
@@ -53,7 +63,11 @@ export function NotebookNodeGeneratedWidgetSettings({
         elapsedSeconds,
         generationError,
         generationRequestLoading,
+        forkError,
+        forkInFlight,
         isWorking,
+        pinError,
+        pinInFlight,
         dataRefreshInFlight,
         restoreInFlight,
         selectedVersion,
@@ -76,11 +90,38 @@ export function NotebookNodeGeneratedWidgetSettings({
         loadStatus,
         loadVersions,
         openGenerationModal,
+        openPublishModal,
         openSourceModal,
+        followLatestVersion,
+        forkReusableWidget,
+        pinSelectedVersion,
         refreshData,
         restoreSelectedVersion,
         selectVersion,
+        statusReceived,
     } = useActions(logic)
+    const pickerProps: ReusableWidgetPickerLogicProps = {
+        projectId: currentTeamId,
+        notebookShortId: notebookLogic.props.shortId,
+        nodeId: attributes.nodeId,
+        getContent: () => notebookLogic.values.content ?? null,
+        persistNotebook: logicProps.persistNotebook,
+        onAttached: (widget, attachedStatus, bindings) => {
+            updateAttributes({
+                id: widget.id,
+                version: attachedStatus.pinned_version_id ?? undefined,
+                inputs: Object.fromEntries(
+                    Object.entries(bindings).map(([slot, binding]) => [
+                        slot,
+                        { source: binding.source, hog: binding.hog || undefined },
+                    ])
+                ),
+            })
+            statusReceived(attachedStatus)
+        },
+    }
+    const pickerLogic = useMountedLogic(reusableWidgetPickerLogic(pickerProps))
+    const { openPicker } = useActions(pickerLogic)
     const promptId = `widget-prompt-${attributes.nodeId}`
     const modelId = `widget-model-${attributes.nodeId}`
     const versionId = `widget-version-${attributes.nodeId}`
@@ -115,6 +156,20 @@ export function NotebookNodeGeneratedWidgetSettings({
 
     return (
         <div className="flex flex-col gap-3 p-3">
+            {status.is_reusable && status.widget_id ? (
+                <LemonBanner type="info">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span>
+                            This widget is shared. Changes from its catalog page update every unpinned instance.
+                        </span>
+                        {isEditable ? (
+                            <LemonButton size="xsmall" onClick={forkReusableWidget} loading={forkInFlight}>
+                                Fork and edit here
+                            </LemonButton>
+                        ) : null}
+                    </div>
+                </LemonBanner>
+            ) : null}
             {!hasVersions ? (
                 <>
                     <div>
@@ -167,7 +222,7 @@ export function NotebookNodeGeneratedWidgetSettings({
                             className="mt-1"
                             data-attr="widget-version-select"
                         />
-                        <div className="mt-1 flex items-center justify-between text-xs text-muted">
+                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
                             <span>
                                 {versions.length} of {versionsCount} versions loaded
                             </span>
@@ -175,6 +230,26 @@ export function NotebookNodeGeneratedWidgetSettings({
                                 <LemonButton size="xsmall" onClick={loadMoreVersions} loading={versionsLoading}>
                                     Load older versions
                                 </LemonButton>
+                            ) : null}
+                            <span>{status.pinned_version_id ? 'Pinned to a version' : 'Following latest version'}</span>
+                            {isEditable && !isWorking ? (
+                                <div className="ml-auto flex flex-wrap items-center gap-2">
+                                    {status.pinned_version_id ? (
+                                        <LemonButton size="xsmall" onClick={followLatestVersion} loading={pinInFlight}>
+                                            Follow latest version
+                                        </LemonButton>
+                                    ) : null}
+                                    {selectedVersionId && status.pinned_version_id !== selectedVersionId ? (
+                                        <LemonButton size="xsmall" onClick={pinSelectedVersion} loading={pinInFlight}>
+                                            Pin this version
+                                        </LemonButton>
+                                    ) : null}
+                                    {!status.is_reusable && status.lifecycle_status === 'ready' ? (
+                                        <LemonButton size="xsmall" onClick={openPublishModal}>
+                                            Make reusable…
+                                        </LemonButton>
+                                    ) : null}
+                                </div>
                             ) : null}
                         </div>
                         {versionsError && !versionsLoading ? (
@@ -234,12 +309,12 @@ export function NotebookNodeGeneratedWidgetSettings({
                     </>
                 ) : hasVersions ? (
                     <>
-                        {!isCurrentVersion && isEditable ? (
+                        {!isCurrentVersion && isEditable && !status.is_reusable ? (
                             <LemonButton onClick={restoreSelectedVersion} loading={restoreInFlight}>
                                 Restore as new version
                             </LemonButton>
                         ) : null}
-                        {isCurrentVersion && isEditable ? (
+                        {isCurrentVersion && isEditable && !status.is_reusable ? (
                             <>
                                 <LemonButton
                                     type="primary"
@@ -266,7 +341,7 @@ export function NotebookNodeGeneratedWidgetSettings({
                                 </LemonButton>
                             </>
                         ) : null}
-                        {!isCurrentVersion && isEditable ? (
+                        {!isCurrentVersion && isEditable && !status.is_reusable ? (
                             <LemonButton
                                 onClick={() => openGenerationModal('regenerate')}
                                 disabledReason={!selectedVersion ? 'Loading the widget version.' : undefined}
@@ -276,16 +351,24 @@ export function NotebookNodeGeneratedWidgetSettings({
                         ) : null}
                     </>
                 ) : (
-                    <LemonButton
-                        type="primary"
-                        onClick={() =>
-                            generateWidget(initialPrompt, attributes.model ?? DEFAULT_WIDGET_MODEL, 'initial')
-                        }
-                        loading={generationRequestLoading}
-                        disabledReason={!isEditable ? 'You need edit access to generate a widget.' : undefined}
-                    >
-                        Generate widget
-                    </LemonButton>
+                    <>
+                        <LemonButton
+                            type="primary"
+                            onClick={() =>
+                                generateWidget(initialPrompt, attributes.model ?? DEFAULT_WIDGET_MODEL, 'initial')
+                            }
+                            loading={generationRequestLoading}
+                            disabledReason={!isEditable ? 'You need edit access to generate a widget.' : undefined}
+                        >
+                            Generate widget
+                        </LemonButton>
+                        <LemonButton
+                            onClick={openPicker}
+                            disabledReason={!isEditable ? 'You need edit access to add a reusable widget.' : undefined}
+                        >
+                            Use reusable widget…
+                        </LemonButton>
+                    </>
                 )}
             </div>
             {visibleGenerationError ? (
@@ -293,9 +376,12 @@ export function NotebookNodeGeneratedWidgetSettings({
                     {visibleGenerationError}
                 </LemonBanner>
             ) : null}
+            {pinError ? <LemonBanner type="error">{pinError}</LemonBanner> : null}
+            {forkError ? <LemonBanner type="error">{forkError}</LemonBanner> : null}
 
             <NotebookWidgetGenerationModal logicProps={logicProps} />
-            <NotebookWidgetSourceModal {...logicProps} />
+            {!componentPanelState ? <NotebookWidgetSourceModal {...logicProps} /> : null}
+            <ReusableWidgetPickerModal {...pickerProps} />
         </div>
     )
 }

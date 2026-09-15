@@ -46,6 +46,7 @@ ActivityScope = Literal[
     "EventDefinition",
     "PropertyDefinition",
     "Notebook",
+    "GeneratedWidget",
     "Canvas",
     "Endpoint",
     "EndpointVersion",
