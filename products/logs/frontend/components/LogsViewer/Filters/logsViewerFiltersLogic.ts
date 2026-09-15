@@ -142,10 +142,13 @@ export interface logsViewerFiltersLogicValues {
     id: string
     openFilterOnInsert: boolean
     personId: string | undefined
+    personIdScope: string
     pinnedFilters: UniversalFiltersGroup | undefined
     queryFilterGroup: UniversalFiltersGroup
+    queryScopeKey: string
     searchTerm: LogsQuery['searchTerm']
     sessionId: string | undefined
+    sessionIdScope: string
     utcDateRange: {
         date_from: string | null | undefined
         date_to: string | null | undefined
@@ -211,6 +214,9 @@ export interface logsViewerFiltersLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         id: (id: string) => string
+        personId: (personIdScope: string) => string | undefined
+        sessionId: (sessionIdScope: string) => string | undefined
+        queryScopeKey: (personIdScope: string, sessionIdScope: string) => string
         filters: (
             dateRange: DateRange,
             searchTerm: string | undefined,
@@ -339,22 +345,31 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
                 setPinnedFilters: (_, { pinnedFilters }) => pinnedFilters,
             },
         ],
-        personId: [
-            undefined as string | undefined,
+        // A kea reducer cannot return undefined, so a cleared scope is held as an empty string and
+        // mapped back by the selectors below.
+        personIdScope: [
+            '',
             {
-                setPersonId: (_, { personId }) => personId,
+                setPersonId: (_, { personId }) => personId ?? '',
             },
         ],
-        sessionId: [
-            undefined as string | undefined,
+        sessionIdScope: [
+            '',
             {
-                setSessionId: (_, { sessionId }) => sessionId,
+                setSessionId: (_, { sessionId }) => sessionId ?? '',
             },
         ],
     }),
 
     selectors({
         id: [(_, p) => [p.id], (id: string) => id],
+        personId: [(s) => [s.personIdScope], (personIdScope: string): string | undefined => personIdScope || undefined],
+        // One value the data logic can subscribe to that changes when either scope does.
+        queryScopeKey: [(s) => [s.personIdScope, s.sessionIdScope], (p: string, sid: string) => `${p}|${sid}`],
+        sessionId: [
+            (s) => [s.sessionIdScope],
+            (sessionIdScope: string): string | undefined => sessionIdScope || undefined,
+        ],
         filters: [
             (s) => [s.dateRange, s.searchTerm, s.filterGroup],
             (

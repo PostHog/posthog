@@ -2404,6 +2404,14 @@ snapshots:
         hash: v1.k794b7964.b80263f67c0d7d1e25bc2a91d738d80474ce40c97df64d2636bcc6a5dfa38e97.1uYHWbCS1ez7dIDtoz0c3GGZhBI3vHTN-1zaky50yqI
     errortracking-exceptioncard--exception-card-header-widths-with-action--light:
         hash: v1.k794b7964.25974971fa0cf2dbe86348ce1144e8b8a0ff7c1a7e172ecc941e6b345144841f.dT_74I4ZqX-DFX_ayPWR8lutK4EVque9Zyjbci6Hj6I
+    errortracking-exceptioncard--exception-card-logs--dark:
+        hash: v1.k794b7964.1030bfe45ba31d3fe94873ce09cdaeda8f81e86c0f71072d64a6267c551c6242.0pD2zOgFDmK5w5r-MnEbEzSAtOGpgYFKzEI8oJ8gUcs
+    errortracking-exceptioncard--exception-card-logs--light:
+        hash: v1.k794b7964.c691f17c502c069287778c899ef298787ba804c2a2ce40f47e2ce7fffdcac348.SwdlNY656OF7LWj_IFuHcynkhxd0_yhTkfFFwRPO3gU
+    errortracking-exceptioncard--exception-card-logs-without-session--dark:
+        hash: v1.k794b7964.1c55aa5eb5758c9f5710a62fe92cccab572ef04501b69d7981a7e0964d6b09e3.59UJwC1G6msLdy-Nn_qOGijQsWoReclGYPWDGeM3kto
+    errortracking-exceptioncard--exception-card-logs-without-session--light:
+        hash: v1.k794b7964.036417710485b035128e3d9334c9ab22ea6c216c567ece5a1668af80de4e16ca.A9auY_Pt1XV2Gixl_rwuvhkMLFZFPlW5S0szuhtkHWQ
     errortracking-exceptioncard--exception-card-no-in-app--dark:
         hash: v1.k794b7964.987406687c04214cccecfc03b95f4dcdf9e61a3d708044b579947fb64ed7f33b.nHnR6ColGUC_O2UKa723xfi18hJ3F7EyQCdfEmLKe2I
     errortracking-exceptioncard--exception-card-no-in-app--light:
