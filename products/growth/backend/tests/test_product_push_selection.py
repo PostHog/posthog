@@ -209,6 +209,11 @@ class TestPushProductConfig(SimpleTestCase):
             for product_key in product_keys:
                 assert product_key in pool, f"{role!r} favors {product_key}, which is not in FALLBACK_PRODUCT_ORDER"
 
+    def test_a_product_sits_in_one_pool_only(self) -> None:
+        # The blessed walk runs first and excludes what it picked, so a product listed in both
+        # pools is unreachable in the fallback one. Self-driving and Inbox are the same surface.
+        assert set(BLESSED_PRODUCT_ORDER).isdisjoint(FALLBACK_PRODUCT_ORDER)
+
     def test_every_fallback_product_is_favored_by_some_role(self) -> None:
         # A product no role favors can only ever be picked at the base weight, so it loses the
         # rotation to every boosted product in an org whose members stated their roles.
