@@ -8,11 +8,13 @@ from parameterized import parameterized
 
 from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.project import Project
+from posthog.models.user import ROLE_CHOICES
 from posthog.products import Products
 from posthog.schema_enums import ProductItemCategory
 
 from products.growth.backend.models import ProductPushCampaign
 from products.growth.backend.product_push.cadence import SKIP_RETRY_DAYS
+from products.growth.backend.product_push.role_affinity import ROLE_PRODUCT_AFFINITIES
 from products.growth.backend.product_push.selection import (
     BLESSED_PRODUCT_ORDER,
     FALLBACK_PRODUCT_ORDER,
@@ -196,3 +198,19 @@ class TestPushProductConfig(SimpleTestCase):
             assert path is not None, f"{product_key} has no PUSH_PRODUCT_PATHS entry"
             assert path in catalog, f"{product_key} maps to {path!r}, which is not in the product catalog"
             assert catalog[path] != ProductItemCategory.UNRELEASED, f"{product_key} maps to unreleased {path!r}"
+
+    def test_role_affinities_name_real_roles_and_pushable_products(self) -> None:
+        # A role key outside ROLE_CHOICES, or a product that left the fallback pool, would never
+        # match anything, so the weighting would quietly degrade back to a uniform pick.
+        roles = dict(ROLE_CHOICES)
+        pool = set(FALLBACK_PRODUCT_ORDER)
+        for role, product_keys in ROLE_PRODUCT_AFFINITIES.items():
+            assert role in roles, f"{role!r} is not one of the signup roles"
+            for product_key in product_keys:
+                assert product_key in pool, f"{role!r} favors {product_key}, which is not in FALLBACK_PRODUCT_ORDER"
+
+    def test_every_fallback_product_is_favored_by_some_role(self) -> None:
+        # A product no role favors can only ever be picked at the base weight, so it loses the
+        # rotation to every boosted product in an org whose members stated their roles.
+        favored = {product_key for product_keys in ROLE_PRODUCT_AFFINITIES.values() for product_key in product_keys}
+        assert set(FALLBACK_PRODUCT_ORDER) == favored

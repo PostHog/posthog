@@ -140,6 +140,13 @@ export const PRODUCT_PUSH_DISPLAY: Partial<Record<ProductKey, ProductPushDisplay
         tagline: 'Search every log line alongside your product data - no mystery goes unsolved.',
         hoggieOffset: { x: 75 },
     },
+    [ProductKey.MARKETING_ANALYTICS]: {
+        Hoggie: HedgehogMegaphone,
+        accentColor: 'var(--color-product-marketing-analytics-light)',
+        tagline:
+            'Track ad spend next to the signups it produced, so you can see which channels are worth the money.',
+        hoggieOffset: { x: 70 },
+    },
     [ProductKey.WORKFLOWS]: {
         Hoggie: HedgehogWorkflows,
         accentColor: 'var(--color-product-workflows-light)',
