@@ -33,7 +33,7 @@ from products.error_tracking.backend.sql import (
 logger = structlog.get_logger(__name__)
 
 
-class ErrorTrackingIssueManager(models.Manager):
+class ErrorTrackingIssueQuerySet(models.QuerySet):
     def with_first_seen(self):
         first_seen = (
             ErrorTrackingIssueFingerprintV2.objects.filter(issue_id=models.OuterRef("pk"))
@@ -77,7 +77,7 @@ class ErrorTrackingIssue(UUIDTModel):
     name = models.TextField(null=True, blank=True)
     description = models.TextField(null=True, blank=True)
 
-    objects = ErrorTrackingIssueManager()
+    objects = ErrorTrackingIssueQuerySet.as_manager()
 
     class Meta:
         db_table = "posthog_errortrackingissue"
@@ -86,7 +86,8 @@ class ErrorTrackingIssue(UUIDTModel):
                 fields=["team", "-state_updated_at"],
                 name="et_issue_team_state_idx",
                 condition=models.Q(state_updated_at__isnull=False),
-            )
+            ),
+            models.Index(fields=["team", "-created_at", "-id"], name="et_issue_team_created_idx"),
         ]
 
     def merge(

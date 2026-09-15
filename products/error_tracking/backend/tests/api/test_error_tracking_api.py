@@ -178,7 +178,7 @@ class TestErrorTracking(APIBaseTest):
 
     def test_issue_list_paginates_without_aggregating_all_fingerprints(self) -> None:
         issues = [ErrorTrackingIssue.objects.create(team=self.team) for _ in range(3)]
-        expected_issue = sorted(issues, key=lambda issue: issue.id, reverse=True)[1]
+        expected_issue = issues[1]
         later_fingerprint = ErrorTrackingIssueFingerprintV2.objects.create(
             team=self.team, issue=expected_issue, fingerprint="later"
         )
@@ -215,9 +215,13 @@ class TestErrorTracking(APIBaseTest):
             for query in queries.captured_queries
             if issue_table in query["sql"] and "LIMIT 1" in query["sql"].upper()
         )
+        fingerprint_queries = [query for query in queries.captured_queries if fingerprint_table in query["sql"]]
+
         assert fingerprint_table not in count_query
         assert "GROUP BY" not in page_query.upper()
-        assert f'ORDER BY "{issue_table}"."id" DESC' in page_query
+        assert f'ORDER BY "{issue_table}"."created_at" DESC, "{issue_table}"."id" DESC' in page_query
+        assert fingerprint_table not in page_query
+        assert len(fingerprint_queries) == 1
 
     @parameterized.expand(["user", "role"])
     def test_issue_fetch_assignee_id_preserves_type(self, assignee_type):

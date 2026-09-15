@@ -23,7 +23,7 @@ def update_issue(
     team_id: int, issue_id: UUID, *, fields: dict[str, Any], user: Any, was_impersonated: bool
 ) -> contracts.ErrorTrackingIssue:
     issue = _mutations.update_issue(team_id, issue_id, fields=fields, user=user, was_impersonated=was_impersonated)
-    return api._to_issue(issue)
+    return api._to_issue(issue, first_seen=getattr(issue, "first_seen", None))
 
 
 def merge_issues(

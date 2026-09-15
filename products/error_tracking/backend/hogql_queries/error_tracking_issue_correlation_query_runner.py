@@ -22,6 +22,7 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
 from products.error_tracking.backend.hogql_queries.access import ErrorTrackingQueryRunnerAccessMixin
 from products.error_tracking.backend.issue_serializers import ErrorTrackingIssuePreviewSerializer
+from products.error_tracking.backend.logic import get_first_seen_by_issue
 from products.error_tracking.backend.models import ErrorTrackingIssue
 
 logger = structlog.get_logger(__name__)
@@ -148,12 +149,14 @@ class ErrorTrackingIssueCorrelationQueryRunner(
         return sorted(results, key=lambda r: r["odds_ratio"], reverse=True)
 
     def fetch_issues(self, ids: list[str]):
-        queryset: QuerySet[ErrorTrackingIssue] = (
-            ErrorTrackingIssue.objects.with_first_seen()
-            .select_related("assignment")
-            .filter(id__in=ids, team=self.team, status=ErrorTrackingIssue.Status.ACTIVE)
+        queryset: QuerySet[ErrorTrackingIssue] = ErrorTrackingIssue.objects.select_related("assignment").filter(
+            id__in=ids, team=self.team, status=ErrorTrackingIssue.Status.ACTIVE
         )
-        return ErrorTrackingIssuePreviewSerializer(queryset, many=True).data
+        issues = list(queryset)
+        first_seen_by_issue = get_first_seen_by_issue(self.team.id, [issue.id for issue in issues])
+        return ErrorTrackingIssuePreviewSerializer(
+            issues, many=True, context={"first_seen_by_issue": first_seen_by_issue}
+        ).data
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return parse_select(

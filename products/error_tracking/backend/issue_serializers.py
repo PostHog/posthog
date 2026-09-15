@@ -24,10 +24,19 @@ class ErrorTrackingIssueAssignmentSerializer(serializers.ModelSerializer):
         return "role" if obj.role else "user"
 
 
+_FIRST_SEEN_FIELD = serializers.DateTimeField()
+
+
 class ErrorTrackingIssuePreviewSerializer(serializers.ModelSerializer):
-    first_seen = serializers.DateTimeField()
+    first_seen = serializers.SerializerMethodField()
     assignee = ErrorTrackingIssueAssignmentSerializer(source="assignment")
 
     class Meta:
         model = ErrorTrackingIssue
         fields = ["id", "status", "name", "description", "first_seen", "assignee"]
+
+    @extend_schema_field(serializers.DateTimeField(allow_null=True))
+    def get_first_seen(self, obj):
+        # The caller resolves first_seen for every issue in one query and passes the result in.
+        first_seen = self.context["first_seen_by_issue"].get(obj.id)
+        return _FIRST_SEEN_FIELD.to_representation(first_seen) if first_seen else None
