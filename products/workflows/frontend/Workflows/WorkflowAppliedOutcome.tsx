@@ -3,6 +3,16 @@ import { LemonTag } from '@posthog/lemon-ui'
 import type { WorkflowProposalApi, WorkflowProposalOutcomeApi } from '../generated/api.schemas'
 import { WorkflowMetricReading } from './WorkflowMetricReading'
 
+/** The API echoes the relative window it read, e.g. `-7d`; a person reads it as a span of days. */
+function describeWindow(window: string): string {
+    const match = /^-(\d+)([dh])$/.exec(window)
+    if (!match) {
+        return window
+    }
+    const unit = match[2] === 'd' ? 'day' : 'hour'
+    return `the last ${match[1]} ${unit}${match[1] === '1' ? '' : 's'}`
+}
+
 export function WorkflowAppliedOutcome({
     proposal,
     outcome,
@@ -19,8 +29,8 @@ export function WorkflowAppliedOutcome({
             {/* Two windows side by side, not a controlled comparison. Said plainly so nobody reads a
                 difference here as proof the change caused it. */}
             <p className="mb-0 text-secondary text-sm">
-                Measured over {outcome.window}, before and after. Different periods, so treat a difference as a signal
-                to look closer, not as proof.
+                Measured over {describeWindow(outcome.window)}, before and after. Different periods, so treat a
+                difference as a signal to look closer, not as proof.
             </p>
             {/* One column until there is room for two: at side-panel widths the pair would clip, and
                 the scene hides horizontal overflow. */}
