@@ -304,8 +304,7 @@ def iter_records(
     else:
         query_parameters = base_query_parameters
 
-    # Named so that a query dying mid-stream can be looked up in ClickHouse's query log,
-    # which holds the real error where the torn response does not.
+    # Named so a query that dies mid-stream can be looked up in ClickHouse's query log.
     query_id = str(uuid.uuid4())
     LOGGER.debug("Running batch export records query", query_id=query_id, team_id=team_id)
 

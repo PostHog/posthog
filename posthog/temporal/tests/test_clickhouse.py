@@ -631,8 +631,7 @@ async def test_astream_query_as_arrow_reports_why_the_query_stopped(
                 pass
 
     assert expected_fragment in str(exc_info.value)
-    # Waiting out a flush interval to be told what the response already said would be
-    # latency spent on an answer we hold.
+    # Waiting out a flush interval for an answer already in hand would be wasted latency.
     assert bool(log_reads) is reads_log
 
 
@@ -694,8 +693,7 @@ def _arrow_stream_bytes() -> bytes:
     sink = pa.BufferOutputStream()
     with pa.ipc.new_stream(sink, batch.schema) as writer:
         writer.write_batch(batch)
-    # ClickHouse cuts the connection instead of writing the end-of-stream marker, so drop
-    # the final 8 bytes to leave the parser expecting another message.
+    # Drop the end-of-stream marker, which a cut connection never carries.
     return sink.getvalue().to_pybytes()[:-8]
 
 

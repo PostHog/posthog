@@ -107,10 +107,8 @@ class ClickHouseQueryStatus(enum.StrEnum):
 # watched fail moments ago.
 QUERY_LOG_FLUSH_WAIT_SECONDS = 10.0
 
-# A half-open socket gives the sync reader nothing to act on: it blocks the calling thread
-# until TCP gives up, which can be an hour. These bound that wait. The read timeout applies
-# to each socket read, so it must sit above the longest silence a healthy export produces,
-# which is the time ClickHouse spends on a query before it sends the first block.
+# Without a read timeout a half-open socket blocks the calling thread until TCP gives up.
+# The read bound must clear the silence before ClickHouse sends an export's first block.
 STREAM_CONNECT_TIMEOUT_SECONDS = 30.0
 STREAM_READ_TIMEOUT_SECONDS = 600.0
 
@@ -926,8 +924,7 @@ class ClickHouseClient:
             self.raise_error_in_trailer(trailer, query_id, stream_error)
 
         if query_id is not None:
-            # Blocks the caller, which for a sync generator read from an event loop blocks
-            # that loop too. Bounded, and only on the way out of a failed export.
+            # Blocks the calling thread, and the event loop reading it, but only on a failed export.
             time.sleep(QUERY_LOG_FLUSH_WAIT_SECONDS)
             exception = self.get_query_exception_from_query_log(query_id)
             if exception is not None:
@@ -1087,9 +1084,7 @@ class ClickHouseClient:
                 with pa.ipc.open_stream(pa.PythonFile(stream)) as reader:
                     yield from reader
             except Exception as stream_error:
-                # Only a failure to read arrives here. A consumer that raises inside its own
-                # loop closes this generator with GeneratorExit, which is a BaseException and
-                # passes straight through, so their error is never swapped for the query's.
+                # A consumer that raises closes this generator with GeneratorExit, so only read failures land here.
                 self.raise_error_behind_broken_stream(query_id, stream_error, stream.tail)
 
     async def astream_query_as_arrow(
