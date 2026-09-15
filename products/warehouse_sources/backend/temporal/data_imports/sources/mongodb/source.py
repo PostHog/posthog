@@ -382,12 +382,17 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
                 [
                     SourceFieldInputConfig(
                         name="connection_string",
-                        label="Connection String",
+                        label="Connection string",
                         # The connection string is this source's only credential, so `password` keeps
                         # it editable on update for rotation.
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="mongodb://username:password@host:port/database?authSource=admin&tls=true",
+                        caption=(
+                            "In MongoDB Atlas, open your cluster and click **Connect → Drivers** to copy this, "
+                            "then replace `<db_password>` with your database user's password. Self-hosted "
+                            "clusters use a `mongodb://host:port` string."
+                        ),
                         secret=True,
                     ),
                     SourceFieldInputConfig(
