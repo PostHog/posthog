@@ -6467,8 +6467,8 @@ SQL
   }
 
   table "metric_names3" {
-    order_by     = ["team_id", "time_bucket", "metric_name"]
-    partition_by = "toDate(time_bucket)"
+    order_by     = ["team_id", "time_bucket", "metric_name", "original_expiry_time_bucket"]
+    partition_by = "toDate(original_expiry_time_bucket)"
     ttl          = "original_expiry_timestamp"
     settings = {
       index_granularity = "8192"
@@ -6480,6 +6480,9 @@ SQL
       type = "LowCardinality(String)"
     }
     column "time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "original_expiry_time_bucket" {
       type = "DateTime64(0)"
     }
     column "original_expiry_timestamp" {
@@ -21517,11 +21520,12 @@ SELECT
   team_id,
   metric_name,
   toStartOfHour(timestamp) AS time_bucket,
-  maxSimpleState(original_expiry_timestamp) AS original_expiry_timestamp
-FROM posthog.metrics2_input
+  toStartOfHour(input.original_expiry_timestamp) AS original_expiry_time_bucket,
+  maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp
+FROM posthog.metrics2_input AS input
 WHERE has_labels
 GROUP BY
-  team_id, time_bucket, metric_name
+  team_id, time_bucket, metric_name, original_expiry_time_bucket
 SQL
 
     column "team_id" {
@@ -21531,6 +21535,9 @@ SQL
       type = "LowCardinality(String)"
     }
     column "time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "original_expiry_time_bucket" {
       type = "DateTime64(0)"
     }
     column "original_expiry_timestamp" {

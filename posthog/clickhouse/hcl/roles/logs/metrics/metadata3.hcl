@@ -1,7 +1,7 @@
 database "posthog" {
   table "metric_names3" {
-    partition_by = "toDate(time_bucket)"
-    order_by     = ["team_id", "time_bucket", "metric_name"]
+    partition_by = "toDate(original_expiry_time_bucket)"
+    order_by     = ["team_id", "time_bucket", "metric_name", "original_expiry_time_bucket"]
     ttl          = "original_expiry_timestamp"
     settings = {
       index_granularity = "8192"
@@ -13,6 +13,9 @@ database "posthog" {
       type = "LowCardinality(String)"
     }
     column "time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "original_expiry_time_bucket" {
       type = "DateTime64(0)"
     }
     column "original_expiry_timestamp" {
@@ -33,6 +36,9 @@ database "posthog" {
       type = "LowCardinality(String)"
     }
     column "time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "original_expiry_time_bucket" {
       type = "DateTime64(0)"
     }
     column "original_expiry_timestamp" {

@@ -27,7 +27,7 @@ They do not wait for every loading placeholder to disappear: offscreen cards sta
 
 ## Metadata migration
 
-Migration `0322_metrics_metadata3_dual_write` adds three metadata tables on the logs cluster.
+Migration `0323_metrics_metadata3_dual_write` adds three metadata tables on the logs cluster.
 `metric_series3` partitions by `toDate(original_expiry_timestamp)` and keeps `ReplacingMergeTree(last_seen)`.
 Merges retain the latest labelled row for each series within each expiry day.
 The expiry timestamp still controls row retention.
@@ -40,13 +40,17 @@ Both metric attributes and resource attributes include the metric name.
 The sort key also includes `service_name` and `original_expiry_time_bucket` to keep their counts and retention separate during merges.
 The hourly buckets, expiry partitions, label filter, and attribute length limits match `metric_attributes2`.
 
-`metric_names3` stores metric names in hourly activity buckets, partitioned by day.
-Its sort key is `(team_id, time_bucket, metric_name)` to support recent name lists for one project.
+`metric_names3` stores metric names in hourly activity buckets, partitioned by expiry day.
+The separate `original_expiry_time_bucket` column has type `DateTime64(0)` and contains the source expiry timestamp rounded down to the hour.
+The partition key is `toDate(original_expiry_time_bucket)`.
+Its sort key is `(team_id, time_bucket, metric_name, original_expiry_time_bucket)` to support recent name lists for one project.
+The view grouping and sort key include the expiry hour, so rows with different expiry hours cannot merge.
 Its materialized view reads only samples where `has_labels` is true, including samples with empty attribute maps.
-`AggregatingMergeTree` combines rows across series and services, and retains the maximum original expiry timestamp for each project, hour, and name.
+`AggregatingMergeTree` combines rows across series and services for each project, activity hour, name, and expiry hour.
+It retains the maximum `original_expiry_timestamp` within each group. This aggregate controls TTL and remains separate from both bucket columns.
 The table records activity from labelled samples, not every sample.
 Time filters use the hourly buckets, so discovery can include activity outside the requested range within its boundary hours.
-Later readers must use `DISTINCT metric_name` because merges are asynchronous and names repeat across hours.
+Later readers must use `DISTINCT metric_name` because merges are asynchronous and names repeat across activity and expiry buckets.
 Queries with other label filters still need series data.
 
 Four new materialized views read `metrics2_input` and write to the new tables.
@@ -73,6 +77,7 @@ Preserve the `has_labels` filter when rebuilding attribute counts from samples.
 
 For `metric_names3`, use only source samples with `has_labels` set.
 Group by project, metric name, and the sample timestamp rounded to the start of its hour.
+Also group by `original_expiry_time_bucket`, computed from the source expiry timestamp rounded down to the hour.
 Keep the maximum original expiry timestamp for each group.
 Repeated catalog rows merge with `max`, so overlapping catalog batches do not add counts or shorten retention.
 The latest series rows alone cannot restore earlier hourly activity.
