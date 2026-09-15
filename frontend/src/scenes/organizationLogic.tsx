@@ -11,12 +11,37 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isUserLoggedIn } from 'lib/utils/getAppContext'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { AvailableFeature, OrganizationType } from '~/types'
 
 import { urls } from './urls'
 import { userLogic } from './userLogic'
+
+/**
+ * Mirrors `ALLOWED_WHILE_BLOCKED` in `posthog/middleware.py`, which applies the same rule to full
+ * page loads. Nothing imports across the two trees, so change one and change the other.
+ */
+const ALLOWED_WHILE_BLOCKED: Record<string, string[]> = {
+    '/organization-pending-deletion': ['/organization-pending-deletion', '/signup/'],
+    '/organization-deactivated': [
+        '/organization-deactivated',
+        '/signup/',
+        '/organization/billing',
+        '/billing/authorization_status',
+    ],
+}
+
+function organizationBlockPage(organization: OrganizationType | null): string | null {
+    if (organization?.is_pending_deletion) {
+        return '/organization-pending-deletion'
+    }
+    if (organization?.is_active === false) {
+        return '/organization-deactivated'
+    }
+    return null
+}
 
 export type OrganizationUpdatePayload = Partial<
     Pick<
@@ -344,15 +369,18 @@ export const organizationLogic = kea<organizationLogicType>([
             }
         },
         locationChanged: ({ pathname }) => {
-            // Redirect to pending deletion page if organization deletion is in progress
-            if (values.currentOrganization?.is_pending_deletion && pathname !== urls.organizationPendingDeletion()) {
-                router.actions.replace(urls.organizationPendingDeletion())
+            const blockPage = organizationBlockPage(values.currentOrganization)
+            if (blockPage === null) {
                 return
             }
-            // Redirect to deactivated page if organization is inactive (client-side navigation)
-            if (values.currentOrganization?.is_active === false && pathname !== urls.organizationDeactivated()) {
-                router.actions.replace(urls.organizationDeactivated())
+            // The pathname can carry the router's `/project/<id>` prefix while the allowed pages
+            // are routes, so compare on the route. Otherwise the replace below never matches its
+            // own destination and the two keep redirecting to each other.
+            const route = removeProjectIdIfPresent(pathname)
+            if (ALLOWED_WHILE_BLOCKED[blockPage].some((allowed) => route.startsWith(allowed))) {
+                return
             }
+            router.actions.replace(blockPage)
         },
         createOrganizationSuccess: () => {
             sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
