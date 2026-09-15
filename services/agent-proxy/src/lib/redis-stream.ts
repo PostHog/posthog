@@ -27,6 +27,7 @@ import type { ReadStreamEntriesOptions, ResumeGap, StreamEntryOrKeepalive, TaskR
 import {
     TaskRunStreamAlreadyCompleted,
     TaskRunStreamCompletionSequenceMismatch,
+    TaskRunStreamCursorTrimmedError,
     TaskRunStreamError,
     TaskRunStreamSequenceGap,
     WRITE_RESULT_DUPLICATE,
@@ -271,15 +272,41 @@ export class TaskRunRedisStream {
         // one, so that XREAD BLOCK calls don't queue behind ingest XADD writes
         // on the shared client.
         const xreadClient = opts.blockingRedis ?? this.redis
+        const cursorRecheckAfterStallMs = opts.cursorRecheckAfterStallMs ?? null
 
         let currentId = startId
         const startTime = Date.now()
         let lastYieldTime = startTime
+        let recheckCursor = false
+        let stalledMs = 0
+        const noteConsumerStall = (yieldedAt: number): void => {
+            if (cursorRecheckAfterStallMs === null) {
+                return
+            }
+            stalledMs += Date.now() - yieldedAt
+            if (stalledMs >= cursorRecheckAfterStallMs) {
+                stalledMs = 0
+                recheckCursor = true
+            }
+        }
 
         while (true) {
             const now = Date.now()
             if (now - startTime > this.timeout * 1000) {
                 throw new TaskRunStreamError('Stream timeout — task run took too long')
+            }
+
+            if (recheckCursor) {
+                recheckCursor = false
+                let trimmed: boolean
+                try {
+                    trimmed = await this.resumePointTrimmed(currentId)
+                } catch {
+                    throw new TaskRunStreamError('Connection lost to task run stream')
+                }
+                if (trimmed) {
+                    throw new TaskRunStreamCursorTrimmedError(currentId)
+                }
             }
 
             let messages: Array<[string, Array<[string, string[]]>]> | null = null
@@ -320,6 +347,7 @@ export class TaskRunRedisStream {
                 if (keepaliveIntervalMs !== null && idleMs >= keepaliveIntervalMs) {
                     lastYieldTime = Date.now()
                     yield null
+                    noteConsumerStall(lastYieldTime)
                 }
                 continue
             }
@@ -360,6 +388,7 @@ export class TaskRunRedisStream {
                     } else {
                         lastYieldTime = Date.now()
                         yield [normalizedId, data]
+                        noteConsumerStall(lastYieldTime)
                     }
                 }
             }

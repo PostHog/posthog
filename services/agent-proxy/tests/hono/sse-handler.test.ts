@@ -19,6 +19,7 @@ import {
     SSE_EVENT_ERROR,
     SSE_EVENT_KEEPALIVE,
     SSE_EVENT_STREAM_END,
+    STREAM_CURSOR_RECHECK_STALL_MS,
     WAIT_TIMEOUT_MS,
 } from '@/lib/constants.js'
 import { getWatchedKey } from '@/lib/redis-stream.js'
@@ -137,6 +138,10 @@ class FakeRedis {
 
     _set(key: string, value: string): void {
         this.strings.set(key, value)
+    }
+
+    _xtrimKeepLast(key: string, keep: number): void {
+        this.streams.set(key, (this.streams.get(key) ?? []).slice(-keep))
     }
 
     // ---------------------------------------------------------------------------
@@ -658,12 +663,119 @@ describe('sse-handler', () => {
             xaddComplete(redis, streamKey)
 
             const body = await collect(
-                streamTaskRunEvents(streamKey, redis as unknown as Redis, { lastEventId: firstId })
+                streamTaskRunEvents(streamKey, redis as unknown as Redis, { lastEventId: firstId, resyncCapable: true })
             )
 
             expect(body).toContain('"second"')
             expect(body).not.toContain('"first"')
             expect(body).toContain(SSE_EVENT_STREAM_END)
+        })
+
+        it('tells a resync-capable client its cursor was trimmed instead of skipping ahead', async () => {
+            const runId = uniqueRunId()
+            const streamKey = makeStreamKey(runId)
+
+            xaddData(redis, streamKey, { type: 'notification', msg: 'survivor' })
+            xaddComplete(redis, streamKey)
+
+            const body = await collect(
+                streamTaskRunEvents(streamKey, redis as unknown as Redis, { lastEventId: '1-0', resyncCapable: true })
+            )
+
+            expect(body).toBe(`event: ${SSE_EVENT_END}\ndata: {"type":"resync","reason":"trimmed"}\n\n`)
+        })
+
+        it('keeps reading from the oldest surviving entry for a client that cannot resync', async () => {
+            const runId = uniqueRunId()
+            const streamKey = makeStreamKey(runId)
+
+            xaddData(redis, streamKey, { type: 'notification', msg: 'survivor' })
+            xaddComplete(redis, streamKey)
+
+            const body = await collect(
+                streamTaskRunEvents(streamKey, redis as unknown as Redis, { lastEventId: '1-0' })
+            )
+
+            expect(body).toContain('"survivor"')
+            expect(body).not.toContain('"resync"')
+            expect(body).toContain(SSE_EVENT_STREAM_END)
+        })
+
+        it.each([
+            { resyncCapable: true, outcome: 'closes with a stream error' },
+            { resyncCapable: false, outcome: 'keeps reading from the cursor' },
+        ])('$outcome when the trim check fails (resyncCapable=$resyncCapable)', async ({ resyncCapable }) => {
+            const runId = uniqueRunId()
+            const streamKey = makeStreamKey(runId)
+
+            xaddData(redis, streamKey, { type: 'notification', msg: 'first' })
+            const msgs = await redis.xrange(streamKey, '-', '+', 'COUNT', 1)
+            const firstId = msgs[0]![0]
+            xaddData(redis, streamKey, { type: 'notification', msg: 'second' })
+            xaddComplete(redis, streamKey)
+            vi.spyOn(redis, 'xrange').mockRejectedValue(new Error('READONLY'))
+
+            const body = await collect(
+                streamTaskRunEvents(streamKey, redis as unknown as Redis, { lastEventId: firstId, resyncCapable })
+            )
+
+            expect(body).not.toContain('"resync"')
+            if (resyncCapable) {
+                expect(body).toBe(`event: ${SSE_EVENT_ERROR}\ndata: {"error":"Connection lost to task run stream"}\n\n`)
+            } else {
+                expect(body).toContain('"second"')
+                expect(body).toContain(SSE_EVENT_STREAM_END)
+            }
+        })
+
+        it.each([
+            {
+                name: 'rebuild when its cursor is trimmed while the reader is stalled',
+                failRecheck: false,
+                shortPauses: 1,
+                expectedFrame: `event: ${SSE_EVENT_END}\ndata: {"type":"resync","reason":"trimmed"}\n\n`,
+            },
+            {
+                name: 'rebuild when its cursor is trimmed while the reader lags in short pauses',
+                failRecheck: false,
+                shortPauses: 4,
+                expectedFrame: `event: ${SSE_EVENT_END}\ndata: {"type":"resync","reason":"trimmed"}\n\n`,
+            },
+            {
+                name: 'reconnect when the stalled trim check fails',
+                failRecheck: true,
+                shortPauses: 1,
+                expectedFrame: `event: ${SSE_EVENT_ERROR}\ndata: {"error":"Connection lost to task run stream"}\n\n`,
+            },
+        ])('tells a resync-capable client to $name', async ({ failRecheck, shortPauses, expectedFrame }) => {
+            vi.useFakeTimers()
+            const runId = uniqueRunId()
+            const streamKey = makeStreamKey(runId)
+
+            xaddData(redis, streamKey, { type: 'notification', msg: 'first' })
+            const gen = streamTaskRunEvents(streamKey, redis as unknown as Redis, { resyncCapable: true })
+            const first = await gen.next()
+            expect(first.value?.toString('utf8')).toContain('"first"')
+
+            const pauseMs = Math.floor(STREAM_CURSOR_RECHECK_STALL_MS / shortPauses)
+            for (let pause = 1; pause < shortPauses; pause++) {
+                xaddData(redis, streamKey, { type: 'notification', msg: `lag-${pause}` })
+                vi.advanceTimersByTime(pauseMs)
+                const lagging = await gen.next()
+                expect(lagging.value?.toString('utf8')).toContain(`"lag-${pause}"`)
+            }
+
+            xaddData(redis, streamKey, { type: 'notification', msg: 'second' })
+            xaddData(redis, streamKey, { type: 'notification', msg: 'third' })
+            redis._xtrimKeepLast(streamKey, 1)
+            if (failRecheck) {
+                vi.spyOn(redis, 'xrange').mockRejectedValue(new Error('Connection is closed'))
+            }
+            vi.advanceTimersByTime(pauseMs)
+
+            const next = await gen.next()
+            expect(next.value?.toString('utf8')).toBe(expectedFrame)
+            expect((await gen.next()).done).toBe(true)
         })
 
         it('id field in each SSE frame matches the Redis stream ID used for resuming', async () => {
@@ -822,6 +934,27 @@ describe('sse-handler', () => {
             expect(body).toContain(`event: ${SSE_EVENT_STREAM_END}`)
             expect(body).not.toContain(`event: ${SSE_EVENT_ERROR}`)
         })
+
+        it.each([
+            { resyncCapable: true, frame: `event: ${SSE_EVENT_END}\ndata: {"type":"resync","reason":"trimmed"}\n\n` },
+            { resyncCapable: false, frame: `event: ${SSE_EVENT_STREAM_END}\ndata: {"status":"complete"}\n\n` },
+        ])(
+            'answers a cursor on an expired terminal stream with $frame (resyncCapable=$resyncCapable)',
+            async ({ resyncCapable, frame }) => {
+                const runId = uniqueRunId()
+                const streamKey = makeStreamKey(runId)
+
+                const body = await collect(
+                    streamTaskRunEvents(streamKey, redis as unknown as Redis, {
+                        isTerminal: true,
+                        lastEventId: '1-0',
+                        resyncCapable,
+                    })
+                )
+
+                expect(body).toBe(frame)
+            }
+        )
 
         it('emits keepalive events while waiting for the stream to appear', async () => {
             vi.useFakeTimers()
