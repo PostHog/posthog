@@ -42,7 +42,7 @@ KMS wraps each data key with an encryption context that binds its owner and purp
 Payload encryption uses XSalsa20-Poly1305.
 The authenticated payload also binds the dataset kind and, for images, the object or reference being encrypted.
 
-Ingestion processes privacy state in batches:
+Ingestion processes key state in batches:
 
 1. Bulk-read session keys, team blocks, month blocks, and image keys.
 2. Resolve keys in memory while processing the batch.
@@ -60,7 +60,7 @@ Each process limits KMS concurrency and request rate; deployment capacity must a
 Readers check live state before each batch and permit key use for at most five minutes from the start of that read.
 An expired read must obtain permission again.
 
-The privacy table has no TTL or point-in-time recovery.
+The key table has no TTL or point-in-time recovery.
 Its resource policy denies backups, exports, and enabling continuous backups or Kinesis copies.
 Do not copy wrapped keys into object storage, logs, workflow payloads, or another persistent cache.
 Restoring a deleted wrapped key would defeat deletion.
@@ -174,7 +174,7 @@ Their HMAC key must remain stable while that data is in use.
 
 ## Configuration
 
-New privacy settings use `AI_RESEARCH_REPLAY_*`:
+New key manager and v2 storage settings use the `AI_RESEARCH_REPLAY_*` prefix:
 
 - `KEY_TABLE`, `KMS_KEY_ARN`, and `AWS_REGION` select the key store and wrapping key.
 - `KEY_CACHE_MAX`, `KEY_CACHE_LIFETIME_MS`, and `KMS_REQUESTS_PER_SECOND` bound ingestion key caching and KMS traffic.
@@ -224,5 +224,5 @@ The database user needs SELECT and UPDATE only on `posthog_aitrainingdeletionreq
 The worker starts with `bin/docker-worker-ai-training-privacy` and does not use shared Django signing secrets.
 Its process-local signing key is not used for application requests.
 The worker skips general migration checks; the outbox table must exist before deployment.
-All processes that enqueue privacy work, including the general-purpose Temporal worker, need the privacy table setting.
-Shared Django and Temporal workers cannot delete keys from the privacy table.
+All processes that enqueue privacy work, including the general-purpose Temporal worker, need the key table setting.
+Shared Django and Temporal workers cannot delete keys from the key table.
