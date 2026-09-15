@@ -1299,6 +1299,24 @@ describe('exec tool', () => {
         // sub-path. The imperative now rides on each complex field's `hint` —
         // the runtime nudge that pairs with the prompt-side guidance in
         // `cli-schema-drilldown.md`.
+        // The August rejections on over-long experiment descriptions came from
+        // exec-mode agents that had no way to see the 3,000-character cap: the
+        // generated schema carries `max(3000)`, but the summary the bare `schema`
+        // view always returns dropped every scalar constraint.
+        it.each(['experiment-create', 'experiment-update'])(
+            'keeps the description cap in the bare schema view and in info for %s',
+            async (name) => {
+                const base = GENERATED_TOOL_MAP[name]!()
+                const exec = createExec([makeMockTool({ name, schema: base.schema })])
+
+                const bare = JSON.parse((await exec.handler(mockContext, { command: `schema ${name}` })) as string)
+                expect(bare.properties.description).toMatchObject({ type: 'string', maxLength: 3000 })
+
+                const info = JSON.parse((await exec.handler(mockContext, { command: `info --json ${name}` })) as string)
+                expect(info.inputSchema.properties.description).toMatchObject({ maxLength: 3000 })
+            }
+        )
+
         it('bakes the drill-down imperative into each complex field hint of the bare schema view', async () => {
             const tool = makeMockTool({
                 schema: z.object({

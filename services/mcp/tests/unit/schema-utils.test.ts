@@ -690,6 +690,30 @@ describe('summarizeSchema constraints', () => {
         expect(result.properties.rollout).toEqual({ type: 'integer', minimum: 0, maximum: 100 })
     })
 
+    // zod renders `.nullable()` as `anyOf: [scalar, null]`; the experiment tools'
+    // `description` arrives this way, and the summary used to say
+    // "union of 1 types" with no cap.
+    it('summarizes a nullable scalar as the scalar, keeping its constraints and enum', () => {
+        const schema = {
+            type: 'object',
+            properties: {
+                description: {
+                    anyOf: [{ type: 'string', maxLength: 3000 }, { type: 'null' }],
+                    description: 'Hypothesis',
+                },
+                stats: { anyOf: [{ type: 'string', enum: ['bayesian', 'frequentist'] }, { type: 'null' }] },
+                config: { anyOf: [{ type: 'object', properties: { a: {} } }, { type: 'null' }] },
+            },
+        }
+
+        const result = summarizeSchema(schema, 'my-tool')
+
+        expect(result.properties.description).toEqual({ type: 'string', maxLength: 3000, description: 'Hypothesis' })
+        expect(result.properties.stats).toEqual({ type: 'string', enum: ['bayesian', 'frequentist'] })
+        // A nullable object is still complex and keeps its drill-down hint.
+        expect(result.properties.config!.hint).toContain('schema my-tool config')
+    })
+
     it('keeps constraints on a leaf schema summarized on its own', () => {
         const result = summarizeSchema({ type: 'string', maxLength: 400 }, 'my-tool')
 

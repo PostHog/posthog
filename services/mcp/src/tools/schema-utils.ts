@@ -39,6 +39,25 @@ function copyConstraints(from: JSONSchema, to: SummarizedProperty | NodeSummary)
 }
 
 /**
+ * A nullable scalar (`anyOf: [{type: 'string', maxLength: 3000}, {type: 'null'}]`, how
+ * zod renders `.nullable()`) is one scalar for the caller's purposes. Returns that
+ * variant so its type, enum and constraints are summarized instead of the union
+ * wrapper, which carried none of them. Anything else comes back unchanged.
+ */
+function unwrapNullableScalar(schema: JSONSchema): JSONSchema {
+    const variants = (schema.anyOf || schema.oneOf) as JSONSchema[] | undefined
+    if (!variants) {
+        return schema
+    }
+    const nonNull = variants.filter((v) => v.type !== 'null')
+    const only = nonNull.length === 1 ? nonNull[0]! : undefined
+    if (!only || typeof only.type !== 'string' || only.type === 'object' || only.type === 'array') {
+        return schema
+    }
+    return { ...only, description: schema.description ?? only.description }
+}
+
+/**
  * A summarized schema node. `properties` is always present (empty for non-object
  * nodes) so callers can read it unconditionally; `items` (arrays) and `variants`
  * (unions) carry the recursive shape that the old object-only summarizer dropped.
@@ -238,7 +257,8 @@ function summarizeObject(schema: JSONSchema, toolName: string, fieldPath?: strin
     const result: Record<string, SummarizedProperty> = {}
     const pathPrefix = fieldPath ? `${fieldPath}.` : ''
 
-    for (const [name, prop] of Object.entries(properties)) {
+    for (const [name, rawProp] of Object.entries(properties)) {
+        const prop = unwrapNullableScalar(rawProp)
         const entry: SummarizedProperty = {}
         entry.type = getTypeString(prop)
 
@@ -294,7 +314,8 @@ function summarizeObject(schema: JSONSchema, toolName: string, fieldPath?: strin
 }
 
 /** Summarize a scalar/leaf node — its descriptive metadata only, no children. */
-function summarizeLeaf(schema: JSONSchema): NodeSummary {
+function summarizeLeaf(rawSchema: JSONSchema): NodeSummary {
+    const schema = unwrapNullableScalar(rawSchema)
     const summary: NodeSummary = { type: getTypeString(schema), properties: {} }
     if (typeof schema.title === 'string') {
         summary.title = schema.title
