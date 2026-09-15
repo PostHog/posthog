@@ -1111,6 +1111,31 @@ class TestContextLayerAPI(APIBaseTest):
     def test_dreams_404_before_enablement(self, _flag) -> None:
         assert self.client.get(f"{self.base_url}/dreams/").status_code == 404
 
+    @override_settings(SITE_URL="https://example.com")
+    def test_dreams_shows_a_finished_run_without_a_published_update(self, _flag) -> None:
+        self._enable()
+        self._land_dream("areas/dreamt.md", _page("Dreamt"), "dream/2026-08-18")
+        task_id = uuid4()
+        latest = MagicMock(
+            status="completed", created_at=timezone.now(), is_terminal=True, task_id=task_id, team_id=123
+        )
+
+        with patch.object(dreams.tasks_facade, "get_latest_internal_task_run_for_organization", return_value=latest):
+            response = self.client.get(f"{self.base_url}/dreams/")
+            assert response.status_code == 200, response.content
+            assert response.json()["unpublished_run"] == {
+                "task_url": f"https://example.com/project/123/tasks/{task_id}",
+                "run_status": "completed",
+                "started_at": latest.created_at.isoformat().replace("+00:00", "Z"),
+            }
+
+            latest.created_at = timezone.now() - timedelta(days=1)
+            assert self.client.get(f"{self.base_url}/dreams/").json()["unpublished_run"] is None
+
+            latest.created_at = timezone.now()
+            latest.is_terminal = False
+            assert self.client.get(f"{self.base_url}/dreams/").json()["unpublished_run"] is None
+
     def test_dream_returns_the_runs_per_file_patches(self, _flag) -> None:
         self._enable()
         self._land_dream("areas/dreamt.md", _page("Dreamt"), "dream/2026-08-18")
