@@ -87,6 +87,13 @@ def clickhouse_error_type(e: Exception) -> str:
 
 STORAGE_FILE_URI_PATTERN = re.compile(r"\(in file/uri ([^)]+)\)")
 
+# ClickHouse says "Quantile level is out of range [0..1]". The alternative survives a rewording.
+QUANTILE_LEVEL_PATTERN = re.compile(r"quantile level.*(out of range|between 0 and 1)", re.IGNORECASE)
+
+QUANTILE_LEVEL_MESSAGE = (
+    "A quantile level must be between 0 and 1. For example, use quantile(0.95)(...) for the 95th percentile."
+)
+
 CORRUPTED_PARQUET_METADATA_MESSAGE = (
     "A Parquet file backing this table has corrupted or oversized metadata and can't be read. "
     "This usually means the file wasn't written correctly during import. Re-sync the source (or "
@@ -169,6 +176,14 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         # callers that want the deploy case retried opt in themselves.
         return CHQueryErrorQueryWasCancelled(err.message, code=err.code, code_name="query_was_cancelled")
 
+    elif name == "PARAMETER_OUT_OF_BOUND" and QUANTILE_LEVEL_PATTERN.search(err.message):
+        # HogQL only counts the parameters of a quantile function, so an out-of-range level
+        # reaches ClickHouse. Other code 12 messages can embed stored values, so only this
+        # shape is exposed, with a fixed message.
+        return CHQueryErrorQuantileLevelOutOfBound(
+            QUANTILE_LEVEL_MESSAGE, code=err.code, code_name="quantile_level_out_of_bound"
+        )
+
     # user query errors - pass through original message with proper code_name
     elif name == "ILLEGAL_TYPE_OF_ARGUMENT":
         return CHQueryErrorIllegalTypeOfArgument(err.message, code=err.code, code_name="illegal_type_of_argument")
@@ -218,6 +233,11 @@ def look_up_clickhouse_error_code_meta(error: ServerException) -> ErrorCodeMeta:
 
 def classify_query_error(e: Exception) -> QueryErrorCategory:
     """Classify a query execution exception into a high-level category for observability."""
+    # PARAMETER_OUT_OF_BOUND also covers internal bounds faults, so only the quantile level shape is
+    # user input. Checked before the code lookup, which sees the code but not the message.
+    if isinstance(e, CHQueryErrorQuantileLevelOutOfBound):
+        return QueryErrorCategory.USER_ERROR
+
     if isinstance(e, ServerException):
         return look_up_clickhouse_error_code_meta(e).get_category()
 
@@ -270,6 +290,10 @@ class CHQueryErrorCorruptedParquetMetadata(ExposedCHQueryError):
 
 
 # User query errors - these are errors caused by user input/queries
+class CHQueryErrorQuantileLevelOutOfBound(ExposedCHQueryError):
+    pass
+
+
 class CHQueryErrorIllegalTypeOfArgument(ExposedCHQueryError):
     pass
 
@@ -377,6 +401,9 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     9: ErrorCodeMeta("SIZES_OF_COLUMNS_DOESNT_MATCH"),
     10: ErrorCodeMeta("NOT_FOUND_COLUMN_IN_BLOCK"),
     11: ErrorCodeMeta("POSITION_OUT_OF_BOUND"),
+    # Stays internal: some CH messages for this code embed the failing data value. The code also
+    # covers internal bounds faults, so the user error category is set per class in
+    # classify_query_error instead of here.
     12: ErrorCodeMeta("PARAMETER_OUT_OF_BOUND"),
     13: ErrorCodeMeta("SIZES_OF_COLUMNS_IN_TUPLE_DOESNT_MATCH"),
     15: ErrorCodeMeta("DUPLICATE_COLUMN"),
