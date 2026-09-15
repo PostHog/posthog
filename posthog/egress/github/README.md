@@ -60,7 +60,7 @@ resp = github_request(
 
 `raise_if_github_rate_limited` and `GitHubRateLimitError` (GitHub's own 429, the reactive twin of `GitHubEgressBudgetExhausted`) live in `transport.py` for callers that want to raise and retry.
 The model-coupled `GitHubIntegrationBase.api_request` layers the installation-token lifecycle (proactive refresh, 401 refresh-retry, rate-limit raising, per-instance `source` attribution) on top. Hold an integration, call that. Hold a bare token, call `github_request`.
-The `github-api-calls-go-through-egress` semgrep rule reads the URL argument only, which is why `posthog/plugins/utils.py` still calls `requests.get` directly with a URL it builds into a variable first.
+The `github-api-calls-go-through-egress` semgrep rule reads the URL argument only, so a call that builds its URL into a variable first gets past it, and review is the only check on that shape.
 
 ## Identity-blind callers and the PAT scope decision
 
