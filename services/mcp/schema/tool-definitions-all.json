@@ -4500,12 +4500,26 @@
         }
     },
     "experiment-get": {
-        "description": "Get a single experiment by ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nReturns the full experiment object including: status (draft/running/paused/exposure_frozen/stopped — \"paused\" is a virtual value returned when the experiment is launched but its feature flag has been deactivated, \"exposure_frozen\" when its flag's release groups are narrowed to the already-exposed cohort so enrollment is closed while metrics keep flowing), start_date and end_date, linked feature_flag (with variants, filters, active state), metrics and metrics_secondary arrays, conclusion and conclusion_comment if ended, parameters (including feature_flag_variants and recommended_running_time), stats_config, type (web/product), and resolved_exposure_event (the event exposures are counted on when no custom exposure event is configured — resolved server-side to $feature_flag_called or $experiment_exposure; use it in SQL instead of hardcoding either name).",
+        "description": "Get a single experiment by ID. If you have the experiment's feature flag key instead of its ID, call experiment-get-by-flag-key. If you have neither, load the finding-experiments skill to resolve the user's reference first.\n\nReturns the full experiment object including: status (draft/running/paused/exposure_frozen/stopped — \"paused\" is a virtual value returned when the experiment is launched but its feature flag has been deactivated, \"exposure_frozen\" when its flag's release groups are narrowed to the already-exposed cohort so enrollment is closed while metrics keep flowing), start_date and end_date, linked feature_flag (with variants, filters, active state), metrics and metrics_secondary arrays, conclusion and conclusion_comment if ended, parameters (including feature_flag_variants and recommended_running_time), stats_config, type (web/product), and resolved_exposure_event (the event exposures are counted on when no custom exposure event is configured — resolved server-side to $feature_flag_called or $experiment_exposure; use it in SQL instead of hardcoding either name).",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Get experiment details",
         "title": "Get experiment details",
         "required_scopes": ["experiment:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "experiment-get-by-flag-key": {
+        "description": "Get an experiment by its feature flag key (e.g. \"new-checkout\") — the identifier used in code and shown in the UI. Use this when you have the flag key but not the experiment's numeric ID; use `experiment-get` when you have the ID. Returns the full experiment with `found: true`, or `found: false` with a message when no flag or no linked experiment exists — a miss is data, not an error, so an existence check before `experiment-create` needs no special handling. Archived flags and experiments are included. A miss carries `reason`: `no_flag` or `no_experiment` mean the key is free to create on; `ambiguous` means several experiments share the flag (experiment-duplicate reuses it) and none is the single live one, so `candidates` (id, name, status, archived, dates) lists them to pick from with `experiment-get`. When exactly one is live it is returned directly.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Get an experiment by its feature flag key.",
+        "title": "Get experiment by flag key",
+        "required_scopes": ["experiment:read", "feature_flag:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -4598,7 +4612,7 @@
         }
     },
     "experiment-list": {
-        "description": "List experiments in the current project. This is the primary tool for resolving experiment references — load the finding-experiments skill for guidance on searching by name, status, recency, or description.\n\nSupports filtering by status (\"draft\", \"running\", \"paused\", \"exposure_frozen\", \"stopped\", \"complete\" which maps to stopped, or \"all\"), archived state (defaults to non-archived), feature_flag_id, created_by_id, and free-text search on name. Supports ordering by an allowlisted set of fields (model fields plus computed \"duration\" and \"status\"). Returns paginated results with each experiment's status, dates, feature flag key, and metrics summary. Use the returned ID for get/update/lifecycle tools.",
+        "description": "List experiments in the current project. This is the primary tool for resolving experiment references — load the finding-experiments skill for guidance on searching by name, status, recency, or description. When the reference is a feature flag key, call experiment-get-by-flag-key instead of listing.\n\nSupports filtering by status (\"draft\", \"running\", \"paused\", \"exposure_frozen\", \"stopped\", \"complete\" which maps to stopped, or \"all\"), archived state (defaults to non-archived), feature_flag_id, created_by_id, and free-text search on name. Supports ordering by an allowlisted set of fields (model fields plus computed \"duration\" and \"status\"). Returns paginated results with each experiment's status, dates, feature flag key, and metrics summary. Use the returned ID for get/update/lifecycle tools.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Get all experiments",
@@ -5345,7 +5359,7 @@
         }
     },
     "feature-flag-archive": {
-        "description": "Archive a feature flag, hiding it from the default flag list. Requires the flag's numeric ID; use `feature-flag-get-definition-by-key` to get it from a key, or `feature-flag-get-all` to search by key or name.\n\nSets `archived` to true. An archived flag must be disabled, so an enabled flag is turned off in the same call. Nothing else changes: this tool never accepts or replaces the `filters` object, and linked experiment and survey history is preserved. There is no request body.\n\nWhen the flag is enabled, archiving stops it evaluating everywhere. Tell the user what else this affects: linked experiments, surveys, early access features and session replay settings all appear in the flag's full definition.\n\nReturns 400 when the flag is enabled and other active flags depend on it. Returns 409 when an approval policy gates disabling. Archiving an already-archived flag succeeds and changes nothing, so retrying is safe.\n\nA key lookup that finds nothing does not mean the flag is absent. Archived flags are hidden from `feature-flag-get-definition-by-key` and from `feature-flag-get-all`, so a flag that is already archived looks missing on a retry. Pass `{\"archived\":\"true\"}` to `feature-flag-get-all` before you report the flag as missing.\n\nUse `feature-flag-unarchive` to put the flag back in the list, or `delete-feature-flag` when the user wants it gone rather than tidied away.",
+        "description": "Archive a feature flag, hiding it from the default flag list. Requires the flag's numeric ID; use `feature-flag-get-definition-by-key` to get it from a key, or `feature-flag-get-all` to search by key or name.\n\nSets `archived` to true. An archived flag must be disabled, so an enabled flag is turned off in the same call. Nothing else changes: this tool never accepts or replaces the `filters` object, and linked experiment and survey history is preserved. There is no request body.\n\nWhen the flag is enabled, archiving stops it evaluating everywhere. Tell the user what else this affects: linked experiments, surveys, early access features and session replay settings all appear in the flag's full definition.\n\nReturns 400 when the flag is enabled and other active flags depend on it. Returns 409 when an approval policy gates disabling. Archiving an already-archived flag succeeds and changes nothing, so retrying is safe.\n\n`feature-flag-get-definition-by-key` also finds archived flags, so a flag that is already archived is returned with `archived: true` rather than looking missing on a retry. `feature-flag-get-all` hides archived flags unless you pass `{\"archived\":\"true\"}`.\n\nUse `feature-flag-unarchive` to put the flag back in the list, or `delete-feature-flag` when the user wants it gone rather than tidied away.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Archive feature flag",
@@ -5359,7 +5373,7 @@
         }
     },
     "feature-flag-disable": {
-        "description": "Turn a feature flag off. Requires the flag's numeric ID; use `feature-flag-get-definition-by-key` to get it from a key, or `feature-flag-get-all` to search by key or name.\n\nSets `active` to false and changes nothing else. This tool never accepts or replaces the `filters` object, so targeting, rollout percentages, variants and payloads cannot change. There is no request body.\n\nA disabled flag stops evaluating everywhere, so every caller falls back to its own default. Tell the user what else this affects: linked experiments, surveys, early access features and session replay settings all appear in the flag's full definition. `feature-flag-get-definition-by-key` already returns it, and `feature-flag-get-definition` returns it by ID.\n\nReturns 400 when other active flags depend on this one; `feature-flags-dependent-flags-retrieve` lists them. Returns 409 when an approval policy gates disabling. Disabling an already-disabled flag succeeds and changes nothing, so retrying is safe.\n\nA key lookup that finds nothing does not mean the flag is absent. Archived flags are hidden from `feature-flag-get-definition-by-key` and from `feature-flag-get-all`, and an archived flag is already disabled. Pass `{\"archived\":\"true\"}` to `feature-flag-get-all` before you report the flag as missing.\n\nTo turn the flag off at a future time instead, use `scheduled-changes-create` with the `update_status` operation.",
+        "description": "Turn a feature flag off. Requires the flag's numeric ID; use `feature-flag-get-definition-by-key` to get it from a key, or `feature-flag-get-all` to search by key or name.\n\nSets `active` to false and changes nothing else. This tool never accepts or replaces the `filters` object, so targeting, rollout percentages, variants and payloads cannot change. There is no request body.\n\nA disabled flag stops evaluating everywhere, so every caller falls back to its own default. Tell the user what else this affects: linked experiments, surveys, early access features and session replay settings all appear in the flag's full definition. `feature-flag-get-definition-by-key` already returns it, and `feature-flag-get-definition` returns it by ID.\n\nReturns 400 when other active flags depend on this one; `feature-flags-dependent-flags-retrieve` lists them. Returns 409 when an approval policy gates disabling. Disabling an already-disabled flag succeeds and changes nothing, so retrying is safe.\n\n`feature-flag-get-definition-by-key` also finds archived flags, and an archived flag is already disabled. `feature-flag-get-all` hides archived flags unless you pass `{\"archived\":\"true\"}`.\n\nTo turn the flag off at a future time instead, use `scheduled-changes-create` with the `update_status` operation.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Disable feature flag",
@@ -5373,7 +5387,7 @@
         }
     },
     "feature-flag-enable": {
-        "description": "Turn a feature flag on. Requires the flag's numeric ID; use `feature-flag-get-definition-by-key` to get it from a key, or `feature-flag-get-all` to search by key or name.\n\nSets `active` to true and changes nothing else. This tool never accepts or replaces the `filters` object, so targeting, rollout percentages, variants and payloads cannot change. There is no request body. To change who the flag is served to, use `update-feature-flag`.\n\nReturns 400 when the flag is archived (call `feature-flag-unarchive` first) or when a flag it depends on is disabled. Returns 409 when an approval policy gates enabling. Enabling an already-enabled flag succeeds and changes nothing, so retrying is safe.\n\nA key lookup that finds nothing does not mean the flag is absent. Archived flags are hidden from `feature-flag-get-definition-by-key` and from `feature-flag-get-all`. Pass `{\"archived\":\"true\"}` to `feature-flag-get-all` before you report the flag as missing.\n\nTo turn the flag on at a future time instead, use `scheduled-changes-create` with the `update_status` operation.",
+        "description": "Turn a feature flag on. Requires the flag's numeric ID; use `feature-flag-get-definition-by-key` to get it from a key, or `feature-flag-get-all` to search by key or name.\n\nSets `active` to true and changes nothing else. This tool never accepts or replaces the `filters` object, so targeting, rollout percentages, variants and payloads cannot change. There is no request body. To change who the flag is served to, use `update-feature-flag`.\n\nReturns 400 when the flag is archived (call `feature-flag-unarchive` first) or when a flag it depends on is disabled. Returns 409 when an approval policy gates enabling. Enabling an already-enabled flag succeeds and changes nothing, so retrying is safe.\n\n`feature-flag-get-definition-by-key` also finds archived flags. `feature-flag-get-all` hides archived flags unless you pass `{\"archived\":\"true\"}`.\n\nTo turn the flag on at a future time instead, use `scheduled-changes-create` with the `update_status` operation.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Enable feature flag",
@@ -5415,7 +5429,7 @@
         }
     },
     "feature-flag-get-definition-by-key": {
-        "description": "Get a feature flag by its string key (e.g. \"new-checkout\") — the identifier used in code and shown in the UI. Use this when you have the key but not the numeric ID; use `feature-flag-get-definition` when you have the numeric ID.",
+        "description": "Get a feature flag by its string key (e.g. \"new-checkout\") — the identifier used in code and shown in the UI. Use this when you have the key but not the numeric ID; use `feature-flag-get-definition` when you have the numeric ID. Archived flags are included and come back with `archived: true`.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Get a feature flag by its key.",
@@ -11622,7 +11636,7 @@
         }
     },
     "subscriptions-list": {
-        "description": "List the team's subscriptions. Use `search` to filter by title, insight name (including the auto-generated name of an unnamed insight), or dashboard name. Prompt subscriptions are only matched on their `title` — the `prompt` text is not searchable.",
+        "description": "List the team's subscriptions. Use `search` to filter by title, insight name (including the auto-generated name of an unnamed insight), dashboard name, or prompt text. Prompt subscriptions match both their `title` and `prompt` text.",
         "category": "Subscriptions",
         "feature": "subscriptions",
         "summary": "List subscriptions",
