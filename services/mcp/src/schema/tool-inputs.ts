@@ -384,14 +384,22 @@ export const SavedMetricsAttachSchema = z
         "The complete desired set of shared (saved) metrics for the experiment — this REPLACES all existing saved-metric links, it does not append. To add or remove one, first read the experiment's current saved_metrics via experiment-get and resend the full set. Pass an empty array to detach all shared metrics."
     )
 
-export const ExperimentResultsGetSchema = z.object({
-    id: z.number().describe('The ID of the experiment to get comprehensive results for'),
-    refresh: z
-        .boolean()
-        .optional()
-        .default(false)
-        .describe('Force refresh of results instead of using cached values. Defaults to false.'),
-})
+// Agents reach for `experimentId` / `experiment_id` here as often as `id` — the same
+// alias set the generated experiment tools accept via their tools.yaml overrides.
+export const ExperimentResultsGetSchema = z.preprocess(
+    normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+    z.object({
+        id: z.preprocess(
+            castStringToInt,
+            z.number().describe('The ID of the experiment to get comprehensive results for')
+        ),
+        refresh: z
+            .boolean()
+            .optional()
+            .default(false)
+            .describe('Force refresh of results instead of using cached values. Defaults to false.'),
+    })
+)
 
 // Accept the identifier under the aliases agents reach for (`insight-get` &
 // friends return the insight under `id`; UI URLs surface `short_id`), and
