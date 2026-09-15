@@ -303,6 +303,7 @@ def list_metric_attribute_values(
     *,
     team: Team,
     key: str,
+    metric_name: str = "",
     search: str = "",
     date_from: dt.datetime | None = None,
     date_to: dt.datetime | None = None,
@@ -317,7 +318,7 @@ def list_metric_attribute_values(
     empty key, an out-of-range limit, or an inverted window.
     """
     runner = MetricAttributeValuesQueryRunner(
-        team=team, key=key, search=search, date_from=date_from, date_to=date_to, limit=limit
+        team=team, key=key, metric_name=metric_name, search=search, date_from=date_from, date_to=date_to, limit=limit
     )
     return runner.run()
 

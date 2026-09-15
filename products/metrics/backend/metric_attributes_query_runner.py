@@ -25,7 +25,7 @@ from products.metrics.backend.search import ilike_pattern
 _SERVICE_NAME_KEYS: frozenset[str] = frozenset({"service_name", "service.name"})
 
 # `time_bucket` floors timestamps to hourly buckets (see `_attributes_mv` in
-# posthog/clickhouse/metrics/metrics2.py); widen the lower bound so points near
+# posthog/clickhouse/metrics/metrics3.py); widen the lower bound so points near
 # the window start aren't dropped with their bucket.
 _TIME_BUCKET_INTERVAL = dt.timedelta(hours=1)
 
@@ -80,13 +80,20 @@ class MetricAttributeKeysQueryRunner:
             """
                 SELECT
                     arrayJoin(arrayDistinct(arrayConcat(
-                        mapKeys(attributes), mapKeys(resource_attributes), ['service_name']
+                        attribute_keys, resource_keys, ['service_name']
                     ))) AS attribute_key,
-                    uniqExact(series_fingerprint) AS series_count
-                FROM posthog.metric_series
-                WHERE last_seen >= {date_from}
-                  AND {metric_name_filter}
-                  AND (attribute_key ILIKE {search_pattern}
+                    count() AS series_count
+                FROM (
+                    SELECT
+                        series_fingerprint,
+                        groupUniqArrayArray(mapKeys(attributes)) AS attribute_keys,
+                        groupUniqArrayArray(mapKeys(resource_attributes)) AS resource_keys
+                    FROM posthog.metric_series
+                    WHERE last_seen >= {date_from}
+                      AND {metric_name_filter}
+                    GROUP BY series_fingerprint
+                )
+                WHERE (attribute_key ILIKE {search_pattern}
                        OR (attribute_key = 'service_name' AND 'service.name' ILIKE {search_pattern}))
                 GROUP BY attribute_key
                 ORDER BY series_count DESC, attribute_key ASC
@@ -134,6 +141,7 @@ class MetricAttributeValuesQueryRunner:
         team: Team,
         *,
         key: str,
+        metric_name: str = "",
         search: str = "",
         date_from: dt.datetime | None = None,
         date_to: dt.datetime | None = None,
@@ -143,6 +151,7 @@ class MetricAttributeValuesQueryRunner:
             raise ValueError("key is required")
         self.team = team
         self.key = key
+        self.metric_name = metric_name.strip()
         self.search = search.strip()
         self.date_from, self.date_to = _resolve_window(date_from, date_to)
         self.limit = _validate_limit(limit)
@@ -157,6 +166,7 @@ class MetricAttributeValuesQueryRunner:
                     FROM posthog.metric_attributes
                     WHERE time_bucket >= {date_from}
                       AND time_bucket < {date_to}
+                      AND {metric_name_filter}
                       AND service_name ILIKE {search_pattern}
                     GROUP BY service_name
                     ORDER BY
@@ -176,6 +186,7 @@ class MetricAttributeValuesQueryRunner:
                     FROM posthog.metric_attributes
                     WHERE time_bucket >= {date_from}
                       AND time_bucket < {date_to}
+                      AND {metric_name_filter}
                       AND attribute_key = {key}
                       AND attribute_value ILIKE {search_pattern}
                     GROUP BY attribute_value
@@ -204,6 +215,15 @@ class MetricAttributeValuesQueryRunner:
             "date_from": ast.Constant(value=self.date_from),
             "date_to": ast.Constant(value=self.date_to),
             "key": ast.Constant(value=self.key),
+            "metric_name_filter": (
+                ast.Constant(value=True)
+                if not self.metric_name
+                else ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["metric_name"]),
+                    right=ast.Constant(value=self.metric_name),
+                )
+            ),
             "search_pattern": ast.Constant(value=ilike_pattern(self.search)),
             "exact": ast.Constant(value=self.search),
             "limit": ast.Constant(value=self.limit),

@@ -101,13 +101,17 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
             {"name": "region", "series_count": 1},
         ]
 
-    def test_attribute_values_returns_values_with_aggregated_counts(self):
-        response = self._get("attribute_values", {"key": "env"})
+    @parameterized.expand([("all_metrics", "", ["prod", "dev"]), ("other_metric", "queue_depth", [])])
+    def test_attribute_values_returns_values_with_aggregated_counts(
+        self, _name: str, metric_name: str, expected: list[str]
+    ):
+        response = self._get("attribute_values", {"key": "env", "metricName": metric_name})
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["results"] == [
+        values = [
             {"id": "prod", "name": "prod", "count": 3},
             {"id": "dev", "name": "dev", "count": 1},
         ]
+        assert response.json()["results"] == [value for value in values if value["name"] in expected]
 
     def test_attribute_values_search_filters_values(self):
         # The property-values autocomplete sends the typed input as `value`.
@@ -120,6 +124,9 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
         response = self._get("attribute_values", {"key": key})
         assert response.status_code == status.HTTP_200_OK
         assert [r["name"] for r in response.json()["results"]] == ["checkout", "billing"]
+        scoped_response = self._get("attribute_values", {"key": key, "metricName": "queue_depth"})
+        assert scoped_response.status_code == status.HTTP_200_OK
+        assert [r["name"] for r in scoped_response.json()["results"]] == ["checkout"]
 
     @parameterized.expand(
         [

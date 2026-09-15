@@ -1,18 +1,13 @@
 """Distinct metric names for a team's picker UI.
 
-Reads `metric_series` (one row per metric + label-set) rather than the raw
-`metrics` datapoint table. Both are fed from the same Kafka Avro stream, so
-they carry the same names, but the series table holds one row per series
-where the datapoint table holds one per scrape, so it is orders of magnitude
-smaller for the same window. It also sorts by `(team_id, metric_name,
-series_fingerprint)` with a materialized `last_seen`, so the lookback needs no
-scan over the datapoint rows.
+The unscoped picker selects names from `metric_names` before reading their types.
+Catalog and service-scoped queries read `metric_series` rather than raw samples.
+Series rows can repeat across parts and expiry days. Aggregates combine these
+rows without FINAL. The picker groups activity into hourly buckets and uses
+metric name order to break ties within the same hour.
 
-No FINAL. ReplacingMergeTree duplicates share `(team_id, metric_name,
-series_fingerprint)`, and `max(last_seen)` picks the row FINAL would keep, since
-`last_seen` is the engine's version column. `metric_type` is an input to the
-fingerprint (see `rust/capture-logs/src/metric_record.rs`), so every duplicate
-of one fingerprint agrees on it and `any()` cannot return a stale type.
+`metric_type` is an input to the series fingerprint (see
+`rust/capture-logs/src/metric_record.rs`), so duplicates agree on their type.
 
 Surfaces `metric_type` alongside the name so the viewer can hint at the
 type-appropriate default aggregation (gauge -> avg, counter/sum -> sum, etc.)
@@ -120,6 +115,9 @@ class MetricNamesQueryRunner:
         # WHERE clause.
         lookback = ast.Call(name="toIntervalSecond", args=[ast.Constant(value=int(self.lookback.total_seconds()))])
 
+        if not self.include_sparklines and not self.services and not self.names:
+            return self._build_picker_query(lookback)
+
         if not self.search:
             # With no search the ILIKE ('%%') and the exact-match sort key are
             # both no-ops. They're dropped rather than passed as neutral
@@ -196,6 +194,46 @@ class MetricNamesQueryRunner:
                     ),
                 ]
             )
+        return query
+
+    def _build_picker_query(self, lookback: ast.Call) -> ast.SelectQuery:
+        # Select candidate names before the type lookup to bound the number of metrics read.
+        query = parse_select(
+            """
+                WITH picked_names AS (
+                    SELECT metric_name, max(time_bucket) AS latest_bucket
+                    FROM posthog.metric_names
+                    WHERE time_bucket >= toStartOfHour(now() - {lookback})
+                      AND metric_name ILIKE {search_pattern}
+                    GROUP BY metric_name
+                    ORDER BY lower(metric_name) = lower({exact}) DESC, latest_bucket DESC, metric_name ASC
+                    LIMIT {limit}
+                )
+                SELECT
+                    picked.metric_name AS name,
+                    metadata.metric_type AS metric_type,
+                    metadata.unit AS unit,
+                    metadata.last_seen_at AS last_seen_at
+                FROM picked_names AS picked
+                INNER JOIN (
+                    SELECT metric_name, any(metric_type) AS metric_type, any(unit) AS unit,
+                           max(last_seen) AS last_seen_at
+                    FROM posthog.metric_series
+                    WHERE metric_name IN (SELECT metric_name FROM picked_names)
+                      AND last_seen > now() - {lookback}
+                    GROUP BY metric_name
+                ) AS metadata ON picked.metric_name = metadata.metric_name
+                ORDER BY lower(picked.metric_name) = lower({exact}) DESC,
+                         picked.latest_bucket DESC, picked.metric_name ASC
+            """,
+            placeholders={
+                "lookback": lookback,
+                "search_pattern": ast.Constant(value=ilike_pattern(self.search)),
+                "exact": ast.Constant(value=self.search),
+                "limit": ast.Constant(value=self.limit),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
         return query
 
     def run(self) -> list[dict[str, Any]]:

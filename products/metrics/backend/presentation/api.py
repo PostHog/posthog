@@ -545,6 +545,13 @@ class _MetricAttributeKeysParamsSerializer(serializers.Serializer):
 
 
 class _MetricAttributeValuesParamsSerializer(serializers.Serializer):
+    metricName = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=255,
+        help_text="Exact metric name to limit attribute values to. Omit to list values across all metrics.",
+    )
     key = serializers.CharField(
         max_length=255,
         help_text="Attribute key to list values for (e.g. 'env'). 'service_name'/'service.name' list service names.",
@@ -1036,6 +1043,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             results = list_metric_attribute_values(
                 team=self.team,
                 key=params.validated_data["key"],
+                metric_name=params.validated_data["metricName"],
                 search=params.validated_data["value"],
                 date_from=params.validated_data["dateFrom"],
                 date_to=params.validated_data["dateTo"],
