@@ -1024,6 +1024,8 @@ class ClickHouseClient:
                     AND event_date >= yesterday() AND event_time >= now() - interval 24 hour
                     AND exception != ''
                 LIMIT 1
+                -- One unreachable replica must not cost us the answer the others hold.
+                SETTINGS skip_unavailable_shards=1
                 FORMAT JSONEachRow
                 """
 
