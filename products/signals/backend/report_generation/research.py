@@ -5,7 +5,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 # Canonical homes of the judgment/finding shapes are the artefact content schemas (they are
 # persisted as artefacts); re-exported here because this module is where research callers and
@@ -22,7 +22,7 @@ from products.signals.backend.artefact_schemas import (
 # `posthog.schema` onto the research path.
 from products.signals.backend.pipeline_identity import AI_STAGE_RESEARCH
 from products.signals.backend.report_actionability import ACTIONABILITY_CRITERIA
-from products.signals.backend.report_charts import MAX_REPORT_CHARTS, ReportChart
+from products.signals.backend.report_charts import MAX_REPORT_CHARTS, WHEN_TO_CHART, ReportChart
 from products.signals.backend.report_metrics import (
     DEFAULT_LIVE_METRIC_DATE_FROM,
     MAX_LIVE_METRIC_QUERY_POINTS,
@@ -58,6 +58,15 @@ __all__ = [
 ]
 
 # TODO: Signals deduplication step before the research
+
+
+def _rejection_reason(error: Exception) -> str:
+    """Why a chart was rejected, as failing field and rule only — never the rejected content."""
+    if not isinstance(error, ValidationError):
+        return type(error).__name__
+    return ", ".join(
+        f"{'.'.join(str(part) for part in entry['loc']) or 'chart'}: {entry['type']}" for entry in error.errors()
+    )
 
 
 class ReportPresentationOutput(BaseModel):
@@ -119,6 +128,28 @@ Hard rules:
             "EventsNode or ActionsNode sources. Its value/value_at snapshot is an optional cached fallback."
         ),
     )
+
+    @field_validator("charts", mode="before")
+    @classmethod
+    def drop_charts_that_do_not_validate(cls, v: object) -> object:
+        # Title, summary, and charts arrive as one response, so a single malformed node used to fail
+        # the whole presentation step and end the run with no report at all. Validating each entry
+        # here keeps the cost of a bad chart to that chart: it is dropped, the prose still lands,
+        # and the prompt can ask for charts without hedging against the response failing.
+        if not isinstance(v, list):
+            return v
+        kept: list[ReportChart] = []
+        for index, entry in enumerate(v):
+            try:
+                kept.append(ReportChart.model_validate(entry))
+            except Exception as e:
+                # Report the failing fields and rules, never the error itself: pydantic renders the
+                # rejected `input_value`, which would copy the chart's query — HogQL text and filter
+                # values — into application logs.
+                logger.warning(
+                    "presentation: dropped chart at index %d that did not validate (%s)", index, _rejection_reason(e)
+                )
+        return kept
 
     @field_validator("title", "summary")
     @classmethod
@@ -375,13 +406,11 @@ def _render_previous_presentation_context(previous_title: str | None, previous_s
 # team that isn't opted in is never shown or steered toward charts on the delicate fleet-wide path.
 _REPORT_CHARTS_GUIDANCE = f"""## Attaching charts
 
-You may attach charts under `charts`, which the inbox draws on the report itself so a data move is visible next to the sentence describing it rather than a number the reader has to go and reproduce.
+`charts` carries queries the inbox draws on the report itself, so a data move is visible next to the sentence describing it rather than a number the reader has to go and reproduce.
 
-**When the finding rests on data moving, attach the chart that shows it.** A metric that broke, a rate that slid, a distribution that shifted, a funnel step that collapsed: each of those is a shape, and a reader takes a shape in at a glance where a paragraph of figures makes them rebuild it in their head. The test is the result you got back, never the tool you got it from: a query that returned a series over time, a distribution across buckets, or a set of funnel steps has a shape to draw, and the same tool returning one aggregate row does not. Attaching is what keeps the prose short, because the summary can state the finding and leave the detail to the picture.
+{WHEN_TO_CHART}
 
-Attach nothing when there is no shape to show. A finding that lives entirely in code, in a config, or in a single count has nothing to draw, and a chart restating one number the summary already gives is noise, so write the number instead. One or two charts is the usual answer for a data-shaped report, and none for the rest.
-
-- **Each chart is `chart_id` + `title` + `query`.** `chart_id` is your own slug (lowercase letters, numbers, `_`, `-`); `title` is the heading above it; `query` is a query node — `InsightVizNode` (an ad-hoc product-analytics chart), `DataVisualizationNode` (a `HogQLQuery` source, plus `display` and `chartSettings` for a graph rather than a result table), or `SavedInsightNode` (an existing insight by `shortId`). Any other kind is refused. `query` is that outer node, never the bare query you ran: a `TrendsQuery` goes inside `InsightVizNode.source` and a `HogQLQuery` inside `DataVisualizationNode.source`. Getting that wrong costs more than the chart, because the title, the summary, and the charts are validated as one response, so a malformed node fails the whole thing and the research run ends with no report. When in doubt about a chart, leave it out and keep the prose. Add a `caption` when there's a specific thing to look at.
+- **Each chart is `chart_id` + `title` + `query`.** `chart_id` is your own slug (lowercase letters, numbers, `_`, `-`); `title` is the heading above it; `query` is a query node — `InsightVizNode` (an ad-hoc product-analytics chart), `DataVisualizationNode` (a `HogQLQuery` source, plus `display` and `chartSettings` for a graph rather than a result table), or `SavedInsightNode` (an existing insight by `shortId`). Any other kind is refused. `query` is that outer node, never the bare query you ran: a `TrendsQuery` goes inside `InsightVizNode.source` and a `HogQLQuery` inside `DataVisualizationNode.source`. A chart whose node is malformed is dropped on its own and the rest of the report still lands, so a chart you are unsure about costs you that chart and nothing else. Add a `caption` when there's a specific thing to look at.
 - **A graph from SQL needs its axes named.** Setting `display` on a `DataVisualizationNode` without `chartSettings` draws every row at one x position instead of a series: `chartSettings.xAxis.column` and `chartSettings.yAxis[].column` say which columns of your result are which, naming them exactly as your `SELECT` aliases them. A daily count aliased `SELECT toDate(timestamp) AS day, count() AS occurrences` needs `"chartSettings": {{"xAxis": {{"column": "day"}}, "yAxis": [{{"column": "occurrences"}}]}}`. Leave `display` off entirely and the node renders the result table instead, which reads better than a chart for a handful of rows.
 - **Only attach a query you actually ran this session.** A well-formed node of an allowed kind holding a broken query is stored without complaint and then fails to draw when the reader opens the report, with nothing to tell you. So build each chart from a query you already executed through `mcp__posthog__exec` (`call query-trends {{...}}`, `call execute-sql {{...}}`, or read the exact node off an existing insight) – never one written from memory.
 - **A chart renders data, it does not run code.** HogVM `bytecode`, a nested `HogQuery`, `sendRawQuery`, and a nested `SuggestedQuestionsQuery` are each refused wherever they sit in the node. A warehouse query is fine through HogQL — keep `connectionId`, drop `sendRawQuery`.
