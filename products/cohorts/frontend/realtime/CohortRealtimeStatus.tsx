@@ -2,6 +2,7 @@ import { IconBolt, IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 
@@ -23,7 +24,8 @@ export function CohortRealtimeStatus({
 }: {
     realtime: CohortRealtimeReadinessApi | null | undefined
 }): JSX.Element | null {
-    if (!realtime) {
+    const realtimeTargetingEnabled = useFeatureFlag('REALTIME_COHORT_FLAG_TARGETING')
+    if (!realtimeTargetingEnabled || !realtime) {
         return null
     }
 

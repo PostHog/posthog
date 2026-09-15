@@ -431,7 +431,7 @@ export interface CohortApi {
     cohort_type?: CohortTypeEnumApi | BlankEnumApi | null
     /** Flags describing which kinds of conditions the cohort's filters contain. Null when the cohort has no filters to classify. */
     readonly condition_type: CohortConditionTypeFlagsApi | null
-    /** Whether feature flags can target this cohort in realtime, and the progress of the build that gets it there. Null on projects the realtime pipeline does not cover, and for cohorts without event-based criteria, which feature flags could always target. */
+    /** Whether feature flags can target this cohort in realtime, and the progress of the build that gets it there. Null outside the realtime cohort flag targeting rollout, on projects the realtime pipeline does not cover, and for cohorts without event-based criteria, which feature flags could always target. */
     readonly realtime: CohortRealtimeReadinessApi | null
     readonly experiment_set: readonly number[]
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
@@ -500,7 +500,7 @@ export interface PatchedCohortApi {
     cohort_type?: CohortTypeEnumApi | BlankEnumApi | null
     /** Flags describing which kinds of conditions the cohort's filters contain. Null when the cohort has no filters to classify. */
     readonly condition_type?: CohortConditionTypeFlagsApi | null
-    /** Whether feature flags can target this cohort in realtime, and the progress of the build that gets it there. Null on projects the realtime pipeline does not cover, and for cohorts without event-based criteria, which feature flags could always target. */
+    /** Whether feature flags can target this cohort in realtime, and the progress of the build that gets it there. Null outside the realtime cohort flag targeting rollout, on projects the realtime pipeline does not cover, and for cohorts without event-based criteria, which feature flags could always target. */
     readonly realtime?: CohortRealtimeReadinessApi | null
     readonly experiment_set?: readonly number[]
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */

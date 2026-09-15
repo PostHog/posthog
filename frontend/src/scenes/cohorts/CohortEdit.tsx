@@ -518,9 +518,11 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                 <div className="flex flex-col gap-y-2">
                                                     <div className="flex items-center gap-x-2 my-0">
                                                         <strong>Last calculated:</strong>
-                                                        <Tooltip title="When PostHog last worked out who belongs to this cohort. That count is what insights, breakdowns and the people list below use, and it is recalculated once a day and whenever you edit the cohort.">
-                                                            <IconInfo className="text-secondary text-base" />
-                                                        </Tooltip>
+                                                        {featureFlags[FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING] && (
+                                                            <Tooltip title="When PostHog last worked out who belongs to this cohort. That count is what insights, breakdowns and the people list below use, and it is recalculated once a day and whenever you edit the cohort.">
+                                                                <IconInfo className="text-secondary text-base" />
+                                                            </Tooltip>
+                                                        )}
                                                         {isCalculatingOrPending ? (
                                                             <div className="flex items-center gap-x-2">
                                                                 <Spinner size="small" />

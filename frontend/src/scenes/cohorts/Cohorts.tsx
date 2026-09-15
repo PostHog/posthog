@@ -10,6 +10,7 @@ import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -52,6 +53,7 @@ export function Cohorts(): JSX.Element {
     const { deleteCohort, exportCohortPersons, setCohortFilters, setCohortSorting, loadCohorts } =
         useActions(cohortsSceneLogic)
     const { searchParams } = useValues(router)
+    const realtimeTargetingEnabled = useFeatureFlag('REALTIME_COHORT_FLAG_TARGETING')
 
     // Creating an export requires editor access to the export resource.
     const exportAccessControlDisabledReason = getAccessControlDisabledReason(
@@ -95,8 +97,9 @@ export function Cohorts(): JSX.Element {
         createdAtColumn<CohortType>() as LemonTableColumn<CohortType, keyof CohortType | undefined>,
         {
             title: 'Last calculated',
-            tooltip:
-                'When PostHog last worked out who belongs to this cohort. That count is what insights, breakdowns and the people list use, and it is recalculated once a day and whenever the cohort is edited.',
+            tooltip: realtimeTargetingEnabled
+                ? 'When PostHog last worked out who belongs to this cohort. That count is what insights, breakdowns and the people list use, and it is recalculated once a day and whenever the cohort is edited.'
+                : 'PostHog calculates what users belong to each cohort. This is then used when filtering on cohorts in the Trends page etc. Calculating happens every 24 hours, or whenever a cohort is updated',
             render: function RenderCalculation(_: any, cohort: CohortType) {
                 if (cohort.is_static) {
                     return <>N/A</>

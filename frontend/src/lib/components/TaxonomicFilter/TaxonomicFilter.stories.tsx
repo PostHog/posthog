@@ -7,6 +7,7 @@ import { useEffect } from 'react'
 
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
@@ -753,6 +754,7 @@ export const CohortsWithRealtimeStates: Story = {
         }),
     ],
     parameters: {
+        featureFlags: [FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING],
         testOptions: { waitForSelector: '.taxonomic-infinite-list' },
         docs: {
             description: {

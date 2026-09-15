@@ -1,6 +1,7 @@
 import { IconBolt } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 
 import { CohortRealtimeReadinessApi, CohortRealtimeStateEnumApi } from '../generated/api.schemas'
@@ -43,9 +44,10 @@ export function CohortRealtimeTag({
 }: {
     realtime: CohortRealtimeReadinessApi | null | undefined
 }): JSX.Element | null {
+    const realtimeTargetingEnabled = useFeatureFlag('REALTIME_COHORT_FLAG_TARGETING')
     // A state this bundle predates reads as unknown, not as a state it happens to resemble.
     const content = realtime ? TAG_BY_STATE[realtime.state] : undefined
-    if (!content) {
+    if (!realtimeTargetingEnabled || !content) {
         return null
     }
 

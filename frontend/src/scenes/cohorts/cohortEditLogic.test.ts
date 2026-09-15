@@ -6,8 +6,10 @@ import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { CRITERIA_VALIDATIONS, NEW_CRITERIA, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
@@ -196,6 +198,13 @@ describe('cohortEditLogic', () => {
     })
 
     describe('realtime history build polling', () => {
+        beforeEach(() => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING], {
+                [FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING]: true,
+            })
+        })
+
         const buildingRealtime: CohortRealtimeReadinessApi = {
             state: 'building',
             ready_at: null,

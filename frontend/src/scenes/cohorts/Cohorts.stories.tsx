@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -15,6 +16,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-07-04',
         testOptions: { viewport: { width: 1300, height: 2000 } },
+        featureFlags: [FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING],
     },
 }
 export default meta
@@ -109,6 +111,12 @@ export const CohortEditDynamic: Story = {
 
 export const CohortEditRealtimeReady: Story = {
     parameters: { pageUrl: urls.cohort(4) },
+    decorators: [mswDecorator({ get: { '/api/projects/:team_id/cohorts/4/': realtimeCohorts[0], ...cohortApiMocks } })],
+}
+
+// Pins the flag-off page: without the rollout flag, a realtime cohort must look like any dynamic cohort.
+export const CohortEditRealtimeReadyFlagOff: Story = {
+    parameters: { pageUrl: urls.cohort(4), featureFlags: [] },
     decorators: [mswDecorator({ get: { '/api/projects/:team_id/cohorts/4/': realtimeCohorts[0], ...cohortApiMocks } })],
 }
 

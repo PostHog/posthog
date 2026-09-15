@@ -680,6 +680,31 @@ class CohortConditionTypeField(serializers.JSONField):
 
 # Carries the page's resolved readiness from the list serializer to each row's `get_realtime`.
 REALTIME_READINESS_CONTEXT_KEY = "realtime_readiness"
+# Caches the product flag's answer for the request, so a list page evaluates it once.
+REALTIME_TARGETING_ENABLED_CONTEXT_KEY = "realtime_targeting_enabled"
+
+
+def _realtime_targeting_enabled(context: dict[str, Any]) -> bool:
+    """Whether the request's user is in the realtime cohort flag targeting rollout.
+
+    Every realtime surface sits behind that product flag, and the API is the switch the frontend
+    reads, so `realtime` is null for everyone outside it. Cloud evaluates the flag locally, so
+    this is an in-memory check in the common case; the answer is cached in the serializer
+    context so the list path pays it once per page.
+    """
+    if REALTIME_TARGETING_ENABLED_CONTEXT_KEY not in context:
+        # Avoid circular import: feature_flag imports cohort models
+        from products.feature_flags.backend.api.feature_flag import _is_realtime_cohort_flag_targeting_enabled
+
+        request = context.get("request")
+        get_team = context.get("get_team")
+        team = get_team() if get_team is not None else None
+        context[REALTIME_TARGETING_ENABLED_CONTEXT_KEY] = (
+            request is not None
+            and team is not None
+            and _is_realtime_cohort_flag_targeting_enabled(request, team=team)
+        )
+    return context[REALTIME_TARGETING_ENABLED_CONTEXT_KEY]
 
 
 class CohortHistoryBuildSerializer(serializers.Serializer):
@@ -730,7 +755,9 @@ class CohortListSerializer(serializers.ListSerializer):
         cohorts = list(data)
         # `child` is only None before `many=True` binds one, which cannot happen during rendering.
         assert self.child is not None
-        self.child.context[REALTIME_READINESS_CONTEXT_KEY] = resolve_realtime_readiness(cohorts)
+        self.child.context[REALTIME_READINESS_CONTEXT_KEY] = (
+            resolve_realtime_readiness(cohorts) if _realtime_targeting_enabled(self.child.context) else {}
+        )
         return super().to_representation(cohorts)
 
 
@@ -831,8 +858,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         CohortRealtimeReadinessSerializer(
             allow_null=True,
             help_text="Whether feature flags can target this cohort in realtime, and the progress of "
-            "the build that gets it there. Null on projects the realtime pipeline does not cover, and "
-            "for cohorts without event-based criteria, which feature flags could always target.",
+            "the build that gets it there. Null outside the realtime cohort flag targeting rollout, on "
+            "projects the realtime pipeline does not cover, and for cohorts without event-based "
+            "criteria, which feature flags could always target.",
         )
     )
     def get_realtime(self, cohort: Cohort) -> Optional[dict[str, Any]]:
@@ -840,7 +868,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         if readiness is None:
             # A single cohort — create, update, retrieve. The list path fills the context in
             # `CohortListSerializer` so a page costs the same two queries as one row.
-            readiness = resolve_realtime_readiness([cohort])
+            readiness = resolve_realtime_readiness([cohort]) if _realtime_targeting_enabled(self.context) else {}
         state = readiness.get(cohort.pk)
         return CohortRealtimeReadinessSerializer(state).data if state is not None else None
 

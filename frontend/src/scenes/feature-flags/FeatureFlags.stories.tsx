@@ -1,6 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { waitFor } from '@testing-library/dom'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -22,6 +23,7 @@ const meta: Meta = {
         mockDate: '2023-01-28', // To stabilize relative dates
         pageUrl: urls.featureFlags(),
         testOptions: { viewport: { width: 1300, height: 2000 } },
+        featureFlags: [FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING],
     },
     decorators: [
         mswDecorator({
