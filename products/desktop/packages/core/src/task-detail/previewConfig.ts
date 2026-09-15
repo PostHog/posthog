@@ -135,7 +135,7 @@ export function deriveInitialConfig(
 /** The subset of the tasks backend's resolved AI run defaults the composer acts on. */
 export type PreferredRunDefaults = Pick<
   TaskRunDefaults,
-  "runtime_adapter" | "model" | "reasoning_effort"
+  "runtime" | "runtime_adapter" | "model" | "reasoning_effort"
 >;
 
 export interface PreferredRunSelection {
@@ -166,6 +166,11 @@ export function pickPreferredRunSelection(
   if (lastUsedModel || lastUsedReasoningEffort) return null;
   const model = defaults?.model;
   if (!model) return null;
+  // A pi preference is not an ACP selection: its model must not seed an ACP
+  // composer just because the id also appears in the adapter's model list.
+  if (defaults?.runtime === "pi") {
+    return null;
+  }
   if (defaults?.runtime_adapter && defaults.runtime_adapter !== adapter) {
     return null;
   }

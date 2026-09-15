@@ -1,18 +1,21 @@
 import { ArrowSquareOut } from "@phosphor-icons/react";
 import type { TaskRunPreferences } from "@posthog/api-client/posthog-client";
 import { buildPostHogUrl } from "@posthog/core/settings/posthogUrl";
-import { Button } from "@posthog/quill";
-import { type Adapter, formatModelId } from "@posthog/shared";
+import { Button, Text } from "@posthog/quill";
+import { type Adapter, formatModelId, PI_HARNESS_FLAG } from "@posthog/shared";
 import { EFFORT_LEVEL_LABELS } from "@posthog/shared/domain-types";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
+import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { PiModelSelector } from "@posthog/ui/features/pi-sessions/PiSessionControls";
+import { usePiModelCatalog } from "@posthog/ui/features/pi-sessions/usePiModelCatalog";
 import { ReasoningLevelSelector } from "@posthog/ui/features/sessions/components/ReasoningLevelSelector";
 import {
   SettingsCard,
   SettingsCardRow,
 } from "@posthog/ui/features/settings/components/SettingsCard";
 import { useTaskAgentDefaults } from "@posthog/ui/features/settings/hooks/useTaskAgentDefaults";
+import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { usePreviewConfig } from "@posthog/ui/features/task-detail/hooks/usePreviewConfig";
-import { Text } from "@radix-ui/themes";
 import { useEffect, useRef, useState } from "react";
 
 /** The tasks settings page in PostHog, where the project default is set. */
@@ -45,28 +48,31 @@ function MyDefaultPicker({
   preferences,
   inherited,
   disabled,
+  pendingAdapter,
+  includePiHarness,
   onSave,
+  onPendingAdapterChange,
+  onPiSelect,
 }: {
   preferences: TaskRunPreferences;
   inherited: TaskRunPreferences;
   disabled: boolean;
+  pendingAdapter: Adapter | null;
+  includePiHarness: boolean;
   onSave: (next: TaskRunPreferences) => void;
+  onPendingAdapterChange: (adapter: Adapter | null) => void;
+  onPiSelect: () => void;
 }) {
   const isInherited = !preferences.model;
   const shown = isInherited ? inherited : preferences;
   const storedAdapter: Adapter =
     shown.runtime_adapter === "codex" ? "codex" : "claude";
-  // A harness choice lives here until a model pick on it completes the triple.
-  // Saving an all-null pair on the switch would both clear an existing personal
-  // default and flip `shown` back to the inherited row, snapping the control
-  // to the old harness under the cursor.
-  const [pendingAdapter, setPendingAdapter] = useState<Adapter | null>(null);
   const adapter = pendingAdapter ?? storedAdapter;
   useEffect(() => {
     if (pendingAdapter && storedAdapter === pendingAdapter) {
-      setPendingAdapter(null);
+      onPendingAdapterChange(null);
     }
-  }, [pendingAdapter, storedAdapter]);
+  }, [onPendingAdapterChange, pendingAdapter, storedAdapter]);
   // Resetting the personal default (from the row below) flips the stored model
   // from a value to null. That is not a harness switch, so the effect above
   // won't match its adapter — drop any pending browse here too, or the control
@@ -75,10 +81,10 @@ function MyDefaultPicker({
   const prevPersonalModel = useRef(preferences.model);
   useEffect(() => {
     if (prevPersonalModel.current && !preferences.model) {
-      setPendingAdapter(null);
+      onPendingAdapterChange(null);
     }
     prevPersonalModel.current = preferences.model;
-  }, [preferences.model]);
+  }, [onPendingAdapterChange, preferences.model]);
   const { modelOption, thoughtOption, isLoading, setConfigOption } =
     usePreviewConfig(adapter);
 
@@ -115,7 +121,12 @@ function MyDefaultPicker({
     if (modelOption) setConfigOption(modelOption.id, model);
     // The effort belongs to the model it was chosen against, so a model switch drops it
     // rather than storing one the new model may not support.
-    onSave({ runtime_adapter: adapter, model, reasoning_effort: null });
+    onSave({
+      runtime: null,
+      runtime_adapter: adapter,
+      model,
+      reasoning_effort: null,
+    });
   };
 
   const handleEffortChange = (effort: string) => {
@@ -128,6 +139,7 @@ function MyDefaultPicker({
       modelOption?.type === "select" ? modelOption.currentValue : undefined;
     if (!model) return;
     onSave({
+      runtime: null,
       runtime_adapter: adapter,
       model,
       reasoning_effort: effort || null,
@@ -156,17 +168,21 @@ function MyDefaultPicker({
           if (modelOption) setConfigOption(modelOption.id, model);
           if (thoughtOption) setConfigOption(thoughtOption.id, effort);
           onSave({
+            runtime: null,
             runtime_adapter: adapter,
             model,
             reasoning_effort: effort || null,
           });
         }}
-        onAdapterChange={(next) => {
-          // Nothing is saved yet: the next model pick on this harness supplies
-          // the pair and carries the adapter with it.
+        onHarnessChange={(next) => {
+          if (next === "pi") {
+            onPiSelect();
+            return;
+          }
           seeded.current = null;
-          setPendingAdapter(next);
+          onPendingAdapterChange(next);
         }}
+        includePiHarness={includePiHarness}
         onConfigOptionChange={(configId, value) => {
           if (modelOption && configId === modelOption.id) {
             handleModelChange(value);
@@ -203,6 +219,25 @@ export function TaskAgentDefaultsSettings() {
     save,
     reset,
   } = useTaskAgentDefaults();
+  const { lastUsedPiModel, setLastUsedAgentRuntime, setLastUsedPiModel } =
+    useSettingsStore();
+  const [pendingAdapter, setPendingAdapter] = useState<Adapter | null>(null);
+  const piHarnessEnabled = useFeatureFlag(PI_HARNESS_FLAG, import.meta.env.DEV);
+  // The catalog decides whether the default can even be picked: offering Pi with no
+  // model to save would write an incomplete preference.
+  const { data: piModels = [], isPending: isPiModelCatalogLoading } =
+    usePiModelCatalog(piHarnessEnabled);
+  const shownPreferences = myPreferences.model
+    ? myPreferences
+    : teamPreferences;
+  const piDefaultActive = piHarnessEnabled && shownPreferences.runtime === "pi";
+  const piSeedModel =
+    piModels.find((model) => model.id === lastUsedPiModel) ??
+    piModels.find((model) => model.isDefault) ??
+    piModels[0];
+  const currentPiModel =
+    piModels.find((model) => model.id === shownPreferences.model) ??
+    piSeedModel;
 
   // The section is per-environment, so the link must name the desktop app's own
   // project — otherwise the web app fills in the browser's active project, which
@@ -254,14 +289,51 @@ export function TaskAgentDefaultsSettings() {
           label="My default"
           description="Overrides the project default for your own runs, everywhere in PostHog — not just this app."
         >
-          {/* Deliberately not disabled while saving: the write is debounced and the pick
-              already shows, so toggling the control would just make it blink. */}
-          <MyDefaultPicker
-            preferences={myPreferences}
-            inherited={teamPreferences}
-            disabled={isLoading}
-            onSave={save}
-          />
+          {piDefaultActive && !pendingAdapter ? (
+            <div className="flex w-[280px] justify-end">
+              <PiModelSelector
+                models={piModels}
+                currentModel={currentPiModel}
+                disabled={isPiModelCatalogLoading}
+                isLoading={isPiModelCatalogLoading}
+                onChange={(model) => {
+                  setLastUsedPiModel(model.id);
+                  save({
+                    runtime: "pi",
+                    runtime_adapter: null,
+                    model: model.id,
+                    reasoning_effort: null,
+                  });
+                }}
+                onHarnessChange={(harness) => {
+                  if (harness === "pi") {
+                    return;
+                  }
+                  setPendingAdapter(harness);
+                }}
+              />
+            </div>
+          ) : (
+            <MyDefaultPicker
+              preferences={myPreferences}
+              inherited={teamPreferences}
+              disabled={isLoading}
+              pendingAdapter={pendingAdapter}
+              includePiHarness={piHarnessEnabled && piModels.length > 0}
+              onSave={save}
+              onPendingAdapterChange={setPendingAdapter}
+              onPiSelect={() => {
+                if (!piSeedModel) return;
+                setLastUsedPiModel(piSeedModel.id);
+                save({
+                  runtime: "pi",
+                  runtime_adapter: null,
+                  model: piSeedModel.id,
+                  reasoning_effort: null,
+                });
+              }}
+            />
+          )}
         </SettingsCardRow>
 
         <SettingsCardRow
@@ -275,7 +347,13 @@ export function TaskAgentDefaultsSettings() {
             variant="outline"
             size="sm"
             disabled={!myPreferences.model || isSaving}
-            onClick={reset}
+            onClick={() => {
+              if (piDefaultActive) {
+                setLastUsedAgentRuntime("acp");
+                setPendingAdapter(null);
+              }
+              reset();
+            }}
           >
             {INHERIT_PROJECT_DEFAULT}
           </Button>
@@ -289,13 +367,21 @@ export function TaskAgentDefaultsSettings() {
         <Text className="text-(--gray-11) text-sm">
           {isLoading
             ? ""
-            : resolved.model
-              ? `Runs you start without picking a model use ${describe(resolved, "")}, from ${
-                  resolved.source === "user"
-                    ? "your default"
-                    : "the project default"
-                }.`
-              : "No default is set — runs use each surface's built-in model."}
+            : piDefaultActive
+              ? currentPiModel
+                ? `Runs you start without picking a model use ${
+                    currentPiModel.name ?? formatModelId(currentPiModel.id)
+                  } with Pi, from ${
+                    myPreferences.model ? "your default" : "the project default"
+                  }.`
+                : "Loading your Pi default…"
+              : resolved.model
+                ? `Runs you start without picking a model use ${describe(resolved, "")}, from ${
+                    resolved.source === "user"
+                      ? "your default"
+                      : "the project default"
+                  }.`
+                : "No default is set. Runs use each surface's built-in model."}
         </Text>
       </div>
     </div>

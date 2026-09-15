@@ -246,6 +246,7 @@ describe("pickPreferredRunSelection", () => {
     {
       label: "takes the stored preference when nothing is picked locally",
       defaults: {
+        runtime: "acp",
         runtime_adapter: "claude",
         model: "claude-opus-5",
         reasoning_effort: "high",
@@ -257,6 +258,7 @@ describe("pickPreferredRunSelection", () => {
     {
       label: "keeps an explicit local pick ahead of the preference",
       defaults: {
+        runtime: "acp",
         runtime_adapter: "claude",
         model: "claude-opus-5",
         reasoning_effort: "high",
@@ -268,6 +270,7 @@ describe("pickPreferredRunSelection", () => {
     {
       label: "keeps an explicit local effort pick ahead of the preference",
       defaults: {
+        runtime: "acp",
         runtime_adapter: "claude",
         model: "claude-opus-5",
         reasoning_effort: "high",
@@ -279,6 +282,7 @@ describe("pickPreferredRunSelection", () => {
     {
       label: "ignores a preference stored for a different harness",
       defaults: {
+        runtime: "acp",
         runtime_adapter: "codex",
         model: "gpt-5.5",
         reasoning_effort: "medium",
@@ -290,6 +294,7 @@ describe("pickPreferredRunSelection", () => {
     {
       label: "ignores a model this adapter no longer offers",
       defaults: {
+        runtime: "acp",
         runtime_adapter: "claude",
         model: "claude-opus-4-8",
         reasoning_effort: "high",
@@ -301,6 +306,7 @@ describe("pickPreferredRunSelection", () => {
     {
       label: "drops an effort-less preference to the model's own default",
       defaults: {
+        runtime: "acp",
         runtime_adapter: "claude",
         model: "claude-opus-5",
         reasoning_effort: null,
@@ -310,8 +316,22 @@ describe("pickPreferredRunSelection", () => {
       expected: { model: "claude-opus-5", reasoningEffort: null },
     },
     {
+      label:
+        "declines a pi preference even when its model is in the adapter list",
+      defaults: {
+        runtime: "pi",
+        runtime_adapter: null,
+        model: "claude-opus-5",
+        reasoning_effort: null,
+      },
+      lastUsedModel: null,
+      lastUsedReasoningEffort: null,
+      expected: null,
+    },
+    {
       label: "returns nothing when no preference is stored",
       defaults: {
+        runtime: "acp",
         runtime_adapter: null,
         model: null,
         reasoning_effort: null,
