@@ -80,6 +80,7 @@ export function ModelsLineageTab(): JSX.Element {
                 <LineageGraph
                     nodes={visibleNodes}
                     edges={visibleEdges}
+                    focusNodeIds={highlightedNodeIds}
                     variant="canvas"
                     interactive
                     showControls
