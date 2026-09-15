@@ -4,9 +4,12 @@ import json
 # nosemgrep: python.lang.security.use-defused-xml.use-defused-xml (XML generation only, no parsing - no XXE risk)
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping, Sequence
+from datetime import datetime, timedelta
 from typing import Any, Optional, TypeVar, Union, cast
 from urllib.parse import urlparse
 from uuid import uuid4
+
+from django.db.models import F, Q
 
 from jsonref import replace_refs
 from langchain_core.messages import (
@@ -40,7 +43,7 @@ from posthog.schema import (
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Team, User
+from posthog.models import EventDefinition, Team, User
 from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, is_hidden_from_assistant
 
@@ -82,6 +85,21 @@ NOT_SEEN_RECENTLY_LEGEND = (
     f"Events marked {NOT_SEEN_RECENTLY_MARKER} are listed for reference only. This project has sent none of them "
     "recently, so never present them as data it is collecting."
 )
+
+JUST_INGESTED_MARKER = "(just ingested)"
+JUST_INGESTED_LEGEND = (
+    f"Events marked {JUST_INGESTED_MARKER} arrived after the usage counts above were last computed. They exist and "
+    "are safe to reference, but the project has almost no history for them yet."
+)
+
+# Ingestion floors the `last_seen_at` it writes into a one-hour bucket to bound the write rate, so a
+# stored value can trail the real sighting by that much. Widen the window by the same amount instead
+# of missing the event a caller has only just sent.
+EVENT_DEFINITION_LAST_SEEN_FLOOR = timedelta(hours=1)
+
+# A snapshot that has not been recomputed for days can leave many definitions behind it. The caller
+# needs the newest ones, not an unbounded second list.
+MAX_JUST_INGESTED_EVENTS = 100
 
 
 def sanitize_event_description(text: str) -> str:
@@ -198,6 +216,24 @@ def convert_tool_messages_to_dict(messages: Sequence[AssistantMessageUnion]) -> 
     return {message.tool_call_id: message for message in messages if isinstance(message, AssistantToolCallMessage)}
 
 
+def _get_just_ingested_event_names(team: Team, known_events: Sequence[str], snapshot_taken_at: datetime) -> list[str]:
+    """Names of events ingestion accepted that the usage snapshot does not list yet.
+
+    The event list is a 30-day ClickHouse aggregate served from a cache the AI staleness threshold
+    holds for an hour, so an event captured after the snapshot is absent from it and a caller reads
+    that absence as proof the event does not exist. Ingestion writes an event definition row within
+    seconds of accepting an event, so those rows name what the snapshot cannot see yet.
+    """
+    cutoff = snapshot_taken_at - EVENT_DEFINITION_LAST_SEEN_FLOOR
+    return list(
+        EventDefinition.objects.filter(team_id=team.pk)
+        .filter(Q(last_seen_at__gte=cutoff) | Q(created_at__gte=cutoff))
+        .exclude(name__in=known_events)
+        .order_by(F("last_seen_at").desc(nulls_last=True))
+        .values_list("name", flat=True)[:MAX_JUST_INGESTED_EVENTS]
+    )
+
+
 def _process_events_data(
     events_in_context: list[MaxEventContext],
     team: Team,
@@ -233,6 +269,12 @@ def _process_events_data(
             continue  # Skip system or ignored events (safety net, already filtered in SQL)
         events.append(item.event)
 
+    # Ordering is by 30-day volume, so an event that has just started arriving sorts last and would
+    # only ever reach the final page. A caller checking whether the event it just sent exists reads
+    # the first page, so the merge belongs there.
+    just_ingested = [] if offset else _get_just_ingested_event_names(team, events, response.last_refresh)
+    events.extend(just_ingested)
+
     event_to_description: dict[str, str] = {}
     for event in events_in_context:
         if event.name and event.name not in events:
@@ -247,11 +289,15 @@ def _process_events_data(
     # events that aren't covered by the core taxonomy or the conversation context.
     db_event_descriptions = _get_event_definition_descriptions(team, events, event_to_description)
 
+    just_ingested_names = set(just_ingested)
+
     processed_events = []
     for event_name in events:
         event_data: dict[str, Any] = {"name": event_name}
         if event_name in not_seen_recently:
             event_data["not_seen_recently"] = True
+        if event_name in just_ingested_names:
+            event_data["just_ingested"] = True
 
         if event_core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP["events"].get(event_name):
             # Only skip if it's not in context (context events should always be included)
@@ -342,6 +388,8 @@ def format_events_xml(events_in_context: list[MaxEventContext], team: Team, user
             desc_tag.text = event_data["description"]
         if event_data.get("not_seen_recently"):
             ET.SubElement(event_tag, "not_seen_recently").text = "true"
+        if event_data.get("just_ingested"):
+            ET.SubElement(event_tag, "just_ingested").text = "true"
 
     return ET.tostring(root, encoding="unicode")
 
@@ -360,6 +408,7 @@ def format_events_yaml(
 
     formatted_events = ["events:"]
     any_not_seen_recently = False
+    any_just_ingested = False
     for event_data in processed_events:
         name = event_data["name"]
         description = event_data.get("description", "")
@@ -367,10 +416,16 @@ def format_events_yaml(
         if event_data.get("not_seen_recently"):
             any_not_seen_recently = True
             line += f" {NOT_SEEN_RECENTLY_MARKER}"
+        if event_data.get("just_ingested"):
+            any_just_ingested = True
+            line += f" {JUST_INGESTED_MARKER}"
         formatted_events.append(line)
 
     if any_not_seen_recently:
         formatted_events.append(f"\n# {NOT_SEEN_RECENTLY_LEGEND}")
+
+    if any_just_ingested:
+        formatted_events.append(f"\n# {JUST_INGESTED_LEGEND}")
 
     if has_more:
         next_offset = (offset or 0) + (limit or 500)
