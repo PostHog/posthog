@@ -17,7 +17,6 @@ LOG_ONLY = QueryScanFlag(mode=QueryScanMode.LOG_ONLY, floor_ms=1000, event_ratio
 
 STORED_ANALYSIS = json.dumps(
     {
-        "version": 2,
         "analysis": {
             "range_share": 0.8,
             "project_share": 0.25,
@@ -31,7 +30,7 @@ STORED_ANALYSIS = json.dumps(
         },
     }
 )
-PENDING = json.dumps({"version": 2, "pending": True})
+PENDING = json.dumps({"pending": True})
 
 
 class TestHydrateScanSummary(BaseTest):

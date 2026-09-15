@@ -1364,7 +1364,7 @@ A_STORED_SCAN = stored_slot(
         findings=[build_warning(kind=QueryScanFindingKind.NO_EVENT_FILTER, query_kind="HogQLQuery")],
     )
 )
-A_CLAIMED_SCAN = json.dumps({"version": 2, "pending": True})
+A_CLAIMED_SCAN = json.dumps({"pending": True})
 
 
 class TestQueryScan(APIBaseTest):

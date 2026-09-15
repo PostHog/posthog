@@ -55,7 +55,7 @@ def _tag_as_api_key(test: "TestQueryScanTrigger") -> None:
 
 
 def _store_a_slot(test: "TestQueryScanTrigger") -> None:
-    test.redis.get.return_value = json.dumps({"version": 2, "analysis": {"findings": []}})
+    test.redis.get.return_value = json.dumps({"analysis": {"findings": []}})
 
 
 def _spend_the_enqueue_budget(test: "TestQueryScanTrigger") -> None:
@@ -175,7 +175,7 @@ class TestQueryScanTrigger(SimpleTestCase):
         other = QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.2, persons_ratio=0.5)
         other_key = slot_key(1, "cache_key_1", other.thresholds_fingerprint)
         new_key = slot_key(1, "cache_key_1", FLAG.thresholds_fingerprint)
-        stored = {other_key: json.dumps({"version": 2, "analysis": {"findings": []}})}
+        stored = {other_key: json.dumps({"analysis": {"findings": []}})}
         self.redis.get.side_effect = lambda key: stored.get(key)
 
         def claim(key: str, value: Any, ex: int | None = None, nx: bool = False) -> bool | None:

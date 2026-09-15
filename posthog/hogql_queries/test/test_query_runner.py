@@ -363,7 +363,7 @@ class TestQueryRunner(BaseTest):
             raise ClickHouseQueryMemoryLimitExceeded()
 
         redis_client = mock.Mock()
-        redis_client.get.return_value = json.dumps({"version": 2, "pending": True})
+        redis_client.get.return_value = json.dumps({"pending": True})
         redis_client.incr.return_value = 1
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
         with (
