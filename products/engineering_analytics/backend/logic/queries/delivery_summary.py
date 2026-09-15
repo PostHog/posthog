@@ -332,7 +332,12 @@ def _lead_time(
         deploy_data_available=True,
         environment_scope=deployed.environment_scope,
         merged_pr_count=scope_merged_count,
-        deployed_merged_pr_count=sum(1 for row in deployed.rows if row.in_scope and in_window(row.merged_at)),
+        # A deploy after the window end had not happened yet in the selected horizon.
+        deployed_merged_pr_count=sum(
+            1
+            for row in deployed.rows
+            if row.in_scope and in_window(row.merged_at) and (date_to is None or row.deployed_at <= date_to)
+        ),
         open_to_deploy=pair(lambda row: (row.deployed_at - row.created_at).total_seconds()),
         open_to_merge=pair(lambda row: (row.merged_at - row.created_at).total_seconds()),
         merge_to_deploy=pair(lambda row: (row.deployed_at - row.merged_at).total_seconds()),
