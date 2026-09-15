@@ -1,6 +1,6 @@
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { InsightThresholdType } from '~/queries/schema/schema-general'
+import { DetectorType, InsightThresholdType } from '~/queries/schema/schema-general'
 
 import {
     AlertEvaluationHistoryChart,
@@ -12,7 +12,7 @@ import type { AlertType } from '../types'
 
 export type { AlertHistoryChartPoint }
 
-type ThresholdLineMode = 'value' | 'anomaly_probability'
+type ThresholdLineMode = 'value' | 'anomaly_probability' | 'model_confidence'
 
 interface ChartThresholdContext {
     lower: number | null
@@ -51,7 +51,7 @@ function getChartThresholdContext(alert: AlertType, chartPlotsAnomalyScore: bool
                 lower: null,
                 upper: detectorConfig.threshold,
                 boundType: 'absolute',
-                lineMode: 'anomaly_probability',
+                lineMode: detectorConfig.type === DetectorType.LLM ? 'model_confidence' : 'anomaly_probability',
             }
         }
         return null
@@ -74,6 +74,9 @@ function getChartThresholdContext(alert: AlertType, chartPlotsAnomalyScore: bool
 function formatThresholdLabel(value: number, context: ChartThresholdContext): string {
     if (context.lineMode === 'anomaly_probability') {
         return `${Math.round(value * 100)}% probability`
+    }
+    if (context.lineMode === 'model_confidence') {
+        return `${Math.round(value * 100)}% confidence`
     }
     if (context.boundType === 'percentage') {
         return `${humanFriendlyNumber(value * 100)}% change`
