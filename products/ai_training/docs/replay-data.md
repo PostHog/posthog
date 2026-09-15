@@ -176,7 +176,7 @@ Their HMAC key must remain stable while that data is in use.
 
 New privacy settings use `AI_RESEARCH_REPLAY_*`:
 
-- `PRIVACY_TABLE`, `KMS_KEY_ARN`, and `AWS_REGION` select the key store and wrapping key.
+- `KEY_TABLE`, `KMS_KEY_ARN`, and `AWS_REGION` select the key store and wrapping key.
 - `KEY_CACHE_MAX`, `KEY_CACHE_LIFETIME_MS`, and `KMS_REQUESTS_PER_SECOND` bound ingestion key caching and KMS traffic.
 - `IMAGE_FETCH_V2_DYNAMODB_TABLE` selects the fresh v2 frontier.
 - `S3_PREFIX` selects v2 replay storage and defaults to `rrweb_2`.
@@ -191,11 +191,11 @@ It has no new alias.
 Renaming configuration must not rotate that key.
 
 The shared ML server configuration applies the legacy aliases before explicit server overrides.
-An image scrubber with privacy enabled must configure `SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC` before startup.
+An image scrubber with the key manager enabled must configure `SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC` before startup.
 Malformed encrypted images retain their original payload and headers in the dead-letter queue.
 The scrubber retries failed dead-letter writes and interrupts retry waits during shutdown.
 The image fetch consumer dead-letters unsupported ingestion version headers while processing other valid records in the batch.
-A v2 message without privacy configuration still fails the batch because it needs the missing encryption settings.
+A v2 message without key manager configuration still fails the batch because it needs the missing encryption settings.
 
 V2 data uses `YYYY-MM` directories from the session UUIDv7 start timestamp in UTC.
 Recording blocks, metadata, image shards, image lookups and URL images retain that month across late arrivals.
