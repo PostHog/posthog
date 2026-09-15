@@ -9,6 +9,7 @@ from typing import Optional
 
 from celery import current_task
 from prometheus_client import Counter
+from redis import exceptions as redis_exceptions
 
 from posthog import redis, settings
 from posthog.clickhouse.cluster import ExponentialBackoff
@@ -162,12 +163,31 @@ class RateLimit:
         count = 1
         wait_total = 0.0
         # Atomically check, remove expired if limit hit, and add the new task
-        while (
-            self.redis_client.eval(
-                lua_script, 1, running_tasks_key, int(self.get_time()), task_id, max_concurrency, self.ttl
-            )
-            == 0
-        ):
+        while True:
+            try:
+                slot_acquired = (
+                    self.redis_client.eval(
+                        lua_script, 1, running_tasks_key, int(self.get_time()), task_id, max_concurrency, self.ttl
+                    )
+                    != 0
+                )
+            except (redis_exceptions.ConnectionError, redis_exceptions.TimeoutError):
+                # Redis is unreachable. The limiter is only a throttling guard, so let the caller run
+                # without a slot instead of failing its ClickHouse query. get_org_app_concurrency_limit
+                # degrades the same way.
+                CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER.labels(
+                    task_name=task_name,
+                    team_id=str(team_id),
+                    limit=max_concurrency,
+                    limit_name=self.limit_name,
+                    result="redis_unavailable",
+                    product=product_label,
+                ).inc()
+                return None
+
+            if slot_acquired:
+                break
+
             from posthog.rate_limit import team_is_allowed_to_bypass_throttle
 
             bypass = self.allow_team_bypass and team_is_allowed_to_bypass_throttle(team_id)
