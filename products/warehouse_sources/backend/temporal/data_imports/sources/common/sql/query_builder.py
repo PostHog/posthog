@@ -25,10 +25,7 @@ import enum
 from dataclasses import dataclass
 from typing import Any, Union
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
-    incremental_type_to_initial_value,
-    incremental_type_to_operator,
-)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_operator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.identifiers import IdentifierQuoter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ValidatedRowFilter,
@@ -95,8 +92,8 @@ class SelectQueryBuilder:
         `WHERE <incremental_field> <op> :last_value [ORDER BY <incremental_field> ASC]`.
         `<op>` is `>=` for `Date` (day-granularity boundary) and `>` for
         every other type — same semantics as `incremental_type_to_operator`.
-        `incremental_last_value` falls back to the type's initial value so
-        the semantics match today's `_build_query` implementations.
+        `incremental_last_value=None` emits no incremental predicate at all, so a
+        run with no stored cursor reads the whole table.
 
         `enabled_columns=None` (default) emits `SELECT *`. Otherwise projects to listed columns;
         PKs + active incremental field always retained. See `compute_projected_columns`.
@@ -123,15 +120,16 @@ class SelectQueryBuilder:
         if incremental_field is not None:
             if incremental_field_type is None:
                 raise ValueError("incremental_field_type is required when incremental_field is set")
-            value = (
-                incremental_last_value
-                if incremental_last_value is not None
-                else incremental_type_to_initial_value(incremental_field_type)
-            )
             quoted_incremental_field = self.quoter.quote(incremental_field)
-            placeholder = self._append_param("incremental_value", value, params)
-            operator = incremental_type_to_operator(incremental_field_type)
-            conditions.append(f"{quoted_incremental_field} {operator} {placeholder}")
+            # No stored cursor means a full re-read: first sync, reset, or delta rebuild. Comparing
+            # against the type's initial value instead looks equivalent but is not, because
+            # `NULL <op> value` is NULL rather than true. Rows whose cursor is NULL would be dropped
+            # from that read and never returned by a later one either, since the cursor only ever
+            # advances past them.
+            if incremental_last_value is not None:
+                placeholder = self._append_param("incremental_value", incremental_last_value, params)
+                operator = incremental_type_to_operator(incremental_field_type)
+                conditions.append(f"{quoted_incremental_field} {operator} {placeholder}")
 
         for index, row_filter in enumerate(row_filters or []):
             quoted_column = self.quoter.quote(row_filter.column)
