@@ -27,7 +27,7 @@ def _config_model_openapi_prefix(config_model: type[BaseModel]) -> str:
     return name
 
 
-class _WidgetTileLayoutBoxOpenApiSerializer(serializers.Serializer):
+class _TileLayoutBoxOpenApiSerializer(serializers.Serializer):
     x = serializers.IntegerField(
         required=False,
         help_text="Column position in the dashboard grid (0-indexed).",
@@ -43,12 +43,12 @@ class _WidgetTileLayoutBoxOpenApiSerializer(serializers.Serializer):
     h = serializers.IntegerField(required=False, help_text="Height in grid rows.")
 
 
-class _WidgetTileLayoutsOpenApiSerializer(serializers.Serializer):
-    sm = _WidgetTileLayoutBoxOpenApiSerializer(
+class _TileLayoutsOpenApiSerializer(serializers.Serializer):
+    sm = _TileLayoutBoxOpenApiSerializer(
         required=False,
         help_text="Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.",
     )
-    xs = _WidgetTileLayoutBoxOpenApiSerializer(
+    xs = _TileLayoutBoxOpenApiSerializer(
         required=False,
         help_text="Layout for the small (mobile) breakpoint. The grid is 1 column wide.",
     )
@@ -67,7 +67,7 @@ class _AddDashboardWidgetTileFieldsOpenApiSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Optional markdown description shown when show_description is enabled.",
     )
-    layouts = _WidgetTileLayoutsOpenApiSerializer(
+    layouts = _TileLayoutsOpenApiSerializer(
         required=False,
         help_text="Optional react-grid-layout positions keyed by breakpoint (sm, xs).",
     )
@@ -246,6 +246,14 @@ class DashboardPatchWidgetOpenApiSerializer(serializers.Serializer):
 
 class DashboardPatchTileOpenApiSerializer(serializers.Serializer):
     id = serializers.IntegerField(required=False, help_text="Dashboard tile ID to update.")
+    layouts = _TileLayoutsOpenApiSerializer(
+        required=False,
+        help_text=(
+            "Grid position and size per breakpoint. Works for every tile type, including insight tiles. "
+            "Tiles the grid finds overlapping are pushed apart, so send every tile you want placed in "
+            "the same request."
+        ),
+    )
     widget = DashboardPatchWidgetOpenApiSerializer(required=False, help_text="Nested widget row updates.")
 
 
@@ -378,7 +386,10 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
     tiles = DashboardPatchTileOpenApiSerializer(
         many=True,
         required=False,
-        help_text="Dashboard tiles to update. Widget tiles accept nested widget.config patches.",
+        help_text=(
+            "Dashboard tiles to update, each identified by its tile id. Any tile type accepts `layouts` to set "
+            "its grid position and size. Widget tiles also accept nested widget.config patches."
+        ),
     )
     use_template = serializers.CharField(
         required=False,

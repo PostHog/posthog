@@ -4184,46 +4184,56 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         [
             (
                 "two_column",
-                {"x": 0, "y": 0, "w": 6, "h": 5},
-                {"x": 6, "y": 0, "w": 6, "h": 5},
+                [
+                    {"x": 0, "y": 0, "w": 6, "h": 5},
+                    {"x": 6, "y": 0, "w": 6, "h": 5},
+                    {"x": 0, "y": 5, "w": 6, "h": 5},
+                    {"x": 6, "y": 5, "w": 6, "h": 5},
+                ],
+            ),
+            (
+                "three_column",
+                [
+                    {"x": 0, "y": 0, "w": 4, "h": 5},
+                    {"x": 4, "y": 0, "w": 4, "h": 5},
+                    {"x": 8, "y": 0, "w": 4, "h": 5},
+                    {"x": 0, "y": 5, "w": 4, "h": 5},
+                ],
             ),
             (
                 "full_width",
-                {"x": 0, "y": 0, "w": 12, "h": 5},
-                {"x": 0, "y": 5, "w": 12, "h": 5},
+                [
+                    {"x": 0, "y": 0, "w": 12, "h": 5},
+                    {"x": 0, "y": 5, "w": 12, "h": 5},
+                    {"x": 0, "y": 10, "w": 12, "h": 5},
+                    {"x": 0, "y": 15, "w": 12, "h": 5},
+                ],
             ),
         ]
     )
-    def test_reorder_tiles_layout_mode_overrides_existing_widths(
-        self, layout_mode: str, expected_first: dict, expected_second: dict
-    ):
+    def test_reorder_tiles_layout_mode_overrides_existing_widths(self, layout_mode: str, expected_layouts: list[dict]):
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
-        insight1 = Insight.objects.create(team=self.team, name="Insight 1")
-        insight2 = Insight.objects.create(team=self.team, name="Insight 2")
-        tile1 = DashboardTile.objects.create(
-            dashboard=dashboard,
-            insight=insight1,
-            layouts={"sm": {"x": 0, "y": 0, "w": 4, "h": 8}},
-        )
-        tile2 = DashboardTile.objects.create(
-            dashboard=dashboard,
-            insight=insight2,
-            layouts={"sm": {"x": 4, "y": 0, "w": 4, "h": 8}},
-        )
+        # Four tiles so the row the mode wraps on is observable, not just the first row
+        tiles = [
+            DashboardTile.objects.create(
+                dashboard=dashboard,
+                insight=Insight.objects.create(team=self.team, name=f"Insight {index}"),
+                layouts={"sm": {"x": (index * 4) % 12, "y": 0, "w": 4, "h": 8}},
+            )
+            for index in range(4)
+        ]
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/reorder_tiles/",
-            {"tile_order": [tile1.pk, tile2.pk], "layout": layout_mode},
+            {"tile_order": [tile.pk for tile in tiles], "layout": layout_mode},
             content_type="application/json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        tile1.refresh_from_db()
-        tile2.refresh_from_db()
-        self.assertEqual(tile1.layouts["sm"], expected_first)
-        self.assertEqual(tile2.layouts["sm"], expected_second)
-        self.assertEqual(tile1.layouts["xs"]["w"], 1)
-        self.assertEqual(tile2.layouts["xs"]["w"], 1)
+        for tile, expected in zip(tiles, expected_layouts):
+            tile.refresh_from_db()
+            self.assertEqual(tile.layouts["sm"], expected)
+            self.assertEqual(tile.layouts["xs"]["w"], 1)
 
     def test_reorder_tiles_invalid_layout_returns_400(self):
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")

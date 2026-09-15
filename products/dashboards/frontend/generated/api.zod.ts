@@ -636,6 +636,49 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
             .array(
                 zod.object({
                     id: zod.number().optional().describe('Dashboard tile ID to update.'),
+                    layouts: zod
+                        .object({
+                            sm: zod
+                                .object({
+                                    x: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Column position in the dashboard grid (0-indexed).'),
+                                    y: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Row position in the dashboard grid (0-indexed).'),
+                                    w: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                    h: zod.number().optional().describe('Height in grid rows.'),
+                                })
+                                .optional()
+                                .describe('Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'),
+                            xs: zod
+                                .object({
+                                    x: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Column position in the dashboard grid (0-indexed).'),
+                                    y: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Row position in the dashboard grid (0-indexed).'),
+                                    w: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                    h: zod.number().optional().describe('Height in grid rows.'),
+                                })
+                                .optional()
+                                .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+                        })
+                        .optional()
+                        .describe(
+                            'Grid position and size per breakpoint. Works for every tile type, including insight tiles. Tiles the grid finds overlapping are pushed apart, so send every tile you want placed in the same request.'
+                        ),
                     widget: zod
                         .object({
                             id: zod
@@ -1342,7 +1385,9 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                 })
             )
             .optional()
-            .describe('Dashboard tiles to update. Widget tiles accept nested widget.config patches.'),
+            .describe(
+                'Dashboard tiles to update, each identified by its tile id. Any tile type accepts `layouts` to set its grid position and size. Widget tiles also accept nested widget.config patches.'
+            ),
         use_template: zod
             .string()
             .optional()
@@ -1461,11 +1506,13 @@ export const DashboardsReorderTilesCreateBody = /* @__PURE__ */ zod.object({
         .min(1)
         .describe('Array of tile IDs in the desired display order (top to bottom, left to right).'),
     layout: zod
-        .enum(['preserve', 'two_column', 'full_width'])
-        .describe('\* `preserve` - preserve\n\* `two_column` - two_column\n\* `full_width` - full_width')
+        .enum(['preserve', 'two_column', 'three_column', 'full_width'])
+        .describe(
+            '\* `preserve` - preserve\n\* `two_column` - two_column\n\* `three_column` - three_column\n\* `full_width` - full_width'
+        )
         .default(dashboardsReorderTilesCreateBodyLayoutDefault)
         .describe(
-            "How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per row). 'full_width' forces each tile to span the full 12-column row at height 5.\n\n\* `preserve` - preserve\n\* `two_column` - two_column\n\* `full_width` - full_width"
+            "How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per row). 'three_column' forces a 4-wide × 5-tall grid (three tiles per row), for a more compact dashboard. 'full_width' forces each tile to span the full 12-column row at height 5.\n\n\* `preserve` - preserve\n\* `two_column` - two_column\n\* `three_column` - three_column\n\* `full_width` - full_width"
         ),
 })
 

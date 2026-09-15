@@ -41,6 +41,22 @@ class TestDashboardPatchOpenApiContract:
             f"Missing: {sorted(missing)}."
         )
 
+    def test_tile_layouts_documented_as_writable_patch_field(self) -> None:
+        # The PATCH runtime writes `layouts` for any tile through DashboardSerializer.TILE_DISPLAY_FIELDS,
+        # but tiles is a SerializerMethodField, so nothing infers the nested tile schema. Without this field
+        # the dashboard-update MCP tool cannot size or place a tile at all.
+        tiles_field = PatchedDashboardOpenApiSerializer().fields["tiles"]
+        tile_fields = tiles_field.child.fields
+        assert "layouts" in tile_fields, (
+            "DashboardPatchTileOpenApiSerializer must document 'layouts' so the dashboard-update MCP tool can "
+            f"set a tile's grid position and size. Got: {sorted(tile_fields)}."
+        )
+        breakpoints = tile_fields["layouts"].fields
+        assert {"sm", "xs"}.issubset(breakpoints), f"Tile layouts must expose sm/xs. Got: {sorted(breakpoints)}."
+        assert {"x", "y", "w", "h"}.issubset(breakpoints["sm"].fields), (
+            f"Tile layout box must expose x/y/w/h. Got: {sorted(breakpoints['sm'].fields)}."
+        )
+
     def test_filters_documented_as_writable_patch_field(self) -> None:
         # filters is a SerializerMethodField on DashboardSerializer (read-only in the inferred schema),
         # so it is excluded from dashboard_patch_runtime_openapi_field_names(). The PATCH runtime accepts and

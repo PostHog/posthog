@@ -445,11 +445,20 @@ def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, d
 class ReorderLayout(StrEnum):
     PRESERVE = "preserve"
     TWO_COLUMN = "two_column"
+    THREE_COLUMN = "three_column"
     FULL_WIDTH = "full_width"
 
 
 DEFAULT_REORDER_TILE_WIDTH = 6
 DEFAULT_REORDER_TILE_HEIGHT = 5
+
+# Tiles per row each fixed-grid mode forces. Every count divides DASHBOARD_GRID_COLUMN_COUNT, so all
+# tiles get the same width and none straddles the right edge of the grid.
+REORDER_LAYOUT_TILES_PER_ROW = {
+    ReorderLayout.TWO_COLUMN: 2,
+    ReorderLayout.THREE_COLUMN: 3,
+    ReorderLayout.FULL_WIDTH: 1,
+}
 
 
 @frozen
@@ -479,26 +488,19 @@ def _apply_reorder_layout(
 ) -> None:
     """Repack tiles. ``preserve`` keeps each tile's existing w/h and reuses the lowest-segment
     greedy algorithm from ``frontend/src/scenes/dashboard/tileLayouts.ts``; the other modes overwrite w/h."""
-    if layout_mode == ReorderLayout.TWO_COLUMN:
+    tiles_per_row = REORDER_LAYOUT_TILES_PER_ROW.get(layout_mode)
+    if tiles_per_row is not None:
+        tile_width = DASHBOARD_GRID_COLUMN_COUNT // tiles_per_row
         for index, tile_id in enumerate(tile_order):
-            row, col = divmod(index, 2)
+            row, col = divmod(index, tiles_per_row)
             tile_map[tile_id].layouts = {
                 "sm": {
-                    "x": col * DEFAULT_REORDER_TILE_WIDTH,
+                    "x": col * tile_width,
                     "y": row * DEFAULT_REORDER_TILE_HEIGHT,
-                    "w": DEFAULT_REORDER_TILE_WIDTH,
+                    "w": tile_width,
                     "h": DEFAULT_REORDER_TILE_HEIGHT,
                 },
                 "xs": {"x": 0, "y": index * DEFAULT_REORDER_TILE_HEIGHT, "w": 1, "h": DEFAULT_REORDER_TILE_HEIGHT},
-            }
-        return
-
-    if layout_mode == ReorderLayout.FULL_WIDTH:
-        for index, tile_id in enumerate(tile_order):
-            y = index * DEFAULT_REORDER_TILE_HEIGHT
-            tile_map[tile_id].layouts = {
-                "sm": {"x": 0, "y": y, "w": DASHBOARD_GRID_COLUMN_COUNT, "h": DEFAULT_REORDER_TILE_HEIGHT},
-                "xs": {"x": 0, "y": y, "w": 1, "h": DEFAULT_REORDER_TILE_HEIGHT},
             }
         return
 
@@ -542,7 +544,8 @@ class ReorderTilesRequestSerializer(serializers.Serializer):
         help_text=(
             "How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height "
             "and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per "
-            "row). 'full_width' forces each tile to span the full 12-column row at height 5."
+            "row). 'three_column' forces a 4-wide × 5-tall grid (three tiles per row), for a more compact dashboard. "
+            "'full_width' forces each tile to span the full 12-column row at height 5."
         ),
     )
 

@@ -640,6 +640,24 @@ export interface DashboardFiltersOpenApiApi {
     properties?: unknown
 }
 
+export interface _TileLayoutBoxOpenApiApi {
+    /** Column position in the dashboard grid (0-indexed). */
+    x?: number
+    /** Row position in the dashboard grid (0-indexed). */
+    y?: number
+    /** Width in grid columns. The desktop grid is 12 columns wide. */
+    w?: number
+    /** Height in grid rows. */
+    h?: number
+}
+
+export interface _TileLayoutsOpenApiApi {
+    /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
+    sm?: _TileLayoutBoxOpenApiApi
+    /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
+    xs?: _TileLayoutBoxOpenApiApi
+}
+
 /**
  * * `activity_events_list` - activity_events_list
  * * `conversations_recent_tickets` - conversations_recent_tickets
@@ -1133,6 +1151,8 @@ export interface DashboardPatchWidgetOpenApiApi {
 export interface DashboardPatchTileOpenApiApi {
     /** Dashboard tile ID to update. */
     id?: number
+    /** Grid position and size per breakpoint. Works for every tile type, including insight tiles. Tiles the grid finds overlapping are pushed apart, so send every tile you want placed in the same request. */
+    layouts?: _TileLayoutsOpenApiApi
     /** Nested widget row updates. */
     widget?: DashboardPatchWidgetOpenApiApi
 }
@@ -1188,7 +1208,7 @@ export interface PatchedPatchedDashboardOpenApiApi {
      * * `horizontal` - horizontal
      * * `stable` - stable */
     layout_compaction?: LayoutCompactionEnumApi
-    /** Dashboard tiles to update. Widget tiles accept nested widget.config patches. */
+    /** Dashboard tiles to update, each identified by its tile id. Any tile type accepts `layouts` to set its grid position and size. Widget tiles also accept nested widget.config patches. */
     tiles?: DashboardPatchTileOpenApiApi[]
     /** Template key to create the dashboard from a predefined template. */
     use_template?: string
@@ -9456,6 +9476,7 @@ export interface PatchedMoveTileRequestApi {
 /**
  * * `preserve` - preserve
  * * `two_column` - two_column
+ * * `three_column` - three_column
  * * `full_width` - full_width
  */
 export type LayoutEnumApi = (typeof LayoutEnumApi)[keyof typeof LayoutEnumApi]
@@ -9463,6 +9484,7 @@ export type LayoutEnumApi = (typeof LayoutEnumApi)[keyof typeof LayoutEnumApi]
 export const LayoutEnumApi = {
     Preserve: 'preserve',
     TwoColumn: 'two_column',
+    ThreeColumn: 'three_column',
     FullWidth: 'full_width',
 } as const
 
@@ -9472,10 +9494,11 @@ export interface ReorderTilesRequestApi {
      * @minItems 1
      */
     tile_order: number[]
-    /** How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per row). 'full_width' forces each tile to span the full 12-column row at height 5.
+    /** How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per row). 'three_column' forces a 4-wide × 5-tall grid (three tiles per row), for a more compact dashboard. 'full_width' forces each tile to span the full 12-column row at height 5.
      *
      * * `preserve` - preserve
      * * `two_column` - two_column
+     * * `three_column` - three_column
      * * `full_width` - full_width */
     layout?: LayoutEnumApi
 }
@@ -9552,24 +9575,6 @@ export interface UpdateTextTileRequestApi {
     color?: string | null
 }
 
-export interface _WidgetTileLayoutBoxOpenApiApi {
-    /** Column position in the dashboard grid (0-indexed). */
-    x?: number
-    /** Row position in the dashboard grid (0-indexed). */
-    y?: number
-    /** Width in grid columns. The desktop grid is 12 columns wide. */
-    w?: number
-    /** Height in grid rows. */
-    h?: number
-}
-
-export interface _WidgetTileLayoutsOpenApiApi {
-    /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
-    sm?: _WidgetTileLayoutBoxOpenApiApi
-    /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
-    xs?: _WidgetTileLayoutBoxOpenApiApi
-}
-
 export type ActivityEventsListWidgetAddRequestOpenApiApiWidgetType =
     (typeof ActivityEventsListWidgetAddRequestOpenApiApiWidgetType)[keyof typeof ActivityEventsListWidgetAddRequestOpenApiApiWidgetType]
 
@@ -9587,7 +9592,7 @@ export interface ActivityEventsListWidgetAddRequestOpenApiApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _WidgetTileLayoutsOpenApiApi
+    layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
     widget_type: ActivityEventsListWidgetAddRequestOpenApiApiWidgetType
@@ -9612,7 +9617,7 @@ export interface ErrorTrackingListWidgetAddRequestOpenApiApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _WidgetTileLayoutsOpenApiApi
+    layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
     widget_type: ErrorTrackingListWidgetAddRequestOpenApiApiWidgetType
@@ -9637,7 +9642,7 @@ export interface SessionReplayListWidgetAddRequestOpenApiApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _WidgetTileLayoutsOpenApiApi
+    layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
     widget_type: SessionReplayListWidgetAddRequestOpenApiApiWidgetType
@@ -9662,7 +9667,7 @@ export interface ExperimentsListWidgetAddRequestOpenApiApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _WidgetTileLayoutsOpenApiApi
+    layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
     widget_type: ExperimentsListWidgetAddRequestOpenApiApiWidgetType
@@ -9687,7 +9692,7 @@ export interface ExperimentResultsWidgetAddRequestOpenApiApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _WidgetTileLayoutsOpenApiApi
+    layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
     widget_type: ExperimentResultsWidgetAddRequestOpenApiApiWidgetType
@@ -9712,7 +9717,7 @@ export interface SurveyResultsWidgetAddRequestOpenApiApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _WidgetTileLayoutsOpenApiApi
+    layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
     widget_type: SurveyResultsWidgetAddRequestOpenApiApiWidgetType
@@ -9737,7 +9742,7 @@ export interface LogsListWidgetAddRequestOpenApiApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _WidgetTileLayoutsOpenApiApi
+    layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
     widget_type: LogsListWidgetAddRequestOpenApiApiWidgetType
@@ -9762,7 +9767,7 @@ export interface ConversationsRecentTicketsWidgetAddRequestOpenApiApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: _WidgetTileLayoutsOpenApiApi
+    layouts?: _TileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
     widget_type: ConversationsRecentTicketsWidgetAddRequestOpenApiApiWidgetType
