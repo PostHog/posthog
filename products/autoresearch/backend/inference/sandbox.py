@@ -63,6 +63,7 @@ from posthog.models.user import User
 
 from products.autoresearch.backend.dataset.labeling import (
     LABELER_QUERY_MODIFIERS,
+    MATERIALIZE_ROW_LIMIT,
     build_inference_anchors_sql,
     build_inference_features_sql,
     build_random_t0_labeler_sql,
@@ -112,10 +113,8 @@ _PREDICT_TIMEOUT_S = 120
 # A sandbox that outlives its command is a worker that died mid-run. The TTL is the
 # backstop that reclaims it: long enough for uploads, the command, and readback.
 _SANDBOX_TTL_S = 20 * 60
-# Without an explicit bound HogQL caps a query at its default of 100 rows, which would
-# shrink the train, holdout, and score matrices to a tiny sample. scoring.py bounds its
-# queries with the same constant.
-_MATERIALIZE_ROW_LIMIT = 50_000
+# scoring.py bounds its queries with the same constant.
+_MATERIALIZE_ROW_LIMIT = MATERIALIZE_ROW_LIMIT
 _OUTPUT_JSON = "data/output.json"
 _SCORES_PARQUET = "data/scores.parquet"
 _SCRIPT_LOG = "data/script.log"

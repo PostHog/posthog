@@ -79406,6 +79406,85 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `likely_active_soon` - Likely Active Soon
+     * * `at_risk_of_inactivity` - At Risk Of Inactivity
+     * * `return_after_first_use` - Return After First Use
+     * * `feature_adoption` - Feature Adoption
+     * * `repeat_key_behavior` - Repeat Key Behavior
+     */
+    export type TemplateKeyEnum = typeof TemplateKeyEnum[keyof typeof TemplateKeyEnum];
+
+
+    export const TemplateKeyEnum = {
+      LikelyActiveSoon: 'likely_active_soon',
+      AtRiskOfInactivity: 'at_risk_of_inactivity',
+      ReturnAfterFirstUse: 'return_after_first_use',
+      FeatureAdoption: 'feature_adoption',
+      RepeatKeyBehavior: 'repeat_key_behavior',
+    } as const;
+
+    export interface ResolveTemplateRequest {
+      /** Template to resolve. Use autoresearch-templates-list to see all available templates with descriptions. Required.
+       *
+       * * `likely_active_soon` - Likely Active Soon
+       * * `at_risk_of_inactivity` - At Risk Of Inactivity
+       * * `return_after_first_use` - Return After First Use
+       * * `feature_adoption` - Feature Adoption
+       * * `repeat_key_behavior` - Repeat Key Behavior */
+      template_key: TemplateKeyEnum;
+      /** Event name to use as the prediction target. Required for 'feature_adoption' and 'repeat_key_behavior'. Optional override for activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use'); omit to use the auto-resolved event. To predict an action, create the pipeline with target_definition after resolving. */
+      target_event?: string;
+      /**
+         * Override the template's default prediction horizon in days.
+         * @minimum 1
+         * @maximum 365
+         */
+      horizon_days?: number;
+    }
+
+    /**
+     * Resolved training population filter. Pass as 'training_population' to autoresearch-create.
+     */
+    export type ResolvedTemplateTrainingPopulation = { [key: string]: unknown };
+
+    /**
+     * Resolved inference (daily scoring) population filter. Pass as 'inference_population' to autoresearch-create.
+     */
+    export type ResolvedTemplateInferencePopulation = { [key: string]: unknown };
+
+    export interface ResolvedTemplate {
+      /** The template key that was resolved. */
+      template_key: string;
+      /** Human-readable template name. */
+      display_name: string;
+      /** What this template predicts. */
+      description: string;
+      /** Suggested pipeline name. Pass as 'name' to autoresearch-create. */
+      suggested_name: string;
+      /** Resolved target event. Pass as 'target_event' to autoresearch-create. For activity-based templates this is the auto-resolved activity event (or your override). */
+      target_event: string;
+      /**
+         * Activity event found in your event schema, populated only for templates that auto-resolve the target ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use'). Null for templates where you supply target_event directly.
+         * @nullable
+         */
+      resolved_activity_event: string | null;
+      /** Other viable activity events found in your schema. If the resolved event is not the right signal, re-resolve with one of these as target_event. */
+      activity_event_alternatives: string[];
+      /** Resolved prediction horizon in days. */
+      horizon_days: number;
+      /** Training lookback in days, sized so the horizon leaves room for training examples. Pass as 'training_lookback_days' to autoresearch-create. */
+      training_lookback_days: number;
+      /** Resolved training population filter. Pass as 'training_population' to autoresearch-create. */
+      training_population: ResolvedTemplateTrainingPopulation;
+      /** Resolved inference (daily scoring) population filter. Pass as 'inference_population' to autoresearch-create. */
+      inference_population: ResolvedTemplateInferencePopulation;
+      /** Suggested person property name for prediction scores. Pass as 'output_person_property' to autoresearch-create. */
+      output_person_property: string;
+      /** Usage notes and guidance for interpreting this resolved config. */
+      notes: string;
+    }
+
+    /**
      * * `accepted` - accepted
      * * `target_finished` - target_finished
      * * `rejected` - rejected
@@ -90973,6 +91052,29 @@ export namespace Schemas {
       tracing_session_id_attribute_keys: string[];
     }
 
+    export interface TemplateInfo {
+      /** Template identifier, e.g. 'likely_active_soon'. Pass to autoresearch-resolve-template-create.
+       *
+       * * `likely_active_soon` - Likely Active Soon
+       * * `at_risk_of_inactivity` - At Risk Of Inactivity
+       * * `return_after_first_use` - Return After First Use
+       * * `feature_adoption` - Feature Adoption
+       * * `repeat_key_behavior` - Repeat Key Behavior */
+      key: TemplateKeyEnum;
+      /** Human-readable template name. */
+      display_name: string;
+      /** What this template predicts and who it is for. */
+      description: string;
+      /** Default prediction horizon in days. Can be overridden when resolving. */
+      default_horizon_days: number;
+      /** If true, you must supply a target_event when resolving — the template does not auto-select one. Required for 'feature_adoption' and 'repeat_key_behavior'. */
+      requires_user_event: boolean;
+      /** If true, the target event is automatically resolved from your event schema ($pageview, $screen, or the highest-volume non-noisy event). You can override the resolved event when resolving the template. */
+      requires_activity_resolution: boolean;
+      /** Usage guidance and implementation notes. */
+      notes: string;
+    }
+
     /**
      * * `none` - none
      * * `last` - last
@@ -91846,6 +91948,119 @@ export namespace Schemas {
       lookback_days_used: number;
       /** Caveats and guidance about the suggestions */
       notes: string[];
+    }
+
+    /**
+     * Optional target definition. Pass {"type": "action", "action_id": N} to predict a PostHog action (multi-step / property / autocapture matcher) instead of a single event.
+     */
+    export type ValidatePipelineRequestTargetDefinition = {
+      type: 'event';
+    } | {
+      type: 'action';
+      /**
+         * ID of the action to predict.
+         * @minimum 1
+         */
+      action_id: number;
+    };
+
+    /**
+     * Population filter for training examples. Use {} for all identified users.
+     */
+    export type ValidatePipelineRequestTrainingPopulation = { [key: string]: unknown };
+
+    /**
+     * Population filter for daily scoring. When omitted or empty, the training population is counted, as creation stores it.
+     */
+    export type ValidatePipelineRequestInferencePopulation = { [key: string]: unknown };
+
+    export interface ValidatePipelineRequest {
+      /** Event name to predict, e.g. '$pageview'. Must exist in the team's event schema. Omit when predicting an action target (pass target_definition instead). */
+      target_event?: string;
+      /** Optional target definition. Pass {"type": "action", "action_id": N} to predict a PostHog action (multi-step / property / autocapture matcher) instead of a single event. */
+      target_definition?: ValidatePipelineRequestTargetDefinition;
+      /**
+         * Predict whether the target event occurs within this many days.
+         * @minimum 1
+         * @maximum 365
+         */
+      horizon_days?: number;
+      /**
+         * How far back to look for training examples. Default: 180.
+         * @minimum 7
+         * @maximum 730
+         */
+      training_lookback_days?: number;
+      /** Population filter for training examples. Use {} for all identified users. */
+      training_population?: ValidatePipelineRequestTrainingPopulation;
+      /** Population filter for daily scoring. When omitted or empty, the training population is counted, as creation stores it. */
+      inference_population?: ValidatePipelineRequestInferencePopulation;
+    }
+
+    /**
+     * * `info` - info
+     * * `warning` - warning
+     * * `error` - error
+     */
+    export type ValidationWarningSeverityEnum = typeof ValidationWarningSeverityEnum[keyof typeof ValidationWarningSeverityEnum];
+
+
+    export const ValidationWarningSeverityEnum = {
+      Info: 'info',
+      Warning: 'warning',
+      Error: 'error',
+    } as const;
+
+    export interface ValidationWarning {
+      /** Machine-readable warning code. 'population_too_large' and 'horizon_exceeds_lookback' mean a training run would fail: fix the definition before creating. 'low_volume', 'low_positives' and 'low_negatives' mean the data is too thin for a reliable model (severity 'error', advisory). 'moderate_volume', 'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' are severity 'warning'. */
+      code: string;
+      /** Human-readable warning description. */
+      message: string;
+      /** Severity level. 'error' means training would fail or the data is too thin for a reliable model; see 'code' for which. 'warning' is worth acknowledging. Creation enforces none of them.
+       *
+       * * `info` - info
+       * * `warning` - warning
+       * * `error` - error */
+      severity: ValidationWarningSeverityEnum;
+    }
+
+    export interface ValidatePipelineResponse {
+      /** False when any warning has severity 'error'. Creation does not enforce it, but a definition with 'population_too_large' or 'horizon_exceeds_lookback' cannot train. */
+      can_proceed: boolean;
+      /** True if there are non-blocking warnings the user should acknowledge before proceeding. */
+      requires_acknowledgement: boolean;
+      /**
+         * Estimated number of user-level training rows based on the population and lookback window.
+         * @nullable
+         */
+      estimated_training_rows: number | null;
+      /**
+         * Estimated number of positive examples (users who performed the target event).
+         * @nullable
+         */
+      positive_count: number | null;
+      /**
+         * Estimated number of negative examples.
+         * @nullable
+         */
+      negative_count: number | null;
+      /**
+         * Fraction of the training population that performed the target event.
+         * @nullable
+         */
+      base_rate: number | null;
+      /**
+         * Estimated number of users in the inference (daily scoring) population.
+         * @nullable
+         */
+      inference_population_size: number | null;
+      /** List of validation warnings. Check 'severity' and 'code'. */
+      warnings: ValidationWarning[];
+      /**
+         * Why validation did not run, or null when it did. A query error in the definition itself is passed through; any other failure is a generic message and the detail is logged.
+         * @nullable
+         */
+      error: string | null;
     }
 
     /**
