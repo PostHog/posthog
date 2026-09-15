@@ -41,6 +41,7 @@ import {
 import type { NewSurvey } from '../constants'
 import { surveyLogic } from '../surveyLogic'
 import { surveysLogic } from '../surveysLogic'
+import { isSupportedSurveyLink, registeredLinkSchemes, SURVEY_LINK_SCHEME_ERROR } from '../utils'
 
 export type WizardStep = 'template' | 'questions' | 'where' | 'when' | 'appearance' | 'success'
 
@@ -200,7 +201,10 @@ export interface surveyWizardLogicMeta {
         otherTemplates: (templateMode: SurveyTemplateMode) => SurveyTemplate[]
         stepNumber: (currentStep: WizardStep) => number
         breadcrumbs: (survey: NewSurvey | Survey) => Breadcrumb[]
-        stepValidationErrors: (survey: NewSurvey | Survey) => Record<WizardStep, string[]>
+        stepValidationErrors: (
+            survey: NewSurvey | Survey,
+            currentTeam: TeamPublicType | TeamType | null
+        ) => Record<WizardStep, string[]>
         currentStepHasErrors: (stepValidationErrors: Record<WizardStep, string[]>, currentStep: WizardStep) => boolean
         recommendedFrequency: (selectedTemplate: SurveyTemplate | null) => {
             label: string
@@ -361,8 +365,8 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
             ],
         ],
         stepValidationErrors: [
-            (s) => [s.survey],
-            (survey: Survey): Record<WizardStep, string[]> => {
+            (s) => [s.survey, s.currentTeam],
+            (survey: Survey, currentTeam: TeamPublicType | TeamType | null): Record<WizardStep, string[]> => {
                 const errors: Record<WizardStep, string[]> = {
                     template: [],
                     questions: [],
@@ -378,8 +382,8 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
                         if (question.type === SurveyQuestionType.Link) {
                             const linkQuestion = question as LinkSurveyQuestion
                             const link = linkQuestion.link || ''
-                            if (link && !link.startsWith('https://') && !link.startsWith('mailto:')) {
-                                errors.questions.push('Link URLs must start with https:// or mailto:')
+                            if (link && !isSupportedSurveyLink(link, registeredLinkSchemes(currentTeam))) {
+                                errors.questions.push(SURVEY_LINK_SCHEME_ERROR)
                                 break // Only show one error
                             }
                         }

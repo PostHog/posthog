@@ -1336,9 +1336,12 @@ class FeatureFlagSerializer(
         return MinimalEarlyAccessFeatureSerializer(feature_flag.features, many=True).data
 
     def get_surveys(self, feature_flag: FeatureFlag) -> dict:
-        from products.surveys.backend.api.survey import SurveyAPISerializer
+        from products.surveys.backend.api.survey import SurveyAPISerializer, TeamLinkSchemes
 
-        return SurveyAPISerializer(feature_flag.surveys_linked_flag, many=True).data
+        # One serializer per flag, so the link-scheme memo is shared here rather than per flag.
+        if not isinstance(self.context.get("team_link_schemes"), TeamLinkSchemes):
+            self.context["team_link_schemes"] = TeamLinkSchemes()
+        return SurveyAPISerializer(feature_flag.surveys_linked_flag, many=True, context=self.context).data
         # ignoring type because mypy doesn't know about the surveys_linked_flag `related_name` relationship
 
     def get_is_used_in_replay_settings(self, feature_flag: FeatureFlag) -> bool:

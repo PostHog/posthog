@@ -1,9 +1,11 @@
 import re
 import builtins
+from collections.abc import Callable, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
+from functools import cached_property
 from typing import Any, Optional, cast
-from urllib.parse import urlparse
+from urllib.parse import ParseResult, urlparse
 from uuid import UUID
 
 from django.conf import settings
@@ -103,8 +105,64 @@ CACHE_TIMEOUT_SECONDS = 300
 DISPLAY_LANGUAGE_QUERY_PARAM = "display_language"
 DISPLAY_LANGUAGE_RE = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}$")
 
-ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
+DEFAULT_LINK_URL_SCHEMES = ("https", "mailto")
+
+# A project cannot register these however deliberately it tries. The script and local-content
+# schemes run in the page showing the survey, http is plain-text transport, and the network
+# filesystem schemes hand the respondent's NTLM credentials to whoever runs the share.
+NEVER_REGISTRABLE_LINK_SCHEMES = frozenset(
+    {"javascript", "vbscript", "data", "file", "blob", "http", "smb", "cifs", "nfs"}
+)
+
+# RFC 3986 scheme grammar: ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ).
+LINK_URL_SCHEME_NAME_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9+.\-]*")
 EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+
+
+def resolve_allowed_link_schemes(survey_config: dict | None) -> list[str]:
+    """
+    The URL schemes this project's survey links may use.
+
+    An allowlist rather than a list of dangerous schemes to block, because "myapp://home" and
+    "smb://attacker.example/share" are the same shape: nothing in the URL says which scheme
+    belongs to the customer, so only the project owner can say. A blocklist would have to be
+    extended every time someone thought of another handler, and would accept the ones nobody had
+    thought of yet.
+
+    Registered schemes are filtered here rather than when the setting is written, so an entry
+    already stored that is malformed, or that names a scheme we never allow, grants nothing.
+    """
+    registered = (survey_config or {}).get("allowed_link_schemes")
+    if not isinstance(registered, list):
+        return list(DEFAULT_LINK_URL_SCHEMES)
+    extra = {
+        scheme.lower() for scheme in registered if isinstance(scheme, str) and LINK_URL_SCHEME_NAME_RE.fullmatch(scheme)
+    }
+    return [*DEFAULT_LINK_URL_SCHEMES, *sorted(extra - NEVER_REGISTRABLE_LINK_SCHEMES - set(DEFAULT_LINK_URL_SCHEMES))]
+
+
+LinkSchemeLookup = Callable[[], Sequence[str]]
+
+
+class TeamLinkSchemes:
+    """
+    Reads each team's allowed link schemes once, however many surveys a response serializes.
+
+    A response can carry surveys from several teams in a project, and every one of their questions
+    and translations needs the check, so the lookup is memoized per team rather than per link.
+    """
+
+    def __init__(self) -> None:
+        self._by_team: dict[int, list[str]] = {}
+
+    def for_team(self, team_id: int | None) -> list[str]:
+        if team_id is None:
+            return list(DEFAULT_LINK_URL_SCHEMES)
+        if team_id not in self._by_team:
+            survey_config = Team.objects.filter(id=team_id).values_list("survey_config", flat=True).first()
+            self._by_team[team_id] = resolve_allowed_link_schemes(survey_config)
+        return self._by_team[team_id]
+
 
 # Translation language codes must be BCP-47-ish (lang[-subtag...]). This is the same shape
 # the JS SDK matches against navigator.language. Aliases like "english" or sentinel values
@@ -157,16 +215,55 @@ def _sanitize_survey_html(value: str) -> str:
     return nh3_clean_with_allow_list(value) if nh3.is_html(value) else value
 
 
-def _sanitize_survey_link(link: str) -> str | None:
-    parsed_url = urlparse(link)
-    if parsed_url.scheme == "https" and parsed_url.netloc:
-        return _sanitize_survey_html(link)
-    if parsed_url.scheme == "mailto" and re.match(EMAIL_REGEX, link):
-        return _sanitize_survey_html(link)
-    return None
+def _sanitize_survey_link(
+    link: str, allowed_schemes: LinkSchemeLookup | None = None, keep_unregistered_schemes: bool = False
+) -> str | None:
+    """
+    The link to serve for this question, or None to serve no link at all.
+
+    The scheme is checked on every read, against the schemes the project allows right now, which
+    is what makes revoking a scheme take effect for a respondent with no backfill and no
+    revalidation of surveys already published. The SDK payload is a rebuilt cache rather than a
+    live read, so a revocation reaches SDKs on the next rebuild of that cache, not the next poll.
+
+    `keep_unregistered_schemes` turns that filter off for the authenticated read the editor loads.
+    The editor submits the whole questions array back on every save, so dropping the link there
+    would delete it from the database on the author's next unrelated edit, and re-registering the
+    scheme could not bring it back. A never-registrable scheme is still refused, and the link is
+    still HTML-sanitized, so the looser read serves the author what they stored and nothing more.
+
+    The lookup is a callable rather than a list because resolving it reads the team, and almost
+    every survey links to https or mailto. Calling it only for the schemes that need it keeps that
+    read off responses that serve no app link, the feature flag list among them.
+    """
+    try:
+        parsed_url = urlparse(link)
+    except ValueError:
+        return None
+    if parsed_url.scheme == "https":
+        return _sanitize_survey_html(link) if parsed_url.netloc else None
+    if parsed_url.scheme == "mailto":
+        return _sanitize_survey_html(link) if re.match(EMAIL_REGEX, link) else None
+    if not _link_has_destination(parsed_url):
+        return None
+    if keep_unregistered_schemes:
+        return None if parsed_url.scheme.lower() in NEVER_REGISTRABLE_LINK_SCHEMES else _sanitize_survey_html(link)
+    schemes = allowed_schemes() if allowed_schemes else DEFAULT_LINK_URL_SCHEMES
+    return _sanitize_survey_html(link) if parsed_url.scheme in schemes else None
 
 
-def sanitize_survey_translations(translations: dict[str, Any]) -> dict[str, Any]:
+def _link_has_destination(parsed_url: ParseResult) -> bool:
+    """An app scheme addresses a screen, so "myapp://home" and "myapp:home" both count, "myapp://" does not."""
+    return any(
+        component.strip() for component in (parsed_url.netloc, parsed_url.path, parsed_url.query, parsed_url.fragment)
+    )
+
+
+def sanitize_survey_translations(
+    translations: dict[str, Any],
+    allowed_schemes: LinkSchemeLookup | None = None,
+    keep_unregistered_schemes: bool = False,
+) -> dict[str, Any]:
     sanitized_translations = dict(translations)
     for language, translation in translations.items():
         if not isinstance(translation, dict):
@@ -183,7 +280,11 @@ def sanitize_survey_translations(translations: dict[str, Any]) -> dict[str, Any]
             ]
         if "link" in sanitized_translation:
             link = sanitized_translation["link"]
-            sanitized_link = _sanitize_survey_link(link) if isinstance(link, str) else None
+            sanitized_link = (
+                _sanitize_survey_link(link, allowed_schemes, keep_unregistered_schemes)
+                if isinstance(link, str)
+                else None
+            )
             if sanitized_link is None:
                 sanitized_translation.pop("link")
             else:
@@ -192,7 +293,11 @@ def sanitize_survey_translations(translations: dict[str, Any]) -> dict[str, Any]
     return sanitized_translations
 
 
-def sanitize_survey_question(question: dict[str, Any]) -> dict[str, Any]:
+def sanitize_survey_question(
+    question: dict[str, Any],
+    allowed_schemes: LinkSchemeLookup | None = None,
+    keep_unregistered_schemes: bool = False,
+) -> dict[str, Any]:
     sanitized_question = dict(question)
     for field in SURVEY_QUESTION_HTML_FIELDS:
         value = sanitized_question.get(field)
@@ -205,14 +310,18 @@ def sanitize_survey_question(question: dict[str, Any]) -> dict[str, Any]:
         ]
     if "link" in sanitized_question:
         link = sanitized_question["link"]
-        sanitized_link = _sanitize_survey_link(link) if isinstance(link, str) else None
+        sanitized_link = (
+            _sanitize_survey_link(link, allowed_schemes, keep_unregistered_schemes) if isinstance(link, str) else None
+        )
         if sanitized_link is None:
             sanitized_question.pop("link")
         else:
             sanitized_question["link"] = sanitized_link
     translations = sanitized_question.get("translations")
     if isinstance(translations, dict):
-        sanitized_question["translations"] = sanitize_survey_translations(translations)
+        sanitized_question["translations"] = sanitize_survey_translations(
+            translations, allowed_schemes, keep_unregistered_schemes
+        )
     return sanitized_question
 
 
@@ -532,7 +641,14 @@ class SurveyOpenQuestionSchemaSerializer(SurveyBaseQuestionSchemaSerializer):
 
 class SurveyLinkQuestionSchemaSerializer(SurveyBaseQuestionSchemaSerializer):
     type = serializers.ChoiceField(choices=["link"], required=True)
-    link = serializers.CharField(required=True, help_text="HTTPS or mailto URL for link questions.")
+    link = serializers.CharField(
+        required=True,
+        help_text=(
+            "HTTPS or mailto URL for link questions. To deep link into a mobile app, add the "
+            "app's URL scheme to survey_config.allowed_link_schemes on the project first "
+            '(e.g. ["myapp"]), then use it here (e.g. myapp://home).'
+        ),
+    )
 
 
 class SurveyRatingQuestionSchemaSerializer(SurveyBaseQuestionSchemaSerializer):
@@ -976,14 +1092,18 @@ class SurveySerializer(SearchMatchTypeSerializerMixin, UserAccessControlSerializ
         appearance = data.get("appearance")
         if isinstance(appearance, dict):
             data["appearance"] = sanitize_survey_appearance(appearance)
+
         questions = data.get("questions")
         if isinstance(questions, list):
             data["questions"] = [
-                sanitize_survey_question(question) if isinstance(question, dict) else question for question in questions
+                sanitize_survey_question(question, keep_unregistered_schemes=True)
+                if isinstance(question, dict)
+                else question
+                for question in questions
             ]
         translations = data.get("translations")
         if isinstance(translations, dict):
-            data["translations"] = sanitize_survey_translations(translations)
+            data["translations"] = sanitize_survey_translations(translations, keep_unregistered_schemes=True)
         return data
 
 
@@ -994,19 +1114,47 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     targeting_flag_id = serializers.IntegerField(required=False, write_only=True)
     targeting_flag_filters = serializers.JSONField(required=False, write_only=True, allow_null=True)
 
+    @cached_property
+    def _allowed_link_schemes(self) -> list[str]:
+        """
+        Cached because a survey validates one link per question and per translation.
+
+        A caller holding the team can pass the resolved list instead of the team id. Max tools
+        validates inside async context, where reading the team here would raise.
+
+        Every team-nested viewset already puts the team it loaded in the context, and bulk
+        duplication puts one target team per serializer, so preferring that object over a fresh
+        lookup keeps duplication from re-reading each target team's row.
+        """
+        resolved = self.context.get("allowed_link_schemes")
+        if resolved is not None:
+            return list(resolved)
+        get_team = self.context.get("get_team")
+        if callable(get_team):
+            team = get_team()
+            if team is not None:
+                return resolve_allowed_link_schemes(team.survey_config)
+        return TeamLinkSchemes().for_team(self.context.get("team_id"))
+
     def _validate_and_sanitize_link(self, link: str) -> str:
-        """Validate URL scheme and format, then sanitize HTML. Returns cleaned link."""
-        parsed_url = urlparse(link)
+        """Sanitize HTML first, then validate, so the stored link is the one that passed the checks."""
+        cleaned = _sanitize_survey_html(link)
+
+        try:
+            parsed_url = urlparse(cleaned)
+        except ValueError:
+            # An unbalanced bracket in the authority raises here, which would otherwise be a 500.
+            raise serializers.ValidationError("Invalid URL. Please enter a valid link.")
 
         # Check for unsupported schemes
-        if parsed_url.scheme not in ALLOWED_LINK_URL_SCHEMES:
+        if parsed_url.scheme not in self._allowed_link_schemes:
             raise serializers.ValidationError(
-                f"Link must be a URL with one of these schemes: [{', '.join(ALLOWED_LINK_URL_SCHEMES)}]"
+                f"Link must be a URL with one of these schemes: [{', '.join(self._allowed_link_schemes)}]"
             )
 
         # Validate mailto links
         if parsed_url.scheme == "mailto":
-            if not re.match(EMAIL_REGEX, link):
+            if not re.match(EMAIL_REGEX, cleaned):
                 raise serializers.ValidationError(
                     "Invalid mailto link. Please enter a valid mailto link (e.g., mailto:example@domain.com)."
                 )
@@ -1014,11 +1162,16 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         elif parsed_url.scheme == "https":
             if not parsed_url.netloc:
                 raise serializers.ValidationError("Invalid HTTPS URL. Please enter a valid HTTPS link.")
+        elif "[" in parsed_url.netloc or "]" in parsed_url.netloc:
+            # An IPv6 literal parses here but the editor refuses it, so accepting one would store
+            # a link the author is then blocked from saving any later edit to.
+            raise serializers.ValidationError(
+                f"Remove the square brackets from the address after {parsed_url.scheme}://"
+            )
+        elif not _link_has_destination(parsed_url):
+            raise serializers.ValidationError(f"Add a destination after {parsed_url.scheme}://")
 
-        # Sanitize HTML if present
-        if nh3.is_html(link):
-            return nh3_clean_with_allow_list(link)
-        return link
+        return cleaned
 
     def _validate_and_sanitize_choices(self, choices: list) -> list:
         """Validate choices are non-empty strings and sanitize HTML. Returns cleaned choices."""
@@ -3548,6 +3701,16 @@ class SurveyAPISerializer(serializers.ModelSerializer):
             survey.translations, getattr(survey, "base_language", DEFAULT_BASE_LANGUAGE) or DEFAULT_BASE_LANGUAGE
         )
 
+    @cached_property
+    def _team_link_schemes(self) -> TeamLinkSchemes:
+        """
+        A caller that builds one of these serializers per row shares the memo through the context.
+        The feature flag list does exactly that, one serializer per flag, so without the shared
+        instance each flag re-reads the same team row once its survey carries an app link.
+        """
+        shared = self.context.get("team_link_schemes")
+        return shared if isinstance(shared, TeamLinkSchemes) else TeamLinkSchemes()
+
     @extend_schema_field(serializers.ListField(child=serializers.DictField(), allow_null=True))
     def get_questions(self, survey: Survey) -> list[dict[str, Any]] | None:
         """Return only question fields used by SDKs, with translation keys normalized."""
@@ -3571,7 +3734,9 @@ class SurveyAPISerializer(serializers.ModelSerializer):
                     next_question["translations"] = filtered
                 else:
                     next_question.pop("translations", None)
-            cleaned.append(sanitize_survey_question(next_question))
+            cleaned.append(
+                sanitize_survey_question(next_question, lambda: self._team_link_schemes.for_team(survey.team_id))
+            )
         return cleaned
 
     def to_representation(self, instance: Survey) -> dict[str, Any]:

@@ -40,6 +40,8 @@ from products.surveys.backend.api.survey import (
     get_survey_api_translations,
     get_surveys_response,
     nh3_clean_with_allow_list,
+    resolve_allowed_link_schemes,
+    sanitize_survey_question,
 )
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive
 
@@ -568,6 +570,48 @@ class TestSurvey(APIBaseTest):
         assert "<strong>Detalles</strong>" in serialized_survey["questions"][0]["translations"]["es"]["description"]
         assert "<strong>Gracias</strong>" in serialized_survey["translations"]["es"]["thankYouMessageDescription"]
         assert "onerror" not in json.dumps(serialized_survey)
+
+    def _launch_app_scheme_survey(self) -> Survey:
+        return Survey.objects.create(
+            team=self.team,
+            name="Survey linking into the mobile app",
+            type="popover",
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+            questions=[
+                {
+                    "type": "link",
+                    "id": "q1",
+                    "question": "Rate us in the app",
+                    "link": "example-mobile://home",
+                    "translations": {"es": {"link": "example-mobile://inicio"}},
+                }
+            ],
+        )
+
+    def test_sdk_payload_serves_a_registered_app_scheme_link(self) -> None:
+        self.team.survey_config = {"allowed_link_schemes": ["example-mobile"]}
+        self.team.save(update_fields=["survey_config"])
+        survey = self._launch_app_scheme_survey()
+
+        payload = get_surveys_response(self.team)
+        question = next(item for item in payload["surveys"] if str(item["id"]) == str(survey.id))["questions"][0]
+
+        assert question["link"] == "example-mobile://home"
+        assert question["translations"]["es"]["link"] == "example-mobile://inicio"
+
+    def test_sdk_payload_stops_serving_links_whose_scheme_was_revoked(self) -> None:
+        self.team.survey_config = {"allowed_link_schemes": ["example-mobile"]}
+        self.team.save(update_fields=["survey_config"])
+        survey = self._launch_app_scheme_survey()
+
+        self.team.survey_config = {"allowed_link_schemes": []}
+        self.team.save(update_fields=["survey_config"])
+
+        payload = get_surveys_response(self.team)
+        question = next(item for item in payload["surveys"] if str(item["id"]) == str(survey.id))["questions"][0]
+
+        assert "link" not in question
+        assert "link" not in question["translations"]["es"]
 
     def test_detail_payload_sanitizes_stored_survey_html(self) -> None:
         survey = Survey.objects.create(
@@ -3961,8 +4005,12 @@ class TestSurveyQuestionValidation(APIBaseTest):
         }
         assert response_data["created_by"]["id"] == self.user.id
 
-    def test_create_validate_link_url_scheme(self):
-        response = self.client.post(
+    def _register_link_schemes(self, *schemes: str) -> None:
+        self.team.survey_config = {"allowed_link_schemes": list(schemes)}
+        self.team.save(update_fields=["survey_config"])
+
+    def _post_link_survey(self, link: str):
+        return self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
                 "name": "survey without targeting",
@@ -3970,7 +4018,7 @@ class TestSurveyQuestionValidation(APIBaseTest):
                 "questions": [
                     {
                         "type": "link",
-                        "link": "javascript:alert(1)",
+                        "link": link,
                         "question": "<b>What</b> do you think of the new notebooks feature?",
                     },
                 ],
@@ -3978,10 +4026,52 @@ class TestSurveyQuestionValidation(APIBaseTest):
             format="json",
         )
 
-        invalid_url = "Link must be a URL with one of these schemes: [https, mailto]"
+    @parameterized.expand(
+        [
+            ("script", "javascript:alert(1)", ()),
+            ("app_scheme_not_registered", "example-mobile://home", ()),
+            ("registering_script_grants_nothing", "javascript:alert(1)", ("javascript",)),
+            ("registering_a_network_share_grants_nothing", "smb://attacker.example/share", ("smb",)),
+        ]
+    )
+    def test_create_validate_link_url_scheme(self, _name: str, link: str, registered: tuple[str, ...]):
+        if registered:
+            self._register_link_schemes(*registered)
+
+        response = self._post_link_survey(link)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["detail"] == invalid_url
+        assert response.json()["detail"] == "Link must be a URL with one of these schemes: [https, mailto]"
+
+    def test_create_accepts_an_app_scheme_the_project_registered(self):
+        self._register_link_schemes("example-mobile")
+
+        response = self._post_link_survey("example-mobile://home")
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["questions"][0]["link"] == "example-mobile://home"
+
+    @parameterized.expand([("empty", "example-mobile://"), ("blank", "example-mobile:   ")])
+    def test_create_rejects_an_app_scheme_with_no_destination(self, _name: str, link: str):
+        self._register_link_schemes("example-mobile")
+
+        response = self._post_link_survey(link)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Add a destination after example-mobile://"
+
+    def test_create_rejects_an_unparseable_link_with_400(self):
+        response = self._post_link_survey("https://[")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_rejects_an_app_scheme_whose_authority_is_bracketed(self):
+        self._register_link_schemes("example-mobile")
+
+        response = self._post_link_survey("example-mobile://[::1]")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Remove the square brackets from the address after example-mobile://"
 
     def test_create_validate_link_mailto(self):
         response = self.client.post(
@@ -8141,3 +8231,86 @@ class TestSurveyFeatureFlagScopeEnforcement(PersonalAPIKeysBaseTest, APIBaseTest
             format="json",
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+
+class TestResolveAllowedLinkSchemes(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_setting", None, ["https", "mailto"]),
+            ("registered", ["myapp"], ["https", "mailto", "myapp"]),
+            ("uppercase", ["MyApp"], ["https", "mailto", "myapp"]),
+            ("never_registrable_dropped", ["javascript", "smb", "myapp"], ["https", "mailto", "myapp"]),
+            ("not_a_list", "myapp", ["https", "mailto"]),
+            ("malformed_entries", ["not a scheme", 7], ["https", "mailto"]),
+        ]
+    )
+    def test_resolve_allowed_link_schemes(self, _name: str, registered, expected: list[str]):
+        assert resolve_allowed_link_schemes({"allowed_link_schemes": registered}) == expected
+
+
+class TestSurveyQuestionLinkSanitization(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("https_kept", "https://example.com/thanks", ["https", "mailto"], "https://example.com/thanks"),
+            ("registered_app_scheme_kept", "myapp://home", ["https", "mailto", "myapp"], "myapp://home"),
+            ("scheme_only_path_kept", "myapp:home", ["https", "mailto", "myapp"], "myapp:home"),
+            ("unregistered_app_scheme_dropped", "myapp://home", ["https", "mailto"], None),
+            ("app_scheme_without_destination_dropped", "myapp://", ["https", "mailto", "myapp"], None),
+            ("app_scheme_with_blank_destination_dropped", "myapp:   ", ["https", "mailto", "myapp"], None),
+            ("app_scheme_with_only_a_fragment_kept", "myapp://#promo", ["https", "mailto", "myapp"], "myapp://#promo"),
+            ("https_without_host_dropped", "https:/thanks", ["https", "mailto", "myapp"], None),
+            ("script_dropped", "javascript:alert(1)", ["https", "mailto", "myapp"], None),
+            ("unparseable_dropped", "https://[", ["https", "mailto", "myapp"], None),
+        ]
+    )
+    def test_link_is_served_only_when_its_scheme_is_allowed(
+        self, _name: str, link: str, allowed_schemes: list[str], expected: str | None
+    ):
+        sanitized = sanitize_survey_question({"type": "link", "id": "q1", "link": link}, lambda: allowed_schemes)
+
+        assert sanitized.get("link") == expected
+
+    @parameterized.expand([("https", "https://example.com/thanks"), ("mailto", "mailto:hi@example.com")])
+    def test_a_default_scheme_link_never_resolves_the_project_allowlist(self, _name: str, link: str):
+        # Resolving reads the team, so the feature flag list and every other response that serves
+        # no app link must not pay for it.
+        def fail_if_called() -> list[str]:
+            raise AssertionError("the allowlist was resolved for a link that did not need it")
+
+        sanitized = sanitize_survey_question({"type": "link", "id": "q1", "link": link}, fail_if_called)
+
+        assert sanitized["link"] == link
+
+    @parameterized.expand(
+        [
+            ("revoked_app_scheme_kept", "myapp://home", "myapp://home"),
+            ("app_scheme_with_no_destination_dropped", "myapp://", None),
+            ("never_registrable_scheme_dropped", "javascript:alert(1)", None),
+            ("network_share_dropped", "smb://attacker.example/share", None),
+        ]
+    )
+    def test_the_editor_read_keeps_a_link_whose_scheme_is_no_longer_registered(
+        self, _name: str, link: str, expected: str | None
+    ):
+        sanitized = sanitize_survey_question(
+            {"type": "link", "id": "q1", "link": link}, lambda: ["https", "mailto"], keep_unregistered_schemes=True
+        )
+
+        assert sanitized.get("link") == expected
+
+    @parameterized.expand(
+        [
+            ("revoked_app_scheme_kept", "myapp://accueil", "myapp://accueil"),
+            ("never_registrable_scheme_dropped", "javascript:alert(1)", None),
+        ]
+    )
+    def test_the_editor_read_treats_a_translated_link_like_the_question_link(
+        self, _name: str, link: str, expected: str | None
+    ):
+        sanitized = sanitize_survey_question(
+            {"type": "link", "id": "q1", "link": "myapp://home", "translations": {"fr": {"link": link}}},
+            lambda: ["https", "mailto"],
+            keep_unregistered_schemes=True,
+        )
+
+        assert sanitized["translations"]["fr"].get("link") == expected

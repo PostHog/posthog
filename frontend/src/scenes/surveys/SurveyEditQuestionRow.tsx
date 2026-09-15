@@ -504,7 +504,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                     <LemonField
                         name={getFieldName('link')}
                         label={getFieldLabel('Link', 'link')}
-                        info="Only https:// or mailto: links are supported."
+                        info="Use an https:// or mailto: link, or an app URL scheme this project allows."
                     >
                         {(() => {
                             const fieldError = getFieldError('link')

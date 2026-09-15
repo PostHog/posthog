@@ -19,7 +19,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.surveys.backend.api.survey import SurveySerializerCreateUpdateOnly
+from products.surveys.backend.api.survey import SurveySerializerCreateUpdateOnly, resolve_allowed_link_schemes
 from products.surveys.backend.models import Survey
 from products.surveys.backend.summarization.fetch import fetch_responses
 
@@ -188,8 +188,13 @@ def _resolve_edited_questions(
     return resolved
 
 
-def _validate_and_sanitize_questions(questions: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    serializer = SurveySerializerCreateUpdateOnly()
+def _validate_and_sanitize_questions(questions: list[dict[str, Any]], team: Team) -> list[dict[str, Any]]:
+    # Resolved from the team already in memory: this runs inside async context, where letting the
+    # serializer read the team itself would raise, and without it an app scheme the project
+    # registered is rejected here and accepted by the API.
+    serializer = SurveySerializerCreateUpdateOnly(
+        context={"allowed_link_schemes": resolve_allowed_link_schemes(team.survey_config)}
+    )
     return serializer.validate_questions(questions)
 
 
@@ -384,7 +389,7 @@ class CreateSurveyTool(MaxTool):
                 wait_period_days=wait_period_days,
                 responses_limit=responses_limit,
             )
-            survey_data["questions"] = _validate_and_sanitize_questions(survey_data["questions"])
+            survey_data["questions"] = _validate_and_sanitize_questions(survey_data["questions"], self._team)
 
             if should_launch:
                 survey_data["start_date"] = django.utils.timezone.now()
@@ -600,7 +605,7 @@ class EditSurveyTool(MaxTool):
                 update_data["description"] = description
             if questions is not None:
                 new_questions = _resolve_edited_questions(survey.questions or [], questions)
-                update_data["questions"] = _validate_and_sanitize_questions(new_questions)
+                update_data["questions"] = _validate_and_sanitize_questions(new_questions, self._team)
             if linked_flag_id is not None:
                 update_data["linked_flag_id"] = linked_flag_id
             elif remove_linked_flag:

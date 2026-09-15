@@ -1,3 +1,6 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
+import type { ValidationErrorType } from 'kea-forms'
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
@@ -10,6 +13,7 @@ import {
     surveyLogic,
 } from 'scenes/surveys/surveyLogic'
 import { OpenEndedColumnMap } from 'scenes/surveys/utils'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -184,6 +188,17 @@ describe('editor sync', () => {
 
 describe('translation validation', () => {
     let logic: ReturnType<typeof surveyLogic.build>
+    let cssSupports: typeof CSS.supports
+
+    beforeAll(() => {
+        // The form validator sanitizes appearance colors, and jsdom has no CSS.supports.
+        cssSupports = CSS.supports
+        CSS.supports = () => false
+    })
+
+    afterAll(() => {
+        CSS.supports = cssSupports
+    })
 
     beforeEach(() => {
         initKeaTests()
@@ -210,7 +225,7 @@ describe('translation validation', () => {
                     language: 'fr',
                     questionIndex: 0,
                     field: 'link',
-                    error: 'Must start with https:// or mailto:',
+                    error: 'Must start with https://, mailto:, or an app scheme this project allows',
                 },
                 {
                     language: 'es',
@@ -232,8 +247,50 @@ describe('translation validation', () => {
         ).toBe(false)
     })
 
-    it('validates default link URLs without requiring translations', async () => {
-        const survey = createSurveyWithLinkQuestion({ link: 'https:not-valid' })
+    const defaultLinkCases: [string, string, boolean][] = [
+        ['a scheme-only https link', 'https:not-valid', true],
+        ['a script link', 'javascript:alert(1)', true],
+        ['a network share link', 'smb://attacker.example/share', true],
+        ['an app scheme the project did not register', 'unregistered://home', true],
+        ['a registered app scheme with no destination', 'example-mobile://', true],
+        ['a registered app scheme with only a query marker', 'example-mobile://?', true],
+        ['a registered app scheme with only a fragment marker', 'example-mobile://#', true],
+        ['a registered app scheme deep link', 'example-mobile://home', false],
+        ['a registered app scheme with only a fragment', 'example-mobile://#promo', false],
+        ['a registered app scheme with a malformed authority', 'example-mobile://[', true],
+        ['a registered app scheme with a bracket in the path', 'example-mobile://home/a[b', false],
+        ['an https link', 'https://posthog.com/docs', false],
+    ]
+
+    it.each(defaultLinkCases)(
+        'validates default link URLs without requiring translations: %s',
+        async (_name, link, expectsError) => {
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                survey_config: { allowed_link_schemes: ['example-mobile'] },
+            })
+            const survey = createSurveyWithLinkQuestion({ link })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveySuccess(survey)
+            }).toMatchValues({
+                translationValidationErrors: expectsError
+                    ? [
+                          {
+                              language: 'default',
+                              questionIndex: 0,
+                              field: 'link',
+                              error: 'Must start with https://, mailto:, or an app scheme this project allows',
+                          },
+                      ]
+                    : [],
+            })
+        }
+    )
+
+    it('revalidates a link when the project registers its scheme', async () => {
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, survey_config: {} })
+        const survey = createSurveyWithLinkQuestion({ link: 'example-mobile://home' })
 
         await expectLogic(logic, () => {
             logic.actions.loadSurveySuccess(survey)
@@ -243,10 +300,27 @@ describe('translation validation', () => {
                     language: 'default',
                     questionIndex: 0,
                     field: 'link',
-                    error: 'Must start with https:// or mailto:',
+                    error: 'Must start with https://, mailto:, or an app scheme this project allows',
                 },
             ],
         })
+
+        const linkFormError = (): ValidationErrorType =>
+            (logic.values.surveyValidationErrors.questions?.[0] as { link?: ValidationErrorType } | undefined)?.link
+
+        expect(linkFormError()).toBe(
+            'Use an https:// link, or an app URL scheme this project allows for mobile deep links.'
+        )
+
+        await expectLogic(logic, () => {
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                survey_config: { allowed_link_schemes: ['example-mobile'] },
+            })
+        }).toMatchValues({ translationValidationErrors: [] })
+
+        // The save gate reads the same setting, so an untouched form must clear its link error too.
+        expect(linkFormError()).toBeFalsy()
     })
 
     it('does not validate survey root description translations', async () => {

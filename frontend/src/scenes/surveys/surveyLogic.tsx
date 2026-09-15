@@ -146,8 +146,12 @@ import {
     getSurveyEndDateForQuery,
     getSurveyResponseOutcomeBreakdown,
     getSurveyStartDateForQuery,
+    isAppSchemeLink,
+    isSupportedSurveyLink,
     isSurveyRunning,
     isThumbQuestion,
+    registeredLinkSchemes,
+    SURVEY_LINK_SCHEME_ERROR,
     sanitizeSurvey,
     sanitizeSurveyAppearance,
     validateSurveyAppearance,
@@ -1463,7 +1467,10 @@ export interface surveyLogicMeta {
         ) => (questionIndex: number, question: MultipleSurveyQuestion | RatingSurveyQuestion, response: any) => any
         hasCycle: (survey: NewSurvey | Survey) => false
         hasBranchingLogic: (survey: NewSurvey | Survey) => boolean
-        translationValidationErrors: (survey: NewSurvey | Survey) => TranslationValidationError[]
+        translationValidationErrors: (
+            survey: NewSurvey | Survey,
+            currentTeam: TeamPublicType | TeamType | null
+        ) => TranslationValidationError[]
         hasTranslationValidationErrors: (translationValidationErrors: TranslationValidationError[]) => boolean
         translationErrorsByQuestion: (
             translationValidationErrors: TranslationValidationError[],
@@ -3318,8 +3325,12 @@ export const surveyLogic = kea<surveyLogicType>([
                 survey.questions.some((question) => question.branching && Object.keys(question.branching).length > 0),
         ],
         translationValidationErrors: [
-            (s) => [s.survey],
-            (survey: NewSurvey | Survey): TranslationValidationError[] => {
+            (s) => [s.survey, s.currentTeam],
+            (
+                survey: NewSurvey | Survey,
+                currentTeam: TeamPublicType | TeamType | null
+            ): TranslationValidationError[] => {
+                const registeredSchemes = registeredLinkSchemes(currentTeam)
                 const errors: TranslationValidationError[] = []
                 const surveyLevelFieldChecks: TranslationFieldCheck<SurveyTranslationField>[] = [
                     { key: 'name', defaultValue: survey.name },
@@ -3540,12 +3551,15 @@ export const surveyLogic = kea<surveyLogicType>([
                                         field: 'link',
                                         error: 'Cannot be empty',
                                     })
-                                } else if (trimmedLink !== '' && !trimmedLink.match(/^(https:\/\/|mailto:)/)) {
+                                } else if (
+                                    trimmedLink !== '' &&
+                                    !isSupportedSurveyLink(trimmedLink, registeredSchemes)
+                                ) {
                                     errors.push({
                                         language: lang,
                                         questionIndex: qIndex,
                                         field: 'link',
-                                        error: 'Must start with https:// or mailto:',
+                                        error: SURVEY_LINK_SCHEME_ERROR,
                                     })
                                 }
                             }
@@ -3578,12 +3592,12 @@ export const surveyLogic = kea<surveyLogicType>([
                 // Also validate default question links
                 survey.questions.forEach((question, qIndex) => {
                     const link = isLinkSurveyQuestion(question) && question.link ? question.link.trim() : ''
-                    if (link && !link.match(/^(https:\/\/|mailto:)/)) {
+                    if (link && !isSupportedSurveyLink(link, registeredSchemes)) {
                         errors.push({
                             language: 'default',
                             questionIndex: qIndex,
                             field: 'link',
-                            error: 'Must start with https:// or mailto:',
+                            error: SURVEY_LINK_SCHEME_ERROR,
                         })
                     }
                 })
@@ -3864,89 +3878,98 @@ export const surveyLogic = kea<surveyLogicType>([
                     ...teamLogic.values.currentTeam?.survey_config?.appearance,
                 },
             } as NewSurvey | Survey,
-            errors: ({ name, questions, appearance, type }) => {
-                const sanitizedAppearance = sanitizeSurveyAppearance(appearance)
-                return {
-                    name: !name && 'Please enter a name.',
-                    questions: questions.map((question) => {
-                        const questionErrors = {
-                            question: !question.question && 'Please enter a question label.',
-                        }
+            // kea-forms memoizes a function-style validator on the form value alone, so the team has
+            // to be a declared input. Read from the closure, a link error outlives the arrival of
+            // the project settings that clear it, and blocks the save.
+            errors: [
+                (s) => [s.survey, s.currentTeam],
+                (
+                    { name, questions, appearance, type }: NewSurvey | Survey,
+                    currentTeam: TeamPublicType | TeamType | null
+                ) => {
+                    const sanitizedAppearance = sanitizeSurveyAppearance(appearance)
+                    return {
+                        name: !name && 'Please enter a name.',
+                        questions: questions.map((question) => {
+                            const questionErrors = {
+                                question: !question.question && 'Please enter a question label.',
+                            }
 
-                        if (question.type === SurveyQuestionType.Link) {
-                            if (question.link) {
-                                if (question.link.startsWith('mailto:')) {
-                                    const emailRegex = /^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/
-                                    if (!emailRegex.test(question.link)) {
-                                        return {
-                                            ...questionErrors,
-                                            link: 'Please enter a valid mailto link (e.g., mailto:example@domain.com).',
-                                        }
-                                    }
-                                } else {
-                                    try {
-                                        const url = new URL(question.link)
-                                        if (url.protocol !== 'https:') {
+                            if (question.type === SurveyQuestionType.Link) {
+                                if (question.link) {
+                                    if (question.link.startsWith('mailto:')) {
+                                        const emailRegex = /^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/
+                                        if (!emailRegex.test(question.link)) {
                                             return {
                                                 ...questionErrors,
-                                                link: 'Only HTTPS links are supported for security reasons.',
+                                                link: 'Please enter a valid mailto link (e.g., mailto:example@domain.com).',
                                             }
                                         }
-                                    } catch {
-                                        return {
-                                            ...questionErrors,
-                                            link: 'Please enter a valid HTTPS URL.',
+                                    } else if (!isAppSchemeLink(question.link, registeredLinkSchemes(currentTeam))) {
+                                        try {
+                                            const url = new URL(question.link)
+                                            if (url.protocol !== 'https:') {
+                                                return {
+                                                    ...questionErrors,
+                                                    link: 'Use an https:// link, or an app URL scheme this project allows for mobile deep links.',
+                                                }
+                                            }
+                                        } catch {
+                                            return {
+                                                ...questionErrors,
+                                                link: 'Please enter a valid HTTPS URL.',
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
 
-                        if (question.type === SurveyQuestionType.Rating) {
-                            // Thumb questions (emoji + 2-point scale) hide the bound-label inputs in the editor,
-                            // so requiring them here would silently block save with no visible error.
-                            const requiresBoundLabels = !isThumbQuestion(question)
-                            return {
-                                ...questionErrors,
-                                display: !question.display && 'Please choose a display type.',
-                                scale: !question.scale && 'Please choose a scale.',
-                                lowerBoundLabel:
-                                    requiresBoundLabels &&
-                                    !question.lowerBoundLabel &&
-                                    'Please enter a lower bound label.',
-                                upperBoundLabel:
-                                    requiresBoundLabels &&
-                                    !question.upperBoundLabel &&
-                                    'Please enter an upper bound label.',
+                            if (question.type === SurveyQuestionType.Rating) {
+                                // Thumb questions (emoji + 2-point scale) hide the bound-label inputs in the editor,
+                                // so requiring them here would silently block save with no visible error.
+                                const requiresBoundLabels = !isThumbQuestion(question)
+                                return {
+                                    ...questionErrors,
+                                    display: !question.display && 'Please choose a display type.',
+                                    scale: !question.scale && 'Please choose a scale.',
+                                    lowerBoundLabel:
+                                        requiresBoundLabels &&
+                                        !question.lowerBoundLabel &&
+                                        'Please enter a lower bound label.',
+                                    upperBoundLabel:
+                                        requiresBoundLabels &&
+                                        !question.upperBoundLabel &&
+                                        'Please enter an upper bound label.',
+                                }
+                            } else if (
+                                question.type === SurveyQuestionType.SingleChoice ||
+                                question.type === SurveyQuestionType.MultipleChoice
+                            ) {
+                                return {
+                                    ...questionErrors,
+                                    choices:
+                                        !question.choices?.length || question.choices.some((choice) => !choice.trim())
+                                            ? 'Please ensure all choices are non-empty.'
+                                            : undefined,
+                                }
                             }
-                        } else if (
-                            question.type === SurveyQuestionType.SingleChoice ||
-                            question.type === SurveyQuestionType.MultipleChoice
-                        ) {
-                            return {
-                                ...questionErrors,
-                                choices:
-                                    !question.choices?.length || question.choices.some((choice) => !choice.trim())
-                                        ? 'Please ensure all choices are non-empty.'
-                                        : undefined,
-                            }
-                        }
 
-                        return questionErrors
-                    }),
-                    // release conditions controlled using a PureField in the form
-                    targeting_flag_filters: values.flagPropertyErrors,
-                    // controlled using a PureField in the form
-                    urlMatchType: values.urlMatchTypeValidationError,
-                    appearance:
-                        sanitizedAppearance &&
-                        validateSurveyAppearance(
-                            sanitizedAppearance,
-                            questions.some((q) => q.type === SurveyQuestionType.Rating),
-                            type
-                        ),
-                }
-            },
+                            return questionErrors
+                        }),
+                        // release conditions controlled using a PureField in the form
+                        targeting_flag_filters: values.flagPropertyErrors,
+                        // controlled using a PureField in the form
+                        urlMatchType: values.urlMatchTypeValidationError,
+                        appearance:
+                            sanitizedAppearance &&
+                            validateSurveyAppearance(
+                                sanitizedAppearance,
+                                questions.some((q) => q.type === SurveyQuestionType.Rating),
+                                type
+                            ),
+                    }
+                },
+            ],
             submit: (surveyPayload) => {
                 if (values.hasCycle) {
                     actions.reportSurveyCycleDetected(values.survey)

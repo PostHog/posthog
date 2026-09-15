@@ -10,6 +10,7 @@ from posthog.test.base import BaseTest
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.models import Organization, Project, Team
 
@@ -17,7 +18,13 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
 
-from .max_tools import CreateSurveyTool, EditSurveyTool, SimpleSurveyQuestion, SurveyAnalysisTool
+from .max_tools import (
+    CreateSurveyTool,
+    EditSurveyTool,
+    SimpleSurveyQuestion,
+    SurveyAnalysisTool,
+    _validate_and_sanitize_questions,
+)
 
 
 async def create_test_team(organization: Organization, name: str) -> Team:
@@ -1352,3 +1359,19 @@ class TestEditSurveyTool(BaseTest):
         assert ids[0] == "uuid-first"
         assert ids[1] and ids[1] != "uuid-first"
         assert len(set(ids)) == len(ids)
+
+
+class TestMaxToolLinkSchemes(BaseTest):
+    def _link_question(self, link: str) -> list[dict]:
+        return [{"type": "link", "question": "Rate us in the app", "link": link}]
+
+    def test_a_registered_app_scheme_survives_max_tool_validation(self):
+        self.team.survey_config = {"allowed_link_schemes": ["example-mobile"]}
+
+        cleaned = _validate_and_sanitize_questions(self._link_question("example-mobile://home"), self.team)
+
+        assert cleaned[0]["link"] == "example-mobile://home"
+
+    def test_an_unregistered_app_scheme_is_rejected_by_max_tool_validation(self):
+        with pytest.raises(ValidationError):
+            _validate_and_sanitize_questions(self._link_question("example-mobile://home"), self.team)

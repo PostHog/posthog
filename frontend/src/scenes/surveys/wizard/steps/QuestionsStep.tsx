@@ -15,6 +15,7 @@ import { GuidedWizardStepLayout } from 'lib/components/GuidedWizard/GuidedWizard
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import {
     LinkSurveyQuestion,
@@ -29,7 +30,12 @@ import {
 import { SCALE_OPTIONS, SURVEY_RATING_SCALE, defaultSurveyAppearance, defaultSurveyFieldValues } from '../../constants'
 import { HTMLEditor } from '../../SurveyAppearanceUtils'
 import { surveyLogic } from '../../surveyLogic'
-import { splitChoicesOnPaste } from '../../utils'
+import {
+    isSupportedSurveyLink,
+    registeredLinkSchemes,
+    splitChoicesOnPaste,
+    SURVEY_LINK_SCHEME_ERROR,
+} from '../../utils'
 import { AddQuestionButton } from '../AddQuestionButton'
 import { QuestionTypeChip } from '../QuestionTypeChip'
 import { surveyWizardLogic } from '../surveyWizardLogic'
@@ -43,6 +49,7 @@ interface QuestionOptionsProps {
 }
 
 function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Element | null {
+    const { currentTeam } = useValues(teamLogic)
     // Rating question options
     if (question.type === SurveyQuestionType.Rating) {
         const ratingQuestion = question as RatingSurveyQuestion
@@ -278,7 +285,7 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
     if (question.type === SurveyQuestionType.Link) {
         const linkQuestion = question as LinkSurveyQuestion
         const linkValue = linkQuestion.link || ''
-        const isValidLink = !linkValue || linkValue.startsWith('https://') || linkValue.startsWith('mailto:')
+        const isValidLink = !linkValue || isSupportedSurveyLink(linkValue, registeredLinkSchemes(currentTeam))
 
         return (
             <div className="space-y-3 pt-3 border-t border-border mt-3">
@@ -306,10 +313,11 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
                     </div>
                 </div>
                 {!isValidLink ? (
-                    <p className="text-xs text-danger">Link must start with https:// or mailto:</p>
+                    <p className="text-xs text-danger">{SURVEY_LINK_SCHEME_ERROR}</p>
                 ) : (
                     <p className="text-xs text-secondary">
-                        Only https:// or mailto: links are supported. Leave empty for announcement-only.
+                        Use an https:// or mailto: link, or an app URL scheme this project allows. Leave empty for
+                        announcement-only.
                     </p>
                 )}
             </div>
