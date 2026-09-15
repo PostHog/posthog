@@ -1141,16 +1141,89 @@ export const SurveyMatchTypeEnumApi = {
     NotIcontains: 'not_icontains',
 } as const
 
+/**
+ * * `exact` - exact
+ * * `is_not` - is_not
+ * * `icontains` - icontains
+ * * `not_icontains` - not_icontains
+ * * `regex` - regex
+ * * `not_regex` - not_regex
+ * * `gt` - gt
+ * * `gte` - gte
+ * * `lt` - lt
+ * * `lte` - lte
+ */
+export type SurveyEventPropertyOperatorEnumApi =
+    (typeof SurveyEventPropertyOperatorEnumApi)[keyof typeof SurveyEventPropertyOperatorEnumApi]
+
+export const SurveyEventPropertyOperatorEnumApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+    Gt: 'gt',
+    Gte: 'gte',
+    Lt: 'lt',
+    Lte: 'lte',
+} as const
+
+export interface SurveyEventPropertyFilterSchemaApi {
+    /** Values to compare the event property against. Positive operators like 'exact' match when the property matches one of these values. Negative operators like 'is_not' match only when the property matches none of them. */
+    values: string[]
+    /** How to compare the event property against the values.
+     *
+     * * `exact` - exact
+     * * `is_not` - is_not
+     * * `icontains` - icontains
+     * * `not_icontains` - not_icontains
+     * * `regex` - regex
+     * * `not_regex` - not_regex
+     * * `gt` - gt
+     * * `gte` - gte
+     * * `lt` - lt
+     * * `lte` - lte */
+    operator: SurveyEventPropertyOperatorEnumApi
+}
+
+/**
+ * Filters on the properties of the triggering event, keyed by property name. The survey only shows if the event matches every filter. Leave this out to trigger on the event name alone.
+ */
+export type SurveyConditionEventValueSchemaApiPropertyFilters = { [key: string]: SurveyEventPropertyFilterSchemaApi }
+
 export interface SurveyConditionEventValueSchemaApi {
     /** Event name that triggers the survey. */
     name: string
+    /** Filters on the properties of the triggering event, keyed by property name. The survey only shows if the event matches every filter. Leave this out to trigger on the event name alone. */
+    propertyFilters?: SurveyConditionEventValueSchemaApiPropertyFilters
 }
 
 export interface SurveyEventsConditionSchemaApi {
     /** Whether to show the survey every time one of the events is triggered (true), or just once (false). */
     repeatedActivation?: boolean
-    /** Array of event names that trigger the survey. */
+    /** Events that trigger the survey, each with optional filters on the event properties. */
     values?: SurveyConditionEventValueSchemaApi[]
+}
+
+export interface SurveyCancelEventsConditionSchemaApi {
+    /** Events that cancel a survey that waits to show, each with optional filters on the event properties. */
+    values?: SurveyConditionEventValueSchemaApi[]
+}
+
+export interface SurveyConditionActionValueSchemaApi {
+    /** ID of an action that triggers the survey. */
+    id: number
+    /**
+     * Name of the action. The survey stores the action by ID, so this value is ignored on write.
+     * @nullable
+     */
+    name?: string | null
+}
+
+export interface SurveyActionsConditionSchemaApi {
+    /** Actions that trigger the survey. */
+    values?: SurveyConditionActionValueSchemaApi[]
 }
 
 /**
@@ -1184,6 +1257,10 @@ export interface SurveyConditionsSchemaApi {
      * * `not_icontains` - not_icontains */
     urlMatchType?: SurveyMatchTypeEnumApi
     events?: SurveyEventsConditionSchemaApi
+    /** Events that cancel a survey that waits to show. */
+    cancelEvents?: SurveyCancelEventsConditionSchemaApi
+    /** Actions that trigger the survey. A write replaces the whole set, so send back every action the survey should keep. */
+    actions?: SurveyActionsConditionSchemaApi | null
     /** Device types that should match for this survey to be shown. */
     deviceTypes?: DeviceTypesEnumApi[]
     /** URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain).
