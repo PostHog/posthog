@@ -48,6 +48,17 @@ def _unwrap_declarations(tool: dict[str, Any]) -> list[Any]:
     return [tool]
 
 
+def _flatten_tools(tools_list: list[Any]) -> list[Any]:
+    """Unwrap every container, so a Google/Gemini bundle counts as its tools and not as one item."""
+    flattened: list[Any] = []
+    for tool in tools_list:
+        if isinstance(tool, dict):
+            flattened.extend(_unwrap_declarations(tool))
+        else:
+            flattened.append(tool)
+    return flattened
+
+
 def _read_description(source: dict[str, Any]) -> str:
     """SDKs record non-string descriptions, which crash `.split()` in `_format_description`."""
     description = source.get("description", "N/A")
@@ -113,7 +124,7 @@ def _format_description(description: str) -> str:
 
 def _format_tools_list(tools_list: list[Any]) -> str:
     """
-    Format a list of tools into text representation.
+    Format a flattened list of tools into text representation.
     Returns the formatted text as a single string.
     """
     lines: list[str] = []
@@ -123,17 +134,13 @@ def _format_tools_list(tools_list: list[Any]) -> str:
         if not isinstance(tool, dict):
             continue
 
-        for declaration in _unwrap_declarations(tool):
-            if not isinstance(declaration, dict):
-                continue
+        definition = _read_tool(tool)
 
-            definition = _read_tool(declaration)
+        lines.append("")
+        lines.append(f"  {_format_signature(definition.name, definition.parameter_schema)}")
 
-            lines.append("")
-            lines.append(f"  {_format_signature(definition.name, definition.parameter_schema)}")
-
-            if definition.description and definition.description != "N/A":
-                lines.append(f"    {_format_description(definition.description)}")
+        if definition.description and definition.description != "N/A":
+            lines.append(f"    {_format_description(definition.description)}")
 
     return "\n".join(lines)
 
@@ -165,6 +172,9 @@ def format_tools(ai_tools: Any, options: "FormatterOptions | None" = None) -> li
         tools_list = ai_tools
     else:
         return lines
+
+    # The count drives the collapse threshold, so unwrap before counting.
+    tools_list = _flatten_tools(tools_list)
 
     if len(tools_list) == 0:
         return lines

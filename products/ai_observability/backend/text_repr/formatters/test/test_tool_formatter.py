@@ -202,7 +202,7 @@ class TestFormatTools:
 
         assert "\n".join(lines).split("\n") == [
             "",
-            "AVAILABLE TOOLS: 1",
+            "AVAILABLE TOOLS: 3",
             "",
             "  search(query: string)",
             "    Search the web.",
@@ -317,6 +317,22 @@ class TestEdgeCases:
         assert "<<<TOOLS_EXPANDABLE|" not in result
         assert "AVAILABLE TOOLS: 5" in result
         assert "tool0()" in result
+
+    @parameterized.expand(
+        [
+            ("one bundle", 1, 6),
+            ("two bundles", 2, 3),
+        ]
+    )
+    def test_gemini_bundles_count_their_declarations(self, _name, bundle_count, per_bundle):
+        tools = [
+            {"functionDeclarations": [{"name": f"tool{bundle}_{i}"} for i in range(per_bundle)]}
+            for bundle in range(bundle_count)
+        ]
+
+        result = "\n".join(format_tools(tools, {"include_markers": False}))
+
+        assert f"[+] AVAILABLE TOOLS: {bundle_count * per_bundle}" in result
 
     def test_six_tools_collapsed(self):
         """Should collapse tool list with 6 tools (just over threshold)."""
