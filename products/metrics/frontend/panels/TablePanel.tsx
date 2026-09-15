@@ -3,7 +3,7 @@ import { useMemo } from 'react'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import { capReducers, flattenSeriesRows, MetricsSeriesRow } from './metricsReduce'
-import { thresholdColor } from './metricsThresholds'
+import { safeColorToken, thresholdColor } from './metricsThresholds'
 import { formatMetricValue } from './metricsUnits'
 import type { MetricsPanelProps } from './registry'
 import { resolveReducer } from './registry'
@@ -51,7 +51,7 @@ export function TablePanel({ series, display, fallbackName }: MetricsPanelProps)
             align: 'right' as const,
             render: (_: unknown, row: MetricsSeriesRow) => {
                 const value = row.values[r] ?? null
-                const color = thresholdColor(value, display.thresholds, FALLBACK_COLOR)
+                const color = safeColorToken(thresholdColor(value, display.thresholds, FALLBACK_COLOR), FALLBACK_COLOR)
                 return value === null ? (
                     <span className="text-secondary">—</span>
                 ) : (

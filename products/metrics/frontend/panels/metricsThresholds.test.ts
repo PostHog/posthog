@@ -1,4 +1,4 @@
-import { thresholdColor } from './metricsThresholds'
+import { safeColorToken, thresholdColor } from './metricsThresholds'
 
 const FALLBACK = 'data-color-1'
 
@@ -37,5 +37,18 @@ describe('thresholdColor', () => {
         ]
         expect(thresholdColor(85, t, FALLBACK)).toBe('warning')
         expect(thresholdColor(10, t, FALLBACK)).toBe('green')
+    })
+})
+
+describe('safeColorToken', () => {
+    it('passes a plain token through', () => {
+        expect(safeColorToken('danger', 'data-color-1')).toBe('danger')
+        expect(safeColorToken('data-color-3', 'data-color-1')).toBe('data-color-3')
+    })
+
+    it('falls back on a token with class-breaking characters', () => {
+        expect(safeColorToken('x) fixed inset-0 z-50', 'data-color-1')).toBe('data-color-1')
+        expect(safeColorToken('red blue', 'data-color-1')).toBe('data-color-1')
+        expect(safeColorToken('text-(--x)', 'data-color-1')).toBe('data-color-1')
     })
 })
