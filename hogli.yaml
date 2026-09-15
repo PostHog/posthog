@@ -467,15 +467,6 @@ deploy:
             \ exports -n     # Dry run exports only\n  hogli deploy:migrate-storage-hobby\
             \ --list         # List the MinIO volumes on this host"
         prompt: true
-    deploy:upgrade-objectstorage:
-        bin_script: upgrade-objectstorage
-        description: "Dev: salvage objectstorage data from the old MinIO volume into the\
-            \ running SeaweedFS (interactive)\n\nExamples:\n  hogli deploy:upgrade-objectstorage\
-            \              # Detect and copy the orphaned MinIO volume\n  hogli deploy:upgrade-objectstorage\
-            \ --list       # List all MinIO volumes"
-        services:
-            - docker
-        prompt: true
 build:
     build:
         click: hogli_commands.build:build
