@@ -33,7 +33,7 @@ from posthog.hogql.type_system import ComparisonCompatibility, comparison_compat
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.dataclasses import frozen
-from posthog.schema_enums import QueryIndexUsage
+from posthog.schema_enums import PredicateFixAction, QueryIndexUsage
 
 
 class IndexKind(StrEnum):
@@ -63,14 +63,6 @@ class PredicateIndexVerdict(StrEnum):
 
     OPERATOR_NOT_INDEXABLE = "operator_not_indexable"
     """Negations, regexes and case-sensitive LIKE match granules that skip indexes cannot exclude."""
-
-
-class PredicateFixAction(StrEnum):
-    """Which surface a reader has to go to for the fix, so the UI can offer the right control."""
-
-    EDIT_QUERY = "edit_query"
-    EDIT_PROPERTY_TYPE = "edit_property_type"
-    MATERIALIZE = "materialize"
 
 
 # Which skip indexes ClickHouse can use to drop granules for a given operator. Negated operators are

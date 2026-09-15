@@ -11,7 +11,6 @@ from posthog.schema import (
     HogQLMetadataResponse,
     HogQLNotice,
     HogQLQuery,
-    PredicateFixAction,
     PredicateIndexUsage,
     PredicateIndexVerdict,
     PredicateQuickfix,
@@ -294,7 +293,7 @@ def _record_index_usage(
             verdict=PredicateIndexVerdict(predicate.verdict.value),
             message=predicate.message,
             fix=predicate.fix,
-            fix_action=PredicateFixAction(predicate.fix_action.value) if predicate.fix_action else None,
+            fix_action=predicate.fix_action,
             ai_fix_prompt=predicate.ai_fix_prompt,
             quickfix=(
                 PredicateQuickfix(

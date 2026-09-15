@@ -1,4 +1,3 @@
-from enum import StrEnum
 from typing import cast
 
 from posthog.test.base import BaseTest
@@ -12,7 +11,6 @@ from posthog.schema import (
     HogLanguage,
     HogQLMetadata,
     HogQLMetadataResponse,
-    PredicateFixAction as SchemaPredicateFixAction,
     PredicateIndexVerdict as SchemaPredicateIndexVerdict,
 )
 
@@ -23,7 +21,6 @@ from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.index_eligibility import (
     IndexEligibilityReport,
     IndexKind,
-    PredicateFixAction,
     PredicateIndexEligibility,
     PredicateIndexVerdict,
     PredicateQuickfix,
@@ -47,7 +44,7 @@ from posthog.hogql.property_planner import (
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.transforms.property_types import build_property_swapper
 
-from posthog.schema_enums import QueryIndexUsage
+from posthog.schema_enums import PredicateFixAction, QueryIndexUsage
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.event_definitions.backend.property_type import PropertyType
@@ -114,20 +111,13 @@ def _plan(
 
 
 class TestIndexEnumsMatchTheSchema(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("fix_action", PredicateFixAction, SchemaPredicateFixAction),
-            ("verdict", PredicateIndexVerdict, SchemaPredicateIndexVerdict),
-        ]
-    )
-    def test_wire_values_match_the_generated_enum(
-        self, _name: str, local: type[StrEnum], generated: type[StrEnum]
-    ) -> None:
-        # These enums are deliberately declared twice: the local one carries the ClickHouse reasoning
-        # in its docstrings, and keeping it off the generated schema keeps that module off this
-        # module's import path. `metadata.py` converts by value, so a new member added on one side
-        # only raises once a query happens to produce it.
-        assert {member.value for member in local} == {member.value for member in generated}
+    def test_verdict_wire_values_match_the_generated_enum(self) -> None:
+        # The verdict enum is deliberately declared twice: the local one carries the ClickHouse
+        # reasoning in its docstrings. `metadata.py` converts by value, so a new member added on one
+        # side only raises once a query happens to produce it.
+        assert {member.value for member in PredicateIndexVerdict} == {
+            member.value for member in SchemaPredicateIndexVerdict
+        }
 
 
 class TestIndexEligibilityVerdicts(SimpleTestCase):
