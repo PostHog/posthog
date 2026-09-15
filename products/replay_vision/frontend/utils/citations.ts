@@ -19,9 +19,10 @@ export function isSegment(value: unknown): value is Segment {
     return false
 }
 
-// Matches `(t 123)` and leaked joined variants like `(t 123, 456)` and `(t 34-42)`. Wider than the backend's
-// TIMESTAMP_CITATION_RE (backend/temporal/scanners/base.py), which never parsed ranges.
-const TIMESTAMP_CITATION_RE = /\s*\(\s*t\s*(\d+(?:\s*[,\u2013-]\s*t?\s*\d+)*)\s*\)/g
+// Matches `(t 123)` and leaked joined variants like `(t 123, 456)`, `(t 34-42)` and `(t 448 to t 2865 and
+// t 3112 to t 3708)`. Wider than the backend's TIMESTAMP_CITATION_RE (backend/temporal/scanners/base.py),
+// which never parsed ranges.
+const TIMESTAMP_CITATION_RE = /\s*\(\s*t\s*(\d+(?:\s*(?:[,\u2013-]|to|and)\s*t?\s*\d+)*)\s*\)/g
 
 /** Split leaked `(t <sec>)` markers in plain text into chip segments, one chip per cited second. */
 function splitLeakedCitations(text: string): Segment[] {
@@ -33,7 +34,7 @@ function splitLeakedCitations(text: string): Segment[] {
             segments.push({ kind: 'text', value: chunk })
         }
         // Each comma-separated item is one cited moment. A range has a duration, so only its start seeks.
-        for (const item of match[1].split(',')) {
+        for (const item of match[1].split(/,|\band\b/)) {
             const seconds = item.match(/\d+/)
             if (seconds) {
                 segments.push({ kind: 'chip', timestamp_ms: parseInt(seconds[0], 10) * 1000 })

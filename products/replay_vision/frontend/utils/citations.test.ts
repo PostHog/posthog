@@ -18,6 +18,12 @@ describe('parseCitedSegments', () => {
             expected: [text('Hovered the plan table'), chip(34), chip(50), text(' without clicking')],
         },
         {
+            name: 'reads worded ranges and lists, seeking each range to its start',
+            text: 'Stalled on checkout (t 448 to t 2865 and t 3112 to t 3708) then left',
+            segments: undefined,
+            expected: [text('Stalled on checkout'), chip(448), chip(3112), text(' then left')],
+        },
+        {
             name: 'handles the comma-joined variant that repeats the t prefix',
             text: '',
             segments: [text('Clicked twice (t 39, t 57) before it responded')],

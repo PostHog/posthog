@@ -19,8 +19,7 @@ import { ObservationResultSummary, ObservationStatusTag } from '../../components
 import { ObservationRetryButton } from '../../components/ObservationRetryButton'
 import type { ReplayObservationApi } from '../../generated/api.schemas'
 import { observationDetailUrl } from '../../observations/replayObservationLogic'
-import { markSimilarSearchIntent, similarSearchUrl } from '../../search/observationQueries'
-import { ObservationSearch } from '../../search/ObservationSearch'
+import { markSimilarSearchIntent, searchTabUrl, similarSearchUrl } from '../../search/observationQueries'
 import { shortBackfillId } from '../../utils/backfills'
 import {
     OBSERVATIONS_PAGE_SIZE,
@@ -275,7 +274,6 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
 
     return (
         <div className="space-y-2">
-            <ObservationSearch scannerId={scannerId} scanner={scanner ?? null} />
             {/* The one-line toolbar needs ~1120px of viewport, so it only stops wrapping at xl. */}
             <div className="flex flex-wrap items-center gap-3 xl:flex-nowrap">
                 <h3 className="font-semibold text-base m-0">Observation history</h3>
@@ -287,6 +285,15 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                     · {observationStats.inFlight.toLocaleString()} in flight
                 </span>
                 <div className="ml-auto flex flex-wrap items-center gap-3 xl:flex-nowrap">
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconSearch />}
+                        to={searchTabUrl({ scanner: scannerId })}
+                        data-attr="vision-observations-search"
+                    >
+                        Search observations
+                    </LemonButton>
                     <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap">
                         {(observationStats.total > 0 || hasActiveObservationFilters) && (
                             <>

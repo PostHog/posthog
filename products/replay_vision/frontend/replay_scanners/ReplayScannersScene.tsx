@@ -312,7 +312,7 @@ export function ReplayScannersScene(): JSX.Element {
             {activeTab === 'watch' ? (
                 <WatchFeedTab />
             ) : activeTab === ReplayScannerTab.Search ? (
-                <ObservationSearch scannerId={null} scanner={null} className="mt-2 w-4/5 mx-auto" />
+                <ObservationSearch className="mt-2 w-4/5 mx-auto" />
             ) : activeTab === 'usage' ? (
                 <VisionUsageTab />
             ) : (

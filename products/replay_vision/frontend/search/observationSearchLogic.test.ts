@@ -45,22 +45,35 @@ describe('observationSearchLogic', () => {
     })
 
     it.each([
-        ['a scanner-scoped', 'scanner-1', 'scanner-1'],
-        ['a cross-scanner', null, null],
-    ])('%s search sends the right scope and stores ranked results', async (_name, scannerId, expectedScope) => {
-        const logic = observationSearchLogic({ scannerId, teamId: 1, userId: 'user-1' })
+        ['one scanner', 'scanner-1'],
+        ['all scanners', null],
+    ])('searching %s sends the scope from the URL and stores ranked results', async (_name, scannerId) => {
+        const logic = observationSearchLogic({ teamId: 1, userId: 'user-1' })
         logic.mount()
-        // On the live page URL, the actionToUrl echo would re-dispatch search without the in-flight guard.
-        router.actions.push(scannerId ? urls.replayVision(scannerId) : urls.replayVision(), { tab: 'search' })
+        router.actions.push(urls.replayVision(), { tab: 'search', scanner: scannerId ?? undefined })
         logic.actions.setQuery('confused users')
         await expectLogic(logic, () => logic.actions.search()).toFinishAllListeners()
 
         expect(searchSpy).toHaveBeenCalledTimes(1)
         const requestUrl = new URL(searchSpy.mock.calls[0][0].request.url)
         expect(requestUrl.searchParams.get('q')).toBe('confused users')
-        expect(requestUrl.searchParams.get('scanner_id')).toBe(expectedScope)
+        expect(requestUrl.searchParams.get('scanner_id')).toBe(scannerId)
         expect(logic.values.results?.map((r) => r.observation.id)).toEqual(['obs-1'])
-        expect(router.values.searchParams.q).toEqual(scannerId ? undefined : 'confused users')
+        expect(router.values.searchParams.q).toBe('confused users')
+        expect(router.values.searchParams.scanner).toBe(scannerId ?? undefined)
+        logic.unmount()
+    })
+
+    it('changing the scope reruns the current search', async () => {
+        const logic = observationSearchLogic({ teamId: 1, userId: 'user-1' })
+        logic.mount()
+        router.actions.push(urls.replayVision(), { tab: 'search' })
+        logic.actions.setQuery('confused users')
+        await expectLogic(logic, () => logic.actions.search()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.setScannerId('scanner-1')).toFinishAllListeners()
+
+        expect(searchSpy).toHaveBeenCalledTimes(2)
+        expect(new URL(searchSpy.mock.calls[1][0].request.url).searchParams.get('scanner_id')).toBe('scanner-1')
         logic.unmount()
     })
 
@@ -69,7 +82,7 @@ describe('observationSearchLogic', () => {
         ['clustered distances stay one tier', [0.1, 0.12, 0.14], null],
         ['a single result stays one tier', [0.2], null],
     ])('%s', (_name, distances, expectedCutoff) => {
-        const logic = observationSearchLogic({ scannerId: null, teamId: 1, userId: 'user-1' })
+        const logic = observationSearchLogic({ teamId: 1, userId: 'user-1' })
         logic.mount()
         logic.actions.searchSuccess(searchResults(distances), 'query', false)
 
@@ -81,7 +94,7 @@ describe('observationSearchLogic', () => {
         ['a full page plus one leaves a single result on page 2', 11, 2, ['obs-10']],
         ['an exact page fill has no second page', 10, 1, []],
     ])('%s', async (_name, resultCount, expectedPageCount, expectedSecondPageIds) => {
-        const logic = observationSearchLogic({ scannerId: null, teamId: 1, userId: 'user-1' })
+        const logic = observationSearchLogic({ teamId: 1, userId: 'user-1' })
         logic.mount()
         logic.actions.setPage(3)
         logic.actions.searchSuccess(searchResults(Array.from({ length: resultCount }, () => 0.1)), 'query', false)
@@ -97,7 +110,7 @@ describe('observationSearchLogic', () => {
     })
 
     it('a blank query never reaches the API', async () => {
-        const logic = observationSearchLogic({ scannerId: null, teamId: 1, userId: 'user-1' })
+        const logic = observationSearchLogic({ teamId: 1, userId: 'user-1' })
         logic.mount()
         logic.actions.setQuery('   ')
         await expectLogic(logic, () => logic.actions.search()).toFinishAllListeners()
@@ -108,7 +121,7 @@ describe('observationSearchLogic', () => {
     })
 
     it('a deep-linked q runs the search once, not on every navigation', async () => {
-        const logic = observationSearchLogic({ scannerId: null, teamId: 1, userId: 'user-1' })
+        const logic = observationSearchLogic({ teamId: 1, userId: 'user-1' })
         logic.mount()
         router.actions.push(urls.replayVision(), {
             tab: 'search',
@@ -127,7 +140,7 @@ describe('observationSearchLogic', () => {
     })
 
     it('a query with trailing whitespace searches once, despite the trimmed actionToUrl echo', async () => {
-        const logic = observationSearchLogic({ scannerId: null, teamId: 1, userId: 'user-1' })
+        const logic = observationSearchLogic({ teamId: 1, userId: 'user-1' })
         logic.mount()
         router.actions.push(urls.replayVision(), { tab: 'search' })
         logic.actions.setQuery('rage clicks ')
@@ -139,7 +152,7 @@ describe('observationSearchLogic', () => {
 
     it('a failed deep-linked search does not re-fire on unrelated URL changes', async () => {
         searchSpy.mockImplementation(() => [500, { detail: 'embedding service down' }])
-        const logic = observationSearchLogic({ scannerId: null, teamId: 1, userId: 'user-1' })
+        const logic = observationSearchLogic({ teamId: 1, userId: 'user-1' })
         logic.mount()
         router.actions.push(urls.replayVision(), {
             tab: 'search',
@@ -161,7 +174,7 @@ describe('observationSearchLogic', () => {
     it('an AI consent error points the user at the organization setting', async () => {
         searchSpy.mockImplementation(() => [400, { code: 'ai_data_processing_not_approved', detail: 'off' }])
         const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
-        const logic = observationSearchLogic({ scannerId: null, teamId: 1, userId: 'user-1' })
+        const logic = observationSearchLogic({ teamId: 1, userId: 'user-1' })
         logic.mount()
         router.actions.push(urls.replayVision(), { tab: 'search' })
         logic.actions.setQuery('anything')
@@ -174,21 +187,21 @@ describe('observationSearchLogic', () => {
         logic.unmount()
     })
 
-    it('loads suggestions for the scope on mount', async () => {
-        const logic = observationSearchLogic({ scannerId: 'scanner-1', teamId: 1, userId: 'user-1' })
+    it('loads suggestions for the scope', async () => {
+        const logic = observationSearchLogic({ teamId: 1, userId: 'user-1' })
         logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(suggestionsSpy).toHaveBeenCalledTimes(1)
-        expect(new URL(suggestionsSpy.mock.calls[0][0].request.url).searchParams.get('scanner_id')).toBe('scanner-1')
+        await expectLogic(logic, () => logic.actions.setScannerId('scanner-1')).toFinishAllListeners()
+        expect(suggestionsSpy).toHaveBeenCalledTimes(2)
+        expect(new URL(suggestionsSpy.mock.calls[1][0].request.url).searchParams.get('scanner_id')).toBe('scanner-1')
         expect(logic.values.suggestedQueries).toEqual(['coupon rejected at checkout'])
         // The view is recorded through a POST, so the read itself has no side effect.
-        expect(viewedSpy).toHaveBeenCalledTimes(1)
-        expect(await viewedSpy.mock.calls[0][0].request.json()).toEqual({ scanner_id: 'scanner-1' })
+        expect(viewedSpy).toHaveBeenCalledTimes(2)
+        expect(await viewedSpy.mock.calls[1][0].request.json()).toEqual({ scanner_id: 'scanner-1' })
         logic.unmount()
     })
 
     it('remembers queries that found something, newest first, without duplicates, capped', async () => {
-        const logic = observationSearchLogic({ scannerId: null, teamId: 1, userId: 'user-1' })
+        const logic = observationSearchLogic({ teamId: 1, userId: 'user-1' })
         logic.mount()
         for (const query of ['one', 'two', 'three', 'four', 'five', 'six', 'two']) {
             logic.actions.searchSuccess(searchResults([0.2]), query, false)
@@ -199,7 +212,7 @@ describe('observationSearchLogic', () => {
     })
 
     it('emptying the input returns to the empty state and drops q from the URL', async () => {
-        const logic = observationSearchLogic({ scannerId: null, teamId: 1, userId: 'user-1' })
+        const logic = observationSearchLogic({ teamId: 1, userId: 'user-1' })
         logic.mount()
         router.actions.push(urls.replayVision(), { tab: 'search' })
         logic.actions.setQuery('rage clicks')
@@ -220,7 +233,7 @@ describe('observationSearchLogic', () => {
             await gate
             return [200, { results: [{ observation: { id: 'obs-1' }, distance: 0.1 }] }]
         })
-        const logic = observationSearchLogic({ scannerId: null, teamId: 1, userId: 'user-1' })
+        const logic = observationSearchLogic({ teamId: 1, userId: 'user-1' })
         logic.mount()
         router.actions.push(urls.replayVision(), { tab: 'search' })
         logic.actions.setQuery('rage clicks')
@@ -248,7 +261,7 @@ describe('observationSearchLogic', () => {
             id: 'obs-0',
             scanner_result: { model_output: { summary: 'Stalled at checkout' } },
         } as unknown as ReplayObservationApi)
-        const logic = observationSearchLogic({ scannerId: null, teamId: 1, userId: 'user-1' })
+        const logic = observationSearchLogic({ teamId: 1, userId: 'user-1' })
         logic.mount()
         router.actions.push(urls.replayVision(), { tab: 'search', similar: 'obs-0' })
         await expectLogic(logic).toFinishAllListeners()
@@ -260,7 +273,7 @@ describe('observationSearchLogic', () => {
     })
 
     it('a URL without q after a search shows the empty state instead of the old results', async () => {
-        const logic = observationSearchLogic({ scannerId: null, teamId: 1, userId: 'user-1' })
+        const logic = observationSearchLogic({ teamId: 1, userId: 'user-1' })
         logic.mount()
         router.actions.push(urls.replayVision(), { tab: 'search', q: 'rage clicks' })
         await expectLogic(logic).toFinishAllListeners()

@@ -1,10 +1,10 @@
 import type { ReplayObservationApi } from '../generated/api.schemas'
 import {
     consumeSimilarSearchIntent,
+    firstCitedTimestampMs,
     markSimilarSearchIntent,
     similarSearchQuery,
     similarSearchUrl,
-    watchMomentUrl,
 } from './observationQueries'
 
 function observation(modelOutput: Record<string, unknown> | null): ReplayObservationApi {
@@ -17,19 +17,11 @@ function observation(modelOutput: Record<string, unknown> | null): ReplayObserva
 
 describe('observationQueries', () => {
     it.each([
-        [
-            'a summary citation, ahead of the reasoning',
-            { summary: 'a (t 12)', reasoning: 'c (t 5)' },
-            '/replay/session-1?t=12',
-        ],
-        [
-            'a reasoning citation when the summary has none',
-            { summary: 'plain', reasoning: 'c (t 5)' },
-            '/replay/session-1?t=5',
-        ],
-        ['the recording start when nothing is cited', { summary: 'plain' }, '/replay/session-1'],
-    ])('watches at %s', (_name, modelOutput, expected) => {
-        expect(watchMomentUrl(observation(modelOutput))).toBe(expected)
+        ['a summary citation, ahead of the reasoning', { summary: 'a (t 12)', reasoning: 'c (t 5)' }, 12000],
+        ['a reasoning citation when the summary has none', { summary: 'plain', reasoning: 'c (t 5)' }, 5000],
+        ['nothing when nothing is cited', { summary: 'plain' }, null],
+    ])('cites %s', (_name, modelOutput, expected) => {
+        expect(firstCitedTimestampMs(observation(modelOutput))).toBe(expected)
     })
 
     it.each([

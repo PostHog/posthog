@@ -1,23 +1,25 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
+import { useState } from 'react'
 
 import { IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
-import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, Popover, Spinner } from '@posthog/lemon-ui'
 
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { visionScannersListLogic } from '../logics/visionScannersListLogic'
 import type { ReplayScanner } from '../replay_scanners/types'
-import { searchTabUrl } from './observationQueries'
 import { type ObservationSearchLogicProps, observationSearchLogic } from './observationSearchLogic'
+import { ScannerScopeSelect } from './ScannerScopeSelect'
 import { SearchResults } from './SearchResults'
 
 const FALLBACK_EXAMPLE_QUERIES = ['users who got stuck and gave up', 'rage clicking out of frustration']
 
-// Phrases this scanner type writes into observations, which search then matches semantically.
+// Phrased the way this scanner type writes, so the examples match semantically.
 function exampleQueries(scanner: ReplayScanner | null): string[] {
     switch (scanner?.scanner_type) {
         case 'monitor':
@@ -35,24 +37,22 @@ function exampleQueries(scanner: ReplayScanner | null): string[] {
     }
 }
 
-function QueryGroup({
-    title,
+function SuggestedSearches({
     queries,
-    emptyText,
-    dataAttr,
+    loading,
     onPick,
 }: {
-    title: string
     queries: string[]
-    emptyText: string
-    dataAttr: string
+    loading: boolean
     onPick: (query: string) => void
 }): JSX.Element {
     return (
-        <div className="rounded bg-surface-secondary px-3 py-2 flex flex-col gap-2 min-w-0">
-            <span className="text-xs text-secondary">{title}</span>
-            {queries.length === 0 ? (
-                <span className="text-xs text-tertiary">{emptyText}</span>
+        <div className="rounded bg-surface-secondary px-3 py-2 flex flex-col gap-2 min-w-0 min-h-16">
+            <span className="text-xs text-secondary">Suggested searches</span>
+            {loading ? (
+                <Spinner className="self-center" />
+            ) : queries.length === 0 ? (
+                <span className="text-xs text-tertiary">Themes from what your scanners observed will appear here.</span>
             ) : (
                 <div className="flex flex-wrap gap-1">
                     {queries.map((query) => (
@@ -62,7 +62,7 @@ function QueryGroup({
                             size="xsmall"
                             className="max-w-full"
                             onClick={() => onPick(query)}
-                            data-attr={dataAttr}
+                            data-attr="vision-search-example"
                         >
                             <span className="truncate">{query}</span>
                         </LemonButton>
@@ -73,40 +73,62 @@ function QueryGroup({
     )
 }
 
-/**
- * Semantic search over observations as a card. A null `scannerId` is the hub's cross-scanner search; a scanner
- * id scopes it to that scanner's observations, where it sits above the observations table.
- */
-export function ObservationSearch({
-    scannerId,
-    scanner,
-    className,
-}: {
-    scannerId: string | null
-    scanner: ReplayScanner | null
-    className?: string
-}): JSX.Element {
+export function ObservationSearch({ className }: { className?: string }): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const { user } = useValues(userLogic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
-    const logicProps: ObservationSearchLogicProps = { scannerId, teamId: currentTeamId, userId: user?.uuid ?? null }
+    const { scanners } = useValues(visionScannersListLogic)
+    const logicProps: ObservationSearchLogicProps = { teamId: currentTeamId, userId: user?.uuid ?? null }
     const logic = observationSearchLogic(logicProps)
-    const { query, results, searching, searchedQuery, recentQueries, suggestedQueries, suggestedQueriesLoading } =
-        useValues(logic)
-    const { setQuery, search, clearSearch } = useActions(logic)
+    const {
+        query,
+        scannerId,
+        results,
+        searching,
+        searchedQuery,
+        sourceObservationId,
+        recentQueries,
+        suggestedQueries,
+        suggestedQueriesLoading,
+    } = useValues(logic)
+    const { setQuery, setScannerId, search, clearSearch } = useActions(logic)
 
-    const crossScanner = scannerId === null
-    const attr = crossScanner ? 'vision-search' : 'vision-observations-search'
-    const suggestions = (suggestedQueries.length > 0 ? suggestedQueries : exampleQueries(scanner)).filter(
-        (suggestion) => !recentQueries.includes(suggestion)
-    )
+    const [recentsOpen, setRecentsOpen] = useState(false)
+    const [highlighted, setHighlighted] = useState<number | null>(null)
+
+    const selectedScanner = (scanners.find((scanner) => scanner.id === scannerId) as ReplayScanner | undefined) ?? null
+    const suggestions = suggestedQueries.length > 0 ? suggestedQueries : exampleQueries(selectedScanner)
+    const typed = query.trim().toLowerCase()
+    const matchingRecents = recentQueries.filter((recent) => recent !== query && recent.toLowerCase().includes(typed))
+    const showRecents = recentsOpen && dataProcessingAccepted && matchingRecents.length > 0
     const runQuery = (value: string): void => {
+        setRecentsOpen(false)
+        setHighlighted(null)
         setQuery(value)
         search()
     }
     const idle = results === null && !searching
-    const inputId = `${attr}-${scannerId ?? 'all'}`
     const canSubmit = dataProcessingAccepted && !searching && !!query.trim()
+    const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>): void => {
+        if (event.nativeEvent.isComposing) {
+            return
+        }
+        if (showRecents && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+            event.preventDefault()
+            const step = event.key === 'ArrowDown' ? 1 : -1
+            setHighlighted(((highlighted ?? -1) + step + matchingRecents.length) % matchingRecents.length)
+        } else if (event.key === 'Escape') {
+            setRecentsOpen(false)
+            setHighlighted(null)
+        } else if (event.key === 'Enter') {
+            if (showRecents && highlighted !== null) {
+                runQuery(matchingRecents[highlighted])
+            } else if (canSubmit) {
+                setRecentsOpen(false)
+                search()
+            }
+        }
+    }
 
     return (
         <div
@@ -114,59 +136,87 @@ export function ObservationSearch({
                 '@container border border-primary rounded-lg bg-surface-primary p-4 flex flex-col gap-3',
                 className
             )}
-            data-attr={attr}
+            data-attr="vision-search"
         >
-            {/* The prompt keeps its column in every state, so the box does not jump as the card changes. */}
-            <div className="grid gap-4 @3xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">
+            {/* The grid keeps the input width steady when the suggestions column leaves. */}
+            <div className="grid gap-4 @3xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
                 <div className="flex flex-col gap-2">
-                    <label
-                        htmlFor={inputId}
-                        className="input-like border-secondary flex items-center gap-2 relative w-full bg-fill-input rounded-lg py-1 pl-3 pr-1"
+                    <Popover
+                        visible={showRecents}
+                        onClickOutside={() => setRecentsOpen(false)}
+                        placement="bottom-start"
+                        matchWidth
+                        padded={false}
+                        overlay={
+                            <ul className="py-1" data-attr="vision-search-recent-list">
+                                {matchingRecents.map((recent, index) => (
+                                    <li key={recent}>
+                                        {/* Mouse down would blur the input and close the list first. */}
+                                        <button
+                                            type="button"
+                                            className={clsx(
+                                                'w-full text-left px-3 py-1.5 text-sm truncate hover:bg-fill-button-tertiary-hover',
+                                                index === highlighted && 'bg-fill-button-tertiary-hover'
+                                            )}
+                                            onMouseDown={(event) => event.preventDefault()}
+                                            onClick={() => runQuery(recent)}
+                                            data-attr="vision-search-recent"
+                                        >
+                                            {recent}
+                                        </button>
+                                    </li>
+                                ))}
+                            </ul>
+                        }
                     >
-                        <input
-                            id={inputId}
-                            type="text"
-                            value={query}
-                            onChange={(event) => setQuery(event.target.value)}
-                            onKeyDown={(event) => {
-                                if (event.key === 'Enter' && !event.nativeEvent.isComposing && canSubmit) {
-                                    search()
-                                }
-                            }}
-                            placeholder="Describe what to look for"
-                            aria-label="Search observations"
-                            disabled={!dataProcessingAccepted}
-                            autoComplete="off"
-                            autoFocus={crossScanner}
-                            className="w-full py-1 text-sm bg-transparent border-none focus:outline-none"
-                            data-attr={`${attr}-query`}
-                        />
-                        {query && (
-                            <LemonButton
-                                size="xsmall"
-                                icon={<IconX />}
-                                onClick={clearSearch}
-                                tooltip="Clear"
-                                data-attr={`${attr}-clear`}
+                        <div className="input-like border-secondary flex items-center gap-2 relative w-full bg-fill-input rounded-lg py-1 pl-1 pr-1">
+                            <ScannerScopeSelect scanners={scanners} value={scannerId} onChange={setScannerId} />
+                            <input
+                                type="text"
+                                value={query}
+                                onChange={(event) => {
+                                    setQuery(event.target.value)
+                                    setRecentsOpen(true)
+                                    setHighlighted(null)
+                                }}
+                                onFocus={() => setRecentsOpen(true)}
+                                onBlur={() => setRecentsOpen(false)}
+                                onKeyDown={onKeyDown}
+                                placeholder="Describe what to look for"
+                                aria-label="Search observations"
+                                disabled={!dataProcessingAccepted}
+                                autoComplete="off"
+                                autoFocus
+                                className="w-full py-1 text-sm bg-transparent border-none focus:outline-none"
+                                data-attr="vision-search-query"
                             />
-                        )}
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            icon={<IconSearch />}
-                            onClick={search}
-                            loading={searching}
-                            disabledReason={
-                                !dataProcessingAccepted
-                                    ? 'AI data processing is turned off for your organization'
-                                    : !query.trim()
-                                      ? 'Describe what to look for first'
-                                      : undefined
-                            }
-                            tooltip="Search"
-                            data-attr={`${attr}-submit`}
-                        />
-                    </label>
+                            {query && (
+                                <LemonButton
+                                    size="xsmall"
+                                    icon={<IconX />}
+                                    onClick={clearSearch}
+                                    tooltip="Clear"
+                                    data-attr="vision-search-clear"
+                                />
+                            )}
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                icon={<IconSearch />}
+                                onClick={search}
+                                loading={searching}
+                                disabledReason={
+                                    !dataProcessingAccepted
+                                        ? 'AI data processing is turned off for your organization'
+                                        : !query.trim()
+                                          ? 'Describe what to look for first'
+                                          : undefined
+                                }
+                                tooltip="Search"
+                                data-attr="vision-search-submit"
+                            />
+                        </div>
+                    </Popover>
                     {idle && (
                         <div className="text-xs text-secondary">
                             Describe a behavior in plain words. Results are ranked by how well they match.
@@ -174,29 +224,7 @@ export function ObservationSearch({
                     )}
                 </div>
                 {idle && (
-                    <>
-                        <QueryGroup
-                            title="Recent searches"
-                            queries={recentQueries}
-                            emptyText="Searches that find something show up here."
-                            dataAttr={`${attr}-recent`}
-                            onPick={runQuery}
-                        />
-                        {suggestedQueriesLoading ? (
-                            // Holding the strip beats flashing the fixed examples and swapping them out.
-                            <div className="rounded bg-surface-secondary px-3 py-2 flex items-center justify-center min-h-16">
-                                <Spinner />
-                            </div>
-                        ) : (
-                            <QueryGroup
-                                title="Suggested searches"
-                                queries={suggestions}
-                                emptyText="Themes from what your scanners observed will appear here."
-                                dataAttr={`${attr}-example`}
-                                onPick={runQuery}
-                            />
-                        )}
-                    </>
+                    <SuggestedSearches queries={suggestions} loading={suggestedQueriesLoading} onPick={runQuery} />
                 )}
             </div>
             {results === null && searching && (
@@ -204,14 +232,25 @@ export function ObservationSearch({
                     <Spinner /> Searching…
                 </div>
             )}
-            {results?.length === 0 &&
-                (crossScanner ? (
-                    <div className="rounded bg-surface-secondary px-3 py-3 flex flex-col gap-3">
-                        <div className="text-sm text-secondary">
-                            No matches for "{searchedQuery}". Only sessions a scanner has analyzed are searchable, so
-                            nothing found can also mean no scanner is watching for this yet.
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
+            {results?.length === 0 && (
+                <div className="rounded bg-surface-secondary px-3 py-3 flex flex-col gap-3">
+                    <div className="text-sm text-secondary">
+                        {scannerId
+                            ? `No matches in ${selectedScanner?.name ?? 'this scanner'} for "${searchedQuery}".`
+                            : `No matches for "${searchedQuery}". Only sessions a scanner has analyzed are searchable, so nothing found can also mean no scanner is watching for this yet.`}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                        {scannerId ? (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconSearch />}
+                                onClick={() => setScannerId(null)}
+                                data-attr="vision-search-all-scanners"
+                            >
+                                Search all scanners
+                            </LemonButton>
+                        ) : (
                             <LemonButton
                                 type="secondary"
                                 size="small"
@@ -219,38 +258,32 @@ export function ObservationSearch({
                                 to={
                                     combineUrl(
                                         urls.replayVisionTemplates(),
-                                        searchedQuery ? { goal: searchedQuery } : {}
+                                        searchedQuery && !sourceObservationId ? { goal: searchedQuery } : {}
                                     ).url
                                 }
                                 data-attr="vision-search-create-scanner"
                             >
                                 Create a scanner for this
                             </LemonButton>
-                            <span className="text-xs text-secondary">or try</span>
-                            {suggestions
-                                .filter((suggestion) => suggestion !== searchedQuery)
-                                .map((suggestion) => (
-                                    <LemonButton
-                                        key={suggestion}
-                                        type="tertiary"
-                                        size="xsmall"
-                                        onClick={() => runQuery(suggestion)}
-                                        data-attr="vision-search-example"
-                                    >
-                                        {suggestion}
-                                    </LemonButton>
-                                ))}
-                        </div>
+                        )}
+                        <span className="text-xs text-secondary">or try</span>
+                        {suggestions
+                            .filter((suggestion) => suggestion !== searchedQuery)
+                            .map((suggestion) => (
+                                <LemonButton
+                                    key={suggestion}
+                                    type="tertiary"
+                                    size="xsmall"
+                                    onClick={() => runQuery(suggestion)}
+                                    data-attr="vision-search-example"
+                                >
+                                    {suggestion}
+                                </LemonButton>
+                            ))}
                     </div>
-                ) : (
-                    <div className="rounded bg-surface-secondary px-3 py-2 text-sm text-secondary">
-                        No matches in this scanner for "{searchedQuery}".{' '}
-                        <Link to={searchTabUrl({ q: searchedQuery ?? '' })} data-attr="vision-observations-search-all">
-                            Search all scanners
-                        </Link>
-                    </div>
-                ))}
-            <SearchResults {...logicProps} crossScanner={crossScanner} />
+                </div>
+            )}
+            <SearchResults {...logicProps} />
         </div>
     )
 }

@@ -30,14 +30,6 @@ export function firstCitedTimestampMs(observation: ReplayObservationApi): number
     return null
 }
 
-export function watchMomentUrl(observation: ReplayObservationApi): string {
-    const timestampMs = firstCitedTimestampMs(observation)
-    return urls.replaySingle(
-        observation.session_id,
-        timestampMs ? { secondsOffsetFromStart: Math.floor(timestampMs / 1000) } : undefined
-    )
-}
-
 export function similarSearchQuery(observation: ReplayObservationApi): string | null {
     const result = readModelOutput(observation)
     if (!result) {
