@@ -36,7 +36,15 @@
         display: flex;
         width: 100%;
         min-width: 0;
+
+        // The header must stay inside the height CardMeta caps itself at. min-height lets this
+        // row shrink below its content in the column flex, and overflow clips what no longer
+        // fits. Without both, a tall header (a multi-line description on a short tile) renders
+        // past the bottom of the card, and because CardMeta is opaque and on --z-raised it
+        // paints over the tile underneath instead of being hidden by it.
+        min-height: 0;
         padding: 1rem;
+        overflow: hidden;
     }
 
     .CardMeta__divider {
