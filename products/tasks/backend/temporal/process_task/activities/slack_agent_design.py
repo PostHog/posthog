@@ -45,13 +45,14 @@ class TaskUpdateChunk:
 
 @dataclass
 class StreamChunk:
-    """One ordered chunk for the timeline surface: exactly one of markdown prose
-    or a task-card update. Ordered lists of these preserve the interleaving of
-    narrative and tool calls that the flat ``task_updates`` + ``markdown_text``
-    pair cannot express."""
+    """One ordered chunk for the timeline surface: exactly one of markdown prose,
+    a task-card update, or a blocks array (a finished burst's plan block). Ordered
+    lists of these preserve the interleaving of narrative and tool calls that the
+    flat ``task_updates`` + ``markdown_text`` pair cannot express."""
 
     markdown_text: Optional[str] = None
     task_update: Optional[TaskUpdateChunk] = None
+    blocks: Optional[list[dict[str, Any]]] = None
 
 
 @dataclass
@@ -129,6 +130,8 @@ def _ordered_chunk_dicts(chunks: list[StreamChunk], integration_id: int) -> list
             )
         elif chunk.markdown_text:
             out.append({"type": "markdown_text", "text": _rewrite_object_tags(chunk.markdown_text, integration_id)})
+        elif chunk.blocks:
+            out.append({"type": "blocks", "blocks": chunk.blocks})
     return out
 
 

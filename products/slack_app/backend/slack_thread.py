@@ -390,6 +390,8 @@ class SlackThreadHandler:
             elif chunk.get("type") == "markdown_text" and chunk.get("text"):
                 for piece in _split_markdown_text(normalize_labeled_mentions_to_bare(str(chunk["text"]))):
                     chunks.append({"type": "markdown_text", "text": piece})
+            elif chunk.get("type") == "blocks" and chunk.get("blocks"):
+                chunks.append({"type": "blocks", "blocks": chunk["blocks"]})
         return chunks
 
     def append_stream_chunks(self, ts: str, chunks: list[dict[str, Any]]) -> None:

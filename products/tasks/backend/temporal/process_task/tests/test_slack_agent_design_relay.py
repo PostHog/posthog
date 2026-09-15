@@ -99,7 +99,18 @@ class _RelayEnv:
         )
 
 
-async def test_timeline_interleaves_prose_and_task_cards_in_arrival_order():
+def _plans(chunks: list[StreamChunk]) -> list[dict]:
+    return [block for c in chunks if c.blocks for block in c.blocks if block.get("type") == "plan"]
+
+
+def _task_output_text(task: dict) -> str | None:
+    output = task.get("output")
+    if not output:
+        return None
+    return output["elements"][0]["elements"][0]["text"]
+
+
+async def test_timeline_interleaves_prose_and_plan_blocks_in_arrival_order():
     async with _RelayEnv() as relay:
         handle = await relay.start_relay(STREAM_MODE_TIMELINE)
         await handle.signal(SlackAgentDesignRelayWorkflow.agent_text_delta, "Let me check the data.")
@@ -109,12 +120,12 @@ async def test_timeline_interleaves_prose_and_task_cards_in_arrival_order():
         await handle.result()
 
     chunks = relay.rec.ordered_chunks()
-    kinds = ["task" if c.task_update else "md" for c in chunks]
-    assert kinds == ["md", "task", "md"]
+    kinds = ["plan" if c.blocks else "md" for c in chunks]
+    assert kinds == ["md", "plan", "md"]
     assert chunks[0].markdown_text == "Let me check the data."
-    assert chunks[1].task_update is not None
-    assert chunks[1].task_update.title == "Read"
-    assert chunks[1].task_update.status == "in_progress"
+    (plan,) = _plans(chunks)
+    assert plan["title"] == "Read"
+    assert [t["title"] for t in plan["tasks"]] == ["Read"]
     assert chunks[2].markdown_text == "Found it."
 
     start_input = relay.rec.calls[0][1]
@@ -125,13 +136,12 @@ async def test_timeline_interleaves_prose_and_task_cards_in_arrival_order():
     stop_kind, stop_input = relay.rec.calls[-1]
     assert stop_kind == "stop"
     assert isinstance(stop_input, StopSlackAgentDesignStreamInput)
-    assert stop_input.complete_task_id == chunks[1].task_update.id
     assert stop_input.trace_id == "trace-1"
 
 
-async def test_each_tool_call_gets_its_own_card_and_its_outcome_lands_on_it():
-    # One card per call, and a finished call's result must flip that call's card
-    # (filling its output), not the card of whichever call ran last.
+async def test_burst_renders_as_one_plan_block_with_outcomes_on_their_calls():
+    # Consecutive calls become one plan block; a call's result must land on that
+    # call's task, and a failure must be legible on its task.
     async with _RelayEnv() as relay:
         handle = await relay.start_relay(STREAM_MODE_TIMELINE)
         await handle.signal(
@@ -146,50 +156,27 @@ async def test_each_tool_call_gets_its_own_card_and_its_outcome_lands_on_it():
             SlackAgentDesignRelayWorkflow.agent_status_update,
             {"kind": "tool_result", "tool_call_id": "tc-1", "output": "12 rows", "failed": False},
         )
-        await handle.signal(SlackAgentDesignRelayWorkflow.complete_turn, None)
-        await handle.result()
-
-    tasks = [c.task_update for c in relay.rec.ordered_chunks() if c.task_update]
-    ids = {t.id for t in tasks}
-    assert len(ids) == 2
-    card_one_id = next(t.id for t in tasks if t.details == "insight list")
-    card_one_final = [t for t in tasks if t.id == card_one_id][-1]
-    assert card_one_final.status == "complete"
-    assert card_one_final.output == "12 rows"
-
-    card_two_id = next(t.id for t in tasks if t.details == "query run")
-    stop_input = relay.rec.calls[-1][1]
-    assert isinstance(stop_input, StopSlackAgentDesignStreamInput)
-    assert stop_input.complete_task_id == card_two_id
-
-
-async def test_failed_tool_call_marks_its_card_as_error_and_stop_leaves_it_alone():
-    # An error status must survive the close: the stop path completing the card
-    # again would repaint the failure as success.
-    async with _RelayEnv() as relay:
-        handle = await relay.start_relay(STREAM_MODE_TIMELINE)
         await handle.signal(
             SlackAgentDesignRelayWorkflow.agent_status_update,
-            {"title": "Bash", "details": "make test", "tool_call_id": "tc-1"},
-        )
-        await handle.signal(
-            SlackAgentDesignRelayWorkflow.agent_status_update,
-            {"kind": "tool_result", "tool_call_id": "tc-1", "output": "exit 1", "failed": True},
+            {"kind": "tool_result", "tool_call_id": "tc-2", "output": "exit 1", "failed": True},
         )
         await handle.signal(SlackAgentDesignRelayWorkflow.complete_turn, None)
         await handle.result()
 
-    tasks = [c.task_update for c in relay.rec.ordered_chunks() if c.task_update]
-    assert tasks[-1].status == "error"
-    assert tasks[-1].output == "exit 1"
+    (plan,) = _plans(relay.rec.ordered_chunks())
+    assert plan["title"] == "posthog/exec (2)"
+    first, second = plan["tasks"]
+    assert _task_output_text(first) == "12 rows"
+    assert _task_output_text(second) == "Failed: exit 1"
+
     stop_input = relay.rec.calls[-1][1]
     assert isinstance(stop_input, StopSlackAgentDesignStreamInput)
     assert stop_input.complete_task_id is None
 
 
-async def test_timeline_narrative_breaks_the_card_burst():
-    # Prose between tool calls completes the open card, so the next call opens a
-    # new one and the thread keeps its text → card → text → card rhythm.
+async def test_timeline_narrative_splits_bursts_into_separate_plan_blocks():
+    # Prose between tool calls closes the burst, so the thread keeps its
+    # text → plan → text → plan rhythm rather than pooling every call into one.
     async with _RelayEnv() as relay:
         handle = await relay.start_relay(STREAM_MODE_TIMELINE)
         await handle.signal(SlackAgentDesignRelayWorkflow.agent_status_update, {"title": "Read"})
@@ -198,14 +185,9 @@ async def test_timeline_narrative_breaks_the_card_burst():
         await handle.signal(SlackAgentDesignRelayWorkflow.complete_turn, None)
         await handle.result()
 
-    tasks = [c.task_update for c in relay.rec.ordered_chunks() if c.task_update]
-    assert [(t.title, t.status) for t in tasks] == [
-        ("Read", "in_progress"),
-        ("Read", "complete"),
-        ("Grep", "in_progress"),
-    ]
-    assert tasks[0].id == tasks[1].id
-    assert tasks[2].id != tasks[0].id
+    plans = _plans(relay.rec.ordered_chunks())
+    assert [p["title"] for p in plans] == ["Read", "Grep"]
+    assert plans[0]["plan_id"] != plans[1]["plan_id"]
 
 
 async def test_final_only_posts_one_batch_with_only_the_post_tool_answer():
