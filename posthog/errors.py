@@ -94,6 +94,12 @@ CORRUPTED_PARQUET_METADATA_MESSAGE = (
 )
 
 
+CORRELATED_SUBQUERY_MESSAGE = (
+    "This query uses a correlated subquery, which is not supported on distributed tables such as events. "
+    "Rewrite it as a JOIN with the outer query."
+)
+
+
 def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3FileChangedDuringRead":
     match = STORAGE_FILE_URI_PATTERN.search(err.message)
     file_uri = match.group(1) if match else "unknown file"
@@ -198,6 +204,12 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         return CHQueryErrorUnsupportedMethod(err.message, code=err.code, code_name="unsupported_method")
     elif name == "INVALID_JOIN_ON_EXPRESSION":
         return CHQueryErrorInvalidJoinOnExpression(err.message, code=err.code, code_name="invalid_join_on_expression")
+    elif name == "NOT_IMPLEMENTED" and "correlated subquer" in err.message.lower():
+        # Only this variant of NOT_IMPLEMENTED is safe to expose. A fixed message keeps the
+        # rendered query out of the response, because the ClickHouse text embeds it.
+        return CHQueryErrorCorrelatedSubquery(
+            CORRELATED_SUBQUERY_MESSAGE, code=err.code, code_name="correlated_subquery"
+        )
     elif name == "UNKNOWN_TABLE":
         return CHQueryErrorUnknownTable(err.message, code=err.code, code_name="unknown_table")
 
@@ -323,6 +335,12 @@ class CHQueryErrorInvalidJoinOnExpression(InternalCHQueryError):
 
 
 class CHQueryErrorUnknownTable(ExposedCHQueryError):
+    pass
+
+
+class CHQueryErrorCorrelatedSubquery(ExposedCHQueryError):
+    """A subquery references the outer query, which ClickHouse cannot run over a distributed table."""
+
     pass
 
 
