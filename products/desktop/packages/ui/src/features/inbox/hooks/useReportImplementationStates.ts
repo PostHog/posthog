@@ -12,6 +12,7 @@ import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authCl
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
 import { DESKTOP_INBOX_REFETCH_INTERVAL_MS } from "@posthog/ui/features/inbox/hooks/inboxPolling";
 import { useQuery } from "@tanstack/react-query";
+import { useRef } from "react";
 
 /**
  * This cache holds a report-to-state map, not a `TaskSummaryDTO[]`, so it owns
@@ -61,10 +62,19 @@ export function useReportImplementationStates(reports: SignalReport[]): {
     refetchInterval: DESKTOP_INBOX_REFETCH_INTERVAL_MS,
     refetchIntervalInBackground: false,
   });
+  // Every report that gains or finishes a task rewrites the key above, so the
+  // next fetch starts empty. Reports already checked keep the state they had
+  // rather than going back to "checking", which would move the triage queue
+  // under the reader for the length of the fetch.
+  const resolved = useRef<Map<string, ReportImplementationState | null>>(
+    new Map(),
+  );
+  if (query.data) resolved.current = query.data;
   return {
     states: query.isError
       ? service.initialStates(assignedReports, true)
-      : (query.data ?? service.initialStates(assignedReports, !client)),
+      : (query.data ??
+        service.pendingStates(assignedReports, resolved.current, !client)),
     isLoading: query.isLoading,
   };
 }

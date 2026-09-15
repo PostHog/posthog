@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   activeReports: [] as SignalReport[],
   implementationStates: new Map<string, ReportImplementationState>(),
+  implementationStatesLoading: false,
   setupStatusLoading: false,
   setupConfigured: true,
   navigateToSettings: vi.fn(),
@@ -48,7 +49,7 @@ vi.mock(
   () => ({
     useReportImplementationStates: () => ({
       states: mocks.implementationStates,
-      isLoading: false,
+      isLoading: mocks.implementationStatesLoading,
     }),
   }),
 );
@@ -195,7 +196,7 @@ vi.mock("@posthog/ui/features/inbox/components/ReportTriageFocus", () => ({
     onExit: () => void;
   }) => {
     mocks.triageProps = props;
-    return null;
+    return <div data-testid="triage-focus" />;
   },
 }));
 
@@ -243,6 +244,7 @@ describe("ReportsInboxView", () => {
     vi.clearAllMocks();
     mocks.activeReports = [];
     mocks.implementationStates = new Map();
+    mocks.implementationStatesLoading = false;
     mocks.setupStatusLoading = false;
     mocks.setupConfigured = true;
     mocks.searchQuery = "checkout";
@@ -447,6 +449,41 @@ describe("ReportsInboxView", () => {
     expect(mocks.triageProps?.reports.map((report) => report.id)).toEqual([
       "failed",
     ]);
+  });
+
+  it("keeps triage on screen while task state reloads", () => {
+    mocks.activeReports = [
+      activeReport("first", "First report"),
+      activeReport("second", "Second report"),
+    ];
+    mocks.searchQuery = "";
+    mocks.triageFocusEnabled = true;
+
+    const pane = render(<InboxTriagePane />);
+    expect(screen.getByTestId("triage-focus")).toBeInTheDocument();
+
+    // Create PR puts a task on the report it hands off, which reloads task
+    // state for the whole queue.
+    mocks.implementationStatesLoading = true;
+    pane.rerender(<InboxTriagePane />);
+
+    expect(screen.getByTestId("triage-focus")).toBeInTheDocument();
+    expect(mocks.triageProps?.reports.map((report) => report.id)).toEqual([
+      "first",
+      "second",
+    ]);
+  });
+
+  it("waits for task state before triage runs out of reports", () => {
+    mocks.activeReports = [activeReport("working", "Working report")];
+    mocks.implementationStates = new Map([["working", "working"]]);
+    mocks.implementationStatesLoading = true;
+    mocks.searchQuery = "";
+    mocks.triageFocusEnabled = true;
+
+    render(<InboxTriagePane />);
+
+    expect(screen.queryByTestId("triage-focus")).toBeNull();
   });
 
   it("waits for the next decision page before triage runs out of reports", () => {

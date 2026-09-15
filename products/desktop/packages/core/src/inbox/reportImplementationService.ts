@@ -31,6 +31,26 @@ export class ReportImplementationService {
     );
   }
 
+  /**
+   * The states to show while a fetch is in flight. A report that gains or
+   * finishes a task changes the query key, so the next fetch starts with
+   * nothing. `known` carries what the last fetch resolved, so only a report
+   * that was never checked falls back to "checking".
+   */
+  pendingStates(
+    reports: SignalReport[],
+    known: ReadonlyMap<string, ReportImplementationState | null>,
+    lookupFailed = false,
+  ): Map<string, ReportImplementationState | null> {
+    const states = this.initialStates(reports, lookupFailed);
+    for (const [id, state] of states) {
+      if (state !== "checking") continue;
+      const previous = known.get(id);
+      if (previous !== undefined) states.set(id, previous);
+    }
+    return states;
+  }
+
   private async completedTask(
     client: PostHogAPIClient,
     summary: Schemas.TaskSummaryDTO,

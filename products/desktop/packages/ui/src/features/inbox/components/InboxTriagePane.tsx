@@ -19,11 +19,13 @@ export function InboxTriagePane(): ReactElement {
 
   // The queue is filtered by task state, so a loaded page can hold no decision
   // while a later page still does. Handing that page to triage would end the
-  // session and record a triage that was never done.
+  // session and record a triage that was never done. Task state is waited on
+  // the same way, because Create PR reloads it: blanking a queue that is on
+  // screen unmounts triage and loses the place the reader had in it.
   if (
     inbox.isLoading ||
-    inbox.triageLoading ||
-    (inbox.triageReports.length === 0 && inbox.triagePagePending)
+    (inbox.triageReports.length === 0 &&
+      (inbox.triageLoading || inbox.triagePagePending))
   ) {
     return <LoadingState className="h-full" />;
   }

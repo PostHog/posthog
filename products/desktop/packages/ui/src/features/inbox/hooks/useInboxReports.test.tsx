@@ -1,5 +1,6 @@
 import { applyRenameToSummaries } from "@posthog/core/tasks/taskRename";
 import type {
+  SignalReport,
   SignalReportArtefactsResponse,
   SuggestedReviewer,
   SuggestedReviewersArtefact,
@@ -315,5 +316,61 @@ describe("Inbox report queries", () => {
     ).not.toThrow();
     expect(result.current.states.get(report.id)).toBe("working");
     unmount();
+  });
+  it("keeps checked task states while another report joins the query", async () => {
+    const failed = inboxStoryReport({
+      id: "report-failed",
+      assignee: { kind: "task", task_id: "implementation-failed" },
+      work_state: "working",
+    });
+    const started = inboxStoryReport({
+      id: "report-started",
+      assignee: { kind: "task", task_id: "implementation-started" },
+      work_state: "working",
+    });
+    mockClient.getTaskSummaries.mockResolvedValue([
+      { id: "implementation-failed", latest_run: { status: "failed" } },
+    ]);
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const { result, rerender, unmount } = renderHook(
+      ({ reports }: { reports: SignalReport[] }) =>
+        useReportImplementationStates(reports),
+      { wrapper, initialProps: { reports: [failed] } },
+    );
+    await waitFor(() =>
+      expect(result.current.states.get(failed.id)).toBe("failed"),
+    );
+
+    // Create PR puts a task on the second report, which rekeys the query.
+    let release = (): void => {};
+    mockClient.getTaskSummaries.mockReturnValue(
+      new Promise((resolve) => {
+        release = () =>
+          resolve([
+            { id: "implementation-failed", latest_run: { status: "failed" } },
+            {
+              id: "implementation-started",
+              latest_run: { status: "in_progress" },
+            },
+          ]);
+      }),
+    );
+    rerender({ reports: [failed, started] });
+
+    expect(result.current.states.get(failed.id)).toBe("failed");
+    expect(result.current.states.get(started.id)).toBe("checking");
+
+    await act(async () => release());
+    await waitFor(() =>
+      expect(result.current.states.get(started.id)).toBe("working"),
+    );
+    expect(result.current.states.get(failed.id)).toBe("failed");
+    unmount();
+    client.clear();
   });
 });
