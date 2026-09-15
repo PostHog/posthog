@@ -294,6 +294,7 @@ rules:
                               |NotificationEvent
                               |Notebook
                               |NotebookNodeRun
+                              |NotebookRun
                               |ObjectMediaPreview
                               |ParserRecipe
                               |PendingSourceCredential
@@ -700,6 +701,7 @@ rules:
                         |NotificationEvent
                         |Notebook
                         |NotebookNodeRun
+                        |NotebookRun
                         |ObjectMediaPreview
                         |ParserRecipe
                         |PendingSourceCredential
