@@ -153,10 +153,10 @@ export const TallContentTopAligned: Story = {
     args: {
         type: 'info',
         alignItems: 'start',
-        dismissKey: 'storybook-banner-tall',
+        onClose: () => alert('👋'),
         children: (
             <div className="flex flex-col gap-2">
-                <div className="font-semibold">Realtime cohorts are coming soon</div>
+                <div className="font-semibold">A heading above a paragraph of body copy</div>
                 <p className="m-0">
                     With content this tall, a centered icon and close button drift to the middle of the banner, away
                     from the heading they belong to. Setting alignItems to start pins both to the top.

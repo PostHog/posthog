@@ -29,10 +29,9 @@ export interface LemonBannerProps {
     square?: boolean
     icon?: React.ReactNode
     /**
-     * Cross-axis alignment of the icon and close button against the content.
-     * Keep the default for one-line banners: the row grows to the banner's 3rem min-height,
-     * so centering is what holds a single line in the middle rather than at the top edge.
-     * Use 'start' when the content is a stack tall enough to make a centered icon look adrift.
+     * Cross-axis alignment of the icon, the wide-screen action button and the close button
+     * against the content. One-line banners need the 'center' default: the row grows to the
+     * banner's 3rem min-height, so centering is what holds a single line off the top edge.
      */
     alignItems?: 'center' | 'start'
 }
