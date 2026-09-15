@@ -699,7 +699,7 @@ tools:
         title: Get all experiments
         description: >
             List experiments in the current project. This is the primary tool for resolving experiment references — load
-            the finding-experiments skill for guidance on searching by name, status, recency, or description.
+            the finding-experiments skill for guidance on searching by name, status, recency, or archived state.
 
 
             Supports filtering by status ("draft", "running", "paused", "exposure_frozen", "stopped", "complete" which
