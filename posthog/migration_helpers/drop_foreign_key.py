@@ -49,9 +49,12 @@ its lock phase. Two waits are in play. A single ALTER holds its ACCESS EXCLUSIVE
 so a child with keys into two hot parents holds one parent while it requests the next, and
 that lock order crosses the order of any live query reading both. A cycle is resolved by
 the deadlock detector rather than by lock_timeout, and the backend that runs the detector
-is the one that aborts. Keeping the budget under deadlock_timeout means the op abandons its
-wait before any detector runs, so the migration loses the race and no application query is
-ever the victim. bin/migrate retries it. Never widen or disable the timeout here.
+is the one that aborts. A budget under deadlock_timeout biases the cycle toward the
+migration, because the op abandons its own wait before its own detector runs. It does not
+settle the cycle. Each backend arms its detector when its own wait starts. An application
+query that began its wait more than the budget earlier reaches its detector first, and that
+backend aborts itself. bin/migrate retries the migration either way. Never widen or disable
+the timeout here.
 """
 
 from django.db import router

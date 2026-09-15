@@ -139,7 +139,7 @@ def test_a_contended_parent_fails_fast(temp_tables):
         with connection.cursor() as cursor:
             cursor.execute("RESET lock_timeout")
 
-    # Under deadlock_timeout, so the op abandons the wait before any deadlock detector runs
-    # and an application query is never the victim.
+    # Under deadlock_timeout, so the op abandons the wait before its own deadlock detector
+    # runs.
     assert waited < deadlock_seconds
     assert _fk_columns(child) == {"owner_id", "other_id"}
