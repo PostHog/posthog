@@ -2092,3 +2092,143 @@ class TestSelfDrivingFreeTrialFacadeGates(TestCase):
             )
         flag_mock.assert_not_called()
         self.assertTrue(Task.objects.filter(id=dto.task_id).exists())
+
+
+class TestSignalReportNoRepoFacadeGates(TestCase):
+    """create_task refuses an implementation task when no repository can be resolved, and resolves
+    one via the linked-URL tier when the description embeds a github.com URL."""
+
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="No-Repo Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="No-Repo Team")
+        cls.user = User.objects.create(email="no-repo-facade@test.com", distinct_id="no-repo-facade-distinct")
+
+    def _report(self):
+        SignalReport = apps.get_model("signals", "SignalReport")
+        return SignalReport.objects.create(team=self.team, status="ready", title="t", summary="s")
+
+    def _no_repo_cascade(self):
+        """Patch cascade so it always returns None (no resolvable repository)."""
+        return patch(
+            "products.tasks.backend.logic.repo_selection.cascade.cascade_select_repository",
+            return_value=None,
+        )
+
+    @parameterized.expand([(None,), ("implementation",)])
+    def test_create_task_refuses_implementation_when_no_repo_resolves(self, relationship):
+        # An implementation task (Create PR) with no resolvable repository returns 400 with a
+        # clear message. No task row should be created.
+        from rest_framework.exceptions import ValidationError
+
+        report = self._report()
+        with (
+            patch("products.signals.backend.facade.api.persisted_repo_selection", return_value=None),
+            self._no_repo_cascade(),
+            self.assertRaises(ValidationError) as raised,
+        ):
+            facade.create_task(
+                self.team.id,
+                self.user.id,
+                validated_data={
+                    "title": "Implementation: t",
+                    "description": "No repo mentioned here",
+                    "origin_product": Task.OriginProduct.SIGNAL_REPORT,
+                    "signal_report": report,
+                    "signal_report_task_relationship": relationship,
+                },
+            )
+        self.assertEqual(raised.exception.get_codes(), "no_repository")
+        self.assertFalse(Task.objects.filter(team=self.team).exists())
+
+    def test_create_task_allows_discussion_from_repo_less_report(self):
+        # Discussion tasks (Ask AI) are not implementation tasks: they stay repo-less and must not
+        # be blocked by the 400 gate, preserving the existing behaviour.
+        report = self._report()
+        with (
+            patch("products.signals.backend.facade.api.persisted_repo_selection", return_value=None),
+            self._no_repo_cascade(),
+        ):
+            dto = facade.create_task(
+                self.team.id,
+                self.user.id,
+                validated_data={
+                    "title": "Discuss: t",
+                    "description": "d",
+                    "origin_product": Task.OriginProduct.SIGNAL_REPORT,
+                    "signal_report": report,
+                    "signal_report_task_relationship": "discussion",
+                },
+            )
+        self.assertTrue(Task.objects.filter(id=dto.id).exists())
+        task = Task.objects.get(id=dto.id)
+        self.assertIsNone(task.repository)
+
+    def test_create_task_resolves_via_linked_url_in_description(self):
+        # A report with no persisted repo selection but a github.com URL in the description that
+        # matches a connected repo should resolve via the linked-URL tier and create the task.
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="gh-linked",
+            config={"installation_id": "gh-linked"},
+            sensitive_config={},
+            repository_cache=[{"full_name": "acme/backend", "name": "backend", "id": 42}],
+        )
+        report = self._report()
+        with patch("products.signals.backend.facade.api.persisted_repo_selection", return_value=None):
+            dto = facade.create_task(
+                self.team.id,
+                self.user.id,
+                validated_data={
+                    "title": "Implementation: t",
+                    "description": "See https://github.com/acme/backend/pull/7 for the failing test",
+                    "origin_product": Task.OriginProduct.SIGNAL_REPORT,
+                    "signal_report": report,
+                    "signal_report_task_relationship": "implementation",
+                },
+            )
+        task = Task.objects.get(id=dto.id)
+        self.assertEqual(task.repository, "acme/backend")
+
+    def test_create_task_allows_implementation_when_persisted_repo_exists(self):
+        # When a persisted repo selection exists, create_task uses it directly.
+        # It must not re-resolve via the cascade, and it must capture resolution_tier="persisted".
+        report = self._report()
+        
+        from products.tasks.backend.facade.repo_selection import RepoSelectionResult
+        persisted_result = RepoSelectionResult(repository="persisted/repo", resolution_status="persisted", is_override=False)
+
+        with (
+            patch("products.signals.backend.facade.api.persisted_repo_selection", return_value=persisted_result),
+            self._no_repo_cascade() as cascade_mock,
+            patch("products.tasks.backend.facade.api._capture_no_repo_selection_override") as capture_mock,
+        ):
+            dto = facade.create_task(
+                self.team.id,
+                self.user.id,
+                validated_data={
+                    "title": "Implementation: t",
+                    "description": "d",
+                    "origin_product": Task.OriginProduct.SIGNAL_REPORT,
+                    "signal_report": report,
+                    "signal_report_task_relationship": "implementation",
+                },
+            )
+
+        # 1. Cascade should not have been called because persisted won
+        cascade_mock.assert_not_called()
+        
+        # 2. Task should be created with the persisted repository
+        self.assertTrue(Task.objects.filter(id=dto.id).exists())
+        task = Task.objects.get(id=dto.id)
+        self.assertEqual(task.repository, "persisted/repo")
+
+        # 3. Analytics capture must have `resolution_tier="persisted"`
+        capture_mock.assert_called_once()
+        self.assertEqual(capture_mock.call_args.kwargs["resolution_tier"], "persisted")
+        self.assertEqual(capture_mock.call_args.kwargs["resolved_repository"], "persisted/repo")

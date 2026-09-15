@@ -151,4 +151,18 @@ describe('ImplementButton', () => {
             expect.objectContaining({ actionType: 'copy_implementation_prompt' })
         )
     })
+
+    it('shows a warning banner when repo_slug is null', () => {
+        const report = makeReport()
+        report.repo_slug = null
+        render(<ImplementButton report={report} />)
+        expect(screen.getByText("This report isn't linked to a repository, so PostHog can't open a PR for it. Add the repository name to your note and try again.")).toBeInTheDocument()
+    })
+
+    it('does not show a warning banner when repo_slug is set', () => {
+        const report = makeReport()
+        report.repo_slug = 'acme/backend'
+        render(<ImplementButton report={report} />)
+        expect(screen.queryByText("This report isn't linked to a repository, so PostHog can't open a PR for it. Add the repository name to your note and try again.")).not.toBeInTheDocument()
+    })
 })

@@ -5,6 +5,7 @@ import base64
 import asyncio
 import hashlib
 from collections.abc import AsyncGenerator, Iterator
+from contextlib import nullcontext
 from datetime import timedelta
 from decimal import Decimal
 from typing import Any, ClassVar, cast
@@ -2239,17 +2240,27 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertFalse(SignalReportTask.objects.filter(report=report, task_id=data["id"]).exists())
 
     def _post_signal_report_task(self, report_id, relationship, title="Report task"):
-        return self.client.post(
-            "/api/projects/@current/tasks/",
-            {
-                "title": title,
-                "description": "From a signal report",
-                "origin_product": "signal_report",
-                "signal_report": str(report_id),
-                "signal_report_task_relationship": relationship,
-            },
-            format="json",
-        )
+        # Implementation tasks now require a resolvable repository. Patch the cascade to return a
+        # dummy repo so task-cap and slot tests (which focus on quota, not repo selection) stay
+        # unaffected by the new fail-fast gate.
+        _cascade = "products.tasks.backend.logic.repo_selection.cascade.cascade_select_repository"
+        _persisted = "products.signals.backend.facade.api.persisted_repo_selection"
+        is_implementation = relationship in (None, "implementation")
+        with (
+            patch(_cascade, return_value="test-org/test-repo") if is_implementation else nullcontext(),
+            patch(_persisted, return_value=None) if is_implementation else nullcontext(),
+        ):
+            return self.client.post(
+                "/api/projects/@current/tasks/",
+                {
+                    "title": title,
+                    "description": "From a signal report",
+                    "origin_product": "signal_report",
+                    "signal_report": str(report_id),
+                    "signal_report_task_relationship": relationship,
+                },
+                format="json",
+            )
 
     def _create_implementation_task_with_runs(self, report, run_specs, deleted=False):
         from products.signals.backend.models import SignalReportTask
@@ -13534,6 +13545,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
                     "description": "Forged",
                     "origin_product": Task.OriginProduct.SIGNAL_REPORT,
                     "signal_report": str(report.id),
+                    "signal_report_task_relationship": "discussion",
                     "channel": str(channel.id),
                 },
                 format="json",

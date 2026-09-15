@@ -5860,15 +5860,22 @@ def compute_repository_readiness(team_id: int, *, repository: str, window_days: 
 
 
 def _capture_no_repo_selection_override(
-    *, team: Team, report_id: str, resolved_repository: str | None, relationship: str | None
+    *,
+    team: Team,
+    report_id: str,
+    resolved_repository: str | None,
+    relationship: str | None,
+    resolution_tier: str,
 ) -> None:
     """Record a person starting work on a report whose scout chose no repository.
 
     The count tells the signals team how often the scouts' `NO_REPO` default disagrees with what a
     person wanted, and `resolved_repository` separates a recovery from a cascade that also found
     nothing. `relationship` separates a "Create PR" override from an Ask AI one, which start from
-    different intents. Keyed on the team, like the other scout events. Best-effort: a capture
-    failure must never fail the task creation."""
+    different intents. `resolution_tier` names which cascade tier recovered the repository
+    (``persisted``, ``single_repo``, ``explicit_token``, ``linked_url``, or ``none``), so the
+    dashboard can show how often each tier helps. Keyed on the team, like the other scout events.
+    Best-effort: a capture failure must never fail the task creation."""
     try:
         posthoganalytics.capture(
             distinct_id=str(team.uuid),
@@ -5878,6 +5885,7 @@ def _capture_no_repo_selection_override(
                 "team_id": team.id,
                 "resolved_repository": resolved_repository,
                 "relationship": relationship,
+                "resolution_tier": resolution_tier,
             },
             groups=groups(team=team),
         )
@@ -6101,24 +6109,44 @@ def create_task(
         # the cascade rather than create a task whose sandbox can only read, never push.
         selection = persisted_repo_selection(str(signal_report.id))
         resolved_repository = selection.repository if selection is not None else None
+        resolution_tier = "persisted" if resolved_repository else None
         if not resolved_repository:
-            resolved_repository = cascade_select_repository(
+            # include_linked=True: a report whose summary links a github.com URL (e.g. the PR or
+            # run that prompted the report) can still resolve via that URL when no bare owner/repo
+            # token appears in the description. The Slack app and scout emit already use this tier.
+            cascade_result = cascade_select_repository(
                 team_id,
                 user_id,
                 validated_data.get("description") or "",
                 team=team,
                 single_repo_wins=True,
                 allow_refresh=False,
+                include_linked=True,
             )
+            resolved_repository = cascade_result.repository if cascade_result else None
+            resolution_tier = cascade_result.tier if cascade_result else None
             if selection is not None:
                 _capture_no_repo_selection_override(
                     team=team,
                     report_id=str(signal_report.id),
                     resolved_repository=resolved_repository,
                     relationship=signal_report_task_relationship,
+                    resolution_tier=resolution_tier or "none",
                 )
         if resolved_repository:
             validated_data["repository"] = resolved_repository
+        elif signal_report_task_relationship in (None, "implementation"):
+            # An implementation task with no repository cannot open a pull request. Refuse with a
+            # clear message instead of creating a task the sandbox can never push from.
+            from rest_framework.exceptions import ValidationError  # noqa: PLC0415 — keep DRF off the api import path
+
+            raise ValidationError(
+                detail=(
+                    "This report isn't linked to a repository, so PostHog can't open a PR for it. "
+                    "Add the repository name to your note and try again."
+                ),
+                code="no_repository",
+            )
 
     # The credential follows the entitlement, not the repository: an entitled report task carries
     # the team's GitHub integration even when nothing resolved, so the agent can still clone what
