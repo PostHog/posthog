@@ -159,6 +159,17 @@ export interface scannerScoutLogicActions {
     loadScoutConfigs: (_?: void | undefined) => void // scoutFleetLogic
     loadScoutMetadata: () => any // scoutFleetLogic
     loadScoutRuns: (_?: void | undefined) => void // scoutFleetLogic
+    patchScoutConfigLocally: (
+        configId: string,
+        updates:
+            | Partial<SignalScoutConfigApi>
+            | import('products/signals/frontend/generated/api.schemas').PatchedSignalScoutConfigUpdateApi
+    ) => {
+        configId: string
+        updates:
+            | Partial<SignalScoutConfigApi>
+            | import('products/signals/frontend/generated/api.schemas').PatchedSignalScoutConfigUpdateApi
+    } // scoutFleetLogic
     runScoutNow: (configId: string) => {
         configId: string
     } // scoutFleetLogic
@@ -377,6 +388,7 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
             scoutFleetLogic,
             [
                 'loadScoutConfigs',
+                'patchScoutConfigLocally',
                 'updateScoutConfig',
                 'loadScoutRuns',
                 'loadScoutMetadata',
@@ -939,7 +951,13 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                         configUpdates.output_destinations = form.outputDestinations ?? {}
                     }
                     if (Object.keys(configUpdates).length > 0) {
-                        await signalsScoutConfigUpdate(String(teamId), config.id, configUpdates)
+                        const updated = await signalsScoutConfigUpdate(String(teamId), config.id, configUpdates)
+                        // The list refresh below is a round trip, and the instructions can be
+                        // rejected before it lands. The user is then told to reopen the settings,
+                        // and that form reads its name, schedule and delivery from the store, so
+                        // the store has to already hold what this call saved. Seeding from the
+                        // pre-save row would make the next save write those values back.
+                        actions.patchScoutConfigLocally(config.id, updated)
                         actions.loadScoutConfigs()
                     }
                     // Reads the destination from the id the config records, so a retry after a

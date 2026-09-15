@@ -182,6 +182,56 @@ describe('scannerScoutLogic', () => {
         expect(logic.values.settingsSkillName).toBe(SKILL_NAME)
     })
 
+    it('holds the saved config when the instructions conflict sends the user back to a fresh form', async () => {
+        // The conflict toast tells the user to reopen the settings, and that form seeds its name,
+        // schedule and delivery from the store. The list refresh the save dispatched is still a
+        // round trip away, so a store left on the pre-save row would hand the retry the old values
+        // and write them back over what this save already kept.
+        await mountWithReports([])
+        const config = makeConfig({ output_destinations: { webhook: null } })
+        scoutFleetLogic.findMounted()!.actions.loadScoutConfigsSuccess([config])
+        logic.actions.openScoutSettings(SKILL_NAME)
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadSkillPromptSuccess({ skillName: SKILL_NAME, body: 'Watch this scanner.', latestVersion: 3 })
+        jest.mocked(signalsScoutConfigUpdate).mockResolvedValue({
+            ...config,
+            display_name: 'Checkout / daily digest',
+            run_cron_schedule: '0 7 * * *',
+        })
+        jest.mocked(llmSkillsNamePartialUpdate).mockRejectedValue({ status: 409 })
+
+        logic.actions.saveScoutSettings({
+            name: 'Checkout / daily digest',
+            body: 'Watch checkout.',
+            cron: '0 7 * * *',
+            outputDestinations: { webhook: null },
+            webhookUrl: '',
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        // The list refresh never landed, so this row is the one the save recorded itself.
+        const saved = logic.values.scoutConfigsForScanner[0]
+        expect(scoutDisplayName(saved)).toBe('Checkout / daily digest')
+        expect(saved.run_cron_schedule).toBe('0 7 * * *')
+
+        // The reopened form seeds from that row, so the retry has nothing left to write.
+        jest.mocked(signalsScoutConfigUpdate).mockClear()
+        jest.mocked(llmSkillsNamePartialUpdate).mockResolvedValue({ body: 'Watch checkout.', version: 4 } as any)
+        logic.actions.openScoutSettings(SKILL_NAME)
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadSkillPromptSuccess({ skillName: SKILL_NAME, body: 'Watch this scanner.', latestVersion: 3 })
+        logic.actions.saveScoutSettings({
+            name: scoutDisplayName(saved),
+            body: 'Watch checkout.',
+            cron: saved.run_cron_schedule!,
+            outputDestinations: saved.output_destinations ?? {},
+            webhookUrl: '',
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(signalsScoutConfigUpdate).not.toHaveBeenCalled()
+    })
+
     it('refuses the save when the loaded instructions belong to another scout', async () => {
         // Nothing here can tell an edited body from an unchanged one without this scout's own
         // prompt. Saving the rest anyway drops the instruction edit and still reports success.
