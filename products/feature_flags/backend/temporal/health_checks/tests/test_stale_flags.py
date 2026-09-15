@@ -157,6 +157,25 @@ class TestStaleFlagsDetect(BaseTest):
         included = any(result.payload["flag_id"] == flag.id for result in results.get(self.team.id, []))
         assert included is expected_included
 
+    def test_a_gate_stored_in_another_project_still_protects_the_flag(self) -> None:
+        # Flag ids are globally unique, so a team can gate recording on a flag another project
+        # owns. Matching ids per project would report that flag as a cleanup candidate, and the
+        # delete guard is project-scoped too, so nothing else would stop the delete that follows.
+        flag = self._create_flag("gated-from-another-project", **stale_by_config())
+        other_project_team = Team.objects.create(organization=self.organization)
+        # The scan covers the projects that own candidate flags, so the other project needs one
+        # of its own before the gate it stores is read at all.
+        FeatureFlag.objects.create(
+            team=other_project_team, key="their-own-flag", created_by=self.user, active=True, **stale_by_config()
+        )
+        Team.objects.filter(pk=other_project_team.pk).update(
+            session_recording_linked_flag={"id": flag.id, "key": flag.key}
+        )
+
+        results = self._detect([self.team.id, other_project_team.id])
+
+        assert not any(result.payload["flag_id"] == flag.id for result in results.get(self.team.id, []))
+
     # (name, flag_kwargs, expected payload subset)
     @parameterized.expand(
         [

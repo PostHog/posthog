@@ -203,16 +203,23 @@ def _excluded_flag_ids(candidates: list[FeatureFlag]) -> set[int]:
         )
     )
     excluded |= _depended_on_flag_ids(project_ids)
-    # Matched per project, not against a pooled set, because a flag key names one flag only
-    # within its own project. A trigger group counts here as much as the linked-flag column: both
-    # gate recording, so a flag either one names must not be reported as a cleanup candidate.
+    # A trigger group counts here as much as the linked-flag column: both gate recording, so a
+    # flag either one names must not be reported as a cleanup candidate.
+    # A stored id is matched against every project scanned, because flag ids are globally unique,
+    # so a team in one project can gate recording on a flag another project owns. A stored key is
+    # matched only within its own project, because a key names one flag only there, and pooling
+    # keys would let a key stored in one project protect a same-keyed flag in another.
     replay_gates = replay_gated_flags_for_projects(project_ids)
+    gated_flag_ids = {flag_id for gates in replay_gates.values() for flag_id in gates.flag_ids}
     excluded |= {
         flag.id
         for flag in candidates
-        if (project_id := team_projects.get(flag.team_id)) is not None
-        and (gates := replay_gates.get(project_id)) is not None
-        and gates.gates(flag)
+        if flag.id in gated_flag_ids
+        or (
+            (project_id := team_projects.get(flag.team_id)) is not None
+            and (gates := replay_gates.get(project_id)) is not None
+            and flag.key in gates.flag_keys
+        )
     }
     return excluded
 
