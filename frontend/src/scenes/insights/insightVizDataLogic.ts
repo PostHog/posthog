@@ -2704,8 +2704,14 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateInsightFilter: async ({ insightFilter }, breakpoint) => {
             // When an external save handler is wired (dashboard card), skip the debounce so
             // rapid successive toggle clicks don't cancel each other and lose earlier changes.
+            let patch = insightFilter
             if (!props.setQuery) {
+                // A dispatch inside the debounce window cancels the previous one, so accumulate
+                // patches here and apply the merged result once the debounce settles.
+                cache.pendingInsightFilterPatch = { ...cache.pendingInsightFilterPatch, ...insightFilter }
                 await breakpoint(300)
+                patch = cache.pendingInsightFilterPatch
+                cache.pendingInsightFilterPatch = undefined
             }
 
             if (isWebAnalyticsInsightQuery(values.localQuerySource)) {
@@ -2714,7 +2720,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
             const filterProperty = filterKeyForQuery(values.localQuerySource)
             actions.updateQuerySource({
-                [filterProperty]: { ...filterForQuery(values.localQuerySource), ...insightFilter },
+                [filterProperty]: { ...filterForQuery(values.localQuerySource), ...patch },
             })
         },
 

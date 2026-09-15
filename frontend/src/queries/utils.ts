@@ -690,6 +690,9 @@ export const getAnnotationsFilter = (query: InsightQueryNode): AnnotationsFilter
     return undefined
 }
 
+export const isAnnotationsFilterActive = (filter: AnnotationsFilter | null | undefined): boolean =>
+    !!(filter?.hiddenEmojis?.length || filter?.hideWithoutEmoji || filter?.search)
+
 export const getShowLabelsOnSeries = (query: InsightQueryNode): boolean | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.showLabelsOnSeries

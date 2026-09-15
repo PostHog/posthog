@@ -363,7 +363,6 @@ describe('InsightDisplayConfig', () => {
             await openOptionsMenu()
             fireEvent.click(screen.getByTestId('insight-annotations-filter-button'))
 
-            // Synchronous clicks land inside the 300 ms updateInsightFilter breakpoint.
             const chips = await screen.findAllByTestId('insight-annotations-filter-emoji')
             fireEvent.click(chips[0])
             fireEvent.click(chips[1])

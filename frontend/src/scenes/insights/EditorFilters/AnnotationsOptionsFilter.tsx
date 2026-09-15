@@ -7,6 +7,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { annotationsModel } from '~/models/annotationsModel'
 import { AnnotationsFilter } from '~/queries/schema/schema-general'
+import { isAnnotationsFilterActive } from '~/queries/utils'
 
 import { insightVizDataLogic } from '../insightVizDataLogic'
 
@@ -31,10 +32,14 @@ export function AnnotationsOptionsFilter(): JSX.Element {
                 counts.set(emoji, (counts.get(emoji) ?? 0) + 1)
             }
         }
-        return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([emoji]) => emoji)
-    }, [annotations])
+        const loaded = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([emoji]) => emoji)
+        // A hidden emoji can outlive the last annotation that used it — keep its switch visible so it stays clearable.
+        const stale = hiddenEmojis.filter((emoji) => !counts.has(emoji))
+        return [...loaded, ...stale]
+    }, [annotations, hiddenEmojis])
 
     const hasAnnotationsWithoutEmoji = useMemo(() => annotations.some(({ emoji }) => !emoji), [annotations])
+    const showNoEmojiSwitch = hasAnnotationsWithoutEmoji || !!draft?.hideWithoutEmoji
 
     const setFilter = (patch: AnnotationsFilter): void => {
         const merged: AnnotationsFilter = { ...draft, ...patch }
@@ -51,7 +56,7 @@ export function AnnotationsOptionsFilter(): JSX.Element {
             hiddenEmojis: shown ? hiddenEmojis.filter((e) => e !== emoji) : [...hiddenEmojis, emoji],
         })
 
-    const activeCount = hiddenEmojis.length + (draft?.hideWithoutEmoji ? 1 : 0) + (draft?.search ? 1 : 0)
+    const isFilterActive = isAnnotationsFilterActive(draft)
 
     return (
         <div className="flex items-center justify-between gap-2 p-1 px-2">
@@ -77,12 +82,12 @@ export function AnnotationsOptionsFilter(): JSX.Element {
                                 data-attr="insight-annotations-filter-search"
                             />
                         </div>
-                        {(emojiOptions.length > 0 || hasAnnotationsWithoutEmoji) && (
+                        {(emojiOptions.length > 0 || showNoEmojiSwitch) && (
                             <div className="flex flex-col max-h-80 overflow-y-auto p-1 border-t">
-                                {hasAnnotationsWithoutEmoji && (
+                                {showNoEmojiSwitch && (
                                     <LemonSwitch
                                         fullWidth
-                                        label={<span className="text-xs font-normal leading-7">Default</span>}
+                                        label={<span className="text-xs font-normal leading-7">No emoji</span>}
                                         className="px-2 [--lemon-switch-handle-size:15px]"
                                         checked={!draft?.hideWithoutEmoji}
                                         onChange={(shown) => setFilter({ hideWithoutEmoji: !shown })}
@@ -108,7 +113,7 @@ export function AnnotationsOptionsFilter(): JSX.Element {
                 <LemonButton
                     size="xsmall"
                     type="secondary"
-                    active={activeCount > 0}
+                    active={isFilterActive}
                     disabledReason={enabled ? undefined : 'Turn on annotations to filter them'}
                     data-attr="insight-annotations-filter-button"
                 >
