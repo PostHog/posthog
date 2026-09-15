@@ -1483,10 +1483,10 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         assert endpoint.current_version == 1
         assert EndpointVersion.objects.filter(endpoint=endpoint).count() == 1
 
-    def test_inherited_invalid_bucket_override_still_rejects_a_query_change(self):
-        # The request omits bucket_overrides, so only the check inside
-        # _reconcile_materialization sees the value the new version inherits.
-        from products.endpoints.backend.models import EndpointVersion
+    def test_inherited_invalid_bucket_override_rejects_a_query_change_without_writing(self):
+        # The request omits bucket_overrides, so the value under test is the one the
+        # update would carry over from the current version.
+        from products.endpoints.backend.models import Endpoint, EndpointVersion
 
         self._create_endpoint_with_variables("inherit-bucket")
 
@@ -1511,6 +1511,10 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        endpoint = Endpoint.objects.get(name="inherit-bucket", team=self.team)
+        assert endpoint.current_version == 1
+        assert EndpointVersion.objects.filter(endpoint=endpoint).count() == 1
 
     def test_reenable_materialization_without_bucket_overrides_clears_old_value(self):
         from products.endpoints.backend.models import EndpointVersion
