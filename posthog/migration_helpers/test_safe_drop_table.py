@@ -84,6 +84,22 @@ def test_the_lock_phase_gives_up_before_any_deadlock_detector_runs(temp_tables):
 
 
 @pytest.mark.django_db
+def test_restores_the_timeouts_the_transaction_came_in_with(temp_tables):
+    # ValidateConstraint disables both timeouts for the rest of its transaction. Restoring
+    # to DEFAULT rather than to the captured value would silently re-arm them.
+    child_a, _, _ = temp_tables
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT set_config('statement_timeout', '0', true)")
+        cursor.execute("SELECT set_config('lock_timeout', '17s', true)")
+
+    _apply(SafeDropTable(child_a))
+
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT current_setting('lock_timeout'), current_setting('statement_timeout')")
+        assert cursor.fetchone() == ("17s", "0")
+
+
+@pytest.mark.django_db
 def test_drops_every_named_table(temp_tables):
     child_a, child_b, parent = temp_tables
 

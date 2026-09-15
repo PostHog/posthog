@@ -103,8 +103,11 @@ class SafeDropTable(Operation):
 
     def _lock(self, schema_editor, tables: list[str]) -> None:
         with schema_editor.connection.cursor() as cursor:
-            cursor.execute("SELECT setting::int FROM pg_settings WHERE name = 'deadlock_timeout'")
-            deadlock_ms = cursor.fetchone()[0]
+            cursor.execute(
+                "SELECT (SELECT setting::int FROM pg_settings WHERE name = 'deadlock_timeout'),"
+                " current_setting('lock_timeout'), current_setting('statement_timeout')"
+            )
+            deadlock_ms, previous_lock, previous_statement = cursor.fetchone()
         # Half, so the migration abandons its wait before any peer waiting on the
         # migration can run the detector and be killed for it.
         budget_ms = max(1, deadlock_ms // 2)
@@ -113,10 +116,11 @@ class SafeDropTable(Operation):
         schema_editor.execute(f"SET LOCAL lock_timeout = '{budget_ms}ms'")
         schema_editor.execute(f"SET LOCAL statement_timeout = '{budget_ms}ms'")
         schema_editor.execute(f"LOCK TABLE {self._quote(schema_editor, tables)} IN ACCESS EXCLUSIVE MODE")
-        # The drop needs no new lock, so hand the rest of the migration back to the
-        # session values bin/migrate connected with.
-        schema_editor.execute("SET LOCAL lock_timeout = DEFAULT")
-        schema_editor.execute("SET LOCAL statement_timeout = DEFAULT")
+        # The drop needs no new lock, so put back what the transaction came in with. Not
+        # DEFAULT: an earlier operation in the same migration can hold a value of its own,
+        # and ValidateConstraint disables both timeouts for exactly that reason.
+        schema_editor.execute("SELECT set_config('lock_timeout', %s, true)", [previous_lock])
+        schema_editor.execute("SELECT set_config('statement_timeout', %s, true)", [previous_statement])
 
     @staticmethod
     def _quote(schema_editor, tables: list[str]) -> str:
