@@ -21,8 +21,7 @@ from posthog.egress.firecrawl.client import (
     search,
 )
 from posthog.egress.firecrawl.limiter import consume_firecrawl_sync, firecrawl_account_key
-from posthog.egress.firecrawl.transport import firecrawl_request
-from posthog.egress.firecrawl.transport import FirecrawlEgressBudgetExhausted
+from posthog.egress.firecrawl.transport import FirecrawlEgressBudgetExhausted, firecrawl_request
 from posthog.egress.limiter.policies import Priority, resolve_policy
 
 _FAKE_API_KEY = "fake-key-for-tests"
