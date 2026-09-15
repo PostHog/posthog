@@ -35,6 +35,7 @@ export function DashboardSubscribeNudgeToast({
                 <LemonButton
                     type="primary"
                     size="small"
+                    className="!mx-0"
                     data-attr="dashboard-subscribe-nudge-toast-cta"
                     onClick={() =>
                         openSubscriptionFromNudge(
