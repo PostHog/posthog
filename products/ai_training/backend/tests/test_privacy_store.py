@@ -1,5 +1,5 @@
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from unittest.mock import MagicMock, patch
 
@@ -50,7 +50,6 @@ class TestAITrainingPrivacyStore(SimpleTestCase):
         store = AITrainingPrivacyStore(client, "table")
         self.assertEqual(store.delete_month("2025-09"), 2)
         client.put_item.assert_not_called()
-        client.delete_item.assert_called_once_with(TableName="table", Key=item_key("month:2025-09", "deleted"))
         self.assertEqual(
             [call.kwargs["TransactItems"][0]["Update"]["Key"] for call in client.transact_write_items.call_args_list],
             targets,
@@ -60,8 +59,27 @@ class TestAITrainingPrivacyStore(SimpleTestCase):
         with self.assertRaises(ValueError):
             store.delete_month("2026-13")
         with self.assertRaises(ValueError):
-            store.delete_month(timezone.now().strftime("%Y-%m"))
+            store.delete_month("9999-12")
         self.assertEqual(client.query.call_count, 33)
+
+    @parameterized.expand(
+        [
+            ("2025-09", "2025-10-14T23:59:59+00:00", False),
+            ("2025-09", "2025-10-15T00:00:00+00:00", True),
+            ("2025-12", "2026-01-14T23:59:59+00:00", False),
+            ("2025-12", "2026-01-15T00:00:00+00:00", True),
+        ]
+    )
+    def test_month_deletion_opens_fourteen_days_after_the_month_ends(self, month: str, now: str, allowed: bool) -> None:
+        client = MagicMock()
+        client.query.return_value = {"Items": []}
+        store = AITrainingPrivacyStore(client, "table")
+        with patch("products.ai_training.backend.privacy.store.timezone.now", return_value=datetime.fromisoformat(now)):
+            if allowed:
+                self.assertEqual(store.delete_month(month), 0)
+            else:
+                with self.assertRaisesRegex(ValueError, "can be deleted from"):
+                    store.delete_month(month)
 
     def test_session_deletion_shreds_keys_without_querying_user_indexes(self) -> None:
         client = MagicMock()

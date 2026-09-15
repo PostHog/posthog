@@ -11,13 +11,14 @@ import {
     TableKey,
     imageKeyId,
     keySessionMonth,
+    monthIsDeletable,
     monthKeyIndexId,
     sessionKeyId,
     tableKeyString,
     teamBlockId,
 } from './schema'
 
-// The month and team block markers are single items that every commit in the fleet checks, so DynamoDB cancels concurrent commits as TransactionConflict under normal load. The budget counts the re-reads as well as the waits and stays under the consumer's 60 s loop stall threshold.
+// Every commit for a team checks the same team block marker, so DynamoDB cancels concurrent commits for one team as TransactionConflict under normal load. The budget counts the re-reads as well as the waits and stays under the consumer's 60 s loop stall threshold.
 const COMMIT_ATTEMPTS = 10
 const COMMIT_BUDGET_MS = 45_000
 const COMMIT_BACKOFF_BASE_MS = 100
@@ -91,14 +92,14 @@ export function groupTransactions(units: TransactWriteItem[][]): TransactWriteIt
 export class MlSessionKeyStore {
     constructor(
         private readonly db: MlPrivacyDynamoDB,
-        private readonly encryption: MlKeyEncryption
+        private readonly encryption: MlKeyEncryption,
+        private readonly nowMs: () => number = Date.now
     ) {}
 
     public async prepare(identities: MlSessionIdentity[]): Promise<MlKeyBatch> {
         const eligible = identities.filter((identity) => {
             try {
-                sessionStartMonth(identity.sessionId)
-                return true
+                return !monthIsDeletable(sessionStartMonth(identity.sessionId), this.nowMs())
             } catch {
                 return false
             }
@@ -183,7 +184,7 @@ export class MlKeyBatch {
         return image ? { session, image } : undefined
     }
 
-    // A month is only deleted after its data has stopped arriving, so a commit fences on the team marker alone; a month marker would be one item every commit in the fleet contends on.
+    // prepare() refuses a month that is old enough to delete, so a commit fences on the team marker alone; a month marker would be one item every commit in the fleet contends on.
     private guards(identity: MlKeyIdentity): TransactWriteItem[] {
         return [this.db.check(teamBlockId(identity.teamId), 'attribute_not_exists(pk)')]
     }

@@ -21,7 +21,15 @@ import { MlKeyEncryption } from './crypto'
 import { DynamoItem, MlPrivacyDynamoDB, encodeKey } from './dynamodb'
 import { MlSessionKeyStore } from './key-store'
 import { MlKeyReader } from './reader'
-import { MlSessionIdentity, imageKeyId, monthKeyIndexId, sessionKeyId, tableKeyString, teamBlockId } from './schema'
+import {
+    MlSessionIdentity,
+    imageKeyId,
+    monthIsDeletable,
+    monthKeyIndexId,
+    sessionKeyId,
+    tableKeyString,
+    teamBlockId,
+} from './schema'
 import { MlKafkaEncryption, encryptedKafkaValue } from './transport'
 
 const session: MlSessionIdentity = {
@@ -123,7 +131,7 @@ describe('ML session key batches', () => {
         )
         await encryption.start()
         const db = new MlPrivacyDynamoDB(boundary as unknown as DynamoDBClient, table)
-        store = new MlSessionKeyStore(db, encryption)
+        store = new MlSessionKeyStore(db, encryption, () => Date.UTC(2025, 8, 20))
         reader = new MlKeyReader(db, encryption)
     })
 
@@ -216,6 +224,23 @@ describe('ML session key batches', () => {
         await jest.runAllTimersAsync()
         expect(await settled).toBe('failed')
         expect(remaining).toBeGreaterThan(0)
+    })
+
+    it.each([
+        ['2025-09', Date.UTC(2025, 9, 14, 23, 59, 59), false],
+        ['2025-09', Date.UTC(2025, 9, 15), true],
+        ['2025-12', Date.UTC(2026, 0, 14, 23, 59, 59), false],
+        ['2025-12', Date.UTC(2026, 0, 15), true],
+    ])('month %s is deletable at %i: %s', (month, nowMs, deletable) => {
+        expect(monthIsDeletable(month, nowMs)).toBe(deletable)
+    })
+
+    it('refuses keys for a session month that is old enough to delete', async () => {
+        const db = new MlPrivacyDynamoDB(boundary as unknown as DynamoDBClient, table)
+        const refused = await new MlSessionKeyStore(db, encryption, () => Date.UTC(2025, 9, 15)).prepare([session])
+        expect(refused.get(session.teamId, session.sessionId)).toBeUndefined()
+        await refused.commit()
+        expect(boundary.writeSizes).toEqual([])
     })
 
     it('indexes monthly keys atomically, ignores a month marker, and blocks on a team marker', async () => {

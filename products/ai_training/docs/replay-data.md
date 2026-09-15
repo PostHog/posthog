@@ -107,10 +107,11 @@ The index uses 32 partitions named `month:<YYYY-MM>:shard:<0..31>` and stores ke
 Session keys and image keys appear in this index.
 
 Run `python manage.py delete_ai_training_month YYYY-MM` to remove the keys of that UTC session month.
-Ingestion does not check a month block, because a block item shared by every commit in the fleet serialises them on one DynamoDB item.
-The command refuses a month that ended less than 14 days ago, so that a key committed by a lagging consumer cannot arrive after its index shard was swept.
+The command accepts a month from 14 days after the month ends, and ingestion stops creating keys for a month at the same moment, so a key cannot arrive after its index shard was swept.
+Neither side reads a shared block item for the month, because every commit in the fleet would contend on that one DynamoDB item.
 The command uses strongly consistent queries and bounded writes.
-Rerun the command after an interrupted run; it safely repeats completed pages and removes any month block left by an earlier version.
+Rerun the command after an interrupted run; it safely repeats completed pages.
+Rerun it once for any month that an earlier version of the command deleted, because readers no longer honor the month block that version wrote.
 Existing read leases expire within five minutes.
 The matching monthly S3 folders can then be removed from each dataset.
 Deleting a month does not affect another month's image keys.
