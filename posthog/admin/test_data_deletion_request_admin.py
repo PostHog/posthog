@@ -194,6 +194,17 @@ class TestDataDeletionRequestAdminRetry(BaseTest):
         self.assertTrue(request.approved)
         self.assertEqual(request.attempt_count, 2)
 
+    def test_retry_view_rejects_query_backed_request(self):
+        request = self._failed_request()
+        request.request_type = RequestType.HOGQL_EVENT_REMOVAL
+        request.save(update_fields=["request_type"])
+
+        response = self._call_retry("POST", request)
+
+        self.assertEqual(response.status_code, 302)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.FAILED)
+
     def test_retry_view_get_does_not_change_status(self):
         request = self._failed_request()
         response = self._call_retry("GET", request)

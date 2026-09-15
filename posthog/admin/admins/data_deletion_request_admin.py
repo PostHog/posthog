@@ -837,6 +837,10 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             messages.error(request, "Only ClickHouse Team members can retry deletion requests.")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
+        if obj.request_type == RequestType.HOGQL_EVENT_REMOVAL:
+            messages.error(request, "Query-backed deletion requests cannot be retried yet.")
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
         # Re-promote FAILED → APPROVED so the pickup sensor relaunches the job.
         # approved_by / approved_at are preserved — the retry re-executes the same approval.
         # attempt_count and last_executed_at are bumped by the load_* op when execution actually starts.
