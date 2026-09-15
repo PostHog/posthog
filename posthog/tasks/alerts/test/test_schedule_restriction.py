@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock
 
 from posthog.tasks.alerts import schedule_restriction as schedule_restriction_module
@@ -74,7 +74,7 @@ class TestNextCheckAtAfterScheduleRestrictionChange:
         return alert
 
     def test_cleared_restriction_schedules_from_now_and_restores_existing_value(self) -> None:
-        with freeze_time("2026-04-06T14:00:00Z"):
+        with time_machine.travel("2026-04-06T14:00:00Z", tick=False):
             existing = datetime(2026, 4, 7, 18, 30, tzinfo=UTC)
             alert = self._hourly_alert(schedule_restriction=None, next_check_at=existing)
             out = next_check_at_after_schedule_restriction_change(alert)
@@ -82,7 +82,7 @@ class TestNextCheckAtAfterScheduleRestrictionChange:
             assert alert.next_check_at == existing
 
     def test_future_next_check_inside_blocked_window_snaps_to_first_unblocked_minute(self) -> None:
-        with freeze_time("2026-04-06T14:00:00Z"):
+        with time_machine.travel("2026-04-06T14:00:00Z", tick=False):
             alert = self._hourly_alert(
                 schedule_restriction={"blocked_windows": [{"start": "11:00", "end": "16:00"}]},
                 next_check_at=datetime(2026, 4, 6, 15, 30, tzinfo=UTC),
@@ -91,7 +91,7 @@ class TestNextCheckAtAfterScheduleRestrictionChange:
             assert out == datetime(2026, 4, 6, 16, 0, 0, tzinfo=UTC)
 
     def test_custom_schedule_start_time_inside_blocked_window_snaps_to_first_unblocked_minute(self) -> None:
-        with freeze_time("2026-04-06T20:00:00Z"):
+        with time_machine.travel("2026-04-06T20:00:00Z", tick=False):
             alert = self._hourly_alert(
                 schedule_restriction={"blocked_windows": [{"start": "22:00", "end": "07:00"}]},
                 schedule_start_time="22:30",
@@ -101,7 +101,7 @@ class TestNextCheckAtAfterScheduleRestrictionChange:
             assert out == datetime(2026, 4, 7, 7, 0, tzinfo=UTC)
 
     def test_does_not_keep_stale_snap_when_earlier_runs_are_allowed(self) -> None:
-        with freeze_time("2026-04-06T16:44:00Z"):
+        with time_machine.travel("2026-04-06T16:44:00Z", tick=False):
             alert = self._hourly_alert(
                 team=MagicMock(timezone="America/Toronto"),
                 schedule_restriction={"blocked_windows": [{"start": "14:00", "end": "16:00"}]},

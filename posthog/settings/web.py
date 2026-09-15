@@ -41,6 +41,7 @@ AXES_HTTP_RESPONSE_CODE = 403
 # TODO: Automatically generate these like we do for the frontend
 # NOTE: Add these definitions here and on `tach.toml`
 PRODUCTS_APPS = [
+    "products.ai_training.backend.apps.AiTrainingConfig",
     "products.analytics_platform.backend.apps.AnalyticsPlatformConfig",
     "products.early_access_features.backend.apps.EarlyAccessFeaturesConfig",
     "products.tasks.backend.apps.TasksConfig",
@@ -200,10 +201,12 @@ MIDDLEWARE = [
     "posthog.middleware.ImpersonationReadOnlyMiddleware",
     "posthog.middleware.ImpersonationBlockedPathsMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    "posthog.middleware.ActiveOrganizationMiddleware",
     "posthog.middleware.CsvNeverCacheMiddleware",
     "axes.middleware.AxesMiddleware",
     "posthog.middleware.AutoProjectMiddleware",
+    # Must stay after AutoProjectMiddleware, which switches the user into the organization a
+    # `/project/<id>` URL names. Ahead of it, the check judges the organization being left.
+    "posthog.middleware.ActiveOrganizationMiddleware",
     "posthog.middleware.CHQueries",
     "django_prometheus.middleware.PrometheusAfterMiddleware",
     "posthog.middleware.PostHogTokenCookieMiddleware",
@@ -587,6 +590,7 @@ SPECTACULAR_SETTINGS = {
             "ScannerProviderEnum": "products.replay_vision.backend.models.replay_scanner.ScannerProvider",
             # Matches replay_vision's VisionAlertState.
             "LogsAlertConfigurationStateEnum": "products.logs.backend.models.LogsAlertConfiguration.State",
+            "LogsPatternsSourceEnum": ["stored_patterns", "body_mining"],
             #
             # The published name is already derived by a different choice set, so the
             # entry holds this one apart.
@@ -660,6 +664,17 @@ SPECTACULAR_SETTINGS = {
                 "workflow_variable",
             ],
             "PropertyGroupTypeEnum": ["cohort", "person", "group"],
+            # ReportMetric and its snapshot-only list projection share this inline set.
+            "ReportMetricKindEnum": [
+                "affected_users",
+                "affected_sessions",
+                "occurrences",
+                "conversion_rate",
+                "error_rate",
+                "duration",
+                "revenue",
+                "custom",
+            ],
             "TaskRunBootstrapCreateRequestInitialPermissionModeEnum": [
                 "default",
                 "acceptEdits",
@@ -695,6 +710,7 @@ SPECTACULAR_SETTINGS = {
             ],
             "TileSpacingEnum": ["tight", "condensed", "standard", "relaxed", "wide"],
             "DataQualityCheckSeverityEnum": ["error", "warn"],
+            "DataQualityScheduleIntervalEnum": "products.data_quality.backend.facade.enums.schedule_interval_choices",
             "CanvasStateScopeEnum": ["user", "shared"],
             "CanvasKindEnum": ["freeform", "grid", "component"],
             "CanvasPlacementStatusEnum": ["pending", "generating", "live", "failed"],
@@ -1099,6 +1115,13 @@ ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS = get_list(get_from_env("ERROR_TRACK
 WORKFLOWS_WEBHOOK_SECRET = get_from_env("WORKFLOWS_WEBHOOK_SECRET", "")
 
 ####
+# Inbound webhook ingress (see posthog/ingress/)
+# Wall-clock seconds one request's consumers share. Providers give a delivery a short window
+# and mostly never retry it, so this sits under the tightest of those (GitHub's ten seconds)
+# and leaves room for verification and the response itself.
+INGRESS_DELIVERY_BUDGET_SECONDS = get_from_env("INGRESS_DELIVERY_BUDGET_SECONDS", 8.0, type_cast=float)
+
+####
 # OAuth
 
 OIDC_RSA_PRIVATE_KEY = os.getenv("OIDC_RSA_PRIVATE_KEY", "").replace("\\n", "\n")
@@ -1318,6 +1341,10 @@ WEB_ANALYTICS_TRENDS_PRECOMPUTE_TEAM_IDS: list[int] = [
 # Sized well above any realistic team; 0 disables the cap.
 WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM: int = get_from_env(
     "WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM", 1000, type_cast=int
+)
+
+WEB_ANALYTICS_ACHIEVEMENT_QUERY_MAX_CONCURRENCY: int = get_from_env(
+    "WEB_ANALYTICS_ACHIEVEMENT_QUERY_MAX_CONCURRENCY", 4, type_cast=int
 )
 
 # Cohort the weekly AI path-cleaning-suggestion job runs for. Defaults to the precompute enrollment

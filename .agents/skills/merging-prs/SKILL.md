@@ -151,6 +151,17 @@ gh pr comment <n> --body "/trunk cancel"
 
 Confirm the check run reports cancelled.
 
+## The pre-push merge queue guard
+
+A pre-push hook refuses to push a branch whose PR sits in the queue, because that push would knock the PR out.
+A PR whose batch failed and waits for a retest does not block — Trunk drops it from the queue on push, which is what you want after a failure.
+
+When the guard blocks you, leave the branch alone and put further changes on a new branch with a new PR.
+To update the queued PR on purpose, run `trunk merge cancel <n>` (or comment `/trunk cancel`), wait for it to leave the queue, then push.
+
+The check fails open — missing `gh` or `trunk`, not logged in, offline, API errors — and `TRUNK_QUEUE_PUSH_CHECK_DISABLED=1` skips it.
+`trunk login` arms it, which is why the one-time interactive login is worth running even if you prefer the PR comments.
+
 ## Hard rules
 
 - **Never** run `gh pr merge` — it's blocked and it's not how this repo merges.

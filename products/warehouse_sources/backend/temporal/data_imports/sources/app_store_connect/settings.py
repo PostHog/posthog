@@ -69,6 +69,9 @@ class AppStoreConnectEndpointConfig:
     # Column that carries the id of the `data` resource referencing each included row, so
     # the table joins back to its parent without a per-row request.
     included_parent_column: str = "parent_id"
+    # Column holding the app's id, so a "collection" endpoint can honor the source's app id
+    # filter. Unset on the account-wide collections whose rows carry no app dimension.
+    app_id_column: Optional[str] = None
     # Analytics Reports API selectors, only meaningful for the "analytics_report" kind.
     # Acceptable report names in preference order: Apple exposes most reports as separate
     # "<name> Standard" / "<name> Detailed" resources, but a few (App Crashes, App Clip
@@ -127,6 +130,7 @@ APP_STORE_CONNECT_ENDPOINTS: dict[str, AppStoreConnectEndpointConfig] = {
         kind="collection",
         primary_keys=["id"],
         path="/v1/apps",
+        app_id_column="id",
     ),
     # Every version record per app — release type, review state, release dates.
     "app_store_versions": AppStoreConnectEndpointConfig(

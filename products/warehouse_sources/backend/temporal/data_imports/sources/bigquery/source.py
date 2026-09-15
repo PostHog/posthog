@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     BIGQUERY_DATASET_NOT_FOUND_ERROR,
     BIGQUERY_INVALID_IDENTIFIER_ERROR,
     BIGQUERY_INVALID_KEY_FILE_ERROR,
+    BIGQUERY_INVALID_TOKEN_URI_ERROR,
     BIGQUERY_ON_DEMAND_RATIO_EXCEEDED_ERROR,
     BIGQUERY_RESOURCES_EXCEEDED_ERROR,
     BIGQUERY_TOKEN_RESPONSE_ERROR,
@@ -59,7 +60,14 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "PermissionDenied: 403 request failed": "BigQuery permission denied. Please check that your service account has the necessary permissions.",
+            # google-api-core raises `PermissionDenied` from the Storage Read API's
+            # `create_read_session`, whose message is the gRPC form "403 request failed: the user
+            # does not have '<permission>' permission for '<resource>'". Reading a table that way
+            # needs dataset read access and permission to open a read session on the project the
+            # read bills to, and the denial names only whichever one it hit first — so name both
+            # roles rather than leaving the customer to work out which grant is missing. Matched on
+            # the stable status wording, not the volatile permission and resource ids.
+            "PermissionDenied: 403 request failed": "BigQuery denied your service account access while reading your data. Grant it the BigQuery Data Viewer role on the dataset you're syncing and the Read Session User role on its project, then reconnect the source.",
             # OAuth2 error code returned by Google's token endpoint when the service account grant
             # is rejected — a rotated/revoked private key ("Invalid JWT Signature") or a deleted
             # service account ("account not found"). Raised as a `RefreshError` while refreshing the
@@ -75,6 +83,9 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # be repaired by retrying — the user must re-upload an intact JSON key file. Matched on the
             # stable "Unable to load PEM file" wording rather than the volatile InvalidData detail.
             "Unable to load PEM file": BIGQUERY_INVALID_KEY_FILE_ERROR,
+            # Raised before any request when the key file's token endpoint is not Google's. The key
+            # file is the problem, so retrying cannot help; the user must re-upload an unedited key.
+            BIGQUERY_INVALID_TOKEN_URI_ERROR: BIGQUERY_INVALID_TOKEN_URI_ERROR,
             # Writing query results into the `__posthog_import_...` temp tables PostHog creates
             # (`WRITE_TRUNCATE` in `_run_destination_query_with_job_retry`, on incremental / view /
             # row-filtered reads) needs write access on the dataset those tables live in. When the

@@ -44,7 +44,7 @@ from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, changes_between, load_activity
-from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.utils import UUIDT, uuid7
 from posthog.renderers import ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
@@ -63,6 +63,7 @@ from products.notebooks.backend.analytics import (
     notebook_node_count,
 )
 from products.notebooks.backend.collab import submit_steps
+from products.notebooks.backend.facade.api import to_markdown_notebook_content
 from products.notebooks.backend.facade.compute_pricing import (
     COMPUTE_PRESETS,
     DEFAULT_COMPUTE_PRESET_KEY,
@@ -70,7 +71,12 @@ from products.notebooks.backend.facade.compute_pricing import (
     find_matching_preset,
     get_compute_rates,
 )
-from products.notebooks.backend.facade.contracts import NotebookRunBusy, TeamRunCapacityFull
+from products.notebooks.backend.facade.contracts import (
+    NotebookContentNotConvertible,
+    NotebookRunBusy,
+    TeamRunCapacityFull,
+)
+from products.notebooks.backend.facade.kernel_sandbox_usage import record_sandbox_ended_by_id
 from products.notebooks.backend.facade.sql_v2 import acquire_run_slots, release_run_slots
 from products.notebooks.backend.facade.widgets import (
     WidgetConflictError,
@@ -303,7 +309,9 @@ class NotebookSerializer(NotebookMinimalSerializer):
         ]
         extra_kwargs = {
             **_NOTEBOOK_FIELD_HELP_TEXTS,
-            "content": {"help_text": "Notebook content as a ProseMirror JSON document structure."},
+            "content": {
+                "help_text": "Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook: one ph-markdown-notebook node that holds the converted markdown."
+            },
             "text_content": {"help_text": "Plain text representation of the notebook content for search."},
             "version": {
                 "help_text": "Version number for optimistic concurrency control. Must match the current version when updating content."
@@ -343,6 +351,25 @@ class NotebookSerializer(NotebookMinimalSerializer):
                 )
             validated_data["short_id"] = short_id
 
+        # Counted before conversion, so the event keeps reporting the size of the document the caller sent.
+        node_count = notebook_node_count(validated_data.get("content"))
+        # The cell tools and the editor work on markdown notebooks only, so a create never stores rich text.
+        try:
+            markdown_content = to_markdown_notebook_content(
+                validated_data.get("content"), organization_id=team.organization_id
+            )
+        except NotebookContentNotConvertible as err:
+            raise serializers.ValidationError({"content": str(err)})
+        if markdown_content is not None:
+            # validate_content counted cells before conversion, when rich text has none, so count the converted document.
+            try:
+                validate_cell_count(None, markdown_content)
+            except NotebookCellLimitExceeded as err:
+                raise serializers.ValidationError({"content": str(err)})
+            validated_data["content"] = markdown_content
+        # Search reads text_content, so it mirrors the stored markdown, as a markdown save does.
+        validated_data["text_content"] = markdown_collab.get_markdown_notebook_markdown(validated_data["content"])
+
         created_by = validated_data.pop("created_by", request.user)
         notebook = Notebook.objects.create(
             team=team,
@@ -368,7 +395,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             user=request.user,
             request=request,
             visibility=notebook.visibility,
-            node_count=notebook_node_count(notebook.content),
+            node_count=node_count,
             mcp_consumer=source_props.get("mcp_consumer"),
             api_key_type=source_props.get("api_key_type"),
         )
@@ -1258,6 +1285,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         cpu_cores = sandbox_config.cpu_cores
 
         status = runtime.status if runtime else KernelRuntime.Status.STOPPED
+        sandbox_still_running = False
         if (
             runtime
             and runtime.sandbox_id
@@ -1274,6 +1302,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     status = KernelRuntime.Status.STOPPED
             except Exception:
                 status = KernelRuntime.Status.STOPPED
+                sandbox_still_running = True
 
         if runtime and status == KernelRuntime.Status.STOPPED:
             if (
@@ -1288,6 +1317,13 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             if runtime.status != status:
                 runtime.status = status
                 runtime.save(update_fields=["status"])
+            record_sandbox_ended_by_id(
+                runtime.id,
+                team_id=runtime.team_id,
+                user_id=runtime.user_id,
+                reason=status,
+                sandbox_still_running=sandbox_still_running,
+            )
 
         # A running sandbox keeps the shape it started with, so price that rather than the
         # notebook's configuration. They differ between a resize and the restart that applies it.
@@ -2372,23 +2408,23 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     @extend_schema(operation_id="notebooks_all_activity_retrieve")
     @action(methods=["GET"], url_path="activity", detail=False)
     def all_activity(self, request: Request, **kwargs):
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        page_params = parse_activity_page_params(request)
 
-        activity_page = load_activity(scope="Notebook", team_id=self.team_id, limit=limit, page=page)
-        return activity_page_response(activity_page, limit, page, request)
+        activity_page = load_activity(
+            scope="Notebook", team_id=self.team_id, limit=page_params.limit, page=page_params.page
+        )
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
     @action(methods=["GET"], url_path="activity", detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: Request, **kwargs):
         notebook = self.get_object()
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        page_params = parse_activity_page_params(request)
 
         activity_page = load_activity(
             scope="Notebook",
             team_id=self.team_id,
             item_ids=[notebook.id, notebook.short_id],
-            limit=limit,
-            page=page,
+            limit=page_params.limit,
+            page=page_params.page,
         )
-        return activity_page_response(activity_page, limit, page, request)
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)

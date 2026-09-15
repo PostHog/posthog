@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     DEFAULT_NUMERIC_SCALE,
     BinaryColumnReporter,
     build_pyarrow_decimal_type,
+    restrict_schema_to_columns,
     table_from_iterator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
@@ -38,11 +39,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     BracketIdentifierQuoter,
     Column,
     Table,
+    TableProjection,
     ValidatedRowFilter,
     compute_projected_columns,
     format_projected_select_clause,
-    project_arrow_columns,
     render_named_conditions,
+    resolve_table_projection,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import fetch_row_batches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
@@ -363,13 +365,18 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
     # ------------------------------------------------------------------
 
     @contextmanager
-    def connect(self, config: MSSQLSourceConfig) -> Iterator[pymssql.Connection]:
+    def connect(self, config: MSSQLSourceConfig, *, team_id: int | None = None) -> Iterator[pymssql.Connection]:
         """Open a pymssql connection for the duration of the context.
 
         Opens the SSH tunnel (if configured) once, then connects with the
         MSSQL-wide conventions: 5s login timeout.
+
+        The hostname goes to pymssql as is. `pymssql.connect` takes one `server`, which FreeTDS
+        uses both to dial and as the login server name, so there is no way to dial a pinned
+        address and log in as the configured host. The tunnel layer's host check is the control
+        on this path.
         """
-        with self._ssh_tunnel_endpoint(config) as (host, port):
+        with self._ssh_tunnel_endpoint(config, team_id) as (host, port):
             with pymssql.connect(
                 server=host,
                 # pymssql requires port to be str
@@ -382,7 +389,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                 yield conn
 
     @contextmanager
-    def _ssh_tunnel_endpoint(self, config: MSSQLSourceConfig) -> Iterator[tuple[str, int]]:
+    def _ssh_tunnel_endpoint(self, config: MSSQLSourceConfig, team_id: int | None) -> Iterator[tuple[str, int]]:
         """Yield the `(host, port)` to connect to, going through the SSH tunnel if configured.
 
         Translates a bare paramiko handshake `EOFError` into `_SSH_HANDSHAKE_EOF_ERROR`. The
@@ -391,7 +398,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
         """
         with ExitStack() as stack:
             try:
-                host, port = stack.enter_context(open_ssh_tunnel(config))
+                host, port = stack.enter_context(open_ssh_tunnel(config, team_id))
             except EOFError as e:
                 raise Exception(_SSH_HANDSHAKE_EOF_ERROR) from e
             yield host, port
@@ -900,7 +907,17 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
         enabled_columns = inputs.enabled_columns
         row_filters = inputs.row_filters
 
-        with self.connect(config) as connection:
+        def _resolve_projection(
+            full_table: Table[MSSQLColumn], primary_keys: list[str] | None
+        ) -> TableProjection[MSSQLColumn]:
+            return resolve_table_projection(
+                full_table,
+                enabled_columns=enabled_columns,
+                primary_keys=primary_keys,
+                incremental_field=incremental_field,
+            )
+
+        with self.connect(config, team_id=inputs.team_id) as connection:
             with connection.cursor() as cursor:
                 primary_keys = self.get_primary_keys_for_table(cursor, schema, table_name)
                 full_table = self.get_table_metadata(cursor, schema, table_name)
@@ -909,10 +926,8 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                 if primary_keys is None and "id" in full_table:
                     primary_keys = ["id"]
 
-                projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
-                table = project_arrow_columns(full_table, projected)
-                arrow_schema = table.to_arrow_schema()
-                logger.debug(f"Source schema: {arrow_schema}")
+                setup_projection = _resolve_projection(full_table, primary_keys)
+                logger.debug(f"Source schema: {setup_projection.table.to_arrow_schema()}")
 
                 inner_query, inner_query_args = _build_query(
                     schema,
@@ -921,7 +936,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                     incremental_field,
                     incremental_field_type,
                     db_incremental_field_last_value,
-                    enabled_columns=enabled_columns,
+                    enabled_columns=setup_projection.enabled_columns,
                     primary_keys=primary_keys,
                     row_filters=row_filters,
                 )
@@ -934,9 +949,25 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                     else None
                 )
 
+        def _refreshed_projection(connection: pymssql.Connection) -> TableProjection[MSSQLColumn]:
+            """Re-read the catalog on the streaming connection, right before the read query.
+
+            A probe that fails keeps the setup projection, which is where this read would have
+            started anyway. See `resolve_table_projection` for why the read resolves again.
+            """
+            try:
+                with connection.cursor() as cursor:
+                    fresh_table = self.get_table_metadata(cursor, schema, table_name)
+            except Exception as e:
+                logger.debug(f"Could not re-read the catalog before streaming: {e}", exc_info=e)
+                return setup_projection
+            return _resolve_projection(fresh_table, primary_keys)
+
         def get_rows() -> Iterator[Any]:
             binary_reporter = BinaryColumnReporter(logger)
-            with self.connect(config) as streaming_connection:
+            with self.connect(config, team_id=inputs.team_id) as streaming_connection:
+                projection = _refreshed_projection(streaming_connection)
+                arrow_schema = projection.table.to_arrow_schema()
                 with streaming_connection.cursor() as cursor:
                     query, args = _build_query(
                         schema,
@@ -945,7 +976,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                         incremental_field,
                         incremental_field_type,
                         db_incremental_field_last_value,
-                        enabled_columns=enabled_columns,
+                        enabled_columns=projection.enabled_columns,
                         primary_keys=primary_keys,
                         row_filters=row_filters,
                     )
@@ -958,12 +989,16 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
 
                     column_names = [column[0] for column in cursor.description or []]
 
+                    # The read can still return fewer columns than the catalog listed, so restrict
+                    # the schema to what came back instead of failing the Arrow build.
+                    read_schema = restrict_schema_to_columns(arrow_schema, column_names)
+
                     for rows in fetch_row_batches(
                         cursor.fetchmany, max_rows=chunk_size, byte_bounded=inputs.byte_bounded_extraction
                     ):
                         yield table_from_iterator(
                             (dict(zip(column_names, row)) for row in rows),
-                            arrow_schema,
+                            read_schema,
                             primary_keys=primary_keys,
                             binary_reporter=binary_reporter,
                         )

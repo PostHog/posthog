@@ -27,6 +27,7 @@ from products.tasks.backend.exceptions import (
     ProcessTaskFatalError,
     SandboxExecutionError,
     SandboxMissingRepositoryError,
+    SandboxRateLimitedError,
 )
 from products.tasks.backend.logic.services.connection_token import create_sandbox_event_ingest_token
 from products.tasks.backend.logic.services.sandbox import (
@@ -551,6 +552,7 @@ def _invoke_start_agent_server(
             provider=ctx.provider,
             model=ctx.model,
             reasoning_effort=ctx.reasoning_effort,
+            service_tier=ctx.service_tier,
             context_window=ctx.context_window,
             fast_mode=ctx.fast_mode,
             initial_permission_mode=ctx.initial_permission_mode,
@@ -570,6 +572,8 @@ def _invoke_start_agent_server(
         )
         return health_duration_ms if isinstance(health_duration_ms, int) else None
 
+    except SandboxRateLimitedError:
+        raise
     except ProcessTaskError:
         if params.agentsh_domains is not None:
             _emit_agentsh_log_tail(ctx, sandbox)
@@ -942,7 +946,7 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
                             ),
                         )
                     _record_agent_server_launch(sandbox, ctx, params)
-        except Exception:
+        except Exception as error:
             if attempt > 1:
                 increment_agent_server_readiness_retry(
                     attempt,
@@ -951,9 +955,10 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
                     origin_product=ctx.origin_product,
                     runtime=runtime,
                 )
-            if agentsh_domains is not None:
-                _emit_agentsh_log_tail(ctx, sandbox)
-            _emit_agent_server_log_tail(ctx, sandbox)
+            if not isinstance(error, SandboxRateLimitedError):
+                if agentsh_domains is not None:
+                    _emit_agentsh_log_tail(ctx, sandbox)
+                _emit_agent_server_log_tail(ctx, sandbox)
             raise
 
         if attempt > 1:

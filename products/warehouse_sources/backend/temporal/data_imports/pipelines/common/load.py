@@ -341,7 +341,7 @@ async def _publish_queryable_files(
     file_uris = await delta_table_ref.get_file_uris()
     logger.debug(f"Preparing S3 files - total parquet files: {len(file_uris)}")
     with POST_LOAD_DURATION_SECONDS.labels(operation="prepare_s3").time():
-        return await prepare_s3_files_for_querying(
+        folder = await prepare_s3_files_for_querying(
             await database_sync_to_async_pool(job.folder_path)(),
             resource_name,
             file_uris,
@@ -350,6 +350,7 @@ async def _publish_queryable_files(
             logger=logger,
             refresh_file_uris=delta_table_ref.get_file_uris,
         )
+    return folder
 
 
 async def _finalize_sync_bookkeeping(
@@ -634,17 +635,20 @@ async def run_post_load_operations(
     is_initial_load = not schema.initial_sync_complete
 
     # Zero rows means the Delta table is untouched: nothing to compact, and republishing
-    # would only orphan a fresh copy of every parquet file. Registration already no-ops at
-    # zero rows. Bookkeeping and POST_LOAD_STEPS still run below, because those repair
-    # managed views and watermarks rather than describing what this run wrote. Opt-in
-    # because only the v2 pipeline's row_count is ground truth for what the run wrote; the
-    # v3 consumer's can read 0 for a batch that did write data.
+    # would only orphan a fresh copy of every parquet file. A schema with a linked table
+    # has nothing to repoint either. Bookkeeping and POST_LOAD_STEPS still run below,
+    # because those repair managed views and watermarks rather than describing what this
+    # run wrote. Opt-in because only the v2 pipeline's row_count is ground truth for what
+    # the run wrote; the v3 consumer's can read 0 for a batch that did write data.
     if (
         allow_zero_row_skip
         and row_count == 0
         and not is_cdc_schema
         and not is_cdc_companion
         and schema.initial_sync_complete
+        # An unlinked schema has nothing queryable, and skipping registration strands it: the next
+        # zero-row run skips again.
+        and schema.table_id is not None
         and schema.repartition_pending is None
         and schema.repartition_swap is None
         and schema.delta_revive_required is None

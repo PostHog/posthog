@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBook, IconCheck, IconPencil, IconPlusSmall, IconRefresh, IconTrash, IconX } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonCollapse, LemonDialog, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconBook, IconPencil, IconPlusSmall, IconRefresh, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonInput, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -12,17 +12,14 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { BusinessKnowledgeTabs } from '../components/BusinessKnowledgeTabs'
 import { CreateKnowledgeSourceModal } from '../components/CreateKnowledgeSourceModal'
 import { EditKnowledgeSourceModal } from '../components/EditKnowledgeSourceModal'
+import { KnowledgeSourceNameCell } from '../components/KnowledgeSourceNameCell'
 import { RefreshStatusCell } from '../components/RefreshStatusCell'
 import { StatusTag } from '../components/StatusTag'
 import { businessKnowledgeEmptyState } from '../emptyState/businessKnowledgeEmptyState'
-import {
-    type AggregatedGap,
-    KnowledgeSource,
-    REFRESH_INTERVAL_OPTIONS,
-    businessKnowledgeLogic,
-} from './businessKnowledgeLogic'
+import { KnowledgeSource, REFRESH_INTERVAL_OPTIONS, businessKnowledgeLogic } from './businessKnowledgeLogic'
 
 export const scene: SceneExport = {
     component: BusinessKnowledgeScene,
@@ -33,9 +30,9 @@ export const scene: SceneExport = {
 
 export function BusinessKnowledgeScene(): JSX.Element {
     const isEnabled = useFeatureFlag('PRODUCT_BUSINESS_KNOWLEDGE')
-    const { sources, sourcesLoading, readyCount, totalChunks, refreshingIds, gapSuggestions, gapSuggestionsLoading } =
+    const { sources, sourcesLoading, readyCount, totalChunks, refreshingIds, searchTerm, sourceTypeFilter } =
         useValues(businessKnowledgeLogic)
-    const { openCreateModal, openEditModal, deleteSource, refreshSource, acceptGapSuggestion, dismissGapSuggestion } =
+    const { openCreateModal, openEditModal, deleteSource, refreshSource, setSearchTerm, setSourceTypeFilter } =
         useActions(businessKnowledgeLogic)
 
     if (!isEnabled) {
@@ -54,6 +51,7 @@ export function BusinessKnowledgeScene(): JSX.Element {
                     </LemonButton>
                 }
             />
+            <BusinessKnowledgeTabs activeTab="sources" />
 
             <div className="flex gap-4 text-sm text-muted mb-2">
                 <span>{readyCount} ready</span>
@@ -61,18 +59,30 @@ export function BusinessKnowledgeScene(): JSX.Element {
                 <span>{totalChunks.toLocaleString()} chunks indexed</span>
             </div>
 
-            {gapSuggestions.length > 0 && (
-                <GapSuggestionsPanel
-                    suggestions={gapSuggestions}
-                    loading={gapSuggestionsLoading}
-                    onAccept={acceptGapSuggestion}
-                    onDismiss={dismissGapSuggestion}
+            <div className="flex gap-2 items-center mb-2">
+                <LemonInput
+                    type="search"
+                    placeholder="Search by name or URL"
+                    value={searchTerm}
+                    onChange={setSearchTerm}
+                    className="max-w-80"
                 />
-            )}
+                <LemonSelect
+                    value={sourceTypeFilter}
+                    onChange={setSourceTypeFilter}
+                    options={[
+                        { value: 'all', label: 'All types' },
+                        { value: 'text', label: 'Text' },
+                        { value: 'url', label: 'URL' },
+                        { value: 'file', label: 'File' },
+                    ]}
+                />
+            </div>
 
             <LemonTable<KnowledgeSource>
                 dataSource={sources}
                 loading={sourcesLoading}
+                pagination={{ pageSize: 20 }}
                 rowKey={(row) => row.id}
                 onRow={(row) => ({
                     onClick: () => openEditModal(row),
@@ -82,33 +92,7 @@ export function BusinessKnowledgeScene(): JSX.Element {
                     {
                         title: 'Name',
                         key: 'name',
-                        render: (_, row) => (
-                            <div className="flex flex-col">
-                                <span className="flex items-center gap-1">
-                                    <strong>{row.name}</strong>
-                                    {row.has_unsafe_documents ? (
-                                        <LemonTag
-                                            type="danger"
-                                            title="One or more documents were flagged unsafe by the content classifier and are excluded from agent search."
-                                        >
-                                            unsafe content
-                                        </LemonTag>
-                                    ) : null}
-                                </span>
-                                {row.source_type === 'url' && row.source_url ? (
-                                    <Link
-                                        to={row.source_url}
-                                        target="_blank"
-                                        className="text-xs text-muted truncate"
-                                        onClick={(e) => e.stopPropagation()}
-                                    >
-                                        {row.source_url}
-                                    </Link>
-                                ) : row.source_type === 'file' && row.original_filename ? (
-                                    <span className="text-xs text-muted truncate">{row.original_filename}</span>
-                                ) : null}
-                            </div>
-                        ),
+                        render: (_, row) => <KnowledgeSourceNameCell source={row} />,
                     },
                     {
                         title: 'Type',
@@ -190,79 +174,15 @@ export function BusinessKnowledgeScene(): JSX.Element {
                         ),
                     },
                 ]}
-                emptyState="No knowledge sources yet. Click 'Add source' to index your first."
+                emptyState={
+                    searchTerm || sourceTypeFilter !== 'all'
+                        ? 'No sources match your search or filter.'
+                        : "No knowledge sources yet. Click 'Add source' to index your first."
+                }
             />
 
             <CreateKnowledgeSourceModal refreshIntervalOptions={REFRESH_INTERVAL_OPTIONS} />
             <EditKnowledgeSourceModal refreshIntervalOptions={REFRESH_INTERVAL_OPTIONS} />
         </SceneContent>
-    )
-}
-
-function GapSuggestionsPanel({
-    suggestions,
-    loading,
-    onAccept,
-    onDismiss,
-}: {
-    suggestions: AggregatedGap[]
-    loading: boolean
-    onAccept: (normalizedTopic: string, topic: string) => void
-    onDismiss: (normalizedTopic: string) => void
-}): JSX.Element {
-    return (
-        <LemonCollapse
-            className="mb-4"
-            panels={[
-                {
-                    key: 'gap_suggestions',
-                    header: (
-                        <span className="flex items-center gap-1">
-                            Suggested additions
-                            <LemonTag type="highlight" size="small">
-                                {suggestions.length}
-                            </LemonTag>
-                        </span>
-                    ),
-                    content: loading ? (
-                        <div className="text-muted text-sm p-2">Loading suggestions...</div>
-                    ) : (
-                        <div className="space-y-2">
-                            <p className="text-muted text-xs">
-                                Topics customers asked about that the AI couldn't answer from your knowledge base.
-                                Accept to create a source, or dismiss.
-                            </p>
-                            {suggestions.map((gap) => (
-                                <LemonCard key={gap.normalized_topic} className="flex items-center justify-between p-3">
-                                    <div className="flex-1 min-w-0">
-                                        <div className="font-medium truncate">{gap.topic}</div>
-                                        <div className="text-xs text-muted">
-                                            {gap.ticket_count} ticket{gap.ticket_count !== 1 ? 's' : ''}
-                                        </div>
-                                    </div>
-                                    <div className="flex gap-1 ml-2">
-                                        <LemonButton
-                                            size="small"
-                                            type="primary"
-                                            icon={<IconCheck />}
-                                            tooltip="Accept — create a source for this topic"
-                                            onClick={() => onAccept(gap.normalized_topic, gap.topic)}
-                                        >
-                                            Accept
-                                        </LemonButton>
-                                        <LemonButton
-                                            size="small"
-                                            icon={<IconX />}
-                                            tooltip="Dismiss"
-                                            onClick={() => onDismiss(gap.normalized_topic)}
-                                        />
-                                    </div>
-                                </LemonCard>
-                            ))}
-                        </div>
-                    ),
-                },
-            ]}
-        />
     )
 }

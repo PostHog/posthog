@@ -164,21 +164,27 @@ Escalating to the next rung is the last resort, not the default.
     pending on the next line. Test setup may shorten internal delays without changing
     production behavior.
 - **No `time.sleep` / arbitrary waits.** A sleep is a flake waiting to happen, and it
-  slows every run. Replace it with the matching control above or `freeze_time`.
+  slows every run. Replace it with the matching control above or `time_machine.travel`.
 - **An absolute date in a test is a time bomb until you pin the clock.**
   A fixture date keeps its meaning only while the real clock stays where you left it.
   If anything under test measures that date against `now` — an age, a window, a "recent" flag, an expiry — the assertion holds today and fails some weeks later, on every open branch at once.
   Pinning a date into application state is not pinning the clock: a test that sets an "evaluated at" value to a fixed instant, and leaves the wall clock real, still fails when real time drifts past the window, because the code re-reads `now` and the two stop agreeing.
-  Pin the process clock to the instant the fixtures speak in — `freeze_time` in Python, `jest.useFakeTimers()` with `jest.setSystemTime()` in Jest, released by `jest.useRealTimers()` in a `finally` — or write the fixture relative to `now` (`now - 2 days`), so the distance is what the test states.
+  Pin the process clock to the instant the fixtures speak in — `time_machine.travel(..., tick=False)` in Python, `jest.useFakeTimers()` with `jest.setSystemTime()` in Jest, released by `jest.useRealTimers()` in a `finally` — or write the fixture relative to `now` (`now - 2 days`), so the distance is what the test states.
   Pinning the clock covers only what reads it inside your process; the next rule covers the rest.
-  Ask this of every absolute date in a test, not only of an explicit `freeze_time`: _what does this assert when today is a year past it?_ If the answer is not "the same thing", fix it before you commit.
+  Ask this of every absolute date in a test, not only of an explicit frozen clock: _what does this assert when today is a year past it?_ If the answer is not "the same thing", fix it before you commit.
 - **A frozen clock doesn't freeze the infrastructure.**
-  `freeze_time` patches the clock inside your process; everything outside it still runs on the real one — ClickHouse TTL, Postgres `now()` defaults, S3 lifecycle rules, another service's token-expiry check.
+  `time_machine.travel` patches the clock inside your process; everything outside it still runs on the real one — ClickHouse TTL, Postgres `now()` defaults, S3 lifecycle rules, another service's token-expiry check.
   So freezing to an absolute date and then writing rows that something judges by age builds a **time bomb**: green for weeks, then red forever once wall-clock time drifts past the retention window.
   It fails on every branch at once, so it reads as though whichever PR is in front of you caused it — and that misattribution, not the fix, is where the time goes.
   Most ClickHouse tables are already safe: they build their TTL through `ttl_period()` ([`posthog/clickhouse/kafka_engine.py`](../../../posthog/clickhouse/kafka_engine.py)), which returns `""` under `settings.TEST`, so tests get no TTL at all.
   A table that hardcodes its `TTL` clause opts out of that guard — `ai_events` is one. Check rather than assume: `grep -rlE '^\s*TTL ' posthog/models/ posthog/clickhouse/ --include=*.py`.
   Make the row's lifetime independent of the ambient clock instead — pin the retention column on insert, the way `bulk_create_ai_events` writes `retention_days=10000`. Moving the frozen date forward only resets the timer.
+- **Two writes in a row are not ordered in time.**
+  Don't derive a cutoff from one write's recorded timestamp and expect the next write to land after it.
+  Clocks are coarser than they look: library timestamps are milliseconds, and on Linux file mtimes come from the kernel's coarse clock, which lags the in-process clock by a scheduler tick.
+  The library may also read a different clock than the one you sampled — delta-rs time travel resolves a datetime against the `_delta_log` commit files' mtimes, not the `timestamp` that `DeltaTable.history()` reports.
+  Such a test passes on macOS and fails every rerun on a fast Linux runner, so retries don't save it and it blames whichever PR is in the merge queue.
+  Set the times yourself — `os.utime` on the file, an explicit `created_at` on the row — minutes apart, and pick a cutoff between them. That is also the production shape, where the two events are seconds apart.
 - **No real network / live external services.** Mock the boundary.
 - **No cross-test ordering.**
   Tests must pass in any order and in isolation; don't rely on state a previous test left behind.

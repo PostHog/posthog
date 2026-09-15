@@ -94,6 +94,17 @@ def _identified_users_and_clause() -> str:
     return " AND person.is_identified" if IDENTIFIED_USERS_ONLY else ""
 
 
+# The product's own output event. Every live cadence writes one per scored person, so an
+# activity scan that counted it would keep a person eligible forever on nothing but their
+# own predictions, and would count the prediction as the first or last thing they did.
+PREDICTION_EVENT_NAME = "autoresearch_prediction"
+
+
+def _own_events_excluded_clause(alias: str = "") -> str:
+    """`AND event != '<prediction event>'` fragment for an events-table WHERE; pass ``"e."`` for an aliased scan."""
+    return f" AND {alias}event != '{PREDICTION_EVENT_NAME}'"
+
+
 @dataclass(frozen=True, kw_only=True)
 class _CompiledPopulationFilters:
     # Row-level fragments for an events scan whose ``person`` resolves through the lazy join.
@@ -248,7 +259,7 @@ def _members_within(instant: str, days_param: str, *, predicate: str = "", negat
     return (
         f"person_id {membership} (SELECT DISTINCT person_id FROM events"
         f" WHERE timestamp >= {instant} - toIntervalDay({{{days_param}}})"
-        f" AND timestamp < {instant}{predicate})"
+        f" AND timestamp < {instant}{_own_events_excluded_clause()}{predicate})"
     )
 
 
@@ -501,7 +512,7 @@ def _build_labeled_users_cte(
                 toInt(toUnixTimestamp(now() - toIntervalDay({{horizon}}))) AS cutoff_ts
             FROM events
             WHERE timestamp >= now() - toIntervalDay({{lookback}})
-              AND timestamp < now(){training_clause}{identified_clause}
+              AND timestamp < now(){_own_events_excluded_clause()}{training_clause}{identified_clause}
             GROUP BY person_id
             HAVING first_ts < cutoff_ts{limit_clause}
         ),
@@ -525,7 +536,7 @@ def _build_labeled_users_cte(
             FROM events e
             INNER JOIN user_t0 u ON e.person_id = u.person_id
             WHERE e.timestamp >= now() - toIntervalDay({{lookback}})
-              AND e.timestamp < now()
+              AND e.timestamp < now(){_own_events_excluded_clause("e.")}
             GROUP BY u.person_id, u.t0_ts{anchor_having}
         )
     """
@@ -620,7 +631,7 @@ def build_eligible_count_sql(
             countDistinctIf(person_id, {horizon_cond}) AS eligible_all
         FROM events
         WHERE timestamp >= now() - toIntervalDay({{lookback}})
-          AND timestamp < now(){training_clause}
+          AND timestamp < now(){_own_events_excluded_clause()}{training_clause}
     """
     values: dict[str, Any] = {
         "horizon": horizon_days,
@@ -680,7 +691,7 @@ def build_inference_anchors_sql(
             {cutoff_select} AS cutoff_ts
         FROM events
         WHERE timestamp >= {cutoff_expr} - toIntervalDay({{lookback}})
-          AND timestamp < {cutoff_expr}{inf_clause}{identified_clause}
+          AND timestamp < {cutoff_expr}{_own_events_excluded_clause()}{inf_clause}{identified_clause}
     """
     values: dict[str, Any] = {
         "lookback": lookback_days,

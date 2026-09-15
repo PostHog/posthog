@@ -280,6 +280,15 @@ pub struct Config {
     #[envconfig(default = "posthog_person")]
     pub fallback_table: String,
 
+    /// Saga state tables the fence checks read (the takeover scan, the mark
+    /// verifications, the ghost-fence healer). Must be the pair identity
+    /// writes: its LIFECYCLE_OP_TABLE and LIFECYCLE_OP_PERSON_TABLE.
+    #[envconfig(default = "lifecycle_op")]
+    pub lifecycle_op_table: String,
+
+    #[envconfig(default = "lifecycle_op_person")]
+    pub lifecycle_op_person_table: String,
+
     #[envconfig(default = "5")]
     pub fallback_pg_max_connections: u32,
 

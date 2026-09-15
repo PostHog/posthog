@@ -61,6 +61,15 @@ _UNENCRYPTED_KEY_WITH_PASSPHRASE_MESSAGE = (
     "Remove the passphrase, or paste your encrypted private key, then {action}"
 )
 
+# Shown when `validate_credentials` hits a transient connect blip (see `get_retryable_errors`). The
+# sync path retries such a blip quietly, but interactive validation has nothing to retry
+# automatically, so it tells the user it was a brief blip and to try again rather than capturing it
+# as an unexpected bug or claiming their (correct) connection details are wrong.
+_TRANSIENT_CONNECTION_MESSAGE = (
+    "Could not reach Snowflake while checking your credentials. This is usually a brief network or "
+    "service blip rather than a configuration problem. Please try again."
+)
+
 # Snowflake rejects the login (250001 / 08001) when the account enforces multi-factor auth for the
 # connecting user. The server phrases this several ways, and the bare "MFA authentication is
 # required" variant carries the account host and vendor codes, so it must not reach the customer
@@ -365,6 +374,14 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # so Temporal-level retries will eventually succeed. The attempt count is volatile, so we
             # match the stable prefix.
             "Could not connect to Snowflake backend after",
+            # requests (vendored by the connector) raises ChunkedEncodingError when the peer resets
+            # the TCP connection (ECONNRESET) while streaming a query result's chunked HTTP response
+            # body. This happens after the connector's own request-retry wrapper has already handed
+            # back the response object, so it isn't covered by that retry budget. A fresh Temporal-level
+            # retry opens a new connection and re-executes the query from scratch, which recovers
+            # cleanly, so this is a self-recovering network blip rather than a bug. The errno and OS-
+            # specific wrapping vary, so we match the stable requests-library wrapper phrase.
+            "Connection broken: ConnectionResetError",
         }
 
     def reconcile_schema_metadata(
@@ -403,6 +420,13 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             for key, value in SnowflakeErrors.items():
                 if key in error_msg:
                     return False, value
+
+            # A transient connect blip is not a credential or config problem, so classify it the way
+            # the sync path does (`get_retryable_errors`) and surface a "try again" message instead of
+            # capturing it as an unexpected bug. Mirrors `planetscale_mysql`'s validate_credentials.
+            for pattern in self.get_retryable_errors():
+                if pattern in error_msg:
+                    return False, _TRANSIENT_CONNECTION_MESSAGE
 
             capture_exception(e)
             return False, "Could not connect to Snowflake. Please check all connection details are valid."

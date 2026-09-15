@@ -44,6 +44,10 @@ from posthog.temporal.data_modeling.activities.materialize_view import (
     get_s3_client,
     hogql_table,
 )
+from posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse import (
+    ManagedWarehouseShadowInputs,
+    materialize_view_managed_warehouse_activity,
+)
 from posthog.temporal.data_modeling.activities.notify_materialization_failure import _SavedQueryViewers
 
 from products.customer_analytics.backend.facade.temporal import stage_warehouse_account_property_files_activity
@@ -75,7 +79,14 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
 
 async def _make_job(
-    ateam, saved_query, status, *, engine=DataModelingJobEngine.CLICKHOUSE, error=None, parent_workflow_id=None
+    ateam,
+    saved_query,
+    status,
+    *,
+    engine=DataModelingJobEngine.CLICKHOUSE,
+    error=None,
+    parent_workflow_id=None,
+    manually_triggered_by=None,
 ):
     return await database_sync_to_async(DataModelingJob.objects.create)(
         team=ateam,
@@ -84,15 +95,54 @@ async def _make_job(
         engine=engine,
         error=error,
         parent_workflow_id=parent_workflow_id,
+        manually_triggered_by=manually_triggered_by,
     )
 
 
+class TestMaterializeViewManagedWarehouseActivity:
+    async def test_records_failure_against_the_job_engine(self, activity_environment, ateam, anode, ajob, adag):
+        ajob.engine = DataModelingJobEngine.LEGACY_DUCKGRES
+        await database_sync_to_async(ajob.save)(update_fields=["engine"])
+        inputs = ManagedWarehouseShadowInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(ajob.id),
+            dangerously_execute_raw_sql=True,
+        )
+
+        with (
+            unittest.mock.patch(
+                "products.managed_warehouse.backend.facade.client.execute_ducklake_create_table",
+                side_effect=RuntimeError("materialization failed"),
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse.maybe_suspend_node_for_engine",
+                new_callable=unittest.mock.AsyncMock,
+                return_value=False,
+            ) as mock_maybe_suspend,
+        ):
+            await activity_environment.run(materialize_view_managed_warehouse_activity, inputs)
+
+        mock_maybe_suspend.assert_awaited_once()
+        assert mock_maybe_suspend.await_args is not None
+        assert mock_maybe_suspend.await_args.kwargs["engine"] == DataModelingJobEngine.LEGACY_DUCKGRES
+
+
 class TestCreateDataModelingJobActivity:
-    async def test_creates_job_with_running_status(self, activity_environment, ateam, auser, anode, asaved_query, adag):
+    @pytest.mark.parametrize("with_runner", [True, False])
+    async def test_creates_job_with_running_status(
+        self, activity_environment, ateam, auser, anode, asaved_query, adag, aorganization, with_runner
+    ):
+        # These tests share a database, so the emails have to be unique per run.
+        runner = await database_sync_to_async(User.objects.create_and_join)(
+            aorganization, f"runner-{uuid4()}@posthog.com", None
+        )
         inputs = CreateDataModelingJobInputs(
             team_id=ateam.pk,
             node_id=str(anode.id),
             dag_id=str(adag.id),
+            manually_triggered_by_id=runner.pk if with_runner else None,
         )
         with unittest.mock.patch("temporalio.activity.info") as mock_info:
             mock_info.return_value.workflow_id = "test-workflow-id"
@@ -106,7 +156,9 @@ class TestCreateDataModelingJobActivity:
         assert job.saved_query_id == asaved_query.id
         assert job.workflow_id == "test-workflow-id"
         assert job.workflow_run_id == "test-run-id"
+        # The person who wrote the view is not the person who started this run.
         assert job.created_by_id == auser.id
+        assert job.manually_triggered_by_id == (runner.pk if with_runner else None)
 
 
 class TestFailMaterializationActivity:
@@ -201,23 +253,26 @@ class TestFailMaterializationActivity:
         assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
 
     @pytest.mark.parametrize(
-        "previous_status,parent_workflow_id,expect_email,expect_in_app",
+        "previous_status,parent_workflow_id,with_runner,expect_email,expect_in_app",
         [
-            (None, None, True, True),
-            (DataModelingJob.Status.COMPLETED, None, True, True),
-            (DataModelingJob.Status.FAILED, None, False, True),
-            (DataModelingJob.Status.FAILED, "execute-dag-workflow", False, False),
+            (None, None, True, True, True),
+            (DataModelingJob.Status.COMPLETED, None, True, True, True),
+            (DataModelingJob.Status.FAILED, None, True, False, True),
+            (DataModelingJob.Status.FAILED, None, False, False, True),
+            (DataModelingJob.Status.FAILED, "execute-dag-workflow", True, False, False),
         ],
     )
     async def test_emails_at_streak_start_and_notifies_in_app_on_every_manual_run(
         self,
         activity_environment,
         ateam,
+        auser,
         anode,
         asaved_query,
         adag,
         previous_status,
         parent_workflow_id,
+        with_runner,
         expect_email,
         expect_in_app,
     ):
@@ -225,7 +280,11 @@ class TestFailMaterializationActivity:
             error = "boom" if previous_status == DataModelingJob.Status.FAILED else None
             await _make_job(ateam, asaved_query, previous_status, error=error)
         current_job = await _make_job(
-            ateam, asaved_query, DataModelingJob.Status.RUNNING, parent_workflow_id=parent_workflow_id
+            ateam,
+            asaved_query,
+            DataModelingJob.Status.RUNNING,
+            parent_workflow_id=parent_workflow_id,
+            manually_triggered_by=auser if with_runner else None,
         )
 
         inputs = FailMaterializationInputs(
@@ -250,9 +309,15 @@ class TestFailMaterializationActivity:
             mock_create.assert_called_once()
             data = mock_create.call_args.args[0]
             assert data.notification_type == NotificationType.MATERIALIZATION_FAILURE
-            assert data.priority == Priority.CRITICAL
-            assert data.target_id == str(ateam.pk)
             assert data.resource_id == str(asaved_query.id)
+            if with_runner:
+                assert data.target_type == TargetType.USER
+                assert data.target_id == str(auser.pk)
+                assert data.priority == Priority.CRITICAL
+            else:
+                assert data.target_type == TargetType.TEAM
+                assert data.target_id == str(ateam.pk)
+                assert data.priority == Priority.NORMAL
         else:
             mock_create.assert_not_called()
 
@@ -348,6 +413,36 @@ class TestFailMaterializationActivity:
 
         assert allowed.id in resolved
         assert denied.id not in resolved
+
+    async def test_notification_resolver_drops_a_named_user_who_left_the_project(
+        self, activity_environment, ateam, asaved_query, aorganization
+    ):
+        # These tests share a database, so the emails have to be unique per run.
+        member = await database_sync_to_async(User.objects.create_and_join)(
+            aorganization, f"member-{uuid4()}@posthog.com", None
+        )
+        outsider = await database_sync_to_async(User.objects.create_user)(
+            f"outsider-{uuid4()}@posthog.com", None, "Outsider"
+        )
+
+        class FakeAccess:
+            def __init__(self, user, team):
+                pass
+
+            is_organization_admin = False
+
+            def check_access_level_for_object(self, obj, required_level):
+                return True
+
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.notify_materialization_failure.UserAccessControl", FakeAccess
+        ):
+            resolve = database_sync_to_async(_SavedQueryViewers(asaved_query).resolve)
+            kept = await resolve(TargetType.USER, str(member.pk), ateam.pk)
+            dropped = await resolve(TargetType.USER, str(outsider.pk), ateam.pk)
+
+        assert kept == [member.pk]
+        assert dropped == []
 
     async def test_a_child_of_a_dag_run_leaves_the_in_app_notification_to_its_parent(
         self, activity_environment, ateam, anode, asaved_query, adag
@@ -456,7 +551,7 @@ class TestNodeSuspension:
         assert suspended is True
         await database_sync_to_async(anode.refresh_from_db)()
         assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
-        assert is_node_suspended(anode, DataModelingJobEngine.DUCKGRES) is False
+        assert is_node_suspended(anode, DataModelingJobEngine.MANAGED_WAREHOUSE) is False
         await database_sync_to_async(job.refresh_from_db)()
         assert ("has been suspended" in job.error) is enforced
 
@@ -469,6 +564,7 @@ class TestNodeSuspension:
         [
             "Code: 202. DB::Exception: Too many simultaneous queries",
             "Cannot connect to host ch-offline.example.com:8443",
+            'ProxyConnectionError: Failed to connect to proxy URL: "http://proxy.example.com:3128/"',
             "Abandoned: the materialization workflow is no longer running",
             "QueueEmpty: Application error",
             "Preempted: a new DAG run started before this job completed",
@@ -505,7 +601,7 @@ class TestNodeSuspension:
         for job in jobs:
             await database_sync_to_async(job.delete)()
 
-    @pytest.mark.parametrize("identifier", ["Preempted", "QueueEmpty"])
+    @pytest.mark.parametrize("identifier", ["Preempted", "QueueEmpty", "ProxyConnectionError"])
     async def test_suspends_when_a_customer_identifier_spells_an_abort_marker(
         self, ateam, anode, asaved_query, adag, identifier
     ):
@@ -706,7 +802,7 @@ class TestNodeSuspension:
     async def test_does_not_resuspend_on_failures_from_before_a_resume(self, ateam, anode, asaved_query, adag):
         from posthog.temporal.data_modeling.activities.utils import is_node_suspended, maybe_suspend_node_for_engine
 
-        from products.data_modeling.backend.facade.api import resume_nodes
+        from products.data_modeling.backend.facade.api import unsuspend_nodes
 
         jobs = [await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom") for _ in range(5)]
         first_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom")
@@ -722,7 +818,7 @@ class TestNodeSuspension:
         )
 
         await database_sync_to_async(anode.refresh_from_db)()
-        await database_sync_to_async(resume_nodes)([anode], by="query_edit")
+        await database_sync_to_async(unsuspend_nodes)([anode], by="query_edit")
 
         next_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom again")
         jobs.append(next_job)
@@ -749,12 +845,20 @@ class TestNodeSuspension:
 
         jobs = [
             await _make_job(
-                ateam, asaved_query, DataModelingJob.Status.FAILED, engine=DataModelingJobEngine.DUCKGRES, error="boom"
+                ateam,
+                asaved_query,
+                DataModelingJob.Status.FAILED,
+                engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
+                error="boom",
             )
             for _ in range(5)
         ]
         job = await _make_job(
-            ateam, asaved_query, DataModelingJob.Status.FAILED, engine=DataModelingJobEngine.DUCKGRES, error="boom"
+            ateam,
+            asaved_query,
+            DataModelingJob.Status.FAILED,
+            engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
+            error="boom",
         )
         jobs.append(job)
 
@@ -767,10 +871,10 @@ class TestNodeSuspension:
             "job_id": str(job.id),
         }
         assert await maybe_suspend_node_for_engine(engine=DataModelingJobEngine.CLICKHOUSE, **kwargs) is False
-        assert await maybe_suspend_node_for_engine(engine=DataModelingJobEngine.DUCKGRES, **kwargs) is True
+        assert await maybe_suspend_node_for_engine(engine=DataModelingJobEngine.MANAGED_WAREHOUSE, **kwargs) is True
 
         await database_sync_to_async(anode.refresh_from_db)()
-        assert is_node_suspended(anode, DataModelingJobEngine.DUCKGRES) is True
+        assert is_node_suspended(anode, DataModelingJobEngine.MANAGED_WAREHOUSE) is True
         assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is False
         # shadow-engine suspension must not stamp customer digest language onto the job
         await database_sync_to_async(job.refresh_from_db)()
@@ -788,16 +892,19 @@ class TestNodeSuspension:
         )
 
         mark_node_suspended(anode, engine=DataModelingJobEngine.CLICKHOUSE, reason="x", job_id="j1")
-        mark_node_suspended(anode, engine=DataModelingJobEngine.DUCKGRES, reason="y", job_id="j2")
+        mark_node_suspended(anode, engine=DataModelingJobEngine.MANAGED_WAREHOUSE, reason="y", job_id="j2")
         await database_sync_to_async(anode.save)()
 
         cleared = await clear_node_suspension_for_engine(
-            node_id=str(anode.id), team_id=ateam.pk, dag_id=str(adag.id), engine=DataModelingJobEngine.DUCKGRES
+            node_id=str(anode.id),
+            team_id=ateam.pk,
+            dag_id=str(adag.id),
+            engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
         )
 
         assert cleared is True
         await database_sync_to_async(anode.refresh_from_db)()
-        assert is_node_suspended(anode, DataModelingJobEngine.DUCKGRES) is False
+        assert is_node_suspended(anode, DataModelingJobEngine.MANAGED_WAREHOUSE) is False
         assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
 
 
@@ -856,7 +963,7 @@ class TestSucceedMaterializationActivity:
         from posthog.temporal.data_modeling.activities.utils import is_node_suspended, mark_node_suspended
 
         mark_node_suspended(anode, engine=DataModelingJobEngine.CLICKHOUSE, reason="x", job_id="old")
-        mark_node_suspended(anode, engine=DataModelingJobEngine.DUCKGRES, reason="y", job_id="old")
+        mark_node_suspended(anode, engine=DataModelingJobEngine.MANAGED_WAREHOUSE, reason="y", job_id="old")
         await database_sync_to_async(anode.save)()
 
         inputs = SucceedMaterializationInputs(
@@ -871,7 +978,7 @@ class TestSucceedMaterializationActivity:
 
         await database_sync_to_async(anode.refresh_from_db)()
         assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is False
-        assert is_node_suspended(anode, DataModelingJobEngine.DUCKGRES) is True
+        assert is_node_suspended(anode, DataModelingJobEngine.MANAGED_WAREHOUSE) is True
 
     @pytest.mark.parametrize("edited_after_the_run_started", [False, True])
     async def test_success_clears_modified_only_when_the_run_started_after_the_edit(
@@ -1067,13 +1174,21 @@ class TestPrepareQueryableTableActivity:
             assert warehouse_table.row_count == 250
         await database_sync_to_async(warehouse_table.delete)()
 
-    async def test_retypes_view_node_to_matview_once_a_table_is_linked(
-        self, activity_environment, ateam, asaved_query, anode, ajob
+    @pytest.mark.parametrize(
+        "is_materialized,expected_type",
+        [(True, NodeType.MAT_VIEW), (False, NodeType.VIEW)],
+    )
+    async def test_linking_a_table_retypes_the_node_only_while_the_query_asks_to_materialize(
+        self, activity_environment, ateam, asaved_query, anode, ajob, is_materialized, expected_type
     ):
-        # revert_materialization leaves the node typed VIEW; every scheduled DAG run then treats
-        # it as ephemeral and skips materialization without recording a job.
+        # A node left typed VIEW is treated as ephemeral by every scheduled DAG run, which skips
+        # materialization without recording a job. Linking a table is where that gets repaired —
+        # unless the query was reverted mid-run, where retyping would resurrect a materialization
+        # the customer just turned off.
         anode.type = NodeType.VIEW
         await database_sync_to_async(anode.save)()
+        asaved_query.is_materialized = is_materialized
+        await database_sync_to_async(asaved_query.save)()
 
         inputs = PrepareQueryableTableInputs(
             team_id=ateam.pk,
@@ -1103,7 +1218,7 @@ class TestPrepareQueryableTableActivity:
             await activity_environment.run(prepare_queryable_table_activity, inputs)
 
         await database_sync_to_async(anode.refresh_from_db)()
-        assert anode.type == NodeType.MAT_VIEW
+        assert anode.type == expected_type
         await database_sync_to_async(warehouse_table.delete)()
 
 

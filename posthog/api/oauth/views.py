@@ -4,6 +4,7 @@ import hashlib
 import calendar
 from collections.abc import Iterable
 from datetime import datetime, timedelta
+from functools import wraps
 from typing import TypedDict, cast
 from urllib.parse import parse_qs, urlparse
 
@@ -61,6 +62,11 @@ from posthog.api.oauth.client_assertion import (
 from posthog.api.oauth.client_auth import verify_client_secret
 from posthog.api.oauth.mcp_resource_scopes import build_oauth_mcp_consent_context
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
+from posthog.helpers.oauth_pending_connection import (
+    PendingOAuthConnection,
+    clear_pending_oauth_connection_cookie,
+    set_pending_oauth_connection_cookie,
+)
 from posthog.llm.wizard_blocklist import GATEWAY_BEARING_SCOPES, WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
@@ -87,7 +93,7 @@ from posthog.scopes import (
 )
 from posthog.security.url_validation import has_ambiguous_authority
 from posthog.user_permissions import UserPermissions
-from posthog.utils import absolute_uri, render_template
+from posthog.utils import absolute_uri, get_instance_region, render_template
 from posthog.views import login_required
 
 logger = structlog.get_logger(__name__)
@@ -122,13 +128,18 @@ _IMPERSONATOR_CACHE_UNSET: object = object()
 STANDARD_TOKEN_ENDPOINT_PATHS = ("/oauth/token/", "/oauth/token")
 
 
+def cloud_region() -> str | None:
+    """`US` or `EU` when running on PostHog Cloud, else None."""
+    cloud = get_instance_region()
+    return cloud if cloud in ("US", "EU") else None
+
+
 def get_region_info() -> dict | None:
     """Return region metadata if running on PostHog Cloud US/EU, else None."""
-    cloud = getattr(settings, "CLOUD_DEPLOYMENT", None)
-    if cloud in ("US", "EU"):
-        region = cloud.lower()
-        return {"posthog_region": region, "posthog_base_url": settings.SITE_URL}
-    return None
+    region = cloud_region()
+    if region is None:
+        return None
+    return {"posthog_region": region.lower(), "posthog_base_url": settings.SITE_URL}
 
 
 # The host the other PostHog Cloud region answers on, so an unknown client_id can name it.
@@ -151,13 +162,13 @@ def unknown_client_id_description(client_id: str | None) -> str:
             "Check that the URL is reachable over HTTPS and returns valid client metadata."
         )
 
-    cloud = getattr(settings, "CLOUD_DEPLOYMENT", None)
-    other_host = _OTHER_CLOUD_REGION_HOST.get(cloud or "")
+    region = cloud_region()
+    other_host = _OTHER_CLOUD_REGION_HOST.get(region or "")
     if other_host is None:
         return "No OAuth application is registered with this client_id. Check the client_id, or register the application again."
 
     return (
-        f"No OAuth application is registered with this client_id in the {cloud} region. "
+        f"No OAuth application is registered with this client_id in the {region} region. "
         f"An application belongs to the region it was created in. If you created it on {other_host}, "
         f"send the authorization request to {other_host} instead. Otherwise check the client_id."
     )
@@ -1245,6 +1256,62 @@ class OAuthValidator(OAuth2Validator):
         return scoped_teams, scoped_organizations
 
 
+def _pending_connection_for_request(request) -> PendingOAuthConnection | None:
+    """Public metadata of the application an unauthenticated authorize request names.
+
+    The application row is the source when it exists. A CIMD client seen for the first time
+    has no row yet, because the validator creates it after login, so the host of its
+    client_id URL stands in for the name until then. Any other unknown client_id yields
+    nothing, since the request fails after login anyway. The return host is taken only from
+    a redirect URI the application registered, never from the raw query.
+    """
+    client_id = request.GET.get("client_id")
+    if not client_id:
+        return None
+
+    application = (
+        OAuthApplication.objects.only("name", "client_id", "logo_uri", "redirect_uris")
+        .filter(client_id=client_id)
+        .first()
+    )
+    if application is None:
+        if not is_cimd_client_id(client_id):
+            return None
+        return PendingOAuthConnection(client_name=urlparse(client_id).hostname or client_id, client_id=client_id)
+
+    redirect_host: str | None = None
+    redirect_uri = request.GET.get("redirect_uri")
+    if redirect_uri and application.redirect_uri_allowed(redirect_uri):
+        parsed_redirect = urlparse(redirect_uri)
+        if parsed_redirect.scheme in ("http", "https"):
+            redirect_host = parsed_redirect.hostname
+
+    return PendingOAuthConnection(
+        client_name=application.name,
+        client_id=application.client_id,
+        logo_uri=application.logo_uri or None,
+        redirect_host=redirect_host,
+    )
+
+
+def _login_required_with_pending_connection(view):
+    """`login_required` that also sets the pending-connection cookie on the login redirect,
+    so the login, signup and verification screens can name the application."""
+    base_handler = login_required(view)
+
+    @wraps(view)
+    def handler(request, *args, **kwargs):
+        response = base_handler(request, *args, **kwargs)
+        is_login_redirect = response.status_code == 302 and getattr(response, "url", "").startswith(settings.LOGIN_URL)
+        if is_login_redirect:
+            connection = _pending_connection_for_request(request)
+            if connection is not None:
+                set_pending_oauth_connection_cookie(request, response, connection)
+        return response
+
+    return handler
+
+
 class OAuthAuthorizationView(OAuthLibMixin, APIView):
     """
     This view handles incoming requests to /authorize.
@@ -1357,7 +1424,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             },
         )
 
-    @method_decorator(login_required)
+    @method_decorator(_login_required_with_pending_connection)
     def get(self, request, *args, **kwargs):
         # Rate-limit new CIMD application creation by IP.
         # Must happen here (not in the OAuthValidator) because the validator
@@ -1457,7 +1524,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 )
                 self._capture_scopes_clamped(request, application, scope_str)
                 self._capture_authorization_granted(request, application, scope_str, "first_party", uri)
-                return self.redirect(uri, application)
+                return self._redirect_and_finish_connection(request, uri, application)
             except OAuthToolkitError as error:
                 return self.error_response(error, application, state=request.query_params.get("state"))
 
@@ -1491,7 +1558,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                         )
                         self._capture_scopes_clamped(request, application, scope_str)
                         self._capture_authorization_granted(request, application, scope_str, "auto_approval", uri)
-                        return self.redirect(uri, application)
+                        return self._redirect_and_finish_connection(request, uri, application)
             except OAuthToolkitError as error:
                 return self.error_response(error, application, state=request.query_params.get("state"))
 
@@ -1652,9 +1719,11 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                         **(get_region_info() or {}),
                     },
                 )
-            return self.error_response(
+            response = self.error_response(
                 error, application, no_redirect=True, state=serializer.validated_data.get("state")
             )
+            clear_pending_oauth_connection_cookie(request, response)
+            return response
 
         logger.debug("Success url for the request: %s", uri)
 
@@ -1664,12 +1733,14 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             self._capture_scopes_clamped(request, application, scopes)
             self._capture_authorization_granted(request, application, scopes, "consent", uri)
 
-        return Response(
-            {
-                "redirect_to": redirect.url,
-            },
-            status=status.HTTP_200_OK,
-        )
+        response = Response({"redirect_to": redirect.url}, status=status.HTTP_200_OK)
+        clear_pending_oauth_connection_cookie(request, response)
+        return response
+
+    def _redirect_and_finish_connection(self, request, uri: str, application: OAuthApplication) -> HttpResponse:
+        response = self.redirect(uri, application)
+        clear_pending_oauth_connection_cookie(request, response)
+        return response
 
     def redirect(self, redirect_to, application: OAuthApplication | None):
         if application is None:
