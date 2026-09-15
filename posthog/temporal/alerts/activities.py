@@ -12,7 +12,11 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.schema import AlertState
 
-from posthog.hogql.errors import TableAccessDeniedError
+from posthog.hogql.errors import (
+    QueryError,
+    SyntaxError as HogQLSyntaxError,
+    TableAccessDeniedError,
+)
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.email import is_email_available
@@ -338,6 +342,15 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                     },
                 )
                 error = {"message": str(err), "traceback": traceback.format_exc()}
+        except (QueryError, HogQLSyntaxError) as err:
+            # The query is invalid as written - most often a warehouse table the insight reads was
+            # deleted or renamed. Only the owner can fix that, so record the message on the errored
+            # check instead of capturing it, which would recur on every check until the alert is fixed.
+            # The wider ExposedHogQLError class is deliberately left out: direct SQL adapters raise
+            # the bare base class for operational failures such as an unavailable managed warehouse,
+            # a lost connection, or a query timeout, which PostHog owns and error tracking must see.
+            logger.warning("Alert failed to evaluate", alert_id=alert.id, error=str(err))
+            error = {"message": str(err)}
         except Exception as err:
             logger.exception("Alert failed to evaluate", alert_id=alert.id, exc_info=err)
             capture_exception(

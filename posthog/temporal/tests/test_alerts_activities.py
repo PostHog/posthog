@@ -22,6 +22,12 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.hogql.errors import (
+    ExposedHogQLError,
+    QueryError,
+    SyntaxError as HogQLSyntaxError,
+)
+
 from posthog.constants import AvailableFeature
 from posthog.exceptions import (
     ClickHouseAtCapacity,
@@ -533,6 +539,34 @@ class TestEvaluateAlert:
         assert notified_alert.id == alert_with_user.id
         assert "2 numeric columns" in reason
         assert targets  # the subscribed owner's email
+
+    # A deleted or renamed warehouse table, or a broken saved SQL query, fails the same way on every
+    # check. Only the owner can fix those, so the message goes on the errored check and never to
+    # error tracking, which one broken insight would otherwise flood. An operational failure of a
+    # direct SQL source arrives as the bare ExposedHogQLError and is PostHog's to fix, so it must
+    # still reach error tracking.
+    @pytest.mark.parametrize(
+        "error,expect_capture",
+        [
+            (QueryError("Unknown table `stripe_invoices`."), False),
+            (HogQLSyntaxError("mismatched input 'FROM'"), False),
+            (ExposedHogQLError("Managed warehouse is unavailable. Contact support if the problem persists."), True),
+        ],
+    )
+    async def test_evaluate_captures_only_operational_query_failures(self, alert, error, expect_capture) -> None:
+        with (
+            patch("posthog.temporal.alerts.activities.check_alert_for_insight", side_effect=error),
+            patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
+        ):
+            env = ActivityEnvironment()
+            result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
+
+        assert result.new_state == AlertState.ERRORED
+        assert mock_capture.called is expect_capture
+
+        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
+        assert check.error is not None
+        assert check.error["message"] == str(error)
 
     # Transient CH errors bubble up so Temporal's retry policy handles them.
     # Capacity errors (codes 202/439) surface as ClickHouseAtCapacity, so that's what we simulate.
