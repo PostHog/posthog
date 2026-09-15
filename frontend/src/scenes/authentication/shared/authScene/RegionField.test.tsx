@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useValues } from 'kea'
 
@@ -47,8 +47,9 @@ describe('RegionField', () => {
         const user = userEvent.setup()
         render(<RegionField />)
 
-        await user.click(screen.getByRole('button', { name: /Data region/ }))
-        await user.click(await screen.findByRole('menuitem', { name: /United States/ }))
+        await user.click(screen.getByText('Data region'))
+        const menu = (await screen.findByText('European Union')).closest('.Popover') as HTMLElement
+        await user.click(within(menu).getByText('United States'))
 
         expect(await screen.findByText('You are already on the United States region.')).toBeInTheDocument()
     })
