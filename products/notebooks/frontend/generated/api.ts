@@ -17,6 +17,10 @@ import type {
     NotebookKernelConfigResponseApi,
     NotebookKernelStatusResponseApi,
     NotebookMarkdownSaveApi,
+    NotebookRunInterruptResponseApi,
+    NotebookRunStartRequestApi,
+    NotebookRunStartResponseApi,
+    NotebookRunStatusResponseApi,
     NotebookSQLV2InterruptResponseApi,
     NotebookSQLV2RunRequestApi,
     NotebookSQLV2RunResponseApi,
@@ -397,6 +401,65 @@ export const notebooksKernelStopCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(notebookApi),
+    })
+}
+
+export const getNotebooksRunsCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/runs/`
+}
+
+/**
+ * Run every SQL and Python cell of a markdown notebook, in document order, stopping at the first cell that does not finish. Returns as soon as the run starts; poll the run status endpoint until the status is terminal. Flag-gated (revamped-py-notebooks).
+ */
+export const notebooksRunsCreate = async (
+    projectId: string,
+    shortId: string,
+    notebookRunStartRequestApi?: NotebookRunStartRequestApi,
+    options?: RequestInit
+): Promise<NotebookRunStartResponseApi> => {
+    return apiMutator<NotebookRunStartResponseApi>(getNotebooksRunsCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(notebookRunStartRequestApi),
+    })
+}
+
+export const getNotebooksRunsRetrieveUrl = (projectId: string, shortId: string, runId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/runs/${runId}/`
+}
+
+/**
+ * Read a whole-notebook run: its state, which cell it is on, and one line per planned cell. Carries no result rows — fetch a cell's result from the cell run result endpoint. Flag-gated (revamped-py-notebooks).
+ */
+export const notebooksRunsRetrieve = async (
+    projectId: string,
+    shortId: string,
+    runId: string,
+    options?: RequestInit
+): Promise<NotebookRunStatusResponseApi> => {
+    return apiMutator<NotebookRunStatusResponseApi>(getNotebooksRunsRetrieveUrl(projectId, shortId, runId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getNotebooksRunsInterruptCreateUrl = (projectId: string, shortId: string, runId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/runs/${runId}/interrupt/`
+}
+
+/**
+ * Stop a whole-notebook run and the cell it is on. Idempotent: stopping a run that already finished returns its outcome unchanged. Flag-gated (revamped-py-notebooks).
+ */
+export const notebooksRunsInterruptCreate = async (
+    projectId: string,
+    shortId: string,
+    runId: string,
+    options?: RequestInit
+): Promise<NotebookRunInterruptResponseApi> => {
+    return apiMutator<NotebookRunInterruptResponseApi>(getNotebooksRunsInterruptCreateUrl(projectId, shortId, runId), {
+        ...options,
+        method: 'POST',
     })
 }
 
