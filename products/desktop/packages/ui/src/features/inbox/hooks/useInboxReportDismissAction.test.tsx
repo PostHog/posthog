@@ -77,7 +77,7 @@ async function enterDismissal(user: ReturnType<typeof userEvent.setup>) {
     screen.getByRole("radio", { name: /Agent's analysis is wrong/ }),
   );
   await user.type(
-    screen.getByPlaceholderText("Optional: add detail"),
+    screen.getByLabelText("Details (optional)"),
     "Retain this note",
   );
   await user.click(screen.getByText("Dismiss report"));
@@ -101,7 +101,7 @@ describe("useInboxReportDismissAction", () => {
     await enterDismissal(user);
 
     await waitFor(() => expect(mocks.toastError).toHaveBeenCalled());
-    expect(screen.getByPlaceholderText("Optional: add detail")).toHaveValue(
+    expect(screen.getByLabelText("Details (optional)")).toHaveValue(
       "Retain this note",
     );
   });
@@ -119,7 +119,7 @@ describe("useInboxReportDismissAction", () => {
     await enterDismissal(user);
 
     expect(
-      screen.queryByPlaceholderText("Optional: add detail"),
+      screen.queryByLabelText("Details (optional)"),
     ).not.toBeInTheDocument();
 
     await act(async () => {
@@ -136,7 +136,7 @@ describe("useInboxReportDismissAction", () => {
 
     await waitFor(() => expect(mocks.updateState).toHaveBeenCalled());
     expect(
-      screen.queryByPlaceholderText("Optional: add detail"),
+      screen.queryByLabelText("Details (optional)"),
     ).not.toBeInTheDocument();
   });
 
@@ -167,7 +167,7 @@ describe("useInboxReportDismissAction", () => {
         name: /Agent's analysis is wrong/,
       }),
     ).toBeChecked();
-    expect(screen.getByPlaceholderText("Optional: add detail")).toHaveValue(
+    expect(screen.getByLabelText("Details (optional)")).toHaveValue(
       "Retain this note",
     );
   });
