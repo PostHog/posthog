@@ -2,7 +2,7 @@ import re
 import time
 import hashlib
 from collections.abc import Sequence
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Protocol, TypedDict, cast
 
 from django.conf import settings
@@ -20,6 +20,8 @@ from products.ai_training.backend.privacy.reader import KEY_READ_LEASE_SECONDS
 logger = structlog.get_logger(__name__)
 
 KEY_SHARDS = 32
+# Equals ML_SESSION_MAX_AGE_DAYS in nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format.ts: ingestion drops sessions that started earlier than that, so no key for a month can appear after the month end plus this period.
+MONTH_DELETE_GRACE_DAYS = 14
 DynamoItem = dict[str, dict[str, str | bool | bytes]]
 
 
@@ -45,6 +47,11 @@ class PrivacyDynamoClient(Protocol):
 
 def item_key(pk: str, sk: str) -> DynamoItem:
     return {"pk": {"S": pk}, "sk": {"S": sk}}
+
+
+def month_end(session_month: str) -> datetime:
+    year, month = (int(part) for part in session_month.split("-"))
+    return datetime(year + month // 12, month % 12 + 1, 1, tzinfo=UTC)
 
 
 def identity_digest(value: str) -> str:
@@ -79,10 +86,15 @@ class AITrainingPrivacyStore:
     def delete_month(self, session_month: str) -> int:
         if re.fullmatch(r"[0-9]{4}-(0[1-9]|1[0-2])", session_month) is None:
             raise ValueError("Session month must use YYYY-MM")
-        self.client.put_item(
-            TableName=self.table_name,
-            Item={**item_key(f"month:{session_month}", "deleted"), "deleted": {"BOOL": True}},
-        )
+        try:
+            deletable_from = month_end(session_month) + timedelta(days=MONTH_DELETE_GRACE_DAYS)
+        except ValueError as error:
+            raise ValueError("Session month must use YYYY-MM") from error
+        if timezone.now() < deletable_from:
+            raise ValueError(
+                f"Session month {session_month} can be deleted from {deletable_from:%Y-%m-%d}, "
+                f"{MONTH_DELETE_GRACE_DAYS} days after the month ends"
+            )
         count = 0
         for shard in range(KEY_SHARDS):
             cursor = None
