@@ -8,7 +8,7 @@ For PostHog entity search, query the `system.*` tables. For governed measures, c
 
 Use typed queries when standard PostHog calculation rules or native insight controls matter. Do not approximate standard funnels or retention with SQL.
 
-For simple aggregates that either method supports, choose the method that needs less work and preserves the required definition and output. SQL does not require a failed typed-query attempt. Keep valid existing SQL when it fits the task, and reassess when the task changes.
+For a new query, prefer a typed query when both methods preserve the requested calculation and output, including simple aggregates. Use SQL directly when the task calls for it, without requiring a failed typed-query attempt. Keep valid existing SQL when it fits the task, and reassess when the task changes.
 
 Both typed queries and SQL can support saved visualizations. A chart or table alone does not determine the method.
 

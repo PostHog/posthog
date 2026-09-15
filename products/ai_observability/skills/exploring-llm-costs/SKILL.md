@@ -36,7 +36,7 @@ regression debugging, and materializing results as insights, dashboards, or aler
 
 ## Core rules
 
-Choose the method from the calculation and output, not from the SQL examples below. Use native trends when their controls fit the task. Use trace tools for trace-level inspection and SQL for custom accounting. Either query method can answer a simple total if it preserves the cost rules below. Check for a matching approved metric before deriving a governed measure.
+Choose the method from the calculation and output, not from the SQL examples below. Use native trends when their controls fit the task. Use trace tools for trace-level inspection and SQL for custom accounting. For a new simple total, prefer a typed query when both methods preserve the cost rules below and the requested output. Keep valid existing SQL when it fits the task. Check for a matching approved metric before deriving a governed measure.
 
 Three rules cover most of what goes wrong:
 

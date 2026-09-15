@@ -1,6 +1,6 @@
 Run a trends query to analyze metrics over time. Trends insights visualize events over time using time series. They're useful for finding patterns in historical data.
 
-Use this tool for native trends with supported aggregations, series, breakdowns, formulas, and period comparisons. Use `execute-sql` for record inspection or custom SQL calculations. Either tool can answer a simple aggregate: preserve the requested definition and output without unnecessary changes to a valid existing query.
+Use this tool for native trends with supported aggregations, series, breakdowns, formulas, and period comparisons. Use `execute-sql` for record inspection or custom SQL calculations. When both tools preserve the requested calculation and output, prefer this tool for a new query, including simple aggregates. Keep valid existing queries when they fit the task.
 
 Use 'read-data-schema' to discover available events, actions, and properties for filters and breakdowns.
 
