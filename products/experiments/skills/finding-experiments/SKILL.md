@@ -31,6 +31,8 @@ A project can hold hundreds of experiments, and one response holds one page of 1
   The default is non-archived only, so pass `archived: true` to reach archived experiments.
 - **By recency**: results are newest first unless you pass `order`, so the first result answers "latest" or "most recent".
   Order by another allowlisted field when the reference needs it — for example `order: "-start_date"` for "the last one I launched".
+  A descending date order lists the rows that carry no date first, so `-start_date` leads with drafts and `-end_date` with experiments still running.
+  Take the first result that carries the date, and page on if a whole page carries none.
 - **By flag**: `experiment-list {feature_flag_id: <id>}` when you already have the flag ID.
   Otherwise match the `feature_flag_key` field of the results.
 
