@@ -1,9 +1,12 @@
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     HumanMessage as LangchainHumanMessage,
+    SystemMessage,
 )
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
@@ -21,6 +24,7 @@ from posthog.models import Team, User
 
 from ee.hogai.chat_agent.mode_manager import ChatAgentModeManager
 from ee.hogai.context import AssistantContextManager
+from ee.hogai.core.agent_modes.executables import AgentExecutable
 from ee.hogai.tool_errors import MaxToolError, MaxToolFatalError, MaxToolRetryableError, MaxToolTransientError
 from ee.hogai.tools.read_taxonomy.core import ReadEvents
 from ee.hogai.utils.tests import FakeChatAnthropic, FakeChatOpenAI
@@ -68,6 +72,77 @@ def _create_agent_tools_node(
 
     # Use the mode manager's tools_node property which calls configure()
     return mode_manager.tools_node
+
+
+class TestAgentCompactionInput(SimpleTestCase):
+    async def test_repeated_compaction_preserves_model_input_and_iteration_count(self) -> None:
+        toolkit = MagicMock()
+        toolkit.get_tools = AsyncMock(return_value=[])
+        prompts = MagicMock()
+        prompts.get_prompts = AsyncMock(side_effect=lambda *_: [SystemMessage(content="Analyze the example data")])
+        node = AgentExecutable(
+            team=Team(),
+            user=User(),
+            toolkit_manager_class=MagicMock(return_value=toolkit),
+            prompt_builder_class=MagicMock(return_value=prompts),
+            node_path=(),
+        )
+        model = MagicMock()
+        model.get_num_tokens_from_messages.return_value = 450_000
+        model.ainvoke = AsyncMock(
+            return_value=LangchainAIMessage(
+                content="", tool_calls=[{"id": "next-tool", "name": "execute_sql", "args": {"query": "SELECT 3"}}]
+            )
+        )
+        state = AssistantState(
+            start_id="request",
+            root_tool_calls_count=5,
+            messages=[
+                HumanMessage(id="request", content="Compare the example cohorts"),
+                AssistantMessage(
+                    id="large-call",
+                    content="",
+                    tool_calls=[AssistantToolCall(id="large", name="execute_sql", args={"query": "SELECT 1"})],
+                ),
+                AssistantToolCallMessage(id="large-result", tool_call_id="large", content="x" * 9000),
+                AssistantMessage(
+                    id="small-call",
+                    content="",
+                    tool_calls=[AssistantToolCall(id="small", name="execute_sql", args={"query": "SELECT 2"})],
+                ),
+                AssistantToolCallMessage(id="small-result", tool_call_id="small", content="2"),
+            ],
+        )
+        with (
+            patch.object(node, "_get_model", return_value=model),
+            patch(
+                "ee.hogai.core.agent_modes.executables.AnthropicConversationSummarizer.summarize",
+                new=AsyncMock(side_effect=["First comparison complete", "Second comparison complete"]),
+            ),
+        ):
+            first = await node.arun(state, {})
+            first_input = str([message.content for message in model.ainvoke.call_args.args[0]])
+            self.assertIn("First comparison complete", first_input)
+            self.assertIn("Compare the example cohorts", first_input)
+            self.assertNotIn("x" * 9000, first_input)
+            self.assertEqual(first.root_tool_calls_count, 6)
+            assert first.messages is not None
+            state = AssistantState(
+                messages=[
+                    *first.messages,
+                    AssistantToolCallMessage(id="next-result", tool_call_id="next-tool", content="y" * 9000),
+                ],
+                start_id=first.start_id,
+                root_conversation_start_id=first.root_conversation_start_id,
+                root_tool_calls_count=first.root_tool_calls_count,
+            )
+            second = await node.arun(state, {})
+        second_input = str([message.content for message in model.ainvoke.call_args.args[0]])
+        self.assertIn("Second comparison complete", second_input)
+        self.assertIn("Compare the example cohorts", second_input)
+        self.assertNotIn("First comparison complete", second_input)
+        self.assertNotIn("y" * 9000, second_input)
+        self.assertEqual(second.root_tool_calls_count, 7)
 
 
 class TestAgentNode(ClickhouseTestMixin, BaseTest):

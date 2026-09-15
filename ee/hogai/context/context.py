@@ -34,6 +34,7 @@ from products.notebooks.backend.facade import api as notebooks_facade
 
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
 from ee.hogai.context.insight.context import InsightContext
+from ee.hogai.context.insight.format.sql import SQLResultsFormatter
 from ee.hogai.context.notebook.prompts import ROOT_NOTEBOOKS_CONTEXT_PROMPT, cell_guidance_prompt
 from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.utils.helpers import find_start_message, find_start_message_idx, insert_messages_before_start
@@ -531,6 +532,7 @@ class AssistantContextManager(AssistantContextMixin):
             variables_override = {k: v.model_dump(mode="json") for k, v in insight.variablesOverride.items()}
 
         return InsightContext(
+            max_sql_result_chars=SQLResultsFormatter.MAX_RESULT_CHARS,
             team=self._team,
             user=self._user,
             event_source=self.event_source,
