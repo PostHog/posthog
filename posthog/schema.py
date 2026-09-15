@@ -589,7 +589,13 @@ class AssistantDateRange(BaseModel):
         extra="forbid",
     )
     date_from: str = Field(..., description="ISO8601 date string.")
-    date_to: str | None = Field(default=None, description="ISO8601 date string.")
+    date_to: str | None = Field(
+        default=None,
+        description=(
+            "ISO8601 date string. A calendar day without a time (`2026-09-01`) is"
+            " inclusive to the last moment of that day."
+        ),
+    )
 
 
 class AssistantDurationRange(BaseModel):
@@ -1183,7 +1189,12 @@ class DateRange(BaseModel):
     )
     date_to: str | None = Field(
         default=None,
-        description=('End of the date range. Same format as date_from. Omit or null for "now".'),
+        description=(
+            'End of the date range. Same format as date_from. Omit or null for "now". A'
+            " calendar day without a time (2024-01-15) is inclusive: it rounds to the"
+            " last moment of that day in the project timezone, unless explicitDate is"
+            " set."
+        ),
     )
     daysOfWeek: list[DaysOfWeekEnum] | None = Field(
         default=None,
