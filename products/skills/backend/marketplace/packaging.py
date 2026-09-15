@@ -87,12 +87,15 @@ def _key_sorted(value: Any) -> Any:
     return value
 
 
-def render_frontmatter(skill: SkillExport) -> str:
-    """Serialize a skill's spec fields as a YAML frontmatter block (with delimiters).
+def frontmatter_document(skill: SkillExport) -> dict[str, object]:
+    """The skill's spec fields as a plain mapping, in the order the frontmatter block writes them.
 
     Maps storage shape -> spec shape: ``allowed_tools`` (list) becomes the spec's
     hyphenated, space-separated ``allowed-tools`` string, and the platform ``version``
     is parked under ``metadata`` since the spec defines no top-level version field.
+
+    A caller that serves the frontmatter as JSON shares this helper with ``render_frontmatter``,
+    so the JSON and the rendered block cannot drift apart.
     """
     document: dict[str, object] = {"name": skill.name, "description": skill.description}
     if skill.license:
@@ -114,7 +117,12 @@ def render_frontmatter(skill: SkillExport) -> str:
     if skill.allowed_tools:
         document["allowed-tools"] = " ".join(skill.allowed_tools)
 
-    body = yaml.safe_dump(document, sort_keys=False, allow_unicode=True, default_flow_style=False)
+    return document
+
+
+def render_frontmatter(skill: SkillExport) -> str:
+    """Serialize a skill's spec fields as a YAML frontmatter block (with delimiters)."""
+    body = yaml.safe_dump(frontmatter_document(skill), sort_keys=False, allow_unicode=True, default_flow_style=False)
     return f"---\n{body}---\n"
 
 

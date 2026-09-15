@@ -11,6 +11,7 @@ from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+import yaml
 from parameterized import parameterized
 from rest_framework import serializers, status
 
@@ -43,7 +44,7 @@ from ...api.skill_services import (
     resolve_skill_owners,
     set_skill_owners,
 )
-from ...marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
+from ...marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH, parse_skill_md
 from ...models.skills import LLMSkill, LLMSkillFile
 
 COMMUNITY_FLAG = "products.skills.backend.api.community_skills.posthoganalytics.feature_enabled"
@@ -742,6 +743,67 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["name"] == uuid_shaped_name
+
+    # --- Rendered SKILL.md ---
+
+    def test_skill_md_round_trips_every_stored_spec_field(self):
+        self.create_skill(
+            name="rendered",
+            description="Renders a SKILL.md.",
+            body="# Rendered\nDo the thing.",
+            license="Apache-2.0",
+            compatibility="Requires Python 3.12+",
+            allowed_tools=["Read", "Bash"],
+            metadata={"author": "posthog"},
+        )
+
+        response = self.client.get(self._url("name/rendered/skill-md"))
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["name"] == "rendered"
+        assert data["version"] == 1
+        assert parse_skill_md(data["content"]) == {
+            "name": "rendered",
+            "description": "Renders a SKILL.md.",
+            "license": "Apache-2.0",
+            "compatibility": "Requires Python 3.12+",
+            "metadata": {"author": "posthog"},
+            "allowed_tools": ["Read", "Bash"],
+            "body": "# Rendered\nDo the thing.",
+        }
+
+    def test_skill_md_frontmatter_matches_the_block_in_the_content(self):
+        self.create_skill(name="paired", allowed_tools=["Read"], metadata={"author": "posthog"})
+
+        data = self.client.get(self._url("name/paired/skill-md")).json()
+
+        block = data["content"].split("---\n")[1]
+        assert yaml.safe_load(block) == data["frontmatter"]
+        assert data["frontmatter"]["metadata"]["version"] == "1"
+
+    def test_skill_md_pins_to_a_requested_version(self):
+        self.create_skill(name="pinned", body="# v1", version=1, is_latest=False)
+        self.create_skill(name="pinned", body="# v2", version=2)
+
+        data = self.client.get(self._url("name/pinned/skill-md?version=1")).json()
+
+        assert data["version"] == 1
+        assert parse_skill_md(data["content"])["body"] == "# v1"
+        assert data["frontmatter"]["metadata"]["version"] == "1"
+
+    @parameterized.expand(
+        [
+            ("missing_skill", "name/nonexistent/skill-md"),
+            ("missing_version", "name/rendered/skill-md?version=9"),
+        ]
+    )
+    def test_skill_md_not_found(self, _label, path):
+        self.create_skill(name="rendered")
+
+        response = self.client.get(self._url(path))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     # --- Publish new version ---
 
@@ -1904,12 +1966,13 @@ class TestSkillAccessControlRBAC(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("list",),
-            ("get_by_name",),
+            ("list", ""),
+            ("get_by_name", "name/{name}"),
+            ("skill_md", "name/{name}/skill-md"),
         ]
     )
-    def test_member_without_skill_access_cannot_read(self, action):
-        path = "" if action == "list" else f"name/{self.skill.name}"
+    def test_member_without_skill_access_cannot_read(self, _action, path):
+        path = path.format(name=self.skill.name)
         response = self.client.get(self._url(path))
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
@@ -2065,6 +2128,7 @@ class TestSkillAccessControlRBAC(APIBaseTest):
             ("read by name", "get", "name/make-fractals", None),
             ("resolve by name", "get", "resolve/name/make-fractals", None),
             ("export", "get", "name/make-fractals/export", None),
+            ("rendered skill.md", "get", "name/make-fractals/skill-md", None),
             ("update by name", "patch", "name/make-fractals", {"description": "d2", "base_version": 1}),
             ("archive", "post", "name/make-fractals/archive", {}),
             ("duplicate", "post", "name/make-fractals/duplicate", {"new_name": "copy"}),

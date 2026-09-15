@@ -731,6 +731,31 @@ export interface LLMSkillRenameApi {
     new_name: string
 }
 
+export type LLMSkillMarkdownApiFrontmatterMetadata = { [key: string]: string }
+
+/**
+ * The frontmatter block of content as a JSON object. Equal to yaml.safe_load of that block, so a listing can carry the same fields the file carries.
+ */
+export type LLMSkillMarkdownApiFrontmatter = {
+    name: string
+    description: string
+    license?: string
+    compatibility?: string
+    metadata: LLMSkillMarkdownApiFrontmatterMetadata
+    'allowed-tools'?: string
+}
+
+export interface LLMSkillMarkdownApi {
+    /** Name of the skill, which is also its directory name. */
+    name: string
+    /** Version of the skill that this SKILL.md was rendered from. */
+    version: number
+    /** The complete SKILL.md file: the YAML frontmatter block, a blank line, then the skill body. Serve these bytes as the file; a digest must be taken over this exact string. */
+    content: string
+    /** The frontmatter block of content as a JSON object. Equal to yaml.safe_load of that block, so a listing can carry the same fields the file carries. */
+    frontmatter: LLMSkillMarkdownApiFrontmatter
+}
+
 export interface LLMSkillVersionSummaryApi {
     readonly id: string
     readonly version: number
@@ -950,6 +975,14 @@ export type LlmSkillsNameFilesDestroyParams = {
      * @minimum 1
      */
     base_version?: number
+}
+
+export type LlmSkillsNameSkillMdRetrieveParams = {
+    /**
+     * Specific skill version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number
 }
 
 export type LlmSkillsResolveNameRetrieveParams = {
