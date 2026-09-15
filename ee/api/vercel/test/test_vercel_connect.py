@@ -13,7 +13,12 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.team import Team
 
-from ee.api.vercel.vercel_connect import _load_connect_session, _sign_connect_session, _validate_next_url
+from ee.api.vercel.vercel_connect import (
+    _delete_orphaned_integration,
+    _load_connect_session,
+    _sign_connect_session,
+    _validate_next_url,
+)
 from ee.vercel.client import OAuthTokenResponse, OperationResult
 
 # Hardcoded independently of ee.vercel.integration.CLIENT_ENV_PREFIXES so a dropped prefix fails these tests.
@@ -892,6 +897,42 @@ class TestBackfillVercelConnectableResources(VercelConnectTestBase):
 
         mock_client.import_resource.assert_not_called()
         mock_vercel_integration.bulk_sync_feature_flags_to_vercel.assert_not_called()
+
+
+class TestDeleteOrphanedIntegration(VercelConnectTestBase):
+    def test_keeps_resources_belonging_to_another_installation(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        orphaned = OrganizationIntegration.objects.create(
+            organization=self.organization,
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+            integration_id="icfg_orphaned",
+            config={"type": "connectable", "environment_mapping": {"production": self.team.pk}},
+        )
+        OrganizationIntegration.objects.create(
+            organization=self.organization,
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+            integration_id="icfg_live",
+            config={"type": "connectable", "environment_mapping": {"production": other_team.pk}},
+        )
+        orphaned_resource = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.VERCEL,
+            integration_id=str(self.team.pk),
+            config={"type": "connectable"},
+        )
+        live_resource = Integration.objects.create(
+            team=other_team,
+            kind=Integration.IntegrationKind.VERCEL,
+            integration_id=str(other_team.pk),
+            config={"type": "connectable"},
+        )
+
+        _delete_orphaned_integration(orphaned)
+
+        assert not OrganizationIntegration.objects.filter(pk=orphaned.pk).exists()
+        assert not Integration.objects.filter(pk=orphaned_resource.pk).exists()
+        assert OrganizationIntegration.objects.filter(integration_id="icfg_live").exists()
+        assert Integration.objects.filter(pk=live_resource.pk).exists()
 
 
 class TestValidateNextUrl(TestCase):

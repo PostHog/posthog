@@ -87,11 +87,30 @@ def _is_installation_orphaned(integration: OrganizationIntegration) -> bool:
 
 def _delete_orphaned_integration(integration: OrganizationIntegration) -> None:
     # A resource left behind blocks the next link attempt: `complete` rejects a team that still has one.
+    resources = Integration.objects.filter(
+        team__organization_id=integration.organization_id,
+        kind=Integration.IntegrationKind.VERCEL,
+    )
+
+    shares_organization = (
+        OrganizationIntegration.objects.filter(
+            organization_id=integration.organization_id,
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+        )
+        .exclude(pk=integration.pk)
+        .exists()
+    )
+    if shares_organization:
+        # A resource records its team, not its installation, so only this installation's own teams are safe to delete.
+        mapped_team_ids = {
+            team_id
+            for team_id in integration.config.get("environment_mapping", {}).values()
+            if isinstance(team_id, int)
+        }
+        resources = resources.filter(team_id__in=mapped_team_ids)
+
     with transaction.atomic():
-        Integration.objects.filter(
-            team__organization_id=integration.organization_id,
-            kind=Integration.IntegrationKind.VERCEL,
-        ).delete()
+        resources.delete()
         integration.delete()
 
 
