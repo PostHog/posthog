@@ -82,6 +82,11 @@ SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES: str = get_from_env("SANDBOX_AI_GATEW
 # implementation runs regularly outspend every other stage. Each interactive cap clears its
 # observed ceiling with room for the holds, because a person is waiting and nothing retries
 # behind a cap that binds mid-run. Suggestion runs stay on the default.
+# For `posthog_code` and `background_agents` an entry here does more: it is what admits them
+# to minting at all, so they ship uncapped until someone picks a number. Pick it from the
+# observed spend distribution (`tasks_run_model_spend_usd`), high enough that a real
+# multi-hour run finishes — a cap that binds mid-run ends the work after it is written and
+# before it is committed.
 SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES: str = get_from_env(
     "SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES",
     '{"signals_implementation": "20", "signals_inbox": "75", "signals_chat": "30"}',
@@ -126,6 +131,15 @@ TASKS_CONTINUE_AS_NEW_ENABLED: bool = get_from_env(
 TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED: bool = get_from_env(
     "TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED",
     False,
+    type_cast=str_to_bool,
+)
+
+# Whether a terminal cloud run prices its own model spend for the `tasks_run_model_spend_usd`
+# histogram. One grouped read of the region's AI observability project per terminal run, so it
+# is a kill switch for the read, not a feature toggle.
+TASKS_RUN_SPEND_METRIC_ENABLED: bool = get_from_env(
+    "TASKS_RUN_SPEND_METRIC_ENABLED",
+    True,
     type_cast=str_to_bool,
 )
 

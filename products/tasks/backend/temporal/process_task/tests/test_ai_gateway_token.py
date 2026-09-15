@@ -9,6 +9,7 @@ from products.tasks.backend.constants import RESERVED_SANDBOX_ENVIRONMENT_VARIAB
 from products.tasks.backend.models import INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN
 from products.tasks.backend.temporal.process_task import utils
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
+    CAP_GATED_MINTABLE_PRODUCTS,
     INTERACTIVE_MINTABLE_PRODUCTS,
     MINTABLE_PRODUCTS,
     mint_scoped_token,
@@ -370,6 +371,61 @@ class TestInteractiveProductSet:
 
     def test_interactive_products_are_mintable(self):
         assert INTERACTIVE_MINTABLE_PRODUCTS <= MINTABLE_PRODUCTS
+
+
+class TestCapGatedMinting:
+    """`posthog_code` and `background_agents` mint only once an operator has picked a per-run
+    cap for them, because that cap is the only thing bounding a run of theirs."""
+
+    def test_capless_posthog_code_does_not_mint(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "posthog_code"
+        with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token") as mint:
+            env = ai_gateway_env_vars(team_id=2, origin_product="user_created")
+        assert "AI_GATEWAY_TOKEN" not in env
+        mint.assert_not_called()
+
+    def test_configured_cap_admits_posthog_code(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "posthog_code"
+        mint_settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES = '{"posthog_code": "150"}'
+        with patch(
+            "products.tasks.backend.temporal.process_task.utils.mint_scoped_token",
+            return_value="phe_abc",
+        ) as mint:
+            env = ai_gateway_env_vars(team_id=2, origin_product="user_created")
+        assert env["AI_GATEWAY_PRODUCT"] == "posthog_code"
+        mint.assert_called_once_with(ai_product="posthog_code", team_id=2, user=None)
+
+    def test_configured_cap_admits_background_agents(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "background_agents"
+        mint_settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES = '{"background_agents": "150"}'
+        with patch(
+            "products.tasks.backend.temporal.process_task.utils.mint_scoped_token",
+            return_value="phe_abc",
+        ) as mint:
+            env = ai_gateway_env_vars(team_id=2, origin_product="image_builder", internal=True)
+        assert env["AI_GATEWAY_PRODUCT"] == "background_agents"
+        mint.assert_called_once_with(ai_product="background_agents", team_id=2, user=None)
+
+    @pytest.mark.parametrize("ai_product", sorted(CAP_GATED_MINTABLE_PRODUCTS))
+    def test_the_configured_cap_is_the_one_minted(self, mint_settings, ai_product):
+        mint_settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES = json.dumps({ai_product: "150"})
+        response = MagicMock()
+        response.status_code = 201
+        response.json.return_value = {"token": "phe_abc"}
+        with patch(
+            "products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post", return_value=response
+        ) as post:
+            mint_scoped_token(ai_product=ai_product, team_id=2)
+        assert post.call_args.kwargs["json"]["cap_usd"] == "150"
+
+    @pytest.mark.parametrize("ai_product", sorted(CAP_GATED_MINTABLE_PRODUCTS))
+    # A cap shipped in the repo default would turn minting on for a whole product fleet-wide,
+    # which is a call for a human to make per deployment.
+    def test_the_repo_ships_no_cap_for_them(self, settings, ai_product):
+        assert ai_product not in json.loads(settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES)
+
+    def test_cap_gated_products_are_not_mintable_on_provenance(self):
+        assert not (CAP_GATED_MINTABLE_PRODUCTS & MINTABLE_PRODUCTS)
 
 
 class TestMintableGate:

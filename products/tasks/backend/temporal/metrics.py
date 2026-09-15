@@ -54,6 +54,25 @@ TASKS_RUN_TOKENS_HISTOGRAM_BUCKETS = [
     100_000_000.0,
 ]
 
+TASKS_RUN_SPEND_HISTOGRAM_METRICS = ("tasks_run_model_spend_usd",)
+# Dollars per run. The tail matters more than the middle here: the buckets exist to show how
+# far the expensive runs reach, so a per-run ceiling can be set above real work.
+TASKS_RUN_SPEND_HISTOGRAM_BUCKETS = [
+    0.1,
+    0.5,
+    1.0,
+    2.5,
+    5.0,
+    10.0,
+    25.0,
+    50.0,
+    100.0,
+    200.0,
+    400.0,
+    800.0,
+    1_600.0,
+]
+
 TASKS_RUN_TURNS_HISTOGRAM_METRICS = ("tasks_run_turns",)
 TASKS_RUN_TURNS_HISTOGRAM_BUCKETS = [
     1.0,
@@ -252,6 +271,35 @@ def record_run_token_usage(
             value = usage.get(key)
             if isinstance(value, int | float) and not isinstance(value, bool) and value > 0:
                 meter.create_histogram(name, description).record(int(value))
+    except Exception:
+        pass
+
+
+def record_run_model_spend(
+    cost_usd: float,
+    *,
+    origin_product: str | None,
+    run_environment: str | None,
+    status: str | None,
+) -> None:
+    """Record a terminal run's model spend in dollars.
+
+    A lower bound: the run's last generations are still crossing capture when it settles, and a
+    generation whose model has no price carries no cost at all. Best-effort, like every other
+    metric here.
+    """
+    try:
+        _metric_meter(
+            {
+                "origin_product": origin_product or "unknown",
+                "run_environment": run_environment or "unknown",
+                "status": status or "unknown",
+            }
+        ).create_histogram_float(
+            "tasks_run_model_spend_usd",
+            "Model spend of terminal task runs, in US dollars",
+            unit="USD",
+        ).record(cost_usd)
     except Exception:
         pass
 

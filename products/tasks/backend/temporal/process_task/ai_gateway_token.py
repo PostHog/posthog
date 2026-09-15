@@ -52,13 +52,14 @@ _SCOUT_STAGE_PREFIX = "scout:"
 _MAX_CAP_USD = Decimal("10000")
 _MAX_CAP_DECIMAL_PLACES = 6
 
-# Products whose runs may mint an internally funded token. Mint scope needs
-# server-side provenance: `internal` and some origin_product values are
-# API-settable, so an unmapped origin marked internal resolves to
-# background_agents and must never mint. Signals products qualify because their
-# stages are set only by server flows: pipeline stages by the flows that start
-# them, `inbox` / `chat` by `Task.create_run`. A caller owning a report can reach
-# `signals_inbox`, so the per-run cap and the product's daily budget bound those two.
+# Products whose runs may mint an internally funded token on provenance alone. Mint
+# scope needs server-side provenance: `internal` and some origin_product values are
+# API-settable, so an unmapped origin marked internal resolves to background_agents,
+# which never belongs here — it mints only under the cap gate below. Signals products
+# qualify because their stages are set only by server flows: pipeline stages by the
+# flows that start them, `inbox` / `chat` by `Task.create_run`. A caller owning a report
+# can reach `signals_inbox`, so the per-run cap and the product's daily budget bound those
+# two.
 # review_hog qualifies because validate_origin_product reserves the origin and
 # the resolver requires the server-stamped `internal` flag; rows predating the
 # reservation resolve to posthog_code and cannot mint.
@@ -80,6 +81,13 @@ MINTABLE_PRODUCTS = frozenset(
 # Exempt from the background run-duration cap, so their tokens need the longer interactive
 # ceiling. Mirrors the stages `Task.create_run` stamps.
 INTERACTIVE_MINTABLE_PRODUCTS = frozenset({"signals_inbox", "signals_chat"})
+
+# Products that mint only once an operator has configured a per-run cap for them. They
+# carry no server-side provenance — every unmapped origin resolves to one of them — so the
+# configured cap is also the switch: there is no number to fall back on, and turning
+# minting on means choosing one. Until then their runs keep the Python-gateway path, where
+# the wall-clock run cap is the only thing that bounds a run.
+CAP_GATED_MINTABLE_PRODUCTS = frozenset({"posthog_code", "background_agents"})
 
 # Model pins carried on the minted token: the pipeline's stage pins, the
 # implicit agent-SDK calls (the haiku small/fast utility model and the sonnet
@@ -199,17 +207,29 @@ def _cap_override(raw: str, key: str, setting_name: str) -> str | None:
     return f"{cap:f}"
 
 
+def _configured_product_cap(ai_product: str) -> str | None:
+    return _cap_override(
+        settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES, ai_product, "product cap overrides"
+    )
+
+
+def product_may_mint(ai_product: str) -> bool:
+    """Whether this product may mint an internally funded scoped token."""
+    if ai_product in MINTABLE_PRODUCTS:
+        return True
+    return ai_product in CAP_GATED_MINTABLE_PRODUCTS and _configured_product_cap(ai_product) is not None
+
+
 def _token_cap_usd(team_id: int, ai_product: str) -> str:
     """Per-run cap: the product override, else the team override, else the default.
 
     The product override wins because run cost tracks the kind of work, not who
     it runs for — implementation runs regularly outspend every other stage. The
     team override raises a single team (team 2's custom scouts run hotter than
-    the external fleet) without raising everyone's ceiling.
+    the external fleet) without raising everyone's ceiling. A cap-gated product
+    always takes its product override, because that override is what admitted it.
     """
-    product_cap = _cap_override(
-        settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES, ai_product, "product cap overrides"
-    )
+    product_cap = _configured_product_cap(ai_product)
     if product_cap is not None:
         return product_cap
     team_cap = _cap_override(settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES, str(team_id), "cap overrides")
