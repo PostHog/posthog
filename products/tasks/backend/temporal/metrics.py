@@ -38,6 +38,29 @@ TASKS_LATENCY_HISTOGRAM_BUCKETS = [
     3_600_000.0,
 ]
 
+TASKS_LAUNCH_PREPARATION_HISTOGRAM_METRICS = ("tasks_modal_launch_preparation_latency",)
+TASKS_LAUNCH_PREPARATION_HISTOGRAM_BUCKETS = [
+    100.0,
+    250.0,
+    500.0,
+    750.0,
+    1_000.0,
+    1_500.0,
+    2_000.0,
+    2_500.0,
+    3_000.0,
+    4_000.0,
+    5_000.0,
+    6_000.0,
+    8_000.0,
+    10_000.0,
+    15_000.0,
+    20_000.0,
+    30_000.0,
+    45_000.0,
+    60_000.0,
+]
+
 TASKS_RUN_TOKENS_HISTOGRAM_METRICS = ("tasks_run_total_tokens",)
 TASKS_RUN_TOKENS_HISTOGRAM_BUCKETS = [
     10_000.0,
