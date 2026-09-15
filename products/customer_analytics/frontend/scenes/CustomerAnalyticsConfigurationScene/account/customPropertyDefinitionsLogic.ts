@@ -4,7 +4,7 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
@@ -227,19 +227,20 @@ const handleNameConflict = (error: unknown, setManualErrors: (errors: { name: st
     return true
 }
 
-// The reason a source step failed, for the retry toast. A backend rejection carries the specific
-// cause in `detail`; a client-side throw carries a plain `message` and no HTTP `status`. An ApiError
-// with no `detail` only has a generic fallback message that names no cause, so it maps to null and
-// the caller keeps the generic wording.
-const sourceStepFailureDetail = (error: unknown): string | null => {
-    const detail = (error as { detail?: unknown } | null)?.detail
-    if (typeof detail === 'string' && detail.trim()) {
-        return detail.trim()
+// A save blocked by something the user can act on, thrown deliberately below.
+export class SourceStepError extends Error {}
+
+// The reason a source step failed, for the retry toast. Only two sources are safe to show: a
+// backend rejection's `detail`, and our own deliberate throws. Anything else — a transport
+// failure, a malformed response, a stray TypeError — carries internal text like a request path
+// or a stack message, so it maps to null and the caller keeps the generic wording.
+export const sourceStepFailureDetail = (error: unknown): string | null => {
+    if (error instanceof ApiError) {
+        const detail = error.detail
+        return typeof detail === 'string' && detail.trim() ? detail.trim() : null
     }
-    const isApiError = typeof (error as { status?: unknown } | null)?.status === 'number'
-    const message = (error as { message?: unknown } | null)?.message
-    if (!isApiError && typeof message === 'string' && message.trim()) {
-        return message.trim()
+    if (error instanceof SourceStepError && error.message.trim()) {
+        return error.message.trim()
     }
     return null
 }
@@ -1014,9 +1015,9 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                             // Form validation passed but the picked table or view no longer resolves: it
                             // was deleted, unsynced, or unmaterialized between load and save. Surface it
                             // instead of silently creating the definition without its source.
-                            throw new Error('The selected table or view is no longer available')
+                            throw new SourceStepError('The selected table or view is no longer available')
                         } else if (!keyColumn?.trim()) {
-                            throw new Error('Enter the distinct ID column')
+                            throw new SourceStepError('Enter the distinct ID column')
                         } else {
                             await customPropertySourcesCreate(projectId, {
                                 definition: definition.id,
@@ -1385,7 +1386,7 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 const detail = sourceStepFailureDetail(error)
                 lemonToast.error(
                     detail
-                        ? `Property saved, but the sync configuration failed: ${detail}`
+                        ? `Property saved, but the sync configuration failed: ${detail} Fix it and save again.`
                         : 'Property saved, but the sync configuration failed. Fix it and save again.'
                 )
                 return

@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from '~/lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { userLogic } from 'scenes/userLogic'
 
@@ -14,7 +15,11 @@ import type {
     CustomPropertySourceApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import { customPropertyDefinitionsLogic } from './customPropertyDefinitionsLogic'
+import {
+    SourceStepError,
+    customPropertyDefinitionsLogic,
+    sourceStepFailureDetail,
+} from './customPropertyDefinitionsLogic'
 
 const DEFINITIONS_URL = '/api/projects/:team_id/custom_property_definitions/'
 const DEFINITION_URL = '/api/projects/:team_id/custom_property_definitions/:id/'
@@ -108,7 +113,11 @@ describe('customPropertyDefinitionsLogic', () => {
         jest.spyOn(window, 'open').mockReturnValue(null)
     })
 
-    afterEach(resumeKeaLoadersErrors)
+    afterEach(() => {
+        resumeKeaLoadersErrors()
+        // `clearMocks` resets calls but leaves spies installed, so a toast spy would outlive its test.
+        jest.restoreAllMocks()
+    })
 
     it('loads definitions on mount', async () => {
         useMocks(defaultMocks())
@@ -622,6 +631,30 @@ describe('customPropertyDefinitionsLogic', () => {
         // of a generic message.
         expect(logic.values.modalVisible).toBe(true)
         expect(errorToast).toHaveBeenCalledWith(expect.stringContaining('Materialized view not found for this team.'))
+    })
+
+    describe('sourceStepFailureDetail', () => {
+        it('shows a backend rejection reason', () => {
+            expect(
+                sourceStepFailureDetail(new ApiError('Bad request', 400, undefined, { detail: 'No mapping.' }))
+            ).toBe('No mapping.')
+        })
+
+        it('shows our own deliberate throw', () => {
+            expect(sourceStepFailureDetail(new SourceStepError('Enter the distinct ID column'))).toBe(
+                'Enter the distinct ID column'
+            )
+        })
+
+        it('hides a status-less transport failure, whose message names a request path', () => {
+            expect(
+                sourceStepFailureDetail(new ApiError('Malformed JSON response [POST /api/projects/2/x/]'))
+            ).toBeNull()
+        })
+
+        it('hides an unexpected runtime error, whose message is a stack detail', () => {
+            expect(sourceStepFailureDetail(new TypeError('Cannot read properties of undefined'))).toBeNull()
+        })
     })
 
     it('offers synced tables and materialized views in one picker', async () => {
