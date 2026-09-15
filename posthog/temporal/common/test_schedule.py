@@ -19,6 +19,8 @@ NOT_FOUND = RPCError("schedule not found", RPCStatusCode.NOT_FOUND, b"")
 CLIENT_TIMEOUT = RPCError("Timeout expired", RPCStatusCode.CANCELLED, b"")
 LOST_CONNECTION = RPCError("operation was canceled", RPCStatusCode.CANCELLED, b"")
 CANCELLED = RPCError("Cancelled by caller", RPCStatusCode.CANCELLED, b"")
+TRANSPORT_BLIP = RPCError("h2 protocol error: error reading a body from connection", RPCStatusCode.UNKNOWN, b"")
+SERVER_ERROR = RPCError("internal server error", RPCStatusCode.UNKNOWN, b"")
 
 
 def fake_client(side_effect: list[Any], method: str = "delete") -> tuple[Any, AsyncMock]:
@@ -71,8 +73,12 @@ async def test_non_transient_rpc_failure_is_not_retried():
         (TIMEOUT, True),
         (CLIENT_TIMEOUT, True),
         (LOST_CONNECTION, True),
+        # a mid-stream HTTP/2 interruption arrives as UNKNOWN carrying a transport signature
+        (TRANSPORT_BLIP, True),
         # a real cancellation shares the status but none of the transport messages
         (CANCELLED, False),
+        # a lasting server-side UNKNOWN must surface, or the query stays materialized with no schedule
+        (SERVER_ERROR, False),
         (NOT_FOUND, False),
         (ValueError("not an RPC error"), False),
     ],

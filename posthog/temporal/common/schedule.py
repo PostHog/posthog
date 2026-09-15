@@ -35,16 +35,21 @@ TRANSIENT_RPC_STATUS_CODES = frozenset(
         RPCStatusCode.RESOURCE_EXHAUSTED,
         RPCStatusCode.ABORTED,
         RPCStatusCode.INTERNAL,
-        RPCStatusCode.UNKNOWN,
     }
 )
 
-# tonic cancels a call that outruns the core client's per-request deadline and reports status
-# CANCELLED with the message "Timeout expired". A transport connection that closes mid-request
-# reports CANCELLED with "operation was canceled". Both describe the frontend, not the request, so
-# match the message instead of the whole CANCELLED status, which would also swallow a real
-# cancellation. The data imports client in products/warehouse_sources rides out the same pair.
-TRANSIENT_CANCELLED_RPC_MESSAGES = ("Timeout expired", "operation was canceled")
+# Two statuses carry a transport failure in the message rather than in the status itself. tonic
+# cancels a call that outruns the core client's per-request deadline and reports CANCELLED with
+# "Timeout expired", and a connection that closes mid-request reports CANCELLED with "operation was
+# canceled". A mid-stream HTTP/2 interruption arrives as UNKNOWN with "h2 protocol error". Match the
+# message per status, because taking either whole status would also swallow a real cancellation and
+# a lasting server-side UNKNOWN, both of which must surface so the caller stops claiming the query
+# is materialized. The data imports client in products/warehouse_sources classifies the same three
+# phrases.
+TRANSIENT_TRANSPORT_RPC_MESSAGES: dict[RPCStatusCode, tuple[str, ...]] = {
+    RPCStatusCode.CANCELLED: ("Timeout expired", "operation was canceled"),
+    RPCStatusCode.UNKNOWN: ("h2 protocol error",),
+}
 
 RPC_MAX_ATTEMPTS = 3
 RPC_INITIAL_BACKOFF_SECONDS = 0.5
@@ -57,9 +62,7 @@ def is_transient_rpc_error(error: BaseException) -> bool:
         return False
     if error.status in TRANSIENT_RPC_STATUS_CODES:
         return True
-    return error.status == RPCStatusCode.CANCELLED and any(
-        phrase in error.message for phrase in TRANSIENT_CANCELLED_RPC_MESSAGES
-    )
+    return any(phrase in error.message for phrase in TRANSIENT_TRANSPORT_RPC_MESSAGES.get(error.status, ()))
 
 
 def retry_transient_rpc(
