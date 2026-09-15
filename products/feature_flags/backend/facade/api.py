@@ -91,7 +91,10 @@ def create_flag(
     and activity logging apply. ``data`` is the flag's own write shape (key, name, filters,
     active, ...) and is applied as-is — nothing is silently dropped. Raises ApprovalRequired
     when a policy requires approval. ``user=None`` is a system write (see module docstring):
-    ``created_by`` stays null, activity is logged as system, the approval gate is skipped."""
+    ``created_by`` stays null, activity is logged as system, the approval gate is skipped.
+    ``serializer_context`` is extra serializer context (an HTTP caller passes its viewset
+    context); the facade's own ``request``, ``team_id``, ``project_id``, ``get_team`` and
+    ``get_organization`` entries win over the caller's."""
     context = {**(serializer_context or {}), **_serializer_context(team, user, request)}
     serializer = FeatureFlagSerializer(data=data, context=context)
     serializer.is_valid(raise_exception=True)
@@ -129,12 +132,18 @@ def update_flag(
     partial: bool = True,
     serializer_context: dict | None = None,
 ) -> FeatureFlag:
-    """Gated partial update: routes through FeatureFlagSerializer so @approval_gate,
-    validation, and activity logging apply. ``data`` is a partial flag write payload
-    (fields it omits are untouched) applied as-is — nothing is silently dropped.
-    Raises ApprovalRequired when a policy requires approval; the flag is left untouched.
-    ``user=None`` is a system write (see module docstring): ``last_modified_by`` is
-    cleared, activity is logged as system, the approval gate is skipped.
+    """Gated update: routes through FeatureFlagSerializer so @approval_gate,
+    validation, and activity logging apply. ``data`` is a flag write payload applied
+    as-is — nothing is silently dropped. Raises ApprovalRequired when a policy requires
+    approval; the flag is left untouched. ``user=None`` is a system write (see module
+    docstring): ``last_modified_by`` is cleared, activity is logged as system, the
+    approval gate is skipped.
+
+    ``partial=True`` (the default) leaves omitted fields untouched; ``partial=False`` is
+    the PUT shape, where the serializer enforces its required fields. ``serializer_context``
+    is extra serializer context (an HTTP caller passes its viewset context); the facade's own
+    ``request``, ``team_id``, ``project_id``, ``get_team`` and ``get_organization`` entries
+    win over the caller's.
 
     Encrypted payload values carried over unchanged from ``flag.get_filters()`` are
     preserved as-is, never re-validated or re-encrypted."""

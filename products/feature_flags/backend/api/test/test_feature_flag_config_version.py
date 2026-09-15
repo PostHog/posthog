@@ -114,6 +114,20 @@ class TestFeatureFlagConfigVersionWrites(APIBaseTest):
         if "payloads" in data.get("filters", {}):
             assert flag.filters["payloads"] == data["filters"]["payloads"]
 
+    def test_put_without_key_is_rejected(self) -> None:
+        """PUT reaches the serializer with partial=False, so a missing required field fails."""
+        flag = FeatureFlag.objects.create(
+            team=self.team, key="v1-config", filters={"groups": []}, version=7, name="Original"
+        )
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"name": "Changed"}, format="json"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "key"
+        flag.refresh_from_db()
+        assert flag.name == "Original"
+        assert flag.version == 7
+
     @parameterized.expand([("create",), ("update",)])
     def test_config_version_cannot_reach_storage(self, operation: str) -> None:
         filters = {"groups": [{"properties": [], "rollout_percentage": 40}]}

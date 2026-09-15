@@ -1,6 +1,6 @@
 # Feature flag API writes
 
-Ordinary feature flag POST, PUT, and PATCH requests enter `facade.api.create_flag` or `facade.api.update_flag` through `FeatureFlagWriteViewSetMixin`.
+Ordinary feature flag POST, PUT, and PATCH requests enter `facade.api.create_flag` or `facade.api.update_flag` through `FeatureFlagViewSet.create` and `FeatureFlagViewSet.update`.
 The viewset retains authentication, API scopes, project scoping, object permissions, approval exception handling, and response serialization.
 It passes the original request and serializer context to the facade, including PUT versus partial-update semantics.
 

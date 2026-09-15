@@ -1217,13 +1217,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert get_decrypted_flag_payload(ciphertext, should_decrypt=True) == '"secret"'
         mock_report_user_action.assert_called_once()
 
-        for data in [{"name": "Renamed"}, {"filters": {}}]:
-            response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", data, format="json")
-            assert response.status_code == status.HTTP_200_OK, response.json()
-            assert response.json()["filters"]["payloads"]["true"] == expected_payload
-            flag.refresh_from_db()
-            assert flag.filters["payloads"]["true"] == ciphertext
-
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_update_remote_config_flag_to_non_remote_with_encrypted_payloads_fails(self, mock_report_user_action):
         response = self.client.post(
@@ -2721,18 +2714,78 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(flag.filters["payloads"]["true"], "original-encrypted-value")
         self.assertTrue(flag.has_encrypted_payloads)
 
-    def test_update_encrypted_flag_with_empty_filters_preserves_every_payload_key(self) -> None:
+    # A stale non-"true" payload key is only reachable while its cross-field rule is
+    # unenforced; once enforced, a request supplying filters is rejected before update().
+    @parameterized.expand(
+        [
+            ("empty_filters", {}, {"*"}),
+            ("payloads_omitted", {"groups": [{"properties": [], "rollout_percentage": 50}]}, set()),
+        ]
+    )
+    def test_update_encrypted_flag_preserves_every_payload_key(
+        self, _name: str, filters: dict, enforced_rules: set[str]
+    ) -> None:
         flag = self._create_encrypted_flag()
         flag.filters["payloads"]["false"] = "other-encrypted-value"
         flag.save()
 
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"filters": {}}, format="json"
-        )
+        with override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=enforced_rules):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"filters": filters}, format="json"
+            )
         assert response.status_code == status.HTTP_200_OK, response.json()
 
         flag.refresh_from_db()
         assert flag.filters["payloads"] == {"true": "original-encrypted-value", "false": "other-encrypted-value"}
+
+    @parameterized.expand([("session", False), ("personal_api_key", True)])
+    def test_update_encrypted_flag_response_payload_is_auth_dependent(self, _name: str, should_decrypt: bool) -> None:
+        plaintext = '"secret"'
+        ciphertext = flag_payload_codec().encrypt(plaintext.encode("utf-8")).decode("utf-8")
+        flag = self._create_encrypted_flag(stored_payload=ciphertext)
+        if should_decrypt:
+            auth_token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="flag writes", user=self.user, scopes=["*"], secure_value=hash_key_value(auth_token)
+            )
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {auth_token}")
+
+        for data in [{"name": "Renamed"}, {"filters": {}}]:
+            response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", data, format="json")
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert response.json()["filters"]["payloads"]["true"] == (
+                plaintext if should_decrypt else REDACTED_PAYLOAD_VALUE
+            )
+            flag.refresh_from_db()
+            assert flag.filters["payloads"]["true"] == ciphertext
+
+    # A stale non-"true" payload key is only reachable while its cross-field rule is
+    # unenforced; once enforced, a request supplying filters is rejected before update().
+    @parameterized.expand(
+        [
+            ("empty_filters", {}, {"*"}),
+            ("payloads_omitted", {"groups": [{"properties": [], "rollout_percentage": 50}]}, set()),
+        ]
+    )
+    def test_downgrade_from_encrypted_drops_every_stale_payload(
+        self, _name: str, filters: dict, enforced_rules: set[str]
+    ) -> None:
+        flag = self._create_encrypted_flag()
+        flag.filters["payloads"]["false"] = "other-encrypted-value"
+        flag.save()
+
+        with override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=enforced_rules):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+                {"has_encrypted_payloads": False, "filters": filters},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        flag.refresh_from_db()
+        assert flag.has_encrypted_payloads is False
+        assert flag.filters["payloads"] == {}
 
     def test_update_encrypted_flag_encrypts_fresh_plaintext_payload(self):
         flag = self._create_encrypted_flag()

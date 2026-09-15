@@ -35,6 +35,7 @@ from posthog.api.cohort import CohortSerializer
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer, extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import validated_request
+from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.services.flags_service import RETRYABLE_FLAGS_SERVICE_EXCEPTIONS, get_flags_from_service
 from posthog.api.shared import UserBasicSerializer
@@ -105,7 +106,6 @@ from products.feature_flags.backend.api.filters_schema import (
     FeatureFlagFiltersSerializer,
 )
 from products.feature_flags.backend.api.remote_config_shadow import shadow_compare_remote_config
-from products.feature_flags.backend.api.write_flags import FeatureFlagWriteViewSetMixin
 from products.feature_flags.backend.encrypted_flag_payloads import (
     REDACTED_PAYLOAD_VALUE,
     encrypt_flag_payloads,
@@ -1354,6 +1354,8 @@ class FeatureFlagSerializer(
 
     def validate(self, attrs):
         """Validate feature flag creation/update including evaluation tag requirements."""
+        # `filters` is declared with source="get_filters", so its absence means the request
+        # omitted filters. A supplied-filters request runs the same check in _validate_filters_inner.
         if self.instance is not None and "get_filters" not in attrs:
             try:
                 self._validate_stored_config_format()
@@ -2293,14 +2295,12 @@ class FeatureFlagSerializer(
                 new_filters["payloads"] = payloads
                 validated_data["filters"] = new_filters
             else:
-                # Client sent filters. Drop an empty/missing/redacted echo at
-                # "true"; a fresh non-empty plaintext is left alone (the user
-                # explicitly set a new payload during the downgrade).
+                # Client sent filters. Drop every empty/missing/redacted echo; a fresh
+                # non-empty plaintext is left alone (the user explicitly set a new payload
+                # during the downgrade). Keeping a redacted key would write the placeholder
+                # over ciphertext that is unreadable once the flag is unencrypted.
                 payloads = filters.get("payloads") or {}
-                true_val = payloads.get("true")
-                if not true_val or true_val == REDACTED_PAYLOAD_VALUE:
-                    payloads.pop("true", None)
-                filters["payloads"] = payloads
+                filters["payloads"] = {k: v for k, v in payloads.items() if v and v != REDACTED_PAYLOAD_VALUE}
 
         # Opportunistically strip legacy keys on save, including on a write that sent no filters.
         # A caller that declares the exemption is spared: it would otherwise persist a rewritten
@@ -3272,7 +3272,7 @@ class FlagLifecycleWriteRequest(ServiceRequest):
 @extend_schema(extensions={"x-product": ProductKey.FEATURE_FLAGS})
 class FeatureFlagViewSet(
     ApprovalHandlingMixin,
-    FeatureFlagWriteViewSetMixin,
+    TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
     TaggedItemViewSetMixin,
     ForbidDestroyModel,
@@ -3321,11 +3321,42 @@ class FeatureFlagViewSet(
 
     @extend_schema(request=FeatureFlagCreateRequestSchemaSerializer)
     def create(self, request, *args, **kwargs):
-        return super().create(request, *args, **kwargs)
+        # The facade is imported inside the method because it imports this module's serializer.
+        from products.feature_flags.backend.facade.api import create_flag
+
+        flag = create_flag(
+            request.data,
+            team=self.team,
+            user=request.user,
+            request=request,
+            serializer_context=self.get_serializer_context(),
+        )
+        data = self.get_serializer(flag).data
+        apply_encrypted_payload_response_form(request, data)
+        headers = self.get_success_headers(data)
+        return Response(data, status=status.HTTP_201_CREATED, headers=headers)
 
     @extend_schema(request=FeatureFlagPartialUpdateRequestSchemaSerializer)
     def partial_update(self, request, *args, **kwargs):
         return super().partial_update(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        from products.feature_flags.backend.facade.api import update_flag
+
+        instance = self.get_object()
+        flag = update_flag(
+            instance,
+            request.data,
+            team=self.team,
+            user=request.user,
+            request=request,
+            partial=kwargs.pop("partial", False),
+            serializer_context=self.get_serializer_context(),
+        )
+        prefetched_objects = getattr(flag, "_prefetched_objects_cache", None)
+        if prefetched_objects:
+            prefetched_objects.clear()
+        return self._lifecycle_response(flag)
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         """Apply filters from request query params to queryset."""
