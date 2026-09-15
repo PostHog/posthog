@@ -14,6 +14,7 @@ import json
 import time
 import asyncio
 import hashlib
+from dataclasses import field
 from typing import Any
 
 from django.conf import settings
@@ -23,6 +24,7 @@ from temporalio.client import Client
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import Product
 from posthog.llm.semantic_enrichment import (
@@ -311,188 +313,275 @@ def build_bounded_view_enrichment_prompt(
     return bound_prompt_over_columns(builder, columns, columns_needing_description, MAX_PROMPT_CHARS)
 
 
-def enrich_view_semantics_sync(team_id: int, saved_query_id: str) -> dict[str, Any]:
-    """Generate and persist semantic annotations for one data-modeling view. Safe to re-run."""
-    log = logger.bind(team_id=team_id, saved_query_id=str(saved_query_id))
+@frozen
+class _EnrichmentSkip:
+    """Why a view is not enrichable on this pass."""
 
+    reason: str
+
+
+@frozen
+class _EnrichmentTarget:
+    """A view that passed every gate, with the inputs the enrichment pass reads."""
+
+    team: Team
+    saved_query: DataWarehouseSavedQuery
+    query_str: str
+    all_columns: list[dict[str, Any]]
+    # `all_columns` capped to what one pass may ask about.
+    columns: list[dict[str, Any]]
+    current_hash: str
+
+
+@frozen
+class _AnnotationPlan:
+    """What the pass must ask the model for, given the annotations already stored."""
+
+    existing: dict[str, DataWarehouseSavedQueryColumnAnnotation]
+    known_descriptions: dict[str, str]
+    columns_needing_description: list[str]
+    view_needs_description: bool
+    over_cap_count: int
+
+    @property
+    def llm_needed(self) -> bool:
+        return bool(self.columns_needing_description or self.view_needs_description)
+
+
+@frozen
+class _BatchRun:
+    """The outcome of the batched LLM calls."""
+
+    ai_count: int = 0
+    unfinished: list[str] = field(default_factory=list)
+    failed: bool = False
+
+
+def _resolve_enrichment_target(team_id: int, saved_query_id: str) -> _EnrichmentTarget | _EnrichmentSkip:
+    """Load the view and apply every eligibility gate. The gates are the source of truth for the dispatch
+    pre-checks (`enrichment_dispatch_pending`), which only filter cheaply."""
     team = (
         Team.objects.select_related("organization")
         .only("id", "uuid", "organization_id", "organization__is_ai_data_processing_approved")
         .get(id=team_id)
     )
 
-    def skip(reason: str) -> dict[str, Any]:
-        log.info("view_enrichment.skipped", reason=reason)
-        return {"status": "skipped", "reason": reason}
-
     # Respect the org's AI data-processing opt-out: this ships view metadata and core memory to the LLM.
     if team.organization.is_ai_data_processing_approved is not True:
-        return skip("ai_data_processing_not_approved")
+        return _EnrichmentSkip(reason="ai_data_processing_not_approved")
 
     try:
         saved_query = DataWarehouseSavedQuery.objects.select_related("team").get(id=saved_query_id, team_id=team_id)
     except DataWarehouseSavedQuery.DoesNotExist:
-        return skip("not_found")
+        return _EnrichmentSkip(reason="not_found")
 
     if saved_query.deleted:
-        return skip("deleted")
+        return _EnrichmentSkip(reason="deleted")
     if saved_query.is_test:
-        return skip("is_test")
+        return _EnrichmentSkip(reason="is_test")
     if saved_query.managed_viewset_id:
-        return skip("managed_viewset")
+        return _EnrichmentSkip(reason="managed_viewset")
 
     query = saved_query.query or {}
     query_str = query.get("query") if isinstance(query, dict) else None
     if not query_str:
-        return skip("no_query")
+        return _EnrichmentSkip(reason="no_query")
 
     all_columns = _view_columns(saved_query)
     if not all_columns:
-        return skip("no_columns")
+        return _EnrichmentSkip(reason="no_columns")
 
     current_hash = compute_enrichment_hash(saved_query)
     if current_hash == saved_query.semantic_enrichment_hash:
-        return skip("unchanged")
+        return _EnrichmentSkip(reason="unchanged")
 
-    log.info("view_enrichment.started", columns_total=len(all_columns))
+    return _EnrichmentTarget(
+        team=team,
+        saved_query=saved_query,
+        query_str=query_str,
+        all_columns=all_columns,
+        columns=all_columns[:MAX_COLUMNS_PER_TABLE],
+        current_hash=current_hash,
+    )
 
-    column_names = {column["name"] for column in all_columns}
-    columns = all_columns[:MAX_COLUMNS_PER_TABLE]
 
-    # Snapshot existing annotations. User-edited ones are never regenerated: they become context for
-    # neighbouring columns and are excluded from the ask; every other column (new or previously AI-drafted)
-    # is regenerated because the definition/columns changed.
+def _plan_annotations(target: _EnrichmentTarget) -> _AnnotationPlan:
+    """Snapshot existing annotations and derive the ask.
+
+    User-edited rows are never regenerated: they become context for neighbouring columns and are excluded
+    from the ask; every other column (new or previously AI-drafted) is regenerated because the
+    definition/columns changed.
+    """
     existing = {
         annotation.column_name: annotation
-        for annotation in DataWarehouseSavedQueryColumnAnnotation.objects.for_team(team_id).filter(
-            saved_query_id=saved_query.id
+        for annotation in DataWarehouseSavedQueryColumnAnnotation.objects.for_team(target.team.id).filter(
+            saved_query_id=target.saved_query.id
         )
     }
-    known_descriptions = {
-        name: annotation.description for name, annotation in existing.items() if name and annotation.is_user_edited
-    }
-    columns_needing_description = [
-        column["name"]
-        for column in columns
-        if not (existing.get(column["name"]) and existing[column["name"]].is_user_edited)
-    ]
-    view_row = existing.get("")
-    view_needs_description = not (view_row and view_row.is_user_edited)
 
-    # Columns past the per-pass cap are never asked about. The cap is deterministic, so a retry cannot
-    # reach them and withholding the hash would repeat the same pass forever; logged instead.
-    over_cap = [
-        column["name"]
-        for column in all_columns[MAX_COLUMNS_PER_TABLE:]
-        if not (existing.get(column["name"]) and existing[column["name"]].is_user_edited)
-    ]
+    def is_user_edited(column_name: str) -> bool:
+        annotation = existing.get(column_name)
+        return bool(annotation and annotation.is_user_edited)
+
+    view_row = existing.get("")
+    return _AnnotationPlan(
+        existing=existing,
+        known_descriptions={
+            name: annotation.description for name, annotation in existing.items() if name and annotation.is_user_edited
+        },
+        columns_needing_description=[column["name"] for column in target.columns if not is_user_edited(column["name"])],
+        view_needs_description=not (view_row and view_row.is_user_edited),
+        # Columns past the per-pass cap are never asked about. The cap is deterministic, so a retry cannot
+        # reach them and withholding the hash would repeat the same pass forever; logged instead.
+        over_cap_count=sum(
+            1 for column in target.all_columns[MAX_COLUMNS_PER_TABLE:] if not is_user_edited(column["name"])
+        ),
+    )
+
+
+def _persist_generated_descriptions(
+    target: _EnrichmentTarget, bounded: BoundedPrompt, generated: dict[str, Any], *, view_requested: bool
+) -> int:
+    """Store the descriptions one reply carries. Returns how many annotations it wrote."""
+    ai_count = 0
+    generated_columns = generated.get("columns") or {}
+    if isinstance(generated_columns, dict):
+        for column_name in bounded.requested:
+            description = generated_columns.get(column_name)
+            if isinstance(description, str) and description.strip():
+                _upsert(target.saved_query, target.team.id, column_name, description.strip())
+                ai_count += 1
+
+    if view_requested:
+        view_description = generated.get("view_description")
+        if isinstance(view_description, str) and view_description.strip():
+            _upsert(target.saved_query, target.team.id, "", view_description.strip())
+    return ai_count
+
+
+def _run_enrichment_batches(target: _EnrichmentTarget, plan: _AnnotationPlan, log: Any) -> _BatchRun:
+    """Call the model until every asked-for column is described, the batch budget runs out, or a call fails.
+
+    Batched rather than dropping the tail: enrichment is recorded per view, so a dropped column is
+    latched as done by the hash the caller stores. A later pass cannot recover it either, because only
+    user-edited columns leave the ask list, so the same tail would drop again.
+    """
+    business_context = get_team_business_context(target.team)
+    lineage = _gather_lineage(target.team, target.saved_query, target.query_str)
+    # Only sample a materialized view — running the raw view query for an unmaterialized one is unbounded.
+    row_sample = _get_row_sample(target.saved_query) if _has_sampleable_rows(target.saved_query) else []
 
     ai_count = 0
-    unfinished: list[str] = []
-    if columns_needing_description or view_needs_description:
-        business_context = get_team_business_context(team)
-        lineage = _gather_lineage(team, saved_query, query_str)
-        # Only sample a materialized view — running the raw view query for an unmaterialized one is unbounded.
-        row_sample = _get_row_sample(saved_query) if _has_sampleable_rows(saved_query) else []
-
-        # Batched rather than dropping the tail: enrichment is recorded per view, so a dropped column is
-        # latched as done by the hash below. A later pass cannot recover it either, because only
-        # user-edited columns leave the ask list, so the same tail would drop again.
-        remaining = columns_needing_description
-        wants_view_description = view_needs_description
-        batch_deadline = time.monotonic() + ENRICHMENT_BATCH_BUDGET_SECONDS
-        batch_number = 0
-        # The view-level description still needs one call when every column is user-edited, so an
-        # empty ask list is not on its own a reason to skip the first batch.
-        while (remaining or wants_view_description) and batch_number < MAX_ENRICHMENT_BATCHES:
-            # The first call always runs, so batching cannot push this activity past a deadline one
-            # call would have met. Later batches yield to the clock and leave the rest for the retry.
-            if batch_number and time.monotonic() > batch_deadline:
-                log.info("view_enrichment.batch_budget_exhausted", columns_remaining=len(remaining))
-                break
-            batch_number += 1
-            bounded = build_bounded_view_enrichment_prompt(
-                view_name=saved_query.name,
-                query_definition=query_str,
-                columns=columns,
-                lineage=lineage,
-                row_sample=row_sample,
-                known_descriptions=known_descriptions,
-                columns_needing_description=remaining,
-                business_context=business_context,
+    remaining = plan.columns_needing_description
+    wants_view_description = plan.view_needs_description
+    batch_deadline = time.monotonic() + ENRICHMENT_BATCH_BUDGET_SECONDS
+    batch_number = 0
+    # The view-level description still needs one call when every column is user-edited, so an
+    # empty ask list is not on its own a reason to skip the first batch.
+    while (remaining or wants_view_description) and batch_number < MAX_ENRICHMENT_BATCHES:
+        # The first call always runs, so batching cannot push this activity past a deadline one
+        # call would have met. Later batches yield to the clock and leave the rest for the retry.
+        if batch_number and time.monotonic() > batch_deadline:
+            log.info("view_enrichment.batch_budget_exhausted", columns_remaining=len(remaining))
+            break
+        batch_number += 1
+        bounded = build_bounded_view_enrichment_prompt(
+            view_name=target.saved_query.name,
+            query_definition=target.query_str,
+            columns=target.columns,
+            lineage=lineage,
+            row_sample=row_sample,
+            known_descriptions=plan.known_descriptions,
+            columns_needing_description=remaining,
+            business_context=business_context,
+        )
+        if not bounded.requested and not wants_view_description:
+            # Nothing fit even after context was dropped first, so another identical call buys
+            # nothing. Backstop only; the loop condition covers the ordinary exit.
+            break
+        log.info(
+            "view_enrichment.llm_call_started",
+            columns_requested=len(bounded.requested),
+            columns_remaining=len(bounded.deferred),
+        )
+        try:
+            generated, usage = generate_json_completion(
+                product=GATEWAY_PRODUCT,
+                team_id=target.team.id,
+                prompt=bounded.prompt,
+                model=DEFAULT_ENRICHMENT_MODEL,
+                max_output_tokens=bounded.max_output_tokens,
             )
-            if not bounded.requested and not wants_view_description:
-                # Nothing fit even after context was dropped first, so another identical call buys
-                # nothing. Backstop only; the loop condition covers the ordinary exit.
-                break
-            log.info(
-                "view_enrichment.llm_call_started",
-                columns_requested=len(bounded.requested),
-                columns_remaining=len(bounded.deferred),
-            )
-            try:
-                generated, usage = generate_json_completion(
-                    product=GATEWAY_PRODUCT,
-                    team_id=team_id,
-                    prompt=bounded.prompt,
-                    model=DEFAULT_ENRICHMENT_MODEL,
-                    max_output_tokens=bounded.max_output_tokens,
-                )
-            except Exception as e:
-                capture_exception(e)
-                log.error("view_enrichment.llm_failed", error=str(e), exc_info=True)
-                # Don't store the hash, so the next trigger retries. Any earlier batch's annotations
-                # are already persisted and are simply re-drafted then.
-                return {"status": "partial", "ai_annotations": ai_count, "error": "llm_failed"}
+        except Exception as e:
+            capture_exception(e)
+            log.error("view_enrichment.llm_failed", error=str(e), exc_info=True)
+            return _BatchRun(ai_count=ai_count, unfinished=remaining, failed=True)
 
-            log.info("view_enrichment.llm_call", columns_requested=len(bounded.requested), **usage)
+        log.info("view_enrichment.llm_call", columns_requested=len(bounded.requested), **usage)
 
-            generated_columns = generated.get("columns") or {}
-            if isinstance(generated_columns, dict):
-                for column_name in bounded.requested:
-                    description = generated_columns.get(column_name)
-                    if isinstance(description, str) and description.strip():
-                        _upsert(saved_query, team_id, column_name, description.strip())
-                        ai_count += 1
+        ai_count += _persist_generated_descriptions(target, bounded, generated, view_requested=wants_view_description)
+        # Cleared whether or not the model answered: the next batch carries the same definition,
+        # so re-asking cannot produce what this reply withheld, and would burn the budget.
+        wants_view_description = False
 
-            if wants_view_description:
-                view_description = generated.get("view_description")
-                if isinstance(view_description, str) and view_description.strip():
-                    _upsert(saved_query, team_id, "", view_description.strip())
-                # Cleared whether or not the model answered: the next batch carries the same definition,
-                # so re-asking cannot produce what this reply withheld, and would burn the budget.
-                wants_view_description = False
+        remaining = bounded.deferred
 
-            remaining = bounded.deferred
-        unfinished = remaining
+    return _BatchRun(ai_count=ai_count, unfinished=remaining)
 
-    # Drop non-user-edited annotations for columns that no longer exist; keep user edits and the view row.
+
+def _delete_stale_annotations(target: _EnrichmentTarget, plan: _AnnotationPlan) -> list[str]:
+    """Drop non-user-edited annotations for columns that no longer exist; keep user edits and the view row."""
+    column_names = {column["name"] for column in target.all_columns}
     stale = [
         name
-        for name, annotation in existing.items()
+        for name, annotation in plan.existing.items()
         if name and name not in column_names and not annotation.is_user_edited
     ]
     if stale:
-        DataWarehouseSavedQueryColumnAnnotation.objects.for_team(team_id).filter(
-            saved_query_id=saved_query.id, column_name__in=stale, is_user_edited=False
+        DataWarehouseSavedQueryColumnAnnotation.objects.for_team(target.team.id).filter(
+            saved_query_id=target.saved_query.id, column_name__in=stale, is_user_edited=False
         ).delete()
+    return stale
+
+
+def enrich_view_semantics_sync(team_id: int, saved_query_id: str) -> dict[str, Any]:
+    """Generate and persist semantic annotations for one data-modeling view. Safe to re-run."""
+    log = logger.bind(team_id=team_id, saved_query_id=str(saved_query_id))
+
+    resolved = _resolve_enrichment_target(team_id, saved_query_id)
+    if isinstance(resolved, _EnrichmentSkip):
+        log.info("view_enrichment.skipped", reason=resolved.reason)
+        return {"status": "skipped", "reason": resolved.reason}
+
+    log.info("view_enrichment.started", columns_total=len(resolved.all_columns))
+
+    plan = _plan_annotations(resolved)
+    run = _run_enrichment_batches(resolved, plan, log) if plan.llm_needed else _BatchRun()
+    if run.failed:
+        # Don't store the hash, so the next trigger retries. Any earlier batch's annotations
+        # are already persisted and are simply re-drafted then.
+        return {"status": "partial", "ai_annotations": run.ai_count, "error": "llm_failed"}
+
+    stale = _delete_stale_annotations(resolved, plan)
 
     # Store the hash via queryset update() — bypasses post_save so it never re-triggers the signal.
     # Withheld only for columns still unasked when the budget ran out: the hash short-circuits the next
     # run. `over_cap` is exempt, since a deterministic cap makes the retry repeat the same pass.
-    if not unfinished:
-        DataWarehouseSavedQuery.objects.filter(id=saved_query.id).update(semantic_enrichment_hash=current_hash)
+    if not run.unfinished:
+        DataWarehouseSavedQuery.objects.filter(id=resolved.saved_query.id).update(
+            semantic_enrichment_hash=resolved.current_hash
+        )
     log.info(
         "view_enrichment.done",
-        ai=ai_count,
+        ai=run.ai_count,
         stale_deleted=len(stale),
-        llm_called=bool(columns_needing_description or view_needs_description),
-        unfinished=len(unfinished),
-        over_cap=len(over_cap),
+        llm_called=plan.llm_needed,
+        unfinished=len(run.unfinished),
+        over_cap=plan.over_cap_count,
     )
-    if unfinished:
-        return {"status": "partial", "ai_annotations": ai_count, "unfinished_columns": len(unfinished)}
-    return {"status": "done", "ai_annotations": ai_count}
+    if run.unfinished:
+        return {"status": "partial", "ai_annotations": run.ai_count, "unfinished_columns": len(run.unfinished)}
+    return {"status": "done", "ai_annotations": run.ai_count}
 
 
 def _upsert(saved_query: DataWarehouseSavedQuery, team_id: int, column_name: str, description: str) -> None:
