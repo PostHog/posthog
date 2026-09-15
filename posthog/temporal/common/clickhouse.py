@@ -191,7 +191,9 @@ class TailCapturingStream(io.RawIOBase):
             self._tail[:] = data[-self._limit :]
         else:
             self._tail.extend(data)
-            del self._tail[: len(self._tail) - self._limit]
+            overflow = len(self._tail) - self._limit
+            if overflow > 0:
+                del self._tail[:overflow]
         return data
 
     def readable(self) -> bool:

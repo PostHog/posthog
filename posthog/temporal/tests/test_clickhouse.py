@@ -23,8 +23,10 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseQueryTimeoutError,
     ClickHouseTooManyBytesError,
     ClickHouseTooManySimultaneousQueriesError,
+    TailCapturingStream,
     add_log_comment_param,
     encode_clickhouse_data,
+    extract_clickhouse_exception,
 )
 
 pytestmark = pytest.mark.django_db
@@ -801,3 +803,24 @@ async def test_stream_query_as_arrow_keeps_the_stream_error_when_no_query_id(cli
         with pytest.raises(urllib3.exceptions.ProtocolError):
             for _ in clickhouse_client.stream_query_as_arrow("SELECT 1"):
                 pass
+
+
+@pytest.mark.parametrize(
+    "payload_size,read_size",
+    [(20000, 64), (8130, 4065)],
+    ids=["many_reads_below_the_limit", "two_reads_below_the_limit"],
+)
+def test_tail_capturing_stream_keeps_the_last_bytes_it_read(payload_size, read_size):
+    """A query that dies before it fills a record batch hands the trailer over in small reads.
+
+    Every read then stays below the window, so the trim runs on the accumulated tail
+    instead of on one block, and the error line has to survive it.
+    """
+    payload = b"x" * (payload_size - len(CLICKHOUSE_TRAILER)) + CLICKHOUSE_TRAILER
+    stream = TailCapturingStream(_FakeRawStream(payload))
+
+    while stream.read(read_size):
+        pass
+
+    assert stream.tail == payload[-8192:]
+    assert extract_clickhouse_exception(stream.tail) is not None
