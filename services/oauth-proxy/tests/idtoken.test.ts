@@ -202,7 +202,8 @@ describe('ID token re-issuance', () => {
     })
 
     it('keeps the regional audience when the request named no client', async () => {
-        // A confidential client authenticating with HTTP Basic posts no client_id at all.
+        // A request can authenticate without naming a client in the body, through a client
+        // assertion or the Authorization header, leaving the regional audience as the only one.
         const idToken = await signRegionalIdToken(regionalKey)
 
         const reissued = await reissueIdToken(idToken, {
@@ -214,6 +215,29 @@ describe('ID token re-issuance', () => {
         })
 
         expect(decodeJwt(reissued).aud).toBe(REGIONAL_CLIENT_ID)
+    })
+
+    it('still publishes the proxy keys when neither region answers', async () => {
+        // A relying party verifying an ID token this worker issued needs no regional key, so an
+        // outage of both regions must not take proxy-issued tokens down with it.
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(() => Promise.resolve(new Response('nope', { status: 500 })))
+        )
+
+        vi.resetModules()
+        const { handleJwks: freshHandleJwks } = await import('@/handlers/passthrough')
+
+        const response = await freshHandleJwks(
+            new Request('https://oauth.posthog.com/.well-known/jwks.json'),
+            createMockKV(),
+            { OIDC_SIGNING_KEY: signingKey }
+        )
+        const { keys } = (await response.json()) as { keys: JWK[] }
+
+        expect(response.status).toBe(200)
+        expect(response.headers.get('cache-control')).toBe('no-store')
+        expect(keys).toHaveLength(1)
     })
 
     it('does not cache a JWKS document that is missing a region', async () => {

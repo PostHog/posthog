@@ -87,7 +87,9 @@ export async function handleJwks(request: Request, _kv: KVNamespace, env: Signin
         regionalKeys(request, 'eu'),
     ])
 
-    if (regional.every((keys) => keys.length === 0)) {
+    // A relying party verifying an ID token this worker issued needs no regional key, so failing
+    // the whole document would break that verification for as long as both regions are down.
+    if (proxyKeys.length === 0 && regional.every((keys) => keys.length === 0)) {
         return new Response(JSON.stringify({ error: 'server_error' }), {
             status: 502,
             headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
@@ -111,8 +113,10 @@ async function regionalKeys(request: Request, region: Region): Promise<unknown[]
     try {
         const response = await proxyToRegion(request, region, '/.well-known/jwks.json')
         if (response.ok) {
-            const body = (await response.json()) as { keys?: unknown[] }
-            return body.keys ?? []
+            const body = (await response.json()) as { keys?: unknown }
+            // A non-array `keys` passes the emptiness check in `handleJwks` on its own length,
+            // which would publish and cache it as a key.
+            return Array.isArray(body.keys) ? body.keys : []
         }
         console.error(JSON.stringify({ handler: 'jwks', region, status: response.status }))
     } catch {
