@@ -1,4 +1,5 @@
 from contextlib import nullcontext
+from datetime import timedelta
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
@@ -34,6 +35,8 @@ from products.data_quality.backend.logic.notifications import (
 from products.data_quality.backend.logic.runner import run_check
 from products.data_quality.backend.logic.subject_access import referenced_subject_names
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
+from products.data_quality.backend.temporal.activities.notify_failing_checks import _notify_failing_checks
+from products.data_quality.backend.temporal.contracts import NotifyFailingChecksInputs
 from products.notifications.backend.facade.enums import TargetType
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
@@ -74,6 +77,10 @@ class TestDataQualityNotifications(BaseTest):
             "fingerprint": uuid4().hex,
         }
         return DataQualityCheck.objects.for_team(self.team.id).create(**{**defaults, **kwargs})
+
+    def _run_and_notify(self, check: DataQualityCheck) -> None:
+        run_check(check, self.suite_run, self.team)
+        _notify_failing_checks(NotifyFailingChecksInputs(team_id=self.team.id, suite_run_id=str(self.suite_run.id)))
 
     def _resolver_for(self, check: DataQualityCheck) -> _WarehouseSubjectResolver:
         return _WarehouseSubjectResolver(
@@ -163,6 +170,9 @@ class TestDataQualityNotifications(BaseTest):
                 with patch(RUNNER_QUERY, side_effect=change_metric), pinning:
                     outcome = run_check(check, self.suite_run, self.team)
                 assert outcome.status == CheckRunStatus.FAILED
+                _notify_failing_checks(
+                    NotifyFailingChecksInputs(team_id=self.team.id, suite_run_id=str(self.suite_run.id))
+                )
             else:
                 notify_check_started_failing(check, 3)
         assert notifications.call_count == 1
@@ -209,22 +219,32 @@ class TestDataQualityNotifications(BaseTest):
 
     @parameterized.expand(
         [
-            ("first_failure", "", CheckSeverity.ERROR, 3, 1),
-            ("still_failing", CheckRunStatus.FAILED, CheckSeverity.ERROR, 3, 0),
-            ("recovered_then_failed_again", CheckRunStatus.PASSED, CheckSeverity.ERROR, 3, 1),
-            ("warn_severity_failure", "", CheckSeverity.WARN, 3, 0),
-            ("passing", "", CheckSeverity.ERROR, 0, 0),
-            ("recovery", CheckRunStatus.FAILED, CheckSeverity.ERROR, 0, 0),
+            ("first_failure", "", None, CheckSeverity.ERROR, 3, 1),
+            ("still_failing", CheckRunStatus.FAILED, "before_the_suite", CheckSeverity.ERROR, 3, 0),
+            ("recovered_then_failed_again", CheckRunStatus.PASSED, None, CheckSeverity.ERROR, 3, 1),
+            ("warn_severity_failure", "", None, CheckSeverity.WARN, 3, 0),
+            ("passing", "", None, CheckSeverity.ERROR, 0, 0),
+            ("recovery", CheckRunStatus.FAILED, "before_the_suite", CheckSeverity.ERROR, 0, 0),
         ]
     )
     def test_only_a_pass_to_fail_edge_on_an_error_check_notifies(
-        self, _name, previous_status: str, severity: CheckSeverity, failure_count: int, expected_calls: int
+        self,
+        _name,
+        previous_status: str,
+        streak_start: str | None,
+        severity: CheckSeverity,
+        failure_count: int,
+        expected_calls: int,
     ) -> None:
-        check = self._check(last_status=previous_status, severity=severity)
+        check = self._check(
+            last_status=previous_status,
+            severity=severity,
+            failing_since=self.suite_run.created_at - timedelta(minutes=5) if streak_start else None,
+        )
 
         with patch(CREATE_NOTIFICATION) as create_notification:
             with patch(RUNNER_QUERY, return_value=_Response(failure_count)):
-                run_check(check, self.suite_run, self.team)
+                self._run_and_notify(check)
 
         assert create_notification.call_count == expected_calls
 
@@ -233,7 +253,7 @@ class TestDataQualityNotifications(BaseTest):
 
         with patch(CREATE_NOTIFICATION) as create_notification:
             with patch(RUNNER_QUERY, return_value=_Response(4)):
-                run_check(check, self.suite_run, self.team)
+                self._run_and_notify(check)
 
         payload = create_notification.call_args.args[0]
         assert payload.title == "Data quality check failed on orders"
@@ -247,7 +267,7 @@ class TestDataQualityNotifications(BaseTest):
 
         with patch(CREATE_NOTIFICATION) as create_notification:
             with patch(RUNNER_QUERY, return_value=_Response(4)):
-                run_check(check, self.suite_run, self.team)
+                self._run_and_notify(check)
 
         assert create_notification.call_args.args[0].resource_type == "warehouse_objects"
 
