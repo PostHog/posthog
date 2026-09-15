@@ -30,5 +30,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        SafeDropTable("posthog_ducklakecatalog", "posthog_ducklakebackfill"),
+        SafeDropTable(["posthog_ducklakecatalog", "posthog_ducklakebackfill"]),
     ]

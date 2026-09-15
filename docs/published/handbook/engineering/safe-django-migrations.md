@@ -181,7 +181,7 @@ from posthog.migration_helpers import SafeDropTable
 
 class Migration(migrations.Migration):
     operations = [
-        SafeDropTable("posthog_oldfeature", "posthog_oldfeaturerun"),
+        SafeDropTable(["posthog_oldfeature", "posthog_oldfeaturerun"]),
     ]
 ```
 

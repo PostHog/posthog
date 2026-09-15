@@ -11,6 +11,7 @@ import uuid
 import pytest
 
 from django.db import connection
+from django.db.migrations.writer import OperationWriter
 
 from posthog.migration_helpers import SafeDropTable
 
@@ -60,7 +61,7 @@ def _tables_exist(*tables):
 def test_locks_the_referenced_parent_before_dropping(temp_tables):
     child_a, child_b, parent = temp_tables
 
-    collected = _apply(collect=True, op=SafeDropTable(child_a, child_b))
+    collected = _apply(collect=True, op=SafeDropTable([child_a, child_b]))
 
     lock = next(statement for statement in collected if "LOCK TABLE" in statement)
     drop = next(statement for statement in collected if "DROP TABLE" in statement)
@@ -103,7 +104,7 @@ def test_restores_the_timeouts_the_transaction_came_in_with(temp_tables):
 def test_drops_every_named_table(temp_tables):
     child_a, child_b, parent = temp_tables
 
-    _apply(SafeDropTable(child_a, child_b))
+    _apply(SafeDropTable([child_a, child_b]))
 
     assert _tables_exist(child_a, child_b, parent) == {parent}
 
@@ -111,7 +112,7 @@ def test_drops_every_named_table(temp_tables):
 @pytest.mark.django_db
 def test_a_second_run_is_a_no_op(temp_tables):
     child_a, child_b, _ = temp_tables
-    op = SafeDropTable(child_a, child_b)
+    op = SafeDropTable([child_a, child_b])
 
     _apply(op)
     _apply(op)
@@ -130,4 +131,19 @@ def test_the_drop_cannot_be_reversed():
 
 def test_needs_a_table():
     with pytest.raises(ValueError, match="at least one table"):
-        SafeDropTable()
+        SafeDropTable([])
+
+
+@pytest.mark.parametrize("tables", ["test_safedrop_child", ["test_safedrop_child_a", "test_safedrop_child_b"]])
+def test_the_migration_writer_can_rebuild_the_operation(tables):
+    # squashmigrations renders every operation through this writer, and the writer maps each
+    # captured argument onto a constructor parameter name. A `*tables` signature offers no
+    # name, so it raises IndexError, and a deconstruct that only emits kwargs renders
+    # SafeDropTable() with the tables silently gone.
+    op = SafeDropTable(tables)
+
+    rendered, _ = OperationWriter(op, indentation=0).serialize()
+
+    assert f"tables={tables!r}" in rendered
+    _, args, kwargs = op.deconstruct()
+    assert SafeDropTable(*args, **kwargs).tables == op.tables

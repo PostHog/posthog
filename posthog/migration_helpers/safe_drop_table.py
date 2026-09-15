@@ -16,7 +16,7 @@ This operation removes the cycle from the migration side:
     from posthog.migration_helpers import SafeDropTable
 
     operations = [
-        SafeDropTable("posthog_oldfeature", "posthog_oldfeaturerun"),
+        SafeDropTable(["posthog_oldfeature", "posthog_oldfeaturerun"]),
     ]
 
 It reads the referenced parents out of pg_constraint, takes ACCESS EXCLUSIVE on every one
@@ -31,6 +31,8 @@ the model still has to leave state a full deploy cycle earlier with
 `SeparateDatabaseAndState` plus a `DropForeignKey` for each key into a hot parent.
 `safe-django-migrations.md` ("Dropping Tables") has the phases and the full reasoning.
 """
+
+from collections.abc import Sequence
 
 from django.db import router
 from django.db.migrations.operations.base import Operation
@@ -58,9 +60,11 @@ class SafeDropTable(Operation):
     """Drop one or more retired tables under a deterministic, time-boxed lock phase.
 
     Arguments:
-        *tables: raw table names, for example `"posthog_oldfeature"`. Raw names rather
-            than model names, because the models left Django's state in an earlier
-            migration and no longer resolve.
+        tables: one raw table name, or a list of them. Raw names rather than model names,
+            because the models left Django's state in an earlier migration and no longer
+            resolve. A single name rather than a list is accepted because one table is the
+            common case. Django's migration writer maps a captured argument onto the
+            parameter name, so this stays a named parameter and never becomes `*tables`.
 
     Pass every table of one retirement in a single operation. They are locked and dropped
     together, so a key between two of them needs no ordering at the call site.
@@ -70,10 +74,11 @@ class SafeDropTable(Operation):
     reversible = False
     reduces_to_sql = True
 
-    def __init__(self, *tables: str) -> None:
-        if not tables:
+    def __init__(self, tables: str | Sequence[str]) -> None:
+        names = [tables] if isinstance(tables, str) else list(tables)
+        if not names:
             raise ValueError("SafeDropTable needs at least one table")
-        self.tables = list(tables)
+        self.tables = names
 
     def state_forwards(self, app_label, state) -> None:
         pass

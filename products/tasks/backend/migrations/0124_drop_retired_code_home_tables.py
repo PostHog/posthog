@@ -30,5 +30,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        SafeDropTable("posthog_code_workstream", "posthog_code_pr_snapshot", "posthog_code_workflow_config"),
+        SafeDropTable(["posthog_code_workstream", "posthog_code_pr_snapshot", "posthog_code_workflow_config"]),
     ]
