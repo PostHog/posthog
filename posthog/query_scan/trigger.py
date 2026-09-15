@@ -66,6 +66,7 @@ SkipReason = Literal[
     "no_clickhouse_query",
     "not_cacheable",
     "direct_connection",
+    "sensitive_values",
     "rate_limited",
     "slot_exists",
     "nothing_to_analyze",
@@ -118,6 +119,12 @@ def maybe_trigger_query_scan(
         # A direct connection reads the external warehouse instead of ClickHouse, so the job
         # would park a pending slot for an analysis that cannot happen.
         return "direct_connection"
+    if _carries_sensitive_values(stats):
+        # The job needs the parameter values to EXPLAIN, so they ship as printed, and a warehouse
+        # table prints its source's credentials among them. The broker would then hold those in
+        # plain text. Any value marked sensitive keeps the run out: a restricted-property list or
+        # an access-control list costs that run its analysis, which is the safe side.
+        return "sensitive_values"
     if not cacheable:
         return "not_cacheable"
     if get_slot(team_id, cache_key, thresholds=flag.thresholds_fingerprint) is not None:
@@ -217,6 +224,12 @@ def _print_execution(execution: RecordedExecution, subquery_budget: int) -> dict
         # run's analysis, never the query result the person already waited for.
         logger.warning("query_scan_print_failed", exc_info=True)
         return None
+
+
+def _carries_sensitive_values(stats: QueryStats) -> bool:
+    """Whether any execution's parameter values include one the printer marked sensitive, the way
+    ``HogQLContext.add_sensitive_value`` names them."""
+    return any(key.endswith("_sensitive") for execution in stats.executions for key in execution.context.values)
 
 
 def _event_filter_verdict(tree: ast.Expr) -> dict[str, str | None] | None:

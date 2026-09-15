@@ -115,6 +115,12 @@ class TestQueryScanTrigger(SimpleTestCase):
                 None,
                 "direct_connection",
             ),
+            (
+                "an execution carries a sensitive value",
+                {"stats": _stats(executions=[_execution(values={"hogql_val_0_sensitive": "warehouse-secret"})])},
+                None,
+                "sensitive_values",
+            ),
             ("result not cacheable", {"cacheable": False}, None, "not_cacheable"),
             ("slot already exists", {}, _store_a_slot, "slot_exists"),
             ("over the enqueues a team gets in a minute", {}, _spend_the_enqueue_budget, "rate_limited"),
