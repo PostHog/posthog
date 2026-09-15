@@ -10,7 +10,9 @@ Assistant: This needs analytics and visualization guidance, so I'll load both fi
 User: How many weekly active users do we have?
 Assistant: This needs analytics and visualization guidance, so I'll load both before any other command.
 [Runs `posthog:exec({"command":"learn analytics visualizations"})`]
-Assistant: I need the query and data schema tools.
+Assistant: A weekly count is a governed shape, so the catalog comes first.
+[Runs `posthog:exec({"command":"call metric-list {\"limit\":100}"})`]
+Assistant: No approved metric matches, so I fall through to the query tools.
 [Runs `posthog:exec({"command":"search query-trends"})` and `posthog:exec({"command":"search read-data"})` in parallel]
 Assistant: I'll inspect both schemas.
 [Runs `posthog:exec({"command":"info query-trends"})` and `posthog:exec({"command":"info read-data-schema"})` in parallel]
@@ -40,12 +42,6 @@ Assistant: I have the inputs to create the dashboard.
 User: Show me our feature flags
 Assistant: [Calls `feature-flag-get-all` with guessed parameters]
 WRONG: Run `info feature-flag-get-all` first.
-</bad-example>
-
-<bad-example>
-User: Query our events
-Assistant: [Loads analytics, then calls three tools without inspecting them]
-WRONG: Run `info` for all tools before any `call` commands.
 </bad-example>
 
 <bad-example>

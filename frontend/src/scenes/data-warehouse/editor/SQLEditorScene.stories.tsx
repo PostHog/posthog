@@ -1,11 +1,16 @@
 import { Decorator, Meta, StoryObj } from '@storybook/react'
+import { BindLogic } from 'kea'
 import { useEffect, useRef } from 'react'
 
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import type { DataWarehouseSavedQuery } from '~/types'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
+import { QueryInfo } from './output-pane-tabs/QueryInfo'
+import { sqlEditorLogic } from './sqlEditorLogic'
 
 // The SQL editor scene gates on warehouse-objects access; grant it on the storybook app context
 // before the story mounts and restore the original on unmount so story order can't leak.
@@ -159,4 +164,63 @@ export const ManagedWarehouseConnection: Story = {
         // instead of the default "PostHog (ClickHouse)".
         pageUrl: urls.sqlEditor({ query: SAMPLE_SQL, connectionId: MANAGED_WAREHOUSE_CONNECTION_ID }),
     },
+}
+
+const SETTINGS_VIEW = {
+    id: 'settings-view',
+    name: 'revenue_summary',
+    is_materialized: true,
+    user_access_level: AccessControlLevel.Editor,
+    sync_frequency: '1hour',
+    query: { kind: 'HogQLQuery', query: 'SELECT 1' },
+} as DataWarehouseSavedQuery
+
+export const MaterializationSettings: StoryObj = {
+    // This story renders the info pane on its own, so the editor the meta waits for never mounts.
+    parameters: {
+        testOptions: {
+            waitForSelector: '[data-attr="sql-editor-sidebar-query-info-pane"]',
+            viewport: { width: 1600, height: 900 },
+        },
+    },
+    render: () => (
+        <BindLogic logic={sqlEditorLogic} props={{ tabId: 'settings-preview' }}>
+            <QueryInfo tabId="settings-preview" view={SETTINGS_VIEW} tabbed />
+        </BindLogic>
+    ),
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/warehouse_saved_queries/:id/': [200, SETTINGS_VIEW],
+                '/api/projects/:team_id/data_modeling_jobs/': [200, { results: [], count: 0, next: null }],
+                '/api/environments/:team_id/data_modeling_nodes/lineage/': [
+                    200,
+                    {
+                        nodes: [
+                            {
+                                id: 'source',
+                                name: 'orders',
+                                type: 'table',
+                                dag: 'dag-1',
+                                upstream_count: 0,
+                                downstream_count: 1,
+                            },
+                            {
+                                id: 'summary',
+                                name: 'revenue_summary',
+                                type: 'matview',
+                                saved_query_id: 'settings-view',
+                                dag: 'dag-1',
+                                upstream_count: 1,
+                                downstream_count: 0,
+                            },
+                        ],
+                        edges: [
+                            { id: 'edge-1', source_id: 'source', target_id: 'summary', dag: 'dag-1', properties: {} },
+                        ],
+                    },
+                ],
+            },
+        }),
+    ],
 }

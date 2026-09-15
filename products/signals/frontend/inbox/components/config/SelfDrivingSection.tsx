@@ -498,6 +498,35 @@ function DailyReportLimit(): JSX.Element {
 }
 
 /**
+ * Team-wide opt-in to commenting back on a GitHub issue that raised a report. Off by default,
+ * because the comment is public on the issue thread. It carries a link to the report and nothing
+ * else, so what the report says stays behind the project's own access check.
+ */
+function GitHubIssueWritebackRow(): JSX.Element {
+    const { githubIssueWritebackEnabled, teamConfigUpdating } = useValues(signalTeamConfigLogic)
+    const { patchTeamConfig } = useActions(signalTeamConfigLogic)
+
+    return (
+        <div className="flex items-start justify-between gap-2 px-2.5 py-1.5">
+            <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                <span className="text-xs text-secondary">Comment back on GitHub issues</span>
+                <p className="text-[11px] text-tertiary leading-snug mb-0">
+                    When a GitHub issue creates a report, comment on that issue with a link to the report. Everybody
+                    watching the issue can see the comment.
+                </p>
+            </div>
+            <LemonSwitch
+                checked={githubIssueWritebackEnabled}
+                loading={teamConfigUpdating}
+                onChange={(enabled) => patchTeamConfig({ github_issue_writeback_enabled: enabled })}
+                aria-label="Comment back on GitHub issues that create reports"
+                data-attr="signals-github-issue-writeback"
+            />
+        </div>
+    )
+}
+
+/**
  * Per-user opt-in to being added as a GitHub assignee on the implementation PR for reports that
  * suggest this user as reviewer. Off by default, because being assigned is visible to everybody on
  * the pull request. Renders regardless of the auto-start toggle: a PR opened by hand from the inbox
@@ -694,6 +723,9 @@ export function SelfDrivingSection(): JSX.Element {
                 )}
                 <div className="border-t border-primary">
                     <PullRequestStateRows />
+                </div>
+                <div className="border-t border-primary">
+                    <GitHubIssueWritebackRow />
                 </div>
                 <div className="border-t border-primary">
                     <GitHubAssignmentRow />

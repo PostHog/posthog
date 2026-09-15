@@ -73,7 +73,9 @@ import type {
     VisionScannersObservationsRetrieveParams,
     VisionScannersObservationsStatsRetrieveParams,
     VisionScannersPromptSuggestionsListParams,
+    VisionScannersWatchFeedRetrieveParams,
     VisionSpendSeriesApi,
+    WatchFeedResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -1511,5 +1513,38 @@ export const visionScannersSuggestTagsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(suggestTagsRequestApi),
+    })
+}
+
+export const getVisionScannersWatchFeedRetrieveUrl = (
+    projectId: string,
+    params?: VisionScannersWatchFeedRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/scanners/watch_feed/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/scanners/watch_feed/`
+}
+
+/**
+ * Succeeded observations in the window worth watching, ranked — feeds the What to watch tab.
+ */
+export const visionScannersWatchFeedRetrieve = async (
+    projectId: string,
+    params?: VisionScannersWatchFeedRetrieveParams,
+    options?: RequestInit
+): Promise<WatchFeedResponseApi> => {
+    return apiMutator<WatchFeedResponseApi>(getVisionScannersWatchFeedRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }

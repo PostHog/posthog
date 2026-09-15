@@ -374,6 +374,14 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # so Temporal-level retries will eventually succeed. The attempt count is volatile, so we
             # match the stable prefix.
             "Could not connect to Snowflake backend after",
+            # requests (vendored by the connector) raises ChunkedEncodingError when the peer resets
+            # the TCP connection (ECONNRESET) while streaming a query result's chunked HTTP response
+            # body. This happens after the connector's own request-retry wrapper has already handed
+            # back the response object, so it isn't covered by that retry budget. A fresh Temporal-level
+            # retry opens a new connection and re-executes the query from scratch, which recovers
+            # cleanly, so this is a self-recovering network blip rather than a bug. The errno and OS-
+            # specific wrapping vary, so we match the stable requests-library wrapper phrase.
+            "Connection broken: ConnectionResetError",
         }
 
     def reconcile_schema_metadata(

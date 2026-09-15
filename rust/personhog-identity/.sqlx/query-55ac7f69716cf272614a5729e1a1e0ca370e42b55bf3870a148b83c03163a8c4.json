@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT count(*) as \"count!\" FROM lifecycle_op_person_tmp\n        WHERE op_id = $1 AND status IN ('marked', 'sealed')\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "55ac7f69716cf272614a5729e1a1e0ca370e42b55bf3870a148b83c03163a8c4"
+}

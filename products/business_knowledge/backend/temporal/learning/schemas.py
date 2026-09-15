@@ -7,7 +7,7 @@ from posthog.dataclasses import frozen
 
 from products.business_knowledge.backend.learning.contracts import EvidenceRef
 
-from .constants import LEARNING_MAX_ANSWER_CHARS, LEARNING_MAX_TOPIC_CHARS
+from .constants import LEARNING_DEFAULT_LOOKBACK_DAYS, LEARNING_MAX_ANSWER_CHARS, LEARNING_MAX_TOPIC_CHARS
 
 RejectionCode = Literal[
     "none",
@@ -19,6 +19,7 @@ RejectionCode = Literal[
     "already_known",
     "low_confidence",
     "already_completed",
+    "learned_cap_reached",
 ]
 LearningResult = Literal["knowledge_created", "no_knowledge", "ineligible"]
 ExtractionRejectionCode = Literal["none", "case_specific", "not_useful", "unsupported", "low_confidence"]
@@ -44,6 +45,32 @@ class AnalyzeLearningEvidenceOutput:
     result: LearningResult
     knowledge_document_id: str | None
     rejection_code: RejectionCode
+
+
+@dataclass(frozen=True)
+class LearningCoordinatorInput:
+    lookback_days: int = LEARNING_DEFAULT_LOOKBACK_DAYS
+    team_id: int | None = None
+    ticket_id: str | None = None
+
+
+@dataclass(frozen=True)
+class LearningWorkItem:
+    team_id: int
+    run_id: str
+    evidence: EvidenceRef
+
+
+@dataclass(frozen=True)
+class CollectLearningEvidenceOutput:
+    items: list[LearningWorkItem]
+
+
+@dataclass(frozen=True)
+class LearningCoordinatorOutput:
+    eligible_count: int
+    started_count: int
+    skipped_count: int
 
 
 class ExtractedKnowledge(BaseModel):
