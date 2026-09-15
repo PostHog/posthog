@@ -686,6 +686,27 @@ export const BusinessModelEnumApi = {
     Other: 'other',
 } as const
 
+export type LogsSettingsApi = { [key: string]: unknown } & {
+    /** Capture browser console logs through the PostHog SDK. */
+    capture_console_logs?: boolean
+    /** Extract JSON fields from new log bodies. */
+    json_parse_logs?: boolean
+    /** Literal log attribute key to parse as JSON, at most 200 characters after trimming whitespace. An empty string disables parsing. */
+    json_parse_logs_attribute_key?: string
+    /** Redact supported PII patterns before storing new logs. */
+    pii_scrub_logs?: boolean
+    /**
+     * Log retention in days: 14 or 30. Paid retention requires the matching entitlement.
+     * @nullable
+     */
+    retention_days?: number | null
+    /**
+     * Timestamp of the last retention change, used to limit how often retention can change.
+     * @nullable
+     */
+    retention_last_updated?: string | null
+}
+
 /**
  * * `ingest_first_event` - ingest_first_event
  * * `set_up_reverse_proxy` - set_up_reverse_proxy
@@ -2627,7 +2648,8 @@ export interface ProjectBackwardCompatApi {
      */
     conversations_enabled?: boolean | null
     conversations_settings?: unknown
-    logs_settings?: unknown
+    /** Log ingestion settings. Updates replace the entire object; null clears all settings. */
+    logs_settings?: LogsSettingsApi | null
     /** @nullable */
     proactive_tasks_enabled?: boolean | null
     readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnumApi[]
@@ -3484,7 +3506,8 @@ export interface PatchedProjectBackwardCompatApi {
      */
     conversations_enabled?: boolean | null
     conversations_settings?: unknown
-    logs_settings?: unknown
+    /** Log ingestion settings. Updates replace the entire object; null clears all settings. */
+    logs_settings?: LogsSettingsApi | null
     /** @nullable */
     proactive_tasks_enabled?: boolean | null
     readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnumApi[]

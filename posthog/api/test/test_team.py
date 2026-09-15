@@ -2003,9 +2003,14 @@ def team_api_test_factory():
                 )
                 assert "retention_days must be one of" in response.json()["detail"]
 
-        @parameterized.expand([(" app.context ", "app.context"), ("", "")])
+        @parameterized.expand([(" app.context ", "app.context"), ("", ""), (" " + "a" * 200 + " ", "a" * 200)])
         def test_logs_settings_json_attribute_key(self, key, expected):
-            existing_settings = {"retention_days": 14, "json_parse_logs": False, "pii_scrub_logs": True}
+            existing_settings = {
+                "retention_days": 14,
+                "json_parse_logs": False,
+                "pii_scrub_logs": True,
+                "future_setting": {"enabled": True},
+            }
             self.team.logs_settings = existing_settings
             self.team.save()
             response = self.client.patch(
