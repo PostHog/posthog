@@ -24030,6 +24030,10 @@
             "additionalProperties": false,
             "description": "Slim data warehouse table source for experiment API payloads.",
             "properties": {
+                "custom_name": {
+                    "description": "Label shown instead of name, e.g. a renamed funnel step.",
+                    "type": "string"
+                },
                 "data_warehouse_join_key": {
                     "description": "Table-side column to join on, e.g. 'customer_id'.",
                     "type": "string"
@@ -24059,9 +24063,16 @@
                     "type": "string"
                 },
                 "properties": {
-                    "description": "Filters on the table's own columns.",
+                    "description": "Filters on the table's own columns, or a HogQL expression over them.",
                     "items": {
-                        "$ref": "#/definitions/DataWarehousePropertyFilter"
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehousePropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/HogQLPropertyFilter"
+                            }
+                        ]
                     },
                     "type": "array"
                 },

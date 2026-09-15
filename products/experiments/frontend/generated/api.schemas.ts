@@ -1358,6 +1358,8 @@ export interface ExperimentApiEventSourceApi {
 }
 
 export interface ExperimentApiDataWarehouseSourceApi {
+    /** Label shown instead of name, e.g. a renamed funnel step. */
+    custom_name?: string | null
     /** Table-side column to join on, e.g. 'customer_id'. */
     data_warehouse_join_key: string
     /** Event-side column to join on, e.g. 'distinct_id'. */
@@ -1371,8 +1373,8 @@ export interface ExperimentApiDataWarehouseSourceApi {
     math_property?: string | null
     /** Display name for the source. */
     name?: string | null
-    /** Filters on the table's own columns. */
-    properties?: DataWarehousePropertyFilterApi[] | null
+    /** Filters on the table's own columns, or a HogQL expression over them. */
+    properties?: (DataWarehousePropertyFilterApi | HogQLPropertyFilterApi)[] | null
     /** Data warehouse table to read from, e.g. 'stripe_charges'. */
     table_name: string
     /** Table column that holds the row timestamp, e.g. 'created_at'. */

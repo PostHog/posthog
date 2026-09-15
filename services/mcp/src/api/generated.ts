@@ -36332,6 +36332,8 @@ export namespace Schemas {
     }
 
     export interface ExperimentApiDataWarehouseSource {
+      /** Label shown instead of name, e.g. a renamed funnel step. */
+      custom_name?: string | null;
       /** Table-side column to join on, e.g. 'customer_id'. */
       data_warehouse_join_key: string;
       /** Event-side column to join on, e.g. 'distinct_id'. */
@@ -36345,8 +36347,8 @@ export namespace Schemas {
       math_property?: string | null;
       /** Display name for the source. */
       name?: string | null;
-      /** Filters on the table's own columns. */
-      properties?: DataWarehousePropertyFilter[] | null;
+      /** Filters on the table's own columns, or a HogQL expression over them. */
+      properties?: (DataWarehousePropertyFilter | HogQLPropertyFilter)[] | null;
       /** Data warehouse table to read from, e.g. 'stripe_charges'. */
       table_name: string;
       /** Table column that holds the row timestamp, e.g. 'created_at'. */

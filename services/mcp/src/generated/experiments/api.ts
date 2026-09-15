@@ -854,11 +854,13 @@ export const experimentsCreateBodyExposureCriteriaOneExposureConfigOneProperties
 export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsOneItemCompletionEventTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsCreateBodyMetricsOneItemCompletionEventTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsCreateBodyMetricsOneItemCompletionEventTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsCreateBodyMetricsOneItemCompletionEventTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsOneItemDenominatorTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsCreateBodyMetricsOneItemDenominatorTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsCreateBodyMetricsOneItemDenominatorTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsCreateBodyMetricsOneItemDenominatorTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
@@ -872,7 +874,8 @@ export const experimentsCreateBodyMetricsOneItemLowerBoundPercentileOneMax = 1
 export const experimentsCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsOneItemNumeratorTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsCreateBodyMetricsOneItemNumeratorTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsCreateBodyMetricsOneItemNumeratorTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsCreateBodyMetricsOneItemNumeratorTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
@@ -882,26 +885,31 @@ export const experimentsCreateBodyMetricsOneItemNumeratorOutlierHandlingOneUpper
 export const experimentsCreateBodyMetricsOneItemSeriesOneItemOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsOneItemSeriesOneItemOnePropertiesOneItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsOneItemSeriesOneItemTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsCreateBodyMetricsOneItemSeriesOneItemTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsCreateBodyMetricsOneItemSeriesOneItemTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsCreateBodyMetricsOneItemSeriesOneItemTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsCreateBodyMetricsOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsOneItemSourceOnePropertiesOneItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsOneItemSourceTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsCreateBodyMetricsOneItemSourceTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsCreateBodyMetricsOneItemSourceTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsCreateBodyMetricsOneItemSourceTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsCreateBodyMetricsOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsOneItemStartEventTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsCreateBodyMetricsOneItemStartEventTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsCreateBodyMetricsOneItemStartEventTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsCreateBodyMetricsOneItemStartEventTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsCreateBodyMetricsOneItemUpperBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsOneItemUpperBoundPercentileOneMax = 1
 
 export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsCreateBodyMetricsSecondaryOneItemCompletionEventTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
@@ -915,7 +923,8 @@ export const experimentsCreateBodyMetricsSecondaryOneItemLowerBoundPercentileOne
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
@@ -925,15 +934,18 @@ export const experimentsCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlin
 export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemOnePropertiesOneItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsSecondaryOneItemSourceTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsCreateBodyMetricsSecondaryOneItemSourceTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsCreateBodyMetricsSecondaryOneItemSourceTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsCreateBodyMetricsSecondaryOneItemSourceTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsSecondaryOneItemStartEventTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsCreateBodyMetricsSecondaryOneItemStartEventTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsCreateBodyMetricsSecondaryOneItemStartEventTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsCreateBodyMetricsSecondaryOneItemStartEventTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin = 0
 export const experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax = 1
 
@@ -4737,6 +4749,10 @@ export const ExperimentsCreateBody = () => zod
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.object({
+                                        custom_name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Label shown instead of name, e.g. a renamed funnel step.'),
                                         data_warehouse_join_key: zod
                                             .string()
                                             .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -4782,75 +4798,103 @@ export const ExperimentsCreateBody = () => zod
                                         properties: zod
                                             .union([
                                                 zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod.enum([
-                                                            'exact',
-                                                            'is_not',
-                                                            'icontains',
-                                                            'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
-                                                            'regex',
-                                                            'not_regex',
-                                                            'gt',
-                                                            'gte',
-                                                            'lt',
-                                                            'lte',
-                                                            'is_set',
-                                                            'is_not_set',
-                                                            'is_date_exact',
-                                                            'is_date_before',
-                                                            'is_date_after',
-                                                            'between',
-                                                            'not_between',
-                                                            'min',
-                                                            'max',
-                                                            'in',
-                                                            'not_in',
-                                                            'is_cleaned_path_exact',
-                                                            'flag_evaluates_to',
-                                                            'semver_eq',
-                                                            'semver_neq',
-                                                            'semver_gt',
-                                                            'semver_gte',
-                                                            'semver_lt',
-                                                            'semver_lte',
-                                                            'semver_tilde',
-                                                            'semver_caret',
-                                                            'semver_wildcard',
-                                                            'icontains_multi',
-                                                            'not_icontains_multi',
-                                                        ]),
-                                                        type: zod
-                                                            .literal('data_warehouse')
-                                                            .default(
-                                                                experimentsCreateBodyMetricsOneItemCompletionEventTwoPropertiesOneItemTypeDefault
-                                                            ),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
+                                                    zod.union([
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'starts_with',
+                                                                'not_starts_with',
+                                                                'ends_with',
+                                                                'not_ends_with',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod
+                                                                .literal('data_warehouse')
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsOneItemCompletionEventTwoPropertiesOneItemOneTypeDefault
                                                                 ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            type: zod
+                                                                .literal('hogql')
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsOneItemCompletionEventTwoPropertiesOneItemTwoTypeDefault
+                                                                ),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                    ])
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe("Filters on the table's own columns."),
+                                            .describe(
+                                                "Filters on the table's own columns, or a HogQL expression over them."
+                                            ),
                                         table_name: zod
                                             .string()
                                             .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
@@ -5006,6 +5050,10 @@ export const ExperimentsCreateBody = () => zod
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.object({
+                                        custom_name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Label shown instead of name, e.g. a renamed funnel step.'),
                                         data_warehouse_join_key: zod
                                             .string()
                                             .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -5051,75 +5099,103 @@ export const ExperimentsCreateBody = () => zod
                                         properties: zod
                                             .union([
                                                 zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod.enum([
-                                                            'exact',
-                                                            'is_not',
-                                                            'icontains',
-                                                            'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
-                                                            'regex',
-                                                            'not_regex',
-                                                            'gt',
-                                                            'gte',
-                                                            'lt',
-                                                            'lte',
-                                                            'is_set',
-                                                            'is_not_set',
-                                                            'is_date_exact',
-                                                            'is_date_before',
-                                                            'is_date_after',
-                                                            'between',
-                                                            'not_between',
-                                                            'min',
-                                                            'max',
-                                                            'in',
-                                                            'not_in',
-                                                            'is_cleaned_path_exact',
-                                                            'flag_evaluates_to',
-                                                            'semver_eq',
-                                                            'semver_neq',
-                                                            'semver_gt',
-                                                            'semver_gte',
-                                                            'semver_lt',
-                                                            'semver_lte',
-                                                            'semver_tilde',
-                                                            'semver_caret',
-                                                            'semver_wildcard',
-                                                            'icontains_multi',
-                                                            'not_icontains_multi',
-                                                        ]),
-                                                        type: zod
-                                                            .literal('data_warehouse')
-                                                            .default(
-                                                                experimentsCreateBodyMetricsOneItemDenominatorTwoPropertiesOneItemTypeDefault
-                                                            ),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
+                                                    zod.union([
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'starts_with',
+                                                                'not_starts_with',
+                                                                'ends_with',
+                                                                'not_ends_with',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod
+                                                                .literal('data_warehouse')
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsOneItemDenominatorTwoPropertiesOneItemOneTypeDefault
                                                                 ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            type: zod
+                                                                .literal('hogql')
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsOneItemDenominatorTwoPropertiesOneItemTwoTypeDefault
+                                                                ),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                    ])
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe("Filters on the table's own columns."),
+                                            .describe(
+                                                "Filters on the table's own columns, or a HogQL expression over them."
+                                            ),
                                         table_name: zod
                                             .string()
                                             .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
@@ -5344,6 +5420,10 @@ export const ExperimentsCreateBody = () => zod
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.object({
+                                        custom_name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Label shown instead of name, e.g. a renamed funnel step.'),
                                         data_warehouse_join_key: zod
                                             .string()
                                             .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -5389,75 +5469,103 @@ export const ExperimentsCreateBody = () => zod
                                         properties: zod
                                             .union([
                                                 zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod.enum([
-                                                            'exact',
-                                                            'is_not',
-                                                            'icontains',
-                                                            'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
-                                                            'regex',
-                                                            'not_regex',
-                                                            'gt',
-                                                            'gte',
-                                                            'lt',
-                                                            'lte',
-                                                            'is_set',
-                                                            'is_not_set',
-                                                            'is_date_exact',
-                                                            'is_date_before',
-                                                            'is_date_after',
-                                                            'between',
-                                                            'not_between',
-                                                            'min',
-                                                            'max',
-                                                            'in',
-                                                            'not_in',
-                                                            'is_cleaned_path_exact',
-                                                            'flag_evaluates_to',
-                                                            'semver_eq',
-                                                            'semver_neq',
-                                                            'semver_gt',
-                                                            'semver_gte',
-                                                            'semver_lt',
-                                                            'semver_lte',
-                                                            'semver_tilde',
-                                                            'semver_caret',
-                                                            'semver_wildcard',
-                                                            'icontains_multi',
-                                                            'not_icontains_multi',
-                                                        ]),
-                                                        type: zod
-                                                            .literal('data_warehouse')
-                                                            .default(
-                                                                experimentsCreateBodyMetricsOneItemNumeratorTwoPropertiesOneItemTypeDefault
-                                                            ),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
+                                                    zod.union([
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'starts_with',
+                                                                'not_starts_with',
+                                                                'ends_with',
+                                                                'not_ends_with',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod
+                                                                .literal('data_warehouse')
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsOneItemNumeratorTwoPropertiesOneItemOneTypeDefault
                                                                 ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            type: zod
+                                                                .literal('hogql')
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsOneItemNumeratorTwoPropertiesOneItemTwoTypeDefault
+                                                                ),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                    ])
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe("Filters on the table's own columns."),
+                                            .describe(
+                                                "Filters on the table's own columns, or a HogQL expression over them."
+                                            ),
                                         table_name: zod
                                             .string()
                                             .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
@@ -5661,6 +5769,12 @@ export const ExperimentsCreateBody = () => zod
                                                     ),
                                             }),
                                             zod.object({
+                                                custom_name: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        'Label shown instead of name, e.g. a renamed funnel step.'
+                                                    ),
                                                 data_warehouse_join_key: zod
                                                     .string()
                                                     .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -5710,75 +5824,107 @@ export const ExperimentsCreateBody = () => zod
                                                 properties: zod
                                                     .union([
                                                         zod.array(
-                                                            zod.object({
-                                                                key: zod.string(),
-                                                                label: zod.union([zod.string(), zod.null()]).optional(),
-                                                                operator: zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                type: zod
-                                                                    .literal('data_warehouse')
-                                                                    .default(
-                                                                        experimentsCreateBodyMetricsOneItemSeriesOneItemTwoPropertiesOneItemTypeDefault
-                                                                    ),
-                                                                value: zod
-                                                                    .union([
-                                                                        zod.array(
-                                                                            zod.union([
-                                                                                zod.string(),
-                                                                                zod.number(),
-                                                                                zod.boolean(),
-                                                                            ])
+                                                            zod.union([
+                                                                zod.object({
+                                                                    key: zod.string(),
+                                                                    label: zod
+                                                                        .union([zod.string(), zod.null()])
+                                                                        .optional(),
+                                                                    operator: zod.enum([
+                                                                        'exact',
+                                                                        'is_not',
+                                                                        'icontains',
+                                                                        'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
+                                                                        'regex',
+                                                                        'not_regex',
+                                                                        'gt',
+                                                                        'gte',
+                                                                        'lt',
+                                                                        'lte',
+                                                                        'is_set',
+                                                                        'is_not_set',
+                                                                        'is_date_exact',
+                                                                        'is_date_before',
+                                                                        'is_date_after',
+                                                                        'between',
+                                                                        'not_between',
+                                                                        'min',
+                                                                        'max',
+                                                                        'in',
+                                                                        'not_in',
+                                                                        'is_cleaned_path_exact',
+                                                                        'flag_evaluates_to',
+                                                                        'semver_eq',
+                                                                        'semver_neq',
+                                                                        'semver_gt',
+                                                                        'semver_gte',
+                                                                        'semver_lt',
+                                                                        'semver_lte',
+                                                                        'semver_tilde',
+                                                                        'semver_caret',
+                                                                        'semver_wildcard',
+                                                                        'icontains_multi',
+                                                                        'not_icontains_multi',
+                                                                    ]),
+                                                                    type: zod
+                                                                        .literal('data_warehouse')
+                                                                        .default(
+                                                                            experimentsCreateBodyMetricsOneItemSeriesOneItemTwoPropertiesOneItemOneTypeDefault
                                                                         ),
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                        zod.null(),
-                                                                    ])
-                                                                    .optional(),
-                                                            })
+                                                                    value: zod
+                                                                        .union([
+                                                                            zod.array(
+                                                                                zod.union([
+                                                                                    zod.string(),
+                                                                                    zod.number(),
+                                                                                    zod.boolean(),
+                                                                                ])
+                                                                            ),
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                            zod.null(),
+                                                                        ])
+                                                                        .optional(),
+                                                                }),
+                                                                zod.object({
+                                                                    key: zod.string(),
+                                                                    label: zod
+                                                                        .union([zod.string(), zod.null()])
+                                                                        .optional(),
+                                                                    type: zod
+                                                                        .literal('hogql')
+                                                                        .default(
+                                                                            experimentsCreateBodyMetricsOneItemSeriesOneItemTwoPropertiesOneItemTwoTypeDefault
+                                                                        ),
+                                                                    value: zod
+                                                                        .union([
+                                                                            zod.array(
+                                                                                zod.union([
+                                                                                    zod.string(),
+                                                                                    zod.number(),
+                                                                                    zod.boolean(),
+                                                                                ])
+                                                                            ),
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                            zod.null(),
+                                                                        ])
+                                                                        .optional(),
+                                                                }),
+                                                            ])
                                                         ),
                                                         zod.null(),
                                                     ])
                                                     .optional()
-                                                    .describe("Filters on the table's own columns."),
+                                                    .describe(
+                                                        "Filters on the table's own columns, or a HogQL expression over them."
+                                                    ),
                                                 table_name: zod
                                                     .string()
                                                     .describe(
@@ -5938,6 +6084,10 @@ export const ExperimentsCreateBody = () => zod
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.object({
+                                        custom_name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Label shown instead of name, e.g. a renamed funnel step.'),
                                         data_warehouse_join_key: zod
                                             .string()
                                             .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -5983,75 +6133,103 @@ export const ExperimentsCreateBody = () => zod
                                         properties: zod
                                             .union([
                                                 zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod.enum([
-                                                            'exact',
-                                                            'is_not',
-                                                            'icontains',
-                                                            'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
-                                                            'regex',
-                                                            'not_regex',
-                                                            'gt',
-                                                            'gte',
-                                                            'lt',
-                                                            'lte',
-                                                            'is_set',
-                                                            'is_not_set',
-                                                            'is_date_exact',
-                                                            'is_date_before',
-                                                            'is_date_after',
-                                                            'between',
-                                                            'not_between',
-                                                            'min',
-                                                            'max',
-                                                            'in',
-                                                            'not_in',
-                                                            'is_cleaned_path_exact',
-                                                            'flag_evaluates_to',
-                                                            'semver_eq',
-                                                            'semver_neq',
-                                                            'semver_gt',
-                                                            'semver_gte',
-                                                            'semver_lt',
-                                                            'semver_lte',
-                                                            'semver_tilde',
-                                                            'semver_caret',
-                                                            'semver_wildcard',
-                                                            'icontains_multi',
-                                                            'not_icontains_multi',
-                                                        ]),
-                                                        type: zod
-                                                            .literal('data_warehouse')
-                                                            .default(
-                                                                experimentsCreateBodyMetricsOneItemSourceTwoPropertiesOneItemTypeDefault
-                                                            ),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
+                                                    zod.union([
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'starts_with',
+                                                                'not_starts_with',
+                                                                'ends_with',
+                                                                'not_ends_with',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod
+                                                                .literal('data_warehouse')
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsOneItemSourceTwoPropertiesOneItemOneTypeDefault
                                                                 ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            type: zod
+                                                                .literal('hogql')
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsOneItemSourceTwoPropertiesOneItemTwoTypeDefault
+                                                                ),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                    ])
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe("Filters on the table's own columns."),
+                                            .describe(
+                                                "Filters on the table's own columns, or a HogQL expression over them."
+                                            ),
                                         table_name: zod
                                             .string()
                                             .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
@@ -6203,6 +6381,10 @@ export const ExperimentsCreateBody = () => zod
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.object({
+                                        custom_name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Label shown instead of name, e.g. a renamed funnel step.'),
                                         data_warehouse_join_key: zod
                                             .string()
                                             .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -6248,75 +6430,103 @@ export const ExperimentsCreateBody = () => zod
                                         properties: zod
                                             .union([
                                                 zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod.enum([
-                                                            'exact',
-                                                            'is_not',
-                                                            'icontains',
-                                                            'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
-                                                            'regex',
-                                                            'not_regex',
-                                                            'gt',
-                                                            'gte',
-                                                            'lt',
-                                                            'lte',
-                                                            'is_set',
-                                                            'is_not_set',
-                                                            'is_date_exact',
-                                                            'is_date_before',
-                                                            'is_date_after',
-                                                            'between',
-                                                            'not_between',
-                                                            'min',
-                                                            'max',
-                                                            'in',
-                                                            'not_in',
-                                                            'is_cleaned_path_exact',
-                                                            'flag_evaluates_to',
-                                                            'semver_eq',
-                                                            'semver_neq',
-                                                            'semver_gt',
-                                                            'semver_gte',
-                                                            'semver_lt',
-                                                            'semver_lte',
-                                                            'semver_tilde',
-                                                            'semver_caret',
-                                                            'semver_wildcard',
-                                                            'icontains_multi',
-                                                            'not_icontains_multi',
-                                                        ]),
-                                                        type: zod
-                                                            .literal('data_warehouse')
-                                                            .default(
-                                                                experimentsCreateBodyMetricsOneItemStartEventTwoPropertiesOneItemTypeDefault
-                                                            ),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
+                                                    zod.union([
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'starts_with',
+                                                                'not_starts_with',
+                                                                'ends_with',
+                                                                'not_ends_with',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod
+                                                                .literal('data_warehouse')
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsOneItemStartEventTwoPropertiesOneItemOneTypeDefault
                                                                 ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            type: zod
+                                                                .literal('hogql')
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsOneItemStartEventTwoPropertiesOneItemTwoTypeDefault
+                                                                ),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                    ])
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe("Filters on the table's own columns."),
+                                            .describe(
+                                                "Filters on the table's own columns, or a HogQL expression over them."
+                                            ),
                                         table_name: zod
                                             .string()
                                             .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
@@ -6505,6 +6715,10 @@ export const ExperimentsCreateBody = () => zod
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.object({
+                                        custom_name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Label shown instead of name, e.g. a renamed funnel step.'),
                                         data_warehouse_join_key: zod
                                             .string()
                                             .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -6552,75 +6766,103 @@ export const ExperimentsCreateBody = () => zod
                                         properties: zod
                                             .union([
                                                 zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod.enum([
-                                                            'exact',
-                                                            'is_not',
-                                                            'icontains',
-                                                            'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
-                                                            'regex',
-                                                            'not_regex',
-                                                            'gt',
-                                                            'gte',
-                                                            'lt',
-                                                            'lte',
-                                                            'is_set',
-                                                            'is_not_set',
-                                                            'is_date_exact',
-                                                            'is_date_before',
-                                                            'is_date_after',
-                                                            'between',
-                                                            'not_between',
-                                                            'min',
-                                                            'max',
-                                                            'in',
-                                                            'not_in',
-                                                            'is_cleaned_path_exact',
-                                                            'flag_evaluates_to',
-                                                            'semver_eq',
-                                                            'semver_neq',
-                                                            'semver_gt',
-                                                            'semver_gte',
-                                                            'semver_lt',
-                                                            'semver_lte',
-                                                            'semver_tilde',
-                                                            'semver_caret',
-                                                            'semver_wildcard',
-                                                            'icontains_multi',
-                                                            'not_icontains_multi',
-                                                        ]),
-                                                        type: zod
-                                                            .literal('data_warehouse')
-                                                            .default(
-                                                                experimentsCreateBodyMetricsSecondaryOneItemCompletionEventTwoPropertiesOneItemTypeDefault
-                                                            ),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
+                                                    zod.union([
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'starts_with',
+                                                                'not_starts_with',
+                                                                'ends_with',
+                                                                'not_ends_with',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod
+                                                                .literal('data_warehouse')
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsSecondaryOneItemCompletionEventTwoPropertiesOneItemOneTypeDefault
                                                                 ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            type: zod
+                                                                .literal('hogql')
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsSecondaryOneItemCompletionEventTwoPropertiesOneItemTwoTypeDefault
+                                                                ),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                    ])
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe("Filters on the table's own columns."),
+                                            .describe(
+                                                "Filters on the table's own columns, or a HogQL expression over them."
+                                            ),
                                         table_name: zod
                                             .string()
                                             .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
@@ -6776,6 +7018,10 @@ export const ExperimentsCreateBody = () => zod
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.object({
+                                        custom_name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Label shown instead of name, e.g. a renamed funnel step.'),
                                         data_warehouse_join_key: zod
                                             .string()
                                             .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -6823,75 +7069,103 @@ export const ExperimentsCreateBody = () => zod
                                         properties: zod
                                             .union([
                                                 zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod.enum([
-                                                            'exact',
-                                                            'is_not',
-                                                            'icontains',
-                                                            'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
-                                                            'regex',
-                                                            'not_regex',
-                                                            'gt',
-                                                            'gte',
-                                                            'lt',
-                                                            'lte',
-                                                            'is_set',
-                                                            'is_not_set',
-                                                            'is_date_exact',
-                                                            'is_date_before',
-                                                            'is_date_after',
-                                                            'between',
-                                                            'not_between',
-                                                            'min',
-                                                            'max',
-                                                            'in',
-                                                            'not_in',
-                                                            'is_cleaned_path_exact',
-                                                            'flag_evaluates_to',
-                                                            'semver_eq',
-                                                            'semver_neq',
-                                                            'semver_gt',
-                                                            'semver_gte',
-                                                            'semver_lt',
-                                                            'semver_lte',
-                                                            'semver_tilde',
-                                                            'semver_caret',
-                                                            'semver_wildcard',
-                                                            'icontains_multi',
-                                                            'not_icontains_multi',
-                                                        ]),
-                                                        type: zod
-                                                            .literal('data_warehouse')
-                                                            .default(
-                                                                experimentsCreateBodyMetricsSecondaryOneItemDenominatorTwoPropertiesOneItemTypeDefault
-                                                            ),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
+                                                    zod.union([
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'starts_with',
+                                                                'not_starts_with',
+                                                                'ends_with',
+                                                                'not_ends_with',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod
+                                                                .literal('data_warehouse')
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsSecondaryOneItemDenominatorTwoPropertiesOneItemOneTypeDefault
                                                                 ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            type: zod
+                                                                .literal('hogql')
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsSecondaryOneItemDenominatorTwoPropertiesOneItemTwoTypeDefault
+                                                                ),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                    ])
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe("Filters on the table's own columns."),
+                                            .describe(
+                                                "Filters on the table's own columns, or a HogQL expression over them."
+                                            ),
                                         table_name: zod
                                             .string()
                                             .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
@@ -7116,6 +7390,10 @@ export const ExperimentsCreateBody = () => zod
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.object({
+                                        custom_name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Label shown instead of name, e.g. a renamed funnel step.'),
                                         data_warehouse_join_key: zod
                                             .string()
                                             .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -7163,75 +7441,103 @@ export const ExperimentsCreateBody = () => zod
                                         properties: zod
                                             .union([
                                                 zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod.enum([
-                                                            'exact',
-                                                            'is_not',
-                                                            'icontains',
-                                                            'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
-                                                            'regex',
-                                                            'not_regex',
-                                                            'gt',
-                                                            'gte',
-                                                            'lt',
-                                                            'lte',
-                                                            'is_set',
-                                                            'is_not_set',
-                                                            'is_date_exact',
-                                                            'is_date_before',
-                                                            'is_date_after',
-                                                            'between',
-                                                            'not_between',
-                                                            'min',
-                                                            'max',
-                                                            'in',
-                                                            'not_in',
-                                                            'is_cleaned_path_exact',
-                                                            'flag_evaluates_to',
-                                                            'semver_eq',
-                                                            'semver_neq',
-                                                            'semver_gt',
-                                                            'semver_gte',
-                                                            'semver_lt',
-                                                            'semver_lte',
-                                                            'semver_tilde',
-                                                            'semver_caret',
-                                                            'semver_wildcard',
-                                                            'icontains_multi',
-                                                            'not_icontains_multi',
-                                                        ]),
-                                                        type: zod
-                                                            .literal('data_warehouse')
-                                                            .default(
-                                                                experimentsCreateBodyMetricsSecondaryOneItemNumeratorTwoPropertiesOneItemTypeDefault
-                                                            ),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
+                                                    zod.union([
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'starts_with',
+                                                                'not_starts_with',
+                                                                'ends_with',
+                                                                'not_ends_with',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod
+                                                                .literal('data_warehouse')
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsSecondaryOneItemNumeratorTwoPropertiesOneItemOneTypeDefault
                                                                 ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            type: zod
+                                                                .literal('hogql')
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsSecondaryOneItemNumeratorTwoPropertiesOneItemTwoTypeDefault
+                                                                ),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                    ])
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe("Filters on the table's own columns."),
+                                            .describe(
+                                                "Filters on the table's own columns, or a HogQL expression over them."
+                                            ),
                                         table_name: zod
                                             .string()
                                             .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
@@ -7435,6 +7741,12 @@ export const ExperimentsCreateBody = () => zod
                                                     ),
                                             }),
                                             zod.object({
+                                                custom_name: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        'Label shown instead of name, e.g. a renamed funnel step.'
+                                                    ),
                                                 data_warehouse_join_key: zod
                                                     .string()
                                                     .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -7484,75 +7796,107 @@ export const ExperimentsCreateBody = () => zod
                                                 properties: zod
                                                     .union([
                                                         zod.array(
-                                                            zod.object({
-                                                                key: zod.string(),
-                                                                label: zod.union([zod.string(), zod.null()]).optional(),
-                                                                operator: zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                type: zod
-                                                                    .literal('data_warehouse')
-                                                                    .default(
-                                                                        experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemTwoPropertiesOneItemTypeDefault
-                                                                    ),
-                                                                value: zod
-                                                                    .union([
-                                                                        zod.array(
-                                                                            zod.union([
-                                                                                zod.string(),
-                                                                                zod.number(),
-                                                                                zod.boolean(),
-                                                                            ])
+                                                            zod.union([
+                                                                zod.object({
+                                                                    key: zod.string(),
+                                                                    label: zod
+                                                                        .union([zod.string(), zod.null()])
+                                                                        .optional(),
+                                                                    operator: zod.enum([
+                                                                        'exact',
+                                                                        'is_not',
+                                                                        'icontains',
+                                                                        'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
+                                                                        'regex',
+                                                                        'not_regex',
+                                                                        'gt',
+                                                                        'gte',
+                                                                        'lt',
+                                                                        'lte',
+                                                                        'is_set',
+                                                                        'is_not_set',
+                                                                        'is_date_exact',
+                                                                        'is_date_before',
+                                                                        'is_date_after',
+                                                                        'between',
+                                                                        'not_between',
+                                                                        'min',
+                                                                        'max',
+                                                                        'in',
+                                                                        'not_in',
+                                                                        'is_cleaned_path_exact',
+                                                                        'flag_evaluates_to',
+                                                                        'semver_eq',
+                                                                        'semver_neq',
+                                                                        'semver_gt',
+                                                                        'semver_gte',
+                                                                        'semver_lt',
+                                                                        'semver_lte',
+                                                                        'semver_tilde',
+                                                                        'semver_caret',
+                                                                        'semver_wildcard',
+                                                                        'icontains_multi',
+                                                                        'not_icontains_multi',
+                                                                    ]),
+                                                                    type: zod
+                                                                        .literal('data_warehouse')
+                                                                        .default(
+                                                                            experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemTwoPropertiesOneItemOneTypeDefault
                                                                         ),
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                        zod.null(),
-                                                                    ])
-                                                                    .optional(),
-                                                            })
+                                                                    value: zod
+                                                                        .union([
+                                                                            zod.array(
+                                                                                zod.union([
+                                                                                    zod.string(),
+                                                                                    zod.number(),
+                                                                                    zod.boolean(),
+                                                                                ])
+                                                                            ),
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                            zod.null(),
+                                                                        ])
+                                                                        .optional(),
+                                                                }),
+                                                                zod.object({
+                                                                    key: zod.string(),
+                                                                    label: zod
+                                                                        .union([zod.string(), zod.null()])
+                                                                        .optional(),
+                                                                    type: zod
+                                                                        .literal('hogql')
+                                                                        .default(
+                                                                            experimentsCreateBodyMetricsSecondaryOneItemSeriesOneItemTwoPropertiesOneItemTwoTypeDefault
+                                                                        ),
+                                                                    value: zod
+                                                                        .union([
+                                                                            zod.array(
+                                                                                zod.union([
+                                                                                    zod.string(),
+                                                                                    zod.number(),
+                                                                                    zod.boolean(),
+                                                                                ])
+                                                                            ),
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                            zod.null(),
+                                                                        ])
+                                                                        .optional(),
+                                                                }),
+                                                            ])
                                                         ),
                                                         zod.null(),
                                                     ])
                                                     .optional()
-                                                    .describe("Filters on the table's own columns."),
+                                                    .describe(
+                                                        "Filters on the table's own columns, or a HogQL expression over them."
+                                                    ),
                                                 table_name: zod
                                                     .string()
                                                     .describe(
@@ -7712,6 +8056,10 @@ export const ExperimentsCreateBody = () => zod
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.object({
+                                        custom_name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Label shown instead of name, e.g. a renamed funnel step.'),
                                         data_warehouse_join_key: zod
                                             .string()
                                             .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -7757,75 +8105,103 @@ export const ExperimentsCreateBody = () => zod
                                         properties: zod
                                             .union([
                                                 zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod.enum([
-                                                            'exact',
-                                                            'is_not',
-                                                            'icontains',
-                                                            'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
-                                                            'regex',
-                                                            'not_regex',
-                                                            'gt',
-                                                            'gte',
-                                                            'lt',
-                                                            'lte',
-                                                            'is_set',
-                                                            'is_not_set',
-                                                            'is_date_exact',
-                                                            'is_date_before',
-                                                            'is_date_after',
-                                                            'between',
-                                                            'not_between',
-                                                            'min',
-                                                            'max',
-                                                            'in',
-                                                            'not_in',
-                                                            'is_cleaned_path_exact',
-                                                            'flag_evaluates_to',
-                                                            'semver_eq',
-                                                            'semver_neq',
-                                                            'semver_gt',
-                                                            'semver_gte',
-                                                            'semver_lt',
-                                                            'semver_lte',
-                                                            'semver_tilde',
-                                                            'semver_caret',
-                                                            'semver_wildcard',
-                                                            'icontains_multi',
-                                                            'not_icontains_multi',
-                                                        ]),
-                                                        type: zod
-                                                            .literal('data_warehouse')
-                                                            .default(
-                                                                experimentsCreateBodyMetricsSecondaryOneItemSourceTwoPropertiesOneItemTypeDefault
-                                                            ),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
+                                                    zod.union([
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'starts_with',
+                                                                'not_starts_with',
+                                                                'ends_with',
+                                                                'not_ends_with',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod
+                                                                .literal('data_warehouse')
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsSecondaryOneItemSourceTwoPropertiesOneItemOneTypeDefault
                                                                 ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            type: zod
+                                                                .literal('hogql')
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsSecondaryOneItemSourceTwoPropertiesOneItemTwoTypeDefault
+                                                                ),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                    ])
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe("Filters on the table's own columns."),
+                                            .describe(
+                                                "Filters on the table's own columns, or a HogQL expression over them."
+                                            ),
                                         table_name: zod
                                             .string()
                                             .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
@@ -7977,6 +8353,10 @@ export const ExperimentsCreateBody = () => zod
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.object({
+                                        custom_name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Label shown instead of name, e.g. a renamed funnel step.'),
                                         data_warehouse_join_key: zod
                                             .string()
                                             .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -8024,75 +8404,103 @@ export const ExperimentsCreateBody = () => zod
                                         properties: zod
                                             .union([
                                                 zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod.enum([
-                                                            'exact',
-                                                            'is_not',
-                                                            'icontains',
-                                                            'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
-                                                            'regex',
-                                                            'not_regex',
-                                                            'gt',
-                                                            'gte',
-                                                            'lt',
-                                                            'lte',
-                                                            'is_set',
-                                                            'is_not_set',
-                                                            'is_date_exact',
-                                                            'is_date_before',
-                                                            'is_date_after',
-                                                            'between',
-                                                            'not_between',
-                                                            'min',
-                                                            'max',
-                                                            'in',
-                                                            'not_in',
-                                                            'is_cleaned_path_exact',
-                                                            'flag_evaluates_to',
-                                                            'semver_eq',
-                                                            'semver_neq',
-                                                            'semver_gt',
-                                                            'semver_gte',
-                                                            'semver_lt',
-                                                            'semver_lte',
-                                                            'semver_tilde',
-                                                            'semver_caret',
-                                                            'semver_wildcard',
-                                                            'icontains_multi',
-                                                            'not_icontains_multi',
-                                                        ]),
-                                                        type: zod
-                                                            .literal('data_warehouse')
-                                                            .default(
-                                                                experimentsCreateBodyMetricsSecondaryOneItemStartEventTwoPropertiesOneItemTypeDefault
-                                                            ),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
+                                                    zod.union([
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'starts_with',
+                                                                'not_starts_with',
+                                                                'ends_with',
+                                                                'not_ends_with',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod
+                                                                .literal('data_warehouse')
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsSecondaryOneItemStartEventTwoPropertiesOneItemOneTypeDefault
                                                                 ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            type: zod
+                                                                .literal('hogql')
+                                                                .default(
+                                                                    experimentsCreateBodyMetricsSecondaryOneItemStartEventTwoPropertiesOneItemTwoTypeDefault
+                                                                ),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                    ])
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe("Filters on the table's own columns."),
+                                            .describe(
+                                                "Filters on the table's own columns, or a HogQL expression over them."
+                                            ),
                                         table_name: zod
                                             .string()
                                             .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
@@ -8295,11 +8703,13 @@ export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePro
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOnePropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsPartialUpdateBodyMetricsOneItemDenominatorTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsPartialUpdateBodyMetricsOneItemDenominatorTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsPartialUpdateBodyMetricsOneItemDenominatorTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
@@ -8313,7 +8723,8 @@ export const experimentsPartialUpdateBodyMetricsOneItemLowerBoundPercentileOneMa
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOnePropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsPartialUpdateBodyMetricsOneItemNumeratorTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsPartialUpdateBodyMetricsOneItemNumeratorTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsPartialUpdateBodyMetricsOneItemNumeratorTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
@@ -8323,26 +8734,31 @@ export const experimentsPartialUpdateBodyMetricsOneItemNumeratorOutlierHandlingO
 export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemOnePropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsPartialUpdateBodyMetricsOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsOneItemSourceOnePropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsOneItemSourceTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsPartialUpdateBodyMetricsOneItemSourceTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsPartialUpdateBodyMetricsOneItemSourceTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsPartialUpdateBodyMetricsOneItemSourceTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsOneItemStartEventTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsPartialUpdateBodyMetricsOneItemStartEventTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsPartialUpdateBodyMetricsOneItemStartEventTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsPartialUpdateBodyMetricsOneItemStartEventTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsPartialUpdateBodyMetricsOneItemUpperBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsOneItemUpperBoundPercentileOneMax = 1
 
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
@@ -8356,7 +8772,8 @@ export const experimentsPartialUpdateBodyMetricsSecondaryOneItemLowerBoundPercen
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
@@ -8366,15 +8783,18 @@ export const experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorOutlier
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemOnePropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax = 1
 
@@ -12175,6 +12595,10 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.object({
+                                        custom_name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Label shown instead of name, e.g. a renamed funnel step.'),
                                         data_warehouse_join_key: zod
                                             .string()
                                             .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -12222,75 +12646,103 @@ export const ExperimentsPartialUpdateBody = () => zod
                                         properties: zod
                                             .union([
                                                 zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod.enum([
-                                                            'exact',
-                                                            'is_not',
-                                                            'icontains',
-                                                            'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
-                                                            'regex',
-                                                            'not_regex',
-                                                            'gt',
-                                                            'gte',
-                                                            'lt',
-                                                            'lte',
-                                                            'is_set',
-                                                            'is_not_set',
-                                                            'is_date_exact',
-                                                            'is_date_before',
-                                                            'is_date_after',
-                                                            'between',
-                                                            'not_between',
-                                                            'min',
-                                                            'max',
-                                                            'in',
-                                                            'not_in',
-                                                            'is_cleaned_path_exact',
-                                                            'flag_evaluates_to',
-                                                            'semver_eq',
-                                                            'semver_neq',
-                                                            'semver_gt',
-                                                            'semver_gte',
-                                                            'semver_lt',
-                                                            'semver_lte',
-                                                            'semver_tilde',
-                                                            'semver_caret',
-                                                            'semver_wildcard',
-                                                            'icontains_multi',
-                                                            'not_icontains_multi',
-                                                        ]),
-                                                        type: zod
-                                                            .literal('data_warehouse')
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsOneItemCompletionEventTwoPropertiesOneItemTypeDefault
-                                                            ),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
+                                                    zod.union([
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'starts_with',
+                                                                'not_starts_with',
+                                                                'ends_with',
+                                                                'not_ends_with',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod
+                                                                .literal('data_warehouse')
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsOneItemCompletionEventTwoPropertiesOneItemOneTypeDefault
                                                                 ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            type: zod
+                                                                .literal('hogql')
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsOneItemCompletionEventTwoPropertiesOneItemTwoTypeDefault
+                                                                ),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                    ])
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe("Filters on the table's own columns."),
+                                            .describe(
+                                                "Filters on the table's own columns, or a HogQL expression over them."
+                                            ),
                                         table_name: zod
                                             .string()
                                             .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
@@ -12446,6 +12898,10 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.object({
+                                        custom_name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Label shown instead of name, e.g. a renamed funnel step.'),
                                         data_warehouse_join_key: zod
                                             .string()
                                             .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -12493,75 +12949,103 @@ export const ExperimentsPartialUpdateBody = () => zod
                                         properties: zod
                                             .union([
                                                 zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod.enum([
-                                                            'exact',
-                                                            'is_not',
-                                                            'icontains',
-                                                            'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
-                                                            'regex',
-                                                            'not_regex',
-                                                            'gt',
-                                                            'gte',
-                                                            'lt',
-                                                            'lte',
-                                                            'is_set',
-                                                            'is_not_set',
-                                                            'is_date_exact',
-                                                            'is_date_before',
-                                                            'is_date_after',
-                                                            'between',
-                                                            'not_between',
-                                                            'min',
-                                                            'max',
-                                                            'in',
-                                                            'not_in',
-                                                            'is_cleaned_path_exact',
-                                                            'flag_evaluates_to',
-                                                            'semver_eq',
-                                                            'semver_neq',
-                                                            'semver_gt',
-                                                            'semver_gte',
-                                                            'semver_lt',
-                                                            'semver_lte',
-                                                            'semver_tilde',
-                                                            'semver_caret',
-                                                            'semver_wildcard',
-                                                            'icontains_multi',
-                                                            'not_icontains_multi',
-                                                        ]),
-                                                        type: zod
-                                                            .literal('data_warehouse')
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsOneItemDenominatorTwoPropertiesOneItemTypeDefault
-                                                            ),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
+                                                    zod.union([
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'starts_with',
+                                                                'not_starts_with',
+                                                                'ends_with',
+                                                                'not_ends_with',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod
+                                                                .literal('data_warehouse')
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsOneItemDenominatorTwoPropertiesOneItemOneTypeDefault
                                                                 ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            type: zod
+                                                                .literal('hogql')
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsOneItemDenominatorTwoPropertiesOneItemTwoTypeDefault
+                                                                ),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                    ])
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe("Filters on the table's own columns."),
+                                            .describe(
+                                                "Filters on the table's own columns, or a HogQL expression over them."
+                                            ),
                                         table_name: zod
                                             .string()
                                             .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
@@ -12786,6 +13270,10 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.object({
+                                        custom_name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Label shown instead of name, e.g. a renamed funnel step.'),
                                         data_warehouse_join_key: zod
                                             .string()
                                             .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -12831,75 +13319,103 @@ export const ExperimentsPartialUpdateBody = () => zod
                                         properties: zod
                                             .union([
                                                 zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod.enum([
-                                                            'exact',
-                                                            'is_not',
-                                                            'icontains',
-                                                            'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
-                                                            'regex',
-                                                            'not_regex',
-                                                            'gt',
-                                                            'gte',
-                                                            'lt',
-                                                            'lte',
-                                                            'is_set',
-                                                            'is_not_set',
-                                                            'is_date_exact',
-                                                            'is_date_before',
-                                                            'is_date_after',
-                                                            'between',
-                                                            'not_between',
-                                                            'min',
-                                                            'max',
-                                                            'in',
-                                                            'not_in',
-                                                            'is_cleaned_path_exact',
-                                                            'flag_evaluates_to',
-                                                            'semver_eq',
-                                                            'semver_neq',
-                                                            'semver_gt',
-                                                            'semver_gte',
-                                                            'semver_lt',
-                                                            'semver_lte',
-                                                            'semver_tilde',
-                                                            'semver_caret',
-                                                            'semver_wildcard',
-                                                            'icontains_multi',
-                                                            'not_icontains_multi',
-                                                        ]),
-                                                        type: zod
-                                                            .literal('data_warehouse')
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsOneItemNumeratorTwoPropertiesOneItemTypeDefault
-                                                            ),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
+                                                    zod.union([
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'starts_with',
+                                                                'not_starts_with',
+                                                                'ends_with',
+                                                                'not_ends_with',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod
+                                                                .literal('data_warehouse')
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsOneItemNumeratorTwoPropertiesOneItemOneTypeDefault
                                                                 ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            type: zod
+                                                                .literal('hogql')
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsOneItemNumeratorTwoPropertiesOneItemTwoTypeDefault
+                                                                ),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                    ])
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe("Filters on the table's own columns."),
+                                            .describe(
+                                                "Filters on the table's own columns, or a HogQL expression over them."
+                                            ),
                                         table_name: zod
                                             .string()
                                             .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
@@ -13103,6 +13619,12 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     ),
                                             }),
                                             zod.object({
+                                                custom_name: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        'Label shown instead of name, e.g. a renamed funnel step.'
+                                                    ),
                                                 data_warehouse_join_key: zod
                                                     .string()
                                                     .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -13152,75 +13674,107 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                 properties: zod
                                                     .union([
                                                         zod.array(
-                                                            zod.object({
-                                                                key: zod.string(),
-                                                                label: zod.union([zod.string(), zod.null()]).optional(),
-                                                                operator: zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                type: zod
-                                                                    .literal('data_warehouse')
-                                                                    .default(
-                                                                        experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemTwoPropertiesOneItemTypeDefault
-                                                                    ),
-                                                                value: zod
-                                                                    .union([
-                                                                        zod.array(
-                                                                            zod.union([
-                                                                                zod.string(),
-                                                                                zod.number(),
-                                                                                zod.boolean(),
-                                                                            ])
+                                                            zod.union([
+                                                                zod.object({
+                                                                    key: zod.string(),
+                                                                    label: zod
+                                                                        .union([zod.string(), zod.null()])
+                                                                        .optional(),
+                                                                    operator: zod.enum([
+                                                                        'exact',
+                                                                        'is_not',
+                                                                        'icontains',
+                                                                        'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
+                                                                        'regex',
+                                                                        'not_regex',
+                                                                        'gt',
+                                                                        'gte',
+                                                                        'lt',
+                                                                        'lte',
+                                                                        'is_set',
+                                                                        'is_not_set',
+                                                                        'is_date_exact',
+                                                                        'is_date_before',
+                                                                        'is_date_after',
+                                                                        'between',
+                                                                        'not_between',
+                                                                        'min',
+                                                                        'max',
+                                                                        'in',
+                                                                        'not_in',
+                                                                        'is_cleaned_path_exact',
+                                                                        'flag_evaluates_to',
+                                                                        'semver_eq',
+                                                                        'semver_neq',
+                                                                        'semver_gt',
+                                                                        'semver_gte',
+                                                                        'semver_lt',
+                                                                        'semver_lte',
+                                                                        'semver_tilde',
+                                                                        'semver_caret',
+                                                                        'semver_wildcard',
+                                                                        'icontains_multi',
+                                                                        'not_icontains_multi',
+                                                                    ]),
+                                                                    type: zod
+                                                                        .literal('data_warehouse')
+                                                                        .default(
+                                                                            experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemTwoPropertiesOneItemOneTypeDefault
                                                                         ),
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                        zod.null(),
-                                                                    ])
-                                                                    .optional(),
-                                                            })
+                                                                    value: zod
+                                                                        .union([
+                                                                            zod.array(
+                                                                                zod.union([
+                                                                                    zod.string(),
+                                                                                    zod.number(),
+                                                                                    zod.boolean(),
+                                                                                ])
+                                                                            ),
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                            zod.null(),
+                                                                        ])
+                                                                        .optional(),
+                                                                }),
+                                                                zod.object({
+                                                                    key: zod.string(),
+                                                                    label: zod
+                                                                        .union([zod.string(), zod.null()])
+                                                                        .optional(),
+                                                                    type: zod
+                                                                        .literal('hogql')
+                                                                        .default(
+                                                                            experimentsPartialUpdateBodyMetricsOneItemSeriesOneItemTwoPropertiesOneItemTwoTypeDefault
+                                                                        ),
+                                                                    value: zod
+                                                                        .union([
+                                                                            zod.array(
+                                                                                zod.union([
+                                                                                    zod.string(),
+                                                                                    zod.number(),
+                                                                                    zod.boolean(),
+                                                                                ])
+                                                                            ),
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                            zod.null(),
+                                                                        ])
+                                                                        .optional(),
+                                                                }),
+                                                            ])
                                                         ),
                                                         zod.null(),
                                                     ])
                                                     .optional()
-                                                    .describe("Filters on the table's own columns."),
+                                                    .describe(
+                                                        "Filters on the table's own columns, or a HogQL expression over them."
+                                                    ),
                                                 table_name: zod
                                                     .string()
                                                     .describe(
@@ -13380,6 +13934,10 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.object({
+                                        custom_name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Label shown instead of name, e.g. a renamed funnel step.'),
                                         data_warehouse_join_key: zod
                                             .string()
                                             .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -13425,75 +13983,103 @@ export const ExperimentsPartialUpdateBody = () => zod
                                         properties: zod
                                             .union([
                                                 zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod.enum([
-                                                            'exact',
-                                                            'is_not',
-                                                            'icontains',
-                                                            'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
-                                                            'regex',
-                                                            'not_regex',
-                                                            'gt',
-                                                            'gte',
-                                                            'lt',
-                                                            'lte',
-                                                            'is_set',
-                                                            'is_not_set',
-                                                            'is_date_exact',
-                                                            'is_date_before',
-                                                            'is_date_after',
-                                                            'between',
-                                                            'not_between',
-                                                            'min',
-                                                            'max',
-                                                            'in',
-                                                            'not_in',
-                                                            'is_cleaned_path_exact',
-                                                            'flag_evaluates_to',
-                                                            'semver_eq',
-                                                            'semver_neq',
-                                                            'semver_gt',
-                                                            'semver_gte',
-                                                            'semver_lt',
-                                                            'semver_lte',
-                                                            'semver_tilde',
-                                                            'semver_caret',
-                                                            'semver_wildcard',
-                                                            'icontains_multi',
-                                                            'not_icontains_multi',
-                                                        ]),
-                                                        type: zod
-                                                            .literal('data_warehouse')
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsOneItemSourceTwoPropertiesOneItemTypeDefault
-                                                            ),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
+                                                    zod.union([
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'starts_with',
+                                                                'not_starts_with',
+                                                                'ends_with',
+                                                                'not_ends_with',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod
+                                                                .literal('data_warehouse')
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsOneItemSourceTwoPropertiesOneItemOneTypeDefault
                                                                 ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            type: zod
+                                                                .literal('hogql')
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsOneItemSourceTwoPropertiesOneItemTwoTypeDefault
+                                                                ),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                    ])
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe("Filters on the table's own columns."),
+                                            .describe(
+                                                "Filters on the table's own columns, or a HogQL expression over them."
+                                            ),
                                         table_name: zod
                                             .string()
                                             .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
@@ -13645,6 +14231,10 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.object({
+                                        custom_name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Label shown instead of name, e.g. a renamed funnel step.'),
                                         data_warehouse_join_key: zod
                                             .string()
                                             .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -13692,75 +14282,103 @@ export const ExperimentsPartialUpdateBody = () => zod
                                         properties: zod
                                             .union([
                                                 zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod.enum([
-                                                            'exact',
-                                                            'is_not',
-                                                            'icontains',
-                                                            'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
-                                                            'regex',
-                                                            'not_regex',
-                                                            'gt',
-                                                            'gte',
-                                                            'lt',
-                                                            'lte',
-                                                            'is_set',
-                                                            'is_not_set',
-                                                            'is_date_exact',
-                                                            'is_date_before',
-                                                            'is_date_after',
-                                                            'between',
-                                                            'not_between',
-                                                            'min',
-                                                            'max',
-                                                            'in',
-                                                            'not_in',
-                                                            'is_cleaned_path_exact',
-                                                            'flag_evaluates_to',
-                                                            'semver_eq',
-                                                            'semver_neq',
-                                                            'semver_gt',
-                                                            'semver_gte',
-                                                            'semver_lt',
-                                                            'semver_lte',
-                                                            'semver_tilde',
-                                                            'semver_caret',
-                                                            'semver_wildcard',
-                                                            'icontains_multi',
-                                                            'not_icontains_multi',
-                                                        ]),
-                                                        type: zod
-                                                            .literal('data_warehouse')
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsOneItemStartEventTwoPropertiesOneItemTypeDefault
-                                                            ),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
+                                                    zod.union([
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'starts_with',
+                                                                'not_starts_with',
+                                                                'ends_with',
+                                                                'not_ends_with',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod
+                                                                .literal('data_warehouse')
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsOneItemStartEventTwoPropertiesOneItemOneTypeDefault
                                                                 ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            type: zod
+                                                                .literal('hogql')
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsOneItemStartEventTwoPropertiesOneItemTwoTypeDefault
+                                                                ),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                    ])
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe("Filters on the table's own columns."),
+                                            .describe(
+                                                "Filters on the table's own columns, or a HogQL expression over them."
+                                            ),
                                         table_name: zod
                                             .string()
                                             .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
@@ -13949,6 +14567,10 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.object({
+                                        custom_name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Label shown instead of name, e.g. a renamed funnel step.'),
                                         data_warehouse_join_key: zod
                                             .string()
                                             .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -13996,75 +14618,103 @@ export const ExperimentsPartialUpdateBody = () => zod
                                         properties: zod
                                             .union([
                                                 zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod.enum([
-                                                            'exact',
-                                                            'is_not',
-                                                            'icontains',
-                                                            'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
-                                                            'regex',
-                                                            'not_regex',
-                                                            'gt',
-                                                            'gte',
-                                                            'lt',
-                                                            'lte',
-                                                            'is_set',
-                                                            'is_not_set',
-                                                            'is_date_exact',
-                                                            'is_date_before',
-                                                            'is_date_after',
-                                                            'between',
-                                                            'not_between',
-                                                            'min',
-                                                            'max',
-                                                            'in',
-                                                            'not_in',
-                                                            'is_cleaned_path_exact',
-                                                            'flag_evaluates_to',
-                                                            'semver_eq',
-                                                            'semver_neq',
-                                                            'semver_gt',
-                                                            'semver_gte',
-                                                            'semver_lt',
-                                                            'semver_lte',
-                                                            'semver_tilde',
-                                                            'semver_caret',
-                                                            'semver_wildcard',
-                                                            'icontains_multi',
-                                                            'not_icontains_multi',
-                                                        ]),
-                                                        type: zod
-                                                            .literal('data_warehouse')
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventTwoPropertiesOneItemTypeDefault
-                                                            ),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
+                                                    zod.union([
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'starts_with',
+                                                                'not_starts_with',
+                                                                'ends_with',
+                                                                'not_ends_with',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod
+                                                                .literal('data_warehouse')
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventTwoPropertiesOneItemOneTypeDefault
                                                                 ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            type: zod
+                                                                .literal('hogql')
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemCompletionEventTwoPropertiesOneItemTwoTypeDefault
+                                                                ),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                    ])
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe("Filters on the table's own columns."),
+                                            .describe(
+                                                "Filters on the table's own columns, or a HogQL expression over them."
+                                            ),
                                         table_name: zod
                                             .string()
                                             .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
@@ -14220,6 +14870,10 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.object({
+                                        custom_name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Label shown instead of name, e.g. a renamed funnel step.'),
                                         data_warehouse_join_key: zod
                                             .string()
                                             .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -14267,75 +14921,103 @@ export const ExperimentsPartialUpdateBody = () => zod
                                         properties: zod
                                             .union([
                                                 zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod.enum([
-                                                            'exact',
-                                                            'is_not',
-                                                            'icontains',
-                                                            'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
-                                                            'regex',
-                                                            'not_regex',
-                                                            'gt',
-                                                            'gte',
-                                                            'lt',
-                                                            'lte',
-                                                            'is_set',
-                                                            'is_not_set',
-                                                            'is_date_exact',
-                                                            'is_date_before',
-                                                            'is_date_after',
-                                                            'between',
-                                                            'not_between',
-                                                            'min',
-                                                            'max',
-                                                            'in',
-                                                            'not_in',
-                                                            'is_cleaned_path_exact',
-                                                            'flag_evaluates_to',
-                                                            'semver_eq',
-                                                            'semver_neq',
-                                                            'semver_gt',
-                                                            'semver_gte',
-                                                            'semver_lt',
-                                                            'semver_lte',
-                                                            'semver_tilde',
-                                                            'semver_caret',
-                                                            'semver_wildcard',
-                                                            'icontains_multi',
-                                                            'not_icontains_multi',
-                                                        ]),
-                                                        type: zod
-                                                            .literal('data_warehouse')
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorTwoPropertiesOneItemTypeDefault
-                                                            ),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
+                                                    zod.union([
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'starts_with',
+                                                                'not_starts_with',
+                                                                'ends_with',
+                                                                'not_ends_with',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod
+                                                                .literal('data_warehouse')
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorTwoPropertiesOneItemOneTypeDefault
                                                                 ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            type: zod
+                                                                .literal('hogql')
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemDenominatorTwoPropertiesOneItemTwoTypeDefault
+                                                                ),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                    ])
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe("Filters on the table's own columns."),
+                                            .describe(
+                                                "Filters on the table's own columns, or a HogQL expression over them."
+                                            ),
                                         table_name: zod
                                             .string()
                                             .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
@@ -14564,6 +15246,10 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.object({
+                                        custom_name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Label shown instead of name, e.g. a renamed funnel step.'),
                                         data_warehouse_join_key: zod
                                             .string()
                                             .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -14611,75 +15297,103 @@ export const ExperimentsPartialUpdateBody = () => zod
                                         properties: zod
                                             .union([
                                                 zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod.enum([
-                                                            'exact',
-                                                            'is_not',
-                                                            'icontains',
-                                                            'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
-                                                            'regex',
-                                                            'not_regex',
-                                                            'gt',
-                                                            'gte',
-                                                            'lt',
-                                                            'lte',
-                                                            'is_set',
-                                                            'is_not_set',
-                                                            'is_date_exact',
-                                                            'is_date_before',
-                                                            'is_date_after',
-                                                            'between',
-                                                            'not_between',
-                                                            'min',
-                                                            'max',
-                                                            'in',
-                                                            'not_in',
-                                                            'is_cleaned_path_exact',
-                                                            'flag_evaluates_to',
-                                                            'semver_eq',
-                                                            'semver_neq',
-                                                            'semver_gt',
-                                                            'semver_gte',
-                                                            'semver_lt',
-                                                            'semver_lte',
-                                                            'semver_tilde',
-                                                            'semver_caret',
-                                                            'semver_wildcard',
-                                                            'icontains_multi',
-                                                            'not_icontains_multi',
-                                                        ]),
-                                                        type: zod
-                                                            .literal('data_warehouse')
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorTwoPropertiesOneItemTypeDefault
-                                                            ),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
+                                                    zod.union([
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'starts_with',
+                                                                'not_starts_with',
+                                                                'ends_with',
+                                                                'not_ends_with',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod
+                                                                .literal('data_warehouse')
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorTwoPropertiesOneItemOneTypeDefault
                                                                 ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            type: zod
+                                                                .literal('hogql')
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemNumeratorTwoPropertiesOneItemTwoTypeDefault
+                                                                ),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                    ])
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe("Filters on the table's own columns."),
+                                            .describe(
+                                                "Filters on the table's own columns, or a HogQL expression over them."
+                                            ),
                                         table_name: zod
                                             .string()
                                             .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
@@ -14883,6 +15597,12 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                     ),
                                             }),
                                             zod.object({
+                                                custom_name: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        'Label shown instead of name, e.g. a renamed funnel step.'
+                                                    ),
                                                 data_warehouse_join_key: zod
                                                     .string()
                                                     .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -14932,75 +15652,107 @@ export const ExperimentsPartialUpdateBody = () => zod
                                                 properties: zod
                                                     .union([
                                                         zod.array(
-                                                            zod.object({
-                                                                key: zod.string(),
-                                                                label: zod.union([zod.string(), zod.null()]).optional(),
-                                                                operator: zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                type: zod
-                                                                    .literal('data_warehouse')
-                                                                    .default(
-                                                                        experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemTwoPropertiesOneItemTypeDefault
-                                                                    ),
-                                                                value: zod
-                                                                    .union([
-                                                                        zod.array(
-                                                                            zod.union([
-                                                                                zod.string(),
-                                                                                zod.number(),
-                                                                                zod.boolean(),
-                                                                            ])
+                                                            zod.union([
+                                                                zod.object({
+                                                                    key: zod.string(),
+                                                                    label: zod
+                                                                        .union([zod.string(), zod.null()])
+                                                                        .optional(),
+                                                                    operator: zod.enum([
+                                                                        'exact',
+                                                                        'is_not',
+                                                                        'icontains',
+                                                                        'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
+                                                                        'regex',
+                                                                        'not_regex',
+                                                                        'gt',
+                                                                        'gte',
+                                                                        'lt',
+                                                                        'lte',
+                                                                        'is_set',
+                                                                        'is_not_set',
+                                                                        'is_date_exact',
+                                                                        'is_date_before',
+                                                                        'is_date_after',
+                                                                        'between',
+                                                                        'not_between',
+                                                                        'min',
+                                                                        'max',
+                                                                        'in',
+                                                                        'not_in',
+                                                                        'is_cleaned_path_exact',
+                                                                        'flag_evaluates_to',
+                                                                        'semver_eq',
+                                                                        'semver_neq',
+                                                                        'semver_gt',
+                                                                        'semver_gte',
+                                                                        'semver_lt',
+                                                                        'semver_lte',
+                                                                        'semver_tilde',
+                                                                        'semver_caret',
+                                                                        'semver_wildcard',
+                                                                        'icontains_multi',
+                                                                        'not_icontains_multi',
+                                                                    ]),
+                                                                    type: zod
+                                                                        .literal('data_warehouse')
+                                                                        .default(
+                                                                            experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemTwoPropertiesOneItemOneTypeDefault
                                                                         ),
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                        zod.null(),
-                                                                    ])
-                                                                    .optional(),
-                                                            })
+                                                                    value: zod
+                                                                        .union([
+                                                                            zod.array(
+                                                                                zod.union([
+                                                                                    zod.string(),
+                                                                                    zod.number(),
+                                                                                    zod.boolean(),
+                                                                                ])
+                                                                            ),
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                            zod.null(),
+                                                                        ])
+                                                                        .optional(),
+                                                                }),
+                                                                zod.object({
+                                                                    key: zod.string(),
+                                                                    label: zod
+                                                                        .union([zod.string(), zod.null()])
+                                                                        .optional(),
+                                                                    type: zod
+                                                                        .literal('hogql')
+                                                                        .default(
+                                                                            experimentsPartialUpdateBodyMetricsSecondaryOneItemSeriesOneItemTwoPropertiesOneItemTwoTypeDefault
+                                                                        ),
+                                                                    value: zod
+                                                                        .union([
+                                                                            zod.array(
+                                                                                zod.union([
+                                                                                    zod.string(),
+                                                                                    zod.number(),
+                                                                                    zod.boolean(),
+                                                                                ])
+                                                                            ),
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                            zod.null(),
+                                                                        ])
+                                                                        .optional(),
+                                                                }),
+                                                            ])
                                                         ),
                                                         zod.null(),
                                                     ])
                                                     .optional()
-                                                    .describe("Filters on the table's own columns."),
+                                                    .describe(
+                                                        "Filters on the table's own columns, or a HogQL expression over them."
+                                                    ),
                                                 table_name: zod
                                                     .string()
                                                     .describe(
@@ -15160,6 +15912,10 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.object({
+                                        custom_name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Label shown instead of name, e.g. a renamed funnel step.'),
                                         data_warehouse_join_key: zod
                                             .string()
                                             .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -15207,75 +15963,103 @@ export const ExperimentsPartialUpdateBody = () => zod
                                         properties: zod
                                             .union([
                                                 zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod.enum([
-                                                            'exact',
-                                                            'is_not',
-                                                            'icontains',
-                                                            'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
-                                                            'regex',
-                                                            'not_regex',
-                                                            'gt',
-                                                            'gte',
-                                                            'lt',
-                                                            'lte',
-                                                            'is_set',
-                                                            'is_not_set',
-                                                            'is_date_exact',
-                                                            'is_date_before',
-                                                            'is_date_after',
-                                                            'between',
-                                                            'not_between',
-                                                            'min',
-                                                            'max',
-                                                            'in',
-                                                            'not_in',
-                                                            'is_cleaned_path_exact',
-                                                            'flag_evaluates_to',
-                                                            'semver_eq',
-                                                            'semver_neq',
-                                                            'semver_gt',
-                                                            'semver_gte',
-                                                            'semver_lt',
-                                                            'semver_lte',
-                                                            'semver_tilde',
-                                                            'semver_caret',
-                                                            'semver_wildcard',
-                                                            'icontains_multi',
-                                                            'not_icontains_multi',
-                                                        ]),
-                                                        type: zod
-                                                            .literal('data_warehouse')
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceTwoPropertiesOneItemTypeDefault
-                                                            ),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
+                                                    zod.union([
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'starts_with',
+                                                                'not_starts_with',
+                                                                'ends_with',
+                                                                'not_ends_with',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod
+                                                                .literal('data_warehouse')
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceTwoPropertiesOneItemOneTypeDefault
                                                                 ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            type: zod
+                                                                .literal('hogql')
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemSourceTwoPropertiesOneItemTwoTypeDefault
+                                                                ),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                    ])
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe("Filters on the table's own columns."),
+                                            .describe(
+                                                "Filters on the table's own columns, or a HogQL expression over them."
+                                            ),
                                         table_name: zod
                                             .string()
                                             .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
@@ -15427,6 +16211,10 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.object({
+                                        custom_name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Label shown instead of name, e.g. a renamed funnel step.'),
                                         data_warehouse_join_key: zod
                                             .string()
                                             .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -15474,75 +16262,103 @@ export const ExperimentsPartialUpdateBody = () => zod
                                         properties: zod
                                             .union([
                                                 zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod.enum([
-                                                            'exact',
-                                                            'is_not',
-                                                            'icontains',
-                                                            'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
-                                                            'regex',
-                                                            'not_regex',
-                                                            'gt',
-                                                            'gte',
-                                                            'lt',
-                                                            'lte',
-                                                            'is_set',
-                                                            'is_not_set',
-                                                            'is_date_exact',
-                                                            'is_date_before',
-                                                            'is_date_after',
-                                                            'between',
-                                                            'not_between',
-                                                            'min',
-                                                            'max',
-                                                            'in',
-                                                            'not_in',
-                                                            'is_cleaned_path_exact',
-                                                            'flag_evaluates_to',
-                                                            'semver_eq',
-                                                            'semver_neq',
-                                                            'semver_gt',
-                                                            'semver_gte',
-                                                            'semver_lt',
-                                                            'semver_lte',
-                                                            'semver_tilde',
-                                                            'semver_caret',
-                                                            'semver_wildcard',
-                                                            'icontains_multi',
-                                                            'not_icontains_multi',
-                                                        ]),
-                                                        type: zod
-                                                            .literal('data_warehouse')
-                                                            .default(
-                                                                experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventTwoPropertiesOneItemTypeDefault
-                                                            ),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
+                                                    zod.union([
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'starts_with',
+                                                                'not_starts_with',
+                                                                'ends_with',
+                                                                'not_ends_with',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod
+                                                                .literal('data_warehouse')
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventTwoPropertiesOneItemOneTypeDefault
                                                                 ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            type: zod
+                                                                .literal('hogql')
+                                                                .default(
+                                                                    experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventTwoPropertiesOneItemTwoTypeDefault
+                                                                ),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                    ])
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe("Filters on the table's own columns."),
+                                            .describe(
+                                                "Filters on the table's own columns, or a HogQL expression over them."
+                                            ),
                                         table_name: zod
                                             .string()
                                             .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
@@ -15822,11 +16638,13 @@ export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOneP
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
@@ -15840,7 +16658,8 @@ export const experimentsDuplicateCreateBodyMetricsOneItemLowerBoundPercentileOne
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOnePropertiesOneItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
@@ -15850,26 +16669,31 @@ export const experimentsDuplicateCreateBodyMetricsOneItemNumeratorOutlierHandlin
 export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemOnePropertiesOneItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsDuplicateCreateBodyMetricsOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsOneItemSourceOnePropertiesOneItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsOneItemSourceTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsDuplicateCreateBodyMetricsOneItemSourceTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsDuplicateCreateBodyMetricsOneItemSourceTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsDuplicateCreateBodyMetricsOneItemSourceTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsOneItemStartEventTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsDuplicateCreateBodyMetricsOneItemStartEventTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsDuplicateCreateBodyMetricsOneItemStartEventTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsDuplicateCreateBodyMetricsOneItemStartEventTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsDuplicateCreateBodyMetricsOneItemUpperBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsOneItemUpperBoundPercentileOneMax = 1
 
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOnePropertiesOneItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
@@ -15883,7 +16707,8 @@ export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemLowerBoundPerc
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOnePropertiesOneItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutlierHandlingOneLowerBoundPercentileOneMax = 1
 
@@ -15893,15 +16718,18 @@ export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorOutli
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemOnePropertiesOneItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceOnePropertiesOneItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventTwoKindDefault = `ExperimentDataWarehouseNode`
-export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventTwoPropertiesOneItemTypeDefault = `data_warehouse`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventTwoPropertiesOneItemOneTypeDefault = `data_warehouse`
+export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventTwoPropertiesOneItemTwoTypeDefault = `hogql`
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin = 0
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax = 1
 
@@ -19601,6 +20429,10 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.object({
+                                        custom_name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Label shown instead of name, e.g. a renamed funnel step.'),
                                         data_warehouse_join_key: zod
                                             .string()
                                             .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -19648,75 +20480,103 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                         properties: zod
                                             .union([
                                                 zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod.enum([
-                                                            'exact',
-                                                            'is_not',
-                                                            'icontains',
-                                                            'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
-                                                            'regex',
-                                                            'not_regex',
-                                                            'gt',
-                                                            'gte',
-                                                            'lt',
-                                                            'lte',
-                                                            'is_set',
-                                                            'is_not_set',
-                                                            'is_date_exact',
-                                                            'is_date_before',
-                                                            'is_date_after',
-                                                            'between',
-                                                            'not_between',
-                                                            'min',
-                                                            'max',
-                                                            'in',
-                                                            'not_in',
-                                                            'is_cleaned_path_exact',
-                                                            'flag_evaluates_to',
-                                                            'semver_eq',
-                                                            'semver_neq',
-                                                            'semver_gt',
-                                                            'semver_gte',
-                                                            'semver_lt',
-                                                            'semver_lte',
-                                                            'semver_tilde',
-                                                            'semver_caret',
-                                                            'semver_wildcard',
-                                                            'icontains_multi',
-                                                            'not_icontains_multi',
-                                                        ]),
-                                                        type: zod
-                                                            .literal('data_warehouse')
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsOneItemCompletionEventTwoPropertiesOneItemTypeDefault
-                                                            ),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
+                                                    zod.union([
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'starts_with',
+                                                                'not_starts_with',
+                                                                'ends_with',
+                                                                'not_ends_with',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod
+                                                                .literal('data_warehouse')
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsOneItemCompletionEventTwoPropertiesOneItemOneTypeDefault
                                                                 ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            type: zod
+                                                                .literal('hogql')
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsOneItemCompletionEventTwoPropertiesOneItemTwoTypeDefault
+                                                                ),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                    ])
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe("Filters on the table's own columns."),
+                                            .describe(
+                                                "Filters on the table's own columns, or a HogQL expression over them."
+                                            ),
                                         table_name: zod
                                             .string()
                                             .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
@@ -19872,6 +20732,10 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.object({
+                                        custom_name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Label shown instead of name, e.g. a renamed funnel step.'),
                                         data_warehouse_join_key: zod
                                             .string()
                                             .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -19919,75 +20783,103 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                         properties: zod
                                             .union([
                                                 zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod.enum([
-                                                            'exact',
-                                                            'is_not',
-                                                            'icontains',
-                                                            'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
-                                                            'regex',
-                                                            'not_regex',
-                                                            'gt',
-                                                            'gte',
-                                                            'lt',
-                                                            'lte',
-                                                            'is_set',
-                                                            'is_not_set',
-                                                            'is_date_exact',
-                                                            'is_date_before',
-                                                            'is_date_after',
-                                                            'between',
-                                                            'not_between',
-                                                            'min',
-                                                            'max',
-                                                            'in',
-                                                            'not_in',
-                                                            'is_cleaned_path_exact',
-                                                            'flag_evaluates_to',
-                                                            'semver_eq',
-                                                            'semver_neq',
-                                                            'semver_gt',
-                                                            'semver_gte',
-                                                            'semver_lt',
-                                                            'semver_lte',
-                                                            'semver_tilde',
-                                                            'semver_caret',
-                                                            'semver_wildcard',
-                                                            'icontains_multi',
-                                                            'not_icontains_multi',
-                                                        ]),
-                                                        type: zod
-                                                            .literal('data_warehouse')
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsOneItemDenominatorTwoPropertiesOneItemTypeDefault
-                                                            ),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
+                                                    zod.union([
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'starts_with',
+                                                                'not_starts_with',
+                                                                'ends_with',
+                                                                'not_ends_with',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod
+                                                                .literal('data_warehouse')
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsOneItemDenominatorTwoPropertiesOneItemOneTypeDefault
                                                                 ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            type: zod
+                                                                .literal('hogql')
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsOneItemDenominatorTwoPropertiesOneItemTwoTypeDefault
+                                                                ),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                    ])
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe("Filters on the table's own columns."),
+                                            .describe(
+                                                "Filters on the table's own columns, or a HogQL expression over them."
+                                            ),
                                         table_name: zod
                                             .string()
                                             .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
@@ -20212,6 +21104,10 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.object({
+                                        custom_name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Label shown instead of name, e.g. a renamed funnel step.'),
                                         data_warehouse_join_key: zod
                                             .string()
                                             .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -20259,75 +21155,103 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                         properties: zod
                                             .union([
                                                 zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod.enum([
-                                                            'exact',
-                                                            'is_not',
-                                                            'icontains',
-                                                            'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
-                                                            'regex',
-                                                            'not_regex',
-                                                            'gt',
-                                                            'gte',
-                                                            'lt',
-                                                            'lte',
-                                                            'is_set',
-                                                            'is_not_set',
-                                                            'is_date_exact',
-                                                            'is_date_before',
-                                                            'is_date_after',
-                                                            'between',
-                                                            'not_between',
-                                                            'min',
-                                                            'max',
-                                                            'in',
-                                                            'not_in',
-                                                            'is_cleaned_path_exact',
-                                                            'flag_evaluates_to',
-                                                            'semver_eq',
-                                                            'semver_neq',
-                                                            'semver_gt',
-                                                            'semver_gte',
-                                                            'semver_lt',
-                                                            'semver_lte',
-                                                            'semver_tilde',
-                                                            'semver_caret',
-                                                            'semver_wildcard',
-                                                            'icontains_multi',
-                                                            'not_icontains_multi',
-                                                        ]),
-                                                        type: zod
-                                                            .literal('data_warehouse')
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsOneItemNumeratorTwoPropertiesOneItemTypeDefault
-                                                            ),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
+                                                    zod.union([
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'starts_with',
+                                                                'not_starts_with',
+                                                                'ends_with',
+                                                                'not_ends_with',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod
+                                                                .literal('data_warehouse')
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsOneItemNumeratorTwoPropertiesOneItemOneTypeDefault
                                                                 ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            type: zod
+                                                                .literal('hogql')
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsOneItemNumeratorTwoPropertiesOneItemTwoTypeDefault
+                                                                ),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                    ])
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe("Filters on the table's own columns."),
+                                            .describe(
+                                                "Filters on the table's own columns, or a HogQL expression over them."
+                                            ),
                                         table_name: zod
                                             .string()
                                             .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
@@ -20531,6 +21455,12 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     ),
                                             }),
                                             zod.object({
+                                                custom_name: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        'Label shown instead of name, e.g. a renamed funnel step.'
+                                                    ),
                                                 data_warehouse_join_key: zod
                                                     .string()
                                                     .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -20580,75 +21510,107 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                 properties: zod
                                                     .union([
                                                         zod.array(
-                                                            zod.object({
-                                                                key: zod.string(),
-                                                                label: zod.union([zod.string(), zod.null()]).optional(),
-                                                                operator: zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                type: zod
-                                                                    .literal('data_warehouse')
-                                                                    .default(
-                                                                        experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemTwoPropertiesOneItemTypeDefault
-                                                                    ),
-                                                                value: zod
-                                                                    .union([
-                                                                        zod.array(
-                                                                            zod.union([
-                                                                                zod.string(),
-                                                                                zod.number(),
-                                                                                zod.boolean(),
-                                                                            ])
+                                                            zod.union([
+                                                                zod.object({
+                                                                    key: zod.string(),
+                                                                    label: zod
+                                                                        .union([zod.string(), zod.null()])
+                                                                        .optional(),
+                                                                    operator: zod.enum([
+                                                                        'exact',
+                                                                        'is_not',
+                                                                        'icontains',
+                                                                        'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
+                                                                        'regex',
+                                                                        'not_regex',
+                                                                        'gt',
+                                                                        'gte',
+                                                                        'lt',
+                                                                        'lte',
+                                                                        'is_set',
+                                                                        'is_not_set',
+                                                                        'is_date_exact',
+                                                                        'is_date_before',
+                                                                        'is_date_after',
+                                                                        'between',
+                                                                        'not_between',
+                                                                        'min',
+                                                                        'max',
+                                                                        'in',
+                                                                        'not_in',
+                                                                        'is_cleaned_path_exact',
+                                                                        'flag_evaluates_to',
+                                                                        'semver_eq',
+                                                                        'semver_neq',
+                                                                        'semver_gt',
+                                                                        'semver_gte',
+                                                                        'semver_lt',
+                                                                        'semver_lte',
+                                                                        'semver_tilde',
+                                                                        'semver_caret',
+                                                                        'semver_wildcard',
+                                                                        'icontains_multi',
+                                                                        'not_icontains_multi',
+                                                                    ]),
+                                                                    type: zod
+                                                                        .literal('data_warehouse')
+                                                                        .default(
+                                                                            experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemTwoPropertiesOneItemOneTypeDefault
                                                                         ),
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                        zod.null(),
-                                                                    ])
-                                                                    .optional(),
-                                                            })
+                                                                    value: zod
+                                                                        .union([
+                                                                            zod.array(
+                                                                                zod.union([
+                                                                                    zod.string(),
+                                                                                    zod.number(),
+                                                                                    zod.boolean(),
+                                                                                ])
+                                                                            ),
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                            zod.null(),
+                                                                        ])
+                                                                        .optional(),
+                                                                }),
+                                                                zod.object({
+                                                                    key: zod.string(),
+                                                                    label: zod
+                                                                        .union([zod.string(), zod.null()])
+                                                                        .optional(),
+                                                                    type: zod
+                                                                        .literal('hogql')
+                                                                        .default(
+                                                                            experimentsDuplicateCreateBodyMetricsOneItemSeriesOneItemTwoPropertiesOneItemTwoTypeDefault
+                                                                        ),
+                                                                    value: zod
+                                                                        .union([
+                                                                            zod.array(
+                                                                                zod.union([
+                                                                                    zod.string(),
+                                                                                    zod.number(),
+                                                                                    zod.boolean(),
+                                                                                ])
+                                                                            ),
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                            zod.null(),
+                                                                        ])
+                                                                        .optional(),
+                                                                }),
+                                                            ])
                                                         ),
                                                         zod.null(),
                                                     ])
                                                     .optional()
-                                                    .describe("Filters on the table's own columns."),
+                                                    .describe(
+                                                        "Filters on the table's own columns, or a HogQL expression over them."
+                                                    ),
                                                 table_name: zod
                                                     .string()
                                                     .describe(
@@ -20808,6 +21770,10 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.object({
+                                        custom_name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Label shown instead of name, e.g. a renamed funnel step.'),
                                         data_warehouse_join_key: zod
                                             .string()
                                             .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -20853,75 +21819,103 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                         properties: zod
                                             .union([
                                                 zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod.enum([
-                                                            'exact',
-                                                            'is_not',
-                                                            'icontains',
-                                                            'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
-                                                            'regex',
-                                                            'not_regex',
-                                                            'gt',
-                                                            'gte',
-                                                            'lt',
-                                                            'lte',
-                                                            'is_set',
-                                                            'is_not_set',
-                                                            'is_date_exact',
-                                                            'is_date_before',
-                                                            'is_date_after',
-                                                            'between',
-                                                            'not_between',
-                                                            'min',
-                                                            'max',
-                                                            'in',
-                                                            'not_in',
-                                                            'is_cleaned_path_exact',
-                                                            'flag_evaluates_to',
-                                                            'semver_eq',
-                                                            'semver_neq',
-                                                            'semver_gt',
-                                                            'semver_gte',
-                                                            'semver_lt',
-                                                            'semver_lte',
-                                                            'semver_tilde',
-                                                            'semver_caret',
-                                                            'semver_wildcard',
-                                                            'icontains_multi',
-                                                            'not_icontains_multi',
-                                                        ]),
-                                                        type: zod
-                                                            .literal('data_warehouse')
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsOneItemSourceTwoPropertiesOneItemTypeDefault
-                                                            ),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
+                                                    zod.union([
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'starts_with',
+                                                                'not_starts_with',
+                                                                'ends_with',
+                                                                'not_ends_with',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod
+                                                                .literal('data_warehouse')
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsOneItemSourceTwoPropertiesOneItemOneTypeDefault
                                                                 ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            type: zod
+                                                                .literal('hogql')
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsOneItemSourceTwoPropertiesOneItemTwoTypeDefault
+                                                                ),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                    ])
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe("Filters on the table's own columns."),
+                                            .describe(
+                                                "Filters on the table's own columns, or a HogQL expression over them."
+                                            ),
                                         table_name: zod
                                             .string()
                                             .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
@@ -21073,6 +22067,10 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.object({
+                                        custom_name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Label shown instead of name, e.g. a renamed funnel step.'),
                                         data_warehouse_join_key: zod
                                             .string()
                                             .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -21120,75 +22118,103 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                         properties: zod
                                             .union([
                                                 zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod.enum([
-                                                            'exact',
-                                                            'is_not',
-                                                            'icontains',
-                                                            'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
-                                                            'regex',
-                                                            'not_regex',
-                                                            'gt',
-                                                            'gte',
-                                                            'lt',
-                                                            'lte',
-                                                            'is_set',
-                                                            'is_not_set',
-                                                            'is_date_exact',
-                                                            'is_date_before',
-                                                            'is_date_after',
-                                                            'between',
-                                                            'not_between',
-                                                            'min',
-                                                            'max',
-                                                            'in',
-                                                            'not_in',
-                                                            'is_cleaned_path_exact',
-                                                            'flag_evaluates_to',
-                                                            'semver_eq',
-                                                            'semver_neq',
-                                                            'semver_gt',
-                                                            'semver_gte',
-                                                            'semver_lt',
-                                                            'semver_lte',
-                                                            'semver_tilde',
-                                                            'semver_caret',
-                                                            'semver_wildcard',
-                                                            'icontains_multi',
-                                                            'not_icontains_multi',
-                                                        ]),
-                                                        type: zod
-                                                            .literal('data_warehouse')
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsOneItemStartEventTwoPropertiesOneItemTypeDefault
-                                                            ),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
+                                                    zod.union([
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'starts_with',
+                                                                'not_starts_with',
+                                                                'ends_with',
+                                                                'not_ends_with',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod
+                                                                .literal('data_warehouse')
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsOneItemStartEventTwoPropertiesOneItemOneTypeDefault
                                                                 ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            type: zod
+                                                                .literal('hogql')
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsOneItemStartEventTwoPropertiesOneItemTwoTypeDefault
+                                                                ),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                    ])
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe("Filters on the table's own columns."),
+                                            .describe(
+                                                "Filters on the table's own columns, or a HogQL expression over them."
+                                            ),
                                         table_name: zod
                                             .string()
                                             .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
@@ -21377,6 +22403,10 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.object({
+                                        custom_name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Label shown instead of name, e.g. a renamed funnel step.'),
                                         data_warehouse_join_key: zod
                                             .string()
                                             .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -21424,75 +22454,103 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                         properties: zod
                                             .union([
                                                 zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod.enum([
-                                                            'exact',
-                                                            'is_not',
-                                                            'icontains',
-                                                            'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
-                                                            'regex',
-                                                            'not_regex',
-                                                            'gt',
-                                                            'gte',
-                                                            'lt',
-                                                            'lte',
-                                                            'is_set',
-                                                            'is_not_set',
-                                                            'is_date_exact',
-                                                            'is_date_before',
-                                                            'is_date_after',
-                                                            'between',
-                                                            'not_between',
-                                                            'min',
-                                                            'max',
-                                                            'in',
-                                                            'not_in',
-                                                            'is_cleaned_path_exact',
-                                                            'flag_evaluates_to',
-                                                            'semver_eq',
-                                                            'semver_neq',
-                                                            'semver_gt',
-                                                            'semver_gte',
-                                                            'semver_lt',
-                                                            'semver_lte',
-                                                            'semver_tilde',
-                                                            'semver_caret',
-                                                            'semver_wildcard',
-                                                            'icontains_multi',
-                                                            'not_icontains_multi',
-                                                        ]),
-                                                        type: zod
-                                                            .literal('data_warehouse')
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventTwoPropertiesOneItemTypeDefault
-                                                            ),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
+                                                    zod.union([
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'starts_with',
+                                                                'not_starts_with',
+                                                                'ends_with',
+                                                                'not_ends_with',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod
+                                                                .literal('data_warehouse')
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventTwoPropertiesOneItemOneTypeDefault
                                                                 ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            type: zod
+                                                                .literal('hogql')
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemCompletionEventTwoPropertiesOneItemTwoTypeDefault
+                                                                ),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                    ])
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe("Filters on the table's own columns."),
+                                            .describe(
+                                                "Filters on the table's own columns, or a HogQL expression over them."
+                                            ),
                                         table_name: zod
                                             .string()
                                             .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
@@ -21648,6 +22706,10 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.object({
+                                        custom_name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Label shown instead of name, e.g. a renamed funnel step.'),
                                         data_warehouse_join_key: zod
                                             .string()
                                             .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -21695,75 +22757,103 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                         properties: zod
                                             .union([
                                                 zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod.enum([
-                                                            'exact',
-                                                            'is_not',
-                                                            'icontains',
-                                                            'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
-                                                            'regex',
-                                                            'not_regex',
-                                                            'gt',
-                                                            'gte',
-                                                            'lt',
-                                                            'lte',
-                                                            'is_set',
-                                                            'is_not_set',
-                                                            'is_date_exact',
-                                                            'is_date_before',
-                                                            'is_date_after',
-                                                            'between',
-                                                            'not_between',
-                                                            'min',
-                                                            'max',
-                                                            'in',
-                                                            'not_in',
-                                                            'is_cleaned_path_exact',
-                                                            'flag_evaluates_to',
-                                                            'semver_eq',
-                                                            'semver_neq',
-                                                            'semver_gt',
-                                                            'semver_gte',
-                                                            'semver_lt',
-                                                            'semver_lte',
-                                                            'semver_tilde',
-                                                            'semver_caret',
-                                                            'semver_wildcard',
-                                                            'icontains_multi',
-                                                            'not_icontains_multi',
-                                                        ]),
-                                                        type: zod
-                                                            .literal('data_warehouse')
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorTwoPropertiesOneItemTypeDefault
-                                                            ),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
+                                                    zod.union([
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'starts_with',
+                                                                'not_starts_with',
+                                                                'ends_with',
+                                                                'not_ends_with',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod
+                                                                .literal('data_warehouse')
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorTwoPropertiesOneItemOneTypeDefault
                                                                 ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            type: zod
+                                                                .literal('hogql')
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemDenominatorTwoPropertiesOneItemTwoTypeDefault
+                                                                ),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                    ])
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe("Filters on the table's own columns."),
+                                            .describe(
+                                                "Filters on the table's own columns, or a HogQL expression over them."
+                                            ),
                                         table_name: zod
                                             .string()
                                             .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
@@ -21992,6 +23082,10 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.object({
+                                        custom_name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Label shown instead of name, e.g. a renamed funnel step.'),
                                         data_warehouse_join_key: zod
                                             .string()
                                             .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -22039,75 +23133,103 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                         properties: zod
                                             .union([
                                                 zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod.enum([
-                                                            'exact',
-                                                            'is_not',
-                                                            'icontains',
-                                                            'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
-                                                            'regex',
-                                                            'not_regex',
-                                                            'gt',
-                                                            'gte',
-                                                            'lt',
-                                                            'lte',
-                                                            'is_set',
-                                                            'is_not_set',
-                                                            'is_date_exact',
-                                                            'is_date_before',
-                                                            'is_date_after',
-                                                            'between',
-                                                            'not_between',
-                                                            'min',
-                                                            'max',
-                                                            'in',
-                                                            'not_in',
-                                                            'is_cleaned_path_exact',
-                                                            'flag_evaluates_to',
-                                                            'semver_eq',
-                                                            'semver_neq',
-                                                            'semver_gt',
-                                                            'semver_gte',
-                                                            'semver_lt',
-                                                            'semver_lte',
-                                                            'semver_tilde',
-                                                            'semver_caret',
-                                                            'semver_wildcard',
-                                                            'icontains_multi',
-                                                            'not_icontains_multi',
-                                                        ]),
-                                                        type: zod
-                                                            .literal('data_warehouse')
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorTwoPropertiesOneItemTypeDefault
-                                                            ),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
+                                                    zod.union([
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'starts_with',
+                                                                'not_starts_with',
+                                                                'ends_with',
+                                                                'not_ends_with',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod
+                                                                .literal('data_warehouse')
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorTwoPropertiesOneItemOneTypeDefault
                                                                 ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            type: zod
+                                                                .literal('hogql')
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemNumeratorTwoPropertiesOneItemTwoTypeDefault
+                                                                ),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                    ])
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe("Filters on the table's own columns."),
+                                            .describe(
+                                                "Filters on the table's own columns, or a HogQL expression over them."
+                                            ),
                                         table_name: zod
                                             .string()
                                             .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
@@ -22311,6 +23433,12 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                     ),
                                             }),
                                             zod.object({
+                                                custom_name: zod
+                                                    .union([zod.string(), zod.null()])
+                                                    .optional()
+                                                    .describe(
+                                                        'Label shown instead of name, e.g. a renamed funnel step.'
+                                                    ),
                                                 data_warehouse_join_key: zod
                                                     .string()
                                                     .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -22360,75 +23488,107 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                                 properties: zod
                                                     .union([
                                                         zod.array(
-                                                            zod.object({
-                                                                key: zod.string(),
-                                                                label: zod.union([zod.string(), zod.null()]).optional(),
-                                                                operator: zod.enum([
-                                                                    'exact',
-                                                                    'is_not',
-                                                                    'icontains',
-                                                                    'not_icontains',
-                                                                    'starts_with',
-                                                                    'not_starts_with',
-                                                                    'ends_with',
-                                                                    'not_ends_with',
-                                                                    'regex',
-                                                                    'not_regex',
-                                                                    'gt',
-                                                                    'gte',
-                                                                    'lt',
-                                                                    'lte',
-                                                                    'is_set',
-                                                                    'is_not_set',
-                                                                    'is_date_exact',
-                                                                    'is_date_before',
-                                                                    'is_date_after',
-                                                                    'between',
-                                                                    'not_between',
-                                                                    'min',
-                                                                    'max',
-                                                                    'in',
-                                                                    'not_in',
-                                                                    'is_cleaned_path_exact',
-                                                                    'flag_evaluates_to',
-                                                                    'semver_eq',
-                                                                    'semver_neq',
-                                                                    'semver_gt',
-                                                                    'semver_gte',
-                                                                    'semver_lt',
-                                                                    'semver_lte',
-                                                                    'semver_tilde',
-                                                                    'semver_caret',
-                                                                    'semver_wildcard',
-                                                                    'icontains_multi',
-                                                                    'not_icontains_multi',
-                                                                ]),
-                                                                type: zod
-                                                                    .literal('data_warehouse')
-                                                                    .default(
-                                                                        experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemTwoPropertiesOneItemTypeDefault
-                                                                    ),
-                                                                value: zod
-                                                                    .union([
-                                                                        zod.array(
-                                                                            zod.union([
-                                                                                zod.string(),
-                                                                                zod.number(),
-                                                                                zod.boolean(),
-                                                                            ])
+                                                            zod.union([
+                                                                zod.object({
+                                                                    key: zod.string(),
+                                                                    label: zod
+                                                                        .union([zod.string(), zod.null()])
+                                                                        .optional(),
+                                                                    operator: zod.enum([
+                                                                        'exact',
+                                                                        'is_not',
+                                                                        'icontains',
+                                                                        'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
+                                                                        'regex',
+                                                                        'not_regex',
+                                                                        'gt',
+                                                                        'gte',
+                                                                        'lt',
+                                                                        'lte',
+                                                                        'is_set',
+                                                                        'is_not_set',
+                                                                        'is_date_exact',
+                                                                        'is_date_before',
+                                                                        'is_date_after',
+                                                                        'between',
+                                                                        'not_between',
+                                                                        'min',
+                                                                        'max',
+                                                                        'in',
+                                                                        'not_in',
+                                                                        'is_cleaned_path_exact',
+                                                                        'flag_evaluates_to',
+                                                                        'semver_eq',
+                                                                        'semver_neq',
+                                                                        'semver_gt',
+                                                                        'semver_gte',
+                                                                        'semver_lt',
+                                                                        'semver_lte',
+                                                                        'semver_tilde',
+                                                                        'semver_caret',
+                                                                        'semver_wildcard',
+                                                                        'icontains_multi',
+                                                                        'not_icontains_multi',
+                                                                    ]),
+                                                                    type: zod
+                                                                        .literal('data_warehouse')
+                                                                        .default(
+                                                                            experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemTwoPropertiesOneItemOneTypeDefault
                                                                         ),
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                        zod.null(),
-                                                                    ])
-                                                                    .optional(),
-                                                            })
+                                                                    value: zod
+                                                                        .union([
+                                                                            zod.array(
+                                                                                zod.union([
+                                                                                    zod.string(),
+                                                                                    zod.number(),
+                                                                                    zod.boolean(),
+                                                                                ])
+                                                                            ),
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                            zod.null(),
+                                                                        ])
+                                                                        .optional(),
+                                                                }),
+                                                                zod.object({
+                                                                    key: zod.string(),
+                                                                    label: zod
+                                                                        .union([zod.string(), zod.null()])
+                                                                        .optional(),
+                                                                    type: zod
+                                                                        .literal('hogql')
+                                                                        .default(
+                                                                            experimentsDuplicateCreateBodyMetricsSecondaryOneItemSeriesOneItemTwoPropertiesOneItemTwoTypeDefault
+                                                                        ),
+                                                                    value: zod
+                                                                        .union([
+                                                                            zod.array(
+                                                                                zod.union([
+                                                                                    zod.string(),
+                                                                                    zod.number(),
+                                                                                    zod.boolean(),
+                                                                                ])
+                                                                            ),
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                            zod.null(),
+                                                                        ])
+                                                                        .optional(),
+                                                                }),
+                                                            ])
                                                         ),
                                                         zod.null(),
                                                     ])
                                                     .optional()
-                                                    .describe("Filters on the table's own columns."),
+                                                    .describe(
+                                                        "Filters on the table's own columns, or a HogQL expression over them."
+                                                    ),
                                                 table_name: zod
                                                     .string()
                                                     .describe(
@@ -22588,6 +23748,10 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.object({
+                                        custom_name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Label shown instead of name, e.g. a renamed funnel step.'),
                                         data_warehouse_join_key: zod
                                             .string()
                                             .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -22635,75 +23799,103 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                         properties: zod
                                             .union([
                                                 zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod.enum([
-                                                            'exact',
-                                                            'is_not',
-                                                            'icontains',
-                                                            'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
-                                                            'regex',
-                                                            'not_regex',
-                                                            'gt',
-                                                            'gte',
-                                                            'lt',
-                                                            'lte',
-                                                            'is_set',
-                                                            'is_not_set',
-                                                            'is_date_exact',
-                                                            'is_date_before',
-                                                            'is_date_after',
-                                                            'between',
-                                                            'not_between',
-                                                            'min',
-                                                            'max',
-                                                            'in',
-                                                            'not_in',
-                                                            'is_cleaned_path_exact',
-                                                            'flag_evaluates_to',
-                                                            'semver_eq',
-                                                            'semver_neq',
-                                                            'semver_gt',
-                                                            'semver_gte',
-                                                            'semver_lt',
-                                                            'semver_lte',
-                                                            'semver_tilde',
-                                                            'semver_caret',
-                                                            'semver_wildcard',
-                                                            'icontains_multi',
-                                                            'not_icontains_multi',
-                                                        ]),
-                                                        type: zod
-                                                            .literal('data_warehouse')
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceTwoPropertiesOneItemTypeDefault
-                                                            ),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
+                                                    zod.union([
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'starts_with',
+                                                                'not_starts_with',
+                                                                'ends_with',
+                                                                'not_ends_with',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod
+                                                                .literal('data_warehouse')
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceTwoPropertiesOneItemOneTypeDefault
                                                                 ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            type: zod
+                                                                .literal('hogql')
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemSourceTwoPropertiesOneItemTwoTypeDefault
+                                                                ),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                    ])
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe("Filters on the table's own columns."),
+                                            .describe(
+                                                "Filters on the table's own columns, or a HogQL expression over them."
+                                            ),
                                         table_name: zod
                                             .string()
                                             .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),
@@ -22855,6 +24047,10 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             .describe('Event property filters to narrow which events are counted.'),
                                     }),
                                     zod.object({
+                                        custom_name: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe('Label shown instead of name, e.g. a renamed funnel step.'),
                                         data_warehouse_join_key: zod
                                             .string()
                                             .describe("Table-side column to join on, e.g. 'customer_id'."),
@@ -22902,75 +24098,103 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                         properties: zod
                                             .union([
                                                 zod.array(
-                                                    zod.object({
-                                                        key: zod.string(),
-                                                        label: zod.union([zod.string(), zod.null()]).optional(),
-                                                        operator: zod.enum([
-                                                            'exact',
-                                                            'is_not',
-                                                            'icontains',
-                                                            'not_icontains',
-                                                            'starts_with',
-                                                            'not_starts_with',
-                                                            'ends_with',
-                                                            'not_ends_with',
-                                                            'regex',
-                                                            'not_regex',
-                                                            'gt',
-                                                            'gte',
-                                                            'lt',
-                                                            'lte',
-                                                            'is_set',
-                                                            'is_not_set',
-                                                            'is_date_exact',
-                                                            'is_date_before',
-                                                            'is_date_after',
-                                                            'between',
-                                                            'not_between',
-                                                            'min',
-                                                            'max',
-                                                            'in',
-                                                            'not_in',
-                                                            'is_cleaned_path_exact',
-                                                            'flag_evaluates_to',
-                                                            'semver_eq',
-                                                            'semver_neq',
-                                                            'semver_gt',
-                                                            'semver_gte',
-                                                            'semver_lt',
-                                                            'semver_lte',
-                                                            'semver_tilde',
-                                                            'semver_caret',
-                                                            'semver_wildcard',
-                                                            'icontains_multi',
-                                                            'not_icontains_multi',
-                                                        ]),
-                                                        type: zod
-                                                            .literal('data_warehouse')
-                                                            .default(
-                                                                experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventTwoPropertiesOneItemTypeDefault
-                                                            ),
-                                                        value: zod
-                                                            .union([
-                                                                zod.array(
-                                                                    zod.union([
-                                                                        zod.string(),
-                                                                        zod.number(),
-                                                                        zod.boolean(),
-                                                                    ])
+                                                    zod.union([
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            operator: zod.enum([
+                                                                'exact',
+                                                                'is_not',
+                                                                'icontains',
+                                                                'not_icontains',
+                                                                'starts_with',
+                                                                'not_starts_with',
+                                                                'ends_with',
+                                                                'not_ends_with',
+                                                                'regex',
+                                                                'not_regex',
+                                                                'gt',
+                                                                'gte',
+                                                                'lt',
+                                                                'lte',
+                                                                'is_set',
+                                                                'is_not_set',
+                                                                'is_date_exact',
+                                                                'is_date_before',
+                                                                'is_date_after',
+                                                                'between',
+                                                                'not_between',
+                                                                'min',
+                                                                'max',
+                                                                'in',
+                                                                'not_in',
+                                                                'is_cleaned_path_exact',
+                                                                'flag_evaluates_to',
+                                                                'semver_eq',
+                                                                'semver_neq',
+                                                                'semver_gt',
+                                                                'semver_gte',
+                                                                'semver_lt',
+                                                                'semver_lte',
+                                                                'semver_tilde',
+                                                                'semver_caret',
+                                                                'semver_wildcard',
+                                                                'icontains_multi',
+                                                                'not_icontains_multi',
+                                                            ]),
+                                                            type: zod
+                                                                .literal('data_warehouse')
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventTwoPropertiesOneItemOneTypeDefault
                                                                 ),
-                                                                zod.string(),
-                                                                zod.number(),
-                                                                zod.boolean(),
-                                                                zod.null(),
-                                                            ])
-                                                            .optional(),
-                                                    })
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                        zod.object({
+                                                            key: zod.string(),
+                                                            label: zod.union([zod.string(), zod.null()]).optional(),
+                                                            type: zod
+                                                                .literal('hogql')
+                                                                .default(
+                                                                    experimentsDuplicateCreateBodyMetricsSecondaryOneItemStartEventTwoPropertiesOneItemTwoTypeDefault
+                                                                ),
+                                                            value: zod
+                                                                .union([
+                                                                    zod.array(
+                                                                        zod.union([
+                                                                            zod.string(),
+                                                                            zod.number(),
+                                                                            zod.boolean(),
+                                                                        ])
+                                                                    ),
+                                                                    zod.string(),
+                                                                    zod.number(),
+                                                                    zod.boolean(),
+                                                                    zod.null(),
+                                                                ])
+                                                                .optional(),
+                                                        }),
+                                                    ])
                                                 ),
                                                 zod.null(),
                                             ])
                                             .optional()
-                                            .describe("Filters on the table's own columns."),
+                                            .describe(
+                                                "Filters on the table's own columns, or a HogQL expression over them."
+                                            ),
                                         table_name: zod
                                             .string()
                                             .describe("Data warehouse table to read from, e.g. 'stripe_charges'."),

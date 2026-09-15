@@ -8944,9 +8944,13 @@ class TestExperimentWarehouseMetric(APILicensedTest):
             "timestamp_field": "created_at",
             "events_join_key": "distinct_id",
             "data_warehouse_join_key": "customer_id",
+            "custom_name": "Charges",
             "math": "sum",
             "math_property": "amount",
-            "properties": [{"key": "status", "value": ["succeeded"], "operator": "exact", "type": "data_warehouse"}],
+            "properties": [
+                {"key": "status", "value": ["succeeded"], "operator": "exact", "type": "data_warehouse"},
+                {"key": "amount > 0", "type": "hogql"},
+            ],
         },
     }
 
@@ -9017,7 +9021,10 @@ class TestExperimentWarehouseMetric(APILicensedTest):
         self.assertEqual(source["timestamp_field"], "created_at")
         self.assertEqual(source["events_join_key"], "distinct_id")
         self.assertEqual(source["data_warehouse_join_key"], "customer_id")
-        self.assertEqual(source["properties"][0]["type"], "data_warehouse")
+        # The metric editor offers a renamed step and a HogQL filter on a warehouse row, so both
+        # must survive a write that a generated client builds from the advertised schema.
+        self.assertEqual(source["custom_name"], "Charges")
+        self.assertEqual([prop["type"] for prop in source["properties"]], ["data_warehouse", "hogql"])
 
 
 class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):

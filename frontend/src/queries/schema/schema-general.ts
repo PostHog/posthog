@@ -34,6 +34,7 @@ import {
     FunnelsFilterType,
     GroupMathType,
     HogQLMathType,
+    HogQLPropertyFilter,
     InsightShortId,
     InsightType,
     IntegrationType,
@@ -5434,8 +5435,9 @@ export interface ExperimentEventExposureConfig extends Node {
 //    across every metric field (source, numerator, denominator, start/
 //    completion event) in every experiment tool, so widening it multiplies
 //    the expansion — not worth it until metrics need non-event filters.
-//  - The warehouse source pairs with DataWarehousePropertyFilter[] for the
-//    same reason: its filters read the table's own columns.
+//  - The warehouse source pairs with DataWarehousePropertyFilter and
+//    HogQLPropertyFilter for the same reason: those are the two groups the
+//    metric editor offers on a warehouse row.
 
 /** Slim event/action source for experiment API payloads. */
 export interface ExperimentApiEventSource {
@@ -5472,6 +5474,8 @@ export interface ExperimentApiDataWarehouseSource {
     data_warehouse_join_key: string
     /** Display name for the source. */
     name?: string
+    /** Label shown instead of name, e.g. a renamed funnel step. */
+    custom_name?: string
     /** How to aggregate this source. Defaults to 'total' (row count). Use 'sum' together with
      *  math_property to aggregate a numeric column — e.g. revenue per charge. */
     math?: ExperimentMetricMathType
@@ -5479,8 +5483,8 @@ export interface ExperimentApiDataWarehouseSource {
     math_property?: string
     /** HogQL aggregation expression. Required when math is 'hogql'. */
     math_hogql?: string
-    /** Filters on the table's own columns. */
-    properties?: DataWarehousePropertyFilter[]
+    /** Filters on the table's own columns, or a HogQL expression over them. */
+    properties?: (DataWarehousePropertyFilter | HogQLPropertyFilter)[]
 }
 
 /** Slim metric source for experiment API payloads: an event, an action, or a warehouse table. */
