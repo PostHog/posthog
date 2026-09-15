@@ -10,6 +10,8 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.schema import AnyPropertyFilterDiscriminated, EventPropertyFilter, PropertyOperator
+
 from posthog.models.utils import uuid7
 from posthog.utils import generate_cache_key
 
@@ -17,6 +19,15 @@ from products.mcp_analytics.backend import intent_generation, mcp_harness
 from products.mcp_analytics.backend.facade import api, contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPSession
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
+
+# The two shared filters every MCP analytics tab sends. `INTERNAL_CLIENT` stands in for a team's
+# own traffic: TEST_ACCOUNT_FILTERS excludes it, so `filter_test_accounts=True` drops those events.
+INTERNAL_CLIENT = "internal-bot"
+TEST_ACCOUNT_FILTERS = [{"key": "$mcp_client_name", "value": [INTERNAL_CLIENT], "operator": "is_not", "type": "event"}]
+
+
+def _tool_name_filter(tool: str) -> list[AnyPropertyFilterDiscriminated]:
+    return [EventPropertyFilter(key="$mcp_tool_name", value=[tool], operator=PropertyOperator.EXACT)]
 
 
 def _sorted_uuid7s(n: int) -> list[str]:
@@ -121,6 +132,62 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
                     "$mcp_client_name": client_name,
                 },
             )
+
+    @parameterized.expand(
+        [
+            ("property_filter", _tool_name_filter("query_run"), False, {"kept"}),
+            ("test_accounts", None, True, {"kept"}),
+            ("both_together", _tool_name_filter("query_run"), True, {"kept"}),
+            ("neither", None, False, {"kept", "dropped"}),
+        ]
+    )
+    def test_shared_filters_narrow_the_session_list(
+        self,
+        _name: str,
+        properties: list[AnyPropertyFilterDiscriminated] | None,
+        filter_test_accounts: bool,
+        expected: set[str],
+    ) -> None:
+        self.team.test_account_filters = TEST_ACCOUNT_FILTERS
+        self.team.save()
+        by_name = {"kept": str(uuid7()), "dropped": str(uuid7())}
+        self._seed_session(by_name["kept"], ["query_run"])
+        self._seed_session(by_name["dropped"], ["docs_search"], client_name=INTERNAL_CLIENT)
+
+        def listed(props: list[AnyPropertyFilterDiscriminated] | None, test_accounts: bool) -> set[str]:
+            page = api.list_mcp_sessions(
+                self.team, limit=50, offset=0, properties=props, filter_test_accounts=test_accounts
+            )
+            return {name for name, sid in by_name.items() if sid in {s.session_id for s in page.results}}
+
+        # Warm the cache with the unfiltered page first: a cache key that ignored the filters
+        # would serve this same page back for the filtered call below.
+        assert listed(None, False) == {"kept", "dropped"}
+        assert listed(properties, filter_test_accounts) == expected
+
+    def test_shared_filters_narrow_the_calls_but_not_the_session_bounds(self) -> None:
+        # session_start bounds the detail scan and the persisted intent summary, both of which
+        # describe the whole session. If a filter moved it to the first *matching* call, the
+        # detail view would lose the earlier calls and a generated summary would be stored
+        # permanently from a fragment of the session.
+        session_id = str(uuid7())
+        now = datetime.now(tz=UTC)
+        started_at = now - timedelta(minutes=30)
+        self._seed_session(session_id, ["docs_search"], session_start=started_at, session_end=started_at)
+        self._seed_session(
+            session_id,
+            ["query_run", "query_run"],
+            session_start=now - timedelta(minutes=10),
+            session_end=now - timedelta(minutes=9),
+        )
+
+        page = api.list_mcp_sessions(self.team, limit=50, offset=0, properties=_tool_name_filter("query_run"))
+        session = next(s for s in page.results if s.session_id == session_id)
+
+        assert session.tool_calls == 2
+        assert session.tools_used == ["query_run"]
+        # Still the docs_search call at -30m, which the filter excluded, not the -10m query_run.
+        assert session.session_start < now - timedelta(minutes=20)
 
     def test_lists_sessions_in_newest_first_order(self) -> None:
         session_a = str(uuid7())
@@ -704,6 +771,35 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
                 properties={"$session_id": str(uuid7()), "$mcp_tool_name": "query_run", **properties},
             )
 
+    @parameterized.expand(
+        [
+            ("property_filter", _tool_name_filter("query_run"), False, 2),
+            ("test_accounts", None, True, 2),
+            ("neither", None, False, 3),
+        ]
+    )
+    def test_shared_filters_narrow_every_section(
+        self,
+        _name: str,
+        properties: list[AnyPropertyFilterDiscriminated] | None,
+        filter_test_accounts: bool,
+        expected_calls: int,
+    ) -> None:
+        # One event fails each filter, so a section that ignores either one over-counts.
+        self.team.test_account_filters = TEST_ACCOUNT_FILTERS
+        self.team.save()
+        self._emit_call({"$mcp_client_name": "claude-code"}, count=2)
+        self._emit_call({"$mcp_client_name": INTERNAL_CLIENT, "$mcp_tool_name": "docs_search"})
+
+        overview = api.get_activity_overview(
+            self.team, properties=properties, filter_test_accounts=filter_test_accounts
+        )
+
+        assert overview.stats.total_calls == expected_calls
+        assert sum(row.calls for row in overview.top_tools) == expected_calls
+        assert sum(row.calls for row in overview.clients) == expected_calls
+        assert len(overview.recent_calls) == expected_calls
+
     def test_merges_client_spellings_into_one_canonical_row(self) -> None:
         # One client reaches us under several spellings — different casing, and a proxied
         # name carrying mcp-remote's signature. Grouping on the raw property listed each as
@@ -874,6 +970,49 @@ class TestListMCPToolCalls(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
             timestamp=timestamp,
             properties={"$session_id": session_id, "$mcp_tool_name": tool},
         )
+
+    @parameterized.expand(
+        [
+            ("property_filter", _tool_name_filter("kept"), False, ["kept"]),
+            ("test_accounts", None, True, ["kept"]),
+            ("neither", None, False, ["dropped", "kept"]),
+        ]
+    )
+    def test_shared_filters_narrow_a_sessions_calls(
+        self,
+        _name: str,
+        properties: list[AnyPropertyFilterDiscriminated] | None,
+        filter_test_accounts: bool,
+        expected: list[str],
+    ) -> None:
+        self.team.test_account_filters = TEST_ACCOUNT_FILTERS
+        self.team.save()
+        session_id = str(uuid7())
+        start = datetime.now(tz=UTC) - timedelta(minutes=5)
+        _create_event(
+            team=self.team,
+            event="$mcp_tool_call",
+            distinct_id="seed",
+            timestamp=start,
+            properties={
+                "$session_id": session_id,
+                "$mcp_tool_name": "dropped",
+                "$mcp_client_name": INTERNAL_CLIENT,
+            },
+        )
+        self._seed_tool_call(session_id, timestamp=start + timedelta(seconds=1), tool="kept")
+
+        page = api.list_mcp_tool_calls(
+            self.team,
+            session_id=session_id,
+            limit=50,
+            offset=0,
+            date_from=start,
+            properties=properties,
+            filter_test_accounts=filter_test_accounts,
+        )
+
+        assert [c.tool_name for c in page.results] == expected
 
     def test_has_next_signals_more_pages(self) -> None:
         session_id = str(uuid7())

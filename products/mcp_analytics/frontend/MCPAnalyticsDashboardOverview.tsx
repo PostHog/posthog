@@ -31,6 +31,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         harnessRows,
         harnessRowsLoading,
         modelRows,
+        modelRowsLoading,
         hasModelData,
         dailyActivity,
         activityRowsLoading,
@@ -44,7 +45,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         interval,
         queryFilters,
     } = useValues(mcpDashboardOverviewLogic)
-    const { setDateFilter } = useActions(mcpDashboardOverviewLogic)
+    const { setDateFilter, reloadAll } = useActions(mcpDashboardOverviewLogic)
     const { timezone } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -54,15 +55,28 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         <div className="flex flex-col gap-4">
             <FilterBar
                 left={
-                    <>
+                    <McpSharedFilters
+                        pageKey="mcp-dashboard-overview"
+                        dataAttrPrefix="mcp-dashboard"
+                        onRefresh={reloadAll}
+                        refreshing={
+                            kpisLoading ||
+                            usersLoading ||
+                            sessionRowsLoading ||
+                            harnessRowsLoading ||
+                            modelRowsLoading ||
+                            activityRowsLoading ||
+                            toolDailyRowsLoading ||
+                            toolRowsLoading
+                        }
+                    >
                         <McpDateFilter
                             dateFrom={dateFilter.dateFrom}
                             dateTo={dateFilter.dateTo}
                             onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
                             dataAttr="mcp-dashboard-date-filter"
                         />
-                        <McpSharedFilters pageKey="mcp-dashboard-overview" dataAttrPrefix="mcp-dashboard" />
-                    </>
+                    </McpSharedFilters>
                 }
             />
             <MCPAnalyticsFirstLook />
