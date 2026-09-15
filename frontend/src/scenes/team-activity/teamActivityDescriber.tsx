@@ -787,6 +787,33 @@ export function teamActivityDescriber(logItem: ActivityLogItem, asNotification?:
         }
     }
 
+    if (logItem.activity === 'email_sending_tier_changed') {
+        const changes = logItem.detail?.changes || []
+        const tierChange = changes.find((change) => change.field === 'email_sending_tier')
+        const pinChange = changes.find((change) => change.field === 'email_sending_tier_pinned')
+        const reason = logItem.detail?.context?.reason as string | undefined
+        const pinVerb = pinChange ? (pinChange.after ? 'pinned' : 'unpinned') : null
+        return {
+            description: (
+                <>
+                    <ActivityLogUserName logItem={logItem} />{' '}
+                    {tierChange ? (
+                        <>
+                            moved the workflow email sending tier on {nameAndLink(logItem)} from {tierChange.before} to{' '}
+                            {tierChange.after}
+                            {pinVerb ? <> and {pinVerb} it</> : null}
+                        </>
+                    ) : (
+                        <>
+                            {pinVerb} the workflow email sending tier on {nameAndLink(logItem)}
+                        </>
+                    )}
+                    {reason ? <> (reason: {reason})</> : null}
+                </>
+            ),
+        }
+    }
+
     if (logItem.activity == 'changed' || logItem.activity == 'updated') {
         let changes: Description[] = []
         let changeSuffix: Description = <>on {nameAndLink(logItem)}</>

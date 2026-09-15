@@ -8,6 +8,8 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models.activity_logging.activity_log import ActivityLog
+
 from products.workflows.backend.management.commands.backfill_workflows_email_sending_tiers import (
     Command as BackfillCommand,
 )
@@ -20,6 +22,7 @@ from products.workflows.backend.services.email_sending_tier import (
     apply_tier_decision,
     decide_tier,
     highest_qualifying_tier,
+    recompute_email_sending_tier_for_team,
     recompute_email_sending_tiers,
 )
 from products.workflows.backend.utils.email_sending_tiers import get_email_sending_tier_limits
@@ -396,15 +399,33 @@ class TestRecomputeEmailSendingTiers(BaseTest):
         assert held.reason == "tier_not_used_enough"
         assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == 2
 
-    def test_promotion_is_persisted_with_a_fresh_timestamp(self) -> None:
+    @parameterized.expand([("sweep", False, "workflows_email_sending_tier_sweep"), ("admin_recompute", True, None)])
+    def test_promotion_is_persisted_with_a_fresh_timestamp_and_audited(
+        self, _name: str, by_staff: bool, expected_job_type: str | None
+    ) -> None:
         self._config(email_sending_tier=0, email_sending_tier_updated_at=timezone.now() - timedelta(days=30))
         used = clean_days(2, TIER_DAILY_CAPS[0])
-        self._run({self.team.id: history(team_id=self.team.id, sent=sum(used.values()), daily_sends=used)})
+        histories = {self.team.id: history(team_id=self.team.id, sent=sum(used.values()), daily_sends=used)}
+        with patch(
+            "products.workflows.backend.services.email_sending_tier.build_sending_history_windows",
+            return_value=SendingHistoryWindows(window=histories, recent=histories),
+        ):
+            if by_staff:
+                recompute_email_sending_tier_for_team(self.team.id, user=self.user)
+            else:
+                recompute_email_sending_tiers()
 
         config = TeamWorkflowsConfig.objects.get(team=self.team)
         assert config.email_sending_tier == 1
         assert config.email_sending_tier_updated_at is not None
         assert config.email_sending_tier_updated_at > timezone.now() - timedelta(minutes=1)
+
+        entry = ActivityLog.objects.get(scope="Team", team_id=self.team.id, activity="email_sending_tier_changed")
+        assert entry.user == (self.user if by_staff else None)
+        detail = entry.detail or {}
+        assert detail["context"] == {"reason": "clean_and_used"}
+        assert (detail["trigger"] or {}).get("job_type") == expected_job_type
+        assert [(c["field"], c["before"], c["after"]) for c in detail["changes"]] == [("email_sending_tier", 0, 1)]
 
     def test_suspended_team_is_demoted_even_with_no_recent_sending(self) -> None:
         self._config(
@@ -431,6 +452,7 @@ class TestRecomputeEmailSendingTiers(BaseTest):
         decision = TierDecision(team_id=self.team.id, previous_tier=1, new_tier=2, reason="clean_and_used")
         assert apply_tier_decision(config, decision) is False
         assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == expected_tier
+        assert not ActivityLog.objects.filter(scope="Team", activity="email_sending_tier_changed").exists()
 
     @parameterized.expand([("promotion", 0), ("demotion", 3)])
     def test_pinned_team_never_moves(self, _name: str, tier: int) -> None:
@@ -470,15 +492,21 @@ class TestBackfillEmailSendingTiers(BaseTest):
         decisions = BackfillCommand()._decide(histories={}, team_ids=[self.team.id])
         assert [(d.new_tier, d.reason) for d in decisions] == [(0, "staff_suspension")]
 
-    def test_apply_does_not_overwrite_a_concurrent_staff_change(self) -> None:
+    @parameterized.expand([("unchanged_row", False, 4), ("pinned_by_staff_during_scan", True, 1)])
+    def test_apply_audits_only_the_writes_it_makes(self, _name: str, pinned: bool, expected_tier: int) -> None:
         # The fleet scan computes decisions before it writes. A staff pin landing in that gap must
         # win over the stale decision, matching the daily sweep's compare-and-set.
         TeamWorkflowsConfig.objects.update_or_create(
-            team=self.team, defaults={"email_sending_tier": 1, "email_sending_tier_pinned": True}
+            team=self.team, defaults={"email_sending_tier": 1, "email_sending_tier_pinned": pinned}
         )
-        stale = TierDecision(team_id=self.team.id, previous_tier=1, new_tier=4, reason="clean_and_used")
-        assert BackfillCommand()._apply([stale]) == 0
-        assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == 1
+        decision = TierDecision(team_id=self.team.id, previous_tier=1, new_tier=4, reason="clean_and_used")
+        assert BackfillCommand()._apply([decision]) == (0 if pinned else 1)
+        assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == expected_tier
+
+        entries = ActivityLog.objects.filter(scope="Team", team_id=self.team.id, activity="email_sending_tier_changed")
+        assert [(entry.detail or {})["trigger"]["job_type"] for entry in entries] == (
+            [] if pinned else ["backfill_workflows_email_sending_tiers"]
+        )
 
     def test_history_for_a_deleted_team_is_dropped(self) -> None:
         # app_metrics2 in ClickHouse outlives a team deleted from Postgres, so its history can name a
