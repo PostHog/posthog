@@ -48,14 +48,16 @@ def _unwrap_declarations(tool: dict[str, Any]) -> list[Any]:
     return [tool]
 
 
-def _flatten_tools(tools_list: list[Any]) -> list[Any]:
-    """Unwrap every container, so a Google/Gemini bundle counts as its tools and not as one item."""
-    flattened: list[Any] = []
+def _flatten_tools(tools_list: list[Any]) -> list[dict[str, Any]]:
+    """
+    Unwrap every container, so a Google/Gemini bundle counts as its tools and not as one item.
+    Drops what cannot render, so the count and the collapse decision see the real tools.
+    """
+    flattened: list[dict[str, Any]] = []
     for tool in tools_list:
-        if isinstance(tool, dict):
-            flattened.extend(_unwrap_declarations(tool))
-        else:
-            flattened.append(tool)
+        if not isinstance(tool, dict):
+            continue
+        flattened.extend(declaration for declaration in _unwrap_declarations(tool) if isinstance(declaration, dict))
     return flattened
 
 
@@ -122,7 +124,7 @@ def _format_description(description: str) -> str:
     return first_sentence if first_sentence.endswith(".") else f"{first_sentence}."
 
 
-def _format_tools_list(tools_list: list[Any]) -> str:
+def _format_tools_list(tools_list: list[dict[str, Any]]) -> str:
     """
     Format a flattened list of tools into text representation.
     Returns the formatted text as a single string.
@@ -130,10 +132,6 @@ def _format_tools_list(tools_list: list[Any]) -> str:
     lines: list[str] = []
 
     for tool in tools_list:
-        # Skip non-dict entries
-        if not isinstance(tool, dict):
-            continue
-
         definition = _read_tool(tool)
 
         lines.append("")
@@ -174,9 +172,9 @@ def format_tools(ai_tools: Any, options: "FormatterOptions | None" = None) -> li
         return lines
 
     # The count drives the collapse threshold, so unwrap before counting.
-    tools_list = _flatten_tools(tools_list)
+    tools: list[dict[str, Any]] = _flatten_tools(tools_list)
 
-    if len(tools_list) == 0:
+    if len(tools) == 0:
         return lines
 
     options = options or {}
@@ -186,12 +184,12 @@ def format_tools(ai_tools: Any, options: "FormatterOptions | None" = None) -> li
     lines.append("")
 
     # For long tool lists (> threshold), create expandable section
-    if len(tools_list) > collapse_threshold:
-        display_text = f"AVAILABLE TOOLS: {len(tools_list)}"
+    if len(tools) > collapse_threshold:
+        display_text = f"AVAILABLE TOOLS: {len(tools)}"
 
         if include_markers:
             # Format all tools and encode for frontend to expand
-            tools_content = _format_tools_list(tools_list)
+            tools_content = _format_tools_list(tools)
             full_content = f"{display_text}\n{tools_content}"
             encoded_content = base64.b64encode(full_content.encode()).decode()
             expandable_marker = f"<<<TOOLS_EXPANDABLE|{display_text}|{encoded_content}>>>"
@@ -203,8 +201,8 @@ def format_tools(ai_tools: Any, options: "FormatterOptions | None" = None) -> li
         return lines
 
     # For short tool lists (<= threshold), show full list
-    lines.append(f"AVAILABLE TOOLS: {len(tools_list)}")
-    tools_content = _format_tools_list(tools_list)
+    lines.append(f"AVAILABLE TOOLS: {len(tools)}")
+    tools_content = _format_tools_list(tools)
     lines.append(tools_content)
 
     return lines

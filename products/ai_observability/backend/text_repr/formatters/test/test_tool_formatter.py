@@ -202,14 +202,14 @@ class TestFormatTools:
 
         assert "\n".join(lines).split("\n") == [
             "",
-            "AVAILABLE TOOLS: 3",
+            "AVAILABLE TOOLS: 1",
             "",
             "  search(query: string)",
             "    Search the web.",
         ]
 
     def test_invalid_tool_format(self):
-        """Should skip invalid tool entries."""
+        """Should skip invalid tool entries, and count only the tools it can render."""
         tools = [
             "not a dict",
             {"name": "valid_tool", "description": "A valid tool."},
@@ -217,8 +217,18 @@ class TestFormatTools:
         ]
         lines = format_tools(tools)
         result = "\n".join(lines)
-        assert "AVAILABLE TOOLS: 3" in result
+        assert "AVAILABLE TOOLS: 1" in result
         assert "valid_tool()" in result
+
+    def test_malformed_declarations_do_not_collapse_a_short_list(self):
+        """Should keep a valid signature visible when malformed declarations sit beside it."""
+        tools = [{"functionDeclarations": [{"name": "search"}, *["junk"] * 5]}]
+
+        result = "\n".join(format_tools(tools, {"include_markers": False}))
+
+        assert "AVAILABLE TOOLS: 1" in result
+        assert "search()" in result
+        assert "[+]" not in result
 
     def test_tool_with_nested_schema(self):
         """Should handle tools with complex nested schemas."""
