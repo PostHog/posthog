@@ -8,6 +8,7 @@ from prometheus_client import REGISTRY
 from products.replay_vision.backend.temporal.metrics import (
     record_activity_duration,
     record_credits_consumed,
+    record_estimate_outcome,
     record_failure_kind,
     record_gemini_cleanup_backlog,
     record_ineligible_kind,
@@ -91,6 +92,13 @@ class TestRecordHelpers(SimpleTestCase):
                 "replay_vision_sweep_candidates_total",
                 {},
                 3.0,
+            ),
+            (
+                "estimate_outcome",
+                lambda: record_estimate_outcome("experiment_linkage_unresolved"),
+                "replay_vision_estimate_outcomes_total",
+                {"outcome": "experiment_linkage_unresolved"},
+                1.0,
             ),
             (
                 "observation_e2e",

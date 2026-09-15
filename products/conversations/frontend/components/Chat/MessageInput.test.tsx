@@ -18,18 +18,26 @@ jest.mock('../Editor', () => {
             onCreate,
             onPressCmdEnter,
             disabled,
+            autoFocus,
         }: {
             onCreate: (editor: unknown) => void
             onPressCmdEnter: () => void
             disabled?: boolean
+            autoFocus?: boolean
         }) => {
             React.useEffect(() => {
-                onCreate({
+                const el = document.querySelector('[data-attr="support-editor"]') as HTMLElement | null
+                const editor = {
                     getJSON: () => ({ type: 'doc' }),
                     clear: () => {},
                     setContent: () => {},
                     isEmpty: () => false,
-                })
+                    focus: () => el?.focus(),
+                }
+                onCreate(editor)
+                if (autoFocus) {
+                    editor.focus()
+                }
                 // eslint-disable-next-line react-hooks/exhaustive-deps
             }, [])
             return React.createElement(
@@ -112,6 +120,73 @@ describe('MessageInput', () => {
         await userEvent.click(screen.getByText(`${verb} and set pending`))
         expect(onSendMessage).toHaveBeenCalledTimes(1)
         expect(onSendMessage).toHaveBeenCalledWith('hello', { type: 'doc' }, isPrivate, expect.any(Function), 'pending')
+    })
+})
+
+describe('MessageInput collapsed composer', () => {
+    beforeEach(() => {
+        initKeaTests()
+    })
+
+    afterEach(() => {
+        cleanup()
+    })
+
+    it('shows a one-line field until focused, then the full composer', async () => {
+        render(
+            <Provider>
+                <MessageInput onSendMessage={jest.fn()} messageSending={false} collapseUntilActive />
+            </Provider>
+        )
+
+        expect(screen.queryByTestId('support-editor')).not.toBeInTheDocument()
+        await userEvent.click(screen.getByPlaceholderText('Type your message...'))
+        expect(screen.getByTestId('support-editor')).toBeInTheDocument()
+        expect(screen.getByTestId('support-editor')).toHaveFocus()
+    })
+
+    it('collapses again when the thread id changes', async () => {
+        const { rerender } = render(
+            <Provider>
+                <MessageInput
+                    onSendMessage={jest.fn()}
+                    messageSending={false}
+                    collapseUntilActive
+                    threadId="ticket-a"
+                />
+            </Provider>
+        )
+
+        await userEvent.click(screen.getByPlaceholderText('Type your message...'))
+        expect(screen.getByTestId('support-editor')).toBeInTheDocument()
+
+        rerender(
+            <Provider>
+                <MessageInput
+                    onSendMessage={jest.fn()}
+                    messageSending={false}
+                    collapseUntilActive
+                    threadId="ticket-b"
+                />
+            </Provider>
+        )
+
+        expect(screen.queryByTestId('support-editor')).not.toBeInTheDocument()
+        expect(screen.getByPlaceholderText('Type your message...')).toBeInTheDocument()
+    })
+
+    test.each([
+        ['draft content', { draftContent: { type: 'doc', content: [] } }],
+        ['editing a message', { editingMessageId: 'note-1' }],
+    ])('starts expanded with %s', (_name, extraProps) => {
+        render(
+            <Provider>
+                <MessageInput onSendMessage={jest.fn()} messageSending={false} collapseUntilActive {...extraProps} />
+            </Provider>
+        )
+
+        expect(screen.getByTestId('support-editor')).toBeInTheDocument()
+        expect(screen.queryByPlaceholderText('Type your message...')).not.toBeInTheDocument()
     })
 })
 

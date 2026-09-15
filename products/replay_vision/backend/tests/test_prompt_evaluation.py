@@ -445,6 +445,45 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
         assert suggestion.evaluation is not None
         self.assertEqual(client.start_workflow.await_args.args[1].started_at, suggestion.evaluation["started_at"])
 
+    @parameterized.expand(
+        [
+            ("first_test", None, False),
+            ("retest", {"status": "completed", "results": [], "total": 1}, True),
+        ]
+    )
+    def test_evaluate_reports_the_test(self, _name: str, prior: dict | None, is_retest: bool) -> None:
+        self._create_rated()
+        suggestion = self._create_pending_suggestion(evaluation=prior)
+        connect_patch, _ = self._mock_temporal()
+        with connect_patch, patch("posthoganalytics.capture") as capture:
+            resp = self.client.post(self._url(suggestion.id))
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        evaluated = self._captured(capture, "replay_vision_prompt_suggestion_evaluated")
+        self.assertEqual(len(evaluated), 1)
+        self.assertEqual(evaluated[0]["suggestion_id"], str(suggestion.id))
+        self.assertEqual(evaluated[0]["session_count"], 1)
+        self.assertEqual(evaluated[0]["is_retest"], is_retest)
+        # The running stub is stamped before the event, so the shared shape reports a test that exists.
+        self.assertTrue(evaluated[0]["was_evaluated"])
+
+    def test_evaluate_reports_nothing_when_the_workflow_cannot_start(self) -> None:
+        # The count must cover tests that really ran, and the stub rolls back with it.
+        self._create_rated()
+        suggestion = self._create_pending_suggestion()
+        client = MagicMock()
+        client.start_workflow = AsyncMock(side_effect=RuntimeError("temporal unavailable"))
+        with (
+            patch("products.replay_vision.backend.api.prompt_suggestions.sync_connect", return_value=client),
+            patch("posthoganalytics.capture") as capture,
+        ):
+            resp = self.client.post(self._url(suggestion.id))
+
+        self.assertEqual(resp.status_code, 500)
+        self.assertEqual(self._captured(capture, "replay_vision_prompt_suggestion_evaluated"), [])
+        suggestion.refresh_from_db()
+        self.assertIsNone(suggestion.evaluation)
+
     def test_evaluate_bounds_the_run_to_the_admitted_session_count(self) -> None:
         # An explicit limit above the rated count is admitted (and budget-checked) at the rated
         # count; the workflow must not select more if extra ratings land before it runs.
@@ -605,7 +644,7 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
     def test_in_flight_reservation_prices_from_the_frozen_model(self) -> None:
         # Receipts bill the model frozen at workflow start. Pricing the reservation from the scanner's
         # current model instead lets an edit mid-run silently re-price committed spend.
-        expensive, cheap = ScannerModel.GEMINI_3_7_FLASH, ScannerModel.GEMINI_3_5_FLASH_LITE
+        expensive, cheap = ScannerModel.GEMINI_3_8_FLASH, ScannerModel.GEMINI_3_5_FLASH_LITE
         scanner = self._create_scanner(name="frozen-model", model=expensive)
         ReplayScannerPromptSuggestion.objects.create(
             scanner=scanner,
@@ -624,7 +663,7 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
 
     def test_per_scanner_reservation_prices_from_the_frozen_model(self) -> None:
         # The per-scanner split must price like the org total: from the model frozen at workflow start.
-        expensive, cheap = ScannerModel.GEMINI_3_7_FLASH, ScannerModel.GEMINI_3_5_FLASH_LITE
+        expensive, cheap = ScannerModel.GEMINI_3_8_FLASH, ScannerModel.GEMINI_3_5_FLASH_LITE
         scanner = self._create_scanner(name="frozen-model-per-scanner", model=expensive)
         ReplayScannerPromptSuggestion.objects.create(
             scanner=scanner,

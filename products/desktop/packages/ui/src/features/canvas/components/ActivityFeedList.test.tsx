@@ -72,7 +72,6 @@ vi.mock("@posthog/quill", async (importOriginal) => ({
   PopoverContent: ({ children }: { children: ReactNode }) => (
     <div>{children}</div>
   ),
-  Spinner: () => <div>Loading</div>,
   Switch: ({
     checked,
     onCheckedChange,
@@ -89,6 +88,9 @@ vi.mock("@posthog/quill", async (importOriginal) => ({
       Unreads
     </button>
   ),
+}));
+vi.mock("@posthog/ui/features/archive/useArchivedTaskIds", () => ({
+  useArchivedTaskIds: () => new Set<string>(),
 }));
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => ({}),
@@ -202,6 +204,15 @@ vi.mock("@posthog/ui/features/canvas/components/InboxActivityRow", async () => {
     ),
   };
 });
+vi.mock("@posthog/ui/features/canvas/hooks/useActivityTaskMenu", () => ({
+  useActivityTaskMenu: () => (item: TaskActivityItem) => ({
+    kind: "task",
+    id: item.taskId,
+    title: item.taskTitle,
+    isPinned: false,
+    onTogglePin: vi.fn(),
+  }),
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({ channels: [] }),
 }));

@@ -30,7 +30,7 @@ import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isEmptyObject, isObject } from 'lib/utils/guards'
 import { objectsEqual } from 'lib/utils/objects'
-import { isDashboardFilterEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
+import { isDashboardFilterOverrideEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -38,8 +38,6 @@ import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { mathsLogic } from 'scenes/trends/mathsLogic'
-import { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -74,6 +72,9 @@ import {
 } from '~/types'
 
 import { insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
+import { mathsLogic } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
+import type { MathDefinition } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
+import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 import type { AlertType } from '../../../../products/alerts/frontend/types'
 import type { InsightFilterOverrideContextApi } from '../../../../products/product_analytics/frontend/generated/api.schemas'
@@ -83,7 +84,6 @@ import type { Noun } from '../../models/groupsModel'
 import type { QueryStatus, ResolvedDateRangeResponse } from '../../queries/schema/schema-general'
 import type { CohortType, DashboardTileBasicType, TeamPublicType, TeamType, UserBasicType, UserType } from '../../types'
 import { teamLogic } from '../teamLogic'
-import type { MathDefinition } from '../trends/mathsLogic'
 import { insightDataLogic, isInsightSceneInstance } from './insightDataLogic'
 import { getInsightId } from './utils'
 import { insightsApi } from './utils/api'
@@ -189,6 +189,7 @@ export interface insightLogicActions {
             _create_in_folder?: string | null | undefined
             alerts?: AlertType[] | undefined
             cache_target_age?: string | null | undefined
+            columns?: string[] | null | undefined
             created_at: string
             created_by: UserBasicType | null
             dashboard_tiles: DashboardTileBasicType[] | null
@@ -218,6 +219,7 @@ export interface insightLogicActions {
             short_id: InsightShortId
             tags?: string[] | undefined
             timezone?: string | null | undefined
+            types?: string[][] | null | undefined
             updated_at: string
             user_access_level: AccessControlLevel
             view_count?: number | undefined
@@ -234,6 +236,7 @@ export interface insightLogicActions {
             _create_in_folder?: string | null | undefined
             alerts?: AlertType[] | undefined
             cache_target_age?: string | null | undefined
+            columns?: string[] | null | undefined
             created_at: string
             created_by: UserBasicType | null
             dashboard_tiles: DashboardTileBasicType[] | null
@@ -263,6 +266,7 @@ export interface insightLogicActions {
             short_id: InsightShortId
             tags?: string[] | undefined
             timezone?: string | null | undefined
+            types?: string[][] | null | undefined
             updated_at: string
             user_access_level: AccessControlLevel
             view_count?: number | undefined
@@ -356,6 +360,7 @@ export interface insightLogicActions {
             _create_in_folder?: string | null | undefined
             alerts?: AlertType[] | undefined
             cache_target_age?: string | null | undefined
+            columns?: string[] | null | undefined
             created_at?: string | undefined
             created_by?: UserBasicType | null | undefined
             dashboard_tiles?: DashboardTileBasicType[] | null | undefined
@@ -385,6 +390,7 @@ export interface insightLogicActions {
             short_id?: InsightShortId | undefined
             tags?: string[] | undefined
             timezone?: string | null | undefined
+            types?: string[][] | null | undefined
             updated_at?: string | undefined
             user_access_level?: AccessControlLevel | undefined
             view_count?: number | undefined
@@ -400,6 +406,7 @@ export interface insightLogicActions {
             _create_in_folder?: string | null | undefined
             alerts?: AlertType[] | undefined
             cache_target_age?: string | null | undefined
+            columns?: string[] | null | undefined
             created_at?: string | undefined
             created_by?: UserBasicType | null | undefined
             dashboard_tiles?: DashboardTileBasicType[] | null | undefined
@@ -429,6 +436,7 @@ export interface insightLogicActions {
             short_id?: InsightShortId | undefined
             tags?: string[] | undefined
             timezone?: string | null | undefined
+            types?: string[][] | null | undefined
             updated_at?: string | undefined
             user_access_level?: AccessControlLevel | undefined
             view_count?: number | undefined
@@ -531,9 +539,9 @@ export function insightOverridesPresent(
     tileFiltersOverride?: TileFilters | null
 ): boolean {
     return (
-        !isDashboardFilterEmpty(filtersOverride) ||
+        !isDashboardFilterOverrideEmpty(filtersOverride) ||
         (isObject(variablesOverride) && !isEmptyObject(variablesOverride)) ||
-        !isDashboardFilterEmpty(tileFiltersOverride)
+        !isDashboardFilterOverrideEmpty(tileFiltersOverride)
     )
 }
 
@@ -964,7 +972,12 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     deferToUserWording?: boolean
                 ) => import('~/models/groupsModel').Noun,
                 cohortsById: Partial<Record<number | string, import('~/types').CohortType>>,
-                mathDefinitions: Partial<Record<string, import('scenes/trends/mathsLogic').MathDefinition>>
+                mathDefinitions: Partial<
+                    Record<
+                        string,
+                        import('products/product_analytics/frontend/insights/trends/mathsLogic').MathDefinition
+                    >
+                >
             ) =>
                 summarizeInsight(query, {
                     aggregationLabel,

@@ -286,6 +286,20 @@ class PandaDocClient:
             {"status": _PANDADOC_STATUS_VOIDED, "notify_recipients": notify_recipients},
         )
 
+    def force_void_document(self, *, document_id: str) -> int:
+        """
+        Void an envelope without the status pre-check `void_document` does. Use
+        this when the status GET's answer is itself suspect and a definitive
+        second opinion is needed: a 404 here confirms PandaDoc has genuinely
+        purged the envelope, a 2xx confirms it was still live and is now
+        voided, and any other response raises PandaDocError because PandaDoc
+        still holds it in a state it refuses to void (e.g. still rendering).
+        """
+        return self._patch(
+            f"/public/v1/documents/{document_id}/status",
+            {"status": _PANDADOC_STATUS_VOIDED, "notify_recipients": False},
+        )
+
     @contextmanager
     def stream_document(self, *, document_id: str) -> Iterator[IO[bytes]]:
         """

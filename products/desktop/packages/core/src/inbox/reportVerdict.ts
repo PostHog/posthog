@@ -48,7 +48,7 @@ export function deriveReportVerdict(
       return {
         tone: "decision",
         title: "Waiting on you",
-        body: "The agent needs your input before it can continue.",
+        body: "Review the recommendation. Start an implementation task to add direction and choose a model, or ask for more context.",
       };
     case "potential":
     case "candidate":

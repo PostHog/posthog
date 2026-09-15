@@ -7,25 +7,21 @@ source as ``FROM __RUNS_SOURCE__ AS r`` (or joins it as ``r``).
 from datetime import datetime, timedelta
 
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 
 from posthog.dataclasses import frozen
 
 from products.engineering_analytics.backend.facade.contracts import WorkflowHealthRunScope
 
-# Trunk's merge-queue batch branches. Trunk-specific and hardcoded like KNOWN_BOT_HANDLES;
-# defined once here so every surface breaks queue spend out with the same key.
-MERGE_QUEUE_BRANCH_PREFIX = "trunk-merge/"
-
-
-def merge_queue_branch_predicate(branch_sql: str) -> str:
-    """True when the branch expression names a merge-queue batch branch."""
-    return f"startsWith({branch_sql}, '{MERGE_QUEUE_BRANCH_PREFIX}')"
-
+# HogQL caps a query that names no LIMIT at 100 rows and clamps any larger LIMIT to this ceiling. Reads
+# bounded by the repo's shape (workflows, job names, a PR's runs) rather than by a page size take it whole.
+UNPAGED_SCAN_LIMIT = MAX_SELECT_RETURNED_ROWS
 
 # Mirrors DECISIVE_FAILURE_CONCLUSIONS in frontend/lib/lifecycle.ts (keep the two in sync).
 DECISIVE_FAILURE_CONCLUSIONS = ("failure", "timed_out", "startup_failure", "stale")
 DECISIVE_FAILURE_CONCLUSIONS_SQL = ", ".join(f"'{conclusion}'" for conclusion in DECISIVE_FAILURE_CONCLUSIONS)
 SUCCESSFUL_RUN_CONDITION = "status = 'completed' AND conclusion = 'success'"
+FAILED_RUN_CONDITION = f"status = 'completed' AND conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})"
 CONCLUSIVE_RUN_CONDITION = f"status = 'completed' AND conclusion IN ('success', {DECISIVE_FAILURE_CONCLUSIONS_SQL})"
 
 # Duration percentiles use successful instances because cancelled, skipped, and failed instances
@@ -40,6 +36,12 @@ def success_rate_expr(scope: str | None = None) -> str:
     never a false 0%. ``scope`` ANDs an extra predicate into both counts (e.g. a window split)."""
     guard = f" AND {scope}" if scope else ""
     return f"countIf({SUCCESSFUL_RUN_CONDITION}{guard}) / nullIf(countIf({CONCLUSIVE_RUN_CONDITION}{guard}), 0)"
+
+
+def failure_rate_expr(scope: str | None = None) -> str:
+    """The complement of ``success_rate_expr`` over the same denominator."""
+    guard = f" AND {scope}" if scope else ""
+    return f"countIf({FAILED_RUN_CONDITION}{guard}) / nullIf(countIf({CONCLUSIVE_RUN_CONDITION}{guard}), 0)"
 
 
 # A run that settled in under this many seconds with a benign conclusion did no real CI work — the
@@ -154,6 +156,16 @@ def branch_filter_clause(
     return f"AND {column} = {{branch}}"
 
 
+def workflow_name_filter_clause(
+    workflow_name: str | None, placeholders: dict[str, ast.Expr], *, column: str = "r.workflow_name"
+) -> str:
+    """The name binds unmodified so it matches the other workflow endpoints."""
+    if not (workflow_name or "").strip():
+        return ""
+    placeholders["workflow_name"] = ast.Constant(value=workflow_name)
+    return f"AND {column} = {{workflow_name}}"
+
+
 def date_to_filter_clause(
     date_to: datetime | None, placeholders: dict[str, ast.Expr], *, column: str = "r.run_started_at"
 ) -> str:
@@ -184,12 +196,11 @@ def window_pair_predicates(column: str, *, date_to: datetime | None) -> WindowPr
     )
 
 
-def non_default_branch_predicate(branch_column: str = "r.head_branch") -> str:
-    """True when the branch expression names a branch other than the repo's default. The source
-    doesn't record which branch that is, so this excludes the common default names — the same
-    approximation ``repo_overview.query_default_branch`` resolves per-repo, not reused here
-    because it costs an extra query."""
-    return f"{branch_column} NOT IN ('master', 'main')"
+def default_branch_predicate(branch_column: str = "r.head_branch") -> str:
+    """True when the branch expression names the repo's default branch. The source does not record
+    which branch that is, so the common default names stand in. ``repo_overview.query_default_branch``
+    resolves it per repo, but that costs an extra query."""
+    return f"{branch_column} IN ('master', 'main')"
 
 
 def run_scope_filter_clause(
@@ -197,16 +208,35 @@ def run_scope_filter_clause(
     *,
     branch_column: str = "r.head_branch",
     attributed_predicate: str = "r.pr_number > 0",
+    merge_queue_predicate: str = "r.is_merge_queue",
 ) -> str:
+    """The WHERE fragment that narrows a run population to one ``WorkflowHealthRunScope`` (see that
+    enum for what each group covers), or '' for ``all``.
+
+    ``pull_request`` needs all three predicates. A default-branch run can still carry a PR
+    association (its SHA matches an open PR), so attribution alone (pr_number > 0 — see the
+    workflow_runs builder docstring) does not keep trunk runs out, and gate runs belong to
+    ``merge_queue`` instead.
+    """
+    if run_scope == WorkflowHealthRunScope.DEFAULT_BRANCH:
+        return f"AND {default_branch_predicate(branch_column)}"
     if run_scope == WorkflowHealthRunScope.PULL_REQUEST:
-        # A default-branch run can still carry a PR association (its SHA matches an open PR), so
-        # attribution alone (pr_number > 0 — see the workflow_runs builder docstring) doesn't keep
-        # trunk runs out; the scope needs both predicates.
-        # The cost queries pass the cost source's columns; there pr_number is 0→NULL normalized, so
-        # "attributed" becomes ``c.pr_number IS NOT NULL`` rather than ``> 0``.
-        # Merge-queue gate runs stay in this scope on purpose: a gate run is CI the PR paid for on
-        # its way to landing, and the runs builder already credits it to that PR rather than to the
-        # throwaway PR the queue opened. ``is_merge_queue`` splits the two populations, on the cost
-        # view and the job-history view alike.
-        return f"AND {non_default_branch_predicate(branch_column)} AND {attributed_predicate}"
+        return (
+            f"AND NOT {default_branch_predicate(branch_column)} AND {attributed_predicate} "
+            f"AND NOT {merge_queue_predicate}"
+        )
+    if run_scope == WorkflowHealthRunScope.MERGE_QUEUE:
+        return f"AND {merge_queue_predicate}"
     return ""
+
+
+def cost_run_scope_filter_clause(run_scope: WorkflowHealthRunScope, *, alias: str = "c") -> str:
+    """``run_scope_filter_clause`` against the job cost source. That source keeps the run's branch as
+    ``run_head_branch`` (distinct from the per-job ``head_branch``) and NULL-normalizes ``pr_number``,
+    so the run predicates need these column names."""
+    return run_scope_filter_clause(
+        run_scope,
+        branch_column=f"{alias}.run_head_branch",
+        attributed_predicate=f"{alias}.pr_number IS NOT NULL",
+        merge_queue_predicate=f"{alias}.is_merge_queue",
+    )

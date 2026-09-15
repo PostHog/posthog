@@ -14,6 +14,8 @@ import {
     TracesIngestionConsumerConfig,
     getDefaultLogsIngestionOutputsConfig,
 } from '~/logs/config'
+import { MetricRulesCache } from '~/logs/metrics-rules/metric-rules-cache'
+import { LogsMetricsEmitter } from '~/logs/metrics-rules/metrics-emitter'
 import { createProducerRegistry } from '~/logs/outputs/producer-registry'
 import {
     KafkaWarpstreamIngestionProducerEnvConfig,
@@ -106,6 +108,15 @@ export class IngestionTracesServer implements NodeServer {
         const teamManager = new TeamManager(this.postgres)
         const quotaLimiting = new QuotaLimiting(this.posthogRedisPool, teamManager)
 
+        // Span-based metric rules share the log rules table + OTLP emitter; the traces
+        // consumer filters to `source=spans`. Inert without a traces export URL.
+        const metricRulesCache = this.config.TRACES_METRICS_RULES_EXPORT_URL
+            ? new MetricRulesCache(this.postgres)
+            : undefined
+        const metricsEmitter = this.config.TRACES_METRICS_RULES_EXPORT_URL
+            ? new LogsMetricsEmitter(this.config.TRACES_METRICS_RULES_EXPORT_URL)
+            : undefined
+
         // 2. Resolve outputs (topic + producer per logical name, env-controlled)
         const outputs = createTracesOutputsRegistry().build(this.producerRegistry, this.config)
 
@@ -122,6 +133,8 @@ export class IngestionTracesServer implements NodeServer {
                 quotaLimiting,
                 outputs,
                 usageBatch,
+                metricRulesCache,
+                metricsEmitter,
             })
             await consumer.start()
             return consumer.service

@@ -189,6 +189,11 @@
         "params": [],
         "scope": "project"
     },
+    "aiTask": {
+        "template": "/ai",
+        "params": [],
+        "scope": "project"
+    },
     "alert": {
         "template": "/alerts",
         "params": [],
@@ -254,6 +259,11 @@
         "params": [],
         "scope": "project"
     },
+    "businessKnowledgeSettings": {
+        "template": "/business-knowledge/settings",
+        "params": [],
+        "scope": "project"
+    },
     "canvas": {
         "template": "/canvas",
         "params": [],
@@ -277,6 +287,11 @@
     "codeChannelLink": {
         "template": "/code/channel/{channelId}",
         "params": ["channelId"],
+        "scope": "project"
+    },
+    "codeLoopLink": {
+        "template": "/code/loop/{loopId}",
+        "params": ["loopId"],
         "scope": "project"
     },
     "codeReview": {
@@ -308,16 +323,6 @@
         "template": "/feature_flags/staff/cohorts",
         "params": [],
         "scope": "global"
-    },
-    "comment": {
-        "template": "/data-management/comments/{id}",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "comments": {
-        "template": "/data-management/comments",
-        "params": [],
-        "scope": "project"
     },
     "communitySkills": {
         "template": "/skills/community",
@@ -399,6 +404,11 @@
         "params": [],
         "scope": "project"
     },
+    "customerAnalyticsTasks": {
+        "template": "/customer_analytics/tasks",
+        "params": [],
+        "scope": "project"
+    },
     "customerJourneyBuilder": {
         "template": "/customer_analytics/journeys/new",
         "params": [],
@@ -417,11 +427,6 @@
     "dashboard": {
         "template": "/dashboard/{id}",
         "params": ["id"],
-        "scope": "project"
-    },
-    "dashboardButtonTile": {
-        "template": "/dashboard/{id}/button-tiles/{buttonTileId}",
-        "params": ["id", "buttonTileId"],
         "scope": "project"
     },
     "dashboardSharing": {
@@ -444,9 +449,9 @@
         "params": ["templateId"],
         "scope": "project"
     },
-    "dashboardTextTile": {
-        "template": "/dashboard/{id}/text-tiles/{textTileId}",
-        "params": ["id", "textTileId"],
+    "dashboardTile": {
+        "template": "/dashboard/{id}/tiles/{tileId}",
+        "params": ["id", "tileId"],
         "scope": "project"
     },
     "dashboards": {
@@ -1129,6 +1134,11 @@
         "params": ["tab"],
         "scope": "project"
     },
+    "mcpRegistry": {
+        "template": "/mcp-registry",
+        "params": [],
+        "scope": "project"
+    },
     "metrics": {
         "template": "/metrics",
         "params": [],
@@ -1324,26 +1334,6 @@
         "params": [],
         "scope": "project"
     },
-    "replayVisionAction": {
-        "template": "/replay-vision/actions/{actionId}",
-        "params": ["actionId"],
-        "scope": "project"
-    },
-    "replayVisionActionEdit": {
-        "template": "/replay-vision/actions/{actionId}/edit",
-        "params": ["actionId"],
-        "scope": "project"
-    },
-    "replayVisionActionNew": {
-        "template": "/replay-vision/{scannerId}/actions/new",
-        "params": ["scannerId"],
-        "scope": "project"
-    },
-    "replayVisionActionRun": {
-        "template": "/replay-vision/actions/{actionId}/runs/{runId}",
-        "params": ["actionId", "runId"],
-        "scope": "project"
-    },
     "replayVisionObservation": {
         "template": "/replay-vision/observations/{observationId}",
         "params": ["observationId"],
@@ -1394,6 +1384,11 @@
         "params": ["resourceKind", "resourceId"],
         "scope": "project"
     },
+    "reusableWidget": {
+        "template": "/notebooks/widgets/{widgetId}",
+        "params": ["widgetId"],
+        "scope": "project"
+    },
     "revenueSettings": {
         "template": "/data-management/revenue",
         "params": [],
@@ -1437,6 +1432,11 @@
     "sharedDashboard": {
         "template": "/shared_dashboard/{shareToken}",
         "params": ["shareToken"],
+        "scope": "project"
+    },
+    "shipIt": {
+        "template": "/games/shipit",
+        "params": [],
         "scope": "project"
     },
     "signup": {
@@ -1729,6 +1729,11 @@
         "params": [],
         "scope": "project"
     },
+    "webAnalyticsContentAutopilot": {
+        "template": "/web/content-autopilot",
+        "params": [],
+        "scope": "project"
+    },
     "webAnalyticsHealth": {
         "template": "/web/health",
         "params": [],
@@ -1774,8 +1779,8 @@
         "params": [],
         "scope": "project"
     },
-    "wizard": {
-        "template": "/wizard",
+    "wizardRuns": {
+        "template": "/wizard/runs",
         "params": [],
         "scope": "project"
     },

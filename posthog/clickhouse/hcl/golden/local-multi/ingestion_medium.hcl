@@ -34,10 +34,10 @@ database "posthog" {
       type = "Int64"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_app_metrics2'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_app_metrics2"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -67,10 +67,10 @@ database "posthog" {
       type = "Int64"
     }
     engine "kafka" {
-      broker_list = "warpstream_ingestion"
-      topic_list  = "kafka_topic_list = 'clickhouse_app_metrics2'"
-      group_name  = "kafka_group_name = 'clickhouse_app_metrics2_ws'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "warpstream_ingestion"
+      topic_list = "clickhouse_app_metrics2"
+      group_name = "clickhouse_app_metrics2_ws"
+      format     = "JSONEachRow"
     }
   }
 
@@ -91,10 +91,10 @@ database "posthog" {
       type = "DateTime64(6)"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'cohort_membership_changed'"
-      group_name  = "kafka_group_name = 'clickhouse_cohort_membership_changed'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "cohort_membership_changed"
+      group_name = "clickhouse_cohort_membership_changed"
+      format     = "JSONEachRow"
     }
   }
 
@@ -109,10 +109,10 @@ database "posthog" {
       type = "DateTime64(6, 'UTC')"
     }
     engine "kafka" {
-      broker_list          = "warpstream_ingestion"
-      topic_list           = "kafka_topic_list = 'distinct_id_usage_events_json'"
-      group_name           = "kafka_group_name = 'clickhouse_distinct_id_usage'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "warpstream_ingestion"
+      topic_list           = "distinct_id_usage_events_json"
+      group_name           = "clickhouse_distinct_id_usage"
+      format               = "JSONEachRow"
       skip_broken_messages = 100
     }
   }
@@ -142,32 +142,14 @@ database "posthog" {
     column "person_id" {
       type = "UUID"
     }
-    column "person_properties" {
-      type = "String"
-    }
-    column "group0_properties" {
-      type = "String"
-    }
-    column "group1_properties" {
-      type = "String"
-    }
-    column "group2_properties" {
-      type = "String"
-    }
-    column "group3_properties" {
-      type = "String"
-    }
-    column "group4_properties" {
-      type = "String"
-    }
     column "inserted_at" {
       type = "DateTime64(6, 'UTC')"
     }
     engine "kafka" {
-      broker_list          = "warpstream_ingestion"
-      topic_list           = "kafka_topic_list = 'clickhouse_flag_evaluations'"
-      group_name           = "kafka_group_name = 'clickhouse_flag_evaluations'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "warpstream_ingestion"
+      topic_list           = "clickhouse_flag_evaluations"
+      group_name           = "clickhouse_flag_evaluations"
+      format               = "JSONEachRow"
       skip_broken_messages = 100
     }
   }
@@ -210,10 +192,10 @@ database "posthog" {
       type = "LowCardinality(String)"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_heatmap_events'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_heatmap_events"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -240,10 +222,10 @@ database "posthog" {
       type = "String"
     }
     engine "kafka" {
-      broker_list          = "msk_cluster"
-      topic_list           = "kafka_topic_list = 'clickhouse_prefiltered_events'"
-      group_name           = "kafka_group_name = 'clickhouse_prefiltered_events'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "msk_cluster"
+      topic_list           = "clickhouse_prefiltered_events"
+      group_name           = "clickhouse_prefiltered_events"
+      format               = "JSONEachRow"
       num_consumers        = 1
       max_block_size       = 1000000
       skip_broken_messages = 100
@@ -273,10 +255,10 @@ database "posthog" {
       type = "String"
     }
     engine "kafka" {
-      broker_list          = "msk_cluster"
-      topic_list           = "kafka_topic_list = 'clickhouse_precalculated_person_properties'"
-      group_name           = "kafka_group_name = 'clickhouse_precalculated_person_properties'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "msk_cluster"
+      topic_list           = "clickhouse_precalculated_person_properties"
+      group_name           = "clickhouse_precalculated_person_properties"
+      format               = "JSONEachRow"
       num_consumers        = 1
       max_block_size       = 1000000
       skip_broken_messages = 100
@@ -495,10 +477,10 @@ database "posthog" {
       type = "UInt8"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_session_replay_features'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_session_replay_features"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -534,10 +516,10 @@ database "posthog" {
       type = "Map(LowCardinality(String), String)"
     }
     engine "kafka" {
-      broker_list          = "msk_cluster"
-      topic_list           = "kafka_topic_list = 'clickhouse_tophog'"
-      group_name           = "kafka_group_name = 'clickhouse_tophog'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "msk_cluster"
+      topic_list           = "clickhouse_tophog"
+      group_name           = "clickhouse_tophog"
+      format               = "JSONEachRow"
       skip_broken_messages = 100
     }
   }
@@ -574,10 +556,10 @@ database "posthog" {
       type = "Map(LowCardinality(String), String)"
     }
     engine "kafka" {
-      broker_list          = "warpstream_ingestion"
-      topic_list           = "kafka_topic_list = 'clickhouse_tophog'"
-      group_name           = "kafka_group_name = 'clickhouse_tophog_ws'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "warpstream_ingestion"
+      topic_list           = "clickhouse_tophog"
+      group_name           = "clickhouse_tophog_ws"
+      format               = "JSONEachRow"
       skip_broken_messages = 100
     }
   }
@@ -1042,24 +1024,6 @@ database "posthog" {
     }
     column "person_id" {
       type = "UUID"
-    }
-    column "person_properties" {
-      type = "String"
-    }
-    column "group0_properties" {
-      type = "String"
-    }
-    column "group1_properties" {
-      type = "String"
-    }
-    column "group2_properties" {
-      type = "String"
-    }
-    column "group3_properties" {
-      type = "String"
-    }
-    column "group4_properties" {
-      type = "String"
     }
     column "inserted_at" {
       type    = "DateTime64(6, 'UTC')"
@@ -1628,12 +1592,6 @@ SELECT
   distinct_id,
   created_at,
   person_id,
-  person_properties,
-  group0_properties,
-  group1_properties,
-  group2_properties,
-  group3_properties,
-  group4_properties,
   if(inserted_at = toDateTime64('1970-01-01 00:00:00', 6, 'UTC'), _timestamp, inserted_at) AS inserted_at,
   _timestamp,
   _offset,
@@ -1664,24 +1622,6 @@ SQL
     }
     column "person_id" {
       type = "UUID"
-    }
-    column "person_properties" {
-      type = "String"
-    }
-    column "group0_properties" {
-      type = "String"
-    }
-    column "group1_properties" {
-      type = "String"
-    }
-    column "group2_properties" {
-      type = "String"
-    }
-    column "group3_properties" {
-      type = "String"
-    }
-    column "group4_properties" {
-      type = "String"
     }
     column "inserted_at" {
       type = "Nullable(DateTime64(6, 'UTC'))"
@@ -2228,4 +2168,40 @@ SQL
       type = "Map(LowCardinality(String), String)"
     }
   }
+}
+
+named_collection "msk_cluster" {
+  external = true
+}
+
+named_collection "warpstream_calculated_events" {
+  external = true
+}
+
+named_collection "warpstream_cyclotron" {
+  external = true
+}
+
+named_collection "warpstream_ingestion" {
+  external = true
+}
+
+named_collection "warpstream_logs" {
+  external = true
+}
+
+named_collection "warpstream_metrics" {
+  external = true
+}
+
+named_collection "warpstream_replay" {
+  external = true
+}
+
+named_collection "warpstream_shared" {
+  external = true
+}
+
+named_collection "warpstream_traces" {
+  external = true
 }

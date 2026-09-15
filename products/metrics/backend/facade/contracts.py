@@ -27,6 +27,7 @@ from .enums import AttributeScope, FilterOp, MetricAggregation, MetricType
 # Each clause runs its own ClickHouse query on the shared logs cluster, so
 # the clause count per request is hard-capped.
 MAX_CLAUSES_PER_QUERY = 10
+MAX_SPARKLINE_BATCH_SIZE = 20
 
 # Private-alpha gate. Every read surface (viewset, query runner, MCP tools)
 # must check the same flag, or one of them becomes a bypass.
@@ -35,6 +36,12 @@ METRICS_FEATURE_FLAG = "metrics"
 # Extra gate for the error-spike overlay PoC, layered on top of METRICS_FEATURE_FLAG.
 # Staff-only while it is a proof of concept.
 METRICS_ERROR_OVERLAYS_FEATURE_FLAG = "metrics-error-overlays"
+
+# Fundamentals recomputes a chart point from its raw samples so the viewer's own
+# reductions can be checked. That makes it a tool for the people who build the
+# viewer, not a feature for the teams on the alpha, so it needs a gate of its own
+# on top of METRICS_FEATURE_FLAG.
+METRICS_FUNDAMENTALS_FEATURE_FLAG = "metrics-fundamentals"
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,7 +180,7 @@ class MetricAnomalyReport:
 
 @dataclass(frozen=True, slots=True)
 class MetricEventSample:
-    """A single raw metric emission: one `metric_samples` row enriched with its
+    """A single raw metric emission: one `metrics` row enriched with its
     `metric_series` labels. Backs the Samples view and the metric->trace pivot.
     Distinct from `MetricSeries`, which is aggregated at query time.
     """

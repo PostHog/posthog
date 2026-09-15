@@ -242,7 +242,11 @@
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_featureflag"."deleted")
          AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_team"."project_id" = 99999
+         AND "posthog_team"."project_id" IN (1,
+                                             2,
+                                             3,
+                                             4,
+                                             5 /* ... */)
          AND (jsonb_path_exists(filters, '$.** ? (@.type == "flag")')))
   '''
 # ---
@@ -296,7 +300,8 @@
          "posthog_taggeditem"."ticket_id",
          "posthog_taggeditem"."account_id",
          "posthog_taggeditem"."endpoint_id",
-         "posthog_taggeditem"."replay_scanner_id"
+         "posthog_taggeditem"."replay_scanner_id",
+         "posthog_taggeditem"."project_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."feature_flag_id" = 99999
   '''
@@ -315,7 +320,8 @@
          "posthog_taggeditem"."ticket_id",
          "posthog_taggeditem"."account_id",
          "posthog_taggeditem"."endpoint_id",
-         "posthog_taggeditem"."replay_scanner_id"
+         "posthog_taggeditem"."replay_scanner_id",
+         "posthog_taggeditem"."project_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."feature_flag_id" = 99999
   '''
@@ -471,6 +477,7 @@
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
@@ -478,7 +485,6 @@
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
-         "posthog_organization"."is_hipaa",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -758,6 +764,7 @@
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
@@ -765,7 +772,6 @@
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
-         "posthog_organization"."is_hipaa",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -1159,7 +1165,11 @@
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_featureflag"."deleted")
          AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_team"."project_id" = 99999
+         AND "posthog_team"."project_id" IN (1,
+                                             2,
+                                             3,
+                                             4,
+                                             5 /* ... */)
          AND (jsonb_path_exists(filters, '$.** ? (@.type == "flag")')))
   '''
 # ---
@@ -1213,7 +1223,8 @@
          "posthog_taggeditem"."ticket_id",
          "posthog_taggeditem"."account_id",
          "posthog_taggeditem"."endpoint_id",
-         "posthog_taggeditem"."replay_scanner_id"
+         "posthog_taggeditem"."replay_scanner_id",
+         "posthog_taggeditem"."project_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."feature_flag_id" = 99999
   '''
@@ -1232,7 +1243,8 @@
          "posthog_taggeditem"."ticket_id",
          "posthog_taggeditem"."account_id",
          "posthog_taggeditem"."endpoint_id",
-         "posthog_taggeditem"."replay_scanner_id"
+         "posthog_taggeditem"."replay_scanner_id",
+         "posthog_taggeditem"."project_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."feature_flag_id" = 99999
   '''
@@ -1408,6 +1420,7 @@
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
@@ -1415,7 +1428,6 @@
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
-         "posthog_organization"."is_hipaa",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
@@ -1791,6 +1803,7 @@
          "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."uses_most_specific_access_resolution",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."read_only_mcp_access",
          "posthog_organization"."default_role_id",
@@ -1798,7 +1811,6 @@
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
-         "posthog_organization"."is_hipaa",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",

@@ -1,9 +1,11 @@
-import re
 from dataclasses import fields
 from typing import Any, Union, get_args, get_origin
 
 from posthog.hogql import ast
 from posthog.hogql.ast import AST, AST_CLASSES, Constant, Expr, HogQLXAttribute, HogQLXTag
+
+_LIKE_ANY = object()  # '%' token: matches any run of characters, including empty
+_LIKE_ONE = object()  # '_' token: matches exactly one character
 
 
 def like_matches(pattern: str, text: str) -> bool:
@@ -16,26 +18,52 @@ def like_matches(pattern: str, text: str) -> bool:
     - _ matches exactly one character
     - \\ escapes the next character (\\%, \\_, \\\\)
     - Other characters match literally (case-sensitive)
+
+    Uses a greedy linear-scan matcher (O(len(pattern) * len(text))) rather than a
+    translated regex: a regex with one `.*` per `%` backtracks super-linearly, so a
+    pattern of many `%` against a short text pins a CPU for minutes (ReDoS, CWE-1333).
     """
-    # Convert SQL LIKE pattern to regex
-    regex_parts: list[str] = []
+    tokens: list[object] = []
     i = 0
-    while i < len(pattern):
+    n = len(pattern)
+    while i < n:
         char = pattern[i]
         if char == "%":
-            regex_parts.append(".*")
+            tokens.append(_LIKE_ANY)
         elif char == "_":
-            regex_parts.append(".")
-        elif char == "\\" and i + 1 < len(pattern):
-            # Escape sequence - next char is literal
+            tokens.append(_LIKE_ONE)
+        elif char == "\\" and i + 1 < n:
             i += 1
-            regex_parts.append(re.escape(pattern[i]))
+            tokens.append(pattern[i])
         else:
-            regex_parts.append(re.escape(char))
+            tokens.append(char)
         i += 1
 
-    regex_pattern = f"^{''.join(regex_parts)}$"
-    return bool(re.match(regex_pattern, text, re.DOTALL))
+    # Greedy two-pointer wildcard match: advance through text and tokens together, and
+    # on a mismatch fall back to the most recent `%`, letting it consume one more char.
+    t = 0
+    p = 0
+    star_p = -1
+    star_t = 0
+    tlen = len(text)
+    plen = len(tokens)
+    while t < tlen:
+        if p < plen and (tokens[p] is _LIKE_ONE or tokens[p] == text[t]):
+            t += 1
+            p += 1
+        elif p < plen and tokens[p] is _LIKE_ANY:
+            star_p = p
+            star_t = t
+            p += 1
+        elif star_p != -1:
+            p = star_p + 1
+            star_t += 1
+            t = star_t
+        else:
+            return False
+    while p < plen and tokens[p] is _LIKE_ANY:
+        p += 1
+    return p == plen
 
 
 def ilike_matches(pattern: str, text: str) -> bool:

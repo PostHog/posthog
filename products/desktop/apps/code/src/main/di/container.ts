@@ -21,6 +21,7 @@ import {
 import { canvasCoreModule } from "@posthog/core/canvas/canvas.module";
 import { cloudTaskModule } from "@posthog/core/cloud-task/cloud-task.module";
 import {
+  CLAUDE_SUBSCRIPTION_TOKEN_STORE,
   CLOUD_TASK_AUTH,
   CLOUD_TASK_SERVICE,
   MCP_RELAY_EXECUTOR,
@@ -30,6 +31,7 @@ import {
   CONTEXT_MENU_CONTROLLER,
   CONTEXT_MENU_EXTERNAL_APPS_SERVICE,
 } from "@posthog/core/context-menu/identifiers";
+import { CUSTOM_CLOUD_STORE } from "@posthog/core/custom-cloud/identifiers";
 import { FocusHostService } from "@posthog/core/focus/focus-service";
 import { FocusServiceEvent } from "@posthog/core/focus/identifiers";
 import { gitHostModule } from "@posthog/core/git/git-host.module";
@@ -93,6 +95,7 @@ import { USAGE_HOST } from "@posthog/core/usage/identifiers";
 import { usageMonitorModule } from "@posthog/core/usage/usage-monitor.module";
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
 import { listFilesContainingText } from "@posthog/git/queries";
+import { CONNECTIVITY_CLIENT } from "@posthog/host-router/ports/connectivity-client";
 import {
   GIT_PR_STATUS_PROVIDER,
   type IGitPrStatus,
@@ -138,7 +141,10 @@ import {
   WORKTREE_REPOSITORY,
 } from "@posthog/workspace-server/db/identifiers";
 import { repositoriesModule } from "@posthog/workspace-server/db/repositories.module";
-import { GIT_SERVICE as WS_GIT_SERVICE } from "@posthog/workspace-server/di/tokens";
+import {
+  CONNECTIVITY_SERVICE as WS_CONNECTIVITY_SERVICE,
+  GIT_SERVICE as WS_GIT_SERVICE,
+} from "@posthog/workspace-server/di/tokens";
 import { additionalDirectoriesModule } from "@posthog/workspace-server/services/additional-directories/additional-directories.module";
 import type { AgentService } from "@posthog/workspace-server/services/agent/agent";
 import { agentModule } from "@posthog/workspace-server/services/agent/agent.module";
@@ -160,6 +166,7 @@ import { authProxyModule } from "@posthog/workspace-server/services/auth-proxy/a
 import { AUTH_PROXY_AUTH } from "@posthog/workspace-server/services/auth-proxy/identifiers";
 import { browserTabsModule } from "@posthog/workspace-server/services/browser-tabs/browser-tabs.module";
 import { claudeCliSessionsModule } from "@posthog/workspace-server/services/claude-cli-sessions/claude-cli-sessions.module";
+import { ConnectivityService } from "@posthog/workspace-server/services/connectivity/service";
 import { enrichmentModule } from "@posthog/workspace-server/services/enrichment/enrichment.module";
 import {
   ENRICHMENT_AUTH,
@@ -234,9 +241,11 @@ import { ElectronAppLifecycle } from "../platform-adapters/electron-app-lifecycl
 import { ElectronAppMeta } from "../platform-adapters/electron-app-meta";
 import { ElectronAppMetrics } from "../platform-adapters/electron-app-metrics";
 import { ElectronBundledResources } from "../platform-adapters/electron-bundled-resources";
+import { ElectronClaudeSubscriptionTokenStore } from "../platform-adapters/electron-claude-subscription-token-store";
 import { ElectronClipboard } from "../platform-adapters/electron-clipboard";
 import { ElectronContextMenu } from "../platform-adapters/electron-context-menu";
 import { ElectronCrypto } from "../platform-adapters/electron-crypto";
+import { ElectronCustomCloudStore } from "../platform-adapters/electron-custom-cloud-store";
 import { ElectronDevHostActions } from "../platform-adapters/electron-dev-host-actions";
 import { ElectronDialog } from "../platform-adapters/electron-dialog";
 import { ElectronFileIcon } from "../platform-adapters/electron-file-icon";
@@ -257,7 +266,6 @@ import { AppLifecycleService } from "../services/app-lifecycle/service";
 import {
   AuthPreferencePortAdapter,
   AuthSessionPortAdapter,
-  ConnectivityPortAdapter,
   OAuthFlowPortAdapter,
   TokenCipherPortAdapter,
 } from "../services/auth/port-adapters";
@@ -362,6 +370,9 @@ container.bind(CONTEXT_MENU_SERVICE).to(ElectronContextMenu);
 container.bind(BUNDLED_RESOURCES_SERVICE).to(ElectronBundledResources);
 container.bind(IMAGE_PROCESSOR_SERVICE).to(ElectronImageProcessor);
 container.bind(WORKSPACE_SETTINGS_SERVICE).to(ElectronWorkspaceSettings);
+container
+  .bind(CUSTOM_CLOUD_STORE)
+  .toConstantValue(new ElectronCustomCloudStore());
 container.bind(APP_METRICS_SERVICE).to(ElectronAppMetrics);
 container.bind(DEV_HOST_ACTIONS_SERVICE).to(ElectronDevHostActions);
 
@@ -398,7 +409,12 @@ container.bind(AUTH_SESSION_STORE).to(AuthSessionPortAdapter);
 container.bind(AUTH_PREFERENCE_STORE).to(AuthPreferencePortAdapter);
 container.bind(AUTH_OAUTH_FLOW_SERVICE).to(OAuthFlowPortAdapter);
 container.bind(AUTH_TOKEN_CIPHER).to(TokenCipherPortAdapter);
-container.bind(AUTH_CONNECTIVITY).to(ConnectivityPortAdapter);
+container
+  .bind(WS_CONNECTIVITY_SERVICE)
+  .to(ConnectivityService)
+  .inSingletonScope();
+container.bind(AUTH_CONNECTIVITY).toService(WS_CONNECTIVITY_SERVICE);
+container.bind(CONNECTIVITY_CLIENT).toService(WS_CONNECTIVITY_SERVICE);
 container
   .bind(AUTH_TOKEN_OVERRIDE)
   .toConstantValue(process.env.VITE_POSTHOG_ACCESS_TOKEN_OVERRIDE ?? null);
@@ -460,11 +476,19 @@ container.bind(CLOUD_TASK_AUTH).toDynamicValue((ctx) => ({
     ctx
       .get<AuthService>(MAIN_AUTH_SERVICE)
       .authenticatedFetch(fetch, url, init),
-  getCloudContext: async () => {
+  getCloudContext: async (options?: { includeAccount?: boolean }) => {
     const auth = ctx.get<AuthService>(MAIN_AUTH_SERVICE);
     const { apiHost } = await auth.getValidAccessToken();
     const teamId = auth.getState().currentProjectId;
-    return teamId === null ? null : { apiHost, teamId };
+    return teamId === null
+      ? null
+      : {
+          apiHost,
+          teamId,
+          ...(options?.includeAccount && {
+            accountKey: await auth.getAccountKey(),
+          }),
+        };
   },
 }));
 container.bind(MAIN_CLOUD_TASK_SERVICE).toService(CLOUD_TASK_SERVICE);
@@ -627,6 +651,16 @@ container
   .bind(MCP_RELAY_EXECUTOR)
   .toDynamicValue((ctx) => ctx.get(MCP_RELAY_SERVICE))
   .inSingletonScope();
+container
+  .bind(CLAUDE_SUBSCRIPTION_TOKEN_STORE)
+  .toDynamicValue(
+    (ctx) =>
+      new ElectronClaudeSubscriptionTokenStore(
+        join(getUserDataDir(), "claude-subscriptions"),
+        () => ctx.get<AuthService>(MAIN_AUTH_SERVICE).getAccountKey(),
+      ),
+  )
+  .inSingletonScope();
 container.load(claudeCliSessionsModule);
 container.load(additionalDirectoriesModule);
 container.bind(MAIN_SLEEP_SERVICE).to(SleepService);
@@ -707,10 +741,9 @@ container
     };
   });
 container.bind(WORKSPACE_FOCUS).toDynamicValue((ctx): WorkspaceFocus => {
-  const focus = ctx.get(FocusHostService);
   return {
     onBranchRenamed: (handler) =>
-      focus.on(FocusServiceEvent.BranchRenamed, handler),
+      ctx.get(FocusHostService).on(FocusServiceEvent.BranchRenamed, handler),
   };
 });
 container

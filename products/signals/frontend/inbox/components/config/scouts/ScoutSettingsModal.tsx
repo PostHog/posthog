@@ -9,7 +9,7 @@ import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals
 import { captureScoutAction } from '../../../inboxAnalytics'
 import type { ScoutSurface } from '../../../inboxAnalytics'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
-import { prettifyScoutSkillName } from '../../../utils/scoutRunsWindow'
+import { scoutDisplayName } from '../../../utils/scoutRunsWindow'
 import { ScoutConfigForm } from './ScoutConfigControls'
 
 /**
@@ -36,7 +36,7 @@ export function ScoutSettingsModal({
         <LemonModal
             isOpen={isOpen}
             onClose={onClose}
-            title={`${prettifyScoutSkillName(config.skill_name)} settings`}
+            title={`${scoutDisplayName(config)} settings`}
             description="Changes take effect on this scout's next run."
             width={560}
         >

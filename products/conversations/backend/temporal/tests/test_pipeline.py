@@ -6,12 +6,16 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
+from temporalio.exceptions import ActivityError, RetryState
 
 from posthog.models import Organization, Team
 
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.temporal.ai_reply.activities.classify import _classify
 from products.conversations.backend.temporal.ai_reply.activities.draft import _draft_async
+from products.conversations.backend.temporal.ai_reply.activities.persist_knowledge_gap import (
+    support_persist_knowledge_gap_activity,
+)
 from products.conversations.backend.temporal.ai_reply.activities.persist_reply import _persist_reply_sync
 from products.conversations.backend.temporal.ai_reply.activities.record_triage import _record_triage_sync
 from products.conversations.backend.temporal.ai_reply.activities.refine_queries import _refine_queries
@@ -51,6 +55,7 @@ from products.conversations.backend.temporal.ai_reply.schemas import (
 )
 from products.conversations.backend.temporal.pipeline import (
     SupportReplyWorkflow,
+    _bill_llm_activity,
     support_build_context_activity,
     support_classify_activity,
     support_draft_activity,
@@ -84,11 +89,14 @@ DRAFT_MODULE = f"{ACTIVITIES}.draft"
 VALIDATE_MODULE = f"{ACTIVITIES}.validate"
 REVIEW_REPLY_MODULE = f"{ACTIVITIES}.review_reply"
 PERSIST_REPLY_MODULE = f"{ACTIVITIES}.persist_reply"
+PERSIST_KNOWLEDGE_GAP_MODULE = f"{ACTIVITIES}.persist_knowledge_gap"
 RECORD_TRIAGE_MODULE = f"{ACTIVITIES}.record_triage"
+PIPELINE_MODULE = "products.conversations.backend.temporal.pipeline"
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
+@patch(f"{PERSIST_KNOWLEDGE_GAP_MODULE}._persist_sync")
 @patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync")
 @patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync")
 @patch(f"{REVIEW_REPLY_MODULE}._review_reply", new_callable=AsyncMock)
@@ -110,6 +118,7 @@ async def test_workflow_persists_on_high_score(
     mock_review,
     mock_persist,
     mock_record_triage,
+    mock_persist_gaps,
     workflow_input,
     sample_chunk_ids,
 ):
@@ -126,7 +135,12 @@ async def test_workflow_persists_on_high_score(
         citations=["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],
         confidence=0.9,
     )
-    mock_validate.return_value = ValidateOutput(grounded=True, coverage=0.9, confidence=0.85, missing=[])
+    mock_validate.return_value = ValidateOutput(
+        grounded=True,
+        coverage=0.9,
+        confidence=0.85,
+        missing=["setup prerequisites"],
+    )
     mock_review.return_value = ReviewReplyOutput(safe=True)
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -144,6 +158,7 @@ async def test_workflow_persists_on_high_score(
                 support_validate_activity,
                 support_review_reply_activity,
                 support_persist_reply_activity,
+                support_persist_knowledge_gap_activity,
                 support_record_triage_activity,
             ],
         ):
@@ -158,6 +173,7 @@ async def test_workflow_persists_on_high_score(
     assert "confidence=0.85" in result
     assert "attempts=1" in result
     mock_persist.assert_called_once()
+    mock_persist_gaps.assert_not_called()
 
 
 @pytest.mark.django_db
@@ -241,10 +257,14 @@ async def test_workflow_widens_on_low_score(
     assert "persisted" in result
     assert validate_count["n"] == 3
     assert mock_refine.call_count >= 3
+    refine_missing = [call.args[0].missing for call in mock_refine.call_args_list]
+    assert refine_missing[0] == []
+    assert ["pricing info"] in refine_missing[1:]
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
+@patch(f"{PERSIST_KNOWLEDGE_GAP_MODULE}._persist_sync")
 @patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync")
 @patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync")
 @patch(f"{REVIEW_REPLY_MODULE}._review_reply", new_callable=AsyncMock)
@@ -255,7 +275,7 @@ async def test_workflow_widens_on_low_score(
 @patch(f"{CLASSIFY_MODULE}._classify", new_callable=AsyncMock)
 @patch(f"{SAFETY_FILTER_MODULE}._safety_filter", new_callable=AsyncMock)
 @patch(f"{BUILD_CONTEXT_MODULE}._build_context_sync")
-async def test_workflow_escalates_after_max_attempts(
+async def test_workflow_replays_pre_patch_gap_persistence(
     mock_build,
     mock_safety,
     mock_classify,
@@ -266,11 +286,12 @@ async def test_workflow_escalates_after_max_attempts(
     mock_review,
     mock_persist,
     mock_record_triage,
+    mock_persist_gaps,
     workflow_input,
     sample_chunk_ids,
 ):
     from temporalio.testing import WorkflowEnvironment
-    from temporalio.worker import Worker
+    from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
     mock_build.return_value = BuildContextOutput(ticket_context="Complex question", ticket_title="Complex")
     mock_safety.return_value = SafetyFilterOutput(safe=True)
@@ -300,19 +321,32 @@ async def test_workflow_escalates_after_max_attempts(
                 support_validate_activity,
                 support_review_reply_activity,
                 support_persist_reply_activity,
+                support_persist_knowledge_gap_activity,
                 support_record_triage_activity,
             ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            result = await env.client.execute_workflow(
-                SupportReplyWorkflow.run,
-                workflow_input,
-                id="test-escalate-max-attempts",
-                task_queue="test-queue",
-            )
+            with patch(f"{PIPELINE_MODULE}.workflow.patched", return_value=False):
+                handle = await env.client.start_workflow(
+                    SupportReplyWorkflow.run,
+                    workflow_input,
+                    id="test-replay-pre-patch-gap-persistence",
+                    task_queue="test-queue",
+                )
+                result = await handle.result()
+                pre_patch_history = await handle.fetch_history()
 
     assert "escalated_with_best" in result
     assert mock_validate.call_count == MAX_ATTEMPTS
     mock_persist.assert_called_once()
+    mock_persist_gaps.assert_called_once()
+    last_triage = mock_record_triage.call_args_list[-1][0][0].patch
+    assert last_triage["missing"] == ["everything"]
+
+    await Replayer(
+        workflows=[SupportReplyWorkflow],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ).replay_workflow(pre_patch_history)
 
 
 @pytest.mark.django_db
@@ -411,6 +445,45 @@ class TestPersistReplyActivity:
         assert comment.item_context["is_private"] is True
         assert comment.item_context["citations"] == ["chunk-1", "chunk-2"]
         assert comment.item_context["confidence"] == 0.85
+
+    def test_public_email_reply_rolls_back_when_outbox_create_fails(self):
+        from posthog.models.comment import Comment
+
+        from products.conversations.backend.models import EmailOutboxMessage
+
+        org = Organization.objects.create(name="Test Org")
+        team = Team.objects.create(
+            organization=org,
+            name="Test Team",
+            conversations_settings={"ai_reply_modes": {"email": {"how_to": "bot_reply"}}},
+        )
+        ticket = Ticket.objects.create_with_number(
+            team=team,
+            channel_source="email",
+            widget_session_id="",
+            distinct_id="customer@example.com",
+            email_from="customer@example.com",
+        )
+
+        with patch(
+            "products.conversations.backend.signals.EmailOutboxMessage.objects.get_or_create",
+            side_effect=RuntimeError("outbox write failed"),
+        ):
+            with pytest.raises(RuntimeError, match="outbox write failed"):
+                _persist_reply_sync(
+                    PersistReplyInput(
+                        team_id=team.id,
+                        ticket_id=str(ticket.id),
+                        reply="Here is the fix.",
+                        citations=["c1"],
+                        confidence=0.9,
+                        ticket_type="how_to",
+                        allow_bot_reply=True,
+                    )
+                )
+
+        assert not Comment.objects.filter(team_id=team.id, item_id=str(ticket.id)).exists()
+        assert not EmailOutboxMessage.objects.filter(ticket=ticket).exists()
 
     @parameterized.expand(
         [
@@ -1513,6 +1586,7 @@ class TestRecordTriageActivity:
                     reply="answer",
                     citations=["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],
                     confidence=0.9,
+                    sandbox_seconds=1.5,
                 ),
             ),
             patch(
@@ -1571,6 +1645,22 @@ class TestRecordTriageActivity:
             assert last_call_patch["status"] == "done"
             assert last_call_patch["result"] == expected_result
             assert "finished_at" in last_call_patch
+            expected_llm_calls = {
+                "persisted": 5,
+                "blocked_unsafe": 1,
+                "skipped_unactionable": 2,
+                "blocked_unsafe_reply": 5,
+            }[_name]
+            expected_sandbox = {
+                "persisted": 1.5,
+                "blocked_unsafe": 0.0,
+                "skipped_unactionable": 0.0,
+                "blocked_unsafe_reply": 1.5,
+            }[_name]
+            assert last_call_patch["cost"] == {
+                "sandbox_seconds": expected_sandbox,
+                "llm_calls": expected_llm_calls,
+            }
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -1602,7 +1692,7 @@ class TestRecordTriageActivity:
             patch(
                 f"{DRAFT_MODULE}._draft_async",
                 new_callable=AsyncMock,
-                return_value=DraftOutput(reply="", citations=[], confidence=0.0),
+                return_value=DraftOutput(reply="", citations=[], confidence=0.0, sandbox_seconds=0.25),
             ),
             patch(
                 f"{VALIDATE_MODULE}._validate",
@@ -1648,6 +1738,89 @@ class TestRecordTriageActivity:
             assert last_call_patch["status"] == "done"
             assert last_call_patch["result"] == "escalated_no_reply"
             assert last_call_patch["attempts"] == MAX_ATTEMPTS
+            assert last_call_patch["cost"]["sandbox_seconds"] == pytest.approx(0.25 * MAX_ATTEMPTS)
+            assert last_call_patch["cost"]["llm_calls"] == 2 + MAX_ATTEMPTS * 2
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_retried_classify_bills_all_attempts(self):
+        from temporalio.testing import WorkflowEnvironment
+        from temporalio.worker import Worker
+
+        classify_calls = {"n": 0}
+
+        async def flaky_classify(_input: ClassifyInput) -> ClassifyOutput:
+            classify_calls["n"] += 1
+            if classify_calls["n"] < 3:
+                raise RuntimeError("transient classify failure")
+            return ClassifyOutput(ticket_type="unactionable", needs_diagnostics=False)
+
+        with (
+            patch(
+                f"{BUILD_CONTEXT_MODULE}._build_context_sync",
+                return_value=BuildContextOutput(ticket_context="help", ticket_title="Help"),
+            ),
+            patch(
+                f"{SAFETY_FILTER_MODULE}._safety_filter",
+                new_callable=AsyncMock,
+                return_value=SafetyFilterOutput(safe=True),
+            ),
+            patch(f"{CLASSIFY_MODULE}._classify", new=flaky_classify),
+            patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync") as mock_record_triage,
+        ):
+            async with await WorkflowEnvironment.start_time_skipping() as env:
+                async with Worker(
+                    env.client,
+                    task_queue="test-queue",
+                    workflows=[SupportReplyWorkflow],
+                    activities=[
+                        support_build_context_activity,
+                        support_safety_filter_activity,
+                        support_classify_activity,
+                        support_record_triage_activity,
+                    ],
+                ):
+                    result = await env.client.execute_workflow(
+                        SupportReplyWorkflow.run,
+                        SupportReplyInput(team_id=1, ticket_id="deadbeef-0000-0000-0000-000000000001"),
+                        id="test-triage-retried-classify",
+                        task_queue="test-queue",
+                    )
+
+        assert result == "skipped_unactionable"
+        assert classify_calls["n"] == 3
+        last_call_patch = mock_record_triage.call_args_list[-1][0][0].patch
+        assert last_call_patch["cost"]["llm_calls"] == 4
+
+
+def _activity_error(retry_state: RetryState) -> ActivityError:
+    return ActivityError(
+        "activity failed",
+        scheduled_event_id=1,
+        started_event_id=2,
+        identity="test-worker",
+        activity_type="support_classify_activity",
+        activity_id="classify-1",
+        retry_state=retry_state,
+    )
+
+
+class TestBillLlmActivity:
+    def test_success_uses_stamped_attempts(self):
+        output = ClassifyOutput(ticket_type="how_to", needs_diagnostics=False, llm_attempts=3)
+        assert _bill_llm_activity(output=output, error=None, maximum_attempts=3) == 3
+
+    def test_missing_stamp_defaults_to_one(self):
+        output = ClassifyOutput(ticket_type="how_to", needs_diagnostics=False)
+        assert _bill_llm_activity(output=output, error=None, maximum_attempts=3) == 1
+
+    def test_exhausted_retries_bill_cap(self):
+        error = _activity_error(RetryState.MAXIMUM_ATTEMPTS_REACHED)
+        assert _bill_llm_activity(output=None, error=error, maximum_attempts=3) == 3
+
+    def test_non_retryable_bills_one(self):
+        error = _activity_error(RetryState.NON_RETRYABLE_FAILURE)
+        assert _bill_llm_activity(output=None, error=error, maximum_attempts=3) == 1
 
 
 class TestRecordTriageSync:

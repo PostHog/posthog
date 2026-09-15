@@ -73,6 +73,14 @@ MAX_ATTACHMENTS = 20
 # an unbounded batch of queries under the held thread lock.
 MAX_RECIPIENTS = 100
 MAX_FORWARDING_CHALLENGE_TOKENS = 10
+# Every value here has to mean "a machine wrote this", not "do not auto-reply to this". The two
+# claims look alike and only the first one identifies a loop. RFC 3834 marks any Auto-Submitted
+# value but "no" as machine-generated. Of the pre-RFC Precedence values only "auto_reply" makes
+# the same claim: "bulk", "junk" and "list" all ride on a person's message when a mailing list
+# relays it, so treating them as machine-generated would drop real mail a customer sent.
+AUTO_SUBMITTED_HUMAN_VALUE = "no"
+AUTORESPONDER_PRECEDENCE_VALUES = frozenset({"auto_reply"})
+AUTORESPONDER_HEADERS = ("X-Autoreply", "X-Autorespond")
 # The sender controls the Date header, so a far-future value would latch a thread's last_message_at
 # and freeze its preview. Reject dates beyond a small clock-skew allowance and fall back to the
 # authenticated webhook timestamp (or now) instead.
@@ -97,6 +105,7 @@ def _find_thread_ticket(
                 message_id=in_reply_to,
                 team_id=team_id,
             )
+            .defer("full_body_plain")
             .select_related("ticket")
             .first()
         )
@@ -110,7 +119,9 @@ def _find_thread_ticket(
             for m in EmailMessageMapping.objects.filter(
                 message_id__in=references,
                 team_id=team_id,
-            ).select_related("ticket")
+            )
+            .defer("full_body_plain")
+            .select_related("ticket")
         }
         for ref_id in reversed(references):
             if ref_id in mapping_by_id:
@@ -379,6 +390,20 @@ def _dkim_signing_domains(request: HttpRequest) -> tuple[str, ...]:
     return tuple(dict.fromkeys(domains))
 
 
+def _is_auto_generated(request: HttpRequest) -> bool:
+    """Report whether the message announces itself as machine-generated."""
+    for value in _message_header_values(request, "Auto-Submitted"):
+        # The header carries optional parameters, e.g. "auto-replied; owner-token=...".
+        if value.partition(";")[0].strip().lower() not in ("", AUTO_SUBMITTED_HUMAN_VALUE):
+            return True
+
+    for value in _message_header_values(request, "Precedence"):
+        if value.strip().lower() in AUTORESPONDER_PRECEDENCE_VALUES:
+            return True
+
+    return any(_message_header_values(request, header_name) for header_name in AUTORESPONDER_HEADERS)
+
+
 def _parse_addresses(value: str) -> tuple[EmailAddress, ...]:
     addresses: list[EmailAddress] = []
     seen: set[str] = set()
@@ -468,7 +493,14 @@ def _parse_inbound_email(request: HttpRequest, config: EmailChannel) -> ParsedEm
         capture_address=request.POST.get("recipient", "").strip().lower(),
         attachments=tuple(attachments),
         forwarding_challenge_tokens=_forwarding_challenge_tokens(request),
+        auto_generated=_is_auto_generated(request),
     )
+
+
+def _is_self_addressed(*, config: EmailChannel, inbound_token: str, sender_email: str) -> bool:
+    """Report whether the inbox received a message that claims to come from itself."""
+    sender = sender_email.strip().lower()
+    return bool(sender) and (sender == config.from_email.lower() or sender.startswith(f"team-{inbound_token}@"))
 
 
 def _collect_participants(
@@ -542,6 +574,13 @@ def _process_support_email(
     )
 
     body = email.body_with_matching_html(prefer_stripped=bool(existing_ticket))
+    normalized_body_plain = email.body_plain.replace("\r\n", "\n").replace("\r", "\n").strip()
+    normalized_display_body = body.text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    full_body_plain = (
+        recover_links_from_html(email.body_plain, email.body_html)
+        if normalized_body_plain and normalized_body_plain != normalized_display_body
+        else None
+    )
     content = recover_links_from_html(body.text, body.html)
 
     posthog_user = _resolve_team_member(sender_email, team) if email.sender_authenticated else None
@@ -598,6 +637,7 @@ def _process_support_email(
                 "email_from_name": sender_name,
                 "email_message_id": email.message_id,
                 "email_attachments": attachments if attachments else None,
+                "has_full_email_content": full_body_plain is not None,
             }
 
             comment = Comment.objects.create(
@@ -632,6 +672,7 @@ def _process_support_email(
                 team=team,
                 ticket=ticket,
                 comment=comment,
+                full_body_plain=full_body_plain,
             )
     except IntegrityError:
         logger.info("email_inbound_duplicate_race", message_id=email.message_id)
@@ -798,6 +839,21 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
     email = _parse_inbound_email(request, config)
     if email is None:
         logger.warning("email_inbound_no_message_id", team_id=config.team_id)
+        return HttpResponse(status=200)
+
+    if email.auto_generated and _is_self_addressed(
+        config=config, inbound_token=inbound_token, sender_email=email.sender.email
+    ):
+        # An autoresponder on the inbox address answers the inbox itself, and the answer arrives
+        # back here as fresh mail. Accepting it starts a loop that runs until someone notices, so
+        # drop it. Both conditions are required: a person whose mail was relayed with a rewritten
+        # From still reaches us, and an external autoresponder still opens a ticket.
+        logger.warning(
+            "email_inbound_self_addressed_autoreply_dropped",
+            team_id=config.team_id,
+            config_id=str(config.id),
+            message_id=email.message_id,
+        )
         return HttpResponse(status=200)
 
     if config.kind == EmailChannelKind.CUSTOMER_COMMUNICATION:

@@ -1,0 +1,223 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
+.CustomerPreview {
+    --customer-preview-accent: var(--empty-state-accent, var(--color-primary-500));
+
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+
+    // Hidden selection state. A direct child of .CustomerPreview so `:checked ~` reaches both cards.
+    &__checkbox {
+        position: absolute;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+        opacity: 0;
+    }
+
+    &__accounts,
+    &__detail {
+        overflow: hidden;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+    }
+
+    // Idle/selected pairs are stacked on one grid cell and crossfaded, so selecting
+    // never changes any element's size (no layout shift).
+    &__swap {
+        display: grid;
+    }
+
+    &__swap > * {
+        grid-area: 1 / 1;
+        min-width: 0;
+    }
+
+    &__when-selected {
+        @include preview-swap-hidden;
+    }
+
+    &__when-idle {
+        @include preview-swap-visible;
+    }
+
+    &__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__title {
+        display: flex;
+        gap: 0.375rem;
+        align-items: center;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    &__live-dot {
+        width: 7px;
+        height: 7px;
+        background: var(--customer-preview-accent);
+        border-radius: 50%;
+        animation: CustomerPreview__pulse 2s ease-in-out infinite;
+    }
+
+    // Accounts list
+
+    &__rows {
+        display: flex;
+        flex-direction: column;
+        padding: 0.25rem 0.5rem;
+    }
+
+    &__row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto auto;
+        gap: 0.5rem;
+        align-items: center;
+        padding: 0.375rem 0.5rem;
+        border-radius: var(--radius);
+        transition: background-color 250ms ease;
+    }
+
+    &__row--hero {
+        cursor: pointer;
+        user-select: none;
+    }
+
+    &__row--hero:hover {
+        background: var(--color-bg-fill-highlight-50);
+    }
+
+    &__account {
+        overflow: hidden;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &__meta {
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+    }
+
+    &__health {
+        font-size: 0.625rem;
+        font-variant-numeric: tabular-nums;
+        color: var(--color-text-secondary);
+    }
+
+    &__health--falling {
+        font-weight: 600;
+        color: var(--color-text-error);
+    }
+
+    &__hint {
+        padding: 0.25rem 0.75rem 0.5rem;
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+    }
+
+    // Detail panel
+
+    &__detail-body {
+        padding: 0.625rem 0.75rem;
+    }
+
+    &__detail-hint {
+        align-self: center;
+        font-size: 0.6875rem;
+        color: var(--color-text-tertiary);
+    }
+
+    &__facts {
+        display: flex;
+        flex-direction: column;
+        gap: 0.3125rem;
+    }
+
+    &__fact {
+        display: grid;
+        grid-template-columns: 9rem minmax(0, 1fr);
+        gap: 0.5rem;
+        font-size: 0.6875rem;
+    }
+
+    &__fact-key {
+        color: var(--color-text-tertiary);
+    }
+
+    &__fact-val {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &__fresh {
+        font-size: 0.5625rem;
+        font-weight: 600;
+
+        @include preview-accent-text(var(--customer-preview-accent));
+    }
+}
+
+// Selected state (user clicked the account)
+
+.CustomerPreview__checkbox:checked ~ * .CustomerPreview__when-selected {
+    @include preview-swap-visible;
+}
+
+.CustomerPreview__checkbox:checked ~ * .CustomerPreview__when-idle {
+    @include preview-swap-hidden;
+}
+
+.CustomerPreview__checkbox:checked ~ .CustomerPreview__accounts .CustomerPreview__row--hero {
+    background: color-mix(in oklab, var(--customer-preview-accent) 8%, transparent);
+}
+
+// The checkbox stays keyboard-focusable while visually hidden, so the row it labels
+// needs a visible focus indicator (WCAG 2.4.7).
+.CustomerPreview__checkbox:focus-visible ~ .CustomerPreview__accounts .CustomerPreview__row--hero {
+    outline: 2px solid var(--customer-preview-accent);
+    outline-offset: 1px;
+}
+
+// Nudge attention at the cooling account until it's inspected.
+.CustomerPreview:not(.CustomerPreview--static)
+    .CustomerPreview__checkbox:not(:checked)
+    ~ .CustomerPreview__accounts
+    .CustomerPreview__row--hero {
+    animation: CustomerPreview__nudge 2.4s ease-in-out infinite;
+}
+
+@keyframes CustomerPreview__nudge {
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 color-mix(in oklab, var(--customer-preview-accent) 45%, transparent);
+    }
+
+    50% {
+        box-shadow: 0 0 0 4px color-mix(in oklab, var(--customer-preview-accent) 20%, transparent);
+    }
+}
+
+@keyframes CustomerPreview__pulse {
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.35;
+    }
+}
+
+// Storybook snapshots and reduced motion drop all ambient motion; clicking the
+// account still flips the state (transitions only).
+@include preview-motion-guards('CustomerPreview');

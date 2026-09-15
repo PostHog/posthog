@@ -532,12 +532,32 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
     _release_pipeline_lock_for_job(export_signal)
 
 
+# tonic's timeout layer cancels a call that outruns the client's per-request RPC deadline and
+# surfaces it as status CANCELLED with the message "Timeout expired" — the client-side analog of
+# DEADLINE_EXCEEDED above — and a connection closed mid-request as CANCELLED with "operation was
+# canceled". Match the phrase rather than the whole status so a genuine cancellation still
+# surfaces. Same phrases the data-imports source client (sources/temporalio/temporalio.py) and the
+# Temporal schedule helpers (posthog/temporal/common/schedule.py) treat as transient.
+_RETRYABLE_RPC_MESSAGES_BY_STATUS: dict[RPCStatusCode, tuple[str, ...]] = {
+    RPCStatusCode.CANCELLED: ("Timeout expired", "operation was canceled"),
+}
+
+
 def _is_retryable_temporal_rpc_error(exc: BaseException) -> bool:
     # These fire-and-forget starts run outside a Temporal workflow, so unlike
     # `workflow.start_child_workflow` they get none of the server-side retry a durable
     # workflow command would have — a bare client RPC timeout would otherwise drop the
     # trigger permanently.
-    return isinstance(exc, RPCError) and exc.status in (RPCStatusCode.DEADLINE_EXCEEDED, RPCStatusCode.UNAVAILABLE)
+    if isinstance(exc, RPCError):
+        if exc.status in (RPCStatusCode.DEADLINE_EXCEEDED, RPCStatusCode.UNAVAILABLE):
+            return True
+        if any(phrase in exc.message for phrase in _RETRYABLE_RPC_MESSAGES_BY_STATUS.get(exc.status, ())):
+            return True
+
+    # `async_connect()` runs before any service client exists, so a transient failure to
+    # reach the Temporal frontend (DNS blip, connection refused/reset) surfaces as the Rust
+    # bridge's untyped RuntimeError rather than an RPCError — treat it the same way.
+    return isinstance(exc, RuntimeError) and str(exc).startswith("Failed client connect:")
 
 
 def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, prepared_queryable_folder: str) -> None:

@@ -262,7 +262,7 @@ describe('AIObservabilitySelfDriving', () => {
             </Provider>
         )
 
-        expect(screen.getAllByText('Use template')).toHaveLength(3)
+        expect(screen.getAllByText('Use template')).toHaveLength(4)
 
         // Counting the labels alone passes even when every button is disabled, which is what
         // happens if the scene stops granting scout-creation access. Prove one actually opens.

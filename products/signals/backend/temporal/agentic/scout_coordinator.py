@@ -22,6 +22,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.report_check_execution import run_due_report_checks
 from products.signals.backend.scout_harness.config_registry import live_scout_skill_names, register_missing_configs
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
 from products.signals.backend.scout_harness.limits import (
@@ -53,6 +54,12 @@ from products.signals.backend.scout_harness.team_limits import (
     _team_configs,
 )
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, RunSignalsScoutWorkflow
+from products.signals.backend.temporal.metrics import (
+    COORDINATOR_DISPATCH_DEDUPED,
+    COORDINATOR_DISPATCH_STARTED,
+    increment_coordinator_dispatch,
+    increment_coordinator_tick,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -91,11 +98,14 @@ class FetchEnabledRunsOutput:
 
 @frozen
 class StampDispatchedRunsInput:
-    """The (team, skill) runs whose child workflow was dispatched this tick, and the tick's own
-    start time to anchor their stamps on (`None` falls back to the wall clock)."""
+    """The (team, skill) runs whose child workflow was dispatched this batch, the tick's own
+    start time to anchor their stamps on (`None` falls back to the wall clock), and how that
+    batch split between freshly started children and dedupe-skipped ones."""
 
     dispatched_runs: list[PlannedRun]
     dispatched_at: datetime | None = None
+    started_count: int = 0
+    deduped_count: int = 0
 
 
 @dataclass
@@ -110,6 +120,34 @@ class CoordinatorWorkflowOutput:
     planned_count: int
     started_count: int
     skipped_count: int
+
+
+@frozen
+class RunDueChecksInput:
+    """No fields today; the executor reads its own bounds."""
+
+
+@frozen
+class RunDueChecksOutput:
+    expired: int
+    passed: int
+    failed: int
+    errored: int
+
+
+@activity.defn
+async def run_due_signal_report_checks_activity(_input: RunDueChecksInput) -> RunDueChecksOutput:
+    """Measure every report check due this tick.
+
+    Rides the coordinator rather than a schedule of its own: soak windows are days, so tick
+    granularity is ample, and a deterministic check costs one cached Trends query with no sandbox
+    and no scout enrolment.
+    """
+    async with Heartbeater():
+        summary = await database_sync_to_async(run_due_report_checks, thread_sensitive=False)()
+    return RunDueChecksOutput(
+        expired=summary.expired, passed=summary.passed, failed=summary.failed, errored=summary.errored
+    )
 
 
 @activity.defn
@@ -140,6 +178,7 @@ async def fetch_enabled_signals_scout_runs_activity(
             enrollment, team_configs, default_team_config, global_max_runs_per_tick
         )
     logger.info("signals_scout coordinator: planned runs", count=len(planned))
+    increment_coordinator_tick(len(planned))
     return FetchEnabledRunsOutput(planned_runs=planned, dispatch_smear_seconds=smear_seconds)
 
 
@@ -165,6 +204,10 @@ async def stamp_dispatched_signals_scout_runs_activity(
         await database_sync_to_async(_stamp_dispatched_runs, thread_sensitive=False)(
             stamp_input.dispatched_runs, slot_aligned=slot_aligned, dispatched_at=stamp_input.dispatched_at
         )
+    # Counted here rather than in the workflow so a replay cannot double-count it, and after the
+    # stamp so a retried attempt counts the batch once.
+    increment_coordinator_dispatch(COORDINATOR_DISPATCH_STARTED, stamp_input.started_count)
+    increment_coordinator_dispatch(COORDINATOR_DISPATCH_DEDUPED, stamp_input.deduped_count)
 
 
 def _dispatch_slot(config_pk: str, run_interval_minutes: int) -> int:
@@ -329,7 +372,7 @@ def _collect_planned_runs(
             # brand-new canonical scouts as rows — both rare, and both catch up on the team's next
             # `sync` (follow-up if needed: a slow fleet-wide prune/seed sweep off the dispatch path).
             live_skills = live_scout_skill_names(team.id, withheld_skill_names=withheld_for_team)
-        # Skip enabled configs whose `signals-scout-*` skill was deleted or is no longer the
+        # Skip enabled configs whose skill was deleted or is no longer the
         # latest version: dispatching them would spawn a child workflow that fails fast in
         # load_skill_for_run on every tick.
         for config in SignalScoutConfig.all_teams.filter(team_id=team.id, enabled=True, skill_name__in=live_skills):
@@ -653,6 +696,14 @@ class SignalsScoutCoordinatorWorkflow:
 
     @workflow.run
     async def run(self, _input: CoordinatorWorkflowInput) -> CoordinatorWorkflowOutput:
+        if workflow.patched("signals-report-checks-2026-09"):
+            await workflow.execute_activity(
+                run_due_signal_report_checks_activity,
+                RunDueChecksInput(),
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+
         fetch_result = await workflow.execute_activity(
             fetch_enabled_signals_scout_runs_activity,
             FetchEnabledRunsInput(),
@@ -681,21 +732,31 @@ class SignalsScoutCoordinatorWorkflow:
         skipped = 0
         for batch_number, batch in enumerate(batches, start=1):
             dispatched: list[PlannedRun] = []
+            batch_started = 0
+            batch_deduped = 0
             for idx, planned in batch:
                 if await _start_child(planned=planned, tick_id=tick_id, idx=idx):
-                    started += 1
+                    batch_started += 1
                 else:
-                    skipped += 1
+                    batch_deduped += 1
                 # Both branches mean a child for this (team, skill, tick) now exists (started, or
                 # dedupe-skipped because a retry already started it) — so its schedule should
                 # advance. A hard `start_child` error raises out of `_start_child` before reaching
                 # here, leaving that config unstamped to re-dispatch next tick.
                 dispatched.append(planned)
 
+            started += batch_started
+            skipped += batch_deduped
+
             # Stamp only after dispatch, so a fan-out failure can't suppress a scout for a day.
             await workflow.execute_activity(
                 stamp_dispatched_signals_scout_runs_activity,
-                StampDispatchedRunsInput(dispatched_runs=dispatched, dispatched_at=tick_started_at),
+                StampDispatchedRunsInput(
+                    dispatched_runs=dispatched,
+                    dispatched_at=tick_started_at,
+                    started_count=batch_started,
+                    deduped_count=batch_deduped,
+                ),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=5),
             )
