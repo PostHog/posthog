@@ -470,6 +470,11 @@ services:
             BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
             HEATMAP_BROWSERLESS_URL: 'http://browserless:3000'
             HEATMAP_BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
+            # This worker runs the recording deletion Temporal activities, which call
+            # recording-api. Without these two the calls go out unauthenticated and
+            # recording-api rejects them with a 401.
+            RECORDING_API_URL: http://recording-api:6738
+            INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-$POSTHOG_SECRET}
             # Point Django at the Rust feature-flags container; the setting
             # otherwise defaults to localhost:3001.
             FEATURE_FLAGS_SERVICE_URL: 'http://feature-flags:3001'
