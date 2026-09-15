@@ -19,6 +19,9 @@ def test_every_origin_product_is_classified():
         ("signal_report", True, True),
         ("signal_report", False, False),
         ("user_created", False, False),
+        # The image builder reads like build machinery, but a person opens the session and
+        # chats with it, so the attended sandbox-volume metric must keep it.
+        ("image_builder", False, False),
         ("signals_scout", False, True),
     ],
 )

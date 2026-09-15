@@ -35,6 +35,9 @@ RUN_ATTENDED_BY_ORIGIN: dict[str, bool] = {
     "session_summaries": True,
     "experiments": True,
     "mcp_analytics": True,
+    # The image builder is a conversation a person opens from the environment settings and
+    # drives through chat turns, so it is person-started despite the machine-sounding name.
+    "image_builder": True,
     # Both the Inbox report CTAs and the report pipeline's own research and implementation
     # runs carry this origin, so `internal` is what tells them apart.
     "signal_report": True,
@@ -44,7 +47,6 @@ RUN_ATTENDED_BY_ORIGIN: dict[str, bool] = {
     "support_reply": False,
     "support_queue": False,
     "task_analysis": False,
-    "image_builder": False,
     "loop": False,
     "workflow": False,
 }
