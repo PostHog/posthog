@@ -1534,7 +1534,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             ("tile_id_does_not_exist_anywhere",),
         ]
     )
-    def test_layout_patch_silently_skips_unknown_tile_id(self, scenario: str) -> None:
+    def test_layout_patch_rejects_unknown_tile_id(self, scenario: str) -> None:
         """
         Regression: the layout-only branch of ``_update_tiles`` was using ``update_or_create``,
         which silently fell through to INSERT when the (id, dashboard) pair didn't match an
@@ -1546,7 +1546,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             the frontend posts a tile id that exists, but on a different dashboard.
           - ``tile_id_does_not_exist_anywhere``: the tile was hard-deleted or never existed.
 
-        In both cases the bad id must be silently skipped while the rest of the payload saves.
+        In both cases the API must reject the full patch before it changes the valid tile.
         """
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "target"})
         valid_insight, _ = self.dashboard_api.create_insight({"dashboards": [dashboard_id], "name": "valid"})
@@ -1578,10 +1578,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             },
             format="json",
         )
-        assert response.status_code == status.HTTP_200_OK, response.content[:500]
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content[:500]
 
         valid_tile.refresh_from_db()
-        assert valid_tile.layouts == new_layouts, "valid tile layouts should have been saved"
+        assert valid_tile.layouts == {}, "valid tile layouts should not change when another tile ID is invalid"
 
         if stranger_tile is not None:
             stranger_tile.refresh_from_db()

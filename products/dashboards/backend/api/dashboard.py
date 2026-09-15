@@ -1921,6 +1921,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 raise serializers.ValidationError("Variables must be a dictionary")
             instance.variables = request_variables
 
+        self._validate_display_only_tile_ids(instance, initial_data.get("tiles", []))
+
         instance = super().update(instance, validated_data)
 
         user = cast(User, self.context["request"].user)
@@ -2021,6 +2023,29 @@ class DashboardSerializer(DashboardMetadataSerializer):
         return defaults
 
     @staticmethod
+    def _validate_display_only_tile_ids(instance: Dashboard, tiles: list[dict]) -> None:
+        tile_ids = {
+            tile["id"]
+            for tile in tiles
+            if tile.get("id") is not None
+            and not tile.get("text")
+            and not tile.get("button_tile")
+            and not tile.get("widget")
+            and any(field in tile for field in DashboardSerializer.TILE_DISPLAY_FIELDS)
+        }
+        if not tile_ids:
+            return
+
+        found_tile_ids = set(
+            DashboardTile.objects_including_soft_deleted.filter(id__in=tile_ids, dashboard=instance).values_list(
+                "id", flat=True
+            )
+        )
+        missing_tile_ids = sorted(tile_ids - found_tile_ids)
+        if missing_tile_ids:
+            raise serializers.ValidationError({"tiles": f"Tile IDs not found on this dashboard: {missing_tile_ids}."})
+
+    @staticmethod
     def _widget_tile_validation_error(exc: serializers.ValidationError) -> serializers.ValidationError:
         detail = exc.detail
         if isinstance(detail, dict) and "widget" in detail and len(detail) == 1:
@@ -2100,12 +2125,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
     def _update_existing_tile_display_fields(
         instance: Dashboard, tile_data: dict, user: User
     ) -> tuple[DashboardTile | None, bool]:
-        """Update display fields on an existing tile, or skip silently if the id is unknown.
+        """Update display fields on an existing tile.
 
         A display-only payload carries no insight/text/button_tile FK, so it cannot satisfy
         the ``dash_tile_exactly_one_related_object`` CHECK constraint if it falls through to
-        an INSERT. ``update_or_create`` here used to 500 whenever the frontend posted a stale
-        tile id (cross-dashboard contamination, hard-deleted tiles, races). Never INSERT here.
+        an INSERT. Never INSERT here.
 
         Returns the updated tile and whether this payload transitioned it to soft-deleted.
         """
@@ -2121,14 +2145,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             id=tile_id, dashboard=instance, dashboard__team_id=instance.team_id
         ).first()
         if existing is None:
-            logger.warning(
-                "dashboard_layout_patch_unknown_tile_skipped",
-                team_id=instance.team_id,
-                dashboard_id=instance.id,
-                tile_id=tile_id,
-                payload_fields=sorted(tile_defaults.keys()),
-            )
-            return None, False
+            raise serializers.ValidationError({"tiles": f"Tile ID {tile_id} is not on this dashboard."})
 
         became_deleted = bool(tile_defaults.get("deleted")) and not existing.deleted
         # `deleted` is raw request input; coerce it exactly as the ORM will on save, so a value
