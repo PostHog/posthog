@@ -4,6 +4,7 @@ from typing import Any
 from posthog.schema import ProductKey
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.materialized_columns import get_materialized_column_for_property
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.clickhouse.workload import Workload
@@ -78,6 +79,7 @@ class LongRunningIssuesRecommendation(Recommendation):
             BATCH_QUERY.format(fingerprint_expr=_fingerprint_expr()),
             {"team_ids": team_ids, "issue_limit": ISSUE_LIMIT},
             workload=Workload.OFFLINE,
+            ch_user=ClickHouseUser.ERROR_TRACKING,
         )
 
         issues_by_id = {

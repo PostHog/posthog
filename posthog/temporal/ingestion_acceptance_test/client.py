@@ -13,6 +13,7 @@ import requests
 import structlog
 from clickhouse_driver.errors import ErrorCodes
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.errors import InternalCHQueryError
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
@@ -398,6 +399,7 @@ class PostHogClient:
                 "min_timestamp": self._test_start_date.isoformat(),
             },
             team_id=self.config.team_id,
+            ch_user=ClickHouseUser.BACKGROUND,
         )
         if not rows:
             return None
@@ -437,6 +439,7 @@ class PostHogClient:
             query,
             {"team_id": self.config.team_id, "distinct_id": distinct_id},
             team_id=self.config.team_id,
+            ch_user=ClickHouseUser.BACKGROUND,
         )
         if not rows:
             return None
@@ -483,6 +486,7 @@ class PostHogClient:
                 "min_timestamp": self._test_start_date.isoformat(),
             },
             team_id=self.config.team_id,
+            ch_user=ClickHouseUser.BACKGROUND,
         )
         found_uuids = {str(row[0]) for row in rows}
         if not expected_event_uuids.issubset(found_uuids):
