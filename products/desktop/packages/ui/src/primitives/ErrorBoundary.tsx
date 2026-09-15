@@ -1,5 +1,16 @@
-import { Warning } from "@phosphor-icons/react";
-import { Box, Button, Callout, Flex, Text } from "@radix-ui/themes";
+import { ArrowClockwise, Warning } from "@phosphor-icons/react";
+import {
+  Button,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@posthog/quill";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
 export interface ErrorBoundaryProps {
@@ -55,8 +66,8 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, State> {
     });
   }
 
-  handleRetry = () => {
-    this.setState({ error: null });
+  handleRefresh = () => {
+    window.location.reload();
   };
 
   render() {
@@ -65,27 +76,49 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, State> {
     if (this.props.shouldSuppress?.(error)) return null;
     if (this.props.fallback) return this.props.fallback;
 
+    const details =
+      error.stack || error.message || "No error details are available.";
+
     return (
-      <Box p="4">
-        <Callout.Root color="red" size="2">
-          <Callout.Icon>
+      <Empty
+        role="alert"
+        className="min-h-64 border-0 bg-transparent px-6 py-10"
+      >
+        <EmptyHeader>
+          <EmptyMedia variant="icon" className="text-destructive">
             <Warning weight="fill" />
-          </Callout.Icon>
-          <Callout.Text>
-            <Flex direction="column" gap="2">
-              <Text className="font-medium">Something went wrong</Text>
-              <Text className="text-[13px] text-gray-11">
-                {error.message || "An unexpected error occurred"}
-              </Text>
-              <Flex gap="2" mt="2">
-                <Button size="1" variant="soft" onClick={this.handleRetry}>
-                  Try again
-                </Button>
-              </Flex>
-            </Flex>
-          </Callout.Text>
-        </Callout.Root>
-      </Box>
+          </EmptyMedia>
+          <EmptyTitle>PostHog ran into an error</EmptyTitle>
+          <EmptyDescription>
+            Refresh the app to continue. If the error comes back, show the
+            details and send them to an engineer.
+          </EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent className="max-w-lg">
+          <Button
+            type="button"
+            variant="primary"
+            data-attr="error-boundary-refresh"
+            onClick={this.handleRefresh}
+          >
+            <ArrowClockwise />
+            Refresh
+          </Button>
+          <Collapsible className="w-full bg-transparent text-left hover:bg-transparent data-open:bg-transparent">
+            <CollapsibleTrigger
+              data-attr="error-boundary-details"
+              className="justify-center"
+            >
+              Show error details
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted p-3 font-mono text-muted-foreground text-xs">
+                {details}
+              </pre>
+            </CollapsibleContent>
+          </Collapsible>
+        </EmptyContent>
+      </Empty>
     );
   }
 }

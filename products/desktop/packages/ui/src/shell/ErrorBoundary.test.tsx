@@ -2,7 +2,6 @@ import {
   isNotAuthenticatedError,
   NotAuthenticatedError,
 } from "@posthog/shared";
-import { Theme } from "@radix-ui/themes";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -38,15 +37,13 @@ function Boundary(props: {
   fallback?: ReactNode;
 }) {
   return (
-    <Theme>
-      <ErrorBoundary
-        resetKey={props.resetKey}
-        shouldSuppress={props.shouldSuppress}
-        fallback={props.fallback}
-      >
-        {props.children}
-      </ErrorBoundary>
-    </Theme>
+    <ErrorBoundary
+      resetKey={props.resetKey}
+      shouldSuppress={props.shouldSuppress}
+      fallback={props.fallback}
+    >
+      {props.children}
+    </ErrorBoundary>
   );
 }
 
@@ -55,6 +52,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
   vi.mocked(captureException).mockClear();
 });
@@ -69,15 +67,21 @@ describe("ErrorBoundary", () => {
     expect(screen.getByText("ok")).toBeInTheDocument();
   });
 
-  it("renders the default fallback UI on error and reports telemetry", () => {
+  it("hides error details until requested and reports telemetry", async () => {
+    const user = userEvent.setup();
     render(
       <Boundary>
         <Thrower error={new Error("boom")} />
       </Boundary>,
     );
-    expect(screen.getByText("Something went wrong")).toBeInTheDocument();
-    expect(screen.getByText("boom")).toBeInTheDocument();
+    expect(screen.getByText("PostHog ran into an error")).toBeInTheDocument();
+    expect(screen.queryByText(/Error: boom/)).not.toBeInTheDocument();
     expect(captureException).toHaveBeenCalledTimes(1);
+
+    await user.click(
+      screen.getByRole("button", { name: /show error details/i }),
+    );
+    expect(screen.getByText(/Error: boom/)).toBeInTheDocument();
   });
 
   it("renders custom fallback when provided", () => {
@@ -95,7 +99,9 @@ describe("ErrorBoundary", () => {
         <Thrower error={new NotAuthenticatedError()} />
       </Boundary>,
     );
-    expect(screen.queryByText("Something went wrong")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("PostHog ran into an error"),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText("ok")).not.toBeInTheDocument();
     expect(captureException).not.toHaveBeenCalled();
   });
@@ -106,7 +112,7 @@ describe("ErrorBoundary", () => {
         <Thrower error={new Error("other failure")} />
       </Boundary>,
     );
-    expect(screen.getByText("Something went wrong")).toBeInTheDocument();
+    expect(screen.getByText("PostHog ran into an error")).toBeInTheDocument();
     expect(captureException).toHaveBeenCalledTimes(1);
   });
 
@@ -116,33 +122,32 @@ describe("ErrorBoundary", () => {
         <Thrower error={new Error("boom")} />
       </Boundary>,
     );
-    expect(screen.getByText("Something went wrong")).toBeInTheDocument();
+    expect(screen.getByText("PostHog ran into an error")).toBeInTheDocument();
 
     rerender(
       <Boundary resetKey="b">
         <Thrower error={null} />
       </Boundary>,
     );
-    expect(screen.queryByText("Something went wrong")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("PostHog ran into an error"),
+    ).not.toBeInTheDocument();
     expect(screen.getByText("ok")).toBeInTheDocument();
   });
 
-  it("recovers via retry button", async () => {
+  it("refreshes the app from the error screen", async () => {
     const user = userEvent.setup();
-    const { rerender } = render(
+    const reload = vi.fn();
+    vi.stubGlobal("location", { reload });
+
+    render(
       <Boundary>
         <Thrower error={new Error("boom")} />
       </Boundary>,
     );
-    expect(screen.getByText("Something went wrong")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^refresh$/i }));
 
-    rerender(
-      <Boundary>
-        <Thrower error={null} />
-      </Boundary>,
-    );
-    await user.click(screen.getByRole("button", { name: /try again/i }));
-    expect(screen.getByText("ok")).toBeInTheDocument();
+    expect(reload).toHaveBeenCalledTimes(1);
   });
 });
 
