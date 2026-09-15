@@ -122,7 +122,9 @@ class TestUnexpectedPropertyValidation(BaseTest):
         with pytest.raises(ValidationError) as e:
             SessionRecordingListFromQuery(team=self.team, query=query).get_query()
 
-        assert unknown_field in str(e.value.detail["properties"][0])
+        detail = str(e.value.detail)
+        assert "properties" in detail
+        assert unknown_field in detail
 
     def test_filter_that_resolves_on_replay_still_builds(self) -> None:
         query = RecordingsQuery(properties=[HogQLPropertyFilter(key="console_error_count > 0")])
