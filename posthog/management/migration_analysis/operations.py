@@ -1078,3 +1078,46 @@ class SeparateDatabaseAndStateAnalyzer(OperationAnalyzer):
             reason=f"Wrapper operation - see nested operations for risk: {', '.join(db_op_types)}",
             details={"database_operations": ", ".join(db_op_types)},
         )
+
+
+class SafeDropTableAnalyzer(OperationAnalyzer):
+    """The drop-table helper that takes its locks up front (posthog/migration_helpers/safe_drop_table.py).
+
+    Scores with the staged `DROP TABLE IF EXISTS` the RunSQL analyzer already recognizes,
+    because it is the same drop. What it adds is lock ordering, so a live read is never
+    the deadlock victim, not a weaker guarantee about the rows.
+    """
+
+    operation_type = "SafeDropTable"
+
+    def analyze(self, op, migration=None, loader=None) -> OperationRisk:
+        tables = [table.lower() for table in op.tables]
+        staged = (
+            migration
+            and loader
+            and all(check_drop_properly_staged("table", table, migration, loader) for table in tables)
+        )
+        if staged:
+            return OperationRisk(
+                type=self.operation_type,
+                score=2,
+                reason="SafeDropTable - properly staged (prior state removal found)",
+                details={"tables": tables},
+                guidance=f"""✅ **Validated staged drop:** Found prior SeparateDatabaseAndState that removed each model from state.
+
+Remaining checklist is the one for any staged drop: all code references removed, one full deployment cycle waited since the state removal, and no other table referencing these.
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-tables)""",
+            )
+
+        return OperationRisk(
+            type=self.operation_type,
+            score=5,
+            reason="SafeDropTable - no prior state removal found",
+            details={"tables": tables},
+            guidance=f"""❌ **Missing state removal:** Could not find prior SeparateDatabaseAndState that removed this model.
+
+SafeDropTable handles the lock order, not the staging. The model still has to leave Django state a full deployment cycle earlier, with a DropForeignKey for each key into a hot parent.
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-tables)""",
+        )

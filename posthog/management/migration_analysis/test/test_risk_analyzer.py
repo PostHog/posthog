@@ -21,6 +21,7 @@ from posthog.migration_helpers import (
     AddForeignKeyNotValid,
     DropForeignKey,
     SafeAddIndexConcurrently,
+    SafeDropTable,
     SafeRemoveIndexConcurrently,
     ValidateConstraint,
 )
@@ -561,6 +562,17 @@ class TestRunSQLOperations:
 
         assert risk.score == 1
         assert risk.level == RiskLevel.SAFE
+        assert "Unknown operation" not in risk.reason
+
+    def test_safe_drop_table_helper_is_scored_like_the_raw_drop(self):
+        # Without migration context the analyzer cannot see the prior state removal, so the
+        # helper has to stay blocked exactly like a hand-written DROP TABLE IF EXISTS.
+        op = SafeDropTable("posthog_mymodel")
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 5
+        assert risk.level == RiskLevel.BLOCKED
         assert "Unknown operation" not in risk.reason
 
     def test_run_sql_drop_constraint(self):
