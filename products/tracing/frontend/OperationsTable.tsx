@@ -4,6 +4,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { AggregatedSpanRow } from '~/queries/schema/schema-general'
 
+import { formatIdentityCoverage } from './identityCoverage'
 import { formatDuration } from './TraceWaterfallView'
 import { VirtualizedTable, VirtualizedTableColumn } from './VirtualizedTable'
 
@@ -37,7 +38,54 @@ const durationCell =
     (pick: (row: AggregatedSpanRow) => number) =>
     (row: AggregatedSpanRow): JSX.Element => <span className="font-mono">{formatDuration(pick(row))}</span>
 
-function buildColumns(windowMs: number): VirtualizedTableColumn<AggregatedSpanRow>[] {
+const impactCell =
+    (pick: (row: AggregatedSpanRow) => number | undefined, covered: (row: AggregatedSpanRow) => number | undefined) =>
+    (row: AggregatedSpanRow): JSX.Element => {
+        const value = pick(row)
+        if (!value) {
+            return <span className="text-muted">—</span>
+        }
+        // An operation whose spans mostly carry no ID has a count covering a fraction of its
+        // traffic, so the cell says which fraction. A `title` rather than a Tooltip: this renders
+        // per row of a virtualized table, and the text is a plain sentence.
+        const coverage = formatIdentityCoverage(covered(row), row.count)
+        return (
+            <span title={`Estimated from ${coverage} of this operation's spans, the ones carrying the ID.`}>
+                {humanFriendlyNumber(value)}
+            </span>
+        )
+    }
+
+function buildColumns(windowMs: number, showImpact: boolean): VirtualizedTableColumn<AggregatedSpanRow>[] {
+    const impactColumns: VirtualizedTableColumn<AggregatedSpanRow>[] = showImpact
+        ? [
+              {
+                  key: 'sessions',
+                  title: 'Sessions',
+                  width: 90,
+                  align: 'right',
+                  tooltip: 'Estimated unique sessions behind this operation, over the spans carrying a session ID.',
+                  sorter: (a, b) => (a.sessions ?? 0) - (b.sessions ?? 0),
+                  render: impactCell(
+                      (row) => row.sessions,
+                      (row) => row.spans_with_session_id
+                  ),
+              },
+              {
+                  key: 'users',
+                  title: 'Users',
+                  width: 90,
+                  align: 'right',
+                  tooltip: 'Estimated unique people behind this operation, over the spans carrying a distinct ID.',
+                  sorter: (a, b) => (a.users ?? 0) - (b.users ?? 0),
+                  render: impactCell(
+                      (row) => row.users,
+                      (row) => row.spans_with_distinct_id
+                  ),
+              },
+          ]
+        : []
+
     return [
         {
             key: 'service_name',
@@ -90,6 +138,7 @@ function buildColumns(windowMs: number): VirtualizedTableColumn<AggregatedSpanRo
                 </span>
             ),
         },
+        ...impactColumns,
         {
             key: 'p50',
             title: 'p50',
@@ -144,11 +193,19 @@ export interface OperationsTableProps {
     loading: boolean
     /** Resolved aggregation window (ms) — turns span counts into a request rate. */
     windowMs: number
+    /** Show the Sessions and Users columns. Must match the `includeImpact` the rows were fetched with. */
+    showImpact?: boolean
     onRowClick?: (row: AggregatedSpanRow) => void
 }
 
-export function OperationsTable({ rows, loading, windowMs, onRowClick }: OperationsTableProps): JSX.Element {
-    const columns = useMemo(() => buildColumns(windowMs), [windowMs])
+export function OperationsTable({
+    rows,
+    loading,
+    windowMs,
+    showImpact = false,
+    onRowClick,
+}: OperationsTableProps): JSX.Element {
+    const columns = useMemo(() => buildColumns(windowMs, showImpact), [windowMs, showImpact])
     return (
         <VirtualizedTable<AggregatedSpanRow>
             // pinned: identifies stored column widths — renaming resets everyone's widths

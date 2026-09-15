@@ -125,6 +125,7 @@ function TracingSceneContents(): JSX.Element {
     const operationsViewEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_OPERATIONS_VIEW]
     const facetRailEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_FACET_RAIL]
     const heatmapEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_LATENCY_HEATMAP]
+    const impactStripEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_IMPACT_STRIP]
 
     // Resolved aggregation window (ms) — turns span counts into a request rate.
     // Use sparklineWindowMs which correctly resolves relative date strings (e.g. '-1h').
@@ -233,6 +234,7 @@ function TracingSceneContents(): JSX.Element {
                                 rows={aggregation.current}
                                 loading={aggregationLoading}
                                 windowMs={operationsWindowMs}
+                                showImpact={impactStripEnabled}
                                 onRowClick={(row) =>
                                     router.actions.push(
                                         urls.tracingOperation(row.service_name, row.name, filters.dateRange)

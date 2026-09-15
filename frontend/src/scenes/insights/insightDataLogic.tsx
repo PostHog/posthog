@@ -138,6 +138,7 @@ export interface insightDataLogicValues {
         | TraceSpansAggregationQueryResponse
         | TraceSpansAttributeBreakdownQueryResponse
         | TraceSpansQueryResponse
+        | TraceSpansTreeQueryResponse
         | null // dataNodeLogic
     insightLoadingTimeSeconds: number // dataNodeLogic
     insightPollResponse: Record<string, QueryStatus | null> | null // dataNodeLogic
@@ -204,6 +205,7 @@ export interface insightDataLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
             | undefined,
         payload?:
@@ -235,6 +237,7 @@ export interface insightDataLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
             | undefined
     } // dataNodeLogic
@@ -483,6 +486,7 @@ export interface insightDataLogicMeta {
                 | TraceSpansAggregationQueryResponse
                 | TraceSpansAttributeBreakdownQueryResponse
                 | TraceSpansQueryResponse
+                | TraceSpansTreeQueryResponse
                 | null
         ) => Record<string, any>
         hogQL: (insightData: Record<string, any>, query: Node<Record<string, any>> | null) => string | null

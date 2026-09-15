@@ -22,6 +22,8 @@ export const tracingSpansAggregateCreateBodyQueryOneLimitMax = 5000
 
 export const tracingSpansAggregateCreateBodyQueryOneOffsetMin = 0
 
+export const tracingSpansAggregateCreateBodyQueryOneIncludeImpactDefault = false
+
 export const TracingSpansAggregateCreateBody = () => zod.object({
     query: zod
         .object({
@@ -123,6 +125,12 @@ export const TracingSpansAggregateCreateBody = () => zod.object({
                 .optional()
                 .describe(
                     'Row offset for pagination. Combine with `limit` and the `next_offset` returned in the response to page through results beyond the first page.'
+                ),
+            includeImpact: zod
+                .boolean()
+                .default(tracingSpansAggregateCreateBodyQueryOneIncludeImpactDefault)
+                .describe(
+                    'Also return the sessions and people behind each operation. Off by default because it reads the span and resource attribute maps, which the rest of the aggregation never touches.'
                 ),
         })
         .describe('The span aggregation query to execute.'),

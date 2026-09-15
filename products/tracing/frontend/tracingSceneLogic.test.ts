@@ -7,6 +7,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
+import { tracingDataLogic } from './tracingDataLogic'
 import { TRACING_SCENE_VIEWER_ID, tracingFiltersLogic } from './tracingFiltersLogic'
 import { tracingSceneLogic } from './tracingSceneLogic'
 
@@ -105,6 +106,25 @@ describe('tracingSceneLogic', () => {
         expect(logic.values.activeTracingTab).toBe('operations')
         expect(logic.values.displayMode).toBe('operations')
         expect(router.values.searchParams.view).toBe('operations')
+    })
+
+    it('refetches the Operations aggregation when the impact flag resolves late', () => {
+        // Flags load asynchronously, so rows can arrive while the flag is still off. Without the
+        // refetch the Sessions and Users columns render over rows that carry no impact fields.
+        enableOperationsView()
+        mountAt({ view: 'operations' })
+        tracingDataLogic({ id: TRACING_SCENE_VIEWER_ID }).actions.fetchAggregationSuccess({
+            current: [{ service_name: 'web', name: 'GET /', count: 1 }],
+            previous: null,
+        } as any)
+        const aggregate = jest.spyOn(api.tracing, 'aggregate')
+
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.TRACING_OPERATIONS_VIEW]: true,
+            [FEATURE_FLAGS.TRACING_IMPACT_STRIP]: true,
+        })
+
+        expect(aggregate).toHaveBeenCalledWith(expect.objectContaining({ includeImpact: true }), expect.anything())
     })
 
     it('resets the operations tab to traces when the flag is disabled mid-session', () => {

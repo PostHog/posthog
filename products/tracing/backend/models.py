@@ -1,15 +1,20 @@
 """Django models for tracing."""
 
 import logging
+from typing import TYPE_CHECKING
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models import Value
 
+from posthog.dataclasses import frozen
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 from posthog.utils import generate_short_id
+
+if TYPE_CHECKING:
+    from posthog.models import Team
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +45,61 @@ DEFAULT_TRACING_SESSION_ID_ATTRIBUTE_KEYS = ["sessionId"]
 
 def default_tracing_session_id_attribute_keys() -> list[str]:
     return list(DEFAULT_TRACING_SESSION_ID_ATTRIBUTE_KEYS)
+
+
+# Same list as DISTINCT_ID_KEYS in products/logs/frontend/utils.tsx, which the span attribute
+# table resolves against. Copied rather than imported so tracing takes no dependency on Logs;
+# keep them in sync, or the counts stop covering the spans the UI links.
+DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS = [
+    "distinct.id",
+    "distinct_id",
+    "distinctId",
+    "distinctID",
+    "posthogDistinctId",
+    "posthogDistinctID",
+    "posthog_distinct_id",
+    "posthog.distinct.id",
+    "posthog.distinct_id",
+]
+
+# The session-ID counterpart. Some pipelines emit `posthogSessionId` though no SDK sends it.
+SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS = [
+    "session.id",
+    "session_id",
+    "sessionId",
+    "sessionID",
+    "$session_id",
+    "posthogSessionId",
+    "posthogSessionID",
+    "posthog_session_id",
+    "posthog.session.id",
+    "posthog.session_id",
+]
+
+
+@frozen
+class TracingIdentityAttributeKeys:
+    """The attribute keys that link a span to a session and to a person."""
+
+    session: list[str]
+    distinct_id: list[str]
+
+
+def resolved_tracing_identity_attribute_keys(team: "Team") -> TracingIdentityAttributeKeys:
+    """Each list is the team's configured keys, or the default when unconfigured, followed by the
+    built-in conventions the UI links regardless of config. Deduped, configured keys first. Both
+    come from one config read, because every caller needs both."""
+    config = TeamTracingConfig.objects.filter(team=team).first()
+    session_keys = (
+        config.tracing_session_id_attribute_keys if config else None
+    ) or DEFAULT_TRACING_SESSION_ID_ATTRIBUTE_KEYS
+    distinct_id_keys = (
+        config.tracing_distinct_id_attribute_keys if config else None
+    ) or DEFAULT_TRACING_DISTINCT_ID_ATTRIBUTE_KEYS
+    return TracingIdentityAttributeKeys(
+        session=list(dict.fromkeys([*session_keys, *SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS])),
+        distinct_id=list(dict.fromkeys([*distinct_id_keys, *DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS])),
+    )
 
 
 class TeamTracingConfig(models.Model):

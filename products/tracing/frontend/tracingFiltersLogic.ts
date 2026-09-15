@@ -138,6 +138,17 @@ export interface TracingFilters {
 // outside a BindLogic still resolve to the scene's instance during the keyed migration.
 export const TRACING_SCENE_VIEWER_ID = 'default'
 
+/** What a span query is scoped to. Loaders key their skip-the-refetch guard on this, so a sort or
+ *  compare toggle re-runs the query without re-hitting the endpoint. Add a new filter dimension
+ *  here, or a guard will read a changed filter as unchanged. */
+export function dataScopeKey(values: {
+    utcDateRange: unknown
+    filters: { serviceNames: string[] }
+    queryFilterGroup: unknown
+}): string {
+    return JSON.stringify([values.utcDateRange, values.filters.serviceNames, values.queryFilterGroup])
+}
+
 export interface TracingFiltersLogicProps {
     id: string
     // Filters enforced by the embedding surface (e.g. a person profile traces tab pins a

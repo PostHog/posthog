@@ -1408,8 +1408,21 @@
                 "service_name": {
                     "type": "string"
                 },
+                "sessions": {
+                    "$ref": "#/definitions/integer",
+                    "description": "These four are estimates, set only when the query asked for `includeImpact`."
+                },
+                "spans_with_distinct_id": {
+                    "$ref": "#/definitions/integer"
+                },
+                "spans_with_session_id": {
+                    "$ref": "#/definitions/integer"
+                },
                 "total_duration_nano": {
                     "type": "number"
+                },
+                "users": {
+                    "$ref": "#/definitions/integer"
                 }
             },
             "required": [
@@ -54089,6 +54102,10 @@
                 },
                 "filterGroup": {
                     "$ref": "#/definitions/PropertyGroupFilter"
+                },
+                "includeImpact": {
+                    "description": "Also aggregate sessions and people per operation. Off by default: it reads the attribute maps.",
+                    "type": "boolean"
                 },
                 "kind": {
                     "const": "TraceSpansAggregationQuery",
