@@ -7,21 +7,22 @@ First, check the event with `posthog:read-data-schema`. Then call `posthog:query
 ```json
 {
   "kind": "TrendsQuery",
-  "filterTestAccounts": false,
   "series": [{ "kind": "EventsNode", "event": "chat with ai", "math": "dau" }],
   "dateRange": { "date_from": "-30d" },
   "interval": "day"
 }
 ```
 
+The omitted `filterTestAccounts` field follows the project's "Filter out internal and test users" setting. Set it only when the request explicitly asks to override that setting.
+
 Use the native insight controls for breakdowns or period comparisons. Do not generate SQL only to render this insight.
 
 ## SQL representation
 
-This SQL represents the same query specification. Use it when inspecting or adapting SQL, not as a required step before a typed query.
+This build-time SQL represents the same aggregation and time range. It cannot inherit the project's test-account setting. Before running or adapting it, apply the project's test-account filters when "Filter out internal and test users" is enabled.
 
 ```sql
-{{ render_hogql_example({"kind": "TrendsQuery", "filterTestAccounts": false, "series": [{"kind": "EventsNode", "event": "chat with ai", "math": "dau"}], "dateRange": {"date_from": "-30d"}, "interval": "day"}) }}
+{{ render_hogql_example({"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "chat with ai", "math": "dau"}], "dateRange": {"date_from": "-30d"}, "interval": "day"}) }}
 ```
 
 ## Simple aggregate: prefer a typed query when both fit
