@@ -597,6 +597,22 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         mock_cancel_delete_task.assert_called_once_with(project_id=self.project.id)
 
     @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")
+    def test_project_member_cannot_cancel_deletion(self, mock_cancel_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.project.is_pending_deletion = True
+        self.project.deletion_scheduled_at = timezone.now() + timedelta(hours=48)
+        self.project.save(update_fields=["is_pending_deletion", "deletion_scheduled_at"])
+
+        response = self.client.post(f"/api/projects/{self.project.id}/cancel-deletion/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.project.refresh_from_db()
+        self.assertTrue(self.project.is_pending_deletion)
+        self.assertIsNotNone(self.project.deletion_scheduled_at)
+        mock_cancel_delete_task.assert_not_called()
+
+    @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
     def test_project_deletion_cannot_be_canceled_after_deletion_starts(
         self, mock_start_delete_task, mock_cancel_delete_task

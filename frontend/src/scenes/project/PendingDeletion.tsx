@@ -44,7 +44,7 @@ export function ProjectPendingDeletion(): JSX.Element {
                                 ? ` on ${dayjs(currentProject.deletion_scheduled_at).format('MMMM D, YYYY [at] h:mm A')}`
                                 : ' soon'}
                         </strong>
-                        . If you've changed you mind, you can cancel project deletion before then.
+                        . If you've changed your mind, you can cancel project deletion before then.
                     </p>
                     <div className="flex items-center gap-2">
                         <LemonButton

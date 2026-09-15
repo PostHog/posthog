@@ -5,11 +5,14 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.contrib.admin.sites import AdminSite
+from django.contrib.auth.models import Group
 from django.contrib.messages.storage.fallback import FallbackStorage
+from django.core.exceptions import PermissionDenied
 from django.test import RequestFactory
 from django.utils import timezone
 
 from posthog.admin.admins.project_admin import ProjectAdmin
+from posthog.admin.authorization import DELETION_AUTHORIZED_GROUP
 from posthog.models import Project
 
 
@@ -30,6 +33,7 @@ class TestProjectAdminDeleteNow(BaseTest):
         super().setUp()
         self.user.is_staff = True
         self.user.save()
+        self.user.groups.add(Group.objects.get_or_create(name=DELETION_AUTHORIZED_GROUP)[0])
         self.factory = RequestFactory()
         self.admin = ProjectAdmin(Project, AdminSite())
         self._mark_pending(hours=48)
@@ -101,4 +105,14 @@ class TestProjectAdminDeleteNow(BaseTest):
         mock_cancel.assert_not_called()
         mock_start.assert_not_called()
         self.project.refresh_from_db()
+        self.assertEqual(self.project.deletion_scheduled_at, timezone.now() + timedelta(hours=48))
+
+    def test_staff_outside_deletion_group_cannot_delete_now(self):
+        self.user.groups.clear()
+
+        with self.assertRaises(PermissionDenied):
+            self._call()
+
+        self.project.refresh_from_db()
+        self.assertTrue(self.project.is_pending_deletion)
         self.assertEqual(self.project.deletion_scheduled_at, timezone.now() + timedelta(hours=48))

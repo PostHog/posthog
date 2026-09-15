@@ -2,6 +2,7 @@ from typing import cast
 
 from django.conf import settings
 from django.contrib import admin, messages
+from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect
 from django.template.loader import render_to_string
 from django.urls import path, reverse
@@ -9,6 +10,7 @@ from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
+from posthog.admin.authorization import can_trigger_admin_deletion
 from posthog.admin.inlines.organization_member_for_related_inline import OrganizationMemberForRelatedInline
 from posthog.admin.inlines.team_inline import TeamInline
 from posthog.models import Project
@@ -169,6 +171,9 @@ class ProjectAdmin(admin.ModelAdmin):
         if request.method != "POST":
             return redirect(change_url)
 
+        if not can_trigger_admin_deletion(request):
+            raise PermissionDenied
+
         if settings.DISABLE_BULK_DELETES:
             messages.error(
                 request, "Bulk deletes are temporarily disabled during a database migration. Try again later."
@@ -259,6 +264,9 @@ class ProjectAdmin(admin.ModelAdmin):
 
         if request.method != "POST":
             return redirect(change_url)
+
+        if not can_trigger_admin_deletion(request):
+            raise PermissionDenied
 
         if not project.is_pending_deletion:
             messages.error(request, f"Project {project.name} ({project.pk}) is not pending deletion.")

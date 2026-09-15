@@ -1672,6 +1672,9 @@ class ProjectViewSet(
     )
     def cancel_deletion(self, request: request.Request, id: str, **kwargs) -> response.Response:
         project = cast(Project, self.get_object())
+        membership_level = self.user_permissions.team(project.passthrough_team).effective_membership_level
+        if membership_level is None or membership_level < OrganizationMembership.Level.ADMIN:
+            raise exceptions.PermissionDenied("You don't have sufficient permissions in the project.")
         if not project.is_pending_deletion:
             raise exceptions.ValidationError("This project is not pending deletion.")
         if not project.deletion_scheduled_at or project.deletion_scheduled_at <= timezone.now():

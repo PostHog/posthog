@@ -4,6 +4,7 @@ from unittest.mock import patch
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth.models import Group
 from django.contrib.messages.storage.fallback import FallbackStorage
+from django.core.exceptions import PermissionDenied
 from django.test import RequestFactory, override_settings
 
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -134,6 +135,7 @@ class TestProjectAdminTriggerDeletion(BaseTest):
         super().setUp()
         self.user.is_staff = True
         self.user.save()
+        self.user.groups.add(Group.objects.get_or_create(name=DELETION_AUTHORIZED_GROUP)[0])
         self.factory = RequestFactory()
         self.admin = ProjectAdmin(Project, AdminSite())
 
@@ -182,13 +184,14 @@ class TestProjectAdminTriggerDeletion(BaseTest):
         self.project.refresh_from_db()
         self.assertFalse(self.project.is_pending_deletion)
 
-    def test_staff_outside_deletion_group_can_dispatch(self):
-        response, mock_start = self._call("POST")
+    def test_staff_outside_deletion_group_cannot_dispatch(self):
+        self.user.groups.clear()
 
-        self.assertEqual(response.status_code, 302)
-        mock_start.assert_called_once()
+        with self.assertRaises(PermissionDenied):
+            self._call("POST")
+
         self.project.refresh_from_db()
-        self.assertTrue(self.project.is_pending_deletion)
+        self.assertFalse(self.project.is_pending_deletion)
 
     def test_already_pending_deletion_does_not_block_retrigger(self):
         self.project.is_pending_deletion = True
