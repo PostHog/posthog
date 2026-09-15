@@ -1,9 +1,15 @@
-import type { Adapter, TaskCreationInput } from "@posthog/shared";
+import {
+  type Adapter,
+  isRestrictedModelOption,
+  pickAllowedModel,
+  type TaskCreationInput,
+} from "@posthog/shared";
 
 /** A selectable choice, either flat or wrapped in a labelled group. */
 export interface PreviewConfigChoice {
   value?: string;
   options?: PreviewConfigChoice[];
+  _meta?: Record<string, unknown> | null;
 }
 
 /** Minimal shape of a preview-config option we scan for the default model. */
@@ -16,17 +22,24 @@ export interface PreviewConfigOption {
 }
 
 /**
- * Flatten the (possibly nested) choices into the set of selectable values.
- * The gateway may return models either flat or wrapped in labelled groups, so
- * this mirrors `flattenConfigValues` in the TaskInput picker — a model nested in
- * a group must still count as available.
+ * Flatten the (possibly nested) choices into the selectable models, carrying
+ * each one's plan entitlement. The gateway may return models either flat or
+ * wrapped in labelled groups, so this mirrors `flattenConfigValues` in the
+ * TaskInput picker — a model nested in a group must still count as available.
  */
-function flattenChoiceValues(choices: PreviewConfigChoice[]): string[] {
+function flattenModelChoices(
+  choices: PreviewConfigChoice[],
+): { id: string; allowed: boolean }[] {
   return choices.flatMap((choice) =>
     choice.options
-      ? flattenChoiceValues(choice.options)
+      ? flattenModelChoices(choice.options)
       : choice.value
-        ? [choice.value]
+        ? [
+            {
+              id: choice.value,
+              allowed: !isRestrictedModelOption(choice._meta ?? undefined),
+            },
+          ]
         : [],
   );
 }
@@ -34,12 +47,17 @@ function flattenChoiceValues(choices: PreviewConfigChoice[]): string[] {
 /**
  * Pick the model id out of the agent's preview-config options.
  *
- * When `preferredModel` is supplied (e.g. the user's persisted last-used model)
- * it is honoured only if it is still one of the gateway's available models;
- * otherwise we fall back to the server default (`currentValue`). One-click cloud
- * flows pass their persisted model here so a stale id the gateway no longer
- * offers can't slip through — without the check the run fails with a gateway 403
- * (e.g. a previously-selected model that was later de-listed for the org).
+ * Headless cloud flows (CONTEXT.md generation, freeform canvas, inbox
+ * one-click) never draw a picker, so this is the only place a model the org's
+ * plan doesn't cover can be caught before the run reaches the gateway.
+ *
+ * `preferredModel` (e.g. the user's persisted last-used model) is honoured only
+ * if the gateway still offers it *and* the plan allows it: restricted models
+ * stay in the option list on purpose so the picker can draw them locked, so
+ * presence alone is not enough. Everything else resolves through
+ * `pickAllowedModel`, which downgrades to the newest allowed model — the server
+ * default (`currentValue`) can be restricted too. Without this the run dies on
+ * a gateway 403 ("needs a paid PostHog plan") before any work happens.
  */
 export function selectModelFromOptions(
   options: PreviewConfigOption[],
@@ -51,10 +69,10 @@ export function selectModelFromOptions(
   if (modelOption?.type !== "select") {
     return undefined;
   }
+  const models = flattenModelChoices(modelOption.options ?? []);
   if (
     preferredModel &&
-    modelOption.options &&
-    flattenChoiceValues(modelOption.options).includes(preferredModel)
+    models.some((model) => model.id === preferredModel && model.allowed)
   ) {
     return preferredModel;
   }
@@ -62,7 +80,7 @@ export function selectModelFromOptions(
     typeof modelOption.currentValue === "string" &&
     modelOption.currentValue
   ) {
-    return modelOption.currentValue;
+    return pickAllowedModel(models, modelOption.currentValue);
   }
   return undefined;
 }

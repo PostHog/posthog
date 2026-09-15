@@ -34,6 +34,15 @@ const model = (
   allowed,
 });
 
+/** A gateway that doesn't implement the free-tier marks omits `allowed`. */
+const unmarkedModel = (id: string): Omit<GatewayModel, "allowed"> => ({
+  id,
+  owned_by: "anthropic",
+  context_window: 128000,
+  supports_streaming: true,
+  supports_vision: false,
+});
+
 describe("formatGatewayModelName", () => {
   it.each([
     [model("claude-opus-4-8"), "Claude Opus 4.8"],
@@ -71,6 +80,27 @@ describe("normalizeGatewayModelsResponse", () => {
     ]);
 
     expect(models[0]?.context_window).toBe(256000);
+  });
+
+  it("restricts a model the gateway left unmarked alongside marked ones", () => {
+    const models = normalizeGatewayModelsResponse([
+      unmarkedModel("claude-opus-5"),
+      model("claude-sonnet-4-8", "anthropic", true),
+    ]);
+
+    expect(models.map((m) => [m.id, m.allowed])).toEqual([
+      ["claude-opus-5", false],
+      ["claude-sonnet-4-8", true],
+    ]);
+  });
+
+  it("allows everything when the gateway marks no model at all", () => {
+    const models = normalizeGatewayModelsResponse([
+      unmarkedModel("claude-opus-5"),
+      unmarkedModel("claude-sonnet-4-8"),
+    ]);
+
+    expect(models.every((m) => m.allowed)).toBe(true);
   });
 });
 

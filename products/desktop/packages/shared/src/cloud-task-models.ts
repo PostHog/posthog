@@ -158,18 +158,29 @@ export function normalizeGatewayModelsResponse(value: unknown): GatewayModel[] {
         ? response.models
         : [];
 
-  return entries
+  const models = entries
     .filter(isGatewayModel)
-    .filter((model) => !isBlockedModelId(model.id))
-    .map((model) => ({
-      id: model.id,
-      owned_by: model.owned_by ?? "",
-      context_window: model.context_window ?? 0,
-      supports_streaming: model.supports_streaming ?? false,
-      supports_vision: model.supports_vision ?? false,
-      allowed: model.allowed !== false,
-      restriction_reason: model.restriction_reason ?? null,
-    }));
+    .filter((model) => !isBlockedModelId(model.id));
+
+  // Entitlement is fail-closed: a model the gateway did not affirmatively mark
+  // `allowed` counts as restricted, so an unmarked paid model can't reach the
+  // picker unlocked or a headless run unchecked. A gateway that doesn't
+  // implement the marks at all (self-hosted, custom cloud) sends no booleans
+  // anywhere in the response; enforcing there would lock every model, so
+  // entitlement stays with the gateway instead.
+  const marksEntitlement = models.some(
+    (model) => typeof model.allowed === "boolean",
+  );
+
+  return models.map((model) => ({
+    id: model.id,
+    owned_by: model.owned_by ?? "",
+    context_window: model.context_window ?? 0,
+    supports_streaming: model.supports_streaming ?? false,
+    supports_vision: model.supports_vision ?? false,
+    allowed: marksEntitlement ? model.allowed === true : true,
+    restriction_reason: model.restriction_reason ?? null,
+  }));
 }
 
 export function isBlockedModelId(modelId: string): boolean {
