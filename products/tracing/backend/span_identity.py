@@ -23,6 +23,10 @@ def identity_value_expr(attribute_keys: list[str]) -> ast.Expr:
     """
     args: list[ast.Expr] = []
     for attribute_key in attribute_keys:
-        for chain in (["attributes", f"{attribute_key}__str"], ["resource_attributes", attribute_key]):
+        chains: list[list[str | int]] = [
+            ["attributes", f"{attribute_key}__str"],
+            ["resource_attributes", attribute_key],
+        ]
+        for chain in chains:
             args.append(ast.Call(name="nullIf", args=[ast.Field(chain=chain), ast.Constant(value="")]))
     return ast.Call(name="coalesce", args=args)

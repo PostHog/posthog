@@ -85,6 +85,9 @@ export const tracingImpactLogic = kea<tracingImpactLogicType>([
             null as _TracingImpactResponseApi | null,
             {
                 loadImpact: async (_, breakpoint) => {
+                    // Read before the request, so what gets recorded as done is the scope the
+                    // response actually covers, even if the filters move while it is in flight.
+                    const scopeKey = impactScopeKey(values)
                     await breakpoint(300)
                     // The endpoint takes the nested group the viewer holds, but the serializer
                     // models `filterGroup` as a flat list, so the generated type cannot express it.
@@ -113,7 +116,7 @@ export const tracingImpactLogic = kea<tracingImpactLogicType>([
                     if (response) {
                         // Recorded only on a completed request, so a failure retries on the next
                         // re-query rather than being cached as done.
-                        cache.impactScope = impactScopeKey(values)
+                        cache.impactScope = scopeKey
                     }
                     return response
                 },
@@ -137,7 +140,10 @@ export const tracingImpactLogic = kea<tracingImpactLogicType>([
             }
             actions.loadImpact(null)
         },
-        // An explicit refresh re-reads the same scope on purpose.
+        // An explicit refresh re-reads the same scope on purpose. It loads here rather than
+        // relying on the runQuery that tracingDataLogic dispatches, because listener order across
+        // logics is not guaranteed and that runQuery could reach the guard first. A second
+        // dispatch costs nothing: loadImpact debounces before it requests.
         refreshQuery: () => {
             cache.impactScope = undefined
             actions.loadImpact(null)
