@@ -661,7 +661,7 @@ export interface experimentReplayTabLogicMeta {
             effectiveExposureScope: ExperimentReplayExposureScope,
             inSessionExposure: ExperimentInSessionExposureApi | null,
             behaviorComparisonAvailable: boolean,
-            behaviorComparisonUnavailableReason: ExperimentBehaviorComparisonUnavailableReason | null
+            behaviorComparisonUnavailableReason: 'group_aggregated' | null
         ) => ExperimentRecordingsTabContext
         metricOptions: (
             linkabilityLoaded: boolean,
