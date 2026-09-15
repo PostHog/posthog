@@ -1013,6 +1013,7 @@ export interface sourceWizardLogicActions {
             | 'EConomic'
             | 'Elasticemail'
             | 'Elasticsearch'
+            | 'ElectricityMaps'
             | 'ElevenLabs'
             | 'Eloqua'
             | 'EmailOctopus'
