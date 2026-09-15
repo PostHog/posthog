@@ -160,6 +160,16 @@ See `posthog/temporal/oauth.py` for the full list.
 > **Principle of least privilege**: default to `"read_only"` unless your agent genuinely needs to create or modify resources.
 > This limits blast radius if the agent misbehaves.
 
+### Activity attribution
+
+A sandboxed agent authenticates as a person, so the activity log names that person as the actor.
+The client tag on the row is what says an agent made the change.
+
+A Signals scout run writes the tag `scout:<skill_name>`, which the activity log and the audit log render as `via scout <skill_name>`.
+The tag is derived from the task binding on the run's own token, not from the `x-posthog-client` request header.
+The `scout:` prefix is reserved for that path, and a header value claiming it is dropped, so an agent cannot claim to be a scout it is not.
+Every other client keeps the self-reported header value.
+
 ## PostHog MCP server
 
 The sandbox comes with access to the PostHog MCP server,

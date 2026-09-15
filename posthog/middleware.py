@@ -48,11 +48,7 @@ from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.helpers.sso import sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
 from posthog.models import Organization, Team, User
-from posthog.models.activity_logging.utils import (
-    ACTIVITY_LOG_CLIENT_HEADER,
-    ACTIVITY_LOG_CLIENT_MAX_LENGTH,
-    activity_storage,
-)
+from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_HEADER, activity_storage, client_from_header
 from posthog.models.utils import generate_random_token
 from posthog.ph_client import PH_US_API_KEY, PH_US_HOST
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
@@ -1125,7 +1121,7 @@ class ActivityLoggingMiddleware:
 
         client_header = request.headers.get(ACTIVITY_LOG_CLIENT_HEADER)
         if client_header:
-            activity_storage.set_client(client_header[:ACTIVITY_LOG_CLIENT_MAX_LENGTH])
+            activity_storage.set_client(client_from_header(client_header))
 
         activity_storage.set_ip_address(get_ip_address(request) or None)
 
