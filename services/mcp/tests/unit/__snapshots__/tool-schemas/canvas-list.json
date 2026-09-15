@@ -5,6 +5,10 @@
             "description": "Only return canvases in this channel (channel id).",
             "type": "string"
         },
+        "generation_task": {
+            "description": "Only return canvases this task generated.",
+            "type": "string"
+        },
         "kind": {
             "description": "Only return canvases of this kind. kind=component lists the component store.",
             "enum": ["component", "freeform", "grid"],

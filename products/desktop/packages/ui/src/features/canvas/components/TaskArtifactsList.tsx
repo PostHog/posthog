@@ -38,6 +38,7 @@ import {
   commentTargets,
   type RunFile,
 } from "@posthog/ui/features/canvas/components/taskArtifactRows";
+import { useTaskCanvases } from "@posthog/ui/features/canvas/hooks/useTaskCanvases";
 import { useTaskRuns } from "@posthog/ui/features/canvas/hooks/useTaskRuns";
 import { canvasArtifactOpenHandler } from "@posthog/ui/features/canvas/utils/canvasArtifactNavigation";
 import { openPrInReview } from "@posthog/ui/features/code-review/openPrInReview";
@@ -416,9 +417,10 @@ export function TaskArtifactsList({
   );
   const { runs } = useTaskRuns(task.id, completedUploads + referenceRefreshKey);
   const { data: currentUser } = useMeQuery();
+  const canvases = useTaskCanvases(task.id);
   const rows = useMemo(
-    () => buildRows(task, timeline, runs),
-    [task, timeline, runs],
+    () => buildRows(task, timeline, runs, canvases),
+    [task, timeline, runs, canvases],
   );
   // One query for every row's badge, so N resources cost one request rather
   // than one per row. The threads themselves live in the Comments tab.

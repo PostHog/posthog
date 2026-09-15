@@ -1,3 +1,4 @@
+import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
 import {
   getPostHogObjectArtifactMetadata,
   groupRunArtifactVersions,
@@ -18,7 +19,11 @@ import type {
   TaskRun,
   TaskThreadMessage,
 } from "@posthog/shared/domain-types";
-import { parseHttpsUrl, parseShareLink } from "@posthog/ui/utils/posthogLinks";
+import {
+  canvasShareUrl,
+  parseHttpsUrl,
+  parseShareLink,
+} from "@posthog/ui/utils/posthogLinks";
 
 export type RunFile = RunArtifact & { runId: string };
 
@@ -187,9 +192,12 @@ export function buildRows(
   task: Task,
   timeline: ThreadTimelineRow<TaskThreadMessage>[],
   runs: TaskRun[],
+  /** Canvases stamped with this task, for the ones the thread never announced. */
+  canvases: DashboardRecord[] = [],
 ): ArtifactRow[] {
   const rows: ArtifactRow[] = [];
   const seenPrUrls = new Set<string>();
+  const seenCanvasIds = new Set<string>();
 
   const addPr = (url: string, key: string, ts: number) => {
     if (seenPrUrls.has(url)) return;
@@ -203,15 +211,29 @@ export function buildRows(
       addPr(row.artifact.url, row.message.id, row.timestamp);
     } else {
       const url = row.artifact.url;
+      const dashboardId = canvasDashboardId(url);
+      if (dashboardId) seenCanvasIds.add(dashboardId);
       rows.push({
         kind: "canvas",
         key: row.message.id,
         name: row.artifact.name,
         url,
-        dashboardId: canvasDashboardId(url),
+        dashboardId,
         ts: row.timestamp,
       });
     }
+  }
+
+  for (const canvas of canvases) {
+    if (seenCanvasIds.has(canvas.id)) continue;
+    rows.push({
+      kind: "canvas",
+      key: `canvas:${canvas.id}`,
+      name: canvas.name,
+      url: canvasShareUrl(canvas.channelId, canvas.id),
+      dashboardId: canvas.id,
+      ts: canvas.createdAt,
+    });
   }
 
   const allRuns =

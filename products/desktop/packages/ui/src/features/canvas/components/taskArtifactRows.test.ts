@@ -1,3 +1,4 @@
+import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
 import type { Task, TaskRun } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
 import {
@@ -81,5 +82,43 @@ describe("buildRows", () => {
         occurrence_count: 3,
       },
     });
+  });
+
+  it("lists a canvas the thread never announced, once", () => {
+    const canvas = {
+      id: "canvas-1",
+      channelId: "channel-1",
+      name: "Weather board",
+      createdAt: 1_700_000_000_000,
+    } as DashboardRecord;
+    const announced = [
+      {
+        kind: "artifact" as const,
+        timestamp: 1_700_000_001_000,
+        message: { id: "msg-1" },
+        artifact: {
+          kind: "canvas" as const,
+          name: "Weather board",
+          url: "https://us.posthog.com/code/canvas/channel-1/canvas-1",
+        },
+      },
+    ] as Parameters<typeof buildRows>[1];
+
+    const silent = buildRows({ id: "task-1" } as Task, [], [], [canvas]).filter(
+      (row) => row.kind === "canvas",
+    );
+    const alsoAnnounced = buildRows(
+      { id: "task-1" } as Task,
+      announced,
+      [],
+      [canvas],
+    ).filter((row) => row.kind === "canvas");
+
+    expect(silent).toMatchObject([
+      { name: "Weather board", dashboardId: "canvas-1" },
+    ]);
+    // The announcement already carries the canvas; the record must not add a
+    // second row for it.
+    expect(alsoAnnounced).toMatchObject([{ key: "msg-1" }]);
   });
 });

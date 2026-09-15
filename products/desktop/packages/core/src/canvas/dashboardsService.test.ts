@@ -80,6 +80,26 @@ describe("DashboardsService.list", () => {
   });
 });
 
+describe("DashboardsService.listForTask", () => {
+  // A deployment without the generation_task parameter ignores it and answers
+  // with every visible canvas, which would fill a session with canvases it
+  // never made.
+  it("keeps only canvases stamped with the task", async () => {
+    const { api } = fakeApi({
+      "canvases/?generation_task=task-1": [
+        apiCanvas({ id: "c1", generation_task_id: "task-1" }),
+        apiCanvas({ id: "c2", generation_task_id: "task-2" }),
+        apiCanvas({ id: "c3" }),
+      ],
+    });
+    const service = new DashboardsService(api);
+
+    const rows = await service.listForTask("task-1");
+
+    expect(rows.map((row) => row.id)).toEqual(["c1"]);
+  });
+});
+
 describe("DashboardsService.getBuilds", () => {
   it("normalizes the lifecycle payload", async () => {
     const { api } = fakeApi({

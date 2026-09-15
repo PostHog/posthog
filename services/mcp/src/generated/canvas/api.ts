@@ -24,6 +24,7 @@ export const CanvasesListParams = () => zod.object({
 
 export const CanvasesListQueryParams = () => zod.object({
     channel: zod.string().optional().describe('Only return canvases in this channel.'),
+    generation_task: zod.string().optional().describe('Only return canvases this task generated.'),
     kind: zod
         .enum(['component', 'freeform', 'grid'])
         .optional()
