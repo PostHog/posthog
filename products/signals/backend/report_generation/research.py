@@ -94,10 +94,11 @@ The bar to clear: if someone dropped this report (or the PR) on you and said not
 
 Start with a one-sentence tl;dr on its very first line, before any heading. This single sentence is shown on its own in the inbox list, so it has to stand alone and make someone get the gist without the rest of the summary. Ideally lead with "Users …", spelling out how they're impacted, how many, or how important they are; if it's not users but the team building the product who's affected, say that instead; otherwise just say plainly what's going on. Keep it to one sentence, no heading, no bold, followed by a blank line.
 
-Then give it light structure so a busy reader can scan the rest, three short sections under H2 headings:
+Then give it light structure so a busy reader can scan the rest, with short sections under H2 headings:
 - '## Problem' – what's actually going wrong. Name the real culprit (the specific API, component, query, or behavior) in plain terms an engineer who knows this code will immediately recognize.
 - '## Impact' – who it hurts and how much: users (how many, how badly, how important), or, if it's not users, the team building the product. Lead with the thing that matters.
 - '## Solution' – what you'd do about it: the shape of the fix, not a spec. Omit this section entirely if the report isn't actionable.
+- '## Expected impact' – when the Solution section is present, estimate the expected change in one metric the solution should directly affect. Use a baseline from data you queried during this research. State the baseline, the expected post-fix value or credible range, and the absolute or relative delta. Show the short calculation and its important assumptions. Do not use a metric that the solution cannot change. If the solution improves recovery or diagnosis without changing the observed failure rate, say that the existing rate should stay stable and name the recovery metric to add. If the evidence has no usable baseline or denominator, say that no credible estimate is possible, name the missing data, and do not guess.
 
 Within each section write a sentence or two of natural, flowing prose, not bullet soup. Bold the few phrases a reader should catch at a glance (the core symptom, the key number, the root cause, the proposed change) so it's scannable without becoming a wall of labels. Don't over-bold: if everything's bold, nothing is.
 

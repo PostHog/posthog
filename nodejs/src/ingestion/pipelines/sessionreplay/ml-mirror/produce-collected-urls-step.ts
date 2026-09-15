@@ -12,6 +12,9 @@ import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-de
 
 import { MlMirrorMetrics } from './metrics'
 import { CollectedUrl } from './parse-and-anonymize-step'
+import { MlPrivacyBatchController } from './privacy/batch-controller'
+import { encryptedKafkaValue, validateImageOwner } from './privacy/transport'
+import { usesRawSessionIdentifiers } from './session-identifier-format'
 
 /**
  * The same trade as the image lane's cache, at a much lower cost per entry: a record here holds a
@@ -59,6 +62,7 @@ export interface CollectedUrlsMessage {
 }
 
 export interface ProduceCollectedUrlsOptions {
+    privacy?: MlPrivacyBatchController
     producedRefCacheMax?: number
     producedRefCacheWindowMs?: number
     crawlHistory?: Pick<CrawlHistoryStore, 'read'>
@@ -136,7 +140,12 @@ async function excludeFreshCrawlHistory(
  * it goes only into the Kafka value. Log lines and metrics carry hosts and counts only.
  */
 export function createProduceCollectedUrlsStep<
-    T extends { collectedUrls?: CollectedUrl[]; message: { timestamp?: number } },
+    T extends {
+        team?: { teamId: number }
+        headers?: { session_id: string }
+        collectedUrls?: CollectedUrl[]
+        message: { timestamp?: number }
+    },
 >(
     outputs: IngestionOutputs<MlImageFetchOutput>,
     topHog: TopHogRegistry,
@@ -159,6 +168,11 @@ export function createProduceCollectedUrlsStep<
     let nextCrawlHistoryWarningAtMs = 0
 
     return async function produceCollectedUrlsStep(input) {
+        const sessionId = input.headers?.session_id
+        const key =
+            sessionId && usesRawSessionIdentifiers(sessionId) && input.team
+                ? options.privacy?.keys(input.team.teamId, sessionId)?.session
+                : undefined
         const collected = input.collectedUrls
         if (!collected?.length) {
             return ok(input)
@@ -167,7 +181,10 @@ export function createProduceCollectedUrlsStep<
         const nowMs = Date.now()
         const timeBucket = Math.floor(nowMs / producedRefCacheWindowMs)
         const fresh = collected
-            .map((entry) => ({ entry, cacheKey: producedUrlCacheKey(entry, timeBucket) }))
+            .map((entry) => ({
+                entry,
+                cacheKey: `${key?.identity.sessionId ?? ''}:${producedUrlCacheKey(entry, timeBucket)}`,
+            }))
             .filter(({ cacheKey }) => !producedTransportUrls.has(cacheKey))
         MlMirrorMetrics.incrementMlUrlsCollected('deduped', collected.length - fresh.length)
         if (fresh.length === 0) {
@@ -179,23 +196,24 @@ export function createProduceCollectedUrlsStep<
         // reaches the fetcher under a hash nothing will ever match. Both kinds parse, so only
         // `source` separates them, and checking one entry would let every later one through.
         //
-        // Every entry must use the global URL-ref shape and carry the same transport pseudonym. One
-        // replay message belongs to one team, and a record stamped with another team's pseudonym is
+        // Every entry must use the global URL-ref shape and carry the same team ID. One
+        // replay message belongs to one team, and a record stamped with another team's ID is
         // a tenant-attribution error that nothing downstream can detect.
         const usable: typeof fresh = []
-        let pseudoTeam: string | undefined
+        let teamId: string | undefined
         for (const candidate of fresh) {
             const { entry } = candidate
+            validateImageOwner(entry.ref, key)
             const parsed = parseImageRef(entry.ref)
             if (
                 !parsed ||
                 parsed.source !== 'url' ||
                 parsed.pseudoTeam !== undefined ||
-                (pseudoTeam && entry.pseudoTeam !== pseudoTeam)
+                (teamId && entry.teamId !== teamId)
             ) {
                 continue
             }
-            pseudoTeam ??= entry.pseudoTeam
+            teamId ??= entry.teamId
             usable.push(candidate)
         }
         const unusable = fresh.length - usable.length
@@ -205,20 +223,25 @@ export function createProduceCollectedUrlsStep<
             // otherwise write an error line at full ingest rate for as long as it lasted.
             logger.warn('🌐', 'ml_image_fetch_ref_unusable', { count: unusable })
         }
-        if (!pseudoTeam || usable.length === 0) {
+        if (!teamId || usable.length === 0) {
             return ok({ ...input, collectedUrls: undefined })
         }
 
         for (const { cacheKey } of usable) {
             producedTransportUrls.add(cacheKey)
         }
-        const publishable = await excludeFreshCrawlHistory(usable, crawlHistory, nowMs, (error, count) => {
-            if (nowMs < nextCrawlHistoryWarningAtMs) {
-                return
+        const publishable = await excludeFreshCrawlHistory(
+            usable,
+            key ? undefined : crawlHistory,
+            nowMs,
+            (error, count) => {
+                if (nowMs < nextCrawlHistoryWarningAtMs) {
+                    return
+                }
+                nextCrawlHistoryWarningAtMs = nowMs + CRAWL_HISTORY_WARNING_INTERVAL_MS
+                logger.warn('🌐', 'ml_image_fetch_crawl_history_precheck_failed', { count, error: String(error) })
             }
-            nextCrawlHistoryWarningAtMs = nowMs + CRAWL_HISTORY_WARNING_INTERVAL_MS
-            logger.warn('🌐', 'ml_image_fetch_crawl_history_precheck_failed', { count, error: String(error) })
-        })
+        )
         if (publishable.length === 0) {
             return ok({ ...input, collectedUrls: undefined })
         }
@@ -256,7 +279,7 @@ export function createProduceCollectedUrlsStep<
                     } satisfies CollectedUrlsMessage)
                 )
                 MlMirrorMetrics.observeMlUrlRecord(slice.length, value.length)
-                return { key: domain, value }
+                return { key: domain, ...encryptedKafkaValue(key, 'image-frontier', value) }
             })
         )
 
@@ -287,6 +310,9 @@ export function createProduceCollectedUrlsStep<
                     error: String(error),
                 })
                 MlMirrorMetrics.incrementMlUrlsCollected('produce_failed', producedCacheKeys.length)
+                if (key) {
+                    throw error
+                }
             })
         return ok({ ...input, collectedUrls: undefined }, [produce])
     }

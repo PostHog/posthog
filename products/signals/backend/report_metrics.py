@@ -174,6 +174,147 @@ def _validate_live_metric_formula(formula: object, series_count: int) -> None:
         raise ValueError(f"a live metric formula must be executable arithmetic over the series: {error}") from None
 
 
+def validate_metric_id(value: str) -> str:
+    """Normalize a metric id and refuse one nothing can reference.
+
+    Stored ids are trimmed and lowercase, and every lookup matches them by equality, so a padded or
+    uppercase reference cannot match a metric however right it looks. A check rides this too, so the
+    reference it stores is one the report could actually hold.
+    """
+    if len(value) > MAX_METRIC_ID_LENGTH:
+        raise ValueError(f"must not exceed {MAX_METRIC_ID_LENGTH} characters")
+    normalized = value.strip()
+    if not _METRIC_ID_RE.fullmatch(normalized):
+        raise ValueError(
+            "must contain only lowercase letters, numbers, underscores, or hyphens, "
+            "and must start with a lowercase letter or number"
+        )
+    return normalized
+
+
+def validate_live_metric_query(value: dict[str, Any]) -> dict[str, Any]:
+    """Refuse any query a report metric or a report check must not run.
+
+    The contract is one bounded, live, single-output-series Trends node: a relative window that
+    advances with time, an allowlisted node set, event or action sources only, and an estimated
+    point count a reader can afford. A check rides the same rules as a metric because both end up
+    in the same query runner.
+    """
+
+    validate_report_query(value, allowed_kinds=_LIVE_METRIC_QUERY_KINDS)
+    try:
+        # Import only while validating authored content: importing the generated schema at module
+        # load would put it back on every signals model and Temporal worker startup path.
+        from posthog.schema import InsightVizNode  # noqa: PLC0415 — keeps the generated schema off startup
+
+        InsightVizNode.model_validate(value)
+    except ValidationError as error:
+        first_error = error.errors(include_input=False)[0]
+        location = ".".join(str(part) for part in first_error["loc"])
+        raise ValueError(
+            f"query must match the canonical InsightVizNode schema; {location}: {first_error['msg']}"
+        ) from None
+    source = value.get("source")
+    if not isinstance(source, dict) or source.get("kind") != "TrendsQuery":
+        raise ValueError("query must wrap one TrendsQuery in an InsightVizNode")
+    series = source.get("series")
+    if not isinstance(series, list) or not series or any(not isinstance(item, dict) for item in series):
+        raise ValueError("query.source.series must contain at least one Trends series")
+    if len(series) > MAX_LIVE_METRIC_QUERY_SERIES:
+        raise ValueError(f"query.source.series accepts at most {MAX_LIVE_METRIC_QUERY_SERIES} series")
+    if any(item.get("kind") not in _LIVE_METRIC_SERIES_KINDS for item in series):
+        raise ValueError("a live metric query must use only event or action series so reader access can be checked")
+    for item in series:
+        if item["kind"] == "EventsNode":
+            event = item.get("event")
+            if not isinstance(event, str) or not event.strip():
+                raise ValueError("a live metric event series needs a non-empty event name")
+        else:
+            action_id = item.get("id")
+            if not isinstance(action_id, int) or isinstance(action_id, bool) or action_id <= 0:
+                raise ValueError("a live metric action series needs a positive integer action id")
+    if source.get("breakdownFilter") or source.get("breakdown"):
+        raise ValueError("a live metric query must not use a breakdown because it represents one measurement")
+    sampling_factor = source.get("samplingFactor")
+    # `SAMPLE 0` returns no rows, and the Trends runner skips its sampling correction for a falsy
+    # factor, so a zero reads back as a genuine measurement of 0 and a `lte` check passes on it.
+    # A factor outside the range fails in ClickHouse instead, which costs the check a retry.
+    if sampling_factor is not None and (
+        not isinstance(sampling_factor, int | float)
+        or isinstance(sampling_factor, bool)
+        or not 0 < sampling_factor <= 1
+    ):
+        raise ValueError("query.source.samplingFactor must be greater than 0 and at most 1")
+    compare_filter = source.get("compareFilter")
+    if isinstance(compare_filter, dict) and compare_filter.get("compare"):
+        raise ValueError("a live metric query must not use compare mode because it represents one measurement")
+    trends_filter = source.get("trendsFilter")
+    if isinstance(trends_filter, dict):
+        if trends_filter.get("compare"):
+            raise ValueError("a live metric query must not use compare mode because it represents one measurement")
+        if (
+            trends_filter.get("display") == "Metric"
+            and trends_filter.get("metricShowChange", True) is not False
+            and trends_filter.get("metricSummary", "total") != "latest"
+        ):
+            raise ValueError(
+                "a live metric query using the Metric display must disable metricShowChange or use the latest "
+                "summary so the Trends runner does not enable compare mode"
+            )
+    date_range = source.get("dateRange")
+    if not isinstance(date_range, dict):
+        raise ValueError("query.source.dateRange.date_from must be a relative time window such as `-30d`")
+    date_from = date_range.get("date_from")
+    if not isinstance(date_from, str):
+        raise ValueError("query.source.dateRange.date_from must be a relative time window such as `-30d`")
+    relative_window = _RELATIVE_DATE_FROM_RE.fullmatch(date_from)
+    if relative_window is None:
+        raise ValueError("query.source.dateRange.date_from must be a relative time window such as `-30d`")
+    amount, unit = relative_window.groups()
+    window_seconds = int(amount) * _RELATIVE_WINDOW_SECONDS[unit]
+    if window_seconds > MAX_LIVE_METRIC_WINDOW_DAYS * _RELATIVE_WINDOW_SECONDS["d"]:
+        raise ValueError(f"query.source.dateRange must not exceed {MAX_LIVE_METRIC_WINDOW_DAYS} days for a live metric")
+    if date_range.get("date_to") not in (None, ""):
+        raise ValueError("query.source.dateRange.date_to must be empty so a live metric advances with time")
+    interval = source.get("interval")
+    if interval is None:
+        interval = "day"
+    if not isinstance(interval, str) or interval not in _LIVE_METRIC_INTERVAL_SECONDS:
+        accepted_intervals = ", ".join(_LIVE_METRIC_INTERVAL_SECONDS)
+        raise ValueError(f"query.source.interval must be one of {accepted_intervals}")
+    output_series_count = len(series)
+    selected_formulas: list[object] = []
+    if isinstance(trends_filter, dict):
+        formula_nodes = trends_filter.get("formulaNodes")
+        formulas = trends_filter.get("formulas")
+        formula = trends_filter.get("formula")
+        if isinstance(formula_nodes, list) and formula_nodes:
+            output_series_count = len(formula_nodes)
+            selected_formulas = [node.get("formula") if isinstance(node, dict) else node for node in formula_nodes]
+        elif isinstance(formulas, list) and formulas:
+            output_series_count = len(formulas)
+            selected_formulas = list(formulas)
+        elif isinstance(formula, str) and formula:
+            output_series_count = 1
+            selected_formulas = [formula]
+    if output_series_count != 1:
+        raise ValueError(
+            "a live metric query must produce exactly one output series; use one source or combine up to "
+            f"{MAX_LIVE_METRIC_QUERY_SERIES} source series with exactly one formula"
+        )
+    for selected_formula in selected_formulas:
+        _validate_live_metric_formula(selected_formula, len(series))
+    interval_seconds = _LIVE_METRIC_INTERVAL_SECONDS[interval]
+    estimated_buckets = (window_seconds + interval_seconds - 1) // interval_seconds + 1
+    estimated_points = estimated_buckets * output_series_count
+    if estimated_points > MAX_LIVE_METRIC_QUERY_POINTS:
+        raise ValueError(
+            "query.source date range, interval, and output series would produce approximately "
+            f"{estimated_points} points; live metrics accept at most {MAX_LIVE_METRIC_QUERY_POINTS}"
+        )
+    return value
+
+
 class ReportMetricComparison(BaseModel):
     value: float = Field(description="Baseline or previous value, formatted like the metric value.")
     label: str = Field(description="Short context for the comparison, such as `Previous period`.")
@@ -282,15 +423,7 @@ class ReportMetric(BaseModel):
     @field_validator("metric_id")
     @classmethod
     def metric_id_must_be_reference_safe(cls, value: str) -> str:
-        if len(value) > MAX_METRIC_ID_LENGTH:
-            raise ValueError(f"must not exceed {MAX_METRIC_ID_LENGTH} characters")
-        normalized = value.strip()
-        if not _METRIC_ID_RE.fullmatch(normalized):
-            raise ValueError(
-                "must contain only lowercase letters, numbers, underscores, or hyphens, "
-                "and must start with a lowercase letter or number"
-            )
-        return normalized
+        return validate_metric_id(value)
 
     @field_validator("title")
     @classmethod
@@ -374,110 +507,7 @@ class ReportMetric(BaseModel):
     @field_validator("query")
     @classmethod
     def query_must_be_a_live_trends_node(cls, value: dict[str, Any]) -> dict[str, Any]:
-        validate_report_query(value, allowed_kinds=_LIVE_METRIC_QUERY_KINDS)
-        try:
-            # Import only while validating authored content: importing the generated schema at module
-            # load would put it back on every signals model and Temporal worker startup path.
-            from posthog.schema import InsightVizNode  # noqa: PLC0415 — keeps the generated schema off startup
-
-            InsightVizNode.model_validate(value)
-        except ValidationError as error:
-            first_error = error.errors(include_input=False)[0]
-            location = ".".join(str(part) for part in first_error["loc"])
-            raise ValueError(
-                f"query must match the canonical InsightVizNode schema; {location}: {first_error['msg']}"
-            ) from None
-        source = value.get("source")
-        if not isinstance(source, dict) or source.get("kind") != "TrendsQuery":
-            raise ValueError("query must wrap one TrendsQuery in an InsightVizNode")
-        series = source.get("series")
-        if not isinstance(series, list) or not series or any(not isinstance(item, dict) for item in series):
-            raise ValueError("query.source.series must contain at least one Trends series")
-        if len(series) > MAX_LIVE_METRIC_QUERY_SERIES:
-            raise ValueError(f"query.source.series accepts at most {MAX_LIVE_METRIC_QUERY_SERIES} series")
-        if any(item.get("kind") not in _LIVE_METRIC_SERIES_KINDS for item in series):
-            raise ValueError("a live metric query must use only event or action series so reader access can be checked")
-        for item in series:
-            if item["kind"] == "EventsNode":
-                event = item.get("event")
-                if not isinstance(event, str) or not event.strip():
-                    raise ValueError("a live metric event series needs a non-empty event name")
-            else:
-                action_id = item.get("id")
-                if not isinstance(action_id, int) or isinstance(action_id, bool) or action_id <= 0:
-                    raise ValueError("a live metric action series needs a positive integer action id")
-        if source.get("breakdownFilter") or source.get("breakdown"):
-            raise ValueError("a live metric query must not use a breakdown because it represents one measurement")
-        compare_filter = source.get("compareFilter")
-        if isinstance(compare_filter, dict) and compare_filter.get("compare"):
-            raise ValueError("a live metric query must not use compare mode because it represents one measurement")
-        trends_filter = source.get("trendsFilter")
-        if isinstance(trends_filter, dict):
-            if trends_filter.get("compare"):
-                raise ValueError("a live metric query must not use compare mode because it represents one measurement")
-            if (
-                trends_filter.get("display") == "Metric"
-                and trends_filter.get("metricShowChange", True) is not False
-                and trends_filter.get("metricSummary", "total") != "latest"
-            ):
-                raise ValueError(
-                    "a live metric query using the Metric display must disable metricShowChange or use the latest "
-                    "summary so the Trends runner does not enable compare mode"
-                )
-        date_range = source.get("dateRange")
-        if not isinstance(date_range, dict):
-            raise ValueError("query.source.dateRange.date_from must be a relative time window such as `-30d`")
-        date_from = date_range.get("date_from")
-        if not isinstance(date_from, str):
-            raise ValueError("query.source.dateRange.date_from must be a relative time window such as `-30d`")
-        relative_window = _RELATIVE_DATE_FROM_RE.fullmatch(date_from)
-        if relative_window is None:
-            raise ValueError("query.source.dateRange.date_from must be a relative time window such as `-30d`")
-        amount, unit = relative_window.groups()
-        window_seconds = int(amount) * _RELATIVE_WINDOW_SECONDS[unit]
-        if window_seconds > MAX_LIVE_METRIC_WINDOW_DAYS * _RELATIVE_WINDOW_SECONDS["d"]:
-            raise ValueError(
-                f"query.source.dateRange must not exceed {MAX_LIVE_METRIC_WINDOW_DAYS} days for a live metric"
-            )
-        if date_range.get("date_to") not in (None, ""):
-            raise ValueError("query.source.dateRange.date_to must be empty so a live metric advances with time")
-        interval = source.get("interval")
-        if interval is None:
-            interval = "day"
-        if not isinstance(interval, str) or interval not in _LIVE_METRIC_INTERVAL_SECONDS:
-            accepted_intervals = ", ".join(_LIVE_METRIC_INTERVAL_SECONDS)
-            raise ValueError(f"query.source.interval must be one of {accepted_intervals}")
-        output_series_count = len(series)
-        selected_formulas: list[object] = []
-        if isinstance(trends_filter, dict):
-            formula_nodes = trends_filter.get("formulaNodes")
-            formulas = trends_filter.get("formulas")
-            formula = trends_filter.get("formula")
-            if isinstance(formula_nodes, list) and formula_nodes:
-                output_series_count = len(formula_nodes)
-                selected_formulas = [node.get("formula") if isinstance(node, dict) else node for node in formula_nodes]
-            elif isinstance(formulas, list) and formulas:
-                output_series_count = len(formulas)
-                selected_formulas = list(formulas)
-            elif isinstance(formula, str) and formula:
-                output_series_count = 1
-                selected_formulas = [formula]
-        if output_series_count != 1:
-            raise ValueError(
-                "a live metric query must produce exactly one output series; use one source or combine up to "
-                f"{MAX_LIVE_METRIC_QUERY_SERIES} source series with exactly one formula"
-            )
-        for selected_formula in selected_formulas:
-            _validate_live_metric_formula(selected_formula, len(series))
-        interval_seconds = _LIVE_METRIC_INTERVAL_SECONDS[interval]
-        estimated_buckets = (window_seconds + interval_seconds - 1) // interval_seconds + 1
-        estimated_points = estimated_buckets * output_series_count
-        if estimated_points > MAX_LIVE_METRIC_QUERY_POINTS:
-            raise ValueError(
-                "query.source date range, interval, and output series would produce approximately "
-                f"{estimated_points} points; live metrics accept at most {MAX_LIVE_METRIC_QUERY_POINTS}"
-            )
-        return value
+        return validate_live_metric_query(value)
 
     @model_validator(mode="after")
     def measurement_must_be_available_and_consistent(self) -> ReportMetric:

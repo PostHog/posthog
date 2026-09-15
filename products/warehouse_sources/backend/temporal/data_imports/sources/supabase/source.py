@@ -49,6 +49,18 @@ _SUPABASE_DIRECT_HOST_RE = re.compile(r"^db\.[a-z0-9]+\.supabase\.co$", re.IGNOR
 # just yields an opaque DNS failure, so detect it and point users at the actual database host.
 _SUPABASE_PROJECT_HOST_RE = re.compile(r"^(?P<ref>[a-z0-9]+)\.supabase\.co$", re.IGNORECASE)
 
+# The pooler username is `postgres.<project-ref>`, which reads like a host name — our own pooler
+# guidance spells it out, and it lands in the host field often enough to be worth naming. A project
+# ref is 20 characters, and a bare `postgres.<label>` that long is not a resolvable host either
+# way, so matching it can't reject a host that would have worked.
+_SUPABASE_POOLER_USERNAME_HOST_RE = re.compile(r"^postgres\.[a-z0-9]{16,}$", re.IGNORECASE)
+
+_SUPABASE_POOLER_USERNAME_AS_HOST_ERROR = (
+    "The host looks like your Supabase pooler username, not a database host. Enter the Session "
+    "pooler host (aws-0-<region>.pooler.supabase.com) as the host, and postgres.<project-ref> as "
+    "the user."
+)
+
 
 def _strip_host_scheme(host: str) -> str:
     """Reduce a pasted value to a bare host: drop any URL scheme, path, and surrounding whitespace."""
@@ -197,6 +209,9 @@ class SupabaseSource(PostgresSource):
         require_ssl: bool = False,
     ) -> tuple[bool, str | None]:
         bare_host = _strip_host_scheme(config.host or "")
+        if _SUPABASE_POOLER_USERNAME_HOST_RE.match(bare_host):
+            return False, _SUPABASE_POOLER_USERNAME_AS_HOST_ERROR
+
         project_host = _SUPABASE_PROJECT_HOST_RE.match(bare_host)
         if project_host:
             # Project refs are lowercase, and the pooler username (postgres.<ref>) is
