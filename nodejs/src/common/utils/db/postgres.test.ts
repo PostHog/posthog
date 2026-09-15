@@ -52,9 +52,9 @@ describe('postgres error classification', () => {
         it('reads the code through the wrapper a transient failure is rethrown in', () => {
             const cause = pgError('40P01', 'deadlock detected')
 
-            expect(postgresErrorFingerprint('scope', new DependencyUnavailableError('boom', 'Postgres', cause))).toEqual(
-                postgresErrorFingerprint('scope', cause)
-            )
+            expect(
+                postgresErrorFingerprint('scope', new DependencyUnavailableError('boom', 'Postgres', cause))
+            ).toEqual(postgresErrorFingerprint('scope', cause))
         })
 
         it('leaves an error of our own to its stack', () => {
