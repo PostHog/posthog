@@ -17,10 +17,6 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-// registerApiBaseHost's value is what lets the network-duration metric (see
-// posthogAnalyticsImpl.networkMetricPath) recognize the app's own requests. A
-// build-time env var can't carry it: the backend host is only known once the
-// user's cloud region is, which happens here.
 describe("createAuthenticatedClient", () => {
   it("registers the region's backend host", () => {
     createAuthenticatedClient(

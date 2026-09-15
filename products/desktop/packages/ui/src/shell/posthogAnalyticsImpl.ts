@@ -45,17 +45,10 @@ let registeredAppVersion: string | null = null;
 let registeredHostInfo: HostInfoProperties | null = null;
 const registeredSubscriptions = new Map<Adapter, AdapterSubscriptionState>();
 
-// The desktop app's own backend host (e.g. https://us.posthog.com), known only
-// once a cloud region is chosen — see networkMetricPath.
+// Set after authentication because the cloud region is only known at runtime.
 let registeredApiBaseHost: string | null = null;
 
-/**
- * Record the desktop app's own backend host, so the network-duration metric's
- * path attribution (networkMetricPath) can recognize the app's own requests.
- * Call this whenever an authenticated API client is built for a cloud region
- * (see createAuthenticatedClient) — it's a runtime, per-session value, not a
- * build-time one, so it can't be read from an env var at init time.
- */
+/** Record the backend host used for the current authenticated session. */
 export function registerApiBaseHost(host: string): void {
   registeredApiBaseHost = host;
 }

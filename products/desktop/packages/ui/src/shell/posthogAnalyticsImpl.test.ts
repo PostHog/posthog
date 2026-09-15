@@ -260,9 +260,6 @@ describe("networkMetricPath", () => {
     expect(path).toBe("external");
   });
 
-  // Before a cloud region is chosen (early boot, signed out) there's no backend
-  // host to compare against — collapsing keeps that window failing closed
-  // instead of matching every host.
   it("collapses the path when no backend host is registered yet", async () => {
     const { networkMetricPath } = await loadAnalytics();
 
@@ -276,10 +273,6 @@ describe("networkMetricPath", () => {
 });
 
 describe("metrics.network.attributes callback", () => {
-  // The callback must read the *current* registered backend host on every call,
-  // not one captured when posthog.init() ran: initializePostHog() runs at boot,
-  // before the user's cloud region (and therefore the app's real backend host)
-  // is known, so registerApiBaseHost() always lands after init.
   it("reflects a backend host registered after init, without re-initializing", async () => {
     const { initializePostHog, registerApiBaseHost } = await loadAnalytics();
 

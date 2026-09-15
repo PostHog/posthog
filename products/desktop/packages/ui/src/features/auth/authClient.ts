@@ -17,8 +17,6 @@ export function createAuthenticatedClient(
   }
 
   const apiBaseHost = getCloudUrlFromRegion(authState.cloudRegion);
-  // Lets the network-duration metric's path attribution recognize this app's
-  // own requests — see networkMetricPath.
   registerApiBaseHost(apiBaseHost);
 
   const client = new PostHogAPIClient(
