@@ -96,11 +96,12 @@ export function WorkflowSuggestionCard({ id, proposal }: { id: string; proposal:
             </div>
             <LemonCollapse
                 size="small"
+                defaultActiveKey="details"
                 panels={[
                     {
                         key: 'details',
-                        header: 'What it changes and why',
-                        content: <WorkflowSuggestionDetails proposal={proposal} />,
+                        header: 'What changes',
+                        content: <WorkflowSuggestionDetails id={id} proposal={proposal} />,
                     },
                 ]}
             />
