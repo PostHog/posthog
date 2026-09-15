@@ -2171,6 +2171,9 @@ class TestErrorClassification:
         inputs = CDCExtractInput(team_id=1, source_id=source.id)
         with (
             patch("products.data_warehouse.backend.facade.tasks.schedule_external_data_failure_digest") as mock_digest,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sync_failure_events.produce_internal_event"
+            ) as mock_produce,
             pytest.raises(NonRetryableException),
         ):
             cdc_extract_activity(inputs)
@@ -2181,6 +2184,10 @@ class TestErrorClassification:
         # digest email "paused, action required" instead of "will retry".
         assert schema.sync_type_config["cdc_extraction_paused"]["reason"] == "auth_failed"
         mock_digest.assert_called_once_with(1, trigger="cdc")
+        mock_produce.assert_called_once()
+        failed_event_properties = mock_produce.call_args.kwargs["event"].properties
+        assert failed_event_properties["schema_id"] == str(schema.id)
+        assert failed_event_properties["error"] == schema.latest_error
 
         mock_posthoganalytics.capture.assert_called_once()
         captured = mock_posthoganalytics.capture.call_args.kwargs

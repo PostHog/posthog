@@ -18,6 +18,7 @@ _LAZY = {
     "LOCK_TAKEOVER_LATEST_ERROR": "metrics",
     "TERMINAL_JOB_STATUSES": "metrics",
     "emit_data_import_app_metrics": "metrics",
+    "produce_sync_failed_events": "sync_failure_events",
     "BatchQueue": "pipelines.pipeline_v3.postgres_queue.jobs_db",
     "mark_job_failed_if_not_terminal": "pipelines.pipeline_v3.postgres_queue.consumer",
     "release_v3_pipeline_lock": "pipelines.pipeline_v3.sync_lock",
