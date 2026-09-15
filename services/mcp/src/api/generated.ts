@@ -23889,8 +23889,11 @@ export namespace Schemas {
          * @nullable
          */
       edited_history_id?: string | null;
-      /** @nullable */
-      readonly latest_history_id: number | null;
+      /**
+         * Activity log ID of the most recent query edit to this view. Send it back as edited_history_id on the next query write, so conflict detection can tell whether someone else changed the query in the meantime. Edits that leave the query alone do not advance it.
+         * @nullable
+         */
+      readonly latest_history_id: string | null;
       /**
          * If true, skip column inference and validation. For saving drafts.
          * @nullable
@@ -65383,8 +65386,11 @@ export namespace Schemas {
          * @nullable
          */
       edited_history_id?: string | null;
-      /** @nullable */
-      readonly latest_history_id?: number | null;
+      /**
+         * Activity log ID of the most recent query edit to this view. Send it back as edited_history_id on the next query write, so conflict detection can tell whether someone else changed the query in the meantime. Edits that leave the query alone do not advance it.
+         * @nullable
+         */
+      readonly latest_history_id?: string | null;
       /**
          * If true, skip column inference and validation. For saving drafts.
          * @nullable
