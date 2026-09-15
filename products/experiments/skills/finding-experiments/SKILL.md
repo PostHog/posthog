@@ -1,6 +1,6 @@
 ---
 name: finding-experiments
-description: Resolves a PostHog experiment reference from natural language to a concrete experiment ID with `experiment-list` (not feature-flag tools), using its server-side search, status, ordering, and pagination parameters, with disambiguation when multiple experiments match. Use when the user names or quotes an experiment ("split test demo", "the File engagement boost experiment", "onboarding retention test", "landing page hero experiment", "pricing experiment"), describes it loosely ("the signup experiment", "my pricing test", "the one with the new checkout"), uses a relative reference ("latest", "most recent", "the one I created yesterday"), filters by status (running, draft, paused, exposure frozen, stopped, complete) or by archived state, or otherwise refers to an experiment by anything other than its concrete ID.
+description: Resolves a PostHog experiment reference from natural language to a concrete experiment ID with `experiment-list` (not feature-flag tools), using its server-side search, status, creator, ordering, and pagination parameters, with disambiguation when multiple experiments match. Use when the user names or quotes an experiment ("split test demo", "the File engagement boost experiment", "onboarding retention test", "landing page hero experiment", "pricing experiment"), describes it loosely ("the signup experiment", "my pricing test", "the one with the new checkout"), uses a relative reference ("latest", "most recent", "the one I created yesterday"), filters by status (running, draft, paused, exposure frozen, stopped, complete) or by archived state, or otherwise refers to an experiment by anything other than its concrete ID.
 ---
 
 # Finding experiments
@@ -33,6 +33,9 @@ A project can hold hundreds of experiments, and one response holds one page of 1
   Order by another allowlisted field when the reference needs it — for example `order: "-start_date"` for "the last one I launched".
   A descending date order lists the rows that carry no date first, so `-start_date` leads with drafts and `-end_date` with experiments still running.
   Take the first result that carries the date, and page on if a whole page carries none.
+- **By creator**: `experiment-list {created_by_id: <user id>}`.
+  "The one I created yesterday" needs this filter, because the default list holds every creator and the response carries no `created_by` field to check after the fact.
+  Call `user-get {uuid: "@me"}` for the user's `id`, and ask which experiment they mean when you cannot resolve it.
 - **By flag**: `experiment-list {feature_flag_id: <id>}` when you already have the flag ID.
   Otherwise match the `feature_flag_key` field of the results.
 
