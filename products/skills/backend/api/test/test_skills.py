@@ -1694,7 +1694,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
         response = self.client.post(
             self._url("name/make-pr/publish-community"),
-            data={"author_handle": "andymaguire"},
+            data={"expected_version": 1, "author_handle": "andymaguire"},
             format="json",
         )
 
@@ -1731,7 +1731,11 @@ class TestLLMSkillAPI(APIBaseTest):
         mock_publish.return_value = {"pr_url": "https://github.com/x/y/pull/1", "pr_number": 1, "branch": "b"}
         self.create_skill(name="make-pr", metadata={"tags": metadata_tags})
 
-        response = self.client.post(self._url("name/make-pr/publish-community"), data=payload, format="json")
+        response = self.client.post(
+            self._url("name/make-pr/publish-community"),
+            data={"expected_version": 1, **payload},
+            format="json",
+        )
 
         assert response.status_code == status.HTTP_201_CREATED
         assert mock_publish.call_args.kwargs["tags"] == expected
@@ -1742,6 +1746,25 @@ class TestLLMSkillAPI(APIBaseTest):
         response = self.client.post(self._url("name/does-not-exist/publish-community"), data={}, format="json")
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+        mock_publish.assert_not_called()
+
+    @patch(COMMUNITY_FLAG, return_value=True)
+    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    def test_publish_to_community_rejects_a_version_that_the_publisher_did_not_review(
+        self, mock_publish, _mock_flag
+    ):
+        self.create_skill(name="make-pr")
+
+        response = self.client.post(
+            self._url("name/make-pr/publish-community"),
+            data={"expected_version": 2},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.json()["detail"] == (
+            "This skill changed after you reviewed it. Reopen the dialog and review the latest version."
+        )
         mock_publish.assert_not_called()
 
     @parameterized.expand(
@@ -1759,7 +1782,7 @@ class TestLLMSkillAPI(APIBaseTest):
 
         response = self.client.post(
             self._url("name/make-pr/publish-community"),
-            data={"display_name": display_name},
+            data={"expected_version": 1, "display_name": display_name},
             format="json",
         )
 
@@ -1771,7 +1794,9 @@ class TestLLMSkillAPI(APIBaseTest):
     def test_publish_to_community_is_gated_on_the_community_flag(self, mock_publish, _mock_flag):
         self.create_skill(name="make-pr")
 
-        response = self.client.post(self._url("name/make-pr/publish-community"), data={}, format="json")
+        response = self.client.post(
+            self._url("name/make-pr/publish-community"), data={"expected_version": 1}, format="json"
+        )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         mock_publish.assert_not_called()
@@ -1782,7 +1807,9 @@ class TestLLMSkillAPI(APIBaseTest):
         mock_publish.side_effect = CommunitySkillPublishNotConfiguredError("nope")
         self.create_skill(name="make-pr")
 
-        response = self.client.post(self._url("name/make-pr/publish-community"), data={}, format="json")
+        response = self.client.post(
+            self._url("name/make-pr/publish-community"), data={"expected_version": 1}, format="json"
+        )
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
 
@@ -1794,7 +1821,9 @@ class TestLLMSkillAPI(APIBaseTest):
         mock_publish.side_effect = CommunitySkillPublishValidationError("that slug is reserved")
         self.create_skill(name="make-pr")
 
-        response = self.client.post(self._url("name/make-pr/publish-community"), data={}, format="json")
+        response = self.client.post(
+            self._url("name/make-pr/publish-community"), data={"expected_version": 1}, format="json"
+        )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == "that slug is reserved"
@@ -1805,7 +1834,9 @@ class TestLLMSkillAPI(APIBaseTest):
         mock_publish.side_effect = CommunitySkillPublishError("github exploded")
         self.create_skill(name="make-pr")
 
-        response = self.client.post(self._url("name/make-pr/publish-community"), data={}, format="json")
+        response = self.client.post(
+            self._url("name/make-pr/publish-community"), data={"expected_version": 1}, format="json"
+        )
 
         assert response.status_code == status.HTTP_502_BAD_GATEWAY
 

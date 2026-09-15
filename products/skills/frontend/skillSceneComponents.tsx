@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { Suspense } from 'react'
+import { Suspense, useEffect } from 'react'
 
-import { LemonButton, LemonCollapse, LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonModal, LemonTag } from '@posthog/lemon-ui'
 
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -13,12 +13,7 @@ import { LemonDialog } from '~/lib/lemon-ui/LemonDialog'
 
 import type { SkillFormFileValues } from './llmSkillLogic'
 import { isSkill, llmSkillLogic } from './llmSkillLogic'
-import {
-    COMMUNITY_SKILLS_REPO,
-    COMMUNITY_SKILLS_REPO_URL,
-    SKILL_NAME_MAX_LENGTH,
-    validateSkillName,
-} from './skillConstants'
+import { SKILL_NAME_MAX_LENGTH, validateSkillName } from './skillConstants'
 import { skillPublishPreviewLogic } from './skillPublishPreviewLogic'
 
 export { LLMSkillsScene } from './LLMSkillsScene'
@@ -60,6 +55,7 @@ export function openRenameSkillDialog(skillName: string, onRename: (newName: str
 }
 
 interface PublishToCommunityOptions {
+    expected_version: number
     display_name?: string
     tags?: string[]
     author_handle?: string
@@ -96,48 +92,77 @@ export function publishToCommunityDisabledReason({
 }
 
 /** What the pending publish sends: the destination repo, the version, and every file in the commit. */
-function PublishToCommunityContents({ skillName }: { skillName: string }): JSX.Element {
+function PublishToCommunityContents({
+    skillName,
+    onVersionChange,
+}: {
+    skillName: string
+    onVersionChange: (version: number | null) => void
+}): JSX.Element {
     const { publishPreview, publishPreviewLoading } = useValues(skillPublishPreviewLogic({ skillName }))
+    const { loadPublishPreview } = useActions(skillPublishPreviewLogic({ skillName }))
+
+    useEffect(() => {
+        onVersionChange(publishPreview?.version ?? null)
+    }, [onVersionChange, publishPreview?.version])
 
     return (
-        <div className="flex flex-col gap-1 rounded border p-2 bg-primary-highlight">
-            <div className="flex items-center gap-2">
-                <span className="font-semibold">Public destination</span>
-                <Link to={COMMUNITY_SKILLS_REPO_URL} target="_blank">
-                    {COMMUNITY_SKILLS_REPO}
-                </Link>
-                <LemonTag type="danger">Public</LemonTag>
-            </div>
-            {publishPreviewLoading ? (
-                <LemonSkeleton active className="h-4 w-3/5" />
-            ) : publishPreview ? (
-                <>
-                    <div>
-                        <span className="font-semibold">Version</span> v{publishPreview.version}
+        <>
+            <div className="flex flex-col gap-1 rounded border p-2 bg-primary-highlight">
+                <div className="flex items-center gap-2">
+                    <span className="font-semibold">Visibility</span>
+                    <span>Public on GitHub</span>
+                    <LemonTag type="danger">Public</LemonTag>
+                </div>
+                {publishPreviewLoading ? (
+                    <LemonSkeleton active className="h-4 w-3/5" />
+                ) : publishPreview ? (
+                    <>
+                        <div>
+                            <span className="font-semibold">Version</span> v{publishPreview.version}
+                        </div>
+                        <LemonCollapse
+                            embedded
+                            size="small"
+                            panels={[
+                                {
+                                    key: 'files',
+                                    header: 'Review files',
+                                    content: (
+                                        <ul className="m-0 pl-4 list-disc font-mono text-xs max-h-40 overflow-y-auto">
+                                            <li>SKILL.md</li>
+                                            {publishPreview.files.map((file) => (
+                                                <li key={file.path}>{file.path}</li>
+                                            ))}
+                                        </ul>
+                                    ),
+                                },
+                            ]}
+                        />
+                    </>
+                ) : (
+                    <div className="flex items-center gap-2">
+                        <span className="text-secondary">Could not load the version and file list.</span>
+                        <LemonButton size="small" onClick={loadPublishPreview}>
+                            Retry
+                        </LemonButton>
                     </div>
-                    <LemonCollapse
-                        embedded
-                        size="small"
-                        panels={[
-                            {
-                                key: 'files',
-                                header: 'Review files',
-                                content: (
-                                    <ul className="m-0 pl-4 list-disc font-mono text-xs max-h-40 overflow-y-auto">
-                                        <li>SKILL.md</li>
-                                        {publishPreview.files.map((file) => (
-                                            <li key={file.path}>{file.path}</li>
-                                        ))}
-                                    </ul>
-                                ),
-                            },
-                        ]}
+                )}
+            </div>
+            <LemonField name="consent">
+                {({ value, onChange }) => (
+                    <LemonCheckbox
+                        checked={!!value}
+                        onChange={onChange}
+                        disabledReason={
+                            !publishPreview ? 'Wait for the version and file list before you publish' : undefined
+                        }
+                        data-attr="llma-publish-consent"
+                        label="I reviewed this skill and can share it publicly"
                     />
-                </>
-            ) : (
-                <div className="text-secondary">Couldn't load the file list. Publishing still sends every file.</div>
-            )}
-        </div>
+                )}
+            </LemonField>
+        </>
     )
 }
 
@@ -152,6 +177,8 @@ export function openPublishToCommunityDialog({
     githubLogin: string | null
     onPublish: (skillName: string, options: PublishToCommunityOptions) => void
 }): void {
+    let expectedVersion: number | null = null
+
     LemonDialog.openForm({
         title: 'Publish to the PostHog community?',
         description: 'All PostHog users can find and use this skill. Its contents will also be public on GitHub.',
@@ -165,7 +192,12 @@ export function openPublishToCommunityDialog({
         },
         content: (
             <div className="flex flex-col gap-2">
-                <PublishToCommunityContents skillName={skillName} />
+                <PublishToCommunityContents
+                    skillName={skillName}
+                    onVersionChange={(version) => {
+                        expectedVersion = version
+                    }}
+                />
                 <LemonField name="display_name" label="Display name">
                     <LemonInput data-attr="llma-publish-display-name" autoFocus />
                 </LemonField>
@@ -175,16 +207,6 @@ export function openPublishToCommunityDialog({
                 <LemonField name="author_handle" label="Your GitHub handle (optional)">
                     <LemonInput data-attr="llma-publish-author-handle" placeholder="octocat" />
                 </LemonField>
-                <LemonField name="consent">
-                    {({ value, onChange }) => (
-                        <LemonCheckbox
-                            checked={!!value}
-                            onChange={onChange}
-                            data-attr="llma-publish-consent"
-                            label="I reviewed this skill and can share it publicly"
-                        />
-                    )}
-                </LemonField>
             </div>
         ),
         errors: {
@@ -192,8 +214,12 @@ export function openPublishToCommunityDialog({
                 consent ? undefined : 'Review the skill and confirm that you can share it publicly',
         },
         primaryButtonProps: { children: 'Publish to community' },
-        onSubmit: ({ display_name, tags, author_handle }) =>
+        onSubmit: ({ display_name, tags, author_handle }) => {
+            if (expectedVersion === null) {
+                return
+            }
             onPublish(skillName, {
+                expected_version: expectedVersion,
                 display_name: display_name?.trim() || undefined,
                 tags: tags
                     ? tags
@@ -202,7 +228,8 @@ export function openPublishToCommunityDialog({
                           .filter(Boolean)
                     : undefined,
                 author_handle: author_handle?.trim() || undefined,
-            }),
+            })
+        },
     })
 }
 
