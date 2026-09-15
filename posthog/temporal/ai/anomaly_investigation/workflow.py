@@ -30,6 +30,7 @@ from posthog.tasks.alerts.utils import (
     record_alert_delivery,
 )
 from posthog.temporal.ai.anomaly_investigation.charts import png_to_b64, render_series_chart
+from posthog.temporal.ai.anomaly_investigation.emitter_version import describe_emitter_version_shift
 from posthog.temporal.ai.anomaly_investigation.event_provenance import alerted_series_event, describe_event_provenance
 from posthog.temporal.ai.anomaly_investigation.metric_definition import describe_metric_definition
 from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_markdown
@@ -155,9 +156,13 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
     # event's name to go on, and an opaque name invites it to invent the machinery behind it.
     event = alerted_series_event(insight.query, series_index=series_index)
     event_provenance = ""
+    emitter_version = ""
     if event:
         event_provenance = await sync_to_async(describe_event_provenance, thread_sensitive=False)(
             team=team, event=event
+        )
+        emitter_version = await sync_to_async(describe_emitter_version_shift, thread_sensitive=False)(
+            team=team, event=event, triggered_dates=list(alert_check.triggered_dates or [])
         )
 
     anomaly_context_text = build_anomaly_context(
@@ -171,6 +176,7 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         # The alerted series, not series 0 — matching how the check and the chart pick it.
         metric_definition=describe_metric_definition(insight.query, series_index=series_index),
         event_provenance=event_provenance,
+        emitter_version=emitter_version,
     )
 
     # Render a chart of the metric with the detector's anomaly points marked and
