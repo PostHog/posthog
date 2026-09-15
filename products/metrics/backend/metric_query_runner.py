@@ -667,7 +667,11 @@ class MetricQueryRunner:
         return query
 
     def _build_histogram_query(self) -> ast.SelectQuery:
-        """Build histogram distributions with rate and increase semantics."""
+        """Build histogram distributions with rate and increase semantics.
+
+        A cumulative sample yields an increase only against a predecessor in the same
+        bucket layout, so a sample that changes the layout contributes nothing.
+        """
         query = parse_select(
             """
                 SELECT
@@ -682,6 +686,7 @@ class MetricQueryRunner:
                         multiIf(
                             aggregation_temporality = 'delta', counts_f,
                             empty(prev_counts), arrayMap(x -> 0.0, counts_f),
+                            prev_bounds != histogram_bounds, arrayMap(x -> 0.0, counts_f),
                             length(prev_counts) != length(counts_f), counts_f,
                             arrayAll((c, p) -> c >= p, counts_f, prev_counts), arrayMap((c, p) -> c - p, counts_f, prev_counts),
                             counts_f
@@ -697,7 +702,12 @@ class MetricQueryRunner:
                                 PARTITION BY {series_key}
                                 ORDER BY timestamp ASC
                                 ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING
-                            ) AS prev_counts
+                            ) AS prev_counts,
+                            lagInFrame(histogram_bounds) OVER (
+                                PARTITION BY {series_key}
+                                ORDER BY timestamp ASC
+                                ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING
+                            ) AS prev_bounds
                         FROM posthog.metrics
                         WHERE metric_name = {metric_name}
                           AND {scan_range}
