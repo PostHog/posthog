@@ -3,6 +3,16 @@ import { LemonTag } from '@posthog/lemon-ui'
 import type { WorkflowProposalApi, WorkflowProposalOutcomeApi } from '../generated/api.schemas'
 import { WorkflowMetricReading } from './WorkflowMetricReading'
 
+/** The API echoes the relative window it read, e.g. `-7d`; a person reads it as a span of days. */
+function describeWindow(window: string): string {
+    const match = /^-(\d+)([dh])$/.exec(window)
+    if (!match) {
+        return window
+    }
+    const unit = match[2] === 'd' ? 'day' : 'hour'
+    return `the last ${match[1]} ${unit}${match[1] === '1' ? '' : 's'}`
+}
+
 export function WorkflowAppliedOutcome({
     proposal,
     outcome,
@@ -17,8 +27,8 @@ export function WorkflowAppliedOutcome({
                 <LemonTag type="success">Applied as version {proposal.applied_version}</LemonTag>
             </div>
             <p className="mb-0 text-secondary text-sm">
-                Measured over {outcome.window}, before and after. Different periods, so treat a difference as a signal
-                to look closer, not as proof.
+                Measured over {describeWindow(outcome.window)}, before and after. Different periods, so treat a
+                difference as a signal to look closer, not as proof.
             </p>
             <div className="grid grid-cols-1 @md:grid-cols-2 gap-3 text-sm">
                 {(['before', 'after'] as const).map((side) => {
