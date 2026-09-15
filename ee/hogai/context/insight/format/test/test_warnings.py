@@ -12,7 +12,6 @@ _AC = {
     "message": "Results may exclude dashboards you don't have access to",
 }
 _SCAN_FINDING = {
-    "type": "query_scan",
     "kind": "no_event_filter",
     "reason": "in_or",
     "message": (
@@ -21,11 +20,16 @@ _SCAN_FINDING = {
     ),
     "fix": "Move the event filter out of the OR so it stands on its own. Change nothing else.",
 }
-_SCAN_SHOWN: dict[str, Any] = {"mode": "show", "rows_read": 4_200_000_000, "duration_ms": 12_300, "status": "done"}
+# What a slow run's summary looks like once the analysis is requested and before it lands.
+_SCAN_REQUESTED: dict[str, Any] = {"rows_read": 4_200_000_000, "duration_ms": 12_300, "analysis_requested": True}
 
 
 def _scan(**overrides: Any) -> dict[str, Any]:
-    return {**_SCAN_SHOWN, **overrides}
+    return {**_SCAN_REQUESTED, **overrides}
+
+
+def _analyzed(*findings: dict[str, Any], **overrides: Any) -> dict[str, Any]:
+    return _scan(analysis={"findings": list(findings)}, **overrides)
 
 
 _SYNC = {
@@ -83,19 +87,19 @@ def test_response_warnings_union_round_trips_both_kinds():
     "scan,expected_lead",
     [
         pytest.param(
-            _SCAN_SHOWN,
+            _analyzed(_SCAN_FINDING),
             "This query read 4.2 billion rows in 12.3 s.",
             id="finished",
         ),
         pytest.param(
-            _scan(killed=True),
+            _analyzed(_SCAN_FINDING, killed=True),
             "ClickHouse stopped this query after 12.3 s, having read 4.2 billion rows.",
             id="killed",
         ),
     ],
 )
 def test_query_scan_block_leads_with_the_run_and_ends_with_the_standing_instruction(scan, expected_lead):
-    block = format_query_scan_warnings({"query_scan": scan, "warnings": [_SCAN_FINDING]})
+    block = format_query_scan_warnings({"query_scan": scan})
 
     lines = block.splitlines()
     assert lines[0] == "<query_scan_warning>"
@@ -112,7 +116,7 @@ def test_query_scan_block_leads_with_the_run_and_ends_with_the_standing_instruct
 def test_compact_query_scan_block_carries_two_findings():
     findings = [{**_SCAN_FINDING, "fix": f"finding {index}"} for index in range(3)]
 
-    block = format_query_scan_warnings({"query_scan": _scan(killed=True), "warnings": findings}, compact=True)
+    block = format_query_scan_warnings({"query_scan": _analyzed(*findings, killed=True)}, compact=True)
 
     assert "finding 0" in block
     assert "finding 1" in block
@@ -122,24 +126,16 @@ def test_compact_query_scan_block_carries_two_findings():
 @pytest.mark.parametrize(
     "response,expected",
     [
-        pytest.param({"query_scan": _SCAN_SHOWN, "warnings": []}, "", id="analyzed_with_no_findings"),
+        pytest.param({"query_scan": _analyzed()}, "", id="analyzed_with_no_findings"),
+        pytest.param({"results": []}, "", id="unflagged_team_has_no_scan"),
+        # A run that asked for no analysis was too fast to advise on, whatever it read.
+        pytest.param({"query_scan": _scan(analysis_requested=False)}, "", id="no_analysis_requested"),
         pytest.param(
-            {"query_scan": _scan(mode="log_only"), "warnings": [_SCAN_FINDING]},
-            "",
-            id="log_only_shows_nothing",
-        ),
-        pytest.param({"warnings": [_SCAN_FINDING]}, "", id="unflagged_team_has_no_scan"),
-        pytest.param(
-            {"query_scan": _scan(status="pending", duration_ms=900), "warnings": []},
-            "",
-            id="pending_below_the_floor",
-        ),
-        pytest.param(
-            {"query_scan": _scan(status="pending"), "warnings": []},
+            {"query_scan": _scan()},
             "<query_scan_warning>This query read 4.2 billion rows in 12.3 s. This is likely far more "
             "than needed; check the event filter and the start date before running it again."
             "</query_scan_warning>\n\n",
-            id="pending_over_the_floor_gets_the_short_form",
+            id="requested_and_not_landed_gets_the_short_form",
         ),
     ],
 )

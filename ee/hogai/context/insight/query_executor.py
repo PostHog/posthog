@@ -30,7 +30,6 @@ from posthog.schema import (
     HogQLQuery,
     LifecycleQuery,
     PathsQuery,
-    QueryScanStatus,
     QueryScanSummary,
     RetentionQuery,
     StickinessQuery,
@@ -51,8 +50,8 @@ from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
 from posthog.models import Team
-from posthog.query_scan.flag import QueryScanFlag, get_query_scan_flag
-from posthog.query_scan.serve import apply_slot
+from posthog.query_scan.flag import QueryScanFlag, QueryScanMode, get_query_scan_flag
+from posthog.query_scan.serve import analysis_with_prompt
 from posthog.query_scan.slot import (
     QueryScanSlot,
     get as get_query_scan_slot,
@@ -522,18 +521,14 @@ class AssistantQueryExecutor:
         return response_dict
 
     def _query_scan_poll_flag(self, scan: dict[str, Any]) -> QueryScanFlag | None:
-        """The flag to poll this run's analysis under, or None when waiting cannot change the reply: no
-        analysis is coming, or the mode hides it. The thresholds go with the read so a slot from other
-        ratios is not served.
+        """The flag to poll this run's analysis under, or None when waiting cannot change the reply: the
+        run asked for no analysis, it already carries one, or the flag no longer shows findings. The
+        thresholds go with the read so a slot from other ratios is not served.
         """
-        status = scan.get("status")
-        # A run ClickHouse stopped reports the status of the analysis an earlier run stored, and an
-        # error carries no findings, so a finished analysis is read from the slot.
-        finished_killed = status == QueryScanStatus.DONE and bool(scan.get("killed"))
-        if status != QueryScanStatus.PENDING and not finished_killed:
+        if not scan.get("analysis_requested") or scan.get("analysis") is not None:
             return None
         flag = get_query_scan_flag(self._team)
-        if flag is None or flag.mode != "show":
+        if flag is None or flag.mode != QueryScanMode.SHOW:
             return None
         return flag
 
@@ -558,15 +553,13 @@ class AssistantQueryExecutor:
         if flag is None:
             return
         slot = await self._poll_query_scan_slot(cache_key, flag.thresholds_fingerprint)
-        if slot is None:
+        if slot is None or slot.analysis is None:
             return
         summary = QueryScanSummary.model_validate(scan)
-        findings = apply_slot(summary, slot, flag)
+        summary.analysis = analysis_with_prompt(
+            slot.analysis, rows_read=summary.rows_read, duration_ms=summary.duration_ms, killed=bool(summary.killed)
+        )
         response["query_scan"] = summary.model_dump(mode="json", by_alias=True, exclude_none=True)
-        response["warnings"] = [
-            *(response.get("warnings") or []),
-            *(finding.model_dump(by_alias=True, exclude_none=True) for finding in findings),
-        ]
 
     async def _poll_query_scan_slot(self, cache_key: str, thresholds: str) -> QueryScanSlot | None:
         deadline = time.monotonic() + self.SCAN_POLL_TIMEOUT_S
@@ -575,7 +568,7 @@ class AssistantQueryExecutor:
             slot = await database_sync_to_async(get_query_scan_slot, thread_sensitive=True)(
                 self._team.pk, cache_key, thresholds=thresholds
             )
-            if slot is not None and slot.status == QueryScanStatus.DONE:
+            if slot is not None and slot.analysis is not None:
                 return slot
             if time.monotonic() >= deadline:
                 return None
@@ -590,9 +583,9 @@ class AssistantQueryExecutor:
             cache_key = getattr(error, "cache_key", None)
             if not isinstance(scan, dict) or not isinstance(cache_key, str):
                 return ""
-            response: dict[str, Any] = {"query_scan": dict(scan), "cache_key": cache_key, "warnings": []}
+            response: dict[str, Any] = {"query_scan": dict(scan), "cache_key": cache_key}
             await self._fold_query_scan(response)
-            return format_query_scan_warnings(response, self._team, compact=True).strip()
+            return format_query_scan_warnings(response, compact=True).strip()
         except Exception:
             logger.warning(f"{TIMING_LOG_PREFIX} query scan block for a killed run failed", exc_info=True)
             return ""
@@ -603,7 +596,7 @@ class AssistantQueryExecutor:
         """
         try:
             return (
-                format_query_scan_warnings(response, self._team)
+                format_query_scan_warnings(response)
                 + format_warehouse_sync_warnings(response)
                 + format_access_control_warnings(response)
             )

@@ -7,7 +7,6 @@ from unittest.mock import Mock, patch
 
 from django.test import override_settings
 
-from parameterized import parameterized
 from rest_framework.exceptions import APIException
 
 from posthog.schema import (
@@ -29,9 +28,8 @@ from posthog.schema import (
     PathsQuery,
     PathsV2Filter,
     PathsV2Query,
+    QueryScanAnalysis,
     QueryScanFindingKind,
-    QueryScanMode,
-    QueryScanStatus,
     QueryScanWarning,
     RetentionFilter,
     RetentionQuery,
@@ -45,7 +43,7 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.errors import ExposedCHQueryError
-from posthog.query_scan.flag import QueryScanFlag
+from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 from posthog.query_scan.slot import QueryScanSlot
 
 from ee.hogai.context.insight.query_executor import (
@@ -254,8 +252,12 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         }
         mock_process_query.return_value = {
             "results": results,
-            "query_scan": {"mode": "show", "rows_read": 4_200_000_000, "duration_ms": 12_300, "status": "done"},
-            "warnings": [_SCAN_FINDING.model_dump(by_alias=True, exclude_none=True)],
+            "query_scan": {
+                "rows_read": 4_200_000_000,
+                "duration_ms": 12_300,
+                "analysis_requested": True,
+                "analysis": {"findings": [_SCAN_FINDING.model_dump(by_alias=True, exclude_none=True)]},
+            },
         }
 
         result = await execute_and_format_query(self.team, PathsV2Query(pathsV2Filter=PathsV2Filter()), user=self.user)
@@ -305,26 +307,23 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         self.assertIn("ClickHouse error", str(context.exception))
 
-    @parameterized.expand([("this run enqueued the analysis", "pending"), ("an earlier run stored it", "done")])
     @patch("ee.hogai.context.insight.query_executor.get_query_scan_flag", return_value=_SCAN_FLAG)
     @patch("ee.hogai.context.insight.query_executor.get_query_scan_slot")
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_run_and_format_query_appends_scan_block_to_a_killed_run(
-        self, _name, status, mock_process_query, mock_get_slot, _mock_flag
+        self, mock_process_query, mock_get_slot, _mock_flag
     ):
         error = ExposedCHQueryError(_KILLED_RUN_ERROR)
+        # An error never carries the analysis itself, only the pointer to it.
         error.query_scan = {
-            "mode": "show",
             "rows_read": 4_200_000_000,
             "duration_ms": 12_300,
-            # An earlier run of the same query can own the analysis. The runner then reports its
-            # status, and the findings come from the slot with no wait.
-            "status": status,
             "killed": True,
+            "analysis_requested": True,
         }
         error.cache_key = "cache_abc"
         mock_process_query.side_effect = error
-        mock_get_slot.return_value = QueryScanSlot(status=QueryScanStatus.DONE, findings=(_SCAN_FINDING,))
+        mock_get_slot.return_value = QueryScanSlot(analysis=QueryScanAnalysis(findings=[_SCAN_FINDING]))
 
         with self.assertRaises(MaxToolRetryableError) as context:
             await self.query_runner.arun_and_format_query(AssistantTrendsQuery(series=[]))
@@ -345,11 +344,10 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
     async def test_run_and_format_query_does_not_wait_when_no_analysis_was_enqueued(
         self, mock_process_query, mock_get_slot, _mock_flag
     ):
-        # ClickHouse rejects a query it estimates as too long before it runs, so the run lands
-        # under the floor and nothing is enqueued. No analysis can arrive, so waiting would only
-        # hold back the error the agent has to act on.
+        # A run that asked for no analysis gets none, so waiting would only hold back the error
+        # the agent has to act on.
         error = ExposedCHQueryError(_KILLED_RUN_ERROR)
-        error.query_scan = {"mode": "show", "rows_read": 90, "duration_ms": 400, "killed": True}
+        error.query_scan = {"rows_read": 90, "duration_ms": 400, "killed": True}
         error.cache_key = "cache_abc"
         mock_process_query.side_effect = error
 
@@ -367,7 +365,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             "results": [[1]],
             "columns": ["count"],
             "cache_key": "cache_abc",
-            "query_scan": {"mode": "show", "rows_read": 4_200_000_000, "duration_ms": 12_300, "status": "pending"},
+            "query_scan": {"rows_read": 4_200_000_000, "duration_ms": 12_300, "analysis_requested": True},
         }
         query = AssistantHogQLQuery(query="SELECT count() FROM events")
 
@@ -390,14 +388,9 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             "results": [[1]],
             "columns": ["count"],
             "cache_key": "cache_abc",
-            "query_scan": {
-                "mode": "show",
-                "rows_read": 4_200_000_000,
-                "duration_ms": 12_300,
-                "status": "pending",
-            },
+            "query_scan": {"rows_read": 4_200_000_000, "duration_ms": 12_300, "analysis_requested": True},
         }
-        mock_get_slot.return_value = QueryScanSlot(status=QueryScanStatus.DONE, findings=(_SCAN_FINDING,))
+        mock_get_slot.return_value = QueryScanSlot(analysis=QueryScanAnalysis(findings=[_SCAN_FINDING]))
 
         result, _ = await self.query_runner.arun_and_format_query(
             AssistantHogQLQuery(query="SELECT count() FROM events")
