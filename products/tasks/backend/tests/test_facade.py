@@ -1815,6 +1815,25 @@ class TestApplyTaskRunModelConfig(TestCase):
         self.assertFalse(self._apply(self._run()))
         send_mock.assert_not_called()
 
+    @patch("products.tasks.backend.facade.api.get_model_access_error", return_value=None)
+    @patch("products.tasks.backend.logic.services.agent_command.send_set_config_option")
+    def test_a_pinned_sandbox_refuses_a_model_outside_its_pin(self, send_mock, _access_mock):
+        # The gateway denies an off-pin model with no fallback, so the switch never reaches the sandbox.
+        run = self._run()
+        TaskRun.objects.filter(id=run.id).update(state={**run.state, "ai_gateway_product": "slack_app"})
+
+        self.assertFalse(self._apply(run, model="zai-org/glm-5.3"))
+        send_mock.assert_not_called()
+
+    @patch("products.tasks.backend.facade.api.get_model_access_error", return_value=None)
+    @patch("products.tasks.backend.logic.services.agent_command.send_set_config_option")
+    def test_a_pinned_sandbox_still_switches_within_its_pin(self, send_mock, _access_mock):
+        send_mock.return_value = MagicMock(success=True)
+        run = self._run()
+        TaskRun.objects.filter(id=run.id).update(state={**run.state, "ai_gateway_product": "slack_app"})
+
+        self.assertTrue(self._apply(run, model="claude-opus-5"))
+
 
 class TestDesktopUsersInTeam(TestCase):
     def test_someone_who_left_the_organization_is_not_welcomed(self) -> None:
