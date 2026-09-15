@@ -14,6 +14,7 @@ from posthog.comment.formatting import (
     rich_content_to_markdown,
     rich_content_to_slack_payload,
     slack_to_content_and_rich_content,
+    trim_rich_content,
 )
 from posthog.models import Organization, User
 
@@ -842,6 +843,51 @@ class TestRichContentBlockNodes(SimpleTestCase):
         }
         html = rich_content_to_html(doc)
         assert "<blockquote>see<br><ul><li>one</li></ul></blockquote>" in html
+
+
+class TestTrimRichContent(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "leading_and_trailing_empty_paragraphs",
+                {"type": "doc", "content": [{"type": "paragraph"}, _paragraph("hi"), _paragraph("")]},
+                [_paragraph("hi")],
+            ),
+            (
+                "outer_whitespace_in_the_edge_paragraphs",
+                {"type": "doc", "content": [_paragraph("  lead"), _paragraph("end  ")]},
+                [_paragraph("lead"), _paragraph("end")],
+            ),
+            (
+                "trailing_hard_breaks",
+                {
+                    "type": "doc",
+                    "content": [
+                        {"type": "paragraph", "content": [{"type": "text", "text": "x"}, {"type": "hardBreak"}]}
+                    ],
+                },
+                [_paragraph("x")],
+            ),
+            (
+                "blank_paragraph_between_two_blocks_is_kept",
+                {"type": "doc", "content": [_paragraph("a"), {"type": "paragraph"}, _paragraph("b")]},
+                [_paragraph("a"), {"type": "paragraph"}, _paragraph("b")],
+            ),
+            (
+                "whitespace_only_doc",
+                {"type": "doc", "content": [{"type": "paragraph"}, _paragraph("   ")]},
+                [],
+            ),
+        ]
+    )
+    def test_trim_rich_content(self, _name: str, doc: dict, expected_content: list) -> None:
+        assert trim_rich_content(doc) == {"type": "doc", "content": expected_content}
+
+    def test_trim_rich_content_keeps_a_trailing_empty_paragraph_out_of_the_email_html(self) -> None:
+        doc = {"type": "doc", "content": [_paragraph("thanks"), {"type": "paragraph"}, {"type": "paragraph"}]}
+
+        assert "<p></p>" in rich_content_to_html(doc)
+        assert "<p></p>" not in rich_content_to_html(trim_rich_content(doc))
 
 
 class TestSlackMentionScoping(BaseTest):

@@ -22,6 +22,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.comment.access import task_comment_target_is_accessible
+from posthog.comment.formatting import trim_rich_content
 from posthog.event_usage import groups
 from posthog.exceptions import Conflict
 from posthog.helpers.slack_thread_mirror import post_comment_to_slack_thread, slack_author_from_user
@@ -328,14 +329,6 @@ class CommentSerializer(serializers.ModelSerializer):
             data["is_task"] = False
         return data
 
-    def has_empty_paragraph(self, doc):
-        for node in doc.get("content", []):
-            if node.get("type") == "paragraph":
-                content = node.get("content", [])
-                if len(content) == 1 and content[0].get("type") == "text" and content[0].get("text", "") == "":
-                    return True
-        return False
-
     def validate(self, data):
         request = self.context["request"]
         instance = cast(Comment, self.instance)
@@ -435,10 +428,16 @@ class CommentSerializer(serializers.ModelSerializer):
         # Skip content validation when soft-deleting a comment
         is_deleting = data.get("deleted") is True
         if not is_deleting:
-            content = data.get("content", "")
-            rich_content = data.get("rich_content")
+            content = (data.get("content") or "").strip()
+            if isinstance(data.get("content"), str):
+                data["content"] = content
 
-            if not content.strip() and (not rich_content or self.has_empty_paragraph(rich_content)):
+            rich_content = trim_rich_content(data.get("rich_content"))
+            if "rich_content" in data:
+                data["rich_content"] = rich_content
+
+            has_rich_content = isinstance(rich_content, dict) and bool(rich_content.get("content"))
+            if not content and not has_rich_content:
                 raise exceptions.ValidationError("A comment must have content")
 
         if isinstance(data.get("item_context"), dict):

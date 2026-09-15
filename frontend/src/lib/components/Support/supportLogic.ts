@@ -445,7 +445,7 @@ export const supportLogic = kea<supportLogicType>([
                               ? 'Please enter a valid email address'
                               : undefined
                         : undefined,
-                    message: !message ? 'Please enter a message' : undefined,
+                    message: !message.trim() ? 'Please enter a message' : undefined,
                 }
             },
             submit: async (formValues) => {
@@ -539,10 +539,11 @@ export const supportLogic = kea<supportLogicType>([
             actions.updateUrlParams()
         },
         submitSupportTicket: async (formValues: SupportFormFields) => {
-            const { name, kind, message, exception_event } = formValues
+            const { name, kind, exception_event } = formValues
             // Trimmed before validating and sending: restore-by-email matches the stored trait
             // exactly, so stray whitespace would make the ticket unrecoverable
             const email = formValues.email.trim()
+            const message = formValues.message.trim()
             const { ai_conversation_id, ai_trace_id, ai_feedback_rating } = formValues
 
             // Attribute PostHog AI (/ticket, feedback) handovers to the conversation. The ticket id

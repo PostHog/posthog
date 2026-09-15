@@ -663,6 +663,57 @@ def _serialize_list_to_markdown(node: JSON, ordered: bool, indent: str, include_
     return "\n".join(lines)
 
 
+def _is_blank_inline_node(node: JSON) -> bool:
+    node_type = node.get("type")
+    if node_type == "hardBreak":
+        return True
+    return node_type == "text" and not node.get("text", "").strip()
+
+
+def _is_blank_paragraph(node: JSON) -> bool:
+    if node.get("type") != "paragraph":
+        return False
+    return all(_is_blank_inline_node(child) for child in node.get("content") or [])
+
+
+def _trim_paragraph_edge(node: JSON, *, leading: bool) -> JSON:
+    """Remove blank inline nodes and outer whitespace from one end of a paragraph."""
+    if node.get("type") != "paragraph":
+        return node
+
+    content = list(node.get("content") or [])
+    edge = 0 if leading else -1
+    while content and _is_blank_inline_node(content[edge]):
+        content.pop(edge)
+    if content and content[edge].get("type") == "text":
+        text = content[edge].get("text", "")
+        content[edge] = {**content[edge], "text": text.lstrip() if leading else text.rstrip()}
+    return {**node, "content": content}
+
+
+def trim_rich_content(rich_content: JSON | None) -> JSON | None:
+    """Remove leading and trailing blank space from a rich content doc.
+
+    The markdown and Slack serializers already drop blank paragraphs at the two ends, but
+    the HTML serializer emits a `<p></p>` for each one. Without this, an author who ends a
+    message with a few empty lines sends empty lines to the customer's inbox.
+    """
+    if not isinstance(rich_content, dict) or rich_content.get("type") != "doc":
+        return rich_content
+
+    content = list(rich_content.get("content") or [])
+    while content and _is_blank_paragraph(content[0]):
+        content.pop(0)
+    while content and _is_blank_paragraph(content[-1]):
+        content.pop()
+
+    if content:
+        content[0] = _trim_paragraph_edge(content[0], leading=True)
+        content[-1] = _trim_paragraph_edge(content[-1], leading=False)
+
+    return {**rich_content, "content": content}
+
+
 def rich_content_to_markdown(rich_content: JSON | None, include_images: bool = True) -> str:
     """Serialize PostHog rich content JSON to markdown text."""
     if not rich_content:
