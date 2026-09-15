@@ -11,7 +11,11 @@ from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import (
+    QueryError,
+    SyntaxError as HogQLSyntaxError,
+    TableAccessDeniedError,
+)
 
 from posthog.clickhouse.client.execute import KillSwitchLevel
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
@@ -23,6 +27,7 @@ from posthog.exceptions import (
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
+    DatabaseSchemaUnavailable,
 )
 from posthog.hogql_queries.query_failure_handling import (
     budget_for_limit_context,
@@ -30,7 +35,6 @@ from posthog.hogql_queries.query_failure_handling import (
     classify_failure,
     rebuild_shared_failure,
     shareable_failure,
-    shared_failure_covers,
 )
 from posthog.query_cache.failures import BUDGET_EXTENDED, BUDGET_INTERACTIVE, QueryFailureRecord
 from posthog.query_cache.single_flight import SharedFailure
@@ -51,16 +55,34 @@ def _record(kind, consecutive_failures, detail, open_until=None):
     )
 
 
+def _clickhouse_error(message: str, code: int) -> Exception:
+    server_error = ServerException(message, code=code)
+    error = wrap_clickhouse_query_error(server_error)
+    error.__cause__ = server_error  # as the ClickHouse client raises it
+    return error
+
+
+def _wrapped_by_the_app() -> Exception:
+    error = DatabaseSchemaUnavailable()
+    error.__cause__ = ServerException("Cannot compare", code=386)
+    return error
+
+
 class TestSharedFailures(SimpleTestCase):
     @parameterized.expand(
         [
+            ("clickhouse_server_error", lambda: _clickhouse_error("Cannot compare", 386)),
+            ("clickhouse_error_without_a_dedicated_class", lambda: _clickhouse_error("Division by zero", 153)),
+            ("timeout", lambda: _clickhouse_error("Timeout exceeded", 159)),
+            ("at_capacity", lambda: _clickhouse_error("Too many simultaneous queries", 202)),
+            ("too_slow", lambda: _clickhouse_error("Estimated query execution time (300 seconds) is too long.", 160)),
             (
-                "clickhouse_server_error",
-                lambda: wrap_clickhouse_query_error(ServerException("Cannot compare", code=386)),
+                "per_query_memory_limit",
+                lambda: _clickhouse_error("Memory limit (for query) exceeded: would use 30.1 GiB", 241),
             ),
-            ("timeout", ClickHouseQueryTimeOut),
-            ("capacity", ClickHouseAtCapacity),
-            ("per_query_memory_limit", lambda: _memory_error("Memory limit (for query) exceeded")),
+            ("cluster_memory_limit", lambda: _clickhouse_error("Memory limit (total) exceeded", 241)),
+            ("hogql_query_error", lambda: QueryError("Unknown field: nope", start=7, end=11)),
+            ("hogql_syntax_error", lambda: HogQLSyntaxError("Unexpected token", start=0, end=3, fix="select")),
         ]
     )
     def test_shared_failure_rebuilds_the_same_exception(self, _name, make_error):
@@ -70,70 +92,33 @@ class TestSharedFailures(SimpleTestCase):
         rebuilt = rebuild_shared_failure(SharedFailure(**asdict(shared)))  # as it comes back from Redis
         assert rebuilt is not None
         assert type(rebuilt).__name__ == type(original).__name__
+        assert type(rebuilt).__mro__[1:] == type(original).__mro__[1:]
         assert str(rebuilt) == str(original)
-        assert getattr(rebuilt, "is_per_query_limit", False) == getattr(original, "is_per_query_limit", False)
+        for attribute in ("is_per_query_limit", "code_name", "start", "end", "fix"):
+            assert getattr(rebuilt, attribute, None) == getattr(original, attribute, None)
         assert getattr(rebuilt, "served_from_query_single_flight", False)
-
-    @parameterized.expand([("hogql", lambda: QueryError("bad query")), ("plain", lambda: RuntimeError("boom"))])
-    def test_failures_without_a_faithful_rebuild_are_not_shared(self, _name, make_error):
-        assert shareable_failure(make_error()) is None
-
-    def test_unknown_published_class_is_not_rebuilt(self):
-        assert rebuild_shared_failure(SharedFailure(message="x", class_name="RenamedInANewerDeploy")) is None
 
     @parameterized.expand(
         [
-            (
-                "interactive_follower_inherits_a_timeout",
-                ClickHouseQueryTimeOut,
-                BUDGET_INTERACTIVE,
-                BUDGET_INTERACTIVE,
-                True,
-            ),
-            (
-                "extended_follower_ignores_an_interactive_timeout",
-                ClickHouseQueryTimeOut,
-                BUDGET_INTERACTIVE,
-                BUDGET_EXTENDED,
-                False,
-            ),
-            (
-                "extended_follower_inherits_an_extended_timeout",
-                ClickHouseQueryTimeOut,
-                BUDGET_EXTENDED,
-                BUDGET_EXTENDED,
-                True,
-            ),
-            (
-                "extended_follower_ignores_an_interactive_too_slow",
-                ClickHouseEstimatedQueryExecutionTimeTooLong,
-                BUDGET_INTERACTIVE,
-                BUDGET_EXTENDED,
-                False,
-            ),
-            (
-                "extended_follower_inherits_a_memory_limit",
-                lambda: _memory_error("Memory limit (for query) exceeded"),
-                BUDGET_INTERACTIVE,
-                BUDGET_EXTENDED,
-                True,
-            ),
-            (
-                "extended_follower_inherits_a_deterministic_server_error",
-                lambda: wrap_clickhouse_query_error(ServerException("Cannot compare", code=386)),
-                BUDGET_INTERACTIVE,
-                BUDGET_EXTENDED,
-                True,
-            ),
+            ("app_raised_timeout", lambda: ClickHouseQueryTimeOut()),
+            ("wrapped_by_the_app", _wrapped_by_the_app),
+            ("table_access", lambda: TableAccessDeniedError("events")),
+            ("validation", lambda: ValidationError("bad")),
+            ("concurrency_limit", lambda: ConcurrencyLimitExceeded("busy")),
+            ("plain", lambda: RuntimeError("boom")),
         ]
     )
-    def test_shared_failure_covers_follows_the_breaker_budget_rule(
-        self, _name, make_error, leader_budget, follower_budget, expected
-    ):
-        assert (
-            shared_failure_covers(make_error(), leader_budget=leader_budget, follower_budget=follower_budget)
-            is expected
-        )
+    def test_failures_without_a_faithful_rebuild_are_not_shared(self, _name, make_error):
+        assert shareable_failure(make_error()) is None
+
+    @parameterized.expand(
+        [
+            ("unknown_class", SharedFailure(message="x", class_name="RenamedInANewerDeploy")),
+            ("not_an_exposed_hogql_error", SharedFailure(message="x", class_name="ResolutionError")),
+        ]
+    )
+    def test_published_class_this_version_cannot_rebuild_is_not_rebuilt(self, _name, failure):
+        assert rebuild_shared_failure(failure) is None
 
 
 class TestQueryFailureHandling(SimpleTestCase):

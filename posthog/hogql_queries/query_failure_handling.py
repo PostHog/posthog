@@ -4,14 +4,14 @@ from typing import Optional
 from clickhouse_driver.errors import ServerException
 from rest_framework.exceptions import APIException
 
+from posthog.hogql import errors as hogql_errors
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.errors import ExposedHogQLError, TableAccessDeniedError
 
 from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level, get_team_kill_switch_level
 from posthog.errors import CHQueryErrorTooManyBytes, wrap_clickhouse_query_error
 from posthog.exceptions import (
-    ClickHouseAtCapacity,
     ClickHouseBytesLimitExceeded,
-    ClickHouseClusterMemoryLimitExceeded,
     ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQuerySizeExceeded,
@@ -31,72 +31,74 @@ FAILURE_KIND_EXCEPTIONS: dict[FailureKind, type[APIException]] = {
     "too_many_bytes": ClickHouseBytesLimitExceeded,
 }
 
-# The app's ClickHouse limit exceptions a single flight leader can hand to its followers by name.
-# Their detail is user-safe copy, and rebuilding one by class keeps its status and machine code.
-SHAREABLE_API_FAILURES: dict[str, type[APIException]] = {
-    cls.__name__: cls
-    for cls in (
-        ClickHouseAtCapacity,
-        ClickHouseClusterMemoryLimitExceeded,
-        ClickHouseEstimatedQueryExecutionTimeTooLong,
-        ClickHouseQueryMemoryLimitExceeded,
-        ClickHouseQuerySizeExceeded,
-        ClickHouseQueryTimeOut,
-    )
-}
+
+class QueryRanConcurrently(APIException):
+    """What a follower raises when the leader left nothing it can serve or rebuild: the leader
+    failed in a way that cannot be shared, died, or is still running."""
+
+    status_code = 503
+    default_code = "query_ran_concurrently"
+    default_detail = "This query was already running for another request and did not return a result. Try again."
+    served_from_query_single_flight = True
 
 
 def shareable_failure(error: Exception) -> Optional[SharedFailure]:
     """The part of a leader's failure a follower can rebuild into the same exception.
 
-    A ClickHouse server error rebuilds from its code, because wrap_clickhouse_query_error derives
-    the class from the code and message. The app's ClickHouse limit exceptions rebuild by name.
-    Anything else (HogQL errors, concurrency and quota limits, transport errors) returns None and
-    leaves followers to run the query themselves."""
-    if isinstance(error, ServerException) and error.code is not None:
-        return SharedFailure(message=str(error.message), code=error.code)
-    cls = SHAREABLE_API_FAILURES.get(type(error).__name__)
-    if cls is not None and type(error) is cls and isinstance(error, APIException):
+    A ClickHouse server error travels by its code. The ClickHouse client raises the app's
+    exception from the server error, so the code is found on the exception or behind it. An
+    exposed HogQL error travels by its class. The candidate is rebuilt here first and shared only
+    when that gives back the leader's own class and message, so nothing the app decided on its
+    own, such as an app-side limit, ever travels."""
+    candidate = _shared_failure_candidate(error)
+    if candidate is None:
+        return None
+    rebuilt = rebuild_shared_failure(candidate)
+    if rebuilt is None or not same_failure(rebuilt, error):
+        return None
+    return candidate
+
+
+def same_failure(rebuilt: Exception, error: Exception) -> bool:
+    # The error factory builds a class per call for codes without a dedicated class, so the
+    # class name and its bases stand for identity.
+    return (
+        type(rebuilt).__name__ == type(error).__name__
+        and type(rebuilt).__mro__[1:] == type(error).__mro__[1:]
+        and str(rebuilt) == str(error)
+    )
+
+
+def _shared_failure_candidate(error: Exception) -> Optional[SharedFailure]:
+    cause: Optional[BaseException] = error
+    while cause is not None:
+        if isinstance(cause, ServerException) and cause.code is not None:
+            return SharedFailure(message=str(cause.message), code=cause.code)
+        cause = cause.__cause__
+    # Table access depends on the user, and the users behind one cache key can differ.
+    if isinstance(error, ExposedHogQLError) and not isinstance(error, TableAccessDeniedError):
         return SharedFailure(
-            message=str(error.detail),
-            class_name=cls.__name__,
-            is_per_query_limit=bool(getattr(error, "is_per_query_limit", False)),
+            message=str(error), class_name=type(error).__name__, start=error.start, end=error.end, fix=error.fix
         )
     return None
 
 
 def rebuild_shared_failure(failure: SharedFailure) -> Optional[Exception]:
-    """The leader's exception again, marked as served by the flight. None when the published
-    class is unknown to this code version, so the follower runs the query itself instead."""
+    """The leader's exception again, marked as served by the flight. None when this code version
+    cannot rebuild it, in which case the follower fails with QueryRanConcurrently."""
     error: Exception
     if failure.code is not None:
         error = wrap_clickhouse_query_error(ServerException(failure.message, code=failure.code))
     else:
-        cls = SHAREABLE_API_FAILURES.get(failure.class_name or "")
-        if cls is None:
+        cls = getattr(hogql_errors, failure.class_name or "", None)
+        if not (isinstance(cls, type) and issubclass(cls, ExposedHogQLError)):
             return None
-        error = cls(detail=failure.message)
-        if failure.is_per_query_limit:
-            error.is_per_query_limit = True  # type: ignore[attr-defined]
+        try:
+            error = cls(failure.message, start=failure.start, end=failure.end, fix=failure.fix)
+        except TypeError:
+            return None
     error.served_from_query_single_flight = True  # type: ignore[attr-defined]
     return error
-
-
-# Failure kinds that say nothing about a run with a larger execution budget.
-BUDGET_BOUND_KINDS: frozenset[FailureKind] = frozenset({"timeout", "too_slow"})
-
-
-def shared_failure_covers(
-    error: Exception, *, leader_budget: Optional[str], follower_budget: Budget, team_id: Optional[int] = None
-) -> bool:
-    """Whether a follower inherits the leader's failure or runs with its own budget instead.
-
-    The same rule as QueryFailureRecord.forbids: a failure under the extended budget covers every
-    run, and so does one that no budget would have avoided, but an interactive leader's timeout
-    says nothing about a follower that gets ten times the execution time."""
-    if follower_budget == BUDGET_INTERACTIVE or leader_budget == BUDGET_EXTENDED:
-        return True
-    return classify_failure(error, team_id) not in BUDGET_BOUND_KINDS
 
 
 def classify_failure(error: Exception, team_id: Optional[int] = None) -> Optional[FailureKind]:

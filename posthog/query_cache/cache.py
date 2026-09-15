@@ -93,8 +93,8 @@ class QueryCache:
     def clear_failure(self) -> None:
         QueryFailureCache(self.cache_key).clear()
 
-    def flight(self) -> QuerySingleFlight:
-        return QuerySingleFlight(self.cache_key)
+    def flight(self, budget: Budget) -> QuerySingleFlight:
+        return QuerySingleFlight(self.cache_key, budget)
 
     def store_result(self, *, response: dict, target_age: Optional[datetime]) -> None:
         if isinstance(response.get("results"), list):
