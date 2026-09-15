@@ -12,7 +12,7 @@ from products.batch_exports.backend.temporal.destinations.bigquery_batch_export 
     BigQueryTable,
     BigQueryType,
     GoogleCloudServiceAccountIntegration,
-    StartQueryTimeoutError,
+    StartJobTimeoutError,
 )
 from products.batch_exports.backend.tests.temporal.destinations.bigquery.utils import (
     SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS,
@@ -55,9 +55,7 @@ async def test_execute_query_pending_timeout(states_sequence: list[str], should_
     client = BigQueryClient(mock_sync_client)
 
     if should_timeout:
-        with pytest.raises(
-            StartQueryTimeoutError, match="Query still in 'PENDING' state after 0.05 seconds; timing out."
-        ):
+        with pytest.raises(StartJobTimeoutError):
             await client.execute_query(
                 "SELECT 1",
                 start_query_timeout=0.05,
