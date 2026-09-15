@@ -66,6 +66,7 @@ from products.tasks.backend.logic.services.sandbox_config import (
 )
 from products.tasks.backend.logic.services.store_skills import resolve_store_skills
 from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.origin_attribution import is_unattended_run
 from products.tasks.backend.temporal.constants import resolve_inactivity_timeout, resolve_max_run_duration
 from products.tasks.backend.temporal.oauth import is_interactive_signals_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
@@ -101,6 +102,10 @@ class TaskProcessingContext:
     repository: str | None
     distinct_id: str
     origin_product: str | None = None
+    # Whether a person is waiting on this run, or a schedule/queue/pipeline started it.
+    # Carried on the sandbox lifecycle events so a volume metric can scope itself to one
+    # kind. Defaults False for payloads from workflows started before the field existed.
+    unattended: bool = False
     task_runtime: str = Task.Runtime.ACP
     environment: str | None = None
     github_user_integration_id: str | None = None
@@ -1521,6 +1526,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         repository=run_repository,
         distinct_id=distinct_id,
         origin_product=task.origin_product,
+        unattended=is_unattended_run(origin_product=task.origin_product, internal=task.internal),
         task_runtime=task.runtime,
         environment=task_run.environment,
         task_created_by_id=task.created_by_id,

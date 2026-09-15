@@ -50,6 +50,7 @@ from products.tasks.backend.feature_flags import (
 )
 from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
 from products.tasks.backend.metrics import observe_task_run_created, observe_task_run_dispatch_callback
+from products.tasks.backend.origin_attribution import is_unattended_run
 from products.tasks.backend.pr_urls import read_pr_urls
 from products.tasks.backend.redis import evaluate_dedicated_stream_flag, run_uses_dedicated_stream
 from products.tasks.backend.storage import append_jsonl_object
@@ -634,6 +635,7 @@ class Task(DeletedMetaFields, models.Model):
                 "title": self.title,
                 "description": self.description[:500] if self.description else "",
                 "origin_product": self.origin_product,
+                "unattended": is_unattended_run(origin_product=self.origin_product, internal=self.internal),
                 "repository": self.repository,
                 "repositories": self.repositories or ([self.repository] if self.repository else []),
             }
@@ -2848,6 +2850,7 @@ class TaskRun(models.Model):
             or self.task.repositories
             or ([self.task.repository] if self.task.repository else []),
             "origin_product": self.task.origin_product,
+            "unattended": is_unattended_run(origin_product=self.task.origin_product, internal=self.task.internal),
             "title": self.task.title,
             "signal_report_id": str(self.task.signal_report_id) if self.task.signal_report_id else None,
             "loop_id": (self.state or {}).get("loop_id"),
