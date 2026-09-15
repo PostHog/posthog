@@ -104,15 +104,8 @@ function shouldSuppressStructuredContent(args: {
     return args.isCliModeEnabled && !isRenderUiHostInSingleExec
 }
 
-/**
- * The resolved state, with an API client that stamps this one call's intent on what it sends.
- *
- * The state itself is shared by every call in a JSON-RPC batch, so the client is copied rather
- * than written to. See `ApiClient.withIntent`.
- *
- * The intent is extra detail on an audit row. If the copy fails, the call runs without it rather
- * than failing.
- */
+// The state is shared by every call in a JSON-RPC batch, so the client is copied, not written to.
+// The intent is extra detail on an audit row: if the copy fails, the call runs without it.
 function stateCarryingIntent(state: ResolvedState, intent: string | undefined): ResolvedState {
     if (!intent) {
         return state

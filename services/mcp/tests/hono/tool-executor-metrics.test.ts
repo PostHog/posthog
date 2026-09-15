@@ -51,8 +51,7 @@ import {
     wrapError,
 } from '@/lib/errors'
 
-import { toolFromPreBuilt } from '../shared/test-utils'
-import { mockApi } from '../shared/test-utils'
+import { makeToolExecutorState, mockApi, toolFromPreBuilt } from '../shared/test-utils'
 
 const mockTrackToolCall = vi.mocked(trackToolCall)
 
@@ -60,58 +59,6 @@ const mockTrackToolCall = vi.mocked(trackToolCall)
 function trackToolCallExtras(tool: string): Record<string, unknown> | undefined {
     const call = mockTrackToolCall.mock.calls.find((c) => c[0] === tool)
     return call?.[4]
-}
-
-function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> = {}): ResolvedState {
-    return {
-        reqCtx: {
-            cache: { get: vi.fn(), set: vi.fn() },
-            safelyGetAnalyticsContext: vi.fn().mockResolvedValue(undefined),
-            trackEvent: vi.fn(),
-            trackContextSwitchEvent: vi.fn(),
-            getSessionUuid: vi.fn().mockResolvedValue(undefined),
-            getEffectiveSessionUuid: vi.fn().mockResolvedValue(undefined),
-        } as any,
-        context: {
-            api: mockApi(),
-            cache: {},
-            env: {},
-            stateManager: {},
-            sessionManager: {},
-            getDistinctId: vi.fn(),
-            trackEvent: vi.fn(),
-        } as any,
-        useSingleExec: false,
-        toolFeatureFlags: undefined,
-        apiKeyScopes: [],
-        oauthClientId: undefined,
-        clientProfile: {
-            capabilities: { supportsInstructions: true },
-            isCliModeEnabled: vi.fn(() => false),
-            isClaudeUiHost: vi.fn(() => false),
-            isInlineExecUiHost: vi.fn(() => false),
-            isClaudeChatHost: vi.fn(() => false),
-        } as any,
-        requestContext: {
-            authMethod: 'personal_api_key',
-            sessionId: 'sess-1',
-            mcpClientName: 'test',
-            mcpClientVersion: '1.0',
-            mcpProtocolVersion: '2025-03-26',
-            transport: 'streamable-http',
-        },
-        sessionContext: null,
-        allTools: tools as any,
-        scopeGatedTools: [],
-        flagGatedTools: [],
-        gatewayToolsEnabled: false,
-        distinctId: 'test-distinct-id',
-        renderUiEnabled: false,
-        metadata: undefined,
-        metadataCompact: undefined,
-        groupTypes: undefined,
-        ...overrides,
-    }
 }
 
 type FakeToolBase = { schema: z.ZodObject<Record<string, never>>; handler: ReturnType<typeof vi.fn>; _meta: undefined }
@@ -157,7 +104,10 @@ describe('ToolExecutor metrics', () => {
         it('records success counter and duration timer', async () => {
             vi.spyOn(catalog, 'getToolByName').mockReturnValue(makeFakeTool('my-tool') as any)
 
-            await executor.handleToolCall({ name: 'my-tool', arguments: {} }, makeState([{ name: 'my-tool' }]))
+            await executor.handleToolCall(
+                { name: 'my-tool', arguments: {} },
+                makeToolExecutorState([{ name: 'my-tool' }])
+            )
 
             expect(mockToolDurationStartTimer).toHaveBeenCalledWith({ tool: 'my-tool' })
             expect(mockToolCallsInc).toHaveBeenCalledWith({ tool: 'my-tool', status: 'success' })
@@ -171,7 +121,10 @@ describe('ToolExecutor metrics', () => {
                 }) as any
             )
 
-            await executor.handleToolCall({ name: 'fail-tool', arguments: {} }, makeState([{ name: 'fail-tool' }]))
+            await executor.handleToolCall(
+                { name: 'fail-tool', arguments: {} },
+                makeToolExecutorState([{ name: 'fail-tool' }])
+            )
 
             expect(mockToolCallsInc).toHaveBeenCalledWith({ tool: 'fail-tool', status: 'error' })
             expect(mockToolErrorsInc).toHaveBeenCalledWith({ tool: 'fail-tool', error_type: 'internal' })
@@ -185,7 +138,10 @@ describe('ToolExecutor metrics', () => {
                 }) as any
             )
 
-            await executor.handleToolCall({ name: 'fail-tool', arguments: {} }, makeState([{ name: 'fail-tool' }]))
+            await executor.handleToolCall(
+                { name: 'fail-tool', arguments: {} },
+                makeToolExecutorState([{ name: 'fail-tool' }])
+            )
 
             expect(trackToolCallExtras('fail-tool')).toMatchObject({ $mcp_error_type: 'internal' })
         })
@@ -205,7 +161,10 @@ describe('ToolExecutor metrics', () => {
                 }) as any
             )
 
-            await executor.handleToolCall({ name: 'fail-tool', arguments: {} }, makeState([{ name: 'fail-tool' }]))
+            await executor.handleToolCall(
+                { name: 'fail-tool', arguments: {} },
+                makeToolExecutorState([{ name: 'fail-tool' }])
+            )
 
             const extras = trackToolCallExtras('fail-tool')
             expect(extras).toMatchObject({ $mcp_error_type: 'internal' })
@@ -231,7 +190,10 @@ describe('ToolExecutor metrics', () => {
                 }) as any
             )
 
-            await executor.handleToolCall({ name: 'fail-tool', arguments: {} }, makeState([{ name: 'fail-tool' }]))
+            await executor.handleToolCall(
+                { name: 'fail-tool', arguments: {} },
+                makeToolExecutorState([{ name: 'fail-tool' }])
+            )
 
             const extras = trackToolCallExtras('fail-tool')
             expect(extras).toMatchObject({
@@ -279,7 +241,10 @@ describe('ToolExecutor metrics', () => {
                 }) as any
             )
 
-            await executor.handleToolCall({ name: 'fail-tool', arguments: {} }, makeState([{ name: 'fail-tool' }]))
+            await executor.handleToolCall(
+                { name: 'fail-tool', arguments: {} },
+                makeToolExecutorState([{ name: 'fail-tool' }])
+            )
 
             expect(trackToolCallExtras('fail-tool')).toMatchObject({ $mcp_error_message: expected })
         })
@@ -302,7 +267,10 @@ describe('ToolExecutor metrics', () => {
                 }) as any
             )
 
-            await executor.handleToolCall({ name: 'fail-tool', arguments: {} }, makeState([{ name: 'fail-tool' }]))
+            await executor.handleToolCall(
+                { name: 'fail-tool', arguments: {} },
+                makeToolExecutorState([{ name: 'fail-tool' }])
+            )
 
             const extras = trackToolCallExtras('fail-tool')
             expect(extras).toMatchObject({
@@ -326,7 +294,10 @@ describe('ToolExecutor metrics', () => {
                 }) as any
             )
 
-            await executor.handleToolCall({ name: 'fail-tool', arguments: {} }, makeState([{ name: 'fail-tool' }]))
+            await executor.handleToolCall(
+                { name: 'fail-tool', arguments: {} },
+                makeToolExecutorState([{ name: 'fail-tool' }])
+            )
 
             expect(trackToolCallExtras('fail-tool')).toMatchObject({
                 $mcp_error_message: 'HTTP 502 Bad Gateway on GET /api/environments/2/insights/',
@@ -342,7 +313,10 @@ describe('ToolExecutor metrics', () => {
                 }) as any
             )
 
-            await executor.handleToolCall({ name: 'fail-tool', arguments: {} }, makeState([{ name: 'fail-tool' }]))
+            await executor.handleToolCall(
+                { name: 'fail-tool', arguments: {} },
+                makeToolExecutorState([{ name: 'fail-tool' }])
+            )
 
             const message = trackToolCallExtras('fail-tool')?.$mcp_error_message as string
             expect(message.startsWith('line2xxx')).toBe(true)
@@ -361,7 +335,10 @@ describe('ToolExecutor metrics', () => {
                 }) as any
             )
 
-            await executor.handleToolCall({ name: 'execute-sql', arguments: {} }, makeState([{ name: 'execute-sql' }]))
+            await executor.handleToolCall(
+                { name: 'execute-sql', arguments: {} },
+                makeToolExecutorState([{ name: 'execute-sql' }])
+            )
 
             expect(trackToolCallExtras('execute-sql')).toMatchObject({
                 $mcp_error_type: 'rate_limited',
@@ -383,7 +360,10 @@ describe('ToolExecutor metrics', () => {
                 }) as any
             )
 
-            await executor.handleToolCall({ name: 'execute-sql', arguments: {} }, makeState([{ name: 'execute-sql' }]))
+            await executor.handleToolCall(
+                { name: 'execute-sql', arguments: {} },
+                makeToolExecutorState([{ name: 'execute-sql' }])
+            )
 
             expect(mockToolErrorsInc).toHaveBeenCalledWith({ tool: 'execute-sql', error_type: 'rate_limited' })
         })
@@ -403,7 +383,10 @@ describe('ToolExecutor metrics', () => {
                 }) as any
             )
 
-            await executor.handleToolCall({ name: 'execute-sql', arguments: {} }, makeState([{ name: 'execute-sql' }]))
+            await executor.handleToolCall(
+                { name: 'execute-sql', arguments: {} },
+                makeToolExecutorState([{ name: 'execute-sql' }])
+            )
 
             expect(mockToolErrorsInc).toHaveBeenCalledWith({ tool: 'execute-sql', error_type: 'rate_limited' })
         })
@@ -417,7 +400,10 @@ describe('ToolExecutor metrics', () => {
                 base: { schema: z.object({ required_field: z.string() }), handler: vi.fn(), _meta: undefined },
             } as any)
 
-            await executor.handleToolCall({ name: 'strict-tool', arguments: {} }, makeState([{ name: 'strict-tool' }]))
+            await executor.handleToolCall(
+                { name: 'strict-tool', arguments: {} },
+                makeToolExecutorState([{ name: 'strict-tool' }])
+            )
 
             expect(mockToolCallsInc).toHaveBeenCalledWith({ tool: 'strict-tool', status: 'validation_error' })
             expect(mockToolDurationStartTimer).not.toHaveBeenCalled()
@@ -438,7 +424,7 @@ describe('ToolExecutor metrics', () => {
 
             await executor.handleToolCall(
                 { name: 'strict-tool', arguments: { requiredField: 'sent under the wrong name' } },
-                makeState([{ name: 'strict-tool' }])
+                makeToolExecutorState([{ name: 'strict-tool' }])
             )
 
             // Exactly one event: the rejection returns before the handler runs, so
@@ -460,7 +446,7 @@ describe('ToolExecutor metrics', () => {
         })
 
         it('records error for unknown tool', async () => {
-            await executor.handleToolCall({ name: 'nonexistent', arguments: {} }, makeState([]))
+            await executor.handleToolCall({ name: 'nonexistent', arguments: {} }, makeToolExecutorState([]))
 
             expect(mockToolCallsInc).toHaveBeenCalledWith({ tool: 'nonexistent', status: 'error' })
         })
@@ -474,7 +460,7 @@ describe('ToolExecutor metrics', () => {
             const tools = catalog
                 .getPreBuiltEntries()
                 .map((entry) => toolFromPreBuilt(catalog.getToolByName(entry.name)!, entry))
-            return makeState(tools as any, { useSingleExec: true })
+            return makeToolExecutorState(tools as any, { useSingleExec: true })
         }
 
         it('emits no exec-labelled counter or timer on success', async () => {
@@ -756,7 +742,7 @@ describe('ToolExecutor metrics', () => {
 
                 await executor.handleToolCall(
                     { name: 'skill-get', arguments: { skill_name: 'conductor' } },
-                    makeState(tools as any, { context: contextThatServes() })
+                    makeToolExecutorState(tools as any, { context: contextThatServes() })
                 )
 
                 expect(trackToolCallExtras('skill-get')).toMatchObject({ $mcp_skill_name: 'conductor' })

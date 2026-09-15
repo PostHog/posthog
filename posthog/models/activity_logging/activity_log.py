@@ -1125,20 +1125,15 @@ def _handle_activity_log_transaction(create_fn, error_context: dict, *, using: s
         return None
 
 
-# Names the one `Trigger.job_type` whose `job_id` is a sandbox task, so a reader can tell it from
-# the product triggers (`hog_flow`, `canvas_action`) whose job ids point somewhere else entirely.
-# The frontend matches on this string to decide whether the id links to a task.
+# The frontend matches on this job type to render the job id as a link to a sandbox task.
+# Product triggers (`hog_flow`, `canvas_action`) carry job ids that point elsewhere.
 AGENT_TRIGGER_JOB_TYPE = "agent"
 
 
 def agent_trigger() -> Optional[Trigger]:
-    """The agent attribution for this request, or None when no agent context reached it.
+    """The agent attribution for this request, or None when no token-bound task reached it.
 
-    Agents state a reason on nearly every MCP call and the sandbox binds the task to the token,
-    but neither reached the audit trail before this, so an auditor could see that an agent made a
-    change and not why. The task id is what makes the row an agent write, because every other
-    producer of this field sets it server-side and readers treat it as provenance. The intent
-    rides along as the agent's own claim.
+    The task id is required because it is the only server-set part. The intent is the agent's claim.
     """
     task_id = activity_storage.get_agent_task_id()
     if not task_id:
@@ -1152,11 +1147,7 @@ def agent_trigger() -> Optional[Trigger]:
 
 
 def _with_agent_trigger(detail: Detail) -> Detail:
-    """The detail with the agent trigger filled in, or unchanged when there is none or filling fails.
-
-    The row is written from inside the save that triggered it, so an error here would fail the
-    user's write. Losing the attribution is the cheaper outcome.
-    """
+    """The row is written inside the user's save, so an error here must not fail that save."""
     try:
         trigger = agent_trigger()
         return dataclasses.replace(detail, trigger=trigger) if trigger is not None else detail
@@ -1188,8 +1179,7 @@ def log_activity(
     if ip_address is None:
         ip_address = activity_storage.get_ip_address()
     if detail.trigger is None:
-        # Products that set their own trigger (canvas, feature flags, conversations) already say
-        # what drove the write, so agent attribution only fills the gap they leave.
+        # A product that sets its own trigger already says what drove the write.
         detail = _with_agent_trigger(detail)
     if was_impersonated and user is None:
         logger.warn(

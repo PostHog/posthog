@@ -8,7 +8,6 @@ import { parseAgentAttribution } from './parseAgentAttribution'
 
 export const AGENT_INTENT_TOOLTIP = 'Self-reported by the agent in the x-posthog-intent request header'
 
-/** Why an agent made a change, and which task to open to read the rest of it. */
 export function AgentAttribution({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Element | null {
     const attribution = parseAgentAttribution(logItem)
     if (!attribution) {

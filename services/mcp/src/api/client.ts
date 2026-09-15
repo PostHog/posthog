@@ -153,16 +153,11 @@ export interface ApiConfig {
      * the agent's task; the API validates it against the token's team.
      */
     taskId?: string | undefined
-    /**
-     * The agent's stated intent for one tool call, forwarded as `x-posthog-intent` so API writes
-     * record why the agent made the change. Set through `withIntent` rather than written on a
-     * live client, because the intent belongs to a single call.
-     */
+    /** One tool call's stated intent, forwarded as `x-posthog-intent`. Set it through `withIntent`. */
     intent?: string | undefined
 }
 
-// Matches ACTIVITY_LOG_INTENT_MAX_LENGTH in posthog/models/activity_logging/utils.py, which
-// truncates to the same length. Capping here keeps bytes the API would discard off the wire.
+// Matches ACTIVITY_LOG_INTENT_MAX_LENGTH in posthog/models/activity_logging/utils.py.
 const MAX_INTENT_HEADER_LENGTH = 500
 
 // The intent rides along on every API call, so a bad value must cost the header, never the call.
@@ -189,15 +184,11 @@ export class ApiClient {
     }
 
     /**
-     * A copy of this client that sends one tool call's intent on every request it makes.
+     * A copy of this client that carries one tool call's intent.
      *
-     * A JSON-RPC batch resolves one state, so its calls run concurrently over the single cached
-     * client. Writing the intent onto that client lets a later call overwrite the intent an
-     * earlier one has not sent yet, which attributes a write to the wrong reason. Each call takes
-     * its own copy instead.
-     *
-     * The copy keeps this instance's prototype and fields so a `ForwardingApiClient` copy still
-     * forwards. Re-running a constructor here would need each subclass's own arguments.
+     * The calls in a JSON-RPC batch run concurrently over one cached client, so writing the
+     * intent onto that client would let a later call overwrite an earlier call's intent.
+     * The copy keeps the prototype, so a `ForwardingApiClient` copy still forwards.
      */
     withIntent(intent: string): this {
         const scoped = Object.create(Object.getPrototypeOf(this) as object) as this

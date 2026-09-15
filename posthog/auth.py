@@ -900,16 +900,10 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
 
 
 def _record_agent_attribution(request: Union[HttpRequest, Request], access_token: OAuthAccessToken) -> None:
-    """Name the sandbox task an agent runs under, and what the agent says it is doing.
+    """Record the sandbox task bound to the token, and the intent the agent claims.
 
-    The sandbox provisioning binds the task to the token it mints, so a caller cannot name a task
-    it did not run under. The intent is the agent's own claim and nothing verifies it, so it is
-    only read behind that binding. Any caller can put a header on a request, so honouring one
-    without the binding would let a person dress a write of their own up as automation in the
-    audit trail. A token minted for a person carries no task and leaves the audit trail unchanged.
-
-    Attribution is extra detail on an audit row, so a failure here loses that detail and nothing
-    else. It must never fail the authentication, and with it the request, that it decorates.
+    Any caller can send the intent header, so it is read only behind the token binding.
+    Attribution is extra detail on an audit row, so an error here must not fail the request.
     """
     try:
         if access_token.sandbox_task_id is None:
@@ -943,35 +937,40 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
                 if not access_token:
                     raise AuthenticationFailed(detail="Invalid access token.")
 
-                self._enforce_toolbar_access(access_token)
-
-                self.access_token = access_token
-
-                tag_authentication(
-                    user_id=access_token.user.pk,
-                    team_id=access_token.user.current_team_id,
-                    access_method=AccessMethod.OAUTH,
-                )
-
-                # ActivityLoggingMiddleware only captures session-authenticated users (it runs
-                # before DRF auth), so signal-driven activity logging would otherwise record
-                # bearer-token requests as system actions. Only write when the middleware owns
-                # cleanup: outside a request cycle (e.g. authenticate() called directly) the
-                # thread-local would leak.
-                if activity_storage.is_request_scoped():
-                    activity_storage.set_user(access_token.user)
-                    # Tokens minted during staff impersonation must keep the impersonation
-                    # marker in the audit trail.
-                    if access_token.impersonated_by_id is not None:
-                        activity_storage.set_was_impersonated(True)
-                    _record_agent_attribution(request, access_token)
-
-                return access_token.user, None
+                return self._authenticate_access_token(request, access_token)
 
             except AuthenticationFailed:
                 raise
             except Exception:
                 raise AuthenticationFailed(detail="Invalid access token.")
+
+    def _authenticate_access_token(
+        self, request: Union[HttpRequest, Request], access_token: OAuthAccessToken
+    ) -> tuple[Any, None]:
+        self._enforce_toolbar_access(access_token)
+
+        self.access_token = access_token
+
+        tag_authentication(
+            user_id=access_token.user.pk,
+            team_id=access_token.user.current_team_id,
+            access_method=AccessMethod.OAUTH,
+        )
+
+        # ActivityLoggingMiddleware only captures session-authenticated users (it runs
+        # before DRF auth), so signal-driven activity logging would otherwise record
+        # bearer-token requests as system actions. Only write when the middleware owns
+        # cleanup: outside a request cycle (e.g. authenticate() called directly) the
+        # thread-local would leak.
+        if activity_storage.is_request_scoped():
+            activity_storage.set_user(access_token.user)
+            # Tokens minted during staff impersonation must keep the impersonation
+            # marker in the audit trail.
+            if access_token.impersonated_by_id is not None:
+                activity_storage.set_was_impersonated(True)
+            _record_agent_attribution(request, access_token)
+
+        return access_token.user, None
 
     def _extract_token(self, request: Union[HttpRequest, Request]) -> Optional[str]:
         if "authorization" in request.headers:
@@ -1100,19 +1099,7 @@ class DelegatedOAuthAccessTokenAuthentication(OAuthAccessTokenAuthentication):
         except (KeyError, OAuthAccessToken.DoesNotExist) as error:
             raise AuthenticationFailed(detail="Source OAuth access token is no longer valid.") from error
 
-        self._enforce_toolbar_access(access_token)
-        self.access_token = access_token
-        tag_authentication(
-            user_id=access_token.user.pk,
-            team_id=access_token.user.current_team_id,
-            access_method=AccessMethod.OAUTH,
-        )
-        if activity_storage.is_request_scoped():
-            activity_storage.set_user(access_token.user)
-            if access_token.impersonated_by_id is not None:
-                activity_storage.set_was_impersonated(True)
-            _record_agent_attribution(request, access_token)
-        return access_token.user, None
+        return self._authenticate_access_token(request, access_token)
 
 
 class WidgetAuthentication(authentication.BaseAuthentication):

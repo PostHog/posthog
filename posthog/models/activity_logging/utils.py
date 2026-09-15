@@ -16,9 +16,8 @@ logger = structlog.get_logger(__name__)
 
 ACTIVITY_LOG_CLIENT_HEADER = "x-posthog-client"
 ACTIVITY_LOG_CLIENT_MAX_LENGTH = 32
-# What an agent says it is doing. The MCP server forwards the intent it already sends to analytics
-# as `$mcp_intent`. The value is the caller's own claim, so every surface that shows it says so,
-# and only a request carrying a sandbox token binding is read for it at all.
+# The MCP server forwards the same intent it sends to analytics as `$mcp_intent`. It is the
+# caller's own claim, so it is read only from a request whose token is bound to a sandbox task.
 ACTIVITY_LOG_INTENT_HEADER = "x-posthog-intent"
 ACTIVITY_LOG_INTENT_MAX_LENGTH = 500
 
@@ -92,9 +91,6 @@ class ActivityLoggingStorage:
         if hasattr(self._local, "agent_intent"):
             delattr(self._local, "agent_intent")
 
-    # The sandbox task the agent runs under, read from the OAuth token rather than a request
-    # header. The token binding is minted by the sandbox provisioning, so the audit trail cannot
-    # be made to name a task the caller did not actually run under.
     def set_agent_task_id(self, task_id: Optional[str]) -> None:
         self._local.agent_task_id = task_id
 
