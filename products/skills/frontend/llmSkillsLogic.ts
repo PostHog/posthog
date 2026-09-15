@@ -285,6 +285,7 @@ export interface llmSkillsLogicActions {
         options: {
             author_handle?: string
             display_name?: string
+            expected_skill_id: string
             expected_version: number
             tags?: string[]
         }
@@ -292,6 +293,7 @@ export interface llmSkillsLogicActions {
         options: {
             author_handle?: string | undefined
             display_name?: string | undefined
+            expected_skill_id: string
             expected_version: number
             tags?: string[] | undefined
         }
@@ -371,7 +373,13 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
         duplicateSkill: (skillName: string, newName: string) => ({ skillName, newName }),
         publishToCommunity: (
             skillName: string,
-            options: { expected_version: number; display_name?: string; tags?: string[]; author_handle?: string }
+            options: {
+                expected_skill_id: string
+                expected_version: number
+                display_name?: string
+                tags?: string[]
+                author_handle?: string
+            }
         ) => ({ skillName, options }),
         publishToCommunitySuccess: (skillName: string) => ({ skillName }),
         publishToCommunityFailure: (skillName: string) => ({ skillName }),
@@ -646,6 +654,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                     String(ApiConfig.getCurrentTeamId()),
                     skillName,
                     {
+                        expected_skill_id: options.expected_skill_id,
                         expected_version: options.expected_version,
                         display_name: options.display_name,
                         tags: options.tags,
