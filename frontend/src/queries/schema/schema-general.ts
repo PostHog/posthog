@@ -213,6 +213,8 @@ export enum NodeKind {
     MCPToolSampleIntentsQuery = 'MCPToolSampleIntentsQuery',
     MCPToolNeighborsQuery = 'MCPToolNeighborsQuery',
     MCPMissingCapabilitiesQuery = 'MCPMissingCapabilitiesQuery',
+    MCPOverviewSummaryQuery = 'MCPOverviewSummaryQuery',
+    MCPFailureGroupsQuery = 'MCPFailureGroupsQuery',
 
     // Property values
     PropertyValuesQuery = 'PropertyValuesQuery',
@@ -300,6 +302,8 @@ export type AnyDataNode =
     | MCPToolSampleIntentsQuery
     | MCPToolNeighborsQuery
     | MCPMissingCapabilitiesQuery
+    | MCPOverviewSummaryQuery
+    | MCPFailureGroupsQuery
 
 /**
  * @discriminator kind
@@ -434,6 +438,8 @@ export type QuerySchema =
     | MCPToolSampleIntentsQuery
     | MCPToolNeighborsQuery
     | MCPMissingCapabilitiesQuery
+    | MCPOverviewSummaryQuery
+    | MCPFailureGroupsQuery
 
     // Property values
     | PropertyValuesQuery
@@ -3394,6 +3400,14 @@ export interface MCPToolCallsAndErrorsQuery extends DataNode<MCPToolCallsAndErro
 
 export type CachedMCPToolCallsAndErrorsQueryResponse = CachedQueryResponse<MCPToolCallsAndErrorsQueryResponse>
 
+/**
+ * Which caller segment to scope an MCP analytics query to. `$mcp_scope_preset` is stamped only by
+ * PostHog's own hosted MCP server for its automated run types (scout, sandbox, research,
+ * implementation); a customer's own server never sets it, so their traffic is always "people".
+ * Absent (undefined) applies no filter, keeping existing callers unchanged.
+ */
+export type MCPCallerKind = 'people' | 'automations' | 'all'
+
 /** One row of the MCP harness (client) breakdown: a resolved customer label and its activity. */
 export interface MCPHarnessBreakdownItem {
     /** Customer-facing harness label, e.g. "Claude Agent SDK", "OpenAI Codex", "Cursor", "Other". */
@@ -3416,6 +3430,8 @@ export interface MCPHarnessBreakdownQuery extends DataNode<MCPHarnessBreakdownQu
     filterTestAccounts?: boolean
     /** When set, scope to a single effective tool's new-SDK calls (the per-tool "By harness" table). */
     toolName?: string
+    /** When set, scope to one caller segment (people vs. automations). Unset applies no filter. */
+    callerKind?: MCPCallerKind
 }
 
 export type CachedMCPHarnessBreakdownQueryResponse = CachedQueryResponse<MCPHarnessBreakdownQueryResponse>
@@ -3451,9 +3467,94 @@ export interface MCPModelBreakdownQuery extends DataNode<MCPModelBreakdownQueryR
      * @minimum 0
      */
     offset?: integer
+    /** When set, scope to one caller segment (people vs. automations). Unset applies no filter. */
+    callerKind?: MCPCallerKind
 }
 
 export type CachedMCPModelBreakdownQueryResponse = CachedQueryResponse<MCPModelBreakdownQueryResponse>
+
+/** Top-line scalars for the MCP analytics overview page. */
+export interface MCPOverviewSummary {
+    /** Distinct people who called a tool in the window. */
+    people: integer
+    /** People whose first-ever call landed inside the window. */
+    new_people: integer
+    /** People who called a tool before the window and again inside it. */
+    returning_people: integer
+    /** Share of new people whose first call in the window errored. */
+    new_people_first_call_failed_pct: number
+    calls: integer
+    sessions: integer
+    success_pct: number
+    /** Share of calls carrying a non-empty $mcp_intent. */
+    intent_pct: number
+    /** Distinct resolved harness labels seen in the window. */
+    clients: integer
+    /** Calls from the complementary (automated) caller segment; 0 unless callerKind is "people". */
+    automation_calls: integer
+    /** Sessions from the complementary (automated) caller segment; 0 unless callerKind is "people". */
+    automation_sessions: integer
+}
+
+export interface MCPOverviewSummaryQueryResponse extends AnalyticsQueryResponseBase {
+    /** Zero or one row; empty when there was no activity in the window. */
+    results: MCPOverviewSummary[]
+}
+
+/** Top-line KPIs for the MCP analytics overview page, over $mcp_tool_call events. */
+export interface MCPOverviewSummaryQuery extends DataNode<MCPOverviewSummaryQueryResponse> {
+    kind: NodeKind.MCPOverviewSummaryQuery
+    dateRange?: DateRange
+    properties?: AnyPropertyFilter[]
+    filterTestAccounts?: boolean
+    /** When set, scope to one caller segment (people vs. automations). Unset applies no filter. */
+    callerKind?: MCPCallerKind
+}
+
+export type CachedMCPOverviewSummaryQueryResponse = CachedQueryResponse<MCPOverviewSummaryQueryResponse>
+
+/** One group of errored calls sharing a tool, error type, and normalized message. */
+export interface MCPFailureGroup {
+    tool: string
+    error_type: string
+    /** Error message with UUIDs and digit runs normalized, clipped to 200 characters. */
+    message: string
+    sessions: integer
+    calls: integer
+    people: integer
+    /** Share of the group's calls where the same tool was called again next and succeeded. */
+    next_retried_succeeded_pct: number
+    /** Share of the group's calls where the same tool was called again next and failed again. */
+    next_retried_failed_pct: number
+    /** Share of the group's calls where a different tool was called next. */
+    next_switched_pct: number
+    /** Share of the group's calls that were the session's last call. */
+    next_ended_pct: number
+    /** A non-empty $mcp_intent seen among the group's errored calls, clipped to 300 characters. */
+    sample_intent: string
+}
+
+export interface MCPFailureGroupsQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPFailureGroup[]
+}
+
+/** Errored MCP tool calls grouped by tool/error type/normalized message, ranked by sessions affected. */
+export interface MCPFailureGroupsQuery extends DataNode<MCPFailureGroupsQueryResponse> {
+    kind: NodeKind.MCPFailureGroupsQuery
+    dateRange?: DateRange
+    properties?: AnyPropertyFilter[]
+    filterTestAccounts?: boolean
+    /** When set, scope to one caller segment (people vs. automations). Unset applies no filter. */
+    callerKind?: MCPCallerKind
+    /**
+     * Maximum number of failure groups to return.
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: integer
+}
+
+export type CachedMCPFailureGroupsQueryResponse = CachedQueryResponse<MCPFailureGroupsQueryResponse>
 
 /** One row of the per-tool "Top users" table: a user and their activity on a tool. */
 export interface MCPToolTopUserItem {

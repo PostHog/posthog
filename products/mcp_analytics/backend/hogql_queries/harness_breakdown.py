@@ -20,6 +20,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from products.mcp_analytics.backend import mcp_harness
 from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
 from products.mcp_analytics.backend.hogql_queries.base import (
+    caller_kind_expr,
     mcp_query_date_range,
     tool_scope_exprs,
     validate_mcp_analytics_access,
@@ -59,6 +60,9 @@ class MCPHarnessBreakdownQueryRunner(AnalyticsQueryRunner[MCPHarnessBreakdownQue
         ]
         if self.query.toolName:
             exprs.extend(tool_scope_exprs(self.query.toolName))
+        caller_kind = caller_kind_expr(self.query.callerKind)
+        if caller_kind is not None:
+            exprs.append(caller_kind)
         properties = list(self.query.properties or [])
         if self.query.filterTestAccounts:
             properties += self.team.test_account_filters or []
