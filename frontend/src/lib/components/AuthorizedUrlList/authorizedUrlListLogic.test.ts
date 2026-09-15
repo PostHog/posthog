@@ -136,6 +136,24 @@ describe('the authorized urls list logic', () => {
             })
         })
 
+        it('repairs a saved URL that already has two protocols when it is edited', async () => {
+            // An earlier test leaves `api.update` mocked with a promise it never resolves
+            const update = jest.spyOn(api, 'update').mockResolvedValue({})
+
+            await expectLogic(logic, () => {
+                logic.actions.setAuthorizedUrls(['https://https://www.example.com'])
+                logic.actions.setEditUrlIndex(0)
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.submitProposedUrl()
+            }).toFinishAllListeners()
+
+            expect(update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}`, {
+                app_urls: ['https://www.example.com'],
+            })
+        })
+
         it('allows an unchanged URL when editing', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setAuthorizedUrls(['https://example.com'])
