@@ -46,11 +46,11 @@ Rules the loop follows:
 
 All three are gated on `revamped-py-notebooks`, the same way `sql_v2/run` is, and all three need query access.
 
-| Method and path | Scopes | Body | Response |
-| --- | --- | --- | --- |
-| `POST notebooks/{short_id}/runs/` | `notebook:write`, `query:read` | `{variables?: [...]}` | `{run_id, cell_count, starts_sandbox, sandbox_hourly_price}` |
-| `GET notebooks/{short_id}/runs/{run_id}/` | `notebook:read`, `query:read` | | `{run_id, status, trigger, variables, cell_count, current_index, current_node_id, failed_node_id, error, cells, created_at, finished_at}` |
-| `POST notebooks/{short_id}/runs/{run_id}/interrupt/` | `notebook:write` | | `{interrupted, status}` |
+| Method and path                                      | Scopes                         | Body                  | Response                                                                                                                                  |
+| ---------------------------------------------------- | ------------------------------ | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST notebooks/{short_id}/runs/`                    | `notebook:write`, `query:read` | `{variables?: [...]}` | `{run_id, cell_count, starts_sandbox, sandbox_hourly_price}`                                                                              |
+| `GET notebooks/{short_id}/runs/{run_id}/`            | `notebook:read`, `query:read`  |                       | `{run_id, status, trigger, variables, cell_count, current_index, current_node_id, failed_node_id, error, cells, created_at, finished_at}` |
+| `POST notebooks/{short_id}/runs/{run_id}/interrupt/` | `notebook:write`               |                       | `{interrupted, status}`                                                                                                                   |
 
 - `POST runs/` with `variables` saves them through the notebook's own serializer first, so a run and a plain PATCH apply the same limits and the same duplicate-name rule. The run then snapshots what the notebook holds.
 - A notebook with no runnable cell returns 400. A notebook that already has a run returns 409.
