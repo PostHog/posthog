@@ -169,11 +169,17 @@ pub fn upload_pairs(
             );
         } else {
             empty_skipped_suspect += 1;
-            warn!(
-                "Skipping {}: sourcemap is empty but sibling JS is {} bytes — likely a bundler misconfiguration. Check your bundler's source-map setting (e.g. webpack `devtool`, Next.js `productionBrowserSourceMaps`, server compiler config).",
+            debug!(
+                "Skipping {}: sourcemap is empty but sibling JS is {} bytes — possible bundler misconfiguration",
                 map_path, js_size
             );
         }
+    }
+    if empty_skipped_suspect > 0 {
+        warn!(
+            "Skipped {} empty sourcemaps whose sibling JS file is over {} bytes. If those files must symbolicate, check your bundler's source-map setting (e.g. webpack `devtool`, Next.js `productionBrowserSourceMaps`, server compiler config). Set RUST_LOG=debug to list them.",
+            empty_skipped_suspect, WRAPPER_JS_SIZE_THRESHOLD_BYTES
+        );
     }
     let empty_skipped = empty_pairs.len();
 
