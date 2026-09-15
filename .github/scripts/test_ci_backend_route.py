@@ -61,7 +61,8 @@ def test_non_pull_request_events(platform, event, percent, expected):
 
 
 @pytest.mark.parametrize(
-    "raw,expected", [(None, 0), ("", 0), ("abc", 0), ("-5", 0), ("42", 42), ("250", 100), (" 7 ", 7)]
+    "raw,expected",
+    [(None, 0), ("", 0), ("abc", 0), ("-5", 0), ("42", 42), ("250", 100), (" 7 ", 7), ("\u00b2", 0), ("9" * 5000, 0)],
 )
 def test_parse_percent_fails_closed(raw, expected):
     assert route.parse_percent(raw) == expected
@@ -86,6 +87,17 @@ def test_fetch_percent_returns_none_on_http_error():
         raise urllib.error.HTTPError(request.full_url, 404, "Not Found", None, None)
 
     assert route.fetch_percent("PostHog/posthog", "token", opener=opener) is None
+
+
+def test_main_treats_null_labels_as_none(tmp_path, monkeypatch):
+    output = tmp_path / "out"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    monkeypatch.setenv("PLATFORM", "github")
+    monkeypatch.setenv("EVENT", "push")
+    monkeypatch.setenv("PERCENT", "50")
+    monkeypatch.setenv("LABELS", "null")
+    assert route.main() == 0
+    assert output.read_text().startswith("route=github\n")
 
 
 def test_main_writes_outputs(tmp_path, monkeypatch):

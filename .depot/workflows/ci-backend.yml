@@ -264,7 +264,8 @@ jobs:
                   LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
                   IS_FORK: ${{ github.event.pull_request.head.repo.fork }}
                   IS_DRAFT: ${{ github.event.pull_request.draft }}
-                  GITHUB_TOKEN: ${{ github.token }}
+                  # A fork could ship its own copy of the script; forks route to GitHub without a token.
+                  GITHUB_TOKEN: ${{ github.event.pull_request.head.repo.fork != true && github.token || '' }}
               run: python3 .github/scripts/ci_backend_route.py
     # Job to decide if we should run backend ci
     # See .github/actions/paths-filter/README.md for filter semantics

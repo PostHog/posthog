@@ -29,9 +29,13 @@ class Decision:
 
 
 def parse_percent(raw: str | None) -> int:
-    if raw is None or not raw.strip().isdigit():
+    value = raw.strip() if raw is not None else ""
+    if not value.isascii() or not value.isdecimal():
         return 0
-    return min(int(raw.strip()), 100)
+    try:
+        return min(int(value), 100)
+    except ValueError:
+        return 0
 
 
 def decide(
@@ -94,7 +98,7 @@ def main() -> int:
         event=env.get("EVENT", ""),
         percent=parse_percent(raw_percent),
         pr_number=int(pr_raw) if pr_raw.isdigit() else None,
-        labels=json.loads(env.get("LABELS") or "[]"),
+        labels=json.loads(env.get("LABELS") or "[]") or [],
         is_fork=env.get("IS_FORK", "false") == "true",
         is_draft=env.get("IS_DRAFT", "false") == "true",
     )
