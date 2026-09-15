@@ -221,7 +221,12 @@ const translateInputs = (defaultVal: any, multiple: boolean = false) => {
             modifiedVal = modifiedVal.replaceAll('context.app.version', 'event.properties.$app_version')
         }
         if (modifiedVal.includes('event.anonymousId')) {
-            modifiedVal = modifiedVal.replaceAll('event.anonymousId', 'event.distinct_id')
+            // The pre-identify ID, so a vendor can join anonymous activity to the identified
+            // profile. It must stay different from userId, which carries the distinct ID.
+            modifiedVal = modifiedVal.replaceAll(
+                'event.anonymousId',
+                'event.properties.$anon_distinct_id ?? event.properties.$device_id ?? event.distinct_id'
+            )
         }
         if (modifiedVal.includes('context.device.advertisingId')) {
             modifiedVal = modifiedVal.replaceAll('context.device.advertisingId', '')
@@ -230,7 +235,9 @@ const translateInputs = (defaultVal: any, multiple: boolean = false) => {
             modifiedVal = modifiedVal.replaceAll('integrations.Actions Amplitude.session_id', '')
         }
         if (modifiedVal.includes('event.userId')) {
-            modifiedVal = modifiedVal.replaceAll('event.userId', 'person.id')
+            // Segment's userId is the identifier the customer knows the user by, which is the
+            // distinct ID. PostHog's person ID is internal and no vendor can match on it.
+            modifiedVal = modifiedVal.replaceAll('event.userId', 'event.distinct_id')
         }
         if (modifiedVal.includes('event.messageId')) {
             modifiedVal = modifiedVal.replaceAll('event.messageId', 'event.uuid')
@@ -294,7 +301,8 @@ const translateInputs = (defaultVal: any, multiple: boolean = false) => {
                 } else if (val !== '' && fallbackVal === '') {
                     return `{${val}}`
                 } else {
-                    return `{${multiple ? '[' : ''}${val} ?? ${fallbackVal}${multiple ? ']' : ''}}`
+                    const inner = val === fallbackVal ? val : `${val} ?? ${fallbackVal}`
+                    return `{${multiple ? `[${inner}]` : inner}}`
                 }
             }
         } else if (defaultVal && '@arrayPath' in defaultVal) {
