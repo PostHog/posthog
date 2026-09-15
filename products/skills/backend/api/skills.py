@@ -1,10 +1,13 @@
+import hashlib
 from collections.abc import Sequence
 from typing import Any, cast
+from urllib.parse import urlencode
 from uuid import UUID
 
 from django.db import IntegrityError, OperationalError, transaction
 from django.db.models import Case, Exists, IntegerField, OuterRef, Q, QuerySet, Value, When
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseBase
+from django.utils.cache import get_conditional_response, patch_cache_control, patch_vary_headers
 
 import psycopg
 import structlog
@@ -30,7 +33,9 @@ from posthog.auth import (
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
 )
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
+from posthog.git import get_git_commit_short
 from posthog.models import User
 from posthog.models.utils import execute_with_timeout
 from posthog.permissions import AccessControlPermission, get_authenticator_scopes, posthog_feature_flag_value
@@ -139,7 +144,15 @@ from .skill_services import (
     set_skill_owners,
     skill_name_is_well_formed,
     skill_names_owned_by,
+    team_skills_version,
 )
+
+
+@frozen
+class SkillsListValidators:
+    version: str
+    etag: str
+
 
 logger = structlog.get_logger(__name__)
 
@@ -363,6 +376,16 @@ class SkillSearchSustainedThrottle(_SkillUserThrottle):
     rate = SustainedRateThrottle.rate
 
 
+class SkillListBurstThrottle(_SkillUserThrottle):
+    scope = "skills_list_burst"
+    rate = BurstRateThrottle.rate
+
+
+class SkillListSustainedThrottle(_SkillUserThrottle):
+    scope = "skills_list_sustained"
+    rate = SustainedRateThrottle.rate
+
+
 class ZipRenderer(BaseRenderer):
     """Lets ``Accept: application/zip`` through content negotiation on the zip actions.
 
@@ -435,6 +458,8 @@ class LLMSkillViewSet(
             return [SkillBundleBurstThrottle(), SkillBundleSustainedThrottle()]
         if self.action == "search":
             return [SkillSearchBurstThrottle(), SkillSearchSustainedThrottle()]
+        if self.action == "list":
+            return [SkillListBurstThrottle(), SkillListSustainedThrottle()]
         if self.action in ["update_by_name", "get_by_name", "resolve_by_name"]:
             return [BurstRateThrottle(), SustainedRateThrottle()]
         return super().get_throttles()
@@ -1884,10 +1909,30 @@ class LLMSkillViewSet(
         )
         return Response(self._serialize_skill(published_skill))
 
-    @extend_schema(parameters=[LLMSkillListQuerySerializer])
+    @extend_schema(
+        parameters=[LLMSkillListQuerySerializer],
+        responses={
+            200: LLMSkillListSerializer,
+            304: OpenApiResponse(
+                description="Not modified. The client sent an If-None-Match that matches the current list."
+            ),
+        },
+    )
     @llma_track_latency("llma_skills_list")
     @monitor(feature=None, endpoint="llma_skills_list", method="GET")
-    def list(self, request: Request, *args, **kwargs) -> Response:
+    def list(self, request: Request, *args, **kwargs) -> HttpResponseBase:
+        version = team_skills_version(self.team)
+        list_response = self._list_response(request)
+        validators = self._list_validators(request, list_response, version)
+        # Validate and apply access rules before a conditional response can reuse a cached body.
+        response = get_conditional_response(request._request, etag=validators.etag) or list_response
+        response["ETag"] = validators.etag
+        response["X-Skills-Version"] = validators.version
+        patch_cache_control(response, private=True, no_cache=True)
+        patch_vary_headers(response, ["Authorization", "Cookie"])
+        return response
+
+    def _list_response(self, request: Request) -> Response:
         queryset = self.filter_queryset(self._get_list_queryset(request))
         page = self.paginate_queryset(queryset)
         if page is not None:
@@ -1900,6 +1945,22 @@ class LLMSkillViewSet(
         serializer = self.get_serializer(skills, many=True, context=context)
         data = serializer.data
         return Response({"count": len(data), "results": data})
+
+    def _list_validators(self, request: Request, response: Response, version: str) -> SkillsListValidators:
+        seed = urlencode(
+            [
+                ("rev", get_git_commit_short() or ""),
+                ("user", request.user.pk),
+                *sorted(request.query_params.lists()),
+            ],
+            doseq=True,
+        )
+        body = SafeJSONRenderer().render(response.data)
+        # A weak ETag identifies the data across renderer formatting and content encodings.
+        return SkillsListValidators(
+            version=version,
+            etag='W/"' + hashlib.sha256(seed.encode() + b"\0" + body).hexdigest() + '"',
+        )
 
     # `Sequence`, not `list[...]`: the viewset defines a `list` method that shadows the builtin in the
     # class body where this annotation is evaluated.
