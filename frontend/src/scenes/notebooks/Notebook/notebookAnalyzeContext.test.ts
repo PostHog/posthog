@@ -17,6 +17,7 @@ describe('notebookAnalyzeContext', () => {
     const queryCell: NotebookAnalyzeCell = {
         notebookShortId: 'nb123',
         nodeId: 'node-1',
+        nodeType: NotebookNodeType.Query,
         kind: 'query',
         title: 'Signups',
         query: { kind: NodeKind.TrendsQuery, series: [] } as any,

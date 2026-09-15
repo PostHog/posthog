@@ -16,6 +16,7 @@ export type NotebookAnalyzeCellKind = 'insight' | 'query' | 'sql' | 'python'
 export interface NotebookAnalyzeCell {
     notebookShortId: string
     nodeId: string
+    nodeType: NotebookNodeType
     kind: NotebookAnalyzeCellKind
     title?: string
     insightShortId?: string
@@ -92,7 +93,7 @@ export function getNotebookAnalyzeCell(
     if (!nodeId) {
         return null
     }
-    const shared = { notebookShortId, nodeId, title: attributes.title || undefined }
+    const shared = { notebookShortId, nodeId, nodeType, title: attributes.title || undefined }
 
     if (nodeType === NotebookNodeType.Query) {
         return attributes.id

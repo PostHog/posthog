@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { BindLogic } from 'kea'
 
 import {
     buildInsertCommands,
@@ -10,10 +11,16 @@ import {
     type ComponentPanelVisibility,
     getInsertedComponentPanelVisibility,
 } from 'lib/components/MarkdownNotebook/componentPanels'
+import {
+    NotebookComponentToolbarExtras,
+    NotebookComponentToolbarExtrasContext,
+} from 'lib/components/MarkdownNotebook/componentToolbarExtras'
 import { NotebookComponentShell } from 'lib/components/MarkdownNotebook/NotebookComponentShell'
-import type { NotebookComponentBlockNode } from 'lib/components/MarkdownNotebook/types'
+import type { NotebookComponentBlockNode, NotebookComponentProps } from 'lib/components/MarkdownNotebook/types'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import { initKeaTests } from '~/test/init'
 
 import notebookWidgetCatalog from 'products/notebooks/notebook-widget-catalog.json'
 
@@ -21,6 +28,7 @@ import { NotebookNodeType } from '../types'
 import { KNOWN_NODES } from '../utils'
 import {
     NOTEBOOK_MARKDOWN_REGISTRY,
+    RealNotebookNodeComponent,
     RealNotebookNodeEdit,
     RealNotebookNodeIdentityAndViewEdit,
     getEditableNodeAttributeKeys,
@@ -31,6 +39,7 @@ import {
     getQueryTitle,
     getSerializableAttributeInputValue,
 } from './markdownNotebookRegistry'
+import { NotebookLogicProps, notebookLogic } from './notebookLogic'
 
 jest.mock('./MarkdownNotebookEntityPicker', () => ({
     MarkdownNotebookEntityPicker: ({ kind, onSelect }: { kind: string | null; onSelect: (value: unknown) => void }) =>
@@ -469,6 +478,68 @@ describe('markdownNotebookRegistry', () => {
 
         expect(attributes.code).toEqual('select event from events')
         expect(attributes.vizQuery).toMatchObject({ display: 'ActionsBar' })
+    })
+
+    describe('analyze with PostHog AI menu item', () => {
+        const SHORT_ID = 'analyze-menu-test'
+        const logicProps: NotebookLogicProps = { shortId: SHORT_ID, mode: 'notebook' }
+
+        const renderNodeExtras = (
+            tagName: string,
+            props: NotebookComponentProps
+        ): NotebookComponentToolbarExtras | null => {
+            let published: NotebookComponentToolbarExtras | null = null
+            render(
+                <BindLogic logic={notebookLogic} props={logicProps}>
+                    <NotebookComponentToolbarExtrasContext.Provider
+                        value={(extras) => {
+                            published = extras
+                        }}
+                    >
+                        <RealNotebookNodeComponent
+                            node={{ id: `${tagName}-node`, type: 'component', tagName, props }}
+                            mode="view"
+                            notebookMode="view"
+                            updateProps={jest.fn()}
+                            deleteNode={jest.fn()}
+                        />
+                    </NotebookComponentToolbarExtrasContext.Provider>
+                </BindLogic>
+            )
+            return published
+        }
+
+        beforeEach(() => {
+            initKeaTests()
+            featureFlagLogic.actions.setFeatureFlags(
+                [FEATURE_FLAGS.NOTEBOOK_AI_ANALYZE_MORE, FEATURE_FLAGS.PHAI_SANDBOX_MODE],
+                { [FEATURE_FLAGS.NOTEBOOK_AI_ANALYZE_MORE]: true, [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true }
+            )
+            notebookLogic(logicProps).mount()
+        })
+
+        afterEach(cleanup)
+
+        // The shell renders `menuItems` in view mode and `editMenuItems` only in edit mode, so the
+        // item landing in the wrong list would hide analysis from exactly the reader it is for.
+        it('offers analysis on a query cell in view mode', () => {
+            const extras = renderNodeExtras('Query', { query: { kind: 'TrendsQuery' } })
+
+            expect(extras?.menuItems).toEqual(
+                expect.arrayContaining([expect.objectContaining({ label: 'Analyze with PostHog AI' })])
+            )
+            expect(extras?.editMenuItems ?? []).not.toEqual(
+                expect.arrayContaining([expect.objectContaining({ label: 'Analyze with PostHog AI' })])
+            )
+        })
+
+        it('offers no analysis on a cell that holds no query or code', () => {
+            const extras = renderNodeExtras('Latex', { content: 'x^2' })
+
+            expect(extras?.menuItems ?? []).not.toEqual(
+                expect.arrayContaining([expect.objectContaining({ label: 'Analyze with PostHog AI' })])
+            )
+        })
     })
 
     describe('getQueryTitle', () => {
