@@ -22,6 +22,7 @@ An HTTP error response alone does not raise an exception or release the delivery
 Deduplication uses the delivery ID and consumer name, with a 24-hour cache expiry.
 An exception releases that consumer's entry so a redelivery can retry it.
 A redelivery therefore runs only the consumers that raised.
+A consumer that catches its own failure and returns keeps its entry, so that failure gets no redelivery.
 A cache failure allows processing to continue.
 Keep consumer names stable when moving code: names are part of the cache key.
 
