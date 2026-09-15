@@ -22,8 +22,9 @@ A `candidate` report does not always have a queued investigation. It can also
 be waiting after a quota limit or unavailable signal data stops a run.
 
 If another action archives the report before the pause request completes, the
-server rejects the pause. The report stays archived. Only an explicit restore
-request, without a pause interval or dismissal feedback, can restore it.
+server rejects the pause. The report stays archived. Restore requests can include
+feedback notes. Requests with a pause interval or the `already_fixed` reason
+cannot restore an archived report.
 
 Dismissal updates the report immediately. A success message appears after the
 server confirms the change. If the request fails, the previous report state is

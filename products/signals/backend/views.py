@@ -2652,7 +2652,7 @@ class SignalReportViewSet(
             # always dropping back to potential.
             effective_target = target_status
             if report.status == SignalReport.Status.SUPPRESSED and target_status == SignalReport.Status.POTENTIAL:
-                if snooze_for is not None or dismissal_reason or dismissal_note:
+                if snooze_for is not None or dismissal_reason == "already_fixed":
                     return (
                         SignalReportBulkStateOutcome.SKIPPED,
                         "This report is archived. Refresh it before continuing.",
