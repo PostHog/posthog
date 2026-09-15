@@ -321,6 +321,16 @@ def extract_tool_calls_from_content(content: Any) -> list[ToolCall]:
     return tool_calls
 
 
+def _string_type(msg: dict[str, Any]) -> str | None:
+    """The value under `type` when it is a string, else None.
+
+    Customer payloads record any JSON value there, and the membership tests below hash what they
+    are given. An unhashable value such as a dict raises `TypeError` against a frozenset.
+    """
+    msg_type = msg.get("type")
+    return msg_type if isinstance(msg_type, str) else None
+
+
 def safe_extract_text(content: Any) -> str:
     """
     Safely extract text from various content formats.
@@ -345,7 +355,7 @@ def safe_extract_text(content: Any) -> str:
             text_parts: list[str] = []
             for i, item in enumerate(content):
                 if isinstance(item, dict):
-                    item_type = item.get("type")
+                    item_type = _string_type(item)
                     # Try both "text" and "content" keys (tool_result uses "content")
                     text_value = item.get("text") or item.get("content")
 
@@ -387,7 +397,7 @@ def _is_special_block(block: Any) -> bool:
     if not isinstance(block, dict):
         return False
 
-    block_type = block.get("type")
+    block_type = _string_type(block)
     if block_type in SPECIAL_BLOCK_TYPES:
         return True
 
@@ -455,21 +465,25 @@ def extract_text_content(content: Any) -> str:
     Handles special blocks like tool calls inline for better readability.
     """
     # Handle special cases that need inline formatting (tool calls, etc)
-    if isinstance(content, list):
-        # Check if any blocks need special handling
-        if any(_is_special_block(block) for block in content):
-            text_parts: list[str] = []
-            for block in content:
-                if isinstance(block, dict):
-                    formatted = _format_special_block(block)
-                    if formatted is not None and formatted:
-                        text_parts.append(formatted)
-                # Handle non-dict items in list
-                elif isinstance(block, str):
-                    text_parts.append(block)
+    try:
+        if isinstance(content, list):
+            # Check if any blocks need special handling
+            if any(_is_special_block(block) for block in content):
+                text_parts: list[str] = []
+                for block in content:
+                    if isinstance(block, dict):
+                        formatted = _format_special_block(block)
+                        if formatted is not None and formatted:
+                            text_parts.append(formatted)
+                    # Handle non-dict items in list
+                    elif isinstance(block, str):
+                        text_parts.append(block)
 
-            if text_parts:
-                return "\n\n".join(text_parts)
+                if text_parts:
+                    return "\n\n".join(text_parts)
+    except Exception:
+        # One malformed block must degrade its own message, not the trace that holds it.
+        pass
 
     # Use safe extraction for non-special content (handles type labels for text/reasoning/etc)
     return safe_extract_text(content)
@@ -503,7 +517,11 @@ def _is_responses_item(msg: dict[str, Any]) -> bool:
     to be keyed by `type` and carries nothing but tool calls.
     """
     item_type = msg.get("type")
-    return bool(item_type) and item_type not in PLAIN_TEXT_BLOCK_TYPES and CHAT_COMPLETIONS_MESSAGE_KEYS.isdisjoint(msg)
+    if not item_type or not CHAT_COMPLETIONS_MESSAGE_KEYS.isdisjoint(msg):
+        return False
+    # Only a string can name a plain-text block, so any other type is a malformed item whose
+    # recorded payload is still worth rendering.
+    return not isinstance(item_type, str) or item_type not in PLAIN_TEXT_BLOCK_TYPES
 
 
 def _format_call_signature(msg: dict[str, Any]) -> str:
@@ -561,7 +579,7 @@ def _format_responses_item(msg: dict[str, Any], options: FormatterOptions | None
     `content` alone drops every tool call, tool result, and reasoning summary in the conversation
     while still printing its header.
     """
-    item_type = msg.get("type")
+    item_type = _string_type(msg)
 
     if item_type in RESPONSES_TOOL_CALL_TYPES:
         lines, _ = truncate_content(_format_call_signature(msg), options)
@@ -644,7 +662,12 @@ def format_messages_array(messages: list[Any], options: FormatterOptions | None 
         lines.append(f"[{i + 1}] {role.upper()}")
         lines.append("")
 
-        responses_lines = _format_responses_item(msg, options)
+        try:
+            responses_lines = _format_responses_item(msg, options)
+        except Exception:
+            # One malformed item must degrade to its own repr, not the trace that holds it.
+            responses_lines, _ = truncate_content(safe_extract_text(msg), options)
+
         if responses_lines is not None:
             lines.extend(responses_lines)
         elif content:

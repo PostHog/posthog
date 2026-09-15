@@ -514,6 +514,72 @@ class TestEdgeCases:
         # Empty string should be treated as no input
         assert len(lines) == 0
 
+    @parameterized.expand(
+        [
+            ("dict", {"nested": "dict"}),
+            ("list", ["nested"]),
+        ]
+    )
+    def test_unhashable_block_type_does_not_stop_the_render(self, _name, block_type):
+        messages = [
+            {"role": "user", "content": [{"type": block_type, "text": "first"}]},
+            {"role": "assistant", "content": "second"},
+        ]
+        result = "\n".join(format_input_messages(messages))
+        assert "first" in result
+        assert "second" in result
+
+    def test_unhashable_item_type_does_not_stop_the_render(self):
+        messages = [
+            {"type": {"nested": "dict"}, "name": "search"},
+            {"role": "assistant", "content": "second"},
+        ]
+        result = "\n".join(format_input_messages(messages))
+        assert "second" in result
+
+    @parameterized.expand(
+        [
+            ("dict", {"kind": "oops"}),
+            ("list", ["oops"]),
+            ("int", 5),
+        ]
+    )
+    def test_large_malformed_block_keeps_the_blocks_after_it(self, _name, block_type):
+        content = [
+            {"type": block_type, "text": "A" * 1200},
+            {"type": "text", "text": "keep me"},
+        ]
+        result = extract_text_content(content)
+        assert "A" * 1200 in result
+        assert "keep me" in result
+
+    @parameterized.expand(
+        [
+            ("dict", {"a": 1}),
+            ("list", ["a"]),
+            ("int", 5),
+        ]
+    )
+    def test_non_string_item_type_keeps_its_payload(self, _name, item_type):
+        item = {"type": item_type, "name": "search", "arguments": '{"q":"x"}', "status": "completed"}
+        assert 'search(q="x")' in "\n".join(format_input_messages([item]))
+        assert 'search(q="x")' in "\n".join(format_output_messages(None, [item]))
+
+    @parameterized.expand(
+        [
+            ("dict", {"query": "x"}),
+            ("int", 5),
+        ]
+    )
+    def test_non_string_partial_json_does_not_stop_the_render(self, _name, partial_json):
+        messages = [
+            {"type": "tool_use", "name": "search", "partial_json": partial_json},
+            {"role": "assistant", "content": "second"},
+        ]
+        result = "\n".join(format_input_messages(messages))
+        assert "search" in result
+        assert "second" in result
+
 
 class TestResponsesApiItems:
     @parameterized.expand(
