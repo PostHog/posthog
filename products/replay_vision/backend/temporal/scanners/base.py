@@ -212,6 +212,7 @@ class BaseScanner(BaseModel, frozen=True):
             product_context=product_context,
             event_descriptions=event_descriptions or {},
             tool_budget=tool_budget,
+            default_tool_budget=DEFAULT_MAX_TOOL_ITERATIONS,
         )
 
     def core_steps(self) -> list[MissionStep]:

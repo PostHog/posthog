@@ -91,7 +91,7 @@ _MAX_MISSION_ATTEMPTS = 2
 _MAX_TOOL_ITERATIONS_BY_MODEL: dict[str, int] = {ScannerModel.GEMINI_3_8_FLASH: 3}
 
 
-def tool_budget(model: str) -> int:
+def _tool_budget(model: str) -> int:
     """Event lookups per step for `model`, accepting either the bare id or the `models/` form the API takes."""
     return _MAX_TOOL_ITERATIONS_BY_MODEL.get(model.removeprefix("models/"), DEFAULT_MAX_TOOL_ITERATIONS)
 
@@ -210,7 +210,7 @@ async def run_scan(
         events_truncated=llm_inputs.events_truncated,
         product_context=llm_inputs.product_context,
         event_descriptions=llm_inputs.event_descriptions,
-        tool_budget=tool_budget(snapshot.model),
+        tool_budget=_tool_budget(snapshot.model),
     )
     video_part = types.Part(file_data=types.FileData(file_uri=file_uri, mime_type=mime_type))
 
@@ -720,7 +720,7 @@ async def _run_step(
         started = time.monotonic()
         try:
             response = await run_tool_loop(
-                generate=_generate, convo=convo, dispatch=dispatch, max_tool_iterations=tool_budget(model)
+                generate=_generate, convo=convo, dispatch=dispatch, max_tool_iterations=_tool_budget(model)
             )
             if function_calls(response):
                 # Tool budget spent and the model still wants a lookup. Rather than hard-fail, complete the
