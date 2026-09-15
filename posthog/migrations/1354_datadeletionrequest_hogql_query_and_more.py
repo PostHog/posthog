@@ -2,11 +2,8 @@
 
 from django.db import migrations, models
 
-from posthog.migration_helpers import SafeAddIndexConcurrently
-
 
 class Migration(migrations.Migration):
-    atomic = False
     dependencies = [
         ("posthog", "1353_drop_retired_ducklake_tables"),
     ]
@@ -45,9 +42,5 @@ class Migration(migrations.Migration):
                 help_text="property_removal: remove specific properties from matching events. event_removal: delete entire events matching the criteria. hogql_event_removal: delete events selected by a stored HogQL query.",
                 max_length=40,
             ),
-        ),
-        SafeAddIndexConcurrently(
-            model_name="datadeletionrequest",
-            index=models.Index(fields=["team_id", "-created_at"], name="ddr_team_created_at_idx"),
         ),
     ]
