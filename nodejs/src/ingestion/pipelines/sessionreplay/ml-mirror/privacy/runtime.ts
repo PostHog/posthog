@@ -9,7 +9,6 @@ import { MlKeyReader } from './reader'
 import { MlKafkaEncryption } from './transport'
 
 export interface MlPrivacyConfig {
-    AI_RESEARCH_REPLAY_PRIVACY_TABLE?: string
     AI_RESEARCH_REPLAY_KEY_TABLE: string
     AI_RESEARCH_REPLAY_KMS_KEY_ARN: string
     AI_RESEARCH_REPLAY_AWS_REGION: string
@@ -28,8 +27,7 @@ export class MlPrivacyRuntime {
     private readonly kms: KMSClient
 
     constructor(config: MlPrivacyConfig) {
-        const keyTable = config.AI_RESEARCH_REPLAY_KEY_TABLE || config.AI_RESEARCH_REPLAY_PRIVACY_TABLE
-        if (!keyTable || !config.AI_RESEARCH_REPLAY_KMS_KEY_ARN) {
+        if (!config.AI_RESEARCH_REPLAY_KEY_TABLE || !config.AI_RESEARCH_REPLAY_KMS_KEY_ARN) {
             throw new Error('ML privacy requires a DynamoDB table and a KMS key ARN')
         }
         this.dynamo = new DynamoDBClient({
@@ -38,7 +36,7 @@ export class MlPrivacyRuntime {
             maxAttempts: 3,
         })
         this.kms = new KMSClient({ region: config.AI_RESEARCH_REPLAY_AWS_REGION, maxAttempts: 3 })
-        const db = new MlPrivacyDynamoDB(this.dynamo, keyTable)
+        const db = new MlPrivacyDynamoDB(this.dynamo, config.AI_RESEARCH_REPLAY_KEY_TABLE)
         this.encryption = new MlKeyEncryption(
             this.kms,
             config.AI_RESEARCH_REPLAY_KMS_KEY_ARN,
