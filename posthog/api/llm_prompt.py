@@ -114,9 +114,14 @@ class LLMPromptViewSet(
         return None
 
     def _is_browser_session(self, request: Request) -> bool:
-        # Only the session cookie means a browser. A JWT means a background job
-        # impersonating a user, which serves prompts like any other API caller.
-        return isinstance(request.successful_authenticator, SessionAuthentication)
+        # A session cookie means a browser. So does an OAuth token: the app frontend
+        # authenticates that way when Django does not serve it. OAuth also carries
+        # third-party API clients, and this counts those as browsing. Missing some of
+        # their unlabeled list reads costs less than one fetch event per prompt per
+        # page view, which would distort the number this tracking exists to report.
+        # A JWT means a background job impersonating a user, which serves prompts
+        # like any other API caller.
+        return isinstance(request.successful_authenticator, SessionAuthentication | OAuthAccessTokenAuthentication)
 
     def _ensure_web_authenticated(self, request: Request) -> Response | None:
         if not isinstance(

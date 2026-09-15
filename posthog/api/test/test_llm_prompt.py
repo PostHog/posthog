@@ -7,6 +7,7 @@ from unittest.mock import patch
 from django.db import connection
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -25,6 +26,7 @@ from posthog.api.services.llm_prompt import MAX_PROMPT_VERSION
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import PersonalAPIKey
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrottle, SustainedRateThrottle
 
@@ -1517,10 +1519,29 @@ class TestLLMPromptLabelsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert [entry[0] for entry in fetched_prompts()] == ["prompt-a", "prompt-b"]
 
-        # The same list backs the prompts UI page, where reading it is not a fetch.
-        mock_report.reset_mock()
-        assert self.client.get(f"/api/environments/{self.team.id}/llm_prompts/").status_code == status.HTTP_200_OK
-        assert fetched_prompts() == []
+        # The same list backs the prompts UI page, where reading it is not a fetch. That
+        # page runs on an OAuth token when Django does not serve the frontend.
+        oauth_application = OAuthApplication.objects.create(
+            name="Test OAuth App",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        oauth_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=oauth_application,
+            token="pha_prompt_list_token",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="llm_prompt:read",
+        )
+        for headers in ({}, {"authorization": f"Bearer {oauth_token.token}"}):
+            mock_report.reset_mock()
+            response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/", headers=headers)
+            assert response.status_code == status.HTTP_200_OK
+            assert fetched_prompts() == []
 
     def test_archive_prompt_deletes_its_labels(self):
         self.create_prompt_version(version=1)
