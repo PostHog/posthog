@@ -5,6 +5,7 @@ import { TimeSeriesBarChart } from '@posthog/quill-charts'
 import type { PointClickData, Series, TimeSeriesBarChartConfig, TooltipContext } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { withHiddenAxes } from 'lib/charts/utils/hideAxes'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -104,7 +105,7 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
         [indexedResults, getTrendsColor, getLabel]
     )
 
-    const chartConfig: TimeSeriesBarChartConfig = useChartConfig(
+    const baseChartConfig: TimeSeriesBarChartConfig = useChartConfig(
         () => ({
             ...buildStickinessBarTimeSeriesConfig({
                 yAxisScaleType,
@@ -117,6 +118,8 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
         }),
         [yAxisScaleType, isGrouped, showValuesOnSeries, legendConfig, tooltipConfig]
     )
+    const hideAxes = context?.hideAxes
+    const chartConfig = useChartConfig(() => withHiddenAxes(baseChartConfig, hideAxes), [baseChartConfig, hideAxes])
 
     // Close over the primitives so the click memos don't invalidate when unrelated
     // context fields change. `openPersonsModal` is a stable module import.

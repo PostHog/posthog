@@ -5,6 +5,7 @@ import { TimeSeriesBarChart } from '@posthog/quill-charts'
 import type { ChartLegendConfig, PointClickData, TooltipContext } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme, useDateRangeZoom } from 'lib/charts/hooks'
+import { withHiddenAxes } from 'lib/charts/utils/hideAxes'
 import { getBarColorFromStatus } from 'lib/colors'
 import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsLayer'
 import { useChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/useChartLegendSeriesMenu'
@@ -153,7 +154,8 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
             legendConfig,
         ]
     )
-    const config = useChartConfig(() => baseConfig, [baseConfig])
+    const hideAxes = context?.hideAxes
+    const config = useChartConfig(() => withHiddenAxes(baseConfig, hideAxes), [baseConfig, hideAxes])
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
 

@@ -5,6 +5,7 @@ import { TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { PointClickData, Series, TimeSeriesLineChartConfig, TooltipContext } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { withHiddenAxes } from 'lib/charts/utils/hideAxes'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -105,7 +106,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
         [indexedResults, display, getTrendsColor, getLabel, showMultipleYAxes]
     )
 
-    const chartConfig: TimeSeriesLineChartConfig = useChartConfig(
+    const baseChartConfig: TimeSeriesLineChartConfig = useChartConfig(
         () => ({
             ...buildStickinessLineTimeSeriesConfig({
                 yAxisScaleType,
@@ -119,6 +120,8 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
         }),
         [yAxisScaleType, showValuesOnSeries, legendConfig, tooltipConfig, stickinessFilter?.chartStyle]
     )
+    const hideAxes = context?.hideAxes
+    const chartConfig = useChartConfig(() => withHiddenAxes(baseChartConfig, hideAxes), [baseChartConfig, hideAxes])
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
 
