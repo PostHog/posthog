@@ -48,8 +48,7 @@ const impactCell =
             return <span className="text-muted">—</span>
         }
         // An operation whose spans mostly carry no ID has a count covering a fraction of its
-        // traffic, so the cell says which fraction rather than presenting the estimate as the
-        // whole picture.
+        // traffic, so the cell says which fraction.
         const coverage = formatIdentityCoverage(covered(row), row.count)
         return (
             <Tooltip title={`Estimated from ${coverage} of this operation's spans, the ones carrying the ID.`}>
@@ -199,8 +198,8 @@ export interface OperationsTableProps {
 }
 
 export function OperationsTable({ rows, loading, windowMs, onRowClick }: OperationsTableProps): JSX.Element {
-    // Driven by the payload rather than the flag: the backend only aggregates the identities when
-    // the query asks for them, so the columns appear exactly when there is something to put in them.
+    // Driven by the payload rather than the flag, so the columns appear exactly when the backend
+    // aggregated something to put in them.
     const showImpact = useMemo(() => rows.some((row) => row.sessions != null), [rows])
     const columns = useMemo(() => buildColumns(windowMs, showImpact), [windowMs, showImpact])
     return (

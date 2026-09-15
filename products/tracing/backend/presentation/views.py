@@ -12,6 +12,7 @@ No business logic here - that belongs in logic.py via the facade.
 
 import json
 import base64
+from collections.abc import Callable
 
 from django.db import models
 
@@ -1013,57 +1014,20 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             status=status.HTTP_200_OK,
         )
 
-    @extend_schema(request=_TracingCountRequestSerializer, responses={200: _TracingCountResponseSerializer})
-    @action(detail=False, methods=["POST"], required_scopes=["tracing:read"])
-    def count(self, request: Request, *args, **kwargs) -> Response:
-        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
-        query_data = request.data.get("query", {})
+    def _run_scalar_span_query(
+        self,
+        request: Request,
+        runner: Callable[..., TraceSpansQueryResponse | CachedTraceSpansQueryResponse],
+        *,
+        event_name: str,
+        too_much_data_detail: str,
+    ) -> Response:
+        """Run one of the single-row span aggregates that sit beside the list, over the shared
+        `_TracingCountBodySerializer` filters.
 
-        date_range = self.get_model(normalize_tracing_date_range(query_data.get("dateRange")), DateRange)
-        filter_group = (
-            self.get_model(self._normalize_filter_group(query_data.get("filterGroup")), PropertyGroupFilter)
-            if query_data.get("filterGroup")
-            else None
-        )
-
-        try:
-            response = run_count_query(
-                team=self.team,
-                date_range=date_range,
-                service_names=query_data.get("serviceNames", None),
-                status_codes=query_data.get("statusCodes", None),
-                filter_group=filter_group,
-            )
-        except CHQueryErrorTooManyBytes:
-            # The count is a bounded pre-flight; when it would scan past the byte cap we
-            # return an actionable 400 instead of surfacing an opaque 500 to the caller.
-            return Response(
-                {
-                    "detail": (
-                        "This count scans too much data to run as a pre-flight. Narrow the date "
-                        "range or add serviceNames, statusCodes, or filterGroup filters, then retry."
-                    )
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        report_user_action(
-            request.user,
-            "tracing count queried",
-            {
-                "has_filter_group": bool(query_data.get("filterGroup")),
-                "service_names_count": len(query_data.get("serviceNames") or []),
-                "status_codes_count": len(query_data.get("statusCodes") or []),
-            },
-            team=self.team,
-            request=request,
-        )
-
-        return Response(response.results, status=status.HTTP_200_OK)
-
-    @extend_schema(request=_TracingImpactRequestSerializer, responses={200: _TracingImpactResponseSerializer})
-    @action(detail=False, methods=["POST"], required_scopes=["tracing:read"])
-    def impact(self, request: Request, *args, **kwargs) -> Response:
+        These run on every filter change, so an over-wide window returns an actionable 400
+        rather than an opaque 500.
+        """
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         query_data = request.data.get("query", {}) or {}
 
@@ -1075,7 +1039,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         )
 
         try:
-            response = run_impact_query(
+            response = runner(
                 team=self.team,
                 date_range=date_range,
                 service_names=query_data.get("serviceNames", None),
@@ -1083,21 +1047,11 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 filter_group=filter_group,
             )
         except CHQueryErrorTooManyBytes:
-            # The strip is passive decoration beside the results, so an over-wide window gets an
-            # actionable 400 rather than an opaque 500 — same contract as the count pre-flight.
-            return Response(
-                {
-                    "detail": (
-                        "This impact query scans too much data. Narrow the date range or add "
-                        "serviceNames, statusCodes, or filterGroup filters, then retry."
-                    )
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"detail": too_much_data_detail}, status=status.HTTP_400_BAD_REQUEST)
 
         self._report_usage(
             request,
-            "tracing impact queried",
+            event_name,
             {
                 "has_filter_group": bool(query_data.get("filterGroup")),
                 "service_names_count": len(query_data.get("serviceNames") or []),
@@ -1106,6 +1060,32 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         )
 
         return Response(response.results, status=status.HTTP_200_OK)
+
+    @extend_schema(request=_TracingCountRequestSerializer, responses={200: _TracingCountResponseSerializer})
+    @action(detail=False, methods=["POST"], required_scopes=["tracing:read"])
+    def count(self, request: Request, *args, **kwargs) -> Response:
+        return self._run_scalar_span_query(
+            request,
+            run_count_query,
+            event_name="tracing count queried",
+            too_much_data_detail=(
+                "This count scans too much data to run as a pre-flight. Narrow the date "
+                "range or add serviceNames, statusCodes, or filterGroup filters, then retry."
+            ),
+        )
+
+    @extend_schema(request=_TracingImpactRequestSerializer, responses={200: _TracingImpactResponseSerializer})
+    @action(detail=False, methods=["POST"], required_scopes=["tracing:read"])
+    def impact(self, request: Request, *args, **kwargs) -> Response:
+        return self._run_scalar_span_query(
+            request,
+            run_impact_query,
+            event_name="tracing impact queried",
+            too_much_data_detail=(
+                "This impact query scans too much data. Narrow the date range or add "
+                "serviceNames, statusCodes, or filterGroup filters, then retry."
+            ),
+        )
 
     @extend_schema(request=_SymbolStatsRequestSerializer, responses={200: _SymbolStatsResponseSerializer})
     @action(detail=False, methods=["POST"], url_path="symbol-stats", required_scopes=["tracing:read"])

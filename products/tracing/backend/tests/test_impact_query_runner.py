@@ -12,10 +12,7 @@ from products.tracing.backend.models import TeamTracingConfig
 from products.tracing.backend.tests.test_keyset_pagination import DATE_FROM, DATE_TO, _b64, _TraceSpansTestBase
 
 # (service, span attributes, resource attributes). Span-attribute keys carry the ingestion MV's
-# `__str` suffix; resource-attribute keys do not. Together these cover the four identity states a
-# span can be in: session and person on the span, identity only on the resource, a session key
-# present on both maps (the span wins), a server-only span carrying neither, and a session under a
-# key only a team's own config names.
+# `__str` suffix; resource-attribute keys do not.
 SPANS = [
     ("checkout", {"sessionId__str": "sess-a", "posthogDistinctId__str": "user-1"}, {}),
     ("checkout", {"sessionId__str": "sess-a", "posthogDistinctId__str": "user-1"}, {}),
@@ -78,13 +75,9 @@ class _ImpactTestBase(_TraceSpansTestBase):
 class TestTraceSpansImpact(_ImpactTestBase):
     @parameterized.expand(
         [
-            # Every span counts toward the denominator, including the ones carrying no identity —
-            # that ratio is the coverage annotation the strip renders.
             ("total", "total", TOTAL_SPANS),
             ("spans_with_session_id", "spansWithSessionId", SPANS_WITH_SESSION),
             ("spans_with_distinct_id", "spansWithDistinctId", SPANS_WITH_DISTINCT_ID),
-            # Resolved from both attribute maps: dropping either one, or the `__str` suffix on the
-            # span map, silently reads every span as identity-less.
             ("sessions", "sessions", UNIQUE_SESSIONS),
             ("users", "users", UNIQUE_USERS),
         ]
@@ -93,8 +86,6 @@ class TestTraceSpansImpact(_ImpactTestBase):
         self.assertEqual(self._impact()[field], expected)
 
     def test_span_attribute_wins_over_resource_attribute(self):
-        # Same precedence getSessionIdWithKey applies in the viewer, so a span the UI links to one
-        # session is never counted under another.
         values = {entry["value"] for entry in self._impact()["topSessions"]}
         self.assertIn("sess-d", values)
         self.assertNotIn("sess-ignored", values)
@@ -105,8 +96,6 @@ class TestTraceSpansImpact(_ImpactTestBase):
         self.assertEqual(top_sessions[0]["count"], 2)
 
     def test_filters_narrow_the_counts(self):
-        # A service with no identity coverage at all reports zero without falling back to the
-        # unfiltered totals.
         impact = self._impact(service_names=["worker"])
         self.assertEqual(impact["total"], 2)
         self.assertEqual(impact["sessions"], 0)
@@ -123,8 +112,6 @@ class TestTraceSpansImpact(_ImpactTestBase):
         impact = self._impact()
         self.assertEqual(impact["sessions"], UNIQUE_SESSIONS + 1)
         self.assertEqual(impact["spansWithSessionId"], SPANS_WITH_SESSION + 1)
-        # Configuring a key adds to the built-in conventions rather than replacing them, so spans
-        # emitted under `sessionId` keep counting.
         self.assertIn("sess-a", {entry["value"] for entry in impact["topSessions"]})
 
 
@@ -139,8 +126,7 @@ class TestOperationsImpactColumns(_ImpactTestBase):
 
     @parameterized.expand(
         [
-            # Positional row unpacking means an off-by-one in the SELECT list quietly reports a
-            # duration as a session count.
+            # The runner unpacks these rows positionally.
             ("sessions", "checkout", "sessions", 4),
             ("users", "checkout", "users", 3),
             ("spans_with_session_id", "checkout", "spans_with_session_id", 5),
@@ -152,8 +138,7 @@ class TestOperationsImpactColumns(_ImpactTestBase):
         self.assertEqual(getattr(self._rows(include_impact=True)[service], field), expected)
 
     def test_impact_columns_absent_by_default(self):
-        # The default path must not read the attribute maps at all; a row that reports 0 instead of
-        # None would mean the aggregation started paying for columns nobody asked for.
+        # None rather than 0 is what proves the default path never read the attribute maps.
         row = self._rows(include_impact=False)["checkout"]
         self.assertIsNone(row.sessions)
         self.assertIsNone(row.users)

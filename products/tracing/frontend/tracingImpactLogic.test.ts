@@ -97,11 +97,32 @@ describe('tracingImpactLogic', () => {
         expect(requestBody().filterGroup).toEqual(durationFilterGroup)
     })
 
-    it('refreshes when the viewer re-runs its query', async () => {
+    it('refreshes when the filters change', async () => {
         await expectLogic(logic).toDispatchActions(['loadImpactSuccess'])
 
         await expectLogic(logic, () => {
+            filtersLogic.actions.setServiceNames(['checkout'])
             dataLogic.actions.runQuery()
+        }).toDispatchActions(['loadImpact', 'loadImpactSuccess'])
+
+        expect(mockImpact).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not re-query when the filters are unchanged', async () => {
+        // runQuery also fires on sort and view-mode toggles, which cannot change the counts.
+        await expectLogic(logic).toDispatchActions(['loadImpactSuccess'])
+
+        dataLogic.actions.runQuery()
+        await expectLogic(logic).toNotHaveDispatchedActions(['loadImpact'])
+
+        expect(mockImpact).toHaveBeenCalledTimes(1)
+    })
+
+    it('re-queries the same filters on an explicit refresh', async () => {
+        await expectLogic(logic).toDispatchActions(['loadImpactSuccess'])
+
+        await expectLogic(logic, () => {
+            dataLogic.actions.refreshQuery()
         }).toDispatchActions(['loadImpact', 'loadImpactSuccess'])
 
         expect(mockImpact).toHaveBeenCalledTimes(2)
@@ -111,6 +132,7 @@ describe('tracingImpactLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadImpactSuccess']).toMatchValues({ impact: IMPACT })
 
         await expectLogic(logic, () => {
+            filtersLogic.actions.setServiceNames(['checkout'])
             dataLogic.actions.runQuery()
         })
             .toDispatchActions(['loadImpact'])
@@ -121,9 +143,22 @@ describe('tracingImpactLogic', () => {
         mockImpact.mockRejectedValue(new Error('boom'))
 
         await expectLogic(logic, () => {
+            filtersLogic.actions.setServiceNames(['checkout'])
             dataLogic.actions.runQuery()
         })
             .toDispatchActions(['loadImpactSuccess'])
             .toMatchValues({ impact: null })
+    })
+
+    it('retries after a failure rather than treating the filters as done', async () => {
+        mockImpact.mockRejectedValue(new Error('boom'))
+        await expectLogic(logic).toDispatchActions(['loadImpactSuccess']).toMatchValues({ impact: null })
+
+        mockImpact.mockResolvedValue(IMPACT)
+        await expectLogic(logic, () => {
+            dataLogic.actions.runQuery()
+        })
+            .toDispatchActions(['loadImpactSuccess'])
+            .toMatchValues({ impact: IMPACT })
     })
 })

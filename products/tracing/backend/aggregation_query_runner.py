@@ -56,7 +56,7 @@ from posthog.models.filters.mixins.utils import cached_property
 # _ROW_LIMIT lives in logic.py so the presentation layer can reach it through the
 # facade-allowed `logic` module; imported here (and re-exported) for the sibling runners.
 from .logic import _ROW_LIMIT, TIME_BUCKET_DATE_RANGE_WHERE, translate_span_filter, with_span_attribute_type_suffix
-from .models import resolved_tracing_distinct_id_attribute_keys, resolved_tracing_session_id_attribute_keys
+from .models import resolved_tracing_identity_attribute_keys
 from .span_identity import identity_value_expr
 
 if TYPE_CHECKING:
@@ -257,19 +257,15 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
         return TraceSpansAggregationQueryResponse(results=current_rows, compare=previous_rows)
 
     @cached_property
-    def _impact_columns(self) -> str:
-        # Appended to the SELECT list rather than always present: reading the attribute maps
-        # is the expensive part of this query, and only the Operations table's Sessions and
-        # Users columns need it. uniq() is HyperLogLog-based and about 1-2% off vs an exact
-        # count(DISTINCT), the tradeoff the impact strip and error tracking already accept.
-        # count(x)/uniq(x) skip NULLs, so spans carrying no identity need no predicate.
-        if not self.query.includeImpact:
-            return ""
-        return """,
-                uniq({session_value}) AS sessions,
-                uniq({person_value}) AS users,
-                count({session_value}) AS spans_with_session_id,
-                count({person_value}) AS spans_with_distinct_id"""
+    def _identity_exprs(self) -> tuple[ast.Expr, ast.Expr]:
+        """The (session, person) value expressions, resolved from one Postgres read.
+
+        A cached_property so a compare run resolves it on the request thread. `_build_query` runs
+        once per window, and with `compareFilter` the two windows run on their own threads, where
+        a Django read would open a second connection.
+        """
+        session_keys, person_keys = resolved_tracing_identity_attribute_keys(self.team)
+        return identity_value_expr(session_keys), identity_value_expr(person_keys)
 
     def _build_query(self, query_date_range: QueryDateRange) -> ast.SelectQuery:
         # Single table scan plus hash aggregate. Cheap enough to run unscoped.
@@ -279,9 +275,19 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
             "offset": ast.Constant(value=self._offset),
             **query_date_range.to_placeholders(),
         }
+        # The identity aggregates are appended rather than always present, because reading the
+        # attribute maps is the expensive part of this query and only the Operations table's
+        # Sessions and Users columns need it. uniq() is HyperLogLog-based, so it runs about 1-2%
+        # off an exact count(DISTINCT). Both skip NULLs, so spans carrying no identity need no
+        # predicate. `_row_from_clickhouse` reads these by position, so the order is a contract.
+        impact_columns = ""
         if self.query.includeImpact:
-            placeholders["session_value"] = identity_value_expr(resolved_tracing_session_id_attribute_keys(self.team))
-            placeholders["person_value"] = identity_value_expr(resolved_tracing_distinct_id_attribute_keys(self.team))
+            placeholders["session_value"], placeholders["person_value"] = self._identity_exprs
+            impact_columns = """,
+                uniq({session_value}) AS sessions,
+                uniq({person_value}) AS users,
+                count({session_value}) AS spans_with_session_id,
+                count({person_value}) AS spans_with_distinct_id"""
 
         query = parse_select(
             """
@@ -293,7 +299,7 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
                 avg(duration_nano) AS avg_duration_nano,
                 quantiles(0.5, 0.95, 0.99, 0.999)(duration_nano) AS duration_quantiles,
                 countIf(status_code = 2) AS error_count"""
-            + self._impact_columns
+            + impact_columns
             + """
             FROM posthog.trace_spans
             WHERE {where}
@@ -314,16 +320,7 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
 
     def _row_from_clickhouse(self, row: list) -> AggregatedSpanRow:
         p50, p95, p99, p999 = row[5] or (0.0, 0.0, 0.0, 0.0)
-        impact = (
-            {
-                "sessions": row[7],
-                "users": row[8],
-                "spans_with_session_id": row[9],
-                "spans_with_distinct_id": row[10],
-            }
-            if self.query.includeImpact
-            else {}
-        )
+        with_impact = self.query.includeImpact
         return AggregatedSpanRow(
             service_name=row[0] or "",
             name=row[1] or "",
@@ -335,7 +332,10 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
             p99_duration_nano=float(p99 or 0),
             p999_duration_nano=float(p999 or 0),
             error_count=row[6] or 0,
-            **impact,
+            sessions=row[7] if with_impact else None,
+            users=row[8] if with_impact else None,
+            spans_with_session_id=row[9] if with_impact else None,
+            spans_with_distinct_id=row[10] if with_impact else None,
         )
 
     def run(self, *args, **kwargs) -> TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse:

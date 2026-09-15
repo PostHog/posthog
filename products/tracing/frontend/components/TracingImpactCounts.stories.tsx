@@ -4,10 +4,6 @@ import type { _TracingImpactResponseApi } from 'products/tracing/frontend/genera
 
 import { TracingImpactCounts } from './TracingImpactCounts'
 
-// The counts sit in the display bar beside "N traces matching filters". The states worth a
-// snapshot are the ones that read differently to someone scanning the bar: both IDs present, only
-// one of them, a thin slice of covered spans, and server-only traffic carrying neither.
-
 const meta: Meta<typeof TracingImpactCounts> = {
     title: 'Scenes-App/Tracing/TracingImpactCounts',
     component: TracingImpactCounts,

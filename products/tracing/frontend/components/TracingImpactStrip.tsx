@@ -8,9 +8,8 @@ export interface TracingImpactStripProps {
 }
 
 /**
- * The impact counts for the viewer's current query, shown beside the matching-spans count.
- * Mounting this component mounts the logic and runs the query, so the caller gates rendering
- * on the flag.
+ * The impact counts for the viewer's current query. Mounting this component mounts the logic
+ * and runs the query, so the caller gates rendering on the flag.
  */
 export function TracingImpactStrip({ id }: TracingImpactStripProps): JSX.Element | null {
     const { impact } = useValues(tracingImpactLogic({ id }))

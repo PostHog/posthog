@@ -1,4 +1,3 @@
-from functools import cached_property
 from typing import TYPE_CHECKING
 
 from posthog.schema import (
@@ -10,18 +9,12 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.parser import parse_select
 
-from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
 
-from products.tracing.backend.logic import TraceSpansQueryRunnerMixin
-from products.tracing.backend.models import (
-    resolved_tracing_distinct_id_attribute_keys,
-    resolved_tracing_session_id_attribute_keys,
-)
+from products.tracing.backend.logic import TraceSpansScalarQueryRunnerMixin
+from products.tracing.backend.models import resolved_tracing_identity_attribute_keys
 from products.tracing.backend.span_identity import identity_value_expr
 
 if TYPE_CHECKING:
@@ -32,52 +25,23 @@ TOP_IDENTITY_VALUES = 5
 
 
 def _top_values(entries: list[tuple] | None) -> list[dict]:
-    # topK(..., 'counts') rows are (value, count, error) tuples; the error margin is noise
-    # for a popover, so only value and count survive.
+    # topK(..., 'counts') rows are (value, count, error) tuples; the error margin is popover noise.
     return [{"value": value, "count": int(count)} for value, count, _error in entries or []]
 
 
-class TraceSpansImpactQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[TraceSpansQueryResponse]):
+class TraceSpansImpactQueryRunner(TraceSpansScalarQueryRunnerMixin, AnalyticsQueryRunner[TraceSpansQueryResponse]):
     """Counts the unique sessions and people behind the spans matching the given filters.
 
-    Its own scan rather than an addition to the count query: the count serves every
-    tracing user on every filter change, while these aggregates decompress the two
-    attribute-map columns over the whole window and only the impact strip needs them.
+    Its own scan rather than an addition to the count query: the count serves every tracing
+    user on every filter change, while these aggregates decompress the two attribute-map
+    columns over the whole window and only the impact strip needs them.
     """
 
     query: TraceSpansQuery
     cached_response: CachedTraceSpansQueryResponse
 
-    @cached_property
-    def settings(self) -> HogQLGlobalSettings:
-        # The same fail-fast caps the count runner uses against this table. The strip is passive
-        # decoration, so an over-wide window must fail rather than hold a ClickHouse thread the
-        # list query needs.
-        return HogQLGlobalSettings(
-            max_execution_time=30,
-            max_bytes_to_read=10_000_000_000,
-            read_overflow_mode="throw",
-        )
-
-    @cached_property
-    def _session_keys(self) -> list[str]:
-        return resolved_tracing_session_id_attribute_keys(self.team)
-
-    @cached_property
-    def _person_keys(self) -> list[str]:
-        return resolved_tracing_distinct_id_attribute_keys(self.team)
-
     def _calculate(self) -> TraceSpansQueryResponse:
-        response = execute_hogql_query(
-            query_type="TraceSpansQuery",
-            query=self.to_query(),
-            modifiers=self.modifiers,
-            team=self.team,
-            workload=Workload.LOGS,
-            timings=self.timings,
-            filters=self.query_date_range.to_hogql_filters(),
-            settings=self.settings,
-        )
+        results = self.execute()
         (
             total,
             spans_with_session_id,
@@ -86,7 +50,7 @@ class TraceSpansImpactQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunn
             users,
             top_sessions,
             top_users,
-        ) = response.results[0] if response.results else (0, 0, 0, 0, 0, [], [])
+        ) = results[0] if results else (0, 0, 0, 0, 0, [], [])
         return TraceSpansQueryResponse(
             results={
                 "total": total,
@@ -100,26 +64,10 @@ class TraceSpansImpactQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunn
         )
 
     def to_query(self) -> ast.SelectQuery:
-        # where() bounds the window by time_bucket (day precision); the explicit half-open
-        # timestamp bounds make the counts match the requested window exactly, as the count
-        # runner does.
-        where_with_timestamp = ast.And(
-            exprs=[
-                self.where(),
-                parse_expr(
-                    "timestamp >= {date_from} AND timestamp < {date_to}",
-                    placeholders={
-                        "date_from": ast.Constant(value=self.query_date_range.date_from()),
-                        "date_to": ast.Constant(value=self.query_date_range.date_to()),
-                    },
-                ),
-            ]
-        )
-        # uniq() and topK() are HyperLogLog-based, so they are about 1-2% off against an exact
-        # count(DISTINCT) on high-cardinality ids, and much cheaper. That is the tradeoff the
-        # error tracking and logs impact aggregates already accept. count(x)/uniq(x)/topK(x)
-        # skip NULLs, so spans that carry no identity need no predicate and stay out of the
-        # top lists.
+        session_keys, person_keys = resolved_tracing_identity_attribute_keys(self.team)
+        # uniq() and topK() are HyperLogLog-based, so they run about 1-2% off an exact
+        # count(DISTINCT) and much cheaper, the tradeoff error tracking already accepts. They
+        # skip NULLs, so spans carrying no identity need no predicate.
         query = parse_select(
             """
             SELECT
@@ -137,9 +85,9 @@ class TraceSpansImpactQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunn
             )
             """,
             placeholders={
-                "session_value": identity_value_expr(self._session_keys),
-                "person_value": identity_value_expr(self._person_keys),
-                "where": where_with_timestamp,
+                "session_value": identity_value_expr(session_keys),
+                "person_value": identity_value_expr(person_keys),
+                "where": self.where_with_exact_timestamps(),
                 "top_n": ast.Constant(value=TOP_IDENTITY_VALUES),
             },
         )

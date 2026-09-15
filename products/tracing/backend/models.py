@@ -46,13 +46,10 @@ def default_tracing_session_id_attribute_keys() -> list[str]:
     return list(DEFAULT_TRACING_SESSION_ID_ATTRIBUTE_KEYS)
 
 
-# Built-in distinct-id attribute key conventions. Same list as DISTINCT_ID_KEYS in
-# products/logs/frontend/utils.tsx, which the span attribute table and the trace drawer
-# header already resolve against (via traceIdentity.ts) on top of a team's configured keys.
-# Kept here rather than imported from Logs so tracing stays free of a cross-product
-# dependency; keep the three copies in sync, or the impact counts stop covering the spans
-# the UI renders as person links. Literal keys only: the frontend also matches dot-suffixed
-# variants (e.g. `span.distinct_id`), which an exact map read cannot express.
+# Same list as DISTINCT_ID_KEYS in products/logs/frontend/utils.tsx, which the span attribute
+# table resolves against. Copied rather than imported so tracing takes no dependency on Logs;
+# keep the copies in sync, or the impact counts stop covering the spans the UI links. Literal
+# keys only: the frontend also matches dot-suffixed variants an exact map read cannot express.
 DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS = [
     "distinct.id",
     "distinct_id",
@@ -65,9 +62,8 @@ DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS = [
     "posthog.distinct_id",
 ]
 
-# The session-ID counterpart, mirroring SESSION_ID_KEYS in products/logs/frontend/utils.tsx.
-# `posthogSessionId` is emitted by some pipelines even though no SDK sends it; removing it
-# breaks them.
+# The session-ID counterpart, mirroring SESSION_ID_KEYS. Some pipelines emit `posthogSessionId`
+# even though no SDK sends it, so removing it breaks them.
 SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS = [
     "session.id",
     "session_id",
@@ -82,24 +78,24 @@ SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS = [
 ]
 
 
-def resolved_tracing_distinct_id_attribute_keys(team: "Team") -> list[str]:
-    """The attribute keys that link a span to a person: the team's configured keys (or the
-    default when unconfigured), then the built-in conventions the UI links regardless of
-    config. Deduped, configured keys first."""
-    config = TeamTracingConfig.objects.filter(team=team).first()
-    configured = (
-        config.tracing_distinct_id_attribute_keys if config else None
-    ) or DEFAULT_TRACING_DISTINCT_ID_ATTRIBUTE_KEYS
-    return list(dict.fromkeys([*configured, *DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS]))
+def resolved_tracing_identity_attribute_keys(team: "Team") -> tuple[list[str], list[str]]:
+    """The (session, distinct id) attribute keys that link a span to a session and a person.
 
-
-def resolved_tracing_session_id_attribute_keys(team: "Team") -> list[str]:
-    """The session-ID equivalent of resolved_tracing_distinct_id_attribute_keys."""
+    Each list is the team's configured keys, or the default when unconfigured, followed by the
+    built-in conventions the UI links regardless of config. Deduped, configured keys first.
+    Both come from one config read, because every caller needs both.
+    """
     config = TeamTracingConfig.objects.filter(team=team).first()
-    configured = (
+    session_keys = (
         config.tracing_session_id_attribute_keys if config else None
     ) or DEFAULT_TRACING_SESSION_ID_ATTRIBUTE_KEYS
-    return list(dict.fromkeys([*configured, *SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS]))
+    distinct_id_keys = (
+        config.tracing_distinct_id_attribute_keys if config else None
+    ) or DEFAULT_TRACING_DISTINCT_ID_ATTRIBUTE_KEYS
+    return (
+        list(dict.fromkeys([*session_keys, *SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS])),
+        list(dict.fromkeys([*distinct_id_keys, *DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS])),
+    )
 
 
 class TeamTracingConfig(models.Model):

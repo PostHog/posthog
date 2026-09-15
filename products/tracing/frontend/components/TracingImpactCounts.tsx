@@ -19,10 +19,9 @@ export interface TracingImpactCountsProps {
 }
 
 /**
- * Sessions and people behind a set of spans, with how much of the set carries each ID.
- * The coverage figure is load-bearing: a session count over 3% of the spans means something
- * different from the same count over all of them. Each count opens a popover with the top
- * values behind it, linking into replay and person profiles.
+ * Sessions and people behind a set of spans, with how much of the set carries each ID. The
+ * coverage figure is load-bearing: a session count over 3% of the spans means something
+ * different from the same count over all of them.
  */
 export function TracingImpactCounts({ impact }: TracingImpactCountsProps): JSX.Element | null {
     if (impact.total === 0) {
@@ -39,93 +38,105 @@ export function TracingImpactCounts({ impact }: TracingImpactCountsProps): JSX.E
         )
     }
 
-    const sessionsCaption = `Estimated unique session IDs, by span count. ${formatIdentityCoverage(
-        impact.spansWithSessionId,
-        impact.total
-    )} of the matching spans carry a session ID.`
-    const usersCaption = `Estimated unique people, by span count. ${formatIdentityCoverage(
-        impact.spansWithDistinctId,
-        impact.total
-    )} of the matching spans carry a distinct ID.`
-
     return (
         <span className="flex items-center gap-1 text-muted text-xs" data-attr="tracing-impact-counts">
-            {impact.spansWithSessionId > 0 && (
-                <LemonDropdown
-                    placement="bottom-start"
-                    closeOnClickInside={false}
-                    overlay={
-                        <TopValuesOverlay
-                            caption={sessionsCaption}
-                            entries={impact.topSessions ?? []}
-                            renderValue={(value) => (
-                                <ViewRecordingButton
-                                    sessionId={value}
-                                    openPlayerIn={RecordingPlayerType.Modal}
-                                    label={value}
-                                    variant={ViewRecordingButtonVariant.Link}
-                                    checkRecordingExists
-                                    data-attr="tracing-impact-top-session"
-                                />
-                            )}
-                        />
-                    }
-                >
-                    <LemonButton size="xsmall" data-attr="tracing-impact-sessions" tooltip={sessionsCaption}>
-                        <span className="text-muted text-xs font-normal">
-                            {/* The changing number gets its own element: a bare changing text node
-                            beside siblings breaks under in-page translation. */}
-                            <span>{humanFriendlyLargeNumber(impact.sessions)}</span> sessions
-                        </span>
-                    </LemonButton>
-                </LemonDropdown>
-            )}
-            {impact.spansWithDistinctId > 0 && (
-                <LemonDropdown
-                    placement="bottom-start"
-                    closeOnClickInside={false}
-                    overlay={
-                        <TopValuesOverlay
-                            caption={usersCaption}
-                            entries={impact.topUsers ?? []}
-                            renderValue={(value) => (
-                                <span onClick={(e) => e.stopPropagation()}>
-                                    <PersonDisplay person={{ distinct_id: value }} noEllipsis inline />
-                                </span>
-                            )}
-                        />
-                    }
-                >
-                    <LemonButton size="xsmall" data-attr="tracing-impact-users" tooltip={usersCaption}>
-                        <span className="text-muted text-xs font-normal">
-                            <span>{humanFriendlyLargeNumber(impact.users)}</span> users
-                        </span>
-                    </LemonButton>
-                </LemonDropdown>
-            )}
+            <ImpactCount
+                count={impact.sessions}
+                coveredSpans={impact.spansWithSessionId}
+                totalSpans={impact.total}
+                noun="sessions"
+                caption="Estimated unique session IDs, by span count."
+                coverageNoun="a session ID"
+                entries={impact.topSessions ?? []}
+                dataAttr="tracing-impact-sessions"
+                renderValue={(value) => (
+                    <ViewRecordingButton
+                        sessionId={value}
+                        openPlayerIn={RecordingPlayerType.Modal}
+                        label={value}
+                        variant={ViewRecordingButtonVariant.Link}
+                        checkRecordingExists
+                        data-attr="tracing-impact-top-session"
+                    />
+                )}
+            />
+            <ImpactCount
+                count={impact.users}
+                coveredSpans={impact.spansWithDistinctId}
+                totalSpans={impact.total}
+                noun="users"
+                caption="Estimated unique people, by span count."
+                coverageNoun="a distinct ID"
+                entries={impact.topUsers ?? []}
+                dataAttr="tracing-impact-users"
+                renderValue={(value) => (
+                    <span onClick={(e) => e.stopPropagation()}>
+                        <PersonDisplay person={{ distinct_id: value }} noEllipsis inline />
+                    </span>
+                )}
+            />
         </span>
     )
 }
 
-interface TopValuesOverlayProps {
+interface ImpactCountProps {
+    count: number
+    coveredSpans: number
+    totalSpans: number
+    noun: string
     caption: string
+    coverageNoun: string
     entries: _TracingImpactTopValueApi[]
+    dataAttr: string
     renderValue: (value: string) => JSX.Element
 }
 
-/** Top identity values behind one impact count, each with its approximate span count. */
-function TopValuesOverlay({ caption, entries, renderValue }: TopValuesOverlayProps): JSX.Element {
+/** One count, with the coverage it was estimated over and a popover of the values behind it. */
+function ImpactCount({
+    count,
+    coveredSpans,
+    totalSpans,
+    noun,
+    caption,
+    coverageNoun,
+    entries,
+    dataAttr,
+    renderValue,
+}: ImpactCountProps): JSX.Element | null {
+    if (coveredSpans === 0) {
+        return null
+    }
+
+    const fullCaption = `${caption} ${formatIdentityCoverage(
+        coveredSpans,
+        totalSpans
+    )} of the matching spans carry ${coverageNoun}.`
+
     return (
-        <div className="flex flex-col gap-1 p-1 max-w-160">
-            <span className="text-muted text-xs">{caption}</span>
-            {entries.map(({ value, count }) => (
-                <div key={value} className="flex items-center justify-between gap-4 text-xs">
-                    <span className="font-mono truncate">{renderValue(value)}</span>
-                    <span className="text-muted whitespace-nowrap">
-                        <span>{humanFriendlyLargeNumber(count)}</span> spans
-                    </span>
+        <LemonDropdown
+            placement="bottom-start"
+            closeOnClickInside={false}
+            overlay={
+                <div className="flex flex-col gap-1 p-1 max-w-160">
+                    <span className="text-muted text-xs">{fullCaption}</span>
+                    {entries.map(({ value, count: spanCount }) => (
+                        <div key={value} className="flex items-center justify-between gap-4 text-xs">
+                            <span className="font-mono truncate">{renderValue(value)}</span>
+                            <span className="text-muted whitespace-nowrap">
+                                <span>{humanFriendlyLargeNumber(spanCount)}</span> spans
+                            </span>
+                        </div>
+                    ))}
                 </div>
-            ))}
-        </div>
+            }
+        >
+            <LemonButton size="xsmall" data-attr={dataAttr} tooltip={fullCaption}>
+                <span className="text-muted text-xs font-normal">
+                    {/* The changing number gets its own element: a bare changing text node beside
+                    siblings breaks under in-page translation. */}
+                    <span>{humanFriendlyLargeNumber(count)}</span> {noun}
+                </span>
+            </LemonButton>
+        </LemonDropdown>
     )
 }

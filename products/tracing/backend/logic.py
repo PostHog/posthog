@@ -390,6 +390,55 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
             read_overflow_mode=None,
         )
 
+    def where_with_exact_timestamps(self) -> ast.Expr:
+        """`where()` plus per-row timestamp bounds.
+
+        `where()` bounds the window by time_bucket, at day precision. Scalar aggregates over the
+        window have to match the requested range exactly, so they add the half-open bounds.
+        """
+        return ast.And(
+            exprs=[
+                self.where(),
+                parse_expr(
+                    "timestamp >= {date_from} AND timestamp < {date_to}",
+                    placeholders={
+                        "date_from": ast.Constant(value=self.query_date_range.date_from()),
+                        "date_to": ast.Constant(value=self.query_date_range.date_to()),
+                    },
+                ),
+            ]
+        )
+
+
+class TraceSpansScalarQueryRunnerMixin(TraceSpansQueryRunnerMixin):
+    """Scaffolding for the single-row aggregates that run beside the span list.
+
+    They serve every filter change, so they fail fast rather than scan unbounded data, and an
+    over-wide window must fail rather than hold a ClickHouse thread the list query needs.
+    Subclasses provide `to_query()` and turn the single result row into a response.
+    """
+
+    @cached_property
+    def settings(self) -> HogQLGlobalSettings:
+        return HogQLGlobalSettings(
+            max_execution_time=30,
+            max_bytes_to_read=10_000_000_000,
+            read_overflow_mode="throw",
+        )
+
+    def execute(self) -> list:
+        response = execute_hogql_query(
+            query_type="TraceSpansQuery",
+            query=self.to_query(),
+            modifiers=self.modifiers,
+            team=self.team,
+            workload=Workload.LOGS,
+            timings=self.timings,
+            filters=self.query_date_range.to_hogql_filters(),
+            settings=self.settings,
+        )
+        return response.results
+
 
 class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[TraceSpansQueryResponse]):
     query: TraceSpansQuery
