@@ -223,3 +223,8 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
             f"ifNull(equals(accurateCastOrNull(transform(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties"
             in actual
         )
+
+    def test_untyped_property_numeric_comparison_is_extracted_coerced(self):
+        actual = self.get_clause("SELECT * FROM events WHERE person.properties.seat_count = 5")
+        expected = _expr("toFloat({e}) = 5", {"e": prop_read("properties", "seat_count")})
+        assert actual == expected
