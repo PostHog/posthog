@@ -79,6 +79,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
 from posthog.models.team.team_caching import set_team_in_cache
+from posthog.models.team.team_data_management_config import TeamDataManagementConfig
 from posthog.models.team.util import actions_that_require_current_team
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
@@ -548,6 +549,7 @@ TEAM_CONFIG_FIELDS = (
     "default_evaluation_contexts_enabled",
     "require_evaluation_contexts",
     "feature_flag_policy_config",
+    "data_management_config",
     "capture_dead_clicks",
     "default_data_theme",
     "revenue_analytics_config",
@@ -957,6 +959,20 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
         fields = ["require_tags"]
 
 
+class TeamDataManagementConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
+    class Meta:
+        model = TeamDataManagementConfig
+        fields = ["stale_event_days"]
+        extra_kwargs = {
+            "stale_event_days": {
+                "help_text": (
+                    "How many days an event can go without arriving before PostHog marks it stale. Drives the "
+                    "stale tag PostHog shows on an action whose event stopped arriving. Defaults to 30 days."
+                )
+            }
+        }
+
+
 class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     activity_event = serializers.JSONField(required=False, help_text="Event used as the activity signal (DAU/WAU/MAU).")
     signup_pageview_event = serializers.JSONField(
@@ -1209,6 +1225,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)
     workflows_config = TeamWorkflowsConfigSerializer(required=False)
     feature_flag_policy_config = TeamFeatureFlagPolicyConfigSerializer(required=False)
+    data_management_config = TeamDataManagementConfigSerializer(required=False)
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
 
     class Meta:
@@ -1371,6 +1388,17 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     def validate_workflows_config(self, value):
         return validate_team_workflows_config(self.instance, value)
+
+    @staticmethod
+    def validate_data_management_config(value):
+        if value is None:
+            return None
+
+        serializer = TeamDataManagementConfigSerializer(data=value)
+        if not serializer.is_valid():
+            raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
+
+        return serializer.validated_data
 
     @staticmethod
     def validate_feature_flag_policy_config(value):
@@ -2040,6 +2068,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if config_data := validated_data.pop("feature_flag_policy_config", None):
             self._update_feature_flag_policy_config(instance, config_data)
 
+        if config_data := validated_data.pop("data_management_config", None):
+            self._update_data_management_config(instance, config_data)
+
         if "session_recording_retention_period" in validated_data:
             self._verify_update_session_recording_retention_period(
                 instance, validated_data["session_recording_retention_period"]
@@ -2315,6 +2346,30 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             for field in TeamFeatureFlagPolicyConfigSerializer.Meta.fields
         }
         self._capture_diff(instance, "feature_flag_policy_config", old_config, new_config)
+        return instance
+
+    def _update_data_management_config(self, instance: Team, validated_data: dict[str, Any]) -> Team:
+        old_config = {
+            field: getattr(instance.data_management_config, field)
+            for field in TeamDataManagementConfigSerializer.Meta.fields
+        }
+
+        serializer = TeamDataManagementConfigSerializer(
+            instance.data_management_config,
+            data=validated_data,
+            partial=True,
+            context={**self.context, "user_access_control": self.user_access_control},
+        )
+        if not serializer.is_valid():
+            raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
+
+        serializer.save()
+
+        new_config = {
+            field: getattr(instance.data_management_config, field)
+            for field in TeamDataManagementConfigSerializer.Meta.fields
+        }
+        self._capture_diff(instance, "data_management_config", old_config, new_config)
         return instance
 
     def _verify_update_session_recording_retention_period(self, instance: Team, new_retention_period: str):

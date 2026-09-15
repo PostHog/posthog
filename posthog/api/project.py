@@ -36,6 +36,7 @@ from posthog.api.team import (
     EvaluationContextSuggestionResponseSerializer,
     EventIngestionRestrictionSerializer,
     TeamCustomerAnalyticsConfigSerializer,
+    TeamDataManagementConfigSerializer,
     TeamFeatureFlagPolicyConfigSerializer,
     TeamLogsConfigSerializer,
     TeamMarketingAnalyticsConfigSerializer,
@@ -298,6 +299,29 @@ def update_team_feature_flag_policy_config(team: Team, validated_data: dict[str,
         for field in TeamFeatureFlagPolicyConfigSerializer.Meta.fields
     }
     capture_team_config_diff(team, "feature_flag_policy_config", old_config, new_config, context=context)
+
+
+def update_team_data_management_config(team: Team, validated_data: dict[str, Any], *, context: dict) -> None:
+    user_access_control = context.get("user_access_control")
+    old_config = {
+        field: getattr(team.data_management_config, field) for field in TeamDataManagementConfigSerializer.Meta.fields
+    }
+
+    serializer = TeamDataManagementConfigSerializer(
+        team.data_management_config,
+        data=validated_data,
+        partial=True,
+        context={**context, "user_access_control": user_access_control},
+    )
+    if not serializer.is_valid():
+        raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
+
+    serializer.save()
+
+    new_config = {
+        field: getattr(team.data_management_config, field) for field in TeamDataManagementConfigSerializer.Meta.fields
+    }
+    capture_team_config_diff(team, "data_management_config", old_config, new_config, context=context)
 
 
 def verify_team_session_recording_retention_period(team: Team, new_retention_period: str) -> None:
@@ -610,6 +634,7 @@ class ProjectBackwardCompatSerializer(
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)  # Compat with TeamSerializer
     workflows_config = TeamWorkflowsConfigSerializer(required=False)  # Compat with TeamSerializer
     feature_flag_policy_config = TeamFeatureFlagPolicyConfigSerializer(required=False)  # Compat with TeamSerializer
+    data_management_config = TeamDataManagementConfigSerializer(required=False)  # Compat with TeamSerializer
     # No `default` on purpose: a default value would be auto-injected into every create payload, which trips the
     # admin-only-fields-on-creation gate in validate_team_attrs and blocks members allowed to create projects.
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, required=False)  # Compat with TeamSerializer
@@ -717,6 +742,7 @@ class ProjectBackwardCompatSerializer(
             "customer_analytics_config",  # Compat with TeamSerializer
             "workflows_config",  # Compat with TeamSerializer
             "feature_flag_policy_config",  # Compat with TeamSerializer
+            "data_management_config",  # Compat with TeamSerializer
             "base_currency",  # Compat with TeamSerializer
             "capture_dead_clicks",  # Compat with TeamSerializer
             "cookieless_server_hash_mode",  # Compat with TeamSerializer
@@ -828,6 +854,7 @@ class ProjectBackwardCompatSerializer(
             "customer_analytics_config",
             "workflows_config",
             "feature_flag_policy_config",
+            "data_management_config",
         }
 
         # help_text entries flow into the generated OpenAPI spec, frontend types, and MCP tool schemas.
@@ -947,6 +974,10 @@ class ProjectBackwardCompatSerializer(
     @staticmethod
     def validate_feature_flag_policy_config(value):
         return TeamSerializer.validate_feature_flag_policy_config(value)
+
+    @staticmethod
+    def validate_data_management_config(value):
+        return TeamSerializer.validate_data_management_config(value)
 
     def get_effective_membership_level(self, project: Project) -> Optional[OrganizationMembership.Level]:
         team = project.passthrough_team
@@ -1097,6 +1128,7 @@ class ProjectBackwardCompatSerializer(
             "customer_analytics_config",
             "workflows_config",
             "feature_flag_policy_config",
+            "data_management_config",
         ):
             validated_data.pop(config_field, None)
 
@@ -1180,6 +1212,9 @@ class ProjectBackwardCompatSerializer(
 
         if config_data := validated_data.pop("feature_flag_policy_config", None):
             update_team_feature_flag_policy_config(team, config_data, context=config_context)
+
+        if config_data := validated_data.pop("data_management_config", None):
+            update_team_data_management_config(team, config_data, context=config_context)
 
         if "session_recording_retention_period" in validated_data:
             verify_team_session_recording_retention_period(team, validated_data["session_recording_retention_period"])

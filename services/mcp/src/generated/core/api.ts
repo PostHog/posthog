@@ -99,6 +99,8 @@ export const organizationsProjectsPartialUpdateBodyWorkflowsConfigWorkflowTaskRa
 
 export const organizationsProjectsPartialUpdateBodyWorkflowsConfigWorkflowTaskTeamRateLimitPerDayMin = 0
 
+export const organizationsProjectsPartialUpdateBodyDataManagementConfigStaleEventDaysMax = 365
+
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMax = 2147483647
 
@@ -2497,6 +2499,18 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .optional()
                     .describe(
                         'When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag.'
+                    ),
+            })
+            .optional(),
+        data_management_config: zod
+            .object({
+                stale_event_days: zod
+                    .number()
+                    .min(1)
+                    .max(organizationsProjectsPartialUpdateBodyDataManagementConfigStaleEventDaysMax)
+                    .optional()
+                    .describe(
+                        'How many days an event can go without arriving before PostHog marks it stale. Drives the stale tag PostHog shows on an action whose event stopped arriving. Defaults to 30 days.'
                     ),
             })
             .optional(),

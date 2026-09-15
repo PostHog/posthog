@@ -140,6 +140,8 @@ export const ACTION_TYPE = 'action_type'
 export const EVENT_TYPE = 'event_type'
 export const STALE_EVENT_DAYS = 30
 export const STALE_EVENT_SECONDS = STALE_EVENT_DAYS * 24 * 60 * 60
+export const MIN_STALE_EVENT_DAYS = 1
+export const MAX_STALE_EVENT_DAYS = 365
 
 /**
  * @deprecated should be removed once backend is updated

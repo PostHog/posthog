@@ -356,6 +356,9 @@ const projectSettingsUpdate = (): ToolBase<
         if (params.feature_flag_policy_config !== undefined) {
             body['feature_flag_policy_config'] = params.feature_flag_policy_config
         }
+        if (params.data_management_config !== undefined) {
+            body['data_management_config'] = params.data_management_config
+        }
         if (params.base_currency !== undefined) {
             body['base_currency'] = params.base_currency
         }

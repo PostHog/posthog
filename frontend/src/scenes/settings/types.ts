@@ -241,6 +241,7 @@ export type SettingId =
     | 'passkeys'
     | 'login-sessions'
     | 'path-cleaning'
+    | 'stale-event-threshold'
     | 'person-display-name'
     | 'person-last-seen-at'
     | 'personal-api-keys'

@@ -894,6 +894,8 @@ export interface TeamType extends TeamBasicType {
     workflows_config: WorkflowsConfig
     // Optional so cached team objects from before this field shipped still typecheck.
     feature_flag_policy_config?: FeatureFlagPolicyConfig
+    // Optional so cached team objects from before this field shipped still typecheck.
+    data_management_config?: DataManagementConfig
     business_model?: 'b2b' | 'b2c' | 'other' | null
 }
 
@@ -908,6 +910,11 @@ export interface WorkflowsConfig {
 
 export interface FeatureFlagPolicyConfig {
     require_tags: boolean
+}
+
+export interface DataManagementConfig {
+    /** Days an event can go without arriving before PostHog calls it stale. */
+    stale_event_days: number
 }
 
 export interface ProductIntentType {
