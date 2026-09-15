@@ -1473,13 +1473,13 @@ snapshots:
     components-mcp-use-case-card--surveys-create--light:
         hash: v1.k794b7964.693a3cba67de29bb7ecea8b07f3ae05b0201c2785fa2f2d4975e481b6fdc349e.ROQjP-mA4zsLzJifJv9uIKLgwuM0h84NwoFZJ90rSyc
     components-navpanelproductpush--all-products--dark:
-        hash: v1.k794b7964.8b460276d45041350cc96fb98ec1d5025e48560fd8ff6ab328421b4851b1bd41.GGe6E02b9LwL1ZxHajhFXlzABp2sgjlX7RqShO92yQI
+        hash: v1.k794b7964.e8df673202c05ff1b127a8644f3ec33d5136b19159c0bcc71424ab280cb370b2.3sKayCzUgactzKvxzu5PnNcvS1SqGRs9d-GHQ2TuyzE
     components-navpanelproductpush--all-products--light:
-        hash: v1.k794b7964.de58f637861157c0e4a3281d5f56da9447019265aea1c897d73d367e22edc690.ES4hg06YNGISifFv2dvUL8uQKXix83i31w8fuEjGhgo
+        hash: v1.k794b7964.4d6f6a9cee14d52dd367e1c53e402a325a5afea2c30379072cabf29b9d4aae24.qbU233fTKXxCoIWdjWcE68uNKd-7_vGs9lVdebW0eU4
     components-navpanelproductpush--default-fallback--dark:
-        hash: v1.k794b7964.020f807f2d17fdf515b84c8800c37e0b6d8b0bda09421fbe1f0d3bcf9aeb23d4.C0OD2Gur0abSVWhBC5aarFDYTYRrudc-F6CjqvjhJ5o
+        hash: v1.k794b7964.55b32fb0731f082c6605b657a7e1777e3cd14f674dc4d8aeba35f4fc95c7a5ae.TH7bgugVkjMiQ9zFp1Fg00BfjFm82Qkqjr7_GpeBzlA
     components-navpanelproductpush--default-fallback--light:
-        hash: v1.k794b7964.06ad78d5182a189840a64537f4fffe5aae18b33328c8da550e09227aa506d3af.C5iY4j46abCd6Uf6SVnMZegPSQP9oqMPFb5dSeCdmzo
+        hash: v1.k794b7964.9b2877b96dd501ff69cd42ba8bcc894307fe29468cd428fa1f22c82a691e3dc3.rdQtwImqV-1Lflo0SB893D5BUJewOFuzmAlyUqhJiPI
     components-networkrequest-navigationitem--all-slow--dark:
         hash: v1.k794b7964.d09d9acbf8cb33a45a26cc9fd6e238dd97fa80b5b38c244dab95cd662d085c42.iV22pgH-xBLY-79NVxnPiKvZQ3vbBvZ7uthloHKd9Sc
     components-networkrequest-navigationitem--all-slow--light:
@@ -2024,6 +2024,18 @@ snapshots:
         hash: v1.k794b7964.5715b2b6618e07bbfb8f79e9d5693ab827f784a258ee467db80efc020864e878.89v_z0AYjKYJJsLJOg_DNCSfkBAb_b8D7luHlZem-b0
     components-product-empty-state--workflows-needs-setup--light:
         hash: v1.k794b7964.7224c6486a41259cae1f14e8c4681a4c724cfa55732bb73a8790e69e5ce0ff3b.FAgjbudwnM6xpKppdCytepsCZSZPI5FudRun6qm6Re8
+    components-productpushwelcomemodal--dashboards--dark:
+        hash: v1.k794b7964.093e430930815868657ad56de557f36d9d8c86f9f5739e8c6f0300f81e680c0b.4S-pxcGMqO00c_k9y4xYz4PSJda1F0i8LMrriMPrKIo
+    components-productpushwelcomemodal--dashboards--light:
+        hash: v1.k794b7964.aefd60ba35f1a1d0a1b360dcc6703fff8faefce7aa2b1bfa6cfef05f537a1ddb.vsq_-Nf4792Z-FHxBgs2fiCwPyzECaK4DPD_iG36UTU
+    components-productpushwelcomemodal--fallback-to-card-copy--dark:
+        hash: v1.k794b7964.e6716e4ff274885b997f7a5589be08ea3a8ae8ef055f7b2cd75875d3db12a718.OJbTna0PtsNkJOlGJTZIg0B2yeSwj3uqq0gssYD7znE
+    components-productpushwelcomemodal--fallback-to-card-copy--light:
+        hash: v1.k794b7964.e84b438eb0eae6fd91918d5242e1907701840c2db36c4edbd04d177ec6bf7c47.6FzcrqB87TJa5rmTnVa6tZmZoHcCxotDahFwfETrmm8
+    components-productpushwelcomemodal--product-analytics--dark:
+        hash: v1.k794b7964.9958298a2ee8c052b088362c501fee04cb5841baef1792cf8cb92d442d90777a.W9G5fJIF3OAk10nIoHnAeBKuUgyHPfv31qS_agm5_ms
+    components-productpushwelcomemodal--product-analytics--light:
+        hash: v1.k794b7964.4a98ac4cd414a5ac9f2cc9189e1a969f359fe8cbde1bf5caf9cabcea322f4050.-zp2tGAD1sQWOI7Tekxt1UZVv2kaM5FRHH00eXpJ7uE
     components-productsetup-productsetuppopover--default--dark:
         hash: v1.k794b7964.8577f1ec7bdb47266c031df353e220d017de2e86125924d5da8b0f052c6ce1a6.cA5-fWqyOm-PbSjy7Y8JZ4rQXAe7hn0soi6VkQ36dfc
     components-productsetup-productsetuppopover--default--light:
