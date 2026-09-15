@@ -1,5 +1,13 @@
 class BlockFetchError(Exception):
-    pass
+    """Raised when a recording block cannot be read.
+
+    `retriable` is False when a second attempt cannot change the result, for example
+    when the Recording API says the block does not exist.
+    """
+
+    def __init__(self, message: str, *, retriable: bool = True):
+        super().__init__(message)
+        self.retriable = retriable
 
 
 class FileFetchError(Exception):
