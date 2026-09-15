@@ -65,3 +65,47 @@ export const MultiSchema: Story = {
         return <SchemasTab {...props} />
     },
 }
+
+// A schema whose first sync completed without rows, so no warehouse table exists for it.
+const noTableYetSourceMock = {
+    ...externalDataSourceResponseMock,
+    schemas: externalDataSourceResponseMock.schemas.map((schema) =>
+        schema.name === 'Account'
+            ? {
+                  ...schema,
+                  status: 'Completed',
+                  should_sync: true,
+                  sync_type: 'full_refresh',
+                  last_synced_at: '2023-02-01T10:00:00Z',
+              }
+            : schema
+    ),
+}
+
+export const NoTableYet: Story = {
+    render: (props) => {
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/external_data_sources/:id': () => {
+                    return [200, noTableYetSourceMock]
+                },
+            },
+        })
+
+        return <SchemasTab {...props} />
+    },
+}
+
+export const NoTableYetAppStoreConnect: Story = {
+    render: (props) => {
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/external_data_sources/:id': () => {
+                    return [200, { ...noTableYetSourceMock, source_type: 'AppStoreConnect' }]
+                },
+            },
+        })
+
+        return <SchemasTab {...props} />
+    },
+}

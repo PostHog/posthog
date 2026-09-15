@@ -43,6 +43,7 @@ import {
     supportsDirectQuery,
 } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
 import { DATA_WAREHOUSE_APP_SOURCE } from 'products/data_warehouse/frontend/shared/components/metrics/DataWarehouseMetrics'
+import { NoTableYetLabel } from 'products/data_warehouse/frontend/shared/components/NoTableYetLabel'
 import {
     SchemaEditorAction,
     SourceEditorAction,
@@ -54,6 +55,7 @@ import {
     SyncFrequencyLabelMap,
     SyncTypeLabelMap,
     allowedSyncFrequencies,
+    schemaHasNoTableYet,
 } from 'products/data_warehouse/frontend/utils'
 
 import { DirectQuerySchemasTab } from './DirectQuerySchemasTab'
@@ -498,8 +500,8 @@ function ManagedSchemaTable({
                                 </span>
                             )
                         }
-                        if (schema.status === ExternalDataSchemaStatus.Completed) {
-                            return 0
+                        if (schemaHasNoTableYet(schema)) {
+                            return <NoTableYetLabel sourceType={source?.source_type} />
                         }
                         return <span className="text-muted">—</span>
                     },

@@ -1,4 +1,6 @@
-import type { ExternalDataSourceSchema } from '~/types'
+import { ExternalDataSchemaStatus, type ExternalDataSourceSchema } from '~/types'
+
+import { schemaHasNoTableYet } from 'products/data_warehouse/frontend/utils'
 
 import { groupDirectQuerySourceSchemasBySchema, splitDirectQuerySchemaName } from './DirectQuerySchemasTab'
 
@@ -58,5 +60,21 @@ describe('Schemas', () => {
                 schemas: [makeSchema('events')],
             },
         ])
+    })
+
+    it.each([
+        ['a completed sync that registered no table', ExternalDataSchemaStatus.Completed, false, true, true],
+        ['a completed sync with a table', ExternalDataSchemaStatus.Completed, true, true, false],
+        ['a sync still running', ExternalDataSchemaStatus.Running, false, true, false],
+        ['a failed sync', ExternalDataSchemaStatus.Failed, false, true, false],
+        ['a schema discovery turned off', ExternalDataSchemaStatus.Completed, false, false, false],
+    ])('detects no table yet for %s', (_label, status, hasTable, shouldSync, expected) => {
+        const schema = {
+            ...makeSchema('events'),
+            status,
+            should_sync: shouldSync,
+            table: hasTable ? ({ id: 'table-1' } as ExternalDataSourceSchema['table']) : undefined,
+        }
+        expect(schemaHasNoTableYet(schema)).toBe(expected)
     })
 })
