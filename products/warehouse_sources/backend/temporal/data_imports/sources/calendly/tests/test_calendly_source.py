@@ -90,9 +90,7 @@ class TestCalendlySource:
         [
             ((True, 200), True, None),
             ((False, 401), False, "Create a new token"),
-            # A token Calendly accepts but scopes narrowly connects: only a per-table check or a
-            # sync reports what it cannot read.
-            ((False, 403), True, None),
+            ((False, 403), False, "required permissions"),
             ((False, None), False, "couldn't reach Calendly"),
         ],
     )
@@ -111,20 +109,6 @@ class TestCalendlySource:
             assert error_message is not None
             assert expected_message_fragment in error_message
         mock_validate.assert_called_once_with(self.config.personal_access_token)
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.calendly.source.validate_calendly_credentials"
-    )
-    def test_validate_credentials_reports_forbidden_per_table(self, mock_validate):
-        mock_validate.return_value = (False, 403)
-
-        is_valid, error_message = self.source.validate_credentials(
-            self.config, self.team_id, schema_name="scheduled_events"
-        )
-
-        assert is_valid is False
-        assert error_message is not None
-        assert "cannot read this data" in error_message
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.calendly.source.calendly_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_calendly_source):

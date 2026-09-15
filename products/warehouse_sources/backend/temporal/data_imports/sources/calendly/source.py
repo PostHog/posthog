@@ -179,15 +179,13 @@ Paste the same signing key into the field below so PostHog can verify deliveries
                 "Calendly rejected your personal access token. Create a new token under "
                 "Integrations → API & Webhooks, then reconnect.",
             )
-        if status == 403 and schema_name is None:
-            # A token Calendly accepts but scopes narrowly is still a real token — the per-table
-            # check and the sync-time 403 report what it can't read, so don't block creation on it.
-            return True, None
+        # The probe reads `/users/me`, which every token may call, so a 403 is an account-wide
+        # restriction rather than a table the token was not scoped for.
         if status == 403:
             return (
                 False,
-                "Your Calendly personal access token cannot read this data. Create a token with "
-                "access to it, then reconnect.",
+                "Your Calendly personal access token does not have the required permissions. "
+                "Create a token with access to your Calendly organization, then reconnect.",
             )
 
         return False, "PostHog couldn't reach Calendly to check your token. Try connecting again in a few minutes."
