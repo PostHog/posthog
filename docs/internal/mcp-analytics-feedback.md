@@ -24,11 +24,13 @@ The cooldown uses local storage; it does not follow the user across browsers or 
 
 ## Configuration and release
 
-Configure the existing header survey as a Feedback button (`widget`) survey with an Always schedule.
+Deploy the frontend with `#mcp-analytics-feedback-button` before changing the existing header survey.
+Keep the current popover configuration until that deployment is confirmed.
+Then configure the existing header survey as a Feedback button (`widget`) survey with an Always schedule.
 Select an existing element with `appearance.widgetType: selector` and `appearance.widgetSelector: #mcp-analytics-feedback-button`.
 Set URL targeting to contain `/mcp-analytics` instead of the programmatic-only placeholder URL.
 Keep the survey ID and question IDs unchanged to preserve response history.
-Configure the survey before deploying the selector button; the previous frontend can still open it programmatically during rollout.
+Activate the selector configuration immediately after deployment, then verify that the header button opens the survey and records its lifecycle events.
 The SDK owns the click listener and captures `survey shown`, `survey sent`, and `survey dismissed`.
 Do not add a second `displaySurvey` click handler or capture duplicate lifecycle events.
 
