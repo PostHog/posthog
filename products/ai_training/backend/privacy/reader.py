@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import json
 import time
 import base64
@@ -10,7 +9,6 @@ from collections import OrderedDict
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import field
-from datetime import UTC, datetime
 from threading import Lock
 from typing import Protocol, TypedDict, cast
 
@@ -56,15 +54,6 @@ class TrainingKeyIdentity:
         if ref is not None:
             context["ref"] = ref
         return context
-
-    def month_block_location(self) -> TrainingKeyLocation:
-        month = self.session_month
-        if self.session_id:
-            timestamp_ms = int(self.session_id[:8] + self.session_id[9:13], 16)
-            month = datetime.fromtimestamp(timestamp_ms / 1000, UTC).strftime("%Y-%m")
-        if month is None or re.fullmatch(r"[0-9]{4}-(0[1-9]|1[0-2])", month) is None:
-            raise ValueError("ML key requires a session month")
-        return TrainingKeyLocation(pk=f"month:{month}", sk="deleted")
 
     def wrapping_context(self) -> dict[str, str]:
         context = {
@@ -194,21 +183,11 @@ class TrainingDataKeyReader:
                 session_month=str(row["session_month"]["S"]) if location.sk.startswith("image:") else None,
             )
         state = self.bulk_read(
-            [
-                location
-                for identity in identities.values()
-                for location in (
-                    identity.month_block_location(),
-                    TrainingKeyLocation(pk=f"team:{identity.team_id}", sk="deleted"),
-                )
-            ]
+            [TrainingKeyLocation(pk=f"team:{identity.team_id}", sk="deleted") for identity in identities.values()]
         )
         eligible: dict[TrainingKeyLocation, TrainingKeyIdentity] = {}
         for location, identity in identities.items():
-            if (
-                identity.month_block_location() in state
-                or TrainingKeyLocation(pk=f"team:{identity.team_id}", sk="deleted") in state
-            ):
+            if TrainingKeyLocation(pk=f"team:{identity.team_id}", sk="deleted") in state:
                 continue
             eligible[location] = identity
         with ThreadPoolExecutor(max_workers=8) as executor:

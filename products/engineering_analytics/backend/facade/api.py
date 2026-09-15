@@ -396,6 +396,7 @@ def list_workflow_health(
     date_to: str | None = None,
     branch: str | None = None,
     run_scope: str | None = None,
+    workflow_name: str | None = None,
     source_id: str | None = None,
     repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
@@ -406,6 +407,7 @@ def list_workflow_health(
         date_to=date_to,
         branch=branch,
         run_scope=run_scope,
+        workflow_name=workflow_name,
     )
 
 

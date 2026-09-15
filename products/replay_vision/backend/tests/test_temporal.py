@@ -5,6 +5,7 @@ import threading
 from typing import Any
 
 import pytest
+import time_machine
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
@@ -2301,6 +2302,7 @@ class TestFetchSessionEventsActivity:
 @pytest.mark.django_db(transaction=True)
 class TestEnsureSessionAssetActivity:
     @pytest.mark.asyncio
+    @time_machine.travel("2026-06-15T10:30:00Z", tick=False)
     async def test_creates_new_asset_with_vision_render_params(self) -> None:
         scanner = await sync_to_async(_make_scanner)()
         result = await ensure_session_asset_activity(
@@ -2317,6 +2319,8 @@ class TestEnsureSessionAssetActivity:
         assert ctx["playback_speed"] == 8
         assert ctx["recording_fps"] == 3
         assert ctx["show_metadata_footer"] is True
+        # No local override: the expiry has to stay whatever the bucket's lifecycle rule drops at.
+        assert asset.expires_after == dt.datetime(2026, 7, 16, tzinfo=dt.UTC)
 
     @pytest.mark.asyncio
     async def test_reuses_existing_system_asset_for_same_session(self) -> None:
