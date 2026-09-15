@@ -38,6 +38,7 @@ import type { ExternalDataSourceRevenueAnalyticsConfig } from '../../../../../fr
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
 import { joinsLogic } from './joinsLogic'
 import { sourcesDataLogic } from './sourcesDataLogic'
+import { shouldLoadSourceSummaries } from './sourceSummariesLogic'
 
 // Poll fast while something is actively syncing so sync status feels live; otherwise poll slowly. The
 // list response can be very large (a source can have tens of thousands of schemas), so refetching it
@@ -46,23 +47,16 @@ import { sourcesDataLogic } from './sourcesDataLogic'
 const REFRESH_INTERVAL = 10000
 const IDLE_REFRESH_INTERVAL = 15000
 
-const isActivelySyncing = (sources: PaginatedResponse<ExternalDataSource> | null): boolean =>
+export const isActivelySyncing = (sources: PaginatedResponse<ExternalDataSource> | null): boolean =>
     (sources?.results ?? []).some(
         (source) =>
             source.status === ExternalDataJobStatus.Running ||
-            (source.schemas ?? []).some((schema) => schema.status === ExternalDataSchemaStatus.Running)
+            source.schemas.some((schema) => schema.status === ExternalDataSchemaStatus.Running)
     )
 
-// Pages that actually render the sources list and want live sync-status updates. The 10s poll
-// runs only on these. Every other page that mounts this logic (the new-source wizard, SQL editor,
-// person/group profiles, debug, etc.) reads the sources once on mount without polling. This
-// matters because the list response is large and was previously re-fetched every REFRESH_INTERVAL
-// on pages that never display it.
-const SOURCE_LIST_PATHS = [
-    '/data-management/sources', // SourcesScene: managed, direct connect and self-managed sources tables
-    '/data-management/revenue', // Revenue analytics settings: external source configuration
-    '/settings/environment-marketing-analytics', // Marketing analytics settings: source configuration
-]
+// Marketing analytics still consumes full source records and needs live status updates.
+// Summary-backed pages use sourceSummariesLogic instead.
+const SOURCE_LIST_PATHS = ['/settings/environment-marketing-analytics']
 
 const shouldPollSources = (): boolean => SOURCE_LIST_PATHS.includes(router.values.location.pathname)
 
@@ -119,28 +113,14 @@ export interface sourceManagementLogicActions {
         errorObject?: any
     } // sourcesDataLogic
     loadSourcesSuccess: (
-        dataWarehouseSources:
-            | PaginatedResponse<ExternalDataSource>
-            | {
-                  count: number
-                  next: null
-                  previous: null
-                  results: never[]
-              },
+        dataWarehouseSources: PaginatedResponse<ExternalDataSource>,
         payload?:
             | {
                   value: true
               }
             | undefined
     ) => {
-        dataWarehouseSources:
-            | PaginatedResponse<ExternalDataSource>
-            | {
-                  count: number
-                  next: null
-                  previous: null
-                  results: never[]
-              }
+        dataWarehouseSources: PaginatedResponse<ExternalDataSource>
         payload?: {
             value: true
         }
@@ -280,10 +260,13 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
                     const clonedSources = JSON.parse(
                         JSON.stringify(values.dataWarehouseSources?.results ?? [])
                     ) as ExternalDataSource[]
-                    const sourceIndex = clonedSources.findIndex((n) => n.schemas?.find((m) => m.id === schema.id))
+                    const sourceIndex = clonedSources.findIndex((source) =>
+                        source.schemas.some((item) => item.id === schema.id)
+                    )
                     if (sourceIndex !== -1) {
-                        const schemaIndex = clonedSources[sourceIndex].schemas.findIndex((n) => n.id === schema.id)
-                        clonedSources[sourceIndex].schemas[schemaIndex] = schema
+                        const source = clonedSources[sourceIndex]
+                        const schemaIndex = source.schemas.findIndex((item) => item.id === schema.id)
+                        source.schemas[schemaIndex] = schema
 
                         actions.loadSourcesSuccess({
                             ...values.dataWarehouseSources,
@@ -446,7 +429,8 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
     urlToAction(({ actions }) => {
         // Reload (and restart polling) when landing on a page that renders the sources list, in
         // case this shared logic was already mounted by another scene and afterMount won't re-run.
-        // Skip same-path URL changes — the sources tables sync their pagination to the URL (e.g.
+        // afterMount handles the initial load. Skip that initial route callback, plus same-path URL
+        // changes — the sources tables sync their pagination to the URL (e.g.
         // ?managed-sources_page=2), and a full refetch on every page click would blink the table
         // and shift the page.
         const reload = (
@@ -456,7 +440,7 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
             currentLocation: { pathname: string; initial?: boolean },
             previousLocation?: { pathname: string }
         ): void => {
-            if (!currentLocation.initial && currentLocation.pathname === previousLocation?.pathname) {
+            if (currentLocation.initial || currentLocation.pathname === previousLocation?.pathname) {
                 return
             }
             actions.loadSources()
@@ -487,17 +471,14 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
                 JSON.stringify(values.dataWarehouseSources?.results ?? [])
             ) as ExternalDataSource[]
             const sourceIndex = clonedSources.findIndex((n) => n.id === source.id)
-            clonedSources[sourceIndex].status = ExternalDataJobStatus.Running
-            clonedSources[sourceIndex].schemas = clonedSources[sourceIndex].schemas.map((n) => {
-                if (n.should_sync) {
-                    return {
-                        ...n,
-                        status: ExternalDataSchemaStatus.Running,
-                    }
-                }
-
-                return n
-            })
+            const clonedSource = clonedSources[sourceIndex]
+            clonedSources[sourceIndex] = {
+                ...clonedSource,
+                status: ExternalDataJobStatus.Running,
+                schemas: clonedSource.schemas.map((schema) =>
+                    schema.should_sync ? { ...schema, status: ExternalDataSchemaStatus.Running } : schema
+                ),
+            }
 
             actions.loadSourcesSuccess({
                 ...values.dataWarehouseSources,
@@ -575,7 +556,9 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
                 actions.ensureAllTableFields()
             }
         }
-        actions.loadSources()
+        if (!shouldLoadSourceSummaries(router.values.location.pathname)) {
+            actions.loadSources()
+        }
     }),
     beforeUnmount(() => {
         // Disposables plugin handles cleanup automatically
