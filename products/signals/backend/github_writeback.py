@@ -78,11 +78,15 @@ def _post_to_issue(
     ``integrations`` memoizes the integration per repository for one run, because resolving one
     costs an authenticated GitHub call per integration the team has.
     """
+    # GitHub compares a repository path without case, while the unique constraint below does not,
+    # so the raw spelling would let a case-only rename claim a second row and comment twice.
+    repository = ref.repository.lower()
+
     # for_team scopes the lookup; get_or_create still needs team_id in the defaults, because a
     # queryset filter does not propagate into the row it creates.
     claim, created = SignalReportGithubComment.objects.for_team(team_id).get_or_create(
         report_id=report_id,
-        repository=ref.repository,
+        repository=repository,
         number=ref.number,
         defaults={"team_id": team_id},
     )
@@ -90,23 +94,22 @@ def _post_to_issue(
         return False
 
     try:
-        repository_key = ref.repository.lower()
-        if repository_key not in integrations:
-            integrations[repository_key] = GitHubIntegration.first_for_team_repository(
-                team_id, ref.repository, source=EGRESS_SOURCE
+        if repository not in integrations:
+            integrations[repository] = GitHubIntegration.first_for_team_repository(
+                team_id, repository, source=EGRESS_SOURCE
             )
-        github = integrations[repository_key]
+        github = integrations[repository]
         outcome = (
             {"success": False, "error": "No GitHub integration can reach the repository"}
             if github is None
-            else github.comment_on_issue(ref.repository, ref.number, body)
+            else github.comment_on_issue(repository, ref.number, body)
         )
     except Exception:
         logger.exception(
             "signals.github_writeback_failed",
             report_id=report_id,
             team_id=team_id,
-            repository=ref.repository,
+            repository=repository,
             number=ref.number,
         )
         claim.delete()
@@ -117,7 +120,7 @@ def _post_to_issue(
             "signals.github_writeback_failed",
             report_id=report_id,
             team_id=team_id,
-            repository=ref.repository,
+            repository=repository,
             number=ref.number,
             error=outcome.get("error"),
         )

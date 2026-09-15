@@ -64,9 +64,15 @@ class TestPostReportLinkToGithubIssues(BaseTest):
         assert self.report.title not in body
         assert "into memory" not in body
 
-    def test_is_idempotent_across_retries(self):
+    @parameterized.expand(
+        [
+            ("the same url", "https://github.com/acme/widgets/issues/42"),
+            ("the repository renamed to another case", "https://github.com/Acme/Widgets/issues/42"),
+        ]
+    )
+    def test_is_idempotent_across_retries(self, _name, later_html_url):
         first, _ = self._post([self.signal])
-        second, comment = self._post([self.signal])
+        second, comment = self._post([_signal(html_url=later_html_url)])
 
         assert (first, second) == (1, 0)
         assert comment.call_count == 0

@@ -985,7 +985,7 @@ class SignalReportGithubComment(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="github_comments")
 
-    # "organization/repository", as it reads in the issue's own URL.
+    # "organization/repository", lowercased: GitHub compares it without case, this column does not.
     repository = models.CharField(max_length=200)
     number = models.PositiveBigIntegerField()
     # Null while the claim is held, set once GitHub accepted the comment.
