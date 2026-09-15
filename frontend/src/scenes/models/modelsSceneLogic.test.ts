@@ -58,6 +58,7 @@ describe('modelsSceneLogic', () => {
                         buildNode('child', { last_run_status: 'Skipped' }),
                         buildNode('grandchild', { last_run_status: 'Skipped' }),
                         buildNode('paused', {
+                            last_run_status: 'Failed',
                             suspended: { clickhouse: { at: '2024-01-02T00:00:00Z', reason: 'boom', job_id: 'j1' } },
                         }),
                         buildNode('never-ran'),
@@ -133,7 +134,7 @@ describe('modelsSceneLogic', () => {
         await expectLogic(lineageDataLogic).toDispatchActions(['loadNodesSuccess'])
         await expectLogic(dataWarehouseViewsLogic).toDispatchActions(['loadDataWarehouseSavedQueriesSuccess'])
 
-        expect(logic.values.failingNodes.map((node) => node.id)).toEqual(['broken'])
+        expect(logic.values.failingNodes.map((node) => node.id)).toEqual(['broken', 'paused'])
         expect(logic.values.suspendedNodes.map((node) => node.id)).toEqual(['paused'])
     })
 
@@ -154,6 +155,7 @@ describe('modelsSceneLogic', () => {
         // Detection writes markers for every team, but without enforcement the schedule
         // keeps firing, so the marker records failures rather than a stopped model.
         expect(logic.values.suspendedNodes).toEqual([])
+        expect(logic.values.attentionModels.find((row) => row.node.id === 'paused')?.problem).toBe('Failed')
     })
 
     it('lists broken models with their error and what they hold up', async () => {
