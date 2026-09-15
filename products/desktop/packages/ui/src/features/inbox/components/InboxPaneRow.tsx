@@ -40,6 +40,17 @@ export function InboxPaneRow({
   const pr = report.implementation_pr_url
     ? parsePrUrl(report.implementation_pr_url)
     : null;
+  // An explicit aria-label replaces the row's descendant text in the
+  // accessible name, so the implementation status the badge below shows has to
+  // be named here too. Without it a screen reader cannot tell a report whose
+  // task is working from one whose task failed.
+  const label = [
+    title,
+    report.priority ? `priority ${report.priority}` : "priority unknown",
+    implementationState && REPORT_IMPLEMENTATION_LABELS[implementationState],
+  ]
+    .filter(Boolean)
+    .join(", ");
 
   return (
     <InboxReportContextMenu report={report}>
@@ -47,11 +58,7 @@ export function InboxPaneRow({
         <AutocompleteItem
           value={optionValue}
           nativeButton
-          aria-label={
-            report.priority
-              ? `${title}, priority ${report.priority}`
-              : `${title}, priority unknown`
-          }
+          aria-label={label}
           className={cn(
             "h-auto w-full items-start py-1.5 pr-8 text-left ring-offset-0 data-highlighted:border-transparent data-highlighted:bg-fill-hover data-highlighted:ring-0 [&>span]:w-full [&>span]:items-start [&>span]:gap-2",
             isSelected && "bg-fill-selected",
