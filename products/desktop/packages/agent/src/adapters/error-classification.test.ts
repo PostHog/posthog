@@ -213,6 +213,19 @@ describe("parseUpstreamRetryAfterMs", () => {
   ] as const)("reads %j as %j", (message, expected) => {
     expect(parseUpstreamRetryAfterMs(message)).toBe(expected);
   });
+
+  // RFC 9110 allows an HTTP-date in place of delay-seconds.
+  const clock = () => Date.parse("Wed, 21 Oct 2026 07:28:00 GMT");
+
+  it.each([
+    ["retry-after: Wed, 21 Oct 2026 07:28:30 GMT", 30_000],
+    ["Retry-After: Wed, 21 Oct 2026 07:30:00 GMT", 120_000],
+    // A date already past is no hint, not a zero delay.
+    ["retry-after: Wed, 21 Oct 2026 07:27:00 GMT", null],
+    ["retry-after: not a date at all", null],
+  ] as const)("reads the date %j as %j", (message, expected) => {
+    expect(parseUpstreamRetryAfterMs(message, clock)).toBe(expected);
+  });
 });
 
 describe("upstreamRetryDelayMs", () => {
@@ -221,9 +234,9 @@ describe("upstreamRetryDelayMs", () => {
   const noJitter = () => 1;
 
   it.each([
-    // A 5xx blip keeps the short delay this loop was tuned for...
+    // A 5xx blip keeps the flat delay this loop was tuned for...
     ["API Error: 503", 1, 5_000],
-    ["API Error: 503", 2, 10_000],
+    ["API Error: 503", 2, 5_000],
     // ...while a rate limit starts far higher, grows, and stops at the ceiling
     // that keeps a backed-off turn under the salvage floor.
     ["API Error: 429", 1, 20_000],
@@ -262,6 +275,20 @@ describe("upstreamRetryDelayMs", () => {
       ).toBe(expected);
     },
   );
+
+  it("never waits less than the provider hint, whatever the jitter", () => {
+    const delays = [0, 0.5, 1].map((jitter) =>
+      upstreamRetryDelayMs({
+        classification: "upstream_provider_failure",
+        attempt: 1,
+        cause: "API Error: 429",
+        message: "API Error: 429 rate limited. Please try again in 35s",
+        random: () => jitter,
+      }),
+    );
+
+    expect(delays).toEqual([35_000, 35_000, 35_000]);
+  });
 
   it("spreads concurrent runs so they do not retry in lockstep", () => {
     const delays = [0, 0.5, 1].map((jitter) =>
