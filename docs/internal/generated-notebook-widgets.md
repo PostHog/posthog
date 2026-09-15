@@ -31,17 +31,20 @@ Widget IDs are saved when their settings, title, or panel visibility change, so 
 New SQL cells receive a unique name beginning with `sql_df_`; Python cells receive one beginning with `df_`.
 You can rename a dataframe in its result panel.
 The SQL and insight dataframe name rows are visible when either `revamped-py-notebooks` or `notebook-generated-widgets` is enabled.
-Either flag also enables the backend dataframe run endpoints.
+The widget flag enables HogQL dataframe preparation. Python, kernel-backed SQL, and direct connections require `revamped-py-notebooks`.
 Insights that expose SQL have the same dataframe name field below their results, starting with `insight_df` (with a numeric suffix when needed).
-The insight prepares its dataframe automatically, so SQL, Python, and generated widgets can reference that name without another cell.
-Preparation runs the insight's SQL once and saves the run reference and column metadata.
-Renaming the dataframe or reopening the notebook reuses that run when the insight's query and refresh timestamp match.
-Changing or refreshing the insight prepares a new run; **Retry dataframe** retries a failed preparation.
+An editor prepares the insight's dataframe when a SQL or Python cell first references it, or before generating a widget.
+Opening a notebook, renaming a dataframe, or refreshing an insight's display does not prepare dataframes or save preparation metadata.
+Preparation uses the insight query cache and saves the run reference and column metadata only after the SQL run completes.
+Concurrent preparation requests reuse the same matching run; completed runs can be reused across editors for one hour.
+An unchanged insight with a saved completed run reuses that snapshot. **Refresh dataframe** prepares a fresh snapshot; **Try again** retries a failed preparation.
+Viewers and shared notebooks do not show insight dataframe controls or prepare dataframes.
 
 SQL and Python cells save their run ID, column metadata, and row count in the notebook.
-Result rows, console output, and images load from the saved run instead of being embedded in notebook markdown.
-Existing embedded results remain readable and are replaced with metadata when the cell runs again.
-If a saved run is no longer available, run the cell again to restore its results.
+A bounded preview keeps at most five rows within 8 KiB and up to 2,048 characters per console stream in the notebook, including runs created through MCP.
+Full results and images load from the saved run. Older browser tabs can still display the small preview.
+Saved result reads remain available if the execution flags are disabled, subject to notebook and query permissions.
+Loading a saved result does not execute a cell or mark dependent cells stale. If a saved run is unavailable, the preview stays visible and the cell offers a rerun.
 
 New notebooks place the typing caret in the title, including when opened through the command menu. Enter continues into the notebook body.
 The notebook's inline **Ask AI** uses LangGraph and receives widget authoring instructions when `notebook-generated-widgets` is enabled for the user.

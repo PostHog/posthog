@@ -230,7 +230,7 @@ export const NotebooksKernelStatusRetrieveParams = () => zod.object({
 })
 
 /**
- * Read a run's durable state: its status, and — once done or interrupted — the result envelope (columns, first rows, stdout/stderr, media, error). Poll until terminal. Flag-gated (revamped-py-notebooks).
+ * Read a run's durable state: its status, and — once done or interrupted — the result envelope (columns, first rows, stdout/stderr, media, error). Poll until terminal. Requires notebook and query read access, including after a notebook feature flag is disabled.
  */
 export const NotebooksSqlV2RunsRetrieveParams = () => zod.object({
     project_id: zod

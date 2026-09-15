@@ -76,6 +76,7 @@ export type NotebookNodeGeneratedWidgetLogicProps = {
     prompt: string
     model: WidgetModel
     isEditable: boolean
+    prepareInsightDataframes?: () => Promise<void>
     persistNotebook: () => Promise<void>
     getContent: () => JSONContent | null
 }
@@ -912,6 +913,8 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     const generationId = uuidv4()
                     let aborted = false
                     try {
+                        await props.prepareInsightDataframes?.()
+                        await props.persistNotebook()
                         const requestGeneration = async (): Promise<WidgetStatusApi> =>
                             await requestWithTimeout((signal) =>
                                 notebooksWidgetGenerate(

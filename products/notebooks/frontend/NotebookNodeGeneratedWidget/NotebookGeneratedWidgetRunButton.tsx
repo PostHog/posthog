@@ -8,6 +8,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { prepareNotebookInsightDataframes } from '../prepareNotebookInsightDataframes'
 import { notebookNodeGeneratedWidgetLogic } from './notebookNodeGeneratedWidgetLogic'
 import { DEFAULT_WIDGET_MODEL, isWidgetModel } from './widgetModels'
 
@@ -42,6 +43,7 @@ function EditableNotebookGeneratedWidgetRunButton({
         prompt: typeof node.props.prompt === 'string' ? node.props.prompt : '',
         model,
         isEditable: canEditNotebook,
+        prepareInsightDataframes: () => prepareNotebookInsightDataframes(mountedNotebookLogic),
         persistNotebook: async (): Promise<void> => {
             await mountedNotebookLogic.asyncActions.saveNotebook({
                 content: mountedNotebookLogic.values.content,

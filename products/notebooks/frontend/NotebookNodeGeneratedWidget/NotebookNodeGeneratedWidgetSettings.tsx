@@ -11,6 +11,7 @@ import { notebookNodeLogic } from 'scenes/notebooks/Nodes/notebookNodeLogic'
 import type { NotebookNodeAttributeProperties } from 'scenes/notebooks/types'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { prepareNotebookInsightDataframes } from '../prepareNotebookInsightDataframes'
 import type { NotebookNodeGeneratedWidgetAttributes } from './NotebookNodeGeneratedWidget'
 import {
     formatWidgetElapsed,
@@ -36,6 +37,7 @@ export function NotebookNodeGeneratedWidgetSettings({
         prompt: attributes.prompt ?? '',
         model: attributes.model ?? DEFAULT_WIDGET_MODEL,
         isEditable,
+        prepareInsightDataframes: () => prepareNotebookInsightDataframes(notebookLogic),
         persistNotebook: async (): Promise<void> => {
             await notebookLogic.asyncActions.saveNotebook({
                 content: notebookLogic.values.content,

@@ -449,6 +449,8 @@ export const NotebookSQLV2NodeTypeEnumApi = {
 } as const
 
 export interface NotebookSQLV2RunRequestApi {
+    /** Reuse a running or completed HogQL run with the same cell and resolved query from the last hour. Does not apply to kernel or connection runs. */
+    reuse_results?: boolean
     /** ProseMirror node id of the SQLV2 node being run. */
     node_id: string
     /** Execution kind. 'hogql' is a SQL node — pushed to ClickHouse, or rerouted to the sandbox's DuckDB when it references a local frame; 'python' runs the code in the sandbox kernel, materializing referenced upstream nodes as pandas frames first.
@@ -600,7 +602,7 @@ export interface NotebookCellLastRunApi {
 export interface NotebookCellStateApi {
     /** Durable cell identity, used by the cell run and edit endpoints. */
     node_id: string
-    /** Cell kind: 'sql', 'python', 'saved_insight' (embedded insight, never runs), or 'markdown' (prose, a heading, or a fenced block; never runs and joins no dependency graph). */
+    /** Cell kind: 'sql', 'python', 'saved_insight' (an insight with an optional prepared dataframe), or 'markdown' (prose, a heading, or a fenced block; never runs and joins no dependency graph). */
     cell_type: string
     /** Name other cells reference this cell's result by; blank means display-only. */
     dataframe_name: string

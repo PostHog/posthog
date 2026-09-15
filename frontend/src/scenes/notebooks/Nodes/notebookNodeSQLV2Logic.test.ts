@@ -353,12 +353,47 @@ describe('notebookNodeSQLV2Logic', () => {
             expect(logic.values.lastRunNodeId).toBeNull()
         } else {
             expect(updateAttributes).toHaveBeenCalledWith({
-                result: { columns: ['a'], types: [], row_count: 1, has_more: false },
+                result: {
+                    columns: ['a'],
+                    types: [],
+                    row_count: 1,
+                    has_more: false,
+                    first_page: [[1]],
+                    stdout: '',
+                    stderr: '',
+                    previewOnly: true,
+                },
                 runStatus: 'done',
             })
         }
         expect(logic.values.isRunning).toBe(false)
     })
+
+    it.each(['failed', 'interrupted', 'unavailable'] as const)(
+        'keeps a %s saved-result load separate from execution',
+        async (status) => {
+            if (status === 'unavailable') {
+                resultSpy.mockRejectedValue(new ApiError('Result not found', 404))
+            } else {
+                resultSpy.mockResolvedValue({ status, result: null, error: 'Old run failed' })
+            }
+            mount({ runId: 'saved', hasResultMetadata: true, hasResult: false })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.runError).toBeNull()
+            expect(logic.values.lastRunNodeId).toBeNull()
+            expect(logic.values.isRunning).toBe(false)
+            expect(logic.values.isRestoringResult).toBe(false)
+            expect(updateAttributes).not.toHaveBeenCalled()
+            resultSpy.mockResolvedValue({
+                status: 'done',
+                result: { columns: ['a'], first_page: [[1]], row_count: 1 },
+                error: null,
+            })
+            await logic.asyncActions.runQuery('select 1', {})
+            await expectLogic(logic).toFinishAllListeners()
+            expect(updateAttributes).toHaveBeenCalledWith(expect.objectContaining({ runStatus: 'done' }))
+        }
+    )
 
     it('surfaces a failed run as an error', async () => {
         resultSpy.mockResolvedValue({ status: 'failed', result: null, error: 'no such table' })
@@ -380,7 +415,16 @@ describe('notebookNodeSQLV2Logic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.result).toEqual(expect.objectContaining({ stdout: 'partial output' }))
         expect(updateAttributes).toHaveBeenCalledWith({
-            result: { columns: [], types: [], row_count: 0, has_more: false },
+            result: {
+                columns: [],
+                types: [],
+                row_count: 0,
+                has_more: false,
+                first_page: [],
+                stdout: 'partial output',
+                stderr: '',
+                previewOnly: true,
+            },
             runStatus: 'interrupted',
         })
         expect(logic.values.runError).toBe('Run interrupted.')

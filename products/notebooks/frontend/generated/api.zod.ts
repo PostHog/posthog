@@ -530,8 +530,9 @@ export const NotebooksKernelStopCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Dispatch an asynchronous run of a notebook SQL or Python cell. Returns a run_id immediately; poll the run result endpoint until the status is terminal. One run at a time per notebook. Flag-gated (revamped-py-notebooks).
+ * Dispatch an asynchronous run of a notebook SQL or Python cell. Returns a run_id immediately; poll the run result endpoint until the status is terminal. One run at a time per notebook. Python notebooks enable all run types. Generated widgets enable HogQL runs without a connection or kernel.
  */
+export const notebooksSqlV2RunCreateBodyReuseResultsDefault = false
 export const notebooksSqlV2RunCreateBodyNodeTypeDefault = `hogql`
 export const notebooksSqlV2RunCreateBodyOutputNameDefault = ``
 export const notebooksSqlV2RunCreateBodyRefsKindDefault = `hogql`
@@ -540,6 +541,12 @@ export const notebooksSqlV2RunCreateBodyVariablesItemNameMax = 200
 export const notebooksSqlV2RunCreateBodySendRawQueryDefault = false
 
 export const NotebooksSqlV2RunCreateBody = /* @__PURE__ */ zod.object({
+    reuse_results: zod
+        .boolean()
+        .default(notebooksSqlV2RunCreateBodyReuseResultsDefault)
+        .describe(
+            'Reuse a running or completed HogQL run with the same cell and resolved query from the last hour. Does not apply to kernel or connection runs.'
+        ),
     node_id: zod.string().describe('ProseMirror node id of the SQLV2 node being run.'),
     node_type: zod
         .enum(['hogql', 'python'])

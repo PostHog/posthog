@@ -1,8 +1,11 @@
 import type { BuiltLogic } from 'kea'
 
+import { extractDuckSqlTables, extractPythonIdentifiers } from 'scenes/notebooks/Nodes/notebookNodeContent'
 import type { NotebookNodeSQLV2Result } from 'scenes/notebooks/Nodes/NotebookNodeSQLV2'
 import { notebookNodeSQLV2Logic, NotebookNodeSQLV2LogicProps } from 'scenes/notebooks/Nodes/notebookNodeSQLV2Logic'
 import type { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogic'
+
+import { prepareNotebookInsightDataframes } from './prepareNotebookInsightDataframes'
 
 export function notebookCodeCellLogic(
     nodeId: string,
@@ -15,8 +18,13 @@ export function notebookCodeCellLogic(
         notebookShortId: notebook.props.shortId,
         updateAttributes,
         runId: attributes.runId ?? null,
-        hasResult: Array.isArray(attributes.result?.first_page),
+        hasResult: Array.isArray(attributes.result?.first_page) && !attributes.result?.previewOnly,
         hasResultMetadata: !!attributes.result,
+        prepareInsightDataframes: (code, nodeType) =>
+            prepareNotebookInsightDataframes(
+                notebook,
+                nodeType === 'python' ? extractPythonIdentifiers(code) : extractDuckSqlTables(code)
+            ),
         getContent: () => notebook.values.content ?? null,
         getVariables: () => notebook.values.runnableVariables,
     })

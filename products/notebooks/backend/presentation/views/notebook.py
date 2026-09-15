@@ -1587,18 +1587,25 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         description=(
             "Dispatch an asynchronous run of a notebook SQL or Python cell. Returns a run_id immediately; "
             "poll the run result endpoint until the status is terminal. One run at a time per notebook. "
-            "Flag-gated (revamped-py-notebooks)."
+            "Python notebooks enable all run types. Generated widgets enable HogQL runs without a connection or kernel."
         ),
     )
     @action(methods=["POST"], url_path="sql_v2/run", detail=True, required_scopes=["notebook:write", "query:read"])
     def sql_v2_run(self, request: Request, **kwargs):
         user = self._current_user()
         # Server-side gate is permissive in local dev (frontend still gates the UI); prod is flag-gated.
-        if not (settings.DEBUG or is_sql_v2_enabled(user)):
+        full_compute_enabled = settings.DEBUG or is_sql_v2_enabled(user)
+        if not full_compute_enabled and not is_notebook_widget_enabled(user):
             raise Http404()
 
         serializer = NotebookSQLV2RunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        if not full_compute_enabled and (
+            serializer.validated_data["node_type"] != "hogql"
+            or serializer.validated_data.get("connection_id") is not None
+            or any(ref["kind"] == "local" for ref in serializer.validated_data["refs"].values())
+        ):
+            raise Http404()
         notebook = self._get_notebook_for_kernel()
         self._require_query_access()
 
@@ -1702,6 +1709,38 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         except (SQLV2ReferenceError, NotebookVariableError, ExposedHogQLError) as e:
             return Response({"detail": str(e)}, status=400)
 
+        if not full_compute_enabled and plan.node_type != "hogql":
+            raise Http404()
+
+        reusable_runs = (
+            NotebookNodeRun.objects.for_team(self.team_id)
+            .filter(
+                notebook=notebook,
+                node_id=serializer.validated_data["node_id"],
+                code=plan.code,
+                node_type="hogql",
+                connection_id__isnull=True,
+                status__in=[NotebookNodeRun.Status.RUNNING, NotebookNodeRun.Status.DONE],
+                created_at__gte=now() - timedelta(hours=1),
+            )
+            .order_by("-created_at")
+            if serializer.validated_data["reuse_results"] and plan.node_type == "hogql" and connection_id is None
+            else None
+        )
+
+        def reused_response() -> Response | None:
+            existing_run = reusable_runs.first() if reusable_runs is not None else None
+            if existing_run is None:
+                return None
+            return Response(
+                NotebookSQLV2RunResponseSerializer(
+                    {"run_id": str(existing_run.id), "starts_sandbox": False, "sandbox_hourly_price": None}
+                ).data
+            )
+
+        if cached_response := reused_response():
+            return cached_response
+
         # Taken before the row exists, so a refused dispatch writes nothing: an agent retrying
         # into a full ceiling must not leave a trail of rows behind it. The id is minted here
         # because the slot is keyed on it and has to be released by the run that took it.
@@ -1711,6 +1750,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         try:
             acquire_run_slots(self.team_id, notebook.short_id, str(new_run_id))
         except NotebookRunBusy as e:
+            if cached_response := reused_response():
+                return cached_response
             # 409, not 429: a conflict with the notebook's state rather than a rate. The MCP
             # client retries every 429 with backoff and then replaces the body with its own
             # rate-limit message, so a 429 here would cost an agent seconds of pointless waiting
@@ -1718,6 +1759,10 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             return Response({"detail": str(e)}, status=409)
         except TeamRunCapacityFull as e:
             return Response({"detail": str(e)}, status=429)
+
+        if cached_response := reused_response():
+            release_run_slots(self.team_id, notebook.short_id, str(new_run_id))
+            return cached_response
 
         try:
             run = NotebookNodeRun.objects.create(
@@ -1816,7 +1861,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         description=(
             "Read a run's durable state: its status, and — once done or interrupted — the result envelope "
             "(columns, first rows, stdout/stderr, media, error). Poll until terminal. "
-            "Flag-gated (revamped-py-notebooks)."
+            "Requires notebook and query read access, including after a notebook feature flag is disabled."
         ),
     )
     @action(
@@ -1829,7 +1874,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # The node short-polls this durable read to learn when its run finishes. One indexed
         # query, no held connection — resilient to reloads/remounts (see sql_v2_result_delivery.md).
         user = self._current_user()
-        if not (settings.DEBUG or is_sql_v2_enabled(user)) or run_id is None:
+        if run_id is None:
             raise Http404()
 
         # Scope to the notebook (via get_object → per-notebook access control), not just the

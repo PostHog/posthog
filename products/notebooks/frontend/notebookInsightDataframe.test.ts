@@ -3,16 +3,18 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { collectNotebookFrameNodes } from 'scenes/notebooks/Nodes/notebookNodeContent'
-import { collectSqlV2Refs, notebookNodeSQLV2Logic } from 'scenes/notebooks/Nodes/notebookNodeSQLV2Logic'
+import { collectSqlV2Refs } from 'scenes/notebooks/Nodes/notebookNodeSQLV2Logic'
 import { buildMarkdownNotebookContent } from 'scenes/notebooks/Notebook/markdownNotebookV2'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
+import * as queries from '~/queries/query'
 import { NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import type { InsightLogicProps } from '~/types'
 
+import { notebookCodeCellLogic } from './notebookCodeCellLogic'
 import { InsightDataframeAttributes, notebookInsightDataframeLogic } from './notebookInsightDataframeLogic'
 
 describe('insight dataframes', () => {
@@ -74,11 +76,13 @@ describe('insight dataframes', () => {
         creator.mount()
     }
 
-    it('prepares the insight itself and persists only result metadata', async () => {
+    it('prepares on first use and persists only completed result metadata', async () => {
         const content = notebook.values.content
         mountCreator()
         await expectLogic(creator).toFinishAllListeners()
-        await expectLogic(notebookNodeSQLV2Logic.findMounted({ nodeId: 'source' })!).toFinishAllListeners()
+        expect(api.notebooks.sqlV2Run).not.toHaveBeenCalled()
+        expect(attributes).toEqual({})
+        await creator.asyncActions.syncDataframe()
         expect(api.notebooks.sqlV2Run).toHaveBeenCalledTimes(1)
         expect(api.notebooks.sqlV2Run).toHaveBeenCalledWith(
             'insight-dataframes',
@@ -101,12 +105,13 @@ describe('insight dataframes', () => {
         expect(notebook.values.content).toEqual(content)
     })
 
-    it('reuses a saved run on mount and rename, but replaces it when the insight refreshes', async () => {
+    it('does not run on mount, rename, or insight refresh, and reuses a completed query on first use', async () => {
         attributes = {
             returnVariable: 'insight_df',
             runId: 'cached-run',
             result: { columns: ['count'], row_count: 1 },
-            dataframeSource: JSON.stringify([insight.values.query, response.last_refresh]),
+            dataframeSource: JSON.stringify(insight.values.query),
+            dataframeQuery: response.hogql,
         }
         mountCreator()
         await expectLogic(creator).toFinishAllListeners()
@@ -118,7 +123,10 @@ describe('insight dataframes', () => {
 
         data.actions.loadDataSuccess({ ...response, last_refresh: '2026-01-02T00:00:00Z' })
         await expectLogic(creator).toFinishAllListeners()
-        expect(api.notebooks.sqlV2Run).toHaveBeenCalledTimes(1)
+        expect(api.notebooks.sqlV2Run).not.toHaveBeenCalled()
+        await creator.asyncActions.syncDataframe()
+        expect(api.notebooks.sqlV2Run).not.toHaveBeenCalled()
+        expect(api.notebooks.sqlV2RunResult).toHaveBeenCalledWith('insight-dataframes', 'cached-run')
         expect(attributes.returnVariable).toBe('renamed_df')
     })
 
@@ -129,11 +137,9 @@ describe('insight dataframes', () => {
         )
         expect(collectSqlV2Refs(content, 'consumer')).toMatchObject({
             daily_df: { node_id: 'saved', kind: 'hogql' },
-            inline_df: { node_id: 'inline', kind: 'hogql' },
         })
         expect(collectNotebookFrameNodes(content)).toEqual([
             expect.objectContaining({ name: 'daily_df', hasRun: true, columns: [['count', 'Int64']] }),
-            expect.objectContaining({ name: 'inline_df', hasRun: false }),
         ])
     })
 
@@ -141,6 +147,7 @@ describe('insight dataframes', () => {
         jest.mocked(api.notebooks.sqlV2Run).mockRejectedValueOnce(new Error('Temporary query failure'))
         mountCreator()
         await expectLogic(creator).toFinishAllListeners()
+        await creator.asyncActions.syncDataframe()
         expect(creator.values.error).toBeTruthy()
         creator.actions.retry()
         await expectLogic(creator).toFinishAllListeners()
@@ -150,8 +157,65 @@ describe('insight dataframes', () => {
 
     it.each(['', 'invalid-name'])('does not prepare a dataframe named %p', async (returnVariable) => {
         attributes = { returnVariable }
+        notebook.actions.setLocalContent(
+            buildMarkdownNotebookContent(
+                `<Insight nodeId="source" id="example" returnVariable=${JSON.stringify(returnVariable)} />`
+            )
+        )
         mountCreator()
         await expectLogic(creator).toFinishAllListeners()
+        await creator.asyncActions.syncDataframe()
         expect(api.notebooks.sqlV2Run).not.toHaveBeenCalled()
+    })
+
+    it('shares a preparation between simultaneous consumers', async () => {
+        mountCreator()
+        await Promise.all([creator.asyncActions.syncDataframe(), creator.asyncActions.syncDataframe()])
+        expect(api.notebooks.sqlV2Run).toHaveBeenCalledTimes(1)
+        expect(attributes.runId).toBe('insight-run')
+        expect(creator.values.error).toBeNull()
+    })
+
+    it('prepares an insight on first reference before dispatching the consuming SQL cell', async () => {
+        jest.spyOn(queries, 'performQuery').mockResolvedValue(response)
+        const consumer = notebookCodeCellLogic('consumer', notebook, {}, jest.fn())
+        const unmount = consumer.mount()
+        try {
+            await consumer.asyncActions.runQuery('SELECT * FROM insight_df', {})
+            await expectLogic(consumer).toFinishAllListeners()
+            expect(api.notebooks.sqlV2Run).toHaveBeenNthCalledWith(
+                1,
+                'insight-dataframes',
+                expect.objectContaining({ node_id: 'source', reuse_results: true })
+            )
+            expect(api.notebooks.sqlV2Run).toHaveBeenNthCalledWith(
+                2,
+                'insight-dataframes',
+                expect.objectContaining({
+                    node_id: 'consumer',
+                    refs: { insight_df: { node_id: 'source', kind: 'hogql' } },
+                })
+            )
+            expect(collectNotebookFrameNodes(notebook.values.content)).toEqual([
+                expect.objectContaining({ name: 'insight_df', hasRun: true }),
+            ])
+        } finally {
+            unmount()
+        }
+    })
+
+    it.each(['failed', 'interrupted'] as const)('does not cache a %s run and retries it', async (status) => {
+        jest.mocked(api.notebooks.sqlV2RunResult).mockResolvedValueOnce({
+            status,
+            result: null,
+            error: 'Query did not finish',
+        })
+        mountCreator()
+        await creator.asyncActions.syncDataframe()
+        expect(attributes).toEqual({})
+        expect(creator.values.error).toBe('Query did not finish')
+        await creator.asyncActions.syncDataframe()
+        expect(attributes.runId).toBe('insight-run')
+        expect(api.notebooks.sqlV2Run).toHaveBeenCalledTimes(2)
     })
 })

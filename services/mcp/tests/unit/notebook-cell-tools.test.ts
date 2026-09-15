@@ -166,6 +166,28 @@ describe('notebook cell tools', () => {
         expect(catalogPrompt).toContain('groupTypeIndex: Numeric group type index.')
     })
 
+    it.each([
+        { name: 'many rows', rows: Array.from({ length: 100 }, (_, i) => [i]), preview: [[0], [1], [2], [3], [4]] },
+        { name: 'an oversized row', rows: [['x'.repeat(10000)]], preview: [] },
+    ])('bounds the persisted result preview for $name', async ({ rows, preview }) => {
+        const state = makeState('# Notebook')
+        state.runStatusResponses.push({
+            ...DONE_STATUS,
+            result: { ...DONE_STATUS.result, first_page: rows, row_count: rows.length, stdout: 'x'.repeat(20000) },
+        })
+        await addCellHandler(createMockContext(state), {
+            notebook_id: 'aBcD1234',
+            cell_type: 'sql',
+            code: 'select 1',
+        })
+        const markdown = state.saveBodies[1].content.content[0].attrs.markdown
+        expect(markdown.length).toBeLessThan(12000)
+        expect(markdown).toContain('"previewOnly":true')
+        expect(markdown).toContain(`"first_page":${JSON.stringify(preview)}`)
+        expect(markdown).not.toContain('aGVsbG8=')
+        expect(markdown).not.toContain('x'.repeat(2049))
+    })
+
     it('add sql cell inserts the tag, runs with sibling refs and variables, and writes the result back', async () => {
         const country = { name: 'country', type: 'string', value: 'US' }
         const state = makeState('# Doc\n\n<SQLV2 nodeId="up" code="select 1" returnVariable="events_df" />\n', [

@@ -61,6 +61,8 @@ const Component = ({
     const {
         isRunning,
         runError,
+        isRestoringResult,
+        resultRestoreUnavailable,
         page,
         pageSize,
         pageResult,
@@ -169,13 +171,18 @@ const Component = ({
                         ))}
                     </div>
                 ) : null}
+                {resultRestoreUnavailable ? (
+                    <div className="p-2 text-xs text-muted">Run the cell again to see its full results.</div>
+                ) : isRestoringResult ? (
+                    <div className="p-2 text-xs text-muted">Loading saved results…</div>
+                ) : null}
                 {runError ? (
                     <div className="p-2 text-xs font-mono text-danger whitespace-pre-wrap">{runError}</div>
                 ) : dataframeResult ? (
                     <div className="min-h-0 flex-1 overflow-y-auto">
                         <NotebookDataframeTable
                             result={dataframeResult}
-                            loading={isRunning || pageLoading}
+                            loading={isRunning || pageLoading || (isRestoringResult && !result?.first_page?.length)}
                             page={page}
                             pageSize={pageSize}
                             hasMore={hasMorePages}

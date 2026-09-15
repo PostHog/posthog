@@ -448,6 +448,41 @@ class TestSQLV2Run(APIBaseTest):
         mock_start.assert_not_called()
         self.assertFalse(KernelRuntime.objects.filter(team=self.team).exists())
 
+    @parameterized.expand(
+        [
+            ("hogql", {"code": "select 1"}, 200),
+            ("python", {"code": "1", "node_type": "python"}, 404),
+            ("local_ref", {"code": "select * from df", "refs": {"df": {"node_id": "p", "kind": "local"}}}, 404),
+            ("connection", {"code": "select 1", "connection_id": "00000000-0000-0000-0000-000000000001"}, 404),
+        ]
+    )
+    @override_settings(DEBUG=False)
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=False)
+    @patch("products.notebooks.backend.presentation.views.notebook.is_notebook_widget_enabled", return_value=True)
+    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    def test_widget_only_access(self, _name, payload, expected_status, start_workflow, enqueue, _widget, _python):
+        response = self.client.post(self.run_url, data={"node_id": "n1", **payload}, format="json")
+        assert response.status_code == expected_status
+        assert enqueue.call_count == (1 if expected_status == 200 else 0)
+        start_workflow.assert_not_called()
+        assert not KernelRuntime.objects.filter(team=self.team).exists()
+
+    @parameterized.expand([("running", True), ("done", True), ("failed", False), ("interrupted", False)])
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    def test_reuses_only_matching_active_or_completed_run(self, status, should_reuse, enqueue, _enabled):
+        with team_scope(self.team.id):
+            saved = NotebookNodeRun.objects.create(
+                team=self.team, notebook=self.notebook, node_id="n1", code="select 1", node_type="hogql", status=status
+            )
+        response = self.client.post(
+            self.run_url, data={"node_id": "n1", "code": "select 1", "reuse_results": True}, format="json"
+        )
+        assert response.status_code == 200
+        assert (response.json()["run_id"] == str(saved.id)) is should_reuse
+        assert enqueue.call_count == (0 if should_reuse else 1)
+
     def _age_slot(self, run_id: str) -> None:
         """Backdate a held slot so it reads as old enough to have been abandoned.
 
@@ -1452,6 +1487,7 @@ class TestSQLV2PageDispatch(APIBaseTest):
             fetch_sql_v2_page(self.notebook, self.user, self.node_run, offset=0, limit=50)
 
 
+@override_settings(DEBUG=False)
 class TestSQLV2RunResult(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -1487,7 +1523,7 @@ class TestSQLV2RunResult(APIBaseTest):
             ),
         ]
     )
-    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=False)
     def test_result_shape_by_status(self, status, envelope, error, expected_result, expected_error, _mock_enabled):
         run = self._create_run(status, envelope=envelope, error=error)
         response = self.client.get(self._url(str(run.id)))
@@ -1499,11 +1535,11 @@ class TestSQLV2RunResult(APIBaseTest):
         self.assertEqual(body["error"], expected_error)
 
     @parameterized.expand([("00000000-0000-0000-0000-000000000000",), ("not-a-uuid",)])
-    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=False)
     def test_missing_or_malformed_run_returns_404(self, run_id, _mock_enabled):
         self.assertEqual(self.client.get(self._url(run_id)).status_code, 404)
 
-    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=False)
     def test_run_from_another_notebook_is_not_readable(self, _mock_enabled):
         # IDOR guard: a run belonging to a different notebook in the same team must not be
         # fetchable through this notebook's endpoint, even with a valid run_id.
@@ -1514,7 +1550,7 @@ class TestSQLV2RunResult(APIBaseTest):
             )
         self.assertEqual(self.client.get(self._url(str(other_run.id))).status_code, 404)
 
-    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=False)
     def test_query_restricted_member_cannot_read_result(self, _mock_enabled):
         # The result envelope is analytics rows, so a query-denied notebook reader must not read them back.
         run = self._create_run(NotebookNodeRun.Status.DONE, envelope={"first_page": [[42]]})
@@ -1530,7 +1566,7 @@ class TestSQLV2RunResult(APIBaseTest):
             ("kernel", NotebookNodeRun.NodeType.PYTHON, "never reported"),
         ]
     )
-    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=False)
     def test_running_run_expires_to_failed_after_grace(self, _name, node_type, expected_error, _mock_enabled):
         # This poll is the watchdog for both lanes. Within the grace window it keeps waiting,
         # which for hogql also covers pre-deploy kernel-executed runs whose callback is due.
@@ -1545,7 +1581,7 @@ class TestSQLV2RunResult(APIBaseTest):
         self.assertEqual(body["status"], NotebookNodeRun.Status.RUNNING)
 
     @patch("products.notebooks.backend.sql_v2_direct.get_query_status")
-    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=False)
     def test_query_error_fails_the_direct_run_with_its_message(self, _mock_enabled, mock_status):
         # An errored query must fail the run with the user-facing message, or the node
         # polls a RUNNING row forever.
@@ -1872,12 +1908,12 @@ class TestNotebookFlagResolution(SimpleTestCase):
         [
             ("neither", False, False, True, False),
             ("python_only", True, False, True, True),
-            ("widgets_only", False, True, True, True),
+            ("widgets_only", False, True, True, False),
             ("both", True, True, True, True),
             ("anonymous", True, True, False, False),
         ]
     )
-    def test_dataframe_runs_require_either_flag(
+    def test_full_compute_requires_python_flag(
         self, _name: str, python_enabled: bool, widgets_enabled: bool, has_user: bool, expected: bool
     ) -> None:
         enabled = {"revamped-py-notebooks": python_enabled, "notebook-generated-widgets": widgets_enabled}

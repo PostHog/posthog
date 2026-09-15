@@ -949,7 +949,7 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         logic.actions.generateWidget('Render a globe', 'claude-sonnet-4-6', 'initial')
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(props.persistNotebook).toHaveBeenCalledTimes(1)
+        expect(props.persistNotebook).toHaveBeenCalledTimes(2)
         expect(notebooksWidgetGenerate).toHaveBeenCalledTimes(2)
         expect(jest.mocked(notebooksWidgetGenerate).mock.calls[1][3].generation_id).toBe(
             jest.mocked(notebooksWidgetGenerate).mock.calls[0][3].generation_id

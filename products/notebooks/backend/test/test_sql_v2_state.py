@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 from typing import Any
 
 from posthog.test.base import APIBaseTest
@@ -17,6 +19,7 @@ from products.notebooks.backend.sql_v2_state import (
     build_dependency_edges,
     build_notebook_cell_state,
     extract_cells,
+    get_dataframe_owners,
     validate_cell_count,
 )
 from products.notebooks.backend.sql_v2_variables import (
@@ -37,6 +40,15 @@ def markdown_content(markdown: str) -> dict[str, Any]:
 
 
 class TestCellExtractionAndEdges(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (case["name"], case["markdown"], case["owners"])
+            for case in json.loads((Path(__file__).parents[2] / "dataframe-names.test.json").read_text())
+        ]
+    )
+    def test_shared_dataframe_names(self, _name: str, markdown: str, owners: dict[str, str]) -> None:
+        assert get_dataframe_owners(extract_cells(markdown_content(markdown))) == owners
+
     def test_extracts_runnable_cells_and_skips_unknown_or_idless_tags(self) -> None:
         content = markdown_content(
             "# Doc\n\n"
@@ -246,8 +258,9 @@ class TestCellCountLimit(SimpleTestCase):
         blocks = iter_markdown_blocks(markdown, max_prose_blocks=MAX_ADDRESSABLE_PROSE_BLOCKS)
         assert [block.node_id for block in blocks if block.kind == "component"] == ["s1"]
 
-    def test_prose_does_not_count_toward_the_ceiling(self) -> None:
-        prose = "\n\n".join(f"Paragraph {index}." for index in range(MAX_NOTEBOOK_CELLS * 2))
+    @parameterized.expand([("prose", "Paragraph {index}."), ("insights", '<Insight nodeId="i{index}" id="example" />')])
+    def test_display_cells_do_not_count_toward_the_ceiling(self, _name: str, template: str) -> None:
+        prose = "\n\n".join(template.format(index=index) for index in range(MAX_NOTEBOOK_CELLS * 2))
         validate_cell_count(None, markdown_content(prose))
 
     def test_a_notebook_already_over_the_ceiling_still_cannot_grow(self) -> None:

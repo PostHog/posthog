@@ -36,6 +36,7 @@ export type NotebookNodeSQLV2Result = {
     types?: [string, string][]
     row_count: number
     first_page?: (string | number | null)[][]
+    previewOnly?: boolean
     has_more?: boolean
     // Python node output: captured streams and rich media (e.g. matplotlib PNGs).
     stdout?: string
@@ -145,7 +146,8 @@ const Component = ({
 }: NotebookNodeProps<NotebookNodeSQLV2Attributes>): JSX.Element | null => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { nodeId, notebookLogic, expanded, sqlV2ReturnVariableUsage, isEditable } = useValues(nodeLogic)
+    const { nodeId, notebookLogic, expanded, sqlV2ReturnVariable, sqlV2ReturnVariableUsage, isEditable } =
+        useValues(nodeLogic)
     const { navigateToNode } = useActions(nodeLogic)
     const notebookShortId = notebookLogic.props.shortId
 
@@ -153,6 +155,8 @@ const Component = ({
     const {
         isRunning,
         runError,
+        isRestoringResult,
+        resultRestoreUnavailable,
         page,
         pageSize,
         pageResult,
@@ -171,7 +175,7 @@ const Component = ({
         title.trim() || getCellLabel(nodeIndex) || 'SQL'
 
     const result = runResult ?? attributes.result ?? null
-    const returnVariable = attributes.returnVariable ?? ''
+    const returnVariable = sqlV2ReturnVariable
     const returnVariableError = returnVariableValidationError(returnVariable)
     // A callback ref, not useRef: the hint anchors to this input, and a ref assignment alone
     // wouldn't re-render the Popover with the element it needs to position against.
@@ -275,6 +279,11 @@ const Component = ({
                 {isRunning && pendingKernelStart ? (
                     <div className="shrink-0 px-2 pt-1 pb-2 text-xs text-muted">Starting compute sandbox…</div>
                 ) : null}
+                {resultRestoreUnavailable ? (
+                    <div className="p-2 text-xs text-muted">Run the cell again to see its full results.</div>
+                ) : isRestoringResult ? (
+                    <div className="p-2 text-xs text-muted">Loading saved results…</div>
+                ) : null}
                 {runError ? (
                     <div className="p-2 text-xs font-mono text-danger whitespace-pre-wrap">{runError}</div>
                 ) : dataframeResult && cachedResults ? (
@@ -305,7 +314,9 @@ const Component = ({
                             <div className="min-h-0 flex-1 overflow-y-auto">
                                 <NotebookDataframeTable
                                     result={dataframeResult}
-                                    loading={isRunning || pageLoading}
+                                    loading={
+                                        isRunning || pageLoading || (isRestoringResult && !result?.first_page?.length)
+                                    }
                                     page={page}
                                     pageSize={pageSize}
                                     hasMore={hasMorePages}

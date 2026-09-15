@@ -13,6 +13,7 @@ import { NotebookNodeAttributes, NotebookNodeProps, NotebookNodeType } from 'sce
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { prepareNotebookInsightDataframes } from '../prepareNotebookInsightDataframes'
 import {
     formatWidgetElapsed,
     loadWidgetFrame,
@@ -73,6 +74,7 @@ function ExpandedWidget({
         prompt,
         model,
         isEditable,
+        prepareInsightDataframes: () => prepareNotebookInsightDataframes(notebookLogic),
         persistNotebook: async (): Promise<void> => {
             await notebookLogic.asyncActions.saveNotebook({
                 content: notebookLogic.values.content,

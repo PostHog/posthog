@@ -114,7 +114,7 @@ def _flag_enabled_for(flag: str, user: User | None) -> bool:
 
 
 def is_sql_v2_enabled(user: User | None) -> bool:
-    return _flag_enabled_for(REVAMPED_PY_NOTEBOOKS_FLAG, user) or _flag_enabled_for("notebook-generated-widgets", user)
+    return _flag_enabled_for(REVAMPED_PY_NOTEBOOKS_FLAG, user)
 
 
 def is_frame_store_enabled(user: User | None) -> bool:
