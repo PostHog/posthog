@@ -267,7 +267,15 @@ class GitHubIntegration(GitHubIntegrationBase):
             headers={"Accept": "application/json"},
             timeout=10,
         )
-        token_data = token_response.json()
+        try:
+            token_data = token_response.json()
+        except ValueError:
+            logger.warning(
+                "GitHubIntegration: code exchange returned a non-JSON body",
+                status_code=token_response.status_code,
+                body=token_response.text[:500],
+            )
+            return None
         access_token = token_data.get("access_token")
         if not access_token:
             logger.warning(
@@ -291,7 +299,15 @@ class GitHubIntegration(GitHubIntegrationBase):
             logger.warning("GitHubIntegration: /user request failed", status_code=user_response.status_code)
             return None
 
-        payload = user_response.json()
+        try:
+            payload = user_response.json()
+        except ValueError:
+            logger.warning(
+                "GitHubIntegration: /user returned a non-JSON body",
+                status_code=user_response.status_code,
+                body=user_response.text[:500],
+            )
+            return None
         gh_id = payload.get("id")
         gh_login = payload.get("login")
         if gh_id is None or not gh_login:
