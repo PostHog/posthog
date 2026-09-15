@@ -13,7 +13,11 @@ describe('apiSurveyLogic', () => {
     })
 
     it('snapshots questions and context and sends one response using question IDs', async () => {
-        const survey = structuredClone(exampleApiSurvey)
+        const survey = {
+            ...structuredClone(exampleApiSurvey),
+            current_iteration: 3,
+            current_iteration_start_date: '2026-01-01T00:00:00Z',
+        }
         const context = { feedback_surface: 'example', nested: { version: 1 }, $survey_id: 'cannot-override' }
         const client = exampleSurveyClient([survey])
         const capture = jest.spyOn(client, 'capture')
@@ -33,6 +37,8 @@ describe('apiSurveyLogic', () => {
         expect(responses).toHaveLength(1)
         expect(responses[0][1]).toMatchObject({
             $survey_id: survey.id,
+            $survey_iteration: 3,
+            $survey_iteration_start_date: '2026-01-01T00:00:00Z',
             $survey_response_goal: 'I wanted to find the settings and got lost.',
             $survey_response_outcome: 'No',
             $survey_completed: true,
@@ -47,7 +53,12 @@ describe('apiSurveyLogic', () => {
     it('preserves answers and the submission ID when capture fails', async () => {
         const client = exampleSurveyClient()
         const capture = jest.spyOn(client, 'capture')
-        const logic = apiSurveyLogic({ surveyId: exampleApiSurvey.id, instanceId: 'retry', client })
+        const logic = apiSurveyLogic({
+            surveyId: exampleApiSurvey.id,
+            instanceId: 'retry',
+            client,
+            context: { sessionRecordingUrl: 'https://example.com/unwanted-replay' },
+        })
         const unmount = logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.setAnswer('goal', 'A concrete goal')

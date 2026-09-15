@@ -1,4 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { SurveyQuestionType } from 'posthog-js'
 import { useState } from 'react'
 
 import { exampleApiSurvey } from './apiSurvey.fixtures'
@@ -35,3 +36,17 @@ export const Text: Story = {}
 export const SingleChoice: Story = { args: { question: exampleApiSurvey.questions[1] } }
 export const Rating: Story = { args: { question: exampleApiSurvey.questions[2] } }
 export const MultipleChoice: Story = { args: { question: exampleApiSurvey.questions[3] } }
+
+export const EmojiRating: Story = {
+    args: {
+        question: {
+            id: 'thumbs',
+            type: SurveyQuestionType.Rating,
+            question: 'Was this helpful?',
+            display: 'emoji',
+            scale: 2,
+            lowerBoundLabel: 'Helpful',
+            upperBoundLabel: 'Not helpful',
+        },
+    },
+}
