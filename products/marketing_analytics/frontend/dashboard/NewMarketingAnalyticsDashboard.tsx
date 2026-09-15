@@ -350,6 +350,9 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                 {activeSection === 'conversion' && (
                     <section aria-label="Conversion" className="flex flex-col gap-2">
                         <h2 className="mb-0">Conversion</h2>
+                        <p className="text-secondary mb-2">
+                            {sections.find(({ key }) => key === activeSection)?.description}
+                        </p>
                         <AttributionTab />
                     </section>
                 )}
