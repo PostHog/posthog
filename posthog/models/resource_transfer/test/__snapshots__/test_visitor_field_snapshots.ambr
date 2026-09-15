@@ -552,6 +552,7 @@
     'people',
     'person_filters_shape_hash',
     'properties',
+    'realtime_ready_at',
     'remove_user_by_uuid',
     'save',
     'team_id',

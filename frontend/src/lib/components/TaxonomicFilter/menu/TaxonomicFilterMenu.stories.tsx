@@ -6,6 +6,8 @@ import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
 import { FEATURE_FLAGS } from 'lib/constants'
 
+import { mswDecorator } from '~/mocks/browser'
+import { toPaginatedResponse } from '~/mocks/handlers'
 import { actionsModel } from '~/models/actionsModel'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
@@ -479,6 +481,64 @@ export const RecentsBareKeyExpansion: Story = {
         docs: {
             description: {
                 story: "The menu combobox's Recent drill after a complete recent (`Browser = Chrome`) was used. The bare key (`Browser`) leads so a user can jump to the key and pick a fresh value, and the full recent (`Browser = Chrome`) follows.",
+            },
+        },
+    },
+}
+
+function CohortRowsContainer(): JSX.Element {
+    useMountedLogic(actionsModel)
+    return (
+        <TaxonomicFilterHeadless.Root bindRootProps={false} taxonomicGroupTypes={[TaxonomicFilterGroupType.Cohorts]}>
+            <div className="border rounded overflow-hidden flex flex-col w-[720px] h-[420px] bg-surface-primary">
+                <MenuFilterCombobox
+                    drillTo={TaxonomicFilterGroupType.Cohorts}
+                    title="Cohorts"
+                    onCommit={() => {}}
+                    onBack={() => {}}
+                />
+            </div>
+        </TaxonomicFilterHeadless.Root>
+    )
+}
+
+export const CohortsWithRealtimeStates: Story = {
+    render: () => <CohortRowsContainer />,
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/cohorts/': toPaginatedResponse([
+                    {
+                        id: 1,
+                        name: 'Viewed pricing this week',
+                        count: 4321,
+                        is_static: false,
+                        realtime: { state: 'ready', ready_at: '2023-07-03T09:40:00Z', build: null },
+                    },
+                    {
+                        id: 2,
+                        name: 'Completed onboarding',
+                        count: 210,
+                        is_static: false,
+                        realtime: {
+                            state: 'building',
+                            ready_at: null,
+                            build: { phase: 'scanning', percent_complete: 45, updated_at: '2023-07-03T23:58:00Z' },
+                        },
+                    },
+                    { id: 3, name: 'Signed up last month', count: 1200, is_static: false, realtime: null },
+                ]),
+            },
+        }),
+    ],
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING],
+        // The preparing cohort's tag holds a spinner while its build runs, so the runner cannot
+        // wait for every loader to disappear here.
+        testOptions: { waitForLoadersToDisappear: false, waitForSelector: '[data-attr="cohort-realtime-tag"]' },
+        docs: {
+            description: {
+                story: 'Cohort rows carry the same realtime tag the classic list shows, so someone picking a cohort for a feature flag sees which ones flags can already target.',
             },
         },
     },

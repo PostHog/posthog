@@ -7,6 +7,7 @@ import { useEffect } from 'react'
 
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
@@ -707,6 +708,59 @@ export const FailedFetchOffersRetry: Story = {
         docs: {
             description: {
                 story: 'When the search request fails, the list says so and offers a retry, rather than showing the same "No results" as a genuine empty search.',
+            },
+        },
+    },
+}
+
+export const CohortsWithRealtimeStates: Story = {
+    args: {
+        taxonomicFilterLogicKey: 'cohorts-realtime',
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.Cohorts],
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/cohorts/': [
+                    {
+                        id: 1,
+                        name: 'Viewed pricing this week',
+                        count: 4321,
+                        is_static: false,
+                        realtime: { state: 'ready', ready_at: '2023-07-03T09:40:00Z', build: null },
+                    },
+                    {
+                        id: 2,
+                        name: 'Completed onboarding',
+                        count: 210,
+                        is_static: false,
+                        realtime: {
+                            state: 'building',
+                            ready_at: null,
+                            build: { phase: 'scanning', percent_complete: 45, updated_at: '2023-07-03T23:58:00Z' },
+                        },
+                    },
+                    {
+                        id: 3,
+                        name: 'Churn risk',
+                        count: 76,
+                        is_static: false,
+                        realtime: { state: 'needs_attention', ready_at: null, build: null },
+                    },
+                    { id: 4, name: 'Beta testers', count: 89, is_static: true, realtime: null },
+                    { id: 5, name: 'Signed up last month', count: 1200, is_static: false, realtime: null },
+                ],
+            },
+        }),
+    ],
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING],
+        // The preparing cohort's tag holds a spinner while its build runs, so the runner cannot
+        // wait for every loader to disappear here.
+        testOptions: { waitForLoadersToDisappear: false, waitForSelector: '[data-attr="cohort-realtime-tag"]' },
+        docs: {
+            description: {
+                story: 'Cohort rows carry their realtime trait, so someone picking one for a feature flag sees which cohorts flags can already target and which are still being prepared.',
             },
         },
     },

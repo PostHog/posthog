@@ -265,6 +265,8 @@ export interface TaxonomicFilterGroup {
     getValue?: (instance: any) => TaxonomicFilterValue
     getPopoverHeader: (instance: any) => string
     getIcon?: (instance: any) => JSX.Element
+    /** A small tag after the item's name, for a per-item state a reader should see before selecting it. */
+    getTag?: (instance: any) => ReactNode
     /** Determines if an item should be disabled (unselectable) */
     getIsDisabled?: (instance: any) => boolean
     groupTypeIndex?: number

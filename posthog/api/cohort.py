@@ -3,7 +3,7 @@ import json
 import time
 import uuid
 import hashlib
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from copy import deepcopy
 from typing import Annotated, Any, ClassVar, Literal, Optional, Union, cast
 
@@ -105,6 +105,13 @@ from products.cohorts.backend.models.util import (
     validate_actors_query_for_cohort,
 )
 from products.cohorts.backend.models.validation import CohortTypeValidationSerializer
+from products.cohorts.backend.realtime_state import (
+    CohortHistoryBuildPhase,
+    CohortRealtimeReadiness,
+    CohortRealtimeState,
+    has_realtime_state,
+    resolve_realtime_readiness,
+)
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.team_feature_flags_config import (
     PropertyMatchingVersion,
@@ -673,6 +680,116 @@ class CohortConditionTypeField(serializers.JSONField):
     pass
 
 
+# Carries the page's resolved readiness from the list serializer to each row's `get_realtime`.
+REALTIME_READINESS_CONTEXT_KEY = "realtime_readiness"
+# Caches the product flag's answer for the request, so a list page evaluates it once.
+REALTIME_TARGETING_ENABLED_CONTEXT_KEY = "realtime_targeting_enabled"
+
+
+def _team_from_serializer_context(context: dict[str, Any]) -> Optional[Team]:
+    """The team, from whichever context shape the caller provided.
+
+    The viewset passes a `get_team` lambda, experiments pass `team`, feature flag copy passes
+    `team_id`. Prefer an already-materialized object over the lambda, which can issue a query on
+    cold cache.
+    """
+    team = context.get("team")
+    if team is None and context.get("get_team"):
+        team = context["get_team"]()
+    if team is None and context.get("team_id"):
+        team = Team.objects.filter(pk=context["team_id"]).first()
+    return team
+
+
+def _realtime_targeting_enabled(context: dict[str, Any]) -> bool:
+    """Whether the request's user is in the realtime cohort flag targeting rollout.
+
+    Every realtime surface sits behind that product flag, and the API is the switch the frontend
+    reads, so `realtime` is null for everyone outside it. Cloud evaluates the flag locally in the
+    common case, but the helper is allowed to fall back to a remote call, so callers ask only
+    about cohorts a realtime state could describe. The answer is cached in the serializer context
+    so the list path pays it once per page.
+    """
+    if REALTIME_TARGETING_ENABLED_CONTEXT_KEY not in context:
+        # Avoid circular import: feature_flag imports cohort models
+        from products.feature_flags.backend.api.feature_flag import _is_realtime_cohort_flag_targeting_enabled
+
+        request = context.get("request")
+        team = _team_from_serializer_context(context)
+        context[REALTIME_TARGETING_ENABLED_CONTEXT_KEY] = (
+            request is not None and team is not None and _is_realtime_cohort_flag_targeting_enabled(request, team=team)
+        )
+    return context[REALTIME_TARGETING_ENABLED_CONTEXT_KEY]
+
+
+def _resolve_realtime_readiness_if_in_rollout(
+    cohorts: Sequence[Cohort], context: dict[str, Any]
+) -> dict[int, CohortRealtimeReadiness]:
+    """Readiness for the cohorts that have one, or an empty map.
+
+    Eligibility is checked before the rollout flag, and not after, so a project the pipeline does
+    not cover never pays for a flag evaluation that cannot change its answer.
+    """
+    relevant = [cohort for cohort in cohorts if has_realtime_state(cohort)]
+    if not relevant or not _realtime_targeting_enabled(context):
+        return {}
+    return resolve_realtime_readiness(relevant)
+
+
+class CohortHistoryBuildSerializer(serializers.Serializer):
+    phase = serializers.ChoiceField(
+        choices=CohortHistoryBuildPhase.choices,
+        help_text="What the build is doing now: `waiting` to start, `scanning` past events, or "
+        "`checking` the membership it produced. A build that is queued but has not started reports "
+        "`waiting` too.",
+    )
+    percent_complete = serializers.IntegerField(
+        allow_null=True,
+        help_text="How much of the event history has been scanned, 0 to 100. Null outside the "
+        "`scanning` phase, and while the scan is still being planned.",
+    )
+    updated_at = serializers.DateTimeField(
+        allow_null=True, help_text="When this build last made progress. Null while it is still queued."
+    )
+
+
+class CohortRealtimeReadinessSerializer(serializers.Serializer):
+    state = serializers.ChoiceField(
+        choices=CohortRealtimeState.choices,
+        help_text="Whether feature flags can target this cohort now. `ready`: they can, and they "
+        "see membership changes within about a minute. `building` / `rebuilding`: PostHog is "
+        "preparing the cohort from past events, and flags cannot target it yet. "
+        "`needs_attention`: the cohort qualifies but nothing is preparing it. `daily`: its "
+        "criteria are not supported in realtime, so its membership only comes from the once-a-day "
+        "calculation. `static`: it is a fixed list of people.",
+    )
+    ready_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When the cohort became targetable by feature flags. Null unless the state is `ready`.",
+    )
+    build = CohortHistoryBuildSerializer(
+        allow_null=True,
+        help_text="The build preparing the cohort. Null unless the state is `building` or `rebuilding`.",
+    )
+
+
+class CohortListSerializer(serializers.ListSerializer):
+    """Resolves every row's realtime readiness once, instead of once per row.
+
+    Readiness reads backfill rows, so leaving it to the child serializer would put two queries on
+    each cohort of a page. This is the only hook DRF gives that sees the whole page.
+    """
+
+    def to_representation(self, data: Any) -> Any:
+        cohorts = list(data)
+        # `child` is only None before `many=True` binds one, which cannot happen during rendering.
+        assert self.child is not None
+        self.child.context[REALTIME_READINESS_CONTEXT_KEY] = _resolve_realtime_readiness_if_in_rollout(
+            cohorts, self.child.context
+        )
+        return super().to_representation(cohorts)
+
+
 class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     earliest_timestamp_func = earliest_timestamp_func
@@ -695,9 +812,11 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
     # If this cohort is an exposure cohort for an experiment
     experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)  # ty: ignore[invalid-assignment]
     last_error_message = serializers.SerializerMethodField()
+    realtime = serializers.SerializerMethodField()
 
     class Meta:
         model = Cohort
+        list_serializer_class = CohortListSerializer
         fields = [
             "id",
             "name",
@@ -721,6 +840,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             "is_static",
             "cohort_type",
             "condition_type",
+            "realtime",
             "experiment_set",
             "search_match_type",
             "_create_in_folder",
@@ -742,6 +862,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             "last_import_unmatched_count",
             "experiment_set",
             "condition_type",
+            "realtime",
         ]
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -756,9 +877,29 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             # cohorts that can't be evaluated locally. `last_error_message` is computed from
             # a per-row correlated subquery over CohortCalculationHistory (see
             # safely_get_queryset), and `experiment_set` costs a prefetch — basic-list callers
-            # read neither, so drop them and skip the extra queries there.
+            # read neither, so drop them and skip the extra queries there. `realtime` stays: the
+            # flag picker and the flag condition chip read it off this payload, and it costs no
+            # query unless a page holds a realtime cohort whose build is in flight.
             for field_name in ("query", "groups", "last_error_message", "experiment_set"):
                 self.fields.pop(field_name, None)
+
+    @extend_schema_field(
+        CohortRealtimeReadinessSerializer(
+            allow_null=True,
+            help_text="Whether feature flags can target this cohort in realtime, and the progress of "
+            "the build that gets it there. Null outside the realtime cohort flag targeting rollout, on "
+            "projects the realtime pipeline does not cover, and for cohorts without event-based "
+            "criteria, which feature flags could always target.",
+        )
+    )
+    def get_realtime(self, cohort: Cohort) -> Optional[dict[str, Any]]:
+        readiness = self.context.get(REALTIME_READINESS_CONTEXT_KEY)
+        if readiness is None:
+            # A single cohort — create, update, retrieve. The list path fills the context in
+            # `CohortListSerializer` so a page costs the same two queries as one row.
+            readiness = _resolve_realtime_readiness_if_in_rollout([cohort], self.context)
+        state = readiness.get(cohort.pk)
+        return CohortRealtimeReadinessSerializer(state).data if state is not None else None
 
     def get_last_error_message(self, cohort: Cohort) -> Optional[str]:
         # Prefer the annotated last_error_code when available

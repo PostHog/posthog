@@ -572,6 +572,29 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         return True
 
     @property
+    def realtime_ready_at(self) -> Optional[datetime]:
+        """When this cohort became targetable by feature flags, or None while it isn't.
+
+        The later of the stamps `is_flag_compatible` gates on, and only those: a cohort can carry a
+        stamp for a leaf kind its filters no longer use, and reporting that one would date the
+        readiness to a backfill the current definition never needed.
+        """
+        if not self.is_flag_compatible:
+            return None
+
+        stamps = [
+            stamp
+            for stamp in (
+                self.last_backfill_person_properties_at
+                if (self._has_filter_type("person") or self._has_filter_type("person_metadata"))
+                else None,
+                self.last_backfill_events_at if self._has_filter_type("behavioral") else None,
+            )
+            if stamp is not None
+        ]
+        return max(stamps) if stamps else None
+
+    @property
     def properties(self) -> PropertyGroup:
         if self.filters:
             # Do not try simplifying properties at this stage. We'll let this happen at query time.

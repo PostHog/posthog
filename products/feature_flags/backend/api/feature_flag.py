@@ -456,7 +456,7 @@ def _validate_behavioral_cohort_for_feature_flag(
                 code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
             )
         raise serializers.ValidationError(
-            detail=f"Cohort '{cohort.name}' is still being backfilled and cannot be used in feature flags yet. It will become available once its initial backfill completes.",
+            detail=f"Cohort '{cohort.name}' isn't ready for feature flags yet. Open the cohort to see whether PostHog is still preparing it, and try again once it shows as realtime.",
             code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
         )
 

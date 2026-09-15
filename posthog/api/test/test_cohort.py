@@ -2023,8 +2023,9 @@ email@example.org,
         # `filters` stays: the feature-flag intent warning reads it off the basic list to flag
         # behavioral cohorts. `is_calculating` drives the 5s repoll and `is_static` drives the
         # static-cohort flag warning — both now read only from the basic payload, so trimming
-        # any of these silently breaks a feature. Guard them here.
-        for kept in ("id", "name", "count", "filters", "is_calculating", "is_static"):
+        # any of these silently breaks a feature. `realtime` feeds the flag picker's cohort rows
+        # and the condition chip. Guard them here.
+        for kept in ("id", "name", "count", "filters", "is_calculating", "is_static", "realtime"):
             self.assertIn(kept, basic)
 
     @patch("posthog.api.cohort.report_user_action")
@@ -2052,6 +2053,44 @@ email@example.org,
         basic_sql = " ".join(q["sql"] for q in basic_ctx.captured_queries)
         self.assertNotIn("posthog_cohortcalculationhistory", basic_sql)
         self.assertNotIn("posthog_experiment", basic_sql)
+
+    @patch("products.feature_flags.backend.api.feature_flag._is_realtime_cohort_flag_targeting_enabled")
+    @patch("posthog.api.cohort.report_user_action")
+    def test_realtime_readiness_is_served_only_where_the_pipeline_runs(self, patch_capture, mock_flag_enabled):
+        # The wiring guard for the derived state: a realtime team in the rollout gets it on both the
+        # list and the detail response, and every other team, and every user outside the rollout,
+        # gets null rather than a state its flags can't read.
+        mock_flag_enabled.return_value = True
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="realtime cohort",
+            cohort_type=CohortType.REALTIME,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"type": "behavioral", "key": "$pageview", "event_type": "events", "value": "performed_event"}
+                    ],
+                }
+            },
+        )
+
+        with self.settings(REALTIME_COHORT_TEAM_ALLOWLIST="all"):
+            detail = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/").json()
+            listed = self.client.get(f"/api/projects/{self.team.id}/cohorts").json()["results"][0]
+        self.assertEqual(detail["realtime"]["state"], "needs_attention")
+        self.assertEqual(listed["realtime"]["state"], "needs_attention")
+
+        with self.settings(REALTIME_COHORT_TEAM_ALLOWLIST="none"):
+            detail = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/").json()
+        self.assertIsNone(detail["realtime"])
+
+        mock_flag_enabled.return_value = False
+        with self.settings(REALTIME_COHORT_TEAM_ALLOWLIST="all"):
+            detail = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/").json()
+            listed = self.client.get(f"/api/projects/{self.team.id}/cohorts").json()["results"][0]
+        self.assertIsNone(detail["realtime"])
+        self.assertIsNone(listed["realtime"])
 
     @patch("posthog.api.cohort.report_user_action")
     def test_basic_is_ignored_on_detail_fetch(self, patch_capture):
