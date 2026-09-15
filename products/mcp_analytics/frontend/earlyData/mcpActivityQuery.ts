@@ -1,7 +1,7 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { MCP_TOOL_CALL_EVENT } from 'lib/components/TaxonomicFilter/utils/mcpProperties'
 
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, EventsQuery, NodeKind } from '~/queries/schema/schema-general'
 
 export const MCP_ACTIVITY_DATA_COLLECTION_ID = 'mcp-analytics-activity'
 export const MCP_ACTIVITY_PAGE_SIZE = 100
@@ -18,21 +18,31 @@ export const MCP_ACTIVITY_COLUMNS = [
     'timestamp',
 ]
 
+const DEFAULT_MCP_ACTIVITY_SOURCE: EventsQuery = {
+    kind: NodeKind.EventsQuery,
+    select: MCP_ACTIVITY_COLUMNS,
+    events: [MCP_TOOL_CALL_EVENT],
+    after: '-30d',
+    orderBy: ['timestamp DESC'],
+    limit: MCP_ACTIVITY_PAGE_SIZE,
+}
+
 export const DEFAULT_MCP_ACTIVITY_QUERY: DataTableNode = {
     kind: NodeKind.DataTableNode,
-    source: {
-        kind: NodeKind.EventsQuery,
-        select: MCP_ACTIVITY_COLUMNS,
-        events: [MCP_TOOL_CALL_EVENT],
-        after: '-30d',
-        orderBy: ['timestamp DESC'],
-        limit: MCP_ACTIVITY_PAGE_SIZE,
-    },
+    source: DEFAULT_MCP_ACTIVITY_SOURCE,
     embedded: false,
     expandable: true,
     showActions: true,
     showCount: true,
     showDateRange: true,
     showPropertyFilter: [TaxonomicFilterGroupType.MCPProperties, TaxonomicFilterGroupType.EventProperties],
+    showTestAccountFilters: true,
     showReload: true,
+}
+
+export function buildDefaultActivityQuery(filterTestAccounts: boolean): DataTableNode {
+    return {
+        ...DEFAULT_MCP_ACTIVITY_QUERY,
+        source: { ...DEFAULT_MCP_ACTIVITY_SOURCE, filterTestAccounts },
+    }
 }
