@@ -38,20 +38,28 @@ TEST_DESTINATION_DELIVERY = AlertDelivery(
 )
 
 
-class TestAlert(APIBaseTest, QueryMatchingTest):
+class TrendsInsightAPITest(APIBaseTest):
+    """Base for the alert API tests that hang an alert off a trends insight."""
+
+    def trends_insight_query(self, **overrides: Any) -> dict[str, Any]:
+        return {
+            "kind": "TrendsQuery",
+            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+            **overrides,
+        }
+
+    def create_trends_insight(self, **overrides: Any) -> dict[str, Any]:
+        return self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data={"query": self.trends_insight_query(**overrides)},
+        ).json()
+
+
+class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
     def setUp(self):
         super().setUp()
         self.default_insight_data: dict[str, Any] = {
-            "query": {
-                "kind": "TrendsQuery",
-                "series": [
-                    {
-                        "kind": "EventsNode",
-                        "event": "$pageview",
-                    }
-                ],
-                "trendsFilter": {"display": "BoldNumber"},
-            },
+            "query": self.trends_insight_query(trendsFilter={"display": "BoldNumber"}),
         }
         self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.default_insight_data).json()
 
@@ -1608,15 +1616,11 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         }
 
 
-class TestInvestigationAgentValidation(APIBaseTest):
+class TestInvestigationAgentValidation(TrendsInsightAPITest):
     def setUp(self):
         super().setUp()
         self.insight_data: dict[str, Any] = {
-            "query": {
-                "kind": "TrendsQuery",
-                "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                "interval": "day",
-            },
+            "query": self.trends_insight_query(interval="day"),
         }
         self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.insight_data).json()
 
@@ -1670,21 +1674,11 @@ class TestInvestigationAgentValidation(APIBaseTest):
         assert "investigation_gates_notifications" in response.json().get("attr", "")
 
 
-class TestAlertSimulate(APIBaseTest):
+class TestAlertSimulate(TrendsInsightAPITest):
     def setUp(self):
         super().setUp()
         self.insight_data: dict[str, Any] = {
-            "query": {
-                "kind": "TrendsQuery",
-                "series": [
-                    {
-                        "kind": "EventsNode",
-                        "event": "$pageview",
-                    }
-                ],
-                "trendsFilter": {"display": "ActionsLineGraph"},
-                "interval": "day",
-            },
+            "query": self.trends_insight_query(trendsFilter={"display": "ActionsLineGraph"}, interval="day"),
         }
         self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.insight_data).json()
 
@@ -1854,19 +1848,10 @@ class TestAlertSimulate(APIBaseTest):
         assert AlertCheck.objects.count() == checks_before
 
 
-class TestAlertTestDelivery(APIBaseTest):
+class TestAlertTestDelivery(TrendsInsightAPITest):
     def setUp(self):
         super().setUp()
-        insight = self.client.post(
-            f"/api/projects/{self.team.id}/insights",
-            data={
-                "query": {
-                    "kind": "TrendsQuery",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    "trendsFilter": {"display": "BoldNumber"},
-                }
-            },
-        ).json()
+        insight = self.create_trends_insight(trendsFilter={"display": "BoldNumber"})
         response = self.client.post(
             f"/api/projects/{self.team.id}/alerts",
             data={
@@ -2202,20 +2187,11 @@ class TestAlertEventProperties(APIBaseTest):
             assert props[key] == value, f"{key} expected {value}, got {props[key]}"
 
 
-class TestAlertListFilters(APIBaseTest):
+class TestAlertListFilters(TrendsInsightAPITest):
     def setUp(self):
         super().setUp()
         self.default_insight_data: dict[str, Any] = {
-            "query": {
-                "kind": "TrendsQuery",
-                "series": [
-                    {
-                        "kind": "EventsNode",
-                        "event": "$pageview",
-                    }
-                ],
-                "trendsFilter": {"display": "BoldNumber"},
-            },
+            "query": self.trends_insight_query(trendsFilter={"display": "BoldNumber"}),
         }
         self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.default_insight_data).json()
 
@@ -2366,21 +2342,12 @@ class TestAlertListFilters(APIBaseTest):
         assert response.json()["attr"] == expected_attr
 
 
-class TestAlertAPIKeyAccess(APIBaseTest):
+class TestAlertAPIKeyAccess(TrendsInsightAPITest):
     """Test that the alert scope is properly enforced for API key access."""
 
     def setUp(self):
         super().setUp()
-        self.insight = self.client.post(
-            f"/api/projects/{self.team.id}/insights",
-            data={
-                "query": {
-                    "kind": "TrendsQuery",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    "trendsFilter": {"display": "BoldNumber"},
-                },
-            },
-        ).json()
+        self.insight = self.create_trends_insight(trendsFilter={"display": "BoldNumber"})
         self.alert = AlertConfiguration.objects.create(
             team=self.team,
             insight_id=self.insight["id"],
@@ -2515,20 +2482,11 @@ class TestAlertAPIKeyAccess(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
 
 
-class TestAlertRealTimeInterval(APIBaseTest):
+class TestAlertRealTimeInterval(TrendsInsightAPITest):
     def setUp(self):
         super().setUp()
         self.default_insight_data: dict[str, Any] = {
-            "query": {
-                "kind": "TrendsQuery",
-                "series": [
-                    {
-                        "kind": "EventsNode",
-                        "event": "$pageview",
-                    }
-                ],
-                "trendsFilter": {"display": "BoldNumber"},
-            },
+            "query": self.trends_insight_query(trendsFilter={"display": "BoldNumber"}),
         }
         self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.default_insight_data).json()
 
@@ -2786,17 +2744,16 @@ def _is_actions_block(block: Any) -> bool:
     return isinstance(block, dict) and block.get("type") == "actions"
 
 
-class TestLLMDetectorValidation(APIBaseTest):
+class TestLLMDetectorValidation(TrendsInsightAPITest):
     def setUp(self):
         super().setUp()
-        insight_data: dict[str, Any] = {
-            "query": {
-                "kind": "TrendsQuery",
-                "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                "interval": "day",
-            },
-        }
-        self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=insight_data).json()
+        self.insight = self.create_trends_insight(interval="day")
+
+    def _create_breakdown_insight(self) -> dict[str, Any]:
+        return self.create_trends_insight(
+            interval="day",
+            breakdownFilter={"breakdown": "$browser", "breakdown_type": "event"},
+        )
 
     def _body(self, *, detector_config: Any, **overrides: Any) -> dict[str, Any]:
         return {
@@ -2903,15 +2860,7 @@ class TestLLMDetectorValidation(APIBaseTest):
 
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_rejected_for_a_breakdown_insight(self, _flag) -> None:
-        insight_data = {
-            "query": {
-                "kind": "TrendsQuery",
-                "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                "interval": "day",
-                "breakdownFilter": {"breakdown": "$browser", "breakdown_type": "event"},
-            }
-        }
-        breakdown_insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=insight_data).json()
+        breakdown_insight = self._create_breakdown_insight()
         response = self._create({"type": "llm", "threshold": 0.7, "window": 90}, insight=breakdown_insight["id"])
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
@@ -2921,15 +2870,7 @@ class TestLLMDetectorValidation(APIBaseTest):
     @mock.patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_simulate_rejects_a_breakdown_insight_before_any_model_call(self, _flag, mock_calculate, mock_ask) -> None:
-        insight_data = {
-            "query": {
-                "kind": "TrendsQuery",
-                "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                "interval": "day",
-                "breakdownFilter": {"breakdown": "$browser", "breakdown_type": "event"},
-            }
-        }
-        breakdown_insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=insight_data).json()
+        breakdown_insight = self._create_breakdown_insight()
         days = [f"2024-01-{i:02d}" for i in range(1, 36)]
         mock_calculate.return_value = mock.MagicMock(
             result=[
