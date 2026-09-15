@@ -4,7 +4,6 @@ import { loaders } from 'kea-loaders'
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
@@ -318,7 +317,6 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
                     status: 'danger',
                     onClick: () => {
                         actions.deleteDataWarehouseSavedQuery(viewId)
-                        lemonToast.success('View deleted successfully')
                     },
                 },
                 secondaryButton: {

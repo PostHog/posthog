@@ -20,3 +20,6 @@ The latest run continues to update independently while you browse older pages, s
 When suspension enforcement is enabled, a model suspended on the serving engine shows **Suspended** in both the attention list and its detail summary.
 The summary includes the reason and the stopped schedule; past runs retain their recorded outcomes.
 A marker on a shadow engine, or a marker while enforcement is disabled, does not mean scheduled refreshes have stopped.
+
+Model list action menus use full-width buttons.
+Deleting a view shows one success notification after the deletion request succeeds.

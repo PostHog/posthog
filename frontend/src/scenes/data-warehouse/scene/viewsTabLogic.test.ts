@@ -1,5 +1,10 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { LemonDialog } from '@posthog/lemon-ui'
+
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -33,6 +38,7 @@ describe('viewsTabLogic', () => {
                 },
             },
             post: { '/api/environments/:team_id/query/': { tables: {} } },
+            delete: { '/api/environments/:team_id/warehouse_saved_queries/:id/': [204, null] },
         })
         initKeaTests()
         logic = viewsTabLogic()
@@ -70,5 +76,21 @@ describe('viewsTabLogic', () => {
         logic.actions.setSearchTerm('+mat-1')
 
         expect(logic.values.filteredViews.map((view) => view.id)).toEqual(['mat-1', 'mat-10'])
+    })
+    it('shows one success toast only after the confirmed deletion succeeds', async () => {
+        const dialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+        const toast = jest.spyOn(lemonToast, 'success').mockImplementation(() => '')
+        try {
+            logic.actions.deleteView('plain-a')
+            const confirm = dialog.mock.calls[0][0].primaryButton!.onClick!
+            confirm({} as React.MouseEvent<HTMLButtonElement>)
+            expect(toast).not.toHaveBeenCalled()
+            await expectLogic(dataWarehouseViewsLogic).toFinishAllListeners()
+            expect(toast).toHaveBeenCalledTimes(1)
+            expect(toast).toHaveBeenCalledWith('View deleted')
+        } finally {
+            dialog.mockRestore()
+            toast.mockRestore()
+        }
     })
 })

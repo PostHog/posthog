@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { fireEvent, waitFor, within } from '@testing-library/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ModelsOverviewTab } from 'scenes/models/tabs/ModelsOverviewTab'
@@ -66,4 +67,37 @@ export const Narrow: Story = {
             </div>
         ),
     ],
+}
+
+export const PartialLastPage: Story = {
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await canvas.findAllByText('1-10 of 12 entries')
+        await waitFor(() => {
+            if (canvas.queryAllByText('1-10 of 12 entries').length !== 3) {
+                throw new Error('All three overview tables must finish loading')
+            }
+        })
+        const tables = ['attention', 'behind', 'failing-checks'].map((section) => {
+            const table = canvasElement.querySelector<HTMLElement>(`[data-attr="models-overview-${section}"]`)!
+            return { table, height: table.offsetHeight, top: table.getBoundingClientRect().top + window.scrollY }
+        })
+        for (const { table } of tables) {
+            const next = table.querySelector<HTMLButtonElement>('.PaginationControl button:last-child')!
+            fireEvent.click(next)
+            await within(table).findByText('11-12 of 12 entries')
+            for (const initial of tables) {
+                if (
+                    initial.table.offsetHeight !== initial.height ||
+                    initial.table.getBoundingClientRect().top + window.scrollY !== initial.top
+                ) {
+                    throw new Error('Paging must preserve table heights and the positions of surrounding sections')
+                }
+            }
+        }
+    },
+}
+export const NarrowPartialLastPage: Story = {
+    ...Narrow,
+    play: PartialLastPage.play,
 }
