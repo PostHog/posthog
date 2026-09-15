@@ -65,13 +65,9 @@ use crate::inflight::InflightTracker;
 use crate::kafka::changelog_message_key;
 
 /// The fencing scope is the partition: every owner of partition `p`
-/// shares its ids, so a new owner's init fences the old one.
+/// shares its lane ids, so a new owner's init fences the old one.
 fn transactional_id(topic: &str, partition: u32, lane: usize) -> String {
-    if lane == 0 {
-        format!("personhog-changelog-{topic}-p{partition}")
-    } else {
-        format!("personhog-changelog-{topic}-p{partition}-l{lane}")
-    }
+    format!("personhog-changelog-{topic}-p{partition}-l{lane}")
 }
 
 #[derive(Debug)]
