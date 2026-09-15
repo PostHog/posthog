@@ -696,9 +696,10 @@ class Task(DeletedMetaFields, models.Model):
         A partially pinned selection (either `runtime_adapter` or `model` present) is
         treated as explicit and left untouched — overwriting half a pin would replace a
         value the caller chose. Internal tasks (custom-prompt infra agents) and
-        Pi-runtime tasks keep their pinned behavior and never inherit preferences — the
-        defaults describe the claude/codex ACP harness, which a Pi run doesn't use. An
-        explicitly set `reasoning_effort` survives injection; the default triple's effort
+        Pi-runtime tasks keep their pinned behavior and never inherit preferences:
+        a Pi run's creator always pins its model, and a preference naming the Pi
+        runtime steers client harness preselection, never ACP run state. An
+        explicitly set `reasoning_effort` survives injection; the default's effort
         only fills a gap.
         """
         if self.internal or self.runtime == Task.Runtime.PI:

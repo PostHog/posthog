@@ -2210,6 +2210,11 @@ def _resolve_run_defaults_state(
         logger.exception("slack_app_home_run_defaults_resolution_failed", slack_user_id=slack_user_id)
         return RunDefaultsState(settings_url=settings_url)
 
+    # Slack runs are ACP, so a preference naming the Pi runtime is not what a mention
+    # here would launch on; the card names nothing rather than a default that does not apply.
+    if resolved.model and resolved.runtime != "acp":
+        return RunDefaultsState(settings_url=settings_url)
+
     return RunDefaultsState(
         model=resolved.model,
         reasoning_effort=resolved.reasoning_effort,

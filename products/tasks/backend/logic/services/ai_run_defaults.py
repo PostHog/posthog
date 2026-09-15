@@ -1,22 +1,28 @@
 """Central AI run defaults for task runs.
 
-Resolves the effective `(runtime_adapter, model, reasoning_effort)` triple for a
-new task run from, in order: explicit per-run values, the acting user's
-per-project preference (`UserTasksConfig`), and the project default
-(`TeamTasksConfig`). Surfaces with their own preference layer (e.g. the Slack
-app's per-workspace/per-user settings) resolve first and pass the result as
-explicit values, which naturally places them above the central preferences.
+Resolves the effective AI run selection for a new task run from, in order:
+explicit per-run values, the acting user's per-project preference
+(`UserTasksConfig`), and the project default (`TeamTasksConfig`). Surfaces with
+their own preference layer (e.g. the Slack app's per-workspace/per-user
+settings) resolve first and pass the result as explicit values, which
+naturally places them above the central preferences.
 
-Resolution is a whole-triple swap, not a field-by-field merge: if a level
-carries the atomic `(runtime_adapter, model)` pair, that level's entire
-preference object wins (including its absent `reasoning_effort`). A
-field-by-field merge would blend mismatched configurations — for example a
-team `reasoning_effort` glued onto the user's non-thinking model — which is
-never what anyone picked.
+A preference has two arms. The acp arm — `runtime_adapter` plus `model`, the
+shape every row used before `runtime` existed — names the harness an ACP run
+launches on. The pi arm — `runtime: 'pi'` plus `model` — names the Pi runtime;
+it steers clients that preselect a harness (the desktop composer), but never
+injects into an ACP run's state, because a Pi run's model is always pinned by
+its creator.
+
+Resolution is a whole-selection swap, not a field-by-field merge: if a level
+carries an atomic pair, that level's entire preference object wins (including
+its absent `reasoning_effort`). A field-by-field merge would blend mismatched
+configurations — for example a team `reasoning_effort` glued onto the user's
+non-thinking model — which is never what anyone picked.
 
 Lenient at resolve time by design: preferences are stored as raw ids and the
 available model list drifts as the LLM gateway evolves, so an unknown model id
-passes through (the agent server owns the final fallback), a triple whose
+passes through (the agent server owns the final fallback), a selection whose
 runtime adapter is no longer valid is skipped in favor of the next level, and
 a reasoning effort the resolved model doesn't support is dropped. This module
 never raises during resolution. The one hard gate is entitlement: a level whose
@@ -37,7 +43,7 @@ from posthog.models.user import User
 
 from products.tasks.backend.feature_flags import get_model_access_error, get_required_model_flag
 from products.tasks.backend.logic.services.model_catalogue import filter_unsupported_effort
-from products.tasks.backend.models import TeamTasksConfig, UserTasksConfig
+from products.tasks.backend.models import Task, TeamTasksConfig, UserTasksConfig
 from products.tasks.backend.temporal.process_task.utils import (
     PUBLIC_REASONING_EFFORTS,
     RuntimeAdapter,
@@ -47,8 +53,9 @@ from products.tasks.backend.temporal.process_task.utils import (
 
 @dataclass(frozen=True)
 class ResolvedAIRunConfig:
-    """The effective AI run triple plus which preference level supplied it."""
+    """The effective AI run selection plus which preference level supplied it."""
 
+    runtime: str = Task.Runtime.ACP.value
     runtime_adapter: str | None = None
     model: str | None = None
     reasoning_effort: str | None = None
@@ -63,8 +70,11 @@ def resolve_ai_run_selection(
     model: str | None = None,
     reasoning_effort: str | None = None,
 ) -> ResolvedAIRunConfig:
-    """The effective runtime selection for a new run: the caller's own selection when it
+    """The effective ACP runtime selection for a new run: the caller's own selection when it
     pins anything, otherwise the stored defaults.
+
+    The explicit arm is the ACP pin path; a resolved pi preference still reports its
+    `runtime` so ACP-only callers can decline it (see `apply_ai_run_defaults`).
 
     A partial pin (either `runtime_adapter` or `model` alone) is treated as explicit and
     returned untouched — filling in the other half from a preference would pair values
@@ -106,7 +116,8 @@ def _canonical_team_id(team_id: int) -> int:
 def apply_ai_run_defaults(selection: dict, team_id: int, user_id: int | None) -> ResolvedAIRunConfig | None:
     """Fill `selection`'s `(runtime_adapter, model, reasoning_effort)` keys in place from
     the stored defaults, returning the config that applied — or `None` when the caller
-    pinned a selection or no level has one, leaving `selection` untouched.
+    pinned a selection, no level has one, or the resolved default names the Pi runtime,
+    leaving `selection` untouched.
 
     The one place the injection rule lives. Callers that resolve early (warm-run matching
     compares post-defaults triples) and `Task.create_run` as the safety net must agree
@@ -120,6 +131,8 @@ def apply_ai_run_defaults(selection: dict, team_id: int, user_id: int | None) ->
         reasoning_effort=selection.get("reasoning_effort"),
     )
     if resolved.source not in ("user", "team"):
+        return None
+    if resolved.runtime != Task.Runtime.ACP.value:
         return None
     selection["runtime_adapter"] = resolved.runtime_adapter
     selection["model"] = resolved.model
@@ -186,19 +199,36 @@ def _resolve_from_preferences(
     payload carries no usable `(runtime_adapter, model)` pair (fall through to the
     next level)."""
     prefs = preferences or {}
+    runtime = prefs.get("runtime") or None
     runtime_adapter = prefs.get("runtime_adapter") or None
     model = prefs.get("model") or None
     reasoning_effort = prefs.get("reasoning_effort") or None
 
-    if not (runtime_adapter and model):
+    if not model:
         return None
+    if runtime is not None and runtime not in {Task.Runtime.ACP.value, Task.Runtime.PI.value}:
+        return None
+    if runtime == Task.Runtime.PI.value:
+        # A pi preference carries no adapter and no catalogue to judge an effort
+        # against; the Pi runtime clamps the effort per model at launch.
+        if runtime_adapter is not None:
+            return None
+        return ResolvedAIRunConfig(
+            runtime=Task.Runtime.PI.value,
+            model=model,
+            reasoning_effort=reasoning_effort,
+            source=source,
+        )
     # A stored adapter the registry no longer knows can't pick a harness; skip the level.
+    if not runtime_adapter:
+        return None
     if runtime_adapter not in {a.value for a in RuntimeAdapter}:
         return None
     if reasoning_effort is not None:
         reasoning_effort = filter_unsupported_effort(runtime_adapter, model, reasoning_effort)
 
     return ResolvedAIRunConfig(
+        runtime=Task.Runtime.ACP.value,
         runtime_adapter=runtime_adapter,
         model=model,
         reasoning_effort=reasoning_effort,
@@ -207,21 +237,44 @@ def _resolve_from_preferences(
 
 
 def validate_ai_run_preferences(
+    runtime: str | None,
     runtime_adapter: str | None,
     model: str | None,
     reasoning_effort: str | None,
 ) -> None:
-    """Validate the `(runtime_adapter, model, reasoning_effort)` triple on the write
-    path so half-set rows never reach the DB.
+    """Validate the `(runtime, runtime_adapter, model, reasoning_effort)` selection on
+    the write path so half-set rows never reach the DB.
 
-    The storage rule — both halves of the pair or neither — lives here; whether the
-    three values may be used together is the model catalogue's call, so that part
-    defers to `validate_model_selection`. Deliberately not strict on model-id
+    The storage rules live here: `runtime` selects the arm ('acp' when omitted, for rows
+    written before the field existed), the acp arm needs `runtime_adapter` and `model`
+    together, and the pi arm needs `model` and forbids `runtime_adapter`. Whether the
+    acp arm's three values may be used together is the model catalogue's call, so that
+    part defers to `validate_model_selection`. Deliberately not strict on model-id
     membership: the gateway's model list drifts, and resolution handles stale ids
     leniently.
 
     Raises `django.core.exceptions.ValidationError` on inconsistency.
     """
+    if runtime is not None and runtime not in {Task.Runtime.ACP.value, Task.Runtime.PI.value}:
+        raise ValidationError(f"Unknown runtime '{runtime}'. Valid values: 'acp', 'pi'.")
+
+    valid_efforts = {e.value for e in PUBLIC_REASONING_EFFORTS}
+
+    if runtime == Task.Runtime.PI.value:
+        if runtime_adapter is not None:
+            raise ValidationError(
+                "runtime_adapter must be null when runtime is 'pi' — the pi arm carries the model, not an adapter."
+            )
+        if model is None:
+            raise ValidationError(
+                "runtime 'pi' and model must be set together — set both to configure a default, or all fields to null to clear it."
+            )
+        if reasoning_effort is not None and reasoning_effort not in valid_efforts:
+            raise ValidationError(
+                f"Unknown reasoning_effort '{reasoning_effort}'. Valid: {', '.join(sorted(valid_efforts))}."
+            )
+        return
+
     if (runtime_adapter is None) != (model is None):
         raise ValidationError(
             "runtime_adapter and model must be set together — set both to configure a default, or both to null to clear it."
@@ -229,12 +282,10 @@ def validate_ai_run_preferences(
 
     # The catalogue only judges an effort against a model, so an effort stored without a
     # pair — legal, and inherited by whatever model resolves later — still needs a check.
-    if reasoning_effort is not None:
-        valid_efforts = {e.value for e in PUBLIC_REASONING_EFFORTS}
-        if reasoning_effort not in valid_efforts:
-            raise ValidationError(
-                f"Unknown reasoning_effort '{reasoning_effort}'. Valid: {', '.join(sorted(valid_efforts))}."
-            )
+    if reasoning_effort is not None and reasoning_effort not in valid_efforts:
+        raise ValidationError(
+            f"Unknown reasoning_effort '{reasoning_effort}'. Valid: {', '.join(sorted(valid_efforts))}."
+        )
 
     validate_model_selection(runtime_adapter, model, reasoning_effort)
 
@@ -247,27 +298,33 @@ def validate_ai_run_preferences_payload(prefs: dict) -> None:
     Raises `django.core.exceptions.ValidationError` on unknown keys, non-string
     values, or an inconsistent triple.
     """
-    allowed_keys = ("runtime_adapter", "model", "reasoning_effort")
+    allowed_keys = ("runtime", "runtime_adapter", "model", "reasoning_effort")
     unknown = sorted(set(prefs) - set(allowed_keys))
     if unknown:
         raise ValidationError(f"Unknown keys: {', '.join(unknown)}. Allowed: {', '.join(allowed_keys)}.")
     non_strings = sorted(key for key, value in prefs.items() if not isinstance(value, str))
     if non_strings:
         raise ValidationError(f"Values must be strings: {', '.join(non_strings)}.")
-    validate_ai_run_preferences(prefs.get("runtime_adapter"), prefs.get("model"), prefs.get("reasoning_effort"))
+    validate_ai_run_preferences(
+        prefs.get("runtime"), prefs.get("runtime_adapter"), prefs.get("model"), prefs.get("reasoning_effort")
+    )
 
 
 def build_ai_run_preferences_payload(
+    runtime: str | None,
     runtime_adapter: str | None,
     model: str | None,
     reasoning_effort: str | None,
 ) -> dict[str, str]:
-    """Pack the triple into the JSON shape stored on `ai_run_preferences`.
+    """Pack the selection into the JSON shape stored on `ai_run_preferences`.
 
     Drops keys whose value is falsy so a cleared preference is stored as an
-    empty object rather than a triple of nulls.
+    empty object rather than a row of nulls. The acp arm omits `runtime` so rows
+    stay byte-identical to the ones written before the field existed; the pi arm
+    sets it, because a stored pi preference means something the acp shape cannot.
     """
     payload = {
+        **({"runtime": runtime} if runtime == Task.Runtime.PI.value else {}),
         "runtime_adapter": runtime_adapter,
         "model": model,
         "reasoning_effort": reasoning_effort,
@@ -288,16 +345,17 @@ def get_team_ai_run_preferences(team_id: int) -> dict[str, str]:
 def update_team_ai_run_preferences(
     team_id: int,
     *,
+    runtime: str | None = None,
     runtime_adapter: str | None,
     model: str | None,
     reasoning_effort: str | None,
 ) -> dict[str, str]:
-    """Validate and store the team-level preference triple; returns the stored payload.
+    """Validate and store the team-level preference selection; returns the stored payload.
 
-    Raises `django.core.exceptions.ValidationError` on an inconsistent triple.
+    Raises `django.core.exceptions.ValidationError` on an inconsistent selection.
     """
-    validate_ai_run_preferences(runtime_adapter, model, reasoning_effort)
-    payload = build_ai_run_preferences_payload(runtime_adapter, model, reasoning_effort)
+    validate_ai_run_preferences(runtime, runtime_adapter, model, reasoning_effort)
+    payload = build_ai_run_preferences_payload(runtime, runtime_adapter, model, reasoning_effort)
     team = Team.objects.get(id=_canonical_team_id(team_id))
     config = get_or_create_team_extension(team, TeamTasksConfig)
     config.ai_run_preferences = payload
@@ -321,15 +379,16 @@ def update_user_ai_run_preferences(
     team_id: int,
     user_id: int,
     *,
+    runtime: str | None = None,
     runtime_adapter: str | None,
     model: str | None,
     reasoning_effort: str | None,
 ) -> dict[str, str]:
-    """Validate and upsert the per-(user, project) preference triple; returns the stored
-    payload. Raises `django.core.exceptions.ValidationError` on an inconsistent triple.
+    """Validate and upsert the per-(user, project) preference selection; returns the stored
+    payload. Raises `django.core.exceptions.ValidationError` on an inconsistent selection.
     """
-    validate_ai_run_preferences(runtime_adapter, model, reasoning_effort)
-    payload = build_ai_run_preferences_payload(runtime_adapter, model, reasoning_effort)
+    validate_ai_run_preferences(runtime, runtime_adapter, model, reasoning_effort)
+    payload = build_ai_run_preferences_payload(runtime, runtime_adapter, model, reasoning_effort)
     canonical_team_id = _canonical_team_id(team_id)
     # team_id repeated in the lookup kwargs: for_team() only filters reads — creation
     # needs the value passed explicitly.
