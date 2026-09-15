@@ -12,8 +12,10 @@ Transport differences from Modal, handled by the callers that read
   bearer as a ``?token=`` query param — never a per-sandbox token, so
   ``get_connect_credentials`` deliberately returns ``token=None`` and nothing
   secret lands in ``TaskRun.state``;
-- resume snapshots are not supported yet — every run cold-boots from the golden
-  snapshot.
+- per-run resume snapshots are not supported yet, but per-repo repository
+  snapshots are: a run whose repo was seen before restores a hogland snapshot
+  with the repo already cloned (same fast restore path as the golden), and
+  falls back to the golden plus a fresh clone when none exists.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ import time
 import uuid
 import shlex
 import logging
+import urllib.parse
 from collections.abc import Iterable
 from functools import lru_cache
 from pathlib import Path
@@ -32,6 +35,7 @@ from django.conf import settings
 import httpx
 from hogland import APIError, ExecEvent, Hogbox, Hogland, NotFoundError
 
+from products.tasks.backend.constants import SNAPSHOT_KIND_FILESYSTEM
 from products.tasks.backend.exceptions import (
     SandboxCleanupError,
     SandboxExecutionError,
@@ -234,9 +238,10 @@ class HoglandSandbox(AgentServerLaunchMixin):
                 {"config_name": config.name, "template": config.template.value},
                 cause=RuntimeError(f"no hogland golden snapshot for template {config.template.value}"),
             )
-        if config.snapshot_id or config.snapshot_external_id:
-            # Backend resolution forces resume snapshots off for hogland runs; if an id
-            # slips through anyway, cold-boot loudly rather than restoring the wrong thing.
+        if config.snapshot_external_id:
+            # Backend resolution forces per-run resume snapshots off for hogland runs; if
+            # an id slips through anyway, cold-boot loudly rather than restoring the wrong
+            # thing.
             logger.warning(
                 "Hogland backend ignores resume snapshot; cold-booting from the golden image",
                 extra={"snapshot_id": config.snapshot_id, "snapshot_external_id": config.snapshot_external_id},
@@ -244,43 +249,62 @@ class HoglandSandbox(AgentServerLaunchMixin):
         config.snapshot_restored = False
         config.image_fallback = None
 
+        # A per-repo snapshot (the repo already cloned on top of the golden) restores
+        # through the exact same node-cached snapshot-restore path as the golden alias, so
+        # it costs the same seconds and skips the clone. The golden stays the fallback.
+        repo_snapshot_external_id: str | None = None
+        if config.snapshot_id and not config.snapshot_external_id:
+            repo_snapshot_external_id = cls._resolve_repository_snapshot_external_id(config.snapshot_id)
+        restore_source = repo_snapshot_external_id or snapshot_alias
+
         env = {**_STATIC_BOX_ENV, **(config.environment_variables or {})}
         tags = _to_box_tags(config.metadata)
 
+        client = get_hogland_client()
         try:
-            client = get_hogland_client()
-            box = client.create(
-                # cpus/memory_mib/disk_gib deliberately omitted: a snapshot restore must
-                # inherit the golden snapshot's machine config (a mismatch is a 400).
-                # Per-task resource overrides are therefore unsupported on hogland.
-                snapshot_id=snapshot_alias,
-                # Explicit and defensive: a restore inherits the snapshot's access_type,
-                # and the key-less golden bake is stamped "none", so task boxes already
-                # restore as "none". Passing it here just pins that intent. Note "none"
-                # still allocates a port + DNAT, so it does not remove ingress; the box is
-                # driven via exec / files / proxy regardless.
-                access_type="none",
-                # Non-empty names must be unique per owner; suffix like the Modal backend.
-                name=f"{config.name}-{uuid.uuid4().hex[:6]}"[:64],
-                kind=HOGLAND_TASKS_BOX_KIND,
-                # Always explicit: an unregistered kind carries no server-side TTL
-                # default, and an omitted value would make the box immortal.
-                ttl_seconds=config.ttl_seconds,
-                env=env,
-                tags=tags or None,
-            )
+            box = cls._create_box(client, config, restore_source, env, tags)
         except APIError as e:
-            raise SandboxProvisionError(
-                "Failed to create hogland sandbox",
-                {"config_name": config.name, "status_code": str(e.status_code), "error": str(e)},
-                cause=e,
+            if repo_snapshot_external_id is None:
+                raise SandboxProvisionError(
+                    "Failed to create hogland sandbox",
+                    {"config_name": config.name, "status_code": str(e.status_code), "error": str(e)},
+                    cause=e,
+                )
+            # A broken repo snapshot must never cost the run: fall back to the golden
+            # (plus the normal clone). A client-side rejection means the snapshot itself
+            # is unusable, so retire its row and let the next run bake a fresh one.
+            logger.warning(
+                "Failed to restore hogland repository snapshot; falling back to the golden snapshot",
+                extra={
+                    "config_name": config.name,
+                    "snapshot_id": config.snapshot_id,
+                    "snapshot_external_id": repo_snapshot_external_id,
+                    "status_code": e.status_code,
+                },
             )
+            if e.status_code is not None and 400 <= e.status_code < 500:
+                cls._mark_repository_snapshot_error(config.snapshot_id)
+            config.image_fallback = f"repository snapshot {repo_snapshot_external_id} -> golden snapshot"
+            repo_snapshot_external_id = None
+            try:
+                box = cls._create_box(client, config, snapshot_alias, env, tags)
+            except APIError as golden_error:
+                raise SandboxProvisionError(
+                    "Failed to create hogland sandbox",
+                    {
+                        "config_name": config.name,
+                        "status_code": str(golden_error.status_code),
+                        "error": str(golden_error),
+                    },
+                    cause=golden_error,
+                )
         except SandboxProvisionError:
             raise
         except Exception as e:
             raise SandboxProvisionError(
                 "Failed to create hogland sandbox", {"config_name": config.name, "error": str(e)}, cause=e
             )
+        config.snapshot_restored = repo_snapshot_external_id is not None
 
         if (config.cpu_cores, config.memory_gb, config.disk_size_gb) != (
             HOGLAND_GOLDEN_CPU_CORES,
@@ -309,6 +333,76 @@ class HoglandSandbox(AgentServerLaunchMixin):
 
         logger.info(f"Created hogland sandbox {box.id} for {config.name}")
         return cls(box=box, config=config)
+
+    @staticmethod
+    def _create_box(
+        client: Hogland,
+        config: SandboxConfig,
+        restore_source: str,
+        env: dict[str, str],
+        tags: list[str],
+    ) -> Hogbox:
+        return client.create(
+            # cpus/memory_mib/disk_gib deliberately omitted: a snapshot restore must
+            # inherit the golden snapshot's machine config (a mismatch is a 400).
+            # Per-task resource overrides are therefore unsupported on hogland.
+            snapshot_id=restore_source,
+            # Explicit and defensive: a restore inherits the snapshot's access_type,
+            # and the key-less golden bake is stamped "none", so task boxes already
+            # restore as "none". Passing it here just pins that intent. Note "none"
+            # still allocates a port + DNAT, so it does not remove ingress; the box is
+            # driven via exec / files / proxy regardless.
+            access_type="none",
+            # Non-empty names must be unique per owner; suffix like the Modal backend.
+            name=f"{config.name}-{uuid.uuid4().hex[:6]}"[:64],
+            kind=HOGLAND_TASKS_BOX_KIND,
+            # Always explicit: an unregistered kind carries no server-side TTL
+            # default, and an omitted value would make the box immortal.
+            ttl_seconds=config.ttl_seconds,
+            env=env,
+            tags=tags or None,
+        )
+
+    @staticmethod
+    def _resolve_repository_snapshot_external_id(snapshot_id: str) -> str | None:
+        """Hogland snapshot id behind a SandboxSnapshot row, or None to use the golden.
+
+        The row must be a complete hogland filesystem snapshot: the shared snapshot
+        lookup filters per backend already, so a mismatch here means an id crossed
+        backends and must not restore.
+        """
+        from products.tasks.backend.models import (
+            SandboxSnapshot,  # noqa: PLC0415 — breaks the models <-> service import cycle
+        )
+
+        snapshot = SandboxSnapshot.objects.filter(id=snapshot_id).first()
+        if snapshot is None or snapshot.status != SandboxSnapshot.Status.COMPLETE or not snapshot.external_id:
+            return None
+        if snapshot.sandbox_backend != "hogland":
+            logger.warning(
+                "Ignoring non-hogland repository snapshot on the hogland backend",
+                extra={"snapshot_id": snapshot_id, "snapshot_backend": snapshot.sandbox_backend},
+            )
+            return None
+        if snapshot.metadata.get("snapshot_kind", SNAPSHOT_KIND_FILESYSTEM) != SNAPSHOT_KIND_FILESYSTEM:
+            return None
+        return snapshot.external_id
+
+    @staticmethod
+    def _mark_repository_snapshot_error(snapshot_id: str | None) -> None:
+        """Best-effort: retire a snapshot row hogland rejected so lookups skip it."""
+        if not snapshot_id:
+            return
+        from products.tasks.backend.models import (
+            SandboxSnapshot,  # noqa: PLC0415 — breaks the models <-> service import cycle
+        )
+
+        try:
+            snapshot = SandboxSnapshot.objects.filter(id=snapshot_id).first()
+            if snapshot is not None:
+                snapshot.update_status(SandboxSnapshot.Status.ERROR)
+        except Exception:
+            logger.exception("Failed to mark hogland repository snapshot as errored")
 
     @staticmethod
     def get_by_id(sandbox_id: str) -> HoglandSandbox:
@@ -445,17 +539,29 @@ class HoglandSandbox(AgentServerLaunchMixin):
         return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
 
     def create_snapshot(self, *, timeout_seconds: int | None = None) -> str:
-        raise SnapshotCreationError(
-            "Resume snapshots are not supported on the hogland backend yet",
-            {"sandbox_id": self.id},
-            cause=NotImplementedError("hogland resume snapshots"),
-        )
+        """Snapshot this box on the hogland side and return the snapshot id.
+
+        The server pauses, syncs, and resumes the box, so this must never run on the
+        hot path of a live agent turn — callers snapshot from the dedicated
+        create-snapshot workflow's own sandbox. ``timeout_seconds`` is unused: the
+        budget is server-side, bounded by the client's HTTP read timeout.
+        """
+        try:
+            record = self._box.snapshot()
+        except Exception as e:
+            raise SnapshotCreationError(
+                "Failed to create hogland snapshot",
+                {"sandbox_id": self.id, "error": str(e)},
+                cause=e,
+            )
+        logger.info(f"Created hogland snapshot {record.id} from sandbox {self.id}")
+        return record.id
 
     def create_directory_snapshot(self, path: str) -> str:
         raise SnapshotCreationError(
-            "Resume snapshots are not supported on the hogland backend yet",
+            "Directory snapshots are not supported on the hogland backend",
             {"sandbox_id": self.id, "path": path},
-            cause=NotImplementedError("hogland resume snapshots"),
+            cause=NotImplementedError("hogland directory snapshots"),
         )
 
     def prune_snapshot_heavy_dirs(self, path: str) -> None:
@@ -494,7 +600,25 @@ class HoglandSandbox(AgentServerLaunchMixin):
 
     @staticmethod
     def delete_snapshot(external_id: str) -> None:
-        logger.info(f"Ignoring delete for hogland snapshot {external_id}; hogland snapshots are unreachable in MVP")
+        """Delete a hogland snapshot. 404 counts as deleted so retries stay idempotent."""
+        client = get_hogland_client()
+        # SDK 0.4.x has no delete-snapshot method yet; call the API directly with the
+        # client's own base URL and bearer. trust_env=False for the same egress-proxy
+        # reason as the client itself.
+        response = httpx.delete(
+            f"{client.base_url.rstrip('/')}/v1/snapshots/{urllib.parse.quote(external_id, safe='')}",
+            headers={"Authorization": f"Bearer {client.token}"},
+            timeout=httpx.Timeout(60, connect=15),
+            trust_env=False,
+        )
+        if response.status_code in (204, 404):
+            logger.info(f"Deleted hogland snapshot {external_id}")
+            return
+        raise SandboxCleanupError(
+            f"Failed to delete hogland snapshot {external_id}",
+            {"snapshot_external_id": external_id, "status_code": str(response.status_code)},
+            cause=RuntimeError(response.text[:200]),
+        )
 
     def destroy(self) -> None:
         try:
