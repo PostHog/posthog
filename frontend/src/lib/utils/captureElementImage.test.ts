@@ -24,4 +24,12 @@ describe('captureElementImage', () => {
         expect(imagePlaceholder).toMatch(/^data:image\//)
         expect(() => onImageErrorHandler(new Event('error'))).not.toThrow()
     })
+
+    it('bounds the resource fetches so a stalled asset cannot hang the capture', async () => {
+        await captureElementImage(document.createElement('div'))
+
+        const { fetchRequestInit } = (toBlob as jest.Mock).mock.calls[0][1]
+        expect(fetchRequestInit.signal).toBeInstanceOf(AbortSignal)
+        expect(fetchRequestInit.signal.aborted).toBe(false)
+    })
 })
