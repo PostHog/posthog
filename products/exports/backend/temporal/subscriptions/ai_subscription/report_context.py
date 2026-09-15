@@ -12,7 +12,7 @@ from django.utils import timezone
 
 from pydantic import BaseModel
 
-from posthog.clickhouse.cancel import cancel_query_on_cluster
+from posthog.clickhouse.client.execute_async import cancel_query
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
@@ -509,14 +509,11 @@ async def _execute_insight(pending: _PendingInsight, semaphore: asyncio.Semaphor
         return _ExecutedInsight(saved=pending.saved, status="failed", content=_UNAVAILABLE_INSIGHT_MARKER)
     context = pending.context
     client_query_id = f"ai-subscription-context-{uuid.uuid4().hex}"
-    query_started = False
 
-    async def cancel_query() -> None:
+    async def cancel_context_query() -> None:
         try:
             await asyncio.wait_for(
-                database_sync_to_async(cancel_query_on_cluster, thread_sensitive=False)(
-                    context.team.pk, client_query_id
-                ),
+                database_sync_to_async(cancel_query, thread_sensitive=False)(context.team.pk, client_query_id),
                 timeout=CONTEXT_QUERY_CANCELLATION_TIMEOUT_SECONDS,
             )
         except Exception as err:
@@ -524,16 +521,23 @@ async def _execute_insight(pending: _PendingInsight, semaphore: asyncio.Semaphor
 
     try:
         async with semaphore:
-            query_started = True
-            with tags_context(
-                client_query_id=client_query_id,
-                team_id=context.team.pk,
-                trigger="ai_subscription_context",
-            ):
-                content = await asyncio.wait_for(
-                    context.execute_and_format(include_prompt_framing=False),
-                    timeout=CONTEXT_QUERY_TIMEOUT_SECONDS,
-                )
+            try:
+                with tags_context(
+                    client_query_id=client_query_id,
+                    team_id=context.team.pk,
+                    trigger="ai_subscription_context",
+                ):
+                    content = await asyncio.wait_for(
+                        context.execute_and_format(include_prompt_framing=False, query_id=client_query_id),
+                        timeout=CONTEXT_QUERY_TIMEOUT_SECONDS,
+                    )
+            except asyncio.CancelledError:
+                await asyncio.shield(cancel_context_query())
+                raise
+            except TimeoutError as err:
+                await cancel_context_query()
+                capture_exception(err)
+                return _ExecutedInsight(saved=pending.saved, status="failed", content=_UNAVAILABLE_INSIGHT_MARKER)
         # Sanitize uncapped (len(content) can never cut a string the sanitizer only shortens), then
         # bound here: the sanitizer's own cut drops the tail with no marker and no signal, so an
         # over-budget result would reach the LLM stopping mid-row and still be recorded a success.
@@ -543,14 +547,6 @@ async def _execute_insight(pending: _PendingInsight, semaphore: asyncio.Semaphor
             "truncated" if evidence_truncated or TRUNCATED_MARKER in safe_content else "success"
         )
         return _ExecutedInsight(saved=pending.saved, status=status, content=safe_content)
-    except asyncio.CancelledError:
-        if query_started:
-            await asyncio.shield(cancel_query())
-        raise
-    except TimeoutError as err:
-        await cancel_query()
-        capture_exception(err)
-        return _ExecutedInsight(saved=pending.saved, status="failed", content=_UNAVAILABLE_INSIGHT_MARKER)
     except Exception as err:
         capture_exception(err)
         return _ExecutedInsight(saved=pending.saved, status="failed", content=_UNAVAILABLE_INSIGHT_MARKER)

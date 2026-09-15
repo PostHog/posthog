@@ -240,10 +240,52 @@ class TestReportContextPureFunctions(SimpleTestCase):
             with pytest.raises(asyncio.CancelledError):
                 await task
 
-        with patch(f"{_MODULE}.cancel_query_on_cluster") as cancel_query:
+        with patch(f"{_MODULE}.cancel_query") as cancel_query:
             async_to_sync(run)()
 
         cancel_query.assert_not_called()
+
+    def test_timeout_cancels_query_status_before_releasing_semaphore(self) -> None:
+        semaphore = asyncio.Semaphore(1)
+        context = MagicMock(team=MagicMock(pk=1))
+
+        async def slow_execute(*_args: object, **_kwargs: object) -> str:
+            await asyncio.Event().wait()
+            return "unreachable"
+
+        context.execute_and_format = AsyncMock(side_effect=slow_execute)
+        pending = _PendingInsight(
+            saved=_SavedInsight(
+                id=1,
+                short_id="1",
+                name="Slow insight",
+                description="",
+                query=None,
+                filters_override=None,
+                variables_override=None,
+                available=True,
+            ),
+            context=context,
+        )
+        semaphore_states: list[bool] = []
+
+        def record_cancellation(_team_id: int, _query_id: str) -> str:
+            semaphore_states.append(semaphore.locked())
+            return "query cancelled"
+
+        with (
+            patch(f"{_MODULE}.CONTEXT_QUERY_TIMEOUT_SECONDS", 0.01),
+            patch(f"{_MODULE}.uuid.uuid4", return_value=MagicMock(hex="query-status-id")),
+            patch(f"{_MODULE}.cancel_query", side_effect=record_cancellation) as cancel_query,
+        ):
+            executed = async_to_sync(_execute_insight)(pending, semaphore)
+
+        expected_query_id = "ai-subscription-context-query-status-id"
+        cancel_query.assert_called_once_with(1, expected_query_id)
+        assert context.execute_and_format.await_args.kwargs["query_id"] == expected_query_id
+        assert semaphore_states == [True]
+        assert semaphore.locked() is False
+        assert executed.status == "failed"
 
     def test_failed_markers_are_not_successful_computed_evidence(self) -> None:
         evidence = ReportContextEvidence(
@@ -380,7 +422,7 @@ class TestResolveReportContext(NonAtomicBaseTest):
             patch(f"{_MODULE}.CONTEXT_QUERY_TIMEOUT_SECONDS", 1),
             patch(f"{_MODULE}.CONTEXT_RESOLUTION_TIMEOUT_SECONDS", 0.01),
             patch(_EXECUTOR, new_callable=AsyncMock, side_effect=slow_execute),
-            patch(f"{_MODULE}.cancel_query_on_cluster") as cancel_query,
+            patch(f"{_MODULE}.cancel_query") as cancel_query,
         ):
             evidence = async_to_sync(resolve_report_context)(subscription)
 
@@ -417,7 +459,7 @@ class TestResolveReportContext(NonAtomicBaseTest):
 
         with (
             patch(_EXECUTOR, side_effect=blocked_execute),
-            patch(f"{_MODULE}.cancel_query_on_cluster") as cancel_query,
+            patch(f"{_MODULE}.cancel_query") as cancel_query,
         ):
             async_to_sync(run)()
 
