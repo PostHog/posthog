@@ -56,10 +56,3 @@ export const IntentOnly: Story = {
         }),
     },
 }
-
-// A product trigger names a job that is not a sandbox task, so nothing renders.
-export const ProductTrigger: Story = {
-    args: {
-        logItem: logItem({ trigger: { job_type: 'hog_flow', job_id: '1234', payload: {} } }),
-    },
-}

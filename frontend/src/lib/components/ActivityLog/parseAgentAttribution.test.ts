@@ -2,12 +2,12 @@ import { dayjs } from 'lib/dayjs'
 
 import { ActivityScope } from '~/types'
 
-import { agentAttribution } from './agentAttribution'
 import { HumanizedActivityLogItem, Trigger } from './humanizeActivity'
+import { parseAgentAttribution } from './parseAgentAttribution'
 
 const AGENT_TASK_ID = '019f4c2a-0000-7000-8000-0000000000aa'
 
-describe('agentAttribution', () => {
+describe('parseAgentAttribution', () => {
     function logItem(trigger: Trigger | null): HumanizedActivityLogItem {
         return {
             description: 'changed the tile query on Weekly signups',
@@ -40,7 +40,10 @@ describe('agentAttribution', () => {
             { job_type: 'agent', job_id: AGENT_TASK_ID, payload: { intent: { nested: true } } },
             { intent: null, taskId: AGENT_TASK_ID },
         ],
-    ] as [string, Trigger | null, ReturnType<typeof agentAttribution>][])('reads %s', (_label, trigger, expected) => {
-        expect(agentAttribution(logItem(trigger))).toEqual(expected)
-    })
+    ] as [string, Trigger | null, ReturnType<typeof parseAgentAttribution>][])(
+        'reads %s',
+        (_label, trigger, expected) => {
+            expect(parseAgentAttribution(logItem(trigger))).toEqual(expected)
+        }
+    )
 })

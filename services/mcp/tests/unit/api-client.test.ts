@@ -201,8 +201,13 @@ describe('ApiClient', () => {
     })
 
     it.each([
-        ['forwards a stated intent', 'Repairing a tile that hit the query row limit', 'Repairing a tile that hit the query row limit'],
+        [
+            'forwards a stated intent',
+            'Repairing a tile that hit the query row limit',
+            'Repairing a tile that hit the query row limit',
+        ],
         ['caps an overlong intent', 'i'.repeat(900), 'i'.repeat(500)],
+        ['strips characters a header cannot carry', 'Fixing the 📈 tile\nfor the user', 'Fixing the  tilefor the user'],
         ['omits the header when the agent stated none', undefined, undefined],
     ] as const)('%s', async (_label, intent, expected) => {
         const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))

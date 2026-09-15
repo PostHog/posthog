@@ -3,8 +3,8 @@ import { useState } from 'react'
 import { LemonTag, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
 import { AGENT_INTENT_TOOLTIP } from 'lib/components/ActivityLog/AgentAttribution'
-import { agentAttribution } from 'lib/components/ActivityLog/agentAttribution'
 import { HumanizedActivityLogItem, humanizeActivity, humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { parseAgentAttribution } from 'lib/components/ActivityLog/parseAgentAttribution'
 import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -168,7 +168,7 @@ export function AuditLogTable({ logItems, pagination, teamsById }: AuditLogTable
 
 function ExpandedRowContent({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Element {
     const unprocessed = logItem.unprocessed
-    const agent = agentAttribution(logItem)
+    const agent = parseAgentAttribution(logItem)
 
     if (!unprocessed) {
         return <div className="p-4 text-muted">No additional details available</div>

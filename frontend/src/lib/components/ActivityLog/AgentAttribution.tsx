@@ -3,14 +3,14 @@ import { Tooltip } from '@posthog/lemon-ui'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { agentAttribution } from './agentAttribution'
 import { HumanizedActivityLogItem } from './humanizeActivity'
+import { parseAgentAttribution } from './parseAgentAttribution'
 
 export const AGENT_INTENT_TOOLTIP = 'Self-reported by the agent in the x-posthog-intent request header'
 
 /** Why an agent made a change, and which task to open to read the rest of it. */
 export function AgentAttribution({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Element | null {
-    const attribution = agentAttribution(logItem)
+    const attribution = parseAgentAttribution(logItem)
     if (!attribution) {
         return null
     }

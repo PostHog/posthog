@@ -13,7 +13,7 @@ export interface AgentAttribution {
 }
 
 /** The agent context behind one activity row, or null when a person or a product made the change. */
-export function agentAttribution(logItem: HumanizedActivityLogItem): AgentAttribution | null {
+export function parseAgentAttribution(logItem: HumanizedActivityLogItem): AgentAttribution | null {
     const trigger = logItem.unprocessed?.detail?.trigger
     if (trigger?.job_type !== AGENT_TRIGGER_JOB_TYPE) {
         return null

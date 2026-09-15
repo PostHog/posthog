@@ -225,7 +225,7 @@ export class ApiClient {
                 // Forward the sandbox task id so API writes are attributed to the agent's task.
                 'X-PostHog-Task-Id': this.config.taskId,
                 // Forward the agent's stated intent so the activity log records why, not just who.
-                'x-posthog-intent': this.config.intent?.slice(0, MAX_INTENT_HEADER_LENGTH),
+                'x-posthog-intent': sanitizeHeaderValue(this.config.intent)?.slice(0, MAX_INTENT_HEADER_LENGTH),
             }),
             'X-PostHog-Client': 'mcp',
         }
