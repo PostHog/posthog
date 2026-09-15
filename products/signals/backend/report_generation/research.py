@@ -5,7 +5,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 # Canonical homes of the judgment/finding shapes are the artefact content schemas (they are
 # persisted as artefacts); re-exported here because this module is where research callers and
@@ -58,6 +58,15 @@ __all__ = [
 ]
 
 # TODO: Signals deduplication step before the research
+
+
+def _rejection_reason(error: Exception) -> str:
+    """Why a chart was rejected, as failing field and rule only — never the rejected content."""
+    if not isinstance(error, ValidationError):
+        return type(error).__name__
+    return ", ".join(
+        f"{'.'.join(str(part) for part in entry['loc']) or 'chart'}: {entry['type']}" for entry in error.errors()
+    )
 
 
 class ReportPresentationOutput(BaseModel):
@@ -134,7 +143,12 @@ Hard rules:
             try:
                 kept.append(ReportChart.model_validate(entry))
             except Exception as e:
-                logger.warning("presentation: dropped chart at index %d that did not validate (%s)", index, e)
+                # Report the failing fields and rules, never the error itself: pydantic renders the
+                # rejected `input_value`, which would copy the chart's query — HogQL text and filter
+                # values — into application logs.
+                logger.warning(
+                    "presentation: dropped chart at index %d that did not validate (%s)", index, _rejection_reason(e)
+                )
         return kept
 
     @field_validator("title", "summary")

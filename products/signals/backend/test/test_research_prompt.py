@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 
 import pytest
@@ -267,6 +268,29 @@ class TestReportPresentationOutputCharts:
 
         assert parsed.title == "fix(signups): Handle the drop"
         assert [chart.chart_id for chart in parsed.charts] == ["signups-drop"]
+
+    def test_the_dropped_chart_warning_names_the_rule_without_the_rejected_query(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            ReportPresentationOutput.model_validate(
+                {
+                    "title": "fix(signups): Handle the drop",
+                    "summary": "Signups fell 60% over the week.",
+                    "charts": [
+                        {
+                            "chart_id": "leaky",
+                            "title": "Wrong node",
+                            "query": {"kind": "HogQLQuery", "query": "SELECT email FROM persons WHERE team='acme'"},
+                        }
+                    ],
+                }
+            )
+
+        warning = "".join(record.getMessage() for record in caplog.records)
+        # Pydantic renders the rejected input in the error's own text, so logging it would copy the
+        # chart's query into application logs.
+        assert "SELECT email" not in warning
+        assert "acme" not in warning
+        assert "query: value_error" in warning
 
     def test_a_response_whose_every_chart_is_malformed_still_yields_the_prose(self):
         parsed = ReportPresentationOutput.model_validate(
