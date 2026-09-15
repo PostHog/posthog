@@ -17,6 +17,7 @@ import {
     formatAggregationAxisValue,
 } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -24,7 +25,6 @@ import { ChartDisplayType, ChartParams, TrendResult } from '~/types'
 
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 
-import { insightLogic } from '../../insightLogic'
 import {
     computeMetricSummary,
     computeMetricSummaryChange,

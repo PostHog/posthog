@@ -3,18 +3,17 @@ import { MakeLogicType, actions, connect, kea, key, path, props, reducers, selec
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
-import { ChartDisplayType, CompareLabelType, InsightLogicProps } from '~/types'
-
-import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
-import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
-
 import type {
     AnyDataWarehouseNode,
     AnyEntityNode,
     CompareFilter,
     DataWarehouseNode,
     GroupNode,
-} from '../../../../queries/schema/schema-general'
+} from '~/queries/schema/schema-general'
+import { ChartDisplayType, CompareLabelType, InsightLogicProps } from '~/types'
+
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
+import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 export enum AggregationType {
     Total = 'total',
@@ -149,12 +148,8 @@ export const insightsTableDataLogic = kea<insightsTableDataLogicType>([
                 display: ChartDisplayType | null | undefined,
                 series:
                     | (
-                          | import('../../../../queries/schema').AnyEntityNode<
-                                import('../../../../queries/schema').AnyDataWarehouseNode
-                            >
-                          | import('../../../../queries/schema').GroupNode<
-                                import('../../../../queries/schema').DataWarehouseNode
-                            >
+                          | import('~/queries/schema').AnyEntityNode<import('~/queries/schema').AnyDataWarehouseNode>
+                          | import('~/queries/schema').GroupNode<import('~/queries/schema').DataWarehouseNode>
                       )[]
                     | null
                     | undefined
@@ -171,12 +166,8 @@ export const insightsTableDataLogic = kea<insightsTableDataLogicType>([
             (
                 series:
                     | (
-                          | import('../../../../queries/schema').AnyEntityNode<
-                                import('../../../../queries/schema').AnyDataWarehouseNode
-                            >
-                          | import('../../../../queries/schema').GroupNode<
-                                import('../../../../queries/schema').DataWarehouseNode
-                            >
+                          | import('~/queries/schema').AnyEntityNode<import('~/queries/schema').AnyDataWarehouseNode>
+                          | import('~/queries/schema').GroupNode<import('~/queries/schema').DataWarehouseNode>
                       )[]
                     | null
                     | undefined,
@@ -193,7 +184,7 @@ export const insightsTableDataLogic = kea<insightsTableDataLogicType>([
         previousResultMap: [
             (s) => [s.compareFilter, s.indexedResults],
             (
-                compareFilter: null | import('../../../../queries/schema').CompareFilter | undefined,
+                compareFilter: null | import('~/queries/schema').CompareFilter | undefined,
                 indexedResults: IndexedTrendResult[]
             ): Map<string, IndexedTrendResult> => {
                 if (!compareFilter?.compare) {
@@ -211,7 +202,7 @@ export const insightsTableDataLogic = kea<insightsTableDataLogicType>([
         getPreviousResult: [
             (s) => [s.compareFilter, s.previousResultMap],
             (
-                compareFilter: null | import('../../../../queries/schema').CompareFilter | undefined,
+                compareFilter: null | import('~/queries/schema').CompareFilter | undefined,
                 previousResultMap: Map<string, IndexedTrendResult>
             ) =>
                 (item: IndexedTrendResult): IndexedTrendResult | undefined => {
@@ -224,7 +215,7 @@ export const insightsTableDataLogic = kea<insightsTableDataLogicType>([
         displayResults: [
             (s) => [s.compareFilter, s.indexedResults],
             (
-                compareFilter: null | import('../../../../queries/schema').CompareFilter | undefined,
+                compareFilter: null | import('~/queries/schema').CompareFilter | undefined,
                 indexedResults: IndexedTrendResult[]
             ): IndexedTrendResult[] => {
                 if (compareFilter?.compare) {

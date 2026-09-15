@@ -4,12 +4,12 @@ import { useState } from 'react'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 
+import __trendsLineBreakdown from '~/mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import { BaseMathType, InsightLogicProps } from '~/types'
 
-import __trendsLineBreakdown from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json'
 import { InsightsTable, InsightsTableProps } from './InsightsTable'
 
 type Story = StoryObj<InsightsTableProps>
