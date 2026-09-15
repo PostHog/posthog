@@ -3270,6 +3270,7 @@ class FlagApprovalConflictSerializer(serializers.Serializer):
     resource_type = serializers.CharField(help_text="Resource the change request targets, `feature_flag` here.")
     resource_id = serializers.CharField(help_text="Id of the flag the change request targets.")
     change_request_id = serializers.CharField(help_text="Id of the change request that was opened.")
+    change_request = serializers.JSONField(help_text="The change request that was opened, serialized in full.")
     required_approvers = serializers.JSONField(help_text="Who can approve the change request.")
 
 

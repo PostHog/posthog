@@ -41034,6 +41034,8 @@ export namespace Schemas {
       resource_id: string;
       /** Id of the change request that was opened. */
       change_request_id: string;
+      /** The change request that was opened, serialized in full. */
+      change_request: unknown;
       /** Who can approve the change request. */
       required_approvers: unknown;
     }
