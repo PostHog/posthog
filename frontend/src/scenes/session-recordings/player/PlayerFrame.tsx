@@ -20,9 +20,8 @@ const BASE_CLICK_INDICATOR_DURATION_S = 1 / 3
 // than the app's. CSPMiddleware supplies it.
 const PLAYER_FRAME_SRC = '/replay_player_frame/index.html'
 const PLAYER_FRAME_CONTENT_ID = 'player-frame-content'
-// A load event that never arrives leaves rrweb with nowhere to mount, so the player shows an empty
-// rectangle for as long as the tab stays open. A stalled request, an unresponsive service worker
-// and a blocking extension all end there.
+// Without a timeout, a frame load event that never arrives leaves rrweb with nowhere to mount and
+// the player stays blank for as long as the tab is open.
 const PLAYER_FRAME_LOAD_TIMEOUT_MS = 10000
 
 export const PlayerFrame = (): JSX.Element => {
@@ -122,8 +121,8 @@ export const PlayerFrame = (): JSX.Element => {
         setRootFrame(frameRef.current)
     }, [setRootFrame, applyFrameStyles, playerFrameDocumentLoadFailed])
 
-    // frameSrc is a dependency because a retry swaps the frame's document: the load of the
-    // retry needs its own timeout, not the stale one armed for the first document.
+    // frameSrc is a dependency so each retry, which swaps the frame's document, arms its own
+    // timeout instead of reusing the one armed for the previous document.
     useEffect(() => {
         if (!ownDocument) {
             return
@@ -193,11 +192,11 @@ export const PlayerFrame = (): JSX.Element => {
                     onLoad={handleFrameLoad}
                     title="Session replay player"
                     // Interaction belongs to the app's controls, not the recorded page.
-                    // Do not add allow-scripts to stop the browser reporting that it is missing.
-                    // That report comes from rrweb's own replay frame, which carries the same
-                    // sandbox and cannot inherit a permission it does not ask for, so granting it
-                    // here changes nothing a recording renders. It only lets this document, which
-                    // is same-origin with the app, drop its own sandbox.
+                    // Do not add allow-scripts even though the browser reports it missing. That
+                    // report is from rrweb's own replay frame, which carries the same sandbox and
+                    // cannot inherit a permission it does not request, so it changes nothing a
+                    // recording renders. It only lets this document, same-origin with the app, drop
+                    // its own sandbox.
                     sandbox="allow-same-origin"
                 />
             ) : (
