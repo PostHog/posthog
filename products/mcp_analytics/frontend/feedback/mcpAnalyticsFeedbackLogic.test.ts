@@ -83,33 +83,47 @@ describe('mcpAnalyticsFeedbackLogic', () => {
         jest.clearAllMocks()
     })
 
-    it('waits for matching surveys and the reading delay, then records one impression', () => {
-        jest.mocked(posthog.displaySurvey).mockClear()
-        jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)
-        expect(logic.values.visible).toBe(false)
-        loadSurvey(false)
-        jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)
-        expect(logic.values.visible).toBe(false)
-        loadSurvey()
-        jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS - 1)
-        expect(logic.values.visible).toBe(false)
-        jest.advanceTimersByTime(1)
-        expect(logic.values.visible).toBe(true)
-        expect(posthog.capture).toHaveBeenCalledWith(
-            'survey shown',
-            expect.objectContaining({
-                feedback_surface: 'mcp_analytics',
-                feedback_entry_point: 'session_review_prompt',
-                mcp_analytics_tab: 'sessions',
-                $survey_id: survey.id,
-                $survey_submission_id: expect.any(String),
-            })
-        )
-        expect(posthog.displaySurvey).not.toHaveBeenCalled()
-        loadSurvey()
-        jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)
-        expect(jest.mocked(posthog.capture).mock.calls.filter(([name]) => name === 'survey shown')).toHaveLength(1)
-    })
+    it.each([false, true])(
+        'waits for matching surveys and a fresh reading delay (backgrounded: %s)',
+        (backgrounded) => {
+            jest.mocked(posthog.displaySurvey).mockClear()
+            jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)
+            expect(logic.values.visible).toBe(false)
+            loadSurvey(false)
+            jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)
+            expect(logic.values.visible).toBe(false)
+            loadSurvey()
+            if (backgrounded) {
+                jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS / 2)
+                const hidden = jest.spyOn(document, 'hidden', 'get').mockReturnValue(true)
+                document.dispatchEvent(new Event('visibilitychange'))
+                jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS * 2)
+                expect(logic.values.visible).toBe(false)
+                expect(logic.values.lastPromptAt).toBe(0)
+                expect(posthog.capture).not.toHaveBeenCalledWith('survey shown', expect.anything())
+                hidden.mockReturnValue(false)
+                document.dispatchEvent(new Event('visibilitychange'))
+            }
+            jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS - 1)
+            expect(logic.values.visible).toBe(false)
+            jest.advanceTimersByTime(1)
+            expect(logic.values.visible).toBe(true)
+            expect(posthog.capture).toHaveBeenCalledWith(
+                'survey shown',
+                expect.objectContaining({
+                    feedback_surface: 'mcp_analytics',
+                    feedback_entry_point: 'session_review_prompt',
+                    mcp_analytics_tab: 'sessions',
+                    $survey_id: survey.id,
+                    $survey_submission_id: expect.any(String),
+                })
+            )
+            expect(posthog.displaySurvey).not.toHaveBeenCalled()
+            loadSurvey()
+            jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)
+            expect(jest.mocked(posthog.capture).mock.calls.filter(([name]) => name === 'survey shown')).toHaveLength(1)
+        }
+    )
 
     it.each(['complete', 'dismiss'] as const)(
         'captures the displayed copy and placement throughout a %s submission',
