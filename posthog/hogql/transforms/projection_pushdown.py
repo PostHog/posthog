@@ -20,7 +20,7 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
     Each pass runs these phases per query:
 
     Phase 1 - Register: Map subquery types to AST nodes for demand tracking
-    Phase 2 - Collect: Gather column demands from WHERE/GROUP BY/ORDER BY/etc
+    Phase 2 - Collect: Gather column demands from every clause that can reference a column
     Phase 3 - Propagate: For demanded columns, visit their source to propagate to child queries
     Phase 4 - Recurse: Visit child subqueries (repeat phases 1-4)
     Phase 5 - Prune: Remove unreferenced asterisk columns from this query (second pass only)
@@ -60,13 +60,26 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
                 self.visit(expr)
         if node.having:
             self.visit(node.having)
+        if node.qualify:
+            self.visit(node.qualify)
         if node.order_by:
             for expr in node.order_by:
+                self.visit(expr)
+        if node.interpolate:
+            for expr in node.interpolate:
                 self.visit(expr)
         if node.limit:
             self.visit(node.limit)
         if node.offset:
             self.visit(node.offset)
+        if node.limit_by:
+            self.visit(node.limit_by)
+        if node.array_join_list:
+            for expr in node.array_join_list:
+                self.visit(expr)
+        if node.window_exprs:
+            for window_expr in node.window_exprs.values():
+                self.visit(window_expr)
 
         if node.select_from:
             self._collect_join_constraint_column_demands(node.select_from)
