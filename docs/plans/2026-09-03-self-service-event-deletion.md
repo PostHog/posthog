@@ -51,23 +51,19 @@ The deletion authority should be an immutable snapshot on `DataDeletionRequest`,
 
 A saved view has independent edit, deletion, and materialization behavior. Referencing it would allow the query to change between review and execution unless the deletion workflow copied it. Storing the snapshot directly provides a smaller and clearer audit boundary.
 
-Add fields equivalent to:
+Add a dedicated request type and fields equivalent to:
 
 ```python
-class DataDeletionRequestOrigin(models.TextChoices):
-    DJANGO_ADMIN = "django_admin"
-    SELF_SERVICE = "self_service"
+class RequestType(models.TextChoices):
+    HOGQL_EVENT_REMOVAL = "hogql_event_removal"
 
-origin = models.CharField(...)
 hogql_query = models.TextField(blank=True, default="")
 hogql_variables = models.JSONField(blank=True, default=dict)
 ```
 
 The exact query representation should match the SQL editor's existing `HogQLQuery` shape. If variable values contain typed query nodes, store the complete serialized variables rather than a flattened value map.
 
-Keep `created_by_staff` as a permanent, independent audit field. It records whether the actor was PostHog staff, while `origin` records which surface created the request. A PostHog employee acting as a customer through the product therefore creates a request with `origin = self_service` and `created_by_staff = true`.
-
-The product creation path derives `created_by_staff` from the authenticated actor and never accepts it from the request body. Existing rows should migrate to `origin = django_admin` only after confirming that Django Admin was their only creation path.
+The `hogql_event_removal` request type distinguishes query-backed product requests from existing admin-created event-removal requests without a redundant origin field. Keep `created_by_staff` as an independent audit field, including when a staff member acts through the product. Existing rows need no backfill because their request types remain unchanged.
 
 Changing the query or variables must reset the request to draft, clear approval and cached preview data, and invalidate any compiled-query cache. Approved and later requests remain immutable.
 
@@ -96,11 +92,10 @@ The queueing job constructs the outer statement from trusted constants and embed
 
 ```sql
 INSERT INTO adhoc_events_deletion
-    (team_id, uuid, source, source_id)
+    (team_id, uuid, data_deletion_request_id)
 SELECT
     %(request_team_id)s,
     selected.uuid,
-    'data_deletion_request',
     %(request_id)s
 FROM (
     /* parameterized SQL emitted by the HogQL compiler */
@@ -115,8 +110,7 @@ The outer query owns:
 
 - The destination table.
 - The queued `team_id`.
-- The `source` value.
-- The `source_id` value.
+- The `data_deletion_request_id` value.
 - Workload and resource settings.
 
 The inner query owns only the UUID set.
@@ -151,27 +145,13 @@ A separate user limits the impact of a parser, compiler, or query-composition de
 
 The query should run under an offline workload with server-controlled limits for execution time, memory, bytes read, temporary disk, threads, and concurrency. Settings constraints must prevent the compiled inner query from weakening those limits.
 
-## Queue provenance
+## Queue request association
 
-Extend `adhoc_events_deletion` with:
+`adhoc_events_deletion` has a nullable `data_deletion_request_id` column. Query-backed rows set it to `DataDeletionRequest.id` while pending. The processed replacement row written by `deletes_job` omits it, so `NULL` means processed. The field is an active queue association and processing marker, not permanent row-level provenance.
 
-```sql
-source LowCardinality(String) DEFAULT 'legacy',
-source_id Nullable(UUID)
-```
+The field does not participate in the deletion dictionary key. The dictionary continues to use `(team_id, uuid)`. Durable audit history remains on `DataDeletionRequest`.
 
-Product-created deletion rows use:
-
-```text
-source = data_deletion_request
-source_id = DataDeletionRequest.id
-```
-
-`source` explains which subsystem queued the row. `source_id` identifies the exact request, which already records the actor, project, query, approval, and execution history.
-
-These columns do not participate in the deletion dictionary key. The dictionary continues to use `(team_id, uuid)`.
-
-The ClickHouse migration must ship in a migration-only PR. It also updates the local schema and HCL definitions so local development matches production.
+The migration shipped separately and updated the local schema and HCL definitions.
 
 ## Retry and consistency semantics
 
@@ -181,8 +161,8 @@ The workflow treats duplicate `(team_id, uuid)` candidates as idempotent:
 
 - `deletes_job` performs a membership lookup rather than one action per queue row.
 - The dictionary input should explicitly collapse duplicate pending keys if the dictionary source does not already guarantee deterministic key selection.
-- Progress and verification counts should count distinct UUIDs for the request.
-- A retry reuses the same `source_id` and immutable query snapshot.
+- Progress checks must read replacement-aware state with `FINAL` or equivalent `argMax` logic so processed rows do not appear pending before merges complete.
+- A retry reuses the same `data_deletion_request_id` and immutable query snapshot.
 - The request moves to `queued` only after a successful queueing response.
 - An uncertain failure remains retryable and never marks the request complete.
 
@@ -201,9 +181,9 @@ GET  data_deletion_requests
 GET  data_deletion_requests/:id
 ```
 
-The server derives the team through `self.context["get_team"]()` and derives the actor and `created_by_staff` from the authenticated request. The create serializer must not accept operational fields such as `team_id`, `origin`, `created_by`, `created_by_staff`, approval state, status, or execution mode.
+The server derives the team through `self.context["get_team"]()` and derives the actor and `created_by_staff` from the authenticated request. The create serializer must not accept operational fields such as `team_id`, `request_type`, `created_by`, `created_by_staff`, approval state, status, or execution mode. It assigns `hogql_event_removal` server-side.
 
-The API requires a dedicated destructive permission rather than general SQL-editor access. List and detail queries must filter by the current team. The product API may expose only requests appropriate for customer visibility, while Django Admin continues to expose every origin.
+The API requires a dedicated destructive permission rather than general SQL-editor access. List and detail queries must filter by the current team. The product API exposes only `hogql_event_removal` requests, while Django Admin can inspect every request type.
 
 Preview must be rate-limited and use the normal query-cost controls. Creation must guard against replay and double submission. A client-generated idempotency key or a uniqueness constraint over an immutable submission identifier should prevent accidental duplicate requests.
 
@@ -214,11 +194,11 @@ Expose product-created deletion requests as a team-scoped HogQL table named `dat
 The table must:
 
 - Apply the current HogQL team scope before returning rows.
-- Expose only `origin = self_service` requests.
+- Expose only `request_type = hogql_event_removal` requests.
 - Use the normal HogQL resource access controls.
 - Exclude internal notes, approval comments, Dagster identifiers, and other operator-only metadata.
 - Expose stable customer-facing fields such as request ID, status, query, selected count, creator, creation time, approval time, queue time, completion time, and failure state.
-- Preserve `created_by_staff` so an employee acting through the product remains identifiable without changing the creation origin.
+- Preserve `created_by_staff` so an employee acting through the product remains identifiable without changing the request type.
 
 The initial schema should prefer explicit columns over a serialized model payload. Field names and status values become a customer-facing query contract once released.
 
@@ -280,23 +260,22 @@ After submission, navigate to a deletion-request detail surface showing status, 
 
 Deletion requests should appear in PostHog's activity log with events for creation, submission, approval, queueing, failure, retry, and completion. Activity payloads should record identifiers and state transitions, not the full query or UUID set.
 
-Django Admin should display and filter by `origin`, `created_by_staff`, `source_id`, actor, project, approval mode, and latest Dagster run. The two provenance dimensions remain separate throughout the request lifecycle.
+Django Admin should display and filter by request type, `created_by_staff`, actor, project, approval mode, and latest Dagster run. Query-backed requests are inspectable there but excluded from the legacy creation form.
 
 ## Delivery sequence
 
-### 1. ClickHouse migration PR
+### 1. ClickHouse queue association (completed)
 
-- Add `source` and `source_id` to `adhoc_events_deletion`.
-- Update local schema and HCL definitions.
-- Verify dictionary behavior with duplicate active keys.
-- Keep this PR migration-only.
+- Add nullable `data_deletion_request_id` to `adhoc_events_deletion` (#98213).
+- Include the request ID in deferred request queue inserts (#100385).
+- Leave it unset on processed replacement rows so `NULL` represents processed state.
 
 ### 2. Postgres model PR
 
-- Add request origin and immutable HogQL snapshot fields.
+- Add `hogql_event_removal` and immutable HogQL snapshot fields.
 - Define criteria-reset and immutability rules.
 - Add model-level validation for query-backed event removals.
-- Keep `created_by_staff` and populate it independently from the creation origin.
+- Keep `created_by_staff` and populate it independently from the request type.
 - Preserve compatibility with existing admin-created requests.
 
 ### 3. ClickHouse executor and infrastructure PRs
@@ -337,11 +316,11 @@ Infrastructure grants should land before application code uses them. Application
 ### Model and API
 
 - A request stores an immutable query and variable snapshot.
-- Product creation assigns the authenticated team, actor, staff status, origin, and deferred mode.
-- A staff user acting through the product produces `origin = self_service` and `created_by_staff = true`.
+- Product creation assigns the authenticated team, actor, staff status, `hogql_event_removal` type, and deferred mode.
+- A staff user acting through the product produces `request_type = hogql_event_removal` and `created_by_staff = true`.
 - Cross-team list and detail access fails closed.
 - The HogQL table returns only self-service requests for the current team and omits operator-only fields.
-- Customers cannot assign status, approval, origin, execution mode, or team.
+- Customers cannot assign status, approval, request type, execution mode, or team.
 - Criteria edits clear approval and preview state.
 - Duplicate submissions return the existing request.
 - Concurrent submissions cannot exceed the active-request limit.
@@ -388,7 +367,7 @@ User-facing documentation must explain:
 - That deletion is irreversible.
 - Which event copies and derived data the workflow covers.
 
-Operational documentation must cover credential provisioning, resource limits, retries, queue inspection by `source_id`, schedule dependencies, and emergency shutdown.
+Operational documentation must cover credential provisioning, resource limits, retries, queue inspection by `data_deletion_request_id`, schedule dependencies, and emergency shutdown.
 
 ## Open questions
 
