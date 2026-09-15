@@ -2517,6 +2517,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 'Browser',
                                 WebStatsBreakdown.Browser
                             ),
+                            createTableTab(
+                                TileId.DEVICES,
+                                DeviceTab.IN_APP_BROWSER,
+                                'In-app browsers',
+                                'In-app browser',
+                                WebStatsBreakdown.InAppBrowser
+                            ),
                             createTableTab(TileId.DEVICES, DeviceTab.OS, 'OS', 'OS', WebStatsBreakdown.OS),
                             createTableTab(
                                 TileId.DEVICES,

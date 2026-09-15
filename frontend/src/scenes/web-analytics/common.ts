@@ -377,6 +377,7 @@ export enum SourceTab {
 
 export enum DeviceTab {
     BROWSER = 'BROWSER',
+    IN_APP_BROWSER = 'IN_APP_BROWSER',
     OS = 'OS',
     DEVICE_TYPE = 'DEVICE_TYPE',
     VIEWPORT = 'VIEWPORT',
@@ -430,6 +431,7 @@ export const GEOGRAPHY_DRILL_DOWN_MAP: Partial<Record<WebStatsBreakdown, Geograp
 export const DEVICE_DRILL_DOWN_MAP: Partial<Record<WebStatsBreakdown, DeviceTab>> = {
     [WebStatsBreakdown.DeviceType]: DeviceTab.BROWSER,
     [WebStatsBreakdown.Browser]: DeviceTab.OS,
+    [WebStatsBreakdown.InAppBrowser]: DeviceTab.OS,
     [WebStatsBreakdown.OS]: DeviceTab.VIEWPORT,
 }
 
@@ -471,6 +473,8 @@ export const webStatsBreakdownToPropertyName = (
             return { key: '$entry_utm_term', type: PropertyFilterType.Session }
         case WebStatsBreakdown.Browser:
             return { key: '$browser', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.InAppBrowser:
+            return { key: '$webview_app', type: PropertyFilterType.Event }
         case WebStatsBreakdown.OS:
             return { key: '$os', type: PropertyFilterType.Event }
         case WebStatsBreakdown.Viewport:
@@ -653,6 +657,8 @@ export const getDisplayColumnName = (column: string, breakdownBy?: WebStatsBreak
                 return 'UTM Content'
             case WebStatsBreakdown.Browser:
                 return 'Browser'
+            case WebStatsBreakdown.InAppBrowser:
+                return 'In-app browser'
             case WebStatsBreakdown.OS:
                 return 'OS'
             case WebStatsBreakdown.Viewport:

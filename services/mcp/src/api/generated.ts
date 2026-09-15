@@ -5038,6 +5038,7 @@ export namespace Schemas {
       FirstPageviewUTMContent: 'FirstPageviewUTMContent',
       FirstPageviewUTMSourceMediumCampaign: 'FirstPageviewUTMSourceMediumCampaign',
       Browser: 'Browser',
+      InAppBrowser: 'InAppBrowser',
       Os: 'OS',
       Viewport: 'Viewport',
       DeviceType: 'DeviceType',

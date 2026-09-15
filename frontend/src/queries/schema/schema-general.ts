@@ -3862,6 +3862,7 @@ export enum WebStatsBreakdown {
     FirstPageviewUTMContent = 'FirstPageviewUTMContent',
     FirstPageviewUTMSourceMediumCampaign = 'FirstPageviewUTMSourceMediumCampaign',
     Browser = 'Browser',
+    InAppBrowser = 'InAppBrowser',
     OS = 'OS',
     Viewport = 'Viewport',
     DeviceType = 'DeviceType',
