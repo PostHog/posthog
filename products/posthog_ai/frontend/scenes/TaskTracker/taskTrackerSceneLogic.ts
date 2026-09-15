@@ -30,6 +30,8 @@ import type { IntegrationType } from '../../../../../frontend/src/types'
 import { attachedContextItemKey, attachedContextLogic, runStreamLogic } from '../../api/logics'
 import type { SuggestionGroup, SuggestionItem } from '../../api/primitives'
 import { DEFAULT_HEADLINES, pickHeadline } from '../../api/primitives'
+import { composerOverrideLogic } from '../../logics/composerOverrideLogic'
+import type { ComposerOverride } from '../../logics/composerOverrideLogic'
 import { composerSeedLogic } from '../../logics/composerSeedLogic'
 import type { ComposerSeed } from '../../logics/composerSeedLogic'
 import { modelCatalogueLogic } from '../../logics/modelCatalogueLogic'
@@ -160,6 +162,7 @@ const EMPTY_TASK_FORM: TaskCreateForm = {
 export interface taskTrackerSceneLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     contextItems: AttachedContextItem[] // attachedContextLogic
+    composerOverride: ComposerOverride | null // composerOverrideLogic
     seed: ComposerSeed | null // composerSeedLogic
     integrations: IntegrationType[] | null // integrationsLogic
     catalogue: ModelChoiceApi[] // modelCatalogueLogic
@@ -182,6 +185,7 @@ export interface taskTrackerSceneLogicValues {
     displayEffort: ReasoningEffortEnumApi
     displayHeadline: string
     displayModel: string
+    effectiveRepositoryConfig: RepositoryConfig
     hasDesktopAccess: boolean
     headlineSeed: number
     isDefaultSelection: boolean
@@ -344,6 +348,10 @@ export interface taskTrackerSceneLogicMeta {
             catalogue: ModelChoiceApi[]
         ) => string
         isDefaultSelection: (newTaskData: TaskCreateForm) => boolean
+        effectiveRepositoryConfig: (
+            newTaskData: TaskCreateForm,
+            composerOverride: ComposerOverride | null
+        ) => RepositoryConfig
     }
 }
 
@@ -378,6 +386,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             ['currentProjectId'],
             composerSeedLogic(props),
             ['seed'],
+            composerOverrideLogic,
+            ['composerOverride'],
             welcomeOverrideLogic,
             ['overrideHeadlines'],
             modelCatalogueLogic,
@@ -536,6 +546,15 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     ? getRuntimeAdapterForModel(catalogue, displayModel)
                     : defaultRuntimeAdapter,
         ],
+        // What the warm and create requests actually send. A host that hides the picker never scopes its
+        // tasks to a repo, but the form can still hold one: the auto-select restores the remembered pick,
+        // and the side panel's composer shares this logic instance. The pick is dropped here rather than
+        // cleared from the form, so the host that does show the picker keeps it.
+        effectiveRepositoryConfig: [
+            (s) => [s.newTaskData, s.composerOverride],
+            (newTaskData: TaskCreateForm, composerOverride: ComposerOverride | null): RepositoryConfig =>
+                composerOverride?.hideRepositorySelector ? {} : newTaskData.repositoryConfig,
+        ],
         // Neither picker touched: submit omits the triple so the backend resolves it, which also
         // lets a warm run provisioned under the default match.
         isDefaultSelection: [
@@ -572,7 +591,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // accepts AI data processing.
             if (!values.activeCreation && values.dataProcessingAccepted) {
                 const request = buildWarmRequest(
-                    values.newTaskData,
+                    { ...values.newTaskData, repositoryConfig: values.effectiveRepositoryConfig },
                     values.catalogue,
                     values.displayModel,
                     values.displayEffort
@@ -626,7 +645,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 return
             }
 
-            const { description, repositoryConfig, permissionMode } = values.newTaskData
+            const { description, permissionMode } = values.newTaskData
+            const repositoryConfig = values.effectiveRepositoryConfig
 
             if (!description.trim()) {
                 lemonToast.error('Description is required')
