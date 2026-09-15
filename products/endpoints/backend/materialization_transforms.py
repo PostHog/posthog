@@ -1289,6 +1289,7 @@ class MaterializedColumn:
 
     expr: ast.Expr
     is_aggregate: bool
+    name: str  # the column name the endpoint declares, which a materialized read must keep
     reaggregate_fn: Optional[str] = None  # e.g. "sum" for count/sum, "min" for min, etc.
 
 
@@ -1309,11 +1310,12 @@ def transform_select_for_materialized_table(select_exprs: list[ast.Expr], team: 
         is_agg = agg_name is not None
         reagg = get_reaggregation(agg_name) if agg_name else None
         reaggregate_fn = reagg.reaggregate_fn if reagg else None
-        if isinstance(expr, ast.Alias):
-            field = ast.Field(chain=[expr.alias])
-        else:
-            field = ast.Field(chain=[expr.to_hogql()])
-        result.append(MaterializedColumn(expr=field, is_aggregate=is_agg, reaggregate_fn=reaggregate_fn))
+        name = expr.alias if isinstance(expr, ast.Alias) else expr.to_hogql()
+        result.append(
+            MaterializedColumn(
+                expr=ast.Field(chain=[name]), is_aggregate=is_agg, name=name, reaggregate_fn=reaggregate_fn
+            )
+        )
 
     return result
 
