@@ -581,15 +581,15 @@ class _MetricAttributeKeySerializer(serializers.Serializer):
     name = serializers.CharField(
         help_text="Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name')."
     )
-    series_count = serializers.IntegerField(
-        help_text="Number of distinct recent series with this attribute, based on series metadata."
+    value_count = serializers.IntegerField(
+        help_text="Number of distinct values for this attribute in recent series metadata."
     )
 
 
 class _MetricAttributeKeysResponseSerializer(serializers.Serializer):
     results = _MetricAttributeKeySerializer(
         many=True,
-        help_text="Distinct attribute keys (datapoint and resource attributes merged), ordered by series count descending.",
+        help_text="Distinct attribute keys (datapoint and resource attributes merged), ordered by distinct value count descending.",
     )
     count = serializers.IntegerField(help_text="Number of keys returned.")
 

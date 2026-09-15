@@ -94416,12 +94416,12 @@ export namespace Schemas {
     export interface _MetricAttributeKey {
       /** Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name'). */
       name: string;
-      /** Number of distinct recent series with this attribute, based on series metadata. */
-      series_count: number;
+      /** Number of distinct values for this attribute in recent series metadata. */
+      value_count: number;
     }
 
     export interface _MetricAttributeKeysResponse {
-      /** Distinct attribute keys (datapoint and resource attributes merged), ordered by series count descending. */
+      /** Distinct attribute keys (datapoint and resource attributes merged), ordered by distinct value count descending. */
       results: _MetricAttributeKey[];
       /** Number of keys returned. */
       count: number;

@@ -5193,9 +5193,9 @@ snapshots:
     mcp-apps-workflows--list--light:
         hash: v1.k794b7964.477017f5e06d957b8cebbbe9105e96e82c52bdf7ff512ec84d13f4db71f7916c.-hG1WABHKvQyC5AFOmyjA9Lj2lWdnz67KScAAuRz_Ps
     metrics-group-by--default--dark:
-        hash: v1.k794b7964.ee00c0f572067d18b53141dce72c182c640f399bd746abce9b2098503dbb62aa.Bkt1qCLQus_6z8XlmJ6Ax5cQjvOkEdyrQDtZKyV_KJY
+        hash: v1.k794b7964.ce83d5c6298b08ac62a7eeb1365881f3eaad9e77a2ffc762a8683bb5360cf49f.ZybY7nObSqgkgX4qZO0IbHSimFba2tRWMI3lKApT73o
     metrics-group-by--default--light:
-        hash: v1.k794b7964.e5d6a1978e274f76e13a0476f07c2956302b2b84bc318e38c55c72bd2839d8e9.sZnt-HOnAKGE8421CprrJcFq9wQut5SU7DSEi_6Kqiw
+        hash: v1.k794b7964.6569c85c82c01e61526ea93e8d61158da38a1c465eac8cafad2b87e2d09a287a.RVDxyDYqLRvzRQdz3BZmwkiYQQ0pCllfzH6Z5xQJiGw
     metrics-metricscatalog--default--dark:
         hash: v1.k794b7964.a1464d9a9bef8d961229aa836b02bba22e3baf5683fd6928bad2043e661fb63c.uJFa3cShWZCenILbuE_EpT0yJMsK1lbSZhPfe0ghE0Y
     metrics-metricscatalog--default--light:
