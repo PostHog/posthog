@@ -17543,7 +17543,6 @@ export namespace Schemas {
      * * `waiting_for_data` - waiting_for_data
      * * `ready` - ready
      * * `not_applicable` - not_applicable
-     * * `unknown` - unknown
      */
     export type CapabilityStateStateEnum = typeof CapabilityStateStateEnum[keyof typeof CapabilityStateStateEnum];
 
@@ -17554,7 +17553,6 @@ export namespace Schemas {
       WaitingForData: 'waiting_for_data',
       Ready: 'ready',
       NotApplicable: 'not_applicable',
-      Unknown: 'unknown',
     } as const;
 
     export interface CapabilityState {
@@ -22224,7 +22222,6 @@ export namespace Schemas {
       delete_insights?: boolean;
       /** First-party surface that created a dashboard from the web source.
        *
-       * * `unknown` - unknown
        * * `templates` - templates
        * * `experiments` - experiments
        * * `metrics` - metrics

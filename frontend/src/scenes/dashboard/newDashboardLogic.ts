@@ -402,7 +402,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             template,
             variables,
             redirectAfterCreation = true,
-            creationContext = 'templates',
+            creationContext = null,
         }) => {
             actions.setIsLoading(true)
             const isMetricTemplateTestVariant =
@@ -423,7 +423,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/create_from_template_json`,
                     {
                         template: dashboardJSON,
-                        source_context: creationContext,
+                        source_context: creationContext || 'templates',
                         _create_in_folder: UNFILED_DASHBOARDS_FOLDER,
                     }
                 )

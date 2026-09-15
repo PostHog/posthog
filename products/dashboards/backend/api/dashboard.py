@@ -122,7 +122,6 @@ from products.dashboards.backend.api.widget_openapi_serializers import (
 from products.dashboards.backend.constants import (
     DASHBOARD_GRID_COLUMN_COUNT,
     DASHBOARD_SOURCE_CONTEXT_CHOICES,
-    DEFAULT_DASHBOARD_SOURCE_CONTEXT,
     MAX_WIDGETS_BATCH_SIZE,
 )
 from products.dashboards.backend.facade.api import DashboardTileBasicSerializer
@@ -1529,7 +1528,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         write_only=True,
         required=False,
         allow_null=True,
-        help_text="First-party surface that created a dashboard from the web source.",
+        help_text="Surface that created the dashboard. Reported on the `dashboard created` event.",
     )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
@@ -1684,17 +1683,20 @@ class DashboardSerializer(DashboardMetadataSerializer):
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, dashboard)
 
+        event_properties = {
+            **dashboard.get_analytics_metadata(),
+            "from_template": bool(use_template),
+            "template_key": use_template,
+            "duplicated": bool(use_dashboard),
+            "duplicated_from_dashboard_id": use_dashboard,
+        }
+        if source_context is not None:
+            event_properties["source_context"] = source_context
+
         report_user_action(
             request.user,
             "dashboard created",
-            {
-                **dashboard.get_analytics_metadata(),
-                "from_template": bool(use_template),
-                "template_key": use_template,
-                "duplicated": bool(use_dashboard),
-                "duplicated_from_dashboard_id": use_dashboard,
-                "source_context": source_context or DEFAULT_DASHBOARD_SOURCE_CONTEXT,
-            },
+            event_properties,
             team=dashboard.team,
             request=request,
         )
@@ -3606,10 +3608,10 @@ class DashboardsViewSet(
             return None
 
     @staticmethod
-    def _validated_source_context(raw_source_context: Any) -> str:
+    def _validated_source_context(raw_source_context: Any) -> str | None:
         """This endpoint takes a raw JSON body rather than the serializer, so the choices are enforced here."""
         if raw_source_context is None or raw_source_context == "":
-            return DEFAULT_DASHBOARD_SOURCE_CONTEXT
+            return None
         if raw_source_context not in DASHBOARD_SOURCE_CONTEXT_CHOICES:
             raise serializers.ValidationError({"source_context": "Invalid value provided"})
         return raw_source_context
@@ -3643,17 +3645,20 @@ class DashboardsViewSet(
             else:
                 template_scope_props = {"template_scope": raw_scope if isinstance(raw_scope, str) else str(raw_scope)}
 
+            event_properties = {
+                **dashboard.get_analytics_metadata(),
+                "from_template": True,
+                "template_key": dashboard_template.template_name,
+                **template_scope_props,
+                "duplicated": False,
+            }
+            if source_context is not None:
+                event_properties["source_context"] = source_context
+
             report_user_action(
                 request.user,
                 "dashboard created",
-                {
-                    **dashboard.get_analytics_metadata(),
-                    "from_template": True,
-                    "template_key": dashboard_template.template_name,
-                    **template_scope_props,
-                    "duplicated": False,
-                    "source_context": source_context,
-                },
+                event_properties,
                 team=dashboard.team,
                 request=request,
             )

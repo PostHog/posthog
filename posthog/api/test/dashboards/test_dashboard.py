@@ -1766,7 +1766,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             "dashboard created",
             {
                 "created_at": mock.ANY,
-                "source_context": "unknown",
                 "creation_mode": "template",
                 "dashboard_id": response["id"],
                 "duplicated": False,
@@ -1790,7 +1789,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         reported_properties = mock_report_user_action.call_args[0][2]
         assert reported_properties["source_context"] == "experiments"
 
-    def test_dashboard_creation_rejects_invalid_source_context(self):
+    def test_dashboard_creation_rejects_unknown_source_context(self):
         self.dashboard_api.create_dashboard(
             {"name": "another", "source_context": "not-a-surface"},
             expected_status=status.HTTP_400_BAD_REQUEST,
@@ -2813,7 +2812,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert expected_dashboards_on_insight == [dashboard_two_id]
 
     @patch("products.dashboards.backend.api.dashboard.report_user_action")
-    def test_create_from_template_json_defaults_source_context(self, mock_report_user_action) -> None:
+    def test_create_from_template_json_omits_unknown_source_context(self, mock_report_user_action) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
             {"template": valid_template},
@@ -2821,7 +2820,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert response.status_code == 200, response.content
 
         reported_properties = mock_report_user_action.call_args[0][2]
-        assert reported_properties["source_context"] == "unknown"
+        assert "source_context" not in reported_properties
 
     @patch("products.dashboards.backend.api.dashboard.report_user_action")
     def test_create_from_template_json(self, mock_report_user_action) -> None:

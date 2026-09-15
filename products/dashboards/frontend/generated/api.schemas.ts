@@ -508,7 +508,6 @@ export interface DashboardCustomizationApi {
 }
 
 /**
- * * `unknown` - unknown
  * * `templates` - templates
  * * `experiments` - experiments
  * * `metrics` - metrics
@@ -518,7 +517,6 @@ export interface DashboardCustomizationApi {
 export type SourceContextEnumApi = (typeof SourceContextEnumApi)[keyof typeof SourceContextEnumApi]
 
 export const SourceContextEnumApi = {
-    Unknown: 'unknown',
     Templates: 'templates',
     Experiments: 'experiments',
     Metrics: 'metrics',
@@ -624,9 +622,8 @@ export interface DashboardApi {
     use_dashboard?: number | null
     /** When deleting, also delete insights that are only on this dashboard. */
     delete_insights?: boolean
-    /** First-party surface that created a dashboard from the web source.
+    /** Surface that created the dashboard. Reported on the `dashboard created` event.
      *
-     * * `unknown` - unknown
      * * `templates` - templates
      * * `experiments` - experiments
      * * `metrics` - metrics

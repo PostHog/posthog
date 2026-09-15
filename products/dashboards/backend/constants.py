@@ -54,12 +54,10 @@ WIDGET_DATE_FROM_LABELS: dict[str, str] = {
     "-90d": "Last 90 days",
 }
 
-# A detail for `source` when a first-party web surface creates the dashboard.
+# Surface that creates a dashboard, reported on the `dashboard created` event.
 DASHBOARD_SOURCE_CONTEXT_POSTHOG_AI = "posthog_ai"
-DEFAULT_DASHBOARD_SOURCE_CONTEXT = "unknown"
 
 DASHBOARD_SOURCE_CONTEXT_CHOICES: tuple[str, ...] = (
-    DEFAULT_DASHBOARD_SOURCE_CONTEXT,
     "templates",
     "experiments",
     "metrics",
