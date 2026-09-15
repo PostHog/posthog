@@ -22,7 +22,7 @@ from posthog.schema import ExperimentQuery
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.event_usage import groups
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
@@ -634,7 +634,15 @@ def _cancel_metric_query_sync(recalculation_id: str, metric_uuid: str, attempt: 
     """Kill the ClickHouse query the metric's calc left running, so the abandoned attempt stops reading."""
     close_old_connections()
     state = _get_recalc_state(recalculation_id)
-    cancel_query_on_cluster(state.team_id, _client_query_id(recalculation_id, metric_uuid, attempt))
+    # This runs in its own thread, so it inherits none of the calc body's tags. Untagged statements raise in
+    # local dev and log a stack trace each in production.
+    with tags_context(
+        trigger="warming/experiment_metrics_recalculation",
+        team_id=state.team_id,
+        product=Product.EXPERIMENTS,
+        feature=Feature.CACHE_WARMUP,
+    ):
+        cancel_query_on_cluster(state.team_id, _client_query_id(recalculation_id, metric_uuid, attempt))
 
 
 @database_sync_to_async_pool
