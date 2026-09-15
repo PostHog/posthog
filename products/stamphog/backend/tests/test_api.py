@@ -807,7 +807,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
     def test_discovery_without_installation_id_syncs_discovered_installation(
         self, mock_exchange, mock_discover, mock_list
     ) -> None:
-        # Authorize-first: the callback carries no installation_id. The backend discovers the caller's
+        # An authorize callback carries no installation_id. The backend discovers the caller's
         # installations from the OAuth code (GitHub returns only installations of this App the user can
         # reach) and syncs them, so the client never has to supply a forgeable id.
         response = self.client.post(self.url, {"code": "oauth-code", "state": self.state}, format="json")

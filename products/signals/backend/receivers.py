@@ -275,6 +275,10 @@ def close_pr_when_report_dismissed(
     from products.signals.backend.tasks import close_dismissed_report_pr, close_report_tracker_issue  # noqa: PLC0415
 
     prior_status = getattr(instance, "_prior_status", None)
+    # The person who asked for this transition, when a caller set it before the save. GitHub
+    # credits the App for the close, so the comment left beside it is the only place they appear.
+    # Absent on every automated transition (PR webhook, judges, temporal), which stays unattributed.
+    actor_user_id = getattr(instance, "_transition_actor_user_id", None)
     reason = _pr_close_reason(
         instance,
         created=created,
@@ -290,13 +294,17 @@ def close_pr_when_report_dismissed(
         report_id = str(instance.id)
         if getattr(instance, "_status_from_pr_state", False) and instance.status == SignalReport.Status.RESOLVED:
             transaction.on_commit(
-                lambda: close_report_tracker_issue.delay(report_id=report_id, team_id=team_id, completed=True)
+                lambda: close_report_tracker_issue.delay(
+                    report_id=report_id, team_id=team_id, completed=True, actor_user_id=actor_user_id
+                )
             )
         elif instance.status == SignalReport.Status.DELETED:
             # A deleted report leaves the inbox for good, so nothing will ever answer its work
             # item. The issue closes as not done, because no pull request completed the work.
             transaction.on_commit(
-                lambda: close_report_tracker_issue.delay(report_id=report_id, team_id=team_id, completed=False)
+                lambda: close_report_tracker_issue.delay(
+                    report_id=report_id, team_id=team_id, completed=False, actor_user_id=actor_user_id
+                )
             )
         return
 
@@ -308,6 +316,7 @@ def close_pr_when_report_dismissed(
             report_id=report_id,
             team_id=team_id,
             reason=reason,
+            actor_user_id=actor_user_id,
         )
     )
 

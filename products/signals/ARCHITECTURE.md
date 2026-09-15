@@ -1171,7 +1171,7 @@ The research flow produces:
   - `verified`
 - **`ActionabilityAssessment`**
   - `explanation`
-  - `actionability`
+  - `actionability` — judged against `backend/report_actionability.py`, the criteria the scout harness prompt renders too, so an authored report and a researched one are held to one standard
   - `already_addressed`
 - **`PriorityAssessment`**
   - `explanation`

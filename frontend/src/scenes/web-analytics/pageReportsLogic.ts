@@ -662,7 +662,10 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
         pagesUrls: [
             [] as PageURLSearchResult[],
             {
-                loadPagesUrls: async ({ searchTerm }: { searchTerm: string }, breakpoint) => {
+                loadPagesUrls: async (
+                    { searchTerm }: { searchTerm: string },
+                    breakpoint
+                ): Promise<PageURLSearchResult[]> => {
                     await breakpoint(100) // debounce the typing
                     const dateRange = {
                         date_from: values.dateFilter.dateFrom,
