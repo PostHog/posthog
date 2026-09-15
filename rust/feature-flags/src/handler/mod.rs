@@ -8,6 +8,7 @@ pub mod decoding;
 pub mod error_tracking;
 pub mod evaluation;
 pub mod flags;
+pub mod override_property_defs;
 pub mod phases;
 pub mod properties;
 pub mod session_recording;
@@ -262,6 +263,18 @@ async fn process_request_inner(
                 tracing::debug!("Flags filtered: {} flags found", filtered_flags.flags.len());
 
                 let property_overrides = properties::prepare_overrides(&context, &request)?;
+
+                // Taxonomy writes start here but do not wait; evaluation below is the
+                // response path. Off when SKIP_WRITES is set or OVERRIDE_PERSON_PROPERTY_DEFS=false.
+                override_property_defs::maybe_spawn_register_override_person_properties(
+                    *context.state.config.skip_writes
+                        || !*context.state.config.override_person_property_defs,
+                    context.state.redis_client.clone(),
+                    context.state.database_pools.non_persons_writer.clone(),
+                    team.id,
+                    team.project_id.unwrap_or(i64::from(team.id)),
+                    request.person_properties.as_ref(),
+                );
 
                 // Evaluate flags (this will return empty if is_flags_disabled is true)
                 let response = {
