@@ -134,7 +134,7 @@ Planned Tier B collectors:
 | 60s | memory contexts (Aurora) | A | `aurora_stat_memctx_usage()` — backends > 64 MB |
 | 60s | system cpu / memory / disk | A | `pg_proctab`: `pg_cputime`, `pg_memusage`, `pg_loadavg`, `pg_diskusage` |
 | 60s | backend cpu | A | `pg_proctab()` per pid joined to `pg_stat_activity` |
-| 30s | logs | B | CloudWatch Logs (RDS) or files: `ts_query_durations` (latency quantiles), `ts_log_plans` (auto_explain), `ts_autovacuum_runs`, `ts_checkpoints`, `ts_temp_files`, `ts_log_errors`, `ts_logs` counts, deadlock/lock-wait/cancel events |
+| 30s | logs | B | CloudWatch Logs (RDS) or files: `ts_query_latency` (per-minute latency histograms, the source of quantiles), `ts_query_durations` (slow statements over `sample_rows_over_ms`), `ts_log_plans` (auto_explain), `ts_autovacuum_runs`, `ts_checkpoints`, `ts_temp_files`, `ts_log_errors`, `ts_logs` counts, deadlock/lock-wait/cancel events |
 
 On Aurora, `query_stats` reads `aurora_stat_statements` (adds Aurora-storage I/O
 and per-query peak memory) and `activity_samples` reads `aurora_stat_activity`
@@ -173,7 +173,7 @@ What we do instead:
   running it and for how long (`active_over_1s`, `active_over_10s`,
   `max_query_age_s`) — a sampled view of the tail, ASH-style;
 * real quantiles come from sampled statement logs (phase 4):
-  `log_min_duration_sample` + `log_statement_sample_rate` → `ts_query_durations`
+  `log_min_duration_sample` + `log_statement_sample_rate` → `ts_query_latency` (histograms) and `ts_query_durations` (slow tail)
   keyed by the same `query_id`, from which the API computes p50/p95/p99.
 
 **Cumulative counters** — always stored as per-interval deltas. Rows whose every
