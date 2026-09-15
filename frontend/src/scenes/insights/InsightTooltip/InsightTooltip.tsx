@@ -167,11 +167,20 @@ export function InsightTooltip({
         ? getTooltipTitle(seriesData, altRightTitle, formattedDate)
         : null
 
-    const nullBreakdownNotes = seriesData
-        ?.map((s) => getNullBreakdownNotes(s.breakdown_value, breakdownFilter))
-        .find((notes) => notes !== null)
-    const nullBreakdownFootnote = nullBreakdownNotes ? (
-        <div className="table-subtext">{nullBreakdownNotes.explanation}</div>
+    // Rows of a multiple breakdown can each lack a different property, so every explanation is shown.
+    const nullBreakdownExplanations = Array.from(
+        new Set(
+            seriesData
+                ?.map((s) => getNullBreakdownNotes(s.breakdown_value, breakdownFilter)?.explanation)
+                .filter((explanation): explanation is string => !!explanation)
+        )
+    )
+    const nullBreakdownFootnote = nullBreakdownExplanations.length ? (
+        <div className="table-subtext">
+            {nullBreakdownExplanations.map((explanation) => (
+                <div key={explanation}>{explanation}</div>
+            ))}
+        </div>
     ) : null
 
     if (itemizeEntitiesAsColumns) {
