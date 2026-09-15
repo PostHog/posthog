@@ -19,7 +19,6 @@ import { SearchResults } from './SearchResults'
 
 const FALLBACK_EXAMPLE_QUERIES = ['users who got stuck and gave up', 'rage clicking out of frustration']
 
-// Phrased the way this scanner type writes, so the examples match semantically.
 function exampleQueries(scanner: ReplayScanner | null): string[] {
     switch (scanner?.scanner_type) {
         case 'monitor':
@@ -91,7 +90,6 @@ export function ObservationSearch({ className }: { className?: string }): JSX.El
             )}
             data-attr="vision-search"
         >
-            {/* The grid keeps the input width steady when the suggestions column leaves. */}
             <div className="grid gap-4 @3xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
                 <div className="flex flex-col gap-2">
                     <Popover

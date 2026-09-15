@@ -19,9 +19,7 @@ export function isSegment(value: unknown): value is Segment {
     return false
 }
 
-// Matches `(t 123)` and leaked joined variants like `(t 123, 456)`, `(t 34-42)` and `(t 448 to t 2865 and
-// t 3112 to t 3708)`. Wider than the backend's TIMESTAMP_CITATION_RE (backend/temporal/scanners/base.py),
-// which never parsed ranges.
+// Also matches leaked joined variants the backend never parsed: `(t 1, 2)`, `(t 34-42)`, `(t 4 to t 9 and t 12)`.
 const TIMESTAMP_CITATION_RE = /\s*\(\s*t\s*(\d+(?:\s*(?:[,\u2013-]|to|and)\s*t?\s*\d+)*)\s*\)/g
 
 /** Split leaked `(t <sec>)` markers in plain text into chip segments, one chip per cited second. */
@@ -114,7 +112,6 @@ export function citedTimestampRange(text: string, segments: unknown): { startMs:
     return { startMs: Math.min(...timestamps), endMs: Math.max(...timestamps) }
 }
 
-/** The prose alone, for places with no seek controls to spend the markers on. */
 export function stripCitations(text: string, segments?: unknown): string {
     return parseCitedSegments(text, segments)
         .map((segment) => (segment.kind === 'text' ? segment.value : ' '))

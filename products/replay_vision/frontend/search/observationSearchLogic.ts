@@ -37,7 +37,6 @@ export const SEARCH_PAGE_SIZE = 10
 const TOP_MATCH_MARGIN = 0.05
 // The server's error code when the organization has not allowed AI data processing.
 const AI_CONSENT_REQUIRED_CODE = 'ai_data_processing_not_approved'
-// Enough to recall a working phrasing, few enough that the recent group stays about the prompt's height.
 const RECENT_QUERIES_LIMIT = 4
 
 export interface ObservationSearchLogicProps {
@@ -176,7 +175,7 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
                 clearSearch: () => '',
             },
         ],
-        // Null means every scanner. Kept in the URL, not storage, so links and "find similar" start from the scope they name.
+        // Kept in the URL, not storage, so links and "find similar" start from the scope they name.
         scannerId: [
             null as string | null,
             {
@@ -216,7 +215,6 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
                 clearSearch: () => null,
             },
         ],
-        // In this browser only: a cheap way back to a phrasing that found something.
         recentQueries: [
             [] as string[],
             { persist: true },
@@ -309,7 +307,7 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
         },
         setScannerId: () => {
             actions.loadSuggestedQueries()
-            if (values.searchedQuery !== null) {
+            if (values.searchedQuery !== null || values.searching) {
                 actions.search()
             }
         },

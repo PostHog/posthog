@@ -1,6 +1,8 @@
 import { combineUrl } from 'kea-router'
 
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import type { ReplayObservationApi } from '../generated/api.schemas'
 import { ReplayScannerTab } from '../replay_scanners/replayScannerSceneLogic'
@@ -35,7 +37,6 @@ export function similarSearchQuery(observation: ReplayObservationApi): string | 
     if (!result) {
         return null
     }
-    // Timestamps are noise to an embedding, so only the prose between citations is kept.
     const summary = typeof result.summary === 'string' ? stripCitations(result.summary, result.summary_segments) : ''
     const reasoning =
         typeof result.reasoning === 'string' ? stripCitations(result.reasoning, result.reasoning_segments) : ''
@@ -58,6 +59,10 @@ export function searchTabUrl(params: Record<string, string> = {}): string {
 
 const SIMILAR_SEARCH_INTENT_KEY = 'replay-vision.similar-search-intent'
 
+function intentOwner(): string {
+    return `${userLogic.findMounted()?.values.user?.uuid ?? ''}:${teamLogic.findMounted()?.values.currentTeamId ?? ''}`
+}
+
 /** "Find similar" hands its query over through sessionStorage, not the URL: it is prose about a recording and
  * can carry customer names or emails, which must stay out of $current_url, our own replay and browser history
  * (same channel as replay_scanners/goalDraftIntent.ts). The link names the source observation, and storage
@@ -70,7 +75,11 @@ export function markSimilarSearchIntent(observation: ReplayObservationApi): void
     try {
         sessionStorage.setItem(
             SIMILAR_SEARCH_INTENT_KEY,
-            JSON.stringify({ query: similarSearchQuery(observation), sourceObservationId: observation.id })
+            JSON.stringify({
+                query: similarSearchQuery(observation),
+                sourceObservationId: observation.id,
+                owner: intentOwner(),
+            })
         )
     } catch {
         // No storage: the hub opens on its empty state.
@@ -82,7 +91,9 @@ export function consumeSimilarSearchIntent(sourceObservationId: string): string 
         const raw = sessionStorage.getItem(SIMILAR_SEARCH_INTENT_KEY)
         sessionStorage.removeItem(SIMILAR_SEARCH_INTENT_KEY)
         const parsed = raw ? JSON.parse(raw) : null
-        return parsed?.sourceObservationId === sourceObservationId && typeof parsed.query === 'string'
+        return parsed?.sourceObservationId === sourceObservationId &&
+            parsed.owner === intentOwner() &&
+            typeof parsed.query === 'string'
             ? parsed.query
             : null
     } catch {
