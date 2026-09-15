@@ -60,6 +60,27 @@ the streaming path returns a result set (`result_bytes`, `result_rows`), while t
 `query_kind` (`Select` vs `Insert`) is what separates them.
 The Prometheus `posthog_notebooks_frame_object_bytes` histogram is the mode-independent view of the same thing, but only on the success path.
 
+## Kernel sandbox usage events
+
+Modal's own metrics count notebook sandboxes, but they carry no team, no size, and no price.
+Two events from `kernel_sandbox_usage.py` carry those, so product analytics can show sandbox starts, sandbox-hours, and an estimated price per team.
+
+| Event                             | Fires when                                                                                           | Main properties                                                                                                |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `notebook kernel sandbox started` | The provider returns a new sandbox, before the kernel starts inside it                               | `backend`, `cpu_cores`, `memory_gb`, `compute_preset`, `hourly_price_usd`, `ttl_seconds`, `provision_seconds`  |
+| `notebook kernel sandbox ended`   | PostHog stops tracking the sandbox: a stop, a failure, a discard, or the status poll finding it gone | `ended_reason`, `sandbox_still_running`, `tracked_seconds`, `estimated_runtime_seconds`, `estimated_price_usd` |
+
+`KernelRuntime` stores `ttl_expires_at`, the time the provider kills the sandbox at the latest, and `ended_at`.
+Several paths can notice the same end, and a conditional update on `ended_at` lets only the first one report it.
+
+Read the estimates with these rules:
+
+- **The price is the rate card, not Modal's charge.** `hourly_price_usd` and `estimated_price_usd` use the rates in `compute_pricing.py`, which set the price shown to users. Docker sandboxes have no price.
+- **A sandbox that nothing destroyed costs its full lifetime.** A discard, a kernel that does not answer, or a failed destroy leaves the sandbox running. The event then sets `sandbox_still_running` and runs the estimate to `ttl_expires_at`.
+- **A sandbox found gone ends when PostHog finds it, but never after its TTL.** A sandbox that crashed early and was found late counts longer than it ran.
+- **A sandbox that dies while nobody watches has no end event** until a later stop, reuse, or status poll notices it.
+- **Rows from before these columns existed** have no `ttl_expires_at`, so they report no end event.
+
 ## Node-run instrumentation (closes gap 1)
 
 Every terminal transition of a `NotebookNodeRun` — the sandbox callback, the direct-lane finish, dispatch failures, and interrupts — reports once through `sql_v2_metrics.record_node_run_terminal`, emitting three sinks:
