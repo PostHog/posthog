@@ -154,6 +154,7 @@ class ResolvedTemplate:
     resolved_activity_event: str | None
     activity_event_alternatives: list[str]
     horizon_days: int
+    training_lookback_days: int
     training_population: dict[str, Any]
     inference_population: dict[str, Any]
     output_person_property: str

@@ -17,6 +17,8 @@ POPULATION_KINDS = api.POPULATION_KINDS
 # (value, label) pairs, not bare values: drf-spectacular builds each enum component's name and
 # its label list from them, and `ENUM_NAME_OVERRIDES` matches on the value set.
 PIPELINE_STATUS_CHOICES = api.PIPELINE_STATUS_CHOICES
+TEMPLATE_KEY_CHOICES = api.TEMPLATE_KEY_CHOICES
+VALIDATION_WARNING_CODES = api.VALIDATION_WARNING_CODES
 
 TARGET_EVENT_MAX_LENGTH = 255
 OUTPUT_PERSON_PROPERTY_MAX_LENGTH = 255
@@ -163,6 +165,10 @@ _POPULATION_KIND_REQUIRED_DAYS: dict[str, str | None] = {
 }
 _POPULATION_KIND_REQUIRES_EVENT = frozenset({"ever_performed_event"})
 _POPULATION_DAYS_MAX = 730
+# Every filter and every list-valued operand becomes its own bound parameter in several HogQL
+# queries, so the body size has to be bounded before anything is compiled.
+_POPULATION_FILTERS_MAX = 20
+_POPULATION_FILTER_VALUES_MAX = 200
 
 
 @extend_schema_field(
@@ -193,6 +199,16 @@ class PopulationDefinitionField(serializers.JSONField):
             not isinstance(properties, list) or any(not isinstance(p, dict) for p in properties)
         ):
             raise serializers.ValidationError("Population 'properties' must be a list of filter objects.")
+        if properties and len(properties) > _POPULATION_FILTERS_MAX:
+            raise serializers.ValidationError(
+                f"A population can have at most {_POPULATION_FILTERS_MAX} property filters."
+            )
+        for prop in properties or []:
+            operand = prop.get("value")
+            if isinstance(operand, list) and len(operand) > _POPULATION_FILTER_VALUES_MAX:
+                raise serializers.ValidationError(
+                    f"A property filter can list at most {_POPULATION_FILTER_VALUES_MAX} values."
+                )
         kind = value.get("kind")
         if kind is None:
             return value
@@ -554,16 +570,22 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
 
 
 class ValidationWarningSerializer(serializers.Serializer):
+    # A CharField on purpose: a ChoiceField named `code` collides with another product's inline
+    # `code` choices in drf-spectacular's enum naming and renames that product's generated type.
     code = serializers.CharField(
         help_text=(
-            "Machine-readable warning code. 'low_volume', 'low_positives' and 'low_negatives' are errors; "
-            "'extreme_imbalance' and 'mostly_anonymous_population' are warnings."
-        )
+            "Machine-readable warning code, one of: 'low_volume', 'low_positives', 'low_negatives', "
+            "'population_too_large' and 'horizon_exceeds_lookback' (severity 'error'); 'moderate_volume', "
+            "'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' (severity 'warning')."
+        ),
     )
     message = serializers.CharField(help_text="Human-readable warning description.")
     severity = serializers.ChoiceField(
         choices=["info", "warning", "error"],
-        help_text="Severity level. 'error' blocks creation; 'warning' requires acknowledgement.",
+        help_text=(
+            "Severity level. 'error' means the data is too thin or too large for a reliable model; "
+            "'warning' is worth acknowledging. Creation does not enforce either."
+        ),
     )
 
 
@@ -577,7 +599,7 @@ class ValidatePipelineRequestSerializer(serializers.Serializer):
             "Omit when predicting an action target (pass target_definition instead)."
         ),
     )
-    target_definition = serializers.JSONField(
+    target_definition = TargetDefinitionField(
         required=False,
         default=dict,
         help_text=(
@@ -603,12 +625,17 @@ class ValidatePipelineRequestSerializer(serializers.Serializer):
     )
     inference_population = PopulationDefinitionField(
         default=dict,
-        help_text="Population filter for daily scoring. Defaults to training_population if not provided.",
+        help_text=(
+            "Population filter for daily scoring. When omitted or empty, the training population is "
+            "counted, as creation stores it."
+        ),
     )
 
 
 class ValidatePipelineResponseSerializer(serializers.Serializer):
-    can_proceed = serializers.BooleanField(help_text="True if the pipeline definition is valid and training can start.")
+    can_proceed = serializers.BooleanField(
+        help_text=("False when any warning has severity 'error'. Advisory: creation and training do not enforce it.")
+    )
     requires_acknowledgement = serializers.BooleanField(
         help_text="True if there are non-blocking warnings the user should acknowledge before proceeding."
     )
@@ -634,11 +661,14 @@ class ValidatePipelineResponseSerializer(serializers.Serializer):
     )
     warnings = ValidationWarningSerializer(
         many=True,
-        help_text="List of validation warnings. Check 'severity' — 'error' blocks creation.",
+        help_text="List of validation warnings. Check 'severity' and 'code'.",
     )
     error = serializers.CharField(
         allow_null=True,
-        help_text="Internal error message if validation itself failed to run.",
+        help_text=(
+            "Why validation did not run, or null when it did. A query error in the definition itself "
+            "is passed through; any other failure is a generic message and the detail is logged."
+        ),
     )
 
 
@@ -646,7 +676,8 @@ class ValidatePipelineResponseSerializer(serializers.Serializer):
 
 
 class TemplateInfoSerializer(serializers.Serializer):
-    key = serializers.CharField(
+    key = serializers.ChoiceField(
+        choices=TEMPLATE_KEY_CHOICES,
         help_text="Template identifier, e.g. 'likely_active_soon'. Pass to autoresearch-resolve-template-create.",
     )
     display_name = serializers.CharField(help_text="Human-readable template name.")
@@ -689,13 +720,7 @@ class PopulationSpecField(serializers.JSONField):
 
 class ResolveTemplateRequestSerializer(serializers.Serializer):
     template_key = serializers.ChoiceField(
-        choices=[
-            "likely_active_soon",
-            "at_risk_of_inactivity",
-            "return_after_first_use",
-            "feature_adoption",
-            "repeat_key_behavior",
-        ],
+        choices=TEMPLATE_KEY_CHOICES,
         help_text=(
             "Template to resolve. Use autoresearch-templates-list to see all available templates "
             "with descriptions. Required."
@@ -705,10 +730,11 @@ class ResolveTemplateRequestSerializer(serializers.Serializer):
         required=False,
         allow_blank=False,
         help_text=(
-            "Event or action name to use as the prediction target. "
+            "Event name to use as the prediction target. "
             "Required for 'feature_adoption' and 'repeat_key_behavior'. "
             "Optional override for activity-based templates ('likely_active_soon', "
-            "'at_risk_of_inactivity', 'return_after_first_use') — omit to use the auto-resolved event."
+            "'at_risk_of_inactivity', 'return_after_first_use'); omit to use the auto-resolved event. "
+            "To predict an action, create the pipeline with target_definition after resolving."
         ),
     )
     horizon_days = serializers.IntegerField(
@@ -748,6 +774,12 @@ class ResolvedTemplateSerializer(serializers.Serializer):
         ),
     )
     horizon_days = serializers.IntegerField(help_text="Resolved prediction horizon in days.")
+    training_lookback_days = serializers.IntegerField(
+        help_text=(
+            "Training lookback in days, sized so the horizon leaves room for training examples. "
+            "Pass as 'training_lookback_days' to autoresearch-create."
+        ),
+    )
     training_population = PopulationSpecField(
         help_text=("Resolved training population filter. Pass as 'training_population' to autoresearch-create."),
     )

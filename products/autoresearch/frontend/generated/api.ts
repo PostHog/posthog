@@ -12,12 +12,11 @@ import type {
     AutoresearchListParams,
     AutoresearchPipelineApi,
     AutoresearchPipelineCreateApi,
-    AutoresearchTemplatesListParams,
     PaginatedAutoresearchPipelineListApi,
-    PaginatedTemplateInfoListApi,
     PatchedAutoresearchPipelineCreateApi,
     ResolveTemplateRequestApi,
     ResolvedTemplateApi,
+    TemplateInfoApi,
     ValidatePipelineRequestApi,
     ValidatePipelineResponseApi,
 } from './api.schemas'
@@ -191,20 +190,8 @@ export const autoresearchResolveTemplateCreate = async (
     })
 }
 
-export const getAutoresearchTemplatesListUrl = (projectId: string, params?: AutoresearchTemplatesListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/autoresearch/templates/?${stringifiedParams}`
-        : `/api/projects/${projectId}/autoresearch/templates/`
+export const getAutoresearchTemplatesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/autoresearch/templates/`
 }
 
 /**
@@ -213,10 +200,9 @@ export const getAutoresearchTemplatesListUrl = (projectId: string, params?: Auto
  */
 export const autoresearchTemplatesList = async (
     projectId: string,
-    params?: AutoresearchTemplatesListParams,
     options?: RequestInit
-): Promise<PaginatedTemplateInfoListApi> => {
-    return apiMutator<PaginatedTemplateInfoListApi>(getAutoresearchTemplatesListUrl(projectId, params), {
+): Promise<TemplateInfoApi[]> => {
+    return apiMutator<TemplateInfoApi[]>(getAutoresearchTemplatesListUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -227,7 +213,7 @@ export const getAutoresearchValidateCreateUrl = (projectId: string) => {
 }
 
 /**
- * Validate a proposed pipeline's target event and population before creating it. Returns volume estimates, base rate, and any warnings. Warnings with severity='error' must be resolved before creation can proceed. Call this before autoresearch-create.
+ * Validate a proposed pipeline's target event and population before creating it. Returns volume estimates, base rate, and any warnings. The result is advice: a warning with severity 'error' means the data is too thin for a reliable model, but creation and training do not enforce it. Call this before autoresearch-create.
  * @summary Validate a pipeline definition
  */
 export const autoresearchValidateCreate = async (

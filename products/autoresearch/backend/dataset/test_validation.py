@@ -3,6 +3,9 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.hogql.errors import QueryError
+
+from products.autoresearch.backend.dataset.labeling import LABELER_QUERY_MODIFIERS, PREDICTION_EVENT_NAME
 from products.autoresearch.backend.dataset.validation import (
     ValidationResult,
     _run_validation,
@@ -54,6 +57,7 @@ class TestValidationWarnings(BaseTest):
             ("zero_users", 0, 0, "low_volume"),
             ("low_positives", 5, 1000, "low_positives"),
             ("low_negatives", 995, 1000, "low_negatives"),
+            ("population_too_large", 5_000, 50_000, "population_too_large"),
         ]
     )
     def test_hard_errors_block_proceeding(self, _name: str, positives: int, total: int, code: str) -> None:
@@ -92,9 +96,19 @@ class TestValidationWarnings(BaseTest):
         codes = [w.code for w in result.warnings]
         assert "mostly_anonymous_population" not in codes
 
-    def test_error_in_query_returns_error_result(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "infrastructure_detail_stays_in_the_log",
+                RuntimeError("CH is down at 10.0.0.1"),
+                "Validation could not run",
+            ),
+            ("query_error_reaches_the_caller", QueryError("Field not found: nope"), "Field not found: nope"),
+        ]
+    )
+    def test_error_in_query_returns_error_result(self, _name: str, exc: Exception, expected: str) -> None:
         with patch("products.autoresearch.backend.dataset.validation.run_hogql_rows") as mock_run:
-            mock_run.side_effect = RuntimeError("CH is down")
+            mock_run.side_effect = exc
             result = validate_pipeline_definition(
                 team=self.team,
                 target_event="$pageview",
@@ -105,7 +119,37 @@ class TestValidationWarnings(BaseTest):
             )
         assert result.can_proceed is False
         assert result.error is not None
-        assert "CH is down" in result.error
+        assert expected in result.error
+        assert "10.0.0.1" not in result.error
+
+    def test_horizon_at_or_past_the_lookback_is_refused_before_any_query(self) -> None:
+        with patch("products.autoresearch.backend.dataset.validation.run_hogql_rows") as mock_run:
+            result = _run_validation(
+                team=self.team,
+                target_event="$pageview",
+                horizon_days=180,
+                training_lookback_days=180,
+                training_population={},
+                inference_population={},
+            )
+        assert mock_run.call_count == 0
+        assert result.can_proceed is False
+        assert [w.code for w in result.warnings] == ["horizon_exceeds_lookback"]
+
+    def test_count_queries_use_the_labeler_join_mode_and_skip_own_events(self) -> None:
+        with patch("products.autoresearch.backend.dataset.validation.run_hogql_rows") as mock_run:
+            mock_run.side_effect = _mock_rows(100, 1000)
+            _run_validation(
+                team=self.team,
+                target_event="$pageview",
+                horizon_days=7,
+                training_lookback_days=180,
+                training_population={},
+                inference_population={},
+            )
+        queries = [call.kwargs["query"] for call in mock_run.call_args_list]
+        assert [q.modifiers for q in queries] == [LABELER_QUERY_MODIFIERS] * 3
+        assert all(f"event != '{PREDICTION_EVENT_NAME}'" in q.query for q in queries)
 
     @parameterized.expand([("short_horizon_floors_at_30", 7, 30), ("long_horizon_is_4x", 14, 56)])
     def test_inference_preview_uses_scoring_lookback(

@@ -22,7 +22,11 @@ from ..dataset.labeling import (
     POPULATION_KINDS as _POPULATION_KINDS,
     PREDICTION_EVENT_NAME as _PREDICTION_EVENT_NAME,
 )
-from ..dataset.validation import validate_pipeline_definition as _validate_pipeline_definition
+from ..dataset.templates import TemplateKey as _TemplateKey
+from ..dataset.validation import (
+    ValidationWarningCode as _ValidationWarningCode,
+    validate_pipeline_definition as _validate_pipeline_definition,
+)
 from ..models import AutoresearchModel, AutoresearchPipeline
 from .contracts import (
     AutoresearchConflict,
@@ -266,6 +270,7 @@ def resolve_template(
         resolved_activity_event=resolved.resolved_activity_event,
         activity_event_alternatives=list(resolved.activity_event_alternatives),
         horizon_days=resolved.horizon_days,
+        training_lookback_days=resolved.training_lookback_days,
         training_population=resolved.training_population,
         inference_population=resolved.inference_population,
         output_person_property=resolved.output_person_property,
@@ -326,3 +331,7 @@ PREDICTION_EVENT_NAME = _PREDICTION_EVENT_NAME
 # model-bound serializers produced — including the one shared with another product, which
 # `ENUM_NAME_OVERRIDES` pins by value set.
 PIPELINE_STATUS_CHOICES = AutoresearchPipeline.Status.choices
+TEMPLATE_KEY_CHOICES = _TemplateKey.choices
+# Every code `ValidationWarningSerializer.code` can carry. A plain list, not choices: see the
+# serializer for why that field is not an enum.
+VALIDATION_WARNING_CODES = [code.value for code in _ValidationWarningCode]

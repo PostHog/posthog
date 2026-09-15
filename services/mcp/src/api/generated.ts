@@ -62084,32 +62084,6 @@ export namespace Schemas {
       results: TaskThreadMessageDTO[];
     }
 
-    export interface TemplateInfo {
-      /** Template identifier, e.g. 'likely_active_soon'. Pass to autoresearch-resolve-template-create. */
-      key: string;
-      /** Human-readable template name. */
-      display_name: string;
-      /** What this template predicts and who it is for. */
-      description: string;
-      /** Default prediction horizon in days. Can be overridden when resolving. */
-      default_horizon_days: number;
-      /** If true, you must supply a target_event when resolving — the template does not auto-select one. Required for 'feature_adoption' and 'repeat_key_behavior'. */
-      requires_user_event: boolean;
-      /** If true, the target event is automatically resolved from your event schema ($pageview, $screen, or the highest-volume non-noisy event). You can override the resolved event when resolving the template. */
-      requires_activity_resolution: boolean;
-      /** Usage guidance and implementation notes. */
-      notes: string;
-    }
-
-    export interface PaginatedTemplateInfoList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: TemplateInfo[];
-    }
-
     export interface ThresholdWithAlert {
       readonly id: string;
       readonly created_at: string;
@@ -79399,11 +79373,11 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `likely_active_soon` - likely_active_soon
-     * * `at_risk_of_inactivity` - at_risk_of_inactivity
-     * * `return_after_first_use` - return_after_first_use
-     * * `feature_adoption` - feature_adoption
-     * * `repeat_key_behavior` - repeat_key_behavior
+     * * `likely_active_soon` - Likely Active Soon
+     * * `at_risk_of_inactivity` - At Risk Of Inactivity
+     * * `return_after_first_use` - Return After First Use
+     * * `feature_adoption` - Feature Adoption
+     * * `repeat_key_behavior` - Repeat Key Behavior
      */
     export type TemplateKeyEnum = typeof TemplateKeyEnum[keyof typeof TemplateKeyEnum];
 
@@ -79419,13 +79393,13 @@ export namespace Schemas {
     export interface ResolveTemplateRequest {
       /** Template to resolve. Use autoresearch-templates-list to see all available templates with descriptions. Required.
        *
-       * * `likely_active_soon` - likely_active_soon
-       * * `at_risk_of_inactivity` - at_risk_of_inactivity
-       * * `return_after_first_use` - return_after_first_use
-       * * `feature_adoption` - feature_adoption
-       * * `repeat_key_behavior` - repeat_key_behavior */
+       * * `likely_active_soon` - Likely Active Soon
+       * * `at_risk_of_inactivity` - At Risk Of Inactivity
+       * * `return_after_first_use` - Return After First Use
+       * * `feature_adoption` - Feature Adoption
+       * * `repeat_key_behavior` - Repeat Key Behavior */
       template_key: TemplateKeyEnum;
-      /** Event or action name to use as the prediction target. Required for 'feature_adoption' and 'repeat_key_behavior'. Optional override for activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use') — omit to use the auto-resolved event. */
+      /** Event name to use as the prediction target. Required for 'feature_adoption' and 'repeat_key_behavior'. Optional override for activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use'); omit to use the auto-resolved event. To predict an action, create the pipeline with target_definition after resolving. */
       target_event?: string;
       /**
          * Override the template's default prediction horizon in days.
@@ -79465,6 +79439,8 @@ export namespace Schemas {
       activity_event_alternatives: string[];
       /** Resolved prediction horizon in days. */
       horizon_days: number;
+      /** Training lookback in days, sized so the horizon leaves room for training examples. Pass as 'training_lookback_days' to autoresearch-create. */
+      training_lookback_days: number;
       /** Resolved training population filter. Pass as 'training_population' to autoresearch-create. */
       training_population: ResolvedTemplateTrainingPopulation;
       /** Resolved inference (daily scoring) population filter. Pass as 'inference_population' to autoresearch-create. */
@@ -91043,6 +91019,29 @@ export namespace Schemas {
       tracing_session_id_attribute_keys: string[];
     }
 
+    export interface TemplateInfo {
+      /** Template identifier, e.g. 'likely_active_soon'. Pass to autoresearch-resolve-template-create.
+       *
+       * * `likely_active_soon` - Likely Active Soon
+       * * `at_risk_of_inactivity` - At Risk Of Inactivity
+       * * `return_after_first_use` - Return After First Use
+       * * `feature_adoption` - Feature Adoption
+       * * `repeat_key_behavior` - Repeat Key Behavior */
+      key: TemplateKeyEnum;
+      /** Human-readable template name. */
+      display_name: string;
+      /** What this template predicts and who it is for. */
+      description: string;
+      /** Default prediction horizon in days. Can be overridden when resolving. */
+      default_horizon_days: number;
+      /** If true, you must supply a target_event when resolving — the template does not auto-select one. Required for 'feature_adoption' and 'repeat_key_behavior'. */
+      requires_user_event: boolean;
+      /** If true, the target event is automatically resolved from your event schema ($pageview, $screen, or the highest-volume non-noisy event). You can override the resolved event when resolving the template. */
+      requires_activity_resolution: boolean;
+      /** Usage guidance and implementation notes. */
+      notes: string;
+    }
+
     /**
      * * `none` - none
      * * `last` - last
@@ -91919,12 +91918,26 @@ export namespace Schemas {
     }
 
     /**
+     * Optional target definition. Pass {"type": "action", "action_id": N} to predict a PostHog action (multi-step / property / autocapture matcher) instead of a single event.
+     */
+    export type ValidatePipelineRequestTargetDefinition = {
+      type: 'event';
+    } | {
+      type: 'action';
+      /**
+         * ID of the action to predict.
+         * @minimum 1
+         */
+      action_id: number;
+    };
+
+    /**
      * Population filter for training examples. Use {} for all identified users.
      */
     export type ValidatePipelineRequestTrainingPopulation = { [key: string]: unknown };
 
     /**
-     * Population filter for daily scoring. Defaults to training_population if not provided.
+     * Population filter for daily scoring. When omitted or empty, the training population is counted, as creation stores it.
      */
     export type ValidatePipelineRequestInferencePopulation = { [key: string]: unknown };
 
@@ -91932,7 +91945,7 @@ export namespace Schemas {
       /** Event name to predict, e.g. '$pageview'. Must exist in the team's event schema. Omit when predicting an action target (pass target_definition instead). */
       target_event?: string;
       /** Optional target definition. Pass {"type": "action", "action_id": N} to predict a PostHog action (multi-step / property / autocapture matcher) instead of a single event. */
-      target_definition?: unknown;
+      target_definition?: ValidatePipelineRequestTargetDefinition;
       /**
          * Predict whether the target event occurs within this many days.
          * @minimum 1
@@ -91947,7 +91960,7 @@ export namespace Schemas {
       training_lookback_days?: number;
       /** Population filter for training examples. Use {} for all identified users. */
       training_population?: ValidatePipelineRequestTrainingPopulation;
-      /** Population filter for daily scoring. Defaults to training_population if not provided. */
+      /** Population filter for daily scoring. When omitted or empty, the training population is counted, as creation stores it. */
       inference_population?: ValidatePipelineRequestInferencePopulation;
     }
 
@@ -91966,11 +91979,11 @@ export namespace Schemas {
     } as const;
 
     export interface ValidationWarning {
-      /** Machine-readable warning code. 'low_volume', 'low_positives' and 'low_negatives' are errors; 'extreme_imbalance' and 'mostly_anonymous_population' are warnings. */
+      /** Machine-readable warning code, one of: 'low_volume', 'low_positives', 'low_negatives', 'population_too_large' and 'horizon_exceeds_lookback' (severity 'error'); 'moderate_volume', 'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' (severity 'warning'). */
       code: string;
       /** Human-readable warning description. */
       message: string;
-      /** Severity level. 'error' blocks creation; 'warning' requires acknowledgement.
+      /** Severity level. 'error' means the data is too thin or too large for a reliable model; 'warning' is worth acknowledging. Creation does not enforce either.
        *
        * * `info` - info
        * * `warning` - warning
@@ -91979,7 +91992,7 @@ export namespace Schemas {
     }
 
     export interface ValidatePipelineResponse {
-      /** True if the pipeline definition is valid and training can start. */
+      /** False when any warning has severity 'error'. Advisory: creation and training do not enforce it. */
       can_proceed: boolean;
       /** True if there are non-blocking warnings the user should acknowledge before proceeding. */
       requires_acknowledgement: boolean;
@@ -92008,10 +92021,10 @@ export namespace Schemas {
          * @nullable
          */
       inference_population_size: number | null;
-      /** List of validation warnings. Check 'severity' — 'error' blocks creation. */
+      /** List of validation warnings. Check 'severity' and 'code'. */
       warnings: ValidationWarning[];
       /**
-         * Internal error message if validation itself failed to run.
+         * Why validation did not run, or null when it did. A query error in the definition itself is passed through; any other failure is a generic message and the detail is logged.
          * @nullable
          */
       error: string | null;
@@ -97414,17 +97427,6 @@ export namespace Schemas {
     };
 
     export type AutoresearchListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type AutoresearchTemplatesListParams = {
     /**
      * Number of results to return per page.
      */
