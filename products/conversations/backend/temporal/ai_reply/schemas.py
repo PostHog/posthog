@@ -8,11 +8,32 @@ structured LLM response schemas used by the draft sandbox step.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, TypeVar
 
 from pydantic import BaseModel, Field, field_validator
 
 from products.conversations.backend.temporal.ai_reply.constants import DRAFT_VERDICTS, MAX_CLARIFYING_QUESTIONS
+
+_T = TypeVar("_T")
+
+
+def coerce_dataclass(cls: type[_T], value: object) -> _T:
+    """Rebuild a dataclass from a typed instance or a raw dict.
+
+    Temporal's converter usually applies field defaults, but a rolling deploy can
+    deliver an activity payload as a dict. Reconstructing here fills omitted fields
+    and drops unknown keys so gating can read verdict/blocker without AttributeError.
+    """
+    if isinstance(value, cls):
+        return value
+    if isinstance(value, dict):
+        known = set(getattr(cls, "__dataclass_fields__", {}))
+        kwargs = {key: val for key, val in value.items() if key in known and val is not None}
+        try:
+            return cls(**kwargs)
+        except TypeError as exc:
+            raise TypeError(f"Could not coerce into {cls.__name__} (keys={sorted(value)}): {exc}") from exc
+    raise TypeError(f"Unexpected type {type(value).__name__}; expected {cls.__name__} or dict")
 
 
 @dataclass
@@ -116,10 +137,9 @@ class DraftOutput:
     sources: list[dict[str, str]] = field(default_factory=list)
     # The Tasks TaskRun id for this draft session -- join key to LLMA cost data.
     task_run_id: str = ""
-    # Wall time of the sandbox session, recorded for ai_triage.cost. Defaults so
-    # histories from before this field still deserialize.
+    # Wall time of the sandbox session, recorded for ai_triage.cost.
     sandbox_seconds: float = 0.0
-    # Old draft activities omit this field. Fail closed so a rolling deploy cannot auto-send.
+    # Default blocked_on_knowledge so a missing verdict cannot auto-send.
     verdict: str = "blocked_on_knowledge"
     clarifying_questions: list[str] = field(default_factory=list)
     investigation_summary: str = ""
@@ -146,11 +166,11 @@ class ValidateOutput:
     confidence: float
     missing: list[str]
     llm_attempts: int = 1
-    # Old validate activities omit this field. Fail closed so a rolling deploy cannot auto-send.
+    # Default knowledge so a missing blocker cannot auto-send.
     blocker: str = "knowledge"
 
 
-@dataclass
+@dataclass(frozen=False)
 class PersistReplyInput:
     team_id: int
     ticket_id: str

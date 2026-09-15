@@ -12,6 +12,8 @@ from products.conversations.backend.temporal.ai_reply.constants import (
 
 ReplyAction = Literal["auto_send", "retry", "clarify", "suggest", "findings"]
 
+FINDINGS_WITHHELD_REASON = "Investigation notes withheld because they contained sensitive data."
+
 _FINDINGS_BLOCKERS = frozenset({"contradiction", "customer_info", "knowledge"})
 _FINDINGS_VERDICTS = frozenset({"out_of_scope", "blocked_on_customer", "blocked_on_knowledge"})
 
@@ -42,12 +44,14 @@ def decide_reply_action(
     if blocker == "contradiction" or verdict == "out_of_scope":
         return "findings"
     # Retry only on a validator knowledge gap. The draft verdict is not a retry signal.
-    if blocker == "knowledge" and attempt < max_attempts - 1:
-        return "retry"
+    if blocker == "knowledge":
+        if attempt < max_attempts - 1:
+            return "retry"
+        return "findings"
     # The agent said it could not answer. Do not present that draft as a proposed reply.
     if verdict == "blocked_on_knowledge":
         return "findings"
-    if grounded and validator_confidence >= SUGGEST_THRESHOLD:
+    if blocker == "none" and verdict == "answerable" and grounded and validator_confidence >= SUGGEST_THRESHOLD:
         return "suggest"
     return "findings"
 
@@ -88,8 +92,8 @@ def format_findings_comment(
     findings_reason: str = "",
     citations: list[str] | None = None,
 ) -> str:
-    # Lives here so the workflow can pre-format `PersistReplyInput.reply`. An old persist
-    # worker that does not know persist_as=findings would otherwise post the draft answer.
+    # Format here so PersistReplyInput.reply is investigation notes even if persist_as
+    # is ignored during a rolling deploy.
     parts = ["Investigation notes"]
     if findings_reason:
         parts.extend(["", findings_reason])

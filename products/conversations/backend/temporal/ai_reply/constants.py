@@ -2,18 +2,19 @@ from typing import Literal
 from uuid import UUID
 
 MAX_ATTEMPTS = 2
-# Pre-patch histories recorded five refine/draft/validate iterations. Replay must loop that many
-# times or Temporal raises a non-determinism error.
+# Replay of histories without BLOCKER_AWARE_LOOP_PATCH must iterate this many times so the
+# recorded refine/draft/validate command count matches.
 LEGACY_MAX_ATTEMPTS = 5
 
 # Histories without this marker must retain the legacy persistence command during replay.
 DEFER_KNOWLEDGE_GAPS_UNTIL_RESOLUTION_PATCH = "defer-knowledge-gaps-until-resolution-2026-09"
-# Histories without this marker must retain the 5-attempt SCORE_THRESHOLD loop during replay.
+# Histories without this marker must retain the LEGACY_MAX_ATTEMPTS SCORE_THRESHOLD loop.
 BLOCKER_AWARE_LOOP_PATCH = "blocker-aware-loop-2026-09"
 
 # Stable namespace for deterministic per-ticket trace ids (uuid5).
 AI_REPLY_TRACE_NAMESPACE = UUID("a1b2c3d4-5678-4e9f-ab12-cd34ef567890")
-# Pre-patch auto-send / suggest bar. Kept so replay of unpatched histories still gates the same way.
+# Gate used when BLOCKER_AWARE_LOOP_PATCH is absent. Replay of those histories still
+# compares validator confidence to this value.
 SCORE_THRESHOLD = 0.5
 # Validator and draft are uncalibrated judges, so auto-send requires both plus coverage and grounding.
 AUTO_SEND_THRESHOLD = 0.85
@@ -38,6 +39,9 @@ WIDEN_RADIUS = 3
 MAX_TICKET_CONTEXT_CHARS = 16000
 MAX_CHUNK_CONTENT_CHARS = 2000
 MAX_CHUNKS = 25
+# Per-item caps still apply. This bound keeps one validation prompt from carrying every
+# cited chunk plus every source excerpt at those caps.
+MAX_VALIDATE_EVIDENCE_CHARS = 12000
 # The draft's `sources` are model-controlled (count + excerpt length), so bound them before
 # they flow into validate's input and the workflow's best-so-far tracking.
 MAX_SOURCES = 25

@@ -7,7 +7,12 @@ from products.conversations.backend.temporal.ai_reply.gate import (
     findings_reason_for,
     should_persist_findings,
 )
-from products.conversations.backend.temporal.ai_reply.schemas import DraftOutput, SupportReplyDraft, ValidateOutput
+from products.conversations.backend.temporal.ai_reply.schemas import (
+    DraftOutput,
+    SupportReplyDraft,
+    ValidateOutput,
+    coerce_dataclass,
+)
 
 
 class TestFailClosedDefaults(SimpleTestCase):
@@ -40,19 +45,28 @@ class TestFailClosedDefaults(SimpleTestCase):
 
 
 class TestDecideReplyAction(SimpleTestCase):
-    def _decide(self, **overrides):
-        kwargs = {
-            "grounded": True,
-            "coverage": 0.9,
-            "validator_confidence": 0.9,
-            "draft_confidence": 0.9,
-            "blocker": "none",
-            "verdict": "answerable",
-            "attempt": 0,
-            "max_attempts": 2,
-        }
-        kwargs.update(overrides)
-        return decide_reply_action(**kwargs)
+    def _decide(
+        self,
+        *,
+        grounded: bool = True,
+        coverage: float = 0.9,
+        validator_confidence: float = 0.9,
+        draft_confidence: float = 0.9,
+        blocker: str = "none",
+        verdict: str = "answerable",
+        attempt: int = 0,
+        max_attempts: int = 2,
+    ):
+        return decide_reply_action(
+            grounded=grounded,
+            coverage=coverage,
+            validator_confidence=validator_confidence,
+            draft_confidence=draft_confidence,
+            blocker=blocker,
+            verdict=verdict,
+            attempt=attempt,
+            max_attempts=max_attempts,
+        )
 
     def test_auto_send_when_both_judges_agree(self):
         assert self._decide() == "auto_send"
@@ -84,8 +98,8 @@ class TestDecideReplyAction(SimpleTestCase):
             == "findings"
         )
 
-    def test_knowledge_can_still_suggest_after_retry(self):
-        assert self._decide(blocker="knowledge", validator_confidence=0.6, attempt=1, max_attempts=2) == "suggest"
+    def test_knowledge_does_not_suggest_after_retry(self):
+        assert self._decide(blocker="knowledge", validator_confidence=0.6, attempt=1, max_attempts=2) == "findings"
 
     def test_blocked_on_knowledge_does_not_suggest(self):
         assert (
@@ -145,3 +159,34 @@ class TestFindingsNote(SimpleTestCase):
             blocker="none",
             verdict="answerable",
         )
+
+
+class TestCoerceActivityResults(SimpleTestCase):
+    def test_dict_without_verdict_fails_closed(self):
+        draft = coerce_dataclass(DraftOutput, {"reply": "ok", "citations": [], "confidence": 0.9})
+        assert draft.verdict == "blocked_on_knowledge"
+        assert draft.unknowns == []
+        assert draft.investigation_summary == ""
+
+    def test_dict_without_blocker_fails_closed(self):
+        validate = coerce_dataclass(
+            ValidateOutput, {"grounded": True, "coverage": 0.9, "confidence": 0.9, "missing": []}
+        )
+        assert validate.blocker == "knowledge"
+
+    def test_legacy_json_payload_decodes_with_defaults(self):
+        import json
+
+        from temporalio.api.common.v1 import Payload
+        from temporalio.converter import JSONPlainPayloadConverter
+
+        converter = JSONPlainPayloadConverter()
+        payload = Payload(
+            metadata={"encoding": b"json/plain"},
+            data=json.dumps(
+                {"reply": "ok", "citations": [], "confidence": 0.9, "sources": [], "task_run_id": ""}
+            ).encode(),
+        )
+        decoded = coerce_dataclass(DraftOutput, converter.from_payload(payload, DraftOutput))
+        assert decoded.verdict == "blocked_on_knowledge"
+        assert decoded.sandbox_seconds == 0.0

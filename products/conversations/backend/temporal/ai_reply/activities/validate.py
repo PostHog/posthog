@@ -15,6 +15,7 @@ from products.conversations.backend.temporal.ai_reply.constants import (
     MAX_CHUNK_CONTENT_CHARS,
     MAX_EXCERPT_CHARS,
     MAX_SAFETY_REVIEWED_CHARS,
+    MAX_VALIDATE_EVIDENCE_CHARS,
     TICKET_TYPE_HINTS,
     VALIDATE_BLOCKERS,
     VALIDATOR_MODEL,
@@ -52,7 +53,7 @@ async def _validate(input: ValidateInput) -> ValidateOutput:
         if excerpt and ref not in seen_refs:
             seen_refs.add(ref)
             evidence_parts.append(f"[{ref}] {excerpt[:MAX_EXCERPT_CHARS]}")
-    chunks_text = "\n\n".join(evidence_parts)
+    chunks_text = "\n\n".join(evidence_parts)[:MAX_VALIDATE_EVIDENCE_CHARS]
 
     type_hint = TICKET_TYPE_HINTS.get(input.ticket_type, "")
     system = f"""You validate whether a support reply is grounded in the provided knowledge base chunks.

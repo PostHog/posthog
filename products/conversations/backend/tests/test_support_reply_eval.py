@@ -42,6 +42,16 @@ class TestEvalOutcomeFromTriage(SimpleTestCase):
                 "needs_clarification",
             ),
             ("unfinished_run", {"status": "in_progress"}, None),
+            (
+                "unfinished_run_keeps_stale_blocker_unscored",
+                {"status": "in_progress", "blocker": "customer_info", "verdict": "blocked_on_customer"},
+                None,
+            ),
+            (
+                "blocked_on_customer_verdict_is_clarification",
+                {"status": "done", "result": "escalated_with_findings", "verdict": "blocked_on_customer"},
+                "needs_clarification",
+            ),
         ]
     )
     def test_maps_triage(self, _name, triage, expected):

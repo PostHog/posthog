@@ -12,7 +12,7 @@ from posthog.temporal.common.utils import close_db_connections
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.temporal.ai_reply.constants import PUBLISHABLE_TICKET_TYPES
 from products.conversations.backend.temporal.ai_reply.gate import format_findings_comment
-from products.conversations.backend.temporal.ai_reply.schemas import PersistReplyInput
+from products.conversations.backend.temporal.ai_reply.schemas import PersistReplyInput, coerce_dataclass
 
 
 @activity.defn
@@ -24,7 +24,8 @@ async def support_persist_reply_activity(input: PersistReplyInput) -> None:
 
 
 def _persist_reply_sync(input: PersistReplyInput) -> None:
-    persist_as = input.persist_as or "reply"
+    input = coerce_dataclass(PersistReplyInput, input)
+    persist_as = input.persist_as
     is_private = True
     # Only how_to replies may be published. diagnostic/account_billing draw on project data and
     # must stay private regardless of the team's ai_reply_modes — guards against stale settings

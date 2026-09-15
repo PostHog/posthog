@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import timedelta
 from typing import Any
 from uuid import uuid5
@@ -31,6 +32,7 @@ from products.conversations.backend.temporal.ai_reply.constants import (
     SCORE_THRESHOLD,
 )
 from products.conversations.backend.temporal.ai_reply.gate import (
+    FINDINGS_WITHHELD_REASON,
     decide_reply_action,
     findings_reason_for,
     format_findings_comment,
@@ -39,6 +41,7 @@ from products.conversations.backend.temporal.ai_reply.gate import (
 from products.conversations.backend.temporal.ai_reply.schemas import (
     ClassifyInput,
     DraftInput,
+    DraftOutput,
     PersistKnowledgeGapInput,
     PersistReplyInput,
     RecordTriageInput,
@@ -48,6 +51,8 @@ from products.conversations.backend.temporal.ai_reply.schemas import (
     SafetyFilterInput,
     SupportReplyInput,
     ValidateInput,
+    ValidateOutput,
+    coerce_dataclass,
 )
 
 # These modules (Django models, langchain, pydantic models, etc.) are non-deterministic
@@ -76,9 +81,9 @@ class SupportReplyWorkflow:
     """Grounded self-validating support reply pipeline.
 
     Loop: refine -> retrieve -> draft -> validate
-    Iterate while the current gate says retry, hard cap MAX_ATTEMPTS (2) on new
-    runs. Histories without BLOCKER_AWARE_LOOP_PATCH keep the 5-attempt
-    SCORE_THRESHOLD loop.
+    Iterate while the current gate says retry, hard cap MAX_ATTEMPTS (2) when
+    BLOCKER_AWARE_LOOP_PATCH is present. Without that marker, replay uses
+    LEGACY_MAX_ATTEMPTS and SCORE_THRESHOLD so the recorded command count matches.
 
     Triage lifecycle (`ai_triage.status`), recorded via `_record_triage`:
       - in_progress: run started, context built, draft loop not yet terminal.
@@ -91,16 +96,17 @@ class SupportReplyWorkflow:
       - skipped_unactionable: classifier judged the ticket has no answerable
         question (spam / bare feedback); draft loop skipped. Distinct from
         escalated_no_reply, which means we tried and failed.
-      - persisted: a draft cleared the auto-send gate (or SCORE_THRESHOLD on
-        pre-patch histories) and passed the output review gate; auto-sent to
-        the customer (allow_bot_reply=True).
+      - persisted: a draft cleared the auto-send gate (or SCORE_THRESHOLD when
+        BLOCKER_AWARE_LOOP_PATCH is absent) and passed the output review gate;
+        auto-sent to the customer (allow_bot_reply=True).
       - suggested: grounded private note with a proposed reply, below auto-send.
       - blocked_unsafe_reply: a draft was good enough to send but the output
         review gate caught a PII leak / exfil, so it was withheld.
       - escalated_with_findings: investigation notes only, never a reply
         presented as an answer.
-      - escalated_with_best: pre-patch exhaustion: best draft (>0 confidence)
-        saved as an internal/human-gated note (allow_bot_reply=False). Replay only.
+      - escalated_with_best: histories without BLOCKER_AWARE_LOOP_PATCH: best
+        draft (>0 confidence) saved as an internal/human-gated note
+        (allow_bot_reply=False). Replay only.
       - escalated_no_reply: exhausted attempts with no usable draft or findings;
         nothing persisted, ticket handed to a human cold.
     """
@@ -251,14 +257,13 @@ class SupportReplyWorkflow:
                     "diagnostics_allowed": ctx_output.diagnostics_allowed,
                 }
 
-            def _judge_triage(draft: Any, validate: Any) -> dict[str, Any]:
-                # Defaults cover rolling deploys where an old worker omitted these fields.
+            def _judge_triage(draft: DraftOutput, validate: ValidateOutput) -> dict[str, Any]:
                 return {
-                    "verdict": getattr(draft, "verdict", "blocked_on_knowledge"),
-                    "blocker": getattr(validate, "blocker", "knowledge"),
-                    "unknowns": list(getattr(draft, "unknowns", None) or ()),
-                    "clarifying_questions": list(getattr(draft, "clarifying_questions", None) or ()),
-                    "investigation_summary": getattr(draft, "investigation_summary", "") or "",
+                    "verdict": draft.verdict,
+                    "blocker": validate.blocker,
+                    "unknowns": list(draft.unknowns),
+                    "clarifying_questions": list(draft.clarifying_questions),
+                    "investigation_summary": draft.investigation_summary,
                     "draft_confidence": draft.confidence,
                     "validator_confidence": validate.confidence,
                     "coverage": validate.coverage,
@@ -304,44 +309,49 @@ class SupportReplyWorkflow:
                     workflow.logger.info("support_reply: no seed chunks; drafting via MCP tools only")
 
                 # Draft via sandbox
-                draft_output = await workflow.execute_activity(
-                    support_draft_activity,
-                    DraftInput(
-                        team_id=input.team_id,
-                        ticket_context=reviewed_context,
-                        chunk_ids=retrieve_output.chunk_ids,
-                        prior_reply=prior_reply,
-                        prior_missing=missing,
-                        always_on_context=ctx_output.always_on_context,
-                        ticket_type=ticket_type,
-                        needs_diagnostics=needs_diagnostics,
-                        diagnostics_allowed=ctx_output.diagnostics_allowed,
-                        auto_publishable=auto_publishable,
+                draft_output = coerce_dataclass(
+                    DraftOutput,
+                    await workflow.execute_activity(
+                        support_draft_activity,
+                        DraftInput(
+                            team_id=input.team_id,
+                            ticket_context=reviewed_context,
+                            chunk_ids=retrieve_output.chunk_ids,
+                            prior_reply=prior_reply,
+                            prior_missing=missing,
+                            always_on_context=ctx_output.always_on_context,
+                            ticket_type=ticket_type,
+                            needs_diagnostics=needs_diagnostics,
+                            diagnostics_allowed=ctx_output.diagnostics_allowed,
+                            auto_publishable=auto_publishable,
+                        ),
+                        start_to_close_timeout=timedelta(minutes=20),
+                        retry_policy=RetryPolicy(maximum_attempts=2),
                     ),
-                    start_to_close_timeout=timedelta(minutes=20),
-                    retry_policy=RetryPolicy(maximum_attempts=2),
                 )
-                # Default 0.0 on histories recorded before DraftOutput.sandbox_seconds existed.
-                sandbox_seconds += getattr(draft_output, "sandbox_seconds", 0.0) or 0.0
+                sandbox_seconds += draft_output.sandbox_seconds or 0.0
 
                 if draft_output.task_run_id:
                     draft_task_run_ids.append(draft_output.task_run_id)
 
                 # Validate
-                validate_output = await _llm(
-                    support_validate_activity,
-                    ValidateInput(
-                        team_id=input.team_id,
-                        ticket_context=reviewed_context,
-                        reply=draft_output.reply,
-                        citations=draft_output.citations,
-                        chunk_ids=retrieve_output.chunk_ids,
-                        sources=draft_output.sources,
-                        ticket_type=ticket_type,
-                        trace_id=trace_id,
-                        ticket_id=ticket_id,
+                validate_output = coerce_dataclass(
+                    ValidateOutput,
+                    await _llm(
+                        support_validate_activity,
+                        ValidateInput(
+                            team_id=input.team_id,
+                            ticket_context=reviewed_context,
+                            reply=draft_output.reply,
+                            citations=draft_output.citations,
+                            chunk_ids=retrieve_output.chunk_ids,
+                            sources=draft_output.sources,
+                            ticket_type=ticket_type,
+                            trace_id=trace_id,
+                            ticket_id=ticket_id,
+                        ),
+                        timeout=timedelta(minutes=2),
                     ),
-                    timeout=timedelta(minutes=2),
                 )
                 last_draft = draft_output
                 last_validate = validate_output
@@ -494,8 +504,10 @@ class SupportReplyWorkflow:
 
             if blocker_aware:
                 if last_draft is not None and last_validate is not None:
-                    last_verdict = getattr(last_draft, "verdict", "blocked_on_knowledge")
-                    last_blocker = getattr(last_validate, "blocker", "knowledge")
+                    last_draft = coerce_dataclass(DraftOutput, last_draft)
+                    last_validate = coerce_dataclass(ValidateOutput, last_validate)
+                    last_verdict = last_draft.verdict
+                    last_blocker = last_validate.blocker
                     findings_reason = findings_reason_for(
                         blocker=last_blocker,
                         verdict=last_verdict,
@@ -516,6 +528,34 @@ class SupportReplyWorkflow:
                             findings_reason=findings_reason,
                             citations=list(last_draft.citations),
                         )
+                        review_output = await _llm(
+                            support_review_reply_activity,
+                            ReviewReplyInput(
+                                team_id=input.team_id,
+                                ticket_context=reviewed_context,
+                                reply=findings_text,
+                                sources=last_draft.sources,
+                                ticket_type=ticket_type,
+                                trace_id=trace_id,
+                                ticket_id=ticket_id,
+                            ),
+                            timeout=timedelta(minutes=2),
+                        )
+                        if not review_output.safe:
+                            last_draft = replace(
+                                last_draft,
+                                investigation_summary="",
+                                unknowns=[],
+                                clarifying_questions=[],
+                            )
+                            findings_reason = FINDINGS_WITHHELD_REASON
+                            findings_text = format_findings_comment(
+                                investigation_summary="",
+                                unknowns=[],
+                                clarifying_questions=[],
+                                findings_reason=findings_reason,
+                                citations=list(last_draft.citations),
+                            )
                         await workflow.execute_activity(
                             support_persist_reply_activity,
                             PersistReplyInput(
