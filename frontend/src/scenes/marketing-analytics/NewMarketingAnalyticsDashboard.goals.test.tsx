@@ -10,7 +10,7 @@ import { setupPlanLogic } from 'scenes/web-analytics/tabs/marketing-analytics/fr
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { NewMarketingAnalyticsDashboard } from './NewMarketingAnalyticsDashboard'
+import { NewMarketingAnalyticsDashboard } from 'products/marketing_analytics/frontend/dashboard/NewMarketingAnalyticsDashboard'
 
 jest.mock('scenes/web-analytics/tiles/WebAnalyticsTile', () => ({ webAnalyticsDataTableQueryContext: {} }))
 jest.mock('~/queries/Query/Query', () => ({ Query: () => null }))
@@ -79,6 +79,8 @@ describe('Dashboard goal suggestions', () => {
             await waitFor(() => expect(screen.queryByText('Suggested conversion goals (1)')).toBeNull())
         } finally {
             cleanup()
+            setupPlanLogic.actions.restoreAllDismissed()
+            localStorage.removeItem('marketing-goal-suggestions-expanded')
             unmountSetup()
             unmountMarketing()
         }

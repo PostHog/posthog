@@ -249,26 +249,18 @@ class AutoProjectMiddleware:
                 and path_parts[0] == "project"
                 and (path_parts[1].startswith("phc_") or path_parts[1] in self.token_allowlist)
             ):
+                new_team = Team.objects.filter(api_token=path_parts[1]).first()
 
-                def do_redirect():
+                if new_team is not None and self.switch_team_if_allowed(new_team, request):
+                    path_parts[1] = str(new_team.pk)
                     new_path = "/".join(path_parts)
                     search_params = request.GET.urlencode()
-
                     return redirect(f"/{new_path}?{search_params}" if search_params else f"/{new_path}")
 
-                try:
-                    new_team = Team.objects.get(api_token=path_parts[1])
-
-                    if not self.can_switch_to_team(new_team, request):
-                        raise Team.DoesNotExist
-
-                    path_parts[1] = str(new_team.pk)
-                    return do_redirect()
-
-                except Team.DoesNotExist:
-                    if user.team:
-                        path_parts[1] = str(user.team.pk)
-                        return do_redirect()
+                # The token names no project the person can open. The address keeps the token,
+                # which tells them nothing about the project behind it.
+                if user.team:
+                    request.project_access_denied = path_parts[1]  # type: ignore
 
             if len(path_parts) >= 2 and path_parts[0] == "project" and path_parts[1].isdigit():
                 project_id_in_url = int(path_parts[1])
@@ -282,11 +274,16 @@ class AutoProjectMiddleware:
                 project_id_in_url = int(path_parts[2])
 
             if project_id_in_url and user.team and user.team.pk != project_id_in_url:
+                switched = False
                 try:
                     new_team = Team.objects.get(pk=project_id_in_url)
-                    self.switch_team_if_allowed(new_team, request)
+                    switched = self.switch_team_if_allowed(new_team, request)
                 except Team.DoesNotExist:
                     pass
+                if not switched and path_parts[0] == "project":
+                    # We keep serving the user's own team here, so the app must say so instead of
+                    # rendering that team under another project's address.
+                    request.project_access_denied = path_parts[1]  # type: ignore
                 return self.get_response(request)
 
             target_queryset = self.get_target_queryset(request)
@@ -336,11 +333,11 @@ class AutoProjectMiddleware:
             if actual_item is not None:
                 self.switch_team_if_allowed(actual_item.team, request)
 
-    def switch_team_if_allowed(self, new_team: Team, request: HttpRequest):
+    def switch_team_if_allowed(self, new_team: Team, request: HttpRequest) -> bool:
         user = cast(User, request.user)
 
         if not self.can_switch_to_team(new_team, request):
-            return
+            return False
 
         old_team_id = user.current_team_id
         user.team = new_team
@@ -349,6 +346,7 @@ class AutoProjectMiddleware:
         user.save()
         # Information for POSTHOG_APP_CONTEXT
         request.switched_team = old_team_id  # type: ignore
+        return True
 
     def can_switch_to_team(self, new_team: Team, request: HttpRequest):
         user = cast(User, request.user)
@@ -1332,14 +1330,23 @@ class CSPMiddleware:
                 # can. Session replay decompresses snapshots with snappy-wasm and the HogQL editor
                 # parses with a WebAssembly build, so both break without it.
                 #
-                # Stripe and Turnstile are the two scripts we cannot serve ourselves: both vendors
-                # require the file to load from their own origin, so the flag-font trick of shipping
+                # Stripe, Turnstile and Unlayer are the scripts we cannot serve ourselves: each vendor
+                # requires the file to load from their own origin, so the flag-font trick of shipping
                 # a copy does not apply. `loadStripe` injects js.stripe.com for the payment entry
-                # modal, and the signup captcha loads the Turnstile API. `frame-src 'self' https:`
-                # already admits the iframes each one opens, and neither produced a connect-src
+                # modal, the signup captcha loads the Turnstile API, and `react-email-editor` injects
+                # editor.unlayer.com/embed.js for the email templater. `frame-src 'self' https:`
+                # already admits the iframes each one opens, and none produced a connect-src
                 # violation while this policy was report-only, so their API calls run inside those
-                # frames rather than from our page.
-                f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval' {resource_url} https://*.i.posthog.com https://js.stripe.com https://challenges.cloudflare.com",
+                # frames rather than from our page. Unlayer bears that out: embed.js is the only
+                # unlayer URL this policy has ever reported, because the editor itself runs in a
+                # frame that carries its own policy rather than ours.
+                #
+                # Unlayer is pinned to a path rather than the host, because react-email-editor
+                # hardcodes that one URL and we do not pass its `scriptUrl` prop. A source path is
+                # matched against the URL path alone, so the `?2` the library appends does not
+                # defeat it. The cost is that a version bump which moves the file needs this line
+                # updated, or the editor stops loading.
+                f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval' {resource_url} https://*.i.posthog.com https://js.stripe.com https://challenges.cloudflare.com https://editor.unlayer.com/embed.js",
                 # A data: font cannot execute script, and this directive governs font loading only,
                 # so the token widens nothing else. It also carries nothing out: a data: URL makes
                 # no request, which is what the CSS-injection attacks on this directive need. The
@@ -1388,8 +1395,13 @@ class CSPMiddleware:
                 "manifest-src 'self'",
                 "base-uri 'self'",
                 # form-action has no default-src fallback, so leaving it unset lets an injected
-                # form post anywhere. Every form we serve targets a same-origin path.
-                "form-action 'self'",
+                # form post anywhere. Every form we serve targets a same-origin path, but Chromium
+                # judges each hop of the redirect chain too, and reports the original action rather
+                # than the hop that failed. Exiting impersonation posts to /logout, which redirects
+                # into /admin/, and AdminOAuth2Middleware sends that on to Google because
+                # restore_original_login() flushes the session holding the admin verification. So
+                # without this origin a staff logout is cancelled with nothing shown to the user.
+                "form-action 'self' https://accounts.google.com",
             ]
 
             report_uri = csp_report_endpoint(sample_rate="0.1")

@@ -3687,7 +3687,7 @@ export namespace Schemas {
       /** Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),
        * -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year). */
       date_from?: string | null;
-      /** End of the date range. Same format as date_from. Omit or null for "now". */
+      /** End of the date range. Same format as date_from. Omit or null for "now". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set. */
       date_to?: string | null;
       /** Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries. */
       daysOfWeek?: DaysOfWeekEnum[] | null;
@@ -23889,8 +23889,11 @@ export namespace Schemas {
          * @nullable
          */
       edited_history_id?: string | null;
-      /** @nullable */
-      readonly latest_history_id: number | null;
+      /**
+         * Activity log ID of the most recent query edit to this view. Send it back as edited_history_id on the next query write, so conflict detection can tell whether someone else changed the query in the meantime. Edits that leave the query alone do not advance it.
+         * @nullable
+         */
+      readonly latest_history_id: string | null;
       /**
          * If true, skip column inference and validation. For saving drafts.
          * @nullable
@@ -25739,6 +25742,7 @@ export namespace Schemas {
      * * `Smartlead` - Smartlead
      * * `Substack` - Substack
      * * `ElectricityMaps` - ElectricityMaps
+     * * `Amplemarket` - Amplemarket
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -27083,6 +27087,7 @@ export namespace Schemas {
       Smartlead: 'Smartlead',
       Substack: 'Substack',
       ElectricityMaps: 'ElectricityMaps',
+      Amplemarket: 'Amplemarket',
     } as const;
 
     /**
@@ -28440,7 +28445,8 @@ export namespace Schemas {
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
        * * `Substack` - Substack
-       * * `ElectricityMaps` - ElectricityMaps */
+       * * `ElectricityMaps` - ElectricityMaps
+       * * `Amplemarket` - Amplemarket */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -30648,7 +30654,8 @@ export namespace Schemas {
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
        * * `Substack` - Substack
-       * * `ElectricityMaps` - ElectricityMaps */
+       * * `ElectricityMaps` - ElectricityMaps
+       * * `Amplemarket` - Amplemarket */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -39654,7 +39661,8 @@ export namespace Schemas {
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
        * * `Substack` - Substack
-       * * `ElectricityMaps` - ElectricityMaps */
+       * * `ElectricityMaps` - ElectricityMaps
+       * * `Amplemarket` - Amplemarket */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -41032,7 +41040,8 @@ export namespace Schemas {
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
        * * `Substack` - Substack
-       * * `ElectricityMaps` - ElectricityMaps */
+       * * `ElectricityMaps` - ElectricityMaps
+       * * `Amplemarket` - Amplemarket */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -46581,6 +46590,27 @@ export namespace Schemas {
       quantile?: number | null;
     }
 
+    export type MetricsReducer = typeof MetricsReducer[keyof typeof MetricsReducer];
+
+
+    export const MetricsReducer = {
+      Last: 'last',
+      Mean: 'mean',
+      Min: 'min',
+      Max: 'max',
+      Sum: 'sum',
+      Delta: 'delta',
+    } as const;
+
+    export type MetricsNullMode = typeof MetricsNullMode[keyof typeof MetricsNullMode];
+
+
+    export const MetricsNullMode = {
+      Gap: 'gap',
+      Zero: 'zero',
+      Connect: 'connect',
+    } as const;
+
     export type MetricsStatSummary = typeof MetricsStatSummary[keyof typeof MetricsStatSummary];
 
 
@@ -46590,6 +46620,13 @@ export namespace Schemas {
       Total: 'total',
     } as const;
 
+    export interface MetricsThreshold {
+      /** A named color token (e.g. "green", "red"), never raw hex, so light and dark themes both work. */
+      color: string;
+      /** Lower bound of this band. The lowest step is the base color below every other step. */
+      value: number;
+    }
+
     export type MetricsDisplayType = typeof MetricsDisplayType[keyof typeof MetricsDisplayType];
 
 
@@ -46598,6 +46635,10 @@ export namespace Schemas {
       Area: 'area',
       Bar: 'bar',
       Stat: 'stat',
+      Gauge: 'gauge',
+      Bargauge: 'bargauge',
+      Table: 'table',
+      Heatmap: 'heatmap',
     } as const;
 
     export type MetricsAxisScale = typeof MetricsAxisScale[keyof typeof MetricsAxisScale];
@@ -46620,16 +46661,27 @@ export namespace Schemas {
 
     export interface MetricsDisplaySettings {
       goalLines?: GoalLine[] | null;
+      /** Time-series panels only: which reducers the legend table shows. Empty means no legend calcs. */
+      legendCalcs?: MetricsReducer[] | null;
+      /** How a null bucket renders on a time-series chart. */
+      nullMode?: MetricsNullMode | null;
+      /** How scalar panels and legend calcs collapse a series to one number. */
+      reduce?: MetricsReducer | null;
       /** `stat` display only: which summary the headline value shows. */
       statSummary?: MetricsStatSummary | null;
+      /** Color bands for the scalar panels. Sorted by `value` at read time, so entry order does not matter. */
+      thresholds?: MetricsThreshold[] | null;
       type?: MetricsDisplayType | null;
+      /** UCUM unit string as OTel writes it, e.g. "By", "ms", "%". Defaults from the response unit. */
+      unit?: string | null;
       yAxis?: MetricsYAxisSettings | null;
     }
 
     export interface MetricsQueryPoint {
       /** Bucket start, ISO 8601 */
       time: string;
-      value: number;
+      /** The bucket's aggregate; null when it isn't representable (a gap). */
+      value: number | null;
     }
 
     /**
@@ -46644,6 +46696,8 @@ export namespace Schemas {
       labels: MetricsQuerySeriesLabels;
       metricName?: string | null;
       points: MetricsQueryPoint[];
+      /** UCUM unit of the metric as ingested, e.g. "By", "ms", "1". Empty when the SDK did not set one. */
+      unit?: string | null;
     }
 
     export interface MetricsQueryResponse {
@@ -61965,6 +62019,24 @@ export namespace Schemas {
       Cloud: 'cloud',
     } as const;
 
+    /**
+     * * `open` - open
+     * * `draft` - draft
+     * * `merged` - merged
+     * * `closed` - closed
+     * * `unknown` - unknown
+     */
+    export type PrStateEnum = typeof PrStateEnum[keyof typeof PrStateEnum];
+
+
+    export const PrStateEnum = {
+      Open: 'open',
+      Draft: 'draft',
+      Merged: 'merged',
+      Closed: 'closed',
+      Unknown: 'unknown',
+    } as const;
+
     export interface TaskRunSummary {
       /** ID of the latest run. */
       id: string;
@@ -61975,6 +62047,19 @@ export namespace Schemas {
        * * `interactive` - interactive
        * * `background` - background */
       mode: TaskExecutionModeEnum;
+      /**
+         * URL of the pull request the latest run opened, or null when it opened none.
+         * @nullable
+         */
+      pr_url: string | null;
+      /** State of that pull request: open, draft, merged, closed, or unknown. Null when the latest run opened no pull request.
+       *
+       * * `open` - open
+       * * `draft` - draft
+       * * `merged` - merged
+       * * `closed` - closed
+       * * `unknown` - unknown */
+      pr_state: PrStateEnum | null;
     }
 
     /**
@@ -65332,8 +65417,11 @@ export namespace Schemas {
          * @nullable
          */
       edited_history_id?: string | null;
-      /** @nullable */
-      readonly latest_history_id?: number | null;
+      /**
+         * Activity log ID of the most recent query edit to this view. Send it back as edited_history_id on the next query write, so conflict detection can tell whether someone else changed the query in the meantime. Edits that leave the query alone do not advance it.
+         * @nullable
+         */
+      readonly latest_history_id?: string | null;
       /**
          * If true, skip column inference and validation. For saving drafts.
          * @nullable
@@ -74869,6 +74957,18 @@ export namespace Schemas {
     }
 
     /**
+     * Response when the GitHub App cannot read pull request checks.
+     */
+    export interface PullRequestChecksPermissionError {
+      /** Stable code for a missing GitHub Checks permission. */
+      readonly code: string;
+      /** What the GitHub App permission prevents. */
+      readonly error: string;
+      /** Project integrations settings where a project admin can reconnect GitHub. */
+      readonly remediation_url: string;
+    }
+
+    /**
      * Response for the PR checks endpoint — the CI status of a report's implementation PR.
      */
     export interface PullRequestChecksResponse {
@@ -79290,6 +79390,39 @@ export namespace Schemas {
       cacheAgeSeconds: number;
       /** Scan evidence details */
       scan?: ScanEvidence;
+    }
+
+    export interface RescoreRequest {
+      /** Organization to re-score, from the $group_key of the wizard's $groupidentify event. */
+      organization_id: string;
+    }
+
+    /**
+     * * `disabled` - disabled
+     * * `no_enrichment_record` - no_enrichment_record
+     * * `dispatch_backlog_full` - dispatch_backlog_full
+     * * `dispatch_failed` - dispatch_failed
+     */
+    export type RescoreResponseReasonEnum = typeof RescoreResponseReasonEnum[keyof typeof RescoreResponseReasonEnum];
+
+
+    export const RescoreResponseReasonEnum = {
+      Disabled: 'disabled',
+      NoEnrichmentRecord: 'no_enrichment_record',
+      DispatchBacklogFull: 'dispatch_backlog_full',
+      DispatchFailed: 'dispatch_failed',
+    } as const;
+
+    export interface RescoreResponse {
+      /** Whether the re-score workflow was dispatched. */
+      queued: boolean;
+      /** Why nothing was dispatched. Null when queued.
+       *
+       * * `disabled` - disabled
+       * * `no_enrichment_record` - no_enrichment_record
+       * * `dispatch_backlog_full` - dispatch_backlog_full
+       * * `dispatch_failed` - dispatch_failed */
+      reason: RescoreResponseReasonEnum | null;
     }
 
     export interface ResetPasswordResponse {
@@ -84335,7 +84468,8 @@ export namespace Schemas {
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
        * * `Substack` - Substack
-       * * `ElectricityMaps` - ElectricityMaps */
+       * * `ElectricityMaps` - ElectricityMaps
+       * * `Amplemarket` - Amplemarket */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -85729,7 +85863,8 @@ export namespace Schemas {
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
        * * `Substack` - Substack
-       * * `ElectricityMaps` - ElectricityMaps */
+       * * `ElectricityMaps` - ElectricityMaps
+       * * `Amplemarket` - Amplemarket */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -87105,7 +87240,8 @@ export namespace Schemas {
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
        * * `Substack` - Substack
-       * * `ElectricityMaps` - ElectricityMaps */
+       * * `ElectricityMaps` - ElectricityMaps
+       * * `Amplemarket` - Amplemarket */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -92153,6 +92289,7 @@ export namespace Schemas {
     /**
      * * `signal_emitted` - Signal Emitted
      * * `unusual_verdict` - Unusual Verdict
+     * * `notable` - Notable
      * * `verdict_yes` - Verdict Yes
      * * `outlier_score` - Outlier Score
      * * `rare_tag` - Rare Tag
@@ -92167,6 +92304,7 @@ export namespace Schemas {
     export const WatchFeedReasonEnum = {
       SignalEmitted: 'signal_emitted',
       UnusualVerdict: 'unusual_verdict',
+      Notable: 'notable',
       VerdictYes: 'verdict_yes',
       OutlierScore: 'outlier_score',
       RareTag: 'rare_tag',
@@ -92180,10 +92318,11 @@ export namespace Schemas {
      * Machine-readable reason an observation made the feed; the frontend renders the copy.
      */
     export interface WatchFeedReason {
-      /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `friction` (the scan describes errors, retries, or dead ends), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
+      /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the session worth watching), `friction` (the scan describes errors, retries, or dead ends), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
        *
        * * `signal_emitted` - Signal Emitted
        * * `unusual_verdict` - Unusual Verdict
+       * * `notable` - Notable
        * * `verdict_yes` - Verdict Yes
        * * `outlier_score` - Outlier Score
        * * `rare_tag` - Rare Tag
@@ -92207,6 +92346,16 @@ export namespace Schemas {
          * @nullable
          */
       verdict_share?: number | null;
+      /**
+         * The scan's own 0-1 judgment of how much a team would benefit from watching, for `notable`.
+         * @nullable
+         */
+      notability?: number | null;
+      /**
+         * The scan's own sentence naming why the session is worth watching. Present only on the `notable` reason kind, and preferred over copy derived from the reason kind. Absent on observations scanned before notability shipped.
+         * @nullable
+         */
+      notability_reason?: string | null;
       /**
          * The observation's score, for `outlier_score`.
          * @nullable
@@ -92243,7 +92392,7 @@ export namespace Schemas {
      * Response of GET /vision/scanners/watch_feed/.
      */
     export interface WatchFeedResponse {
-      /** Succeeded observations in the window worth watching, most interesting first: signal emitters, then type-specific hits, then unviewed before viewed, then newest. */
+      /** Succeeded observations in the window worth watching, most interesting first: signal emitters, then type-specific hits, then unviewed before viewed, then the scan's own notability judgment, then prose that reads as friction, then newest. */
       results: WatchFeedItem[];
     }
 
@@ -105717,6 +105866,13 @@ export namespace Schemas {
      */
     ci_status?: TasksListCiStatus;
     /**
+     * Filter by the client that created the task
+     *
+     * * `posthog_desktop` - PostHog Desktop
+     * @minLength 1
+     */
+    client_provenance?: TasksListClientProvenance;
+    /**
      * Filter to tasks carrying a thread comment written by this user ID.
      */
     commented_by?: number;
@@ -105856,6 +106012,13 @@ export namespace Schemas {
       Failing: 'failing',
       Pending: 'pending',
       None: 'none',
+    } as const;
+
+    export type TasksListClientProvenance = typeof TasksListClientProvenance[keyof typeof TasksListClientProvenance];
+
+
+    export const TasksListClientProvenance = {
+      PosthogDesktop: 'posthog_desktop',
     } as const;
 
     export type TasksListExcludeOriginProduct = typeof TasksListExcludeOriginProduct[keyof typeof TasksListExcludeOriginProduct];
