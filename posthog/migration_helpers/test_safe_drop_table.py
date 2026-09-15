@@ -1,7 +1,7 @@
 """Functional tests for SafeDropTable.
 
-Each test builds a real child/parent pair with real Django-shaped foreign keys, so the
-catalog lookup that decides the lock list runs against the same pg_constraint rows a
+Each test builds real tables with real Django-shaped foreign keys, so the catalog lookups
+that decide the lock list run against the same pg_constraint and pg_inherits rows a
 migration would see.
 """
 
@@ -41,6 +41,29 @@ def temp_tables():
                 cursor.execute(f'DROP TABLE IF EXISTS "{table}" CASCADE')
 
 
+@pytest.fixture
+def partitioned_tables():
+    suffix = uuid.uuid4().hex[:8]
+    root = f"test_safedrop_partitioned_{suffix}"
+    leaf = f"{root}_default"
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            CREATE TABLE "{root}" (
+                id serial,
+                created_at timestamptz NOT NULL,
+                PRIMARY KEY (id, created_at)
+            ) PARTITION BY RANGE (created_at)
+            """
+        )
+        cursor.execute(f'CREATE TABLE "{leaf}" PARTITION OF "{root}" DEFAULT')
+    try:
+        yield root, leaf
+    finally:
+        with connection.cursor() as cursor:
+            cursor.execute(f'DROP TABLE IF EXISTS "{root}" CASCADE')
+
+
 def _apply(op, collect=False):
     schema_editor = connection.schema_editor(atomic=False, collect_sql=collect)
     schema_editor.__enter__()
@@ -53,7 +76,7 @@ def _apply(op, collect=False):
 
 def _tables_exist(*tables):
     with connection.cursor() as cursor:
-        cursor.execute("SELECT relname FROM pg_class WHERE relname = ANY(%s) AND relkind = 'r'", [list(tables)])
+        cursor.execute("SELECT relname FROM pg_class WHERE relname = ANY(%s) AND relkind IN ('r', 'p')", [list(tables)])
         return {row[0] for row in cursor.fetchall()}
 
 
@@ -118,6 +141,21 @@ def test_a_second_run_is_a_no_op(temp_tables):
     _apply(op)
 
     assert _tables_exist(child_a, child_b) == set()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("target", ["root", "leaf"])
+def test_refuses_a_table_whose_hierarchy_the_lock_list_misses(partitioned_tables, target):
+    # The root carries relkind 'p', so the existence query cannot see it and a silent return
+    # would record the migration with the table still there. The leaf is an ordinary table,
+    # but its inheritance parent is no foreign-key target, so nothing puts that parent in the
+    # lock list and the drop takes ACCESS EXCLUSIVE on it while the statement runs.
+    root, leaf = partitioned_tables
+
+    with pytest.raises(RuntimeError, match="whole hierarchy in the lock list"):
+        _apply(SafeDropTable(root if target == "root" else leaf))
+
+    assert _tables_exist(root, leaf) == {root, leaf}
 
 
 def test_the_drop_cannot_be_reversed():

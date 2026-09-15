@@ -193,6 +193,7 @@ Never `SET lock_timeout = 0` on a drop that reaches a hot parent. Migrations alr
 
 - Drop operations are irreversible - once data is deleted, it's gone and any rollback will fail without the table
 - A retry after a lost lock race runs the drop again, because the lock phase failed before the drop. `DROP TABLE IF EXISTS` makes a retry a no-op only after the drop completed
+- A partitioned table, or a table in an inheritance hierarchy, is refused with an error rather than dropped. The lock list covers the named tables and their foreign-key parents, and the members of the hierarchy never enter it. Retire one of those with a migration that locks the hierarchy itself
 
 ### Example
 

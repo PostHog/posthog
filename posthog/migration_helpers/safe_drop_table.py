@@ -55,6 +55,18 @@ _REFERENCED_TABLES_SQL = """
       AND pg_table_is_visible(src.oid)
 """
 
+_PARTITIONED_TABLES_SQL = """
+    SELECT c.relname
+    FROM pg_class c
+    WHERE c.relname = ANY(%(tables)s)
+      AND c.relkind IN ('r', 'p')
+      AND pg_table_is_visible(c.oid)
+      AND (
+        c.relkind = 'p'
+        OR EXISTS (SELECT 1 FROM pg_inherits WHERE inhrelid = c.oid OR inhparent = c.oid)
+      )
+"""
+
 
 class SafeDropTable(Operation):
     """Drop one or more retired tables under a deterministic, time-boxed lock phase.
@@ -68,6 +80,10 @@ class SafeDropTable(Operation):
 
     Pass every table of one retirement in a single operation. They are locked and dropped
     together, so a key between two of them needs no ordering at the call site.
+
+    A partitioned table, and any table in an inheritance hierarchy, is refused rather than
+    dropped. The lock list covers the named tables and their foreign-key parents, and a
+    hierarchy needs its own members in the list as well.
     """
 
     # A no-op reverse would report success and leave the table gone.
@@ -91,6 +107,19 @@ class SafeDropTable(Operation):
         # SET LOCAL outside a transaction only warns, leaving the lock phase unbounded.
         if not schema_editor.connection.in_atomic_block:
             raise RuntimeError("SafeDropTable needs an atomic migration; remove `atomic = False`")
+
+        # A partitioned root carries relkind 'p', so the existence query cannot see it and
+        # the absent-table return below would report success for a table that is still
+        # there. A partition's inheritance parent is not a foreign-key target either, so it
+        # never enters the lock list and the drop takes ACCESS EXCLUSIVE on it while the
+        # statement runs.
+        hierarchies = sorted(self._query(schema_editor, _PARTITIONED_TABLES_SQL, self.tables))
+        if hierarchies:
+            raise RuntimeError(
+                f"SafeDropTable cannot drop {', '.join(hierarchies)}: a partitioned or inherited table needs its"
+                " whole hierarchy in the lock list, and this operation collects only the named tables and their"
+                ' foreign-key parents. See safe-django-migrations.md ("Dropping Tables").'
+            )
 
         present = sorted(self._query(schema_editor, _EXISTING_TABLES_SQL, self.tables))
         if not present:
