@@ -344,7 +344,24 @@ export type BusinessKnowledgeSourcesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Case-insensitive substring match against the source name and URL.
+     */
+    search?: string
+    /**
+     * Filter to a single source type (text, url, or file).
+     */
+    source_type?: BusinessKnowledgeSourcesListSourceType
 }
+
+export type BusinessKnowledgeSourcesListSourceType =
+    (typeof BusinessKnowledgeSourcesListSourceType)[keyof typeof BusinessKnowledgeSourcesListSourceType]
+
+export const BusinessKnowledgeSourcesListSourceType = {
+    File: 'file',
+    Text: 'text',
+    Url: 'url',
+} as const
 
 export type BusinessKnowledgeSourcesTextRetrieve200 = {
     text?: string

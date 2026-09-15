@@ -641,10 +641,31 @@ describe('sessionRecordingPlayerLogic', () => {
             sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actions.setProcessedSnapshots(processed)
         }
 
-        beforeEach(async () => {
+        // `durationMs` caps the reported spans, and the default mock recording is only 11 seconds
+        // long, so each case states the metadata duration its fixture needs.
+        const mountWithRecordingDuration = async (recordingDurationSeconds: number): Promise<void> => {
+            logic.unmount()
+            overrideSessionRecordingMocks({
+                getMocks: {
+                    '/api/environments/:team_id/session_recordings/:id': {
+                        ...recordingMetaJson,
+                        recording_duration: recordingDurationSeconds,
+                    },
+                },
+            })
+            logic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '2',
+                playerKey: 'test',
+                blobV2PollingDisabled: true,
+            })
+            logic.mount()
             await expectLogic(logic)
                 .toDispatchActions([snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources])
                 .toFinishAllListeners()
+        }
+
+        beforeEach(async () => {
+            await mountWithRecordingDuration(360)
         })
 
         // assertions below run synchronously after the seek dispatch — kea listeners
@@ -1029,6 +1050,28 @@ describe('sessionRecordingPlayerLogic', () => {
 
         it.each([
             {
+                description: 'reports at most the recording length when the start is skewed before the recording',
+                recordingDurationSeconds: 60,
+            },
+            {
+                // the clamped span fills the whole timeline here, so gating the warning on it would
+                // hide the warning exactly where every second of the recording is unplayable
+                description: 'still warns when the recording is no longer than the warning threshold',
+                recordingDurationSeconds: 15,
+            },
+        ])('$description', async ({ recordingDurationSeconds }) => {
+            // A skewed start drags `start` back but not the metadata duration the timeline is capped to,
+            // so the raw offset to the first full snapshot claims more time than the recording holds.
+            await mountWithRecordingDuration(recordingDurationSeconds)
+            seedRecording([inc(START), inc(START + 1000)], [fs(LATE_FS_TS)])
+
+            expect(logic.values.leadingUnplayableMs).toBe(logic.values.sessionPlayerData.durationMs)
+            expect(logic.values.leadingUnplayableMs).toBeLessThan(LATE_FS_TS - START)
+            expect(logic.values.hasLateFullSnapshot).toBe(true)
+        })
+
+        it.each([
+            {
                 // the reported symptom: window 2 opens and only sends mouse moves, so it animates a
                 // cursor over a document rrweb never built
                 description: 'reports the span of a later window that never sent a full snapshot',
@@ -1103,6 +1146,54 @@ describe('sessionRecordingPlayerLogic', () => {
             ])
             expect(logic.values.hasUnrenderableWindow).toBe(true)
         })
+
+        // The leading span reports everything up to its handover point, so a later window that is
+        // blank before that point is time the banner and the telemetry already count.
+        it.each([
+            {
+                description: 'drops a later window span the leading span already covers',
+                firstSourceSnapshots: [idle(START)],
+                secondSourceSnapshots: [
+                    w2inc(START + 61000),
+                    w2inc(START + 62000),
+                    w2fs(LATE_FS_TS),
+                    w2inc(LATE_FS_TS + 1000),
+                ],
+                expectedLeadingUnplayableMs: LATE_FS_TS - START,
+                expectedUnrenderableWindowMs: 0,
+                expectedHasUnrenderable: false,
+            },
+            {
+                // window 1 recovers on its own late full snapshot, and window 2 stays blank across it
+                description: 'keeps only the part of a later window span that follows the handover',
+                firstSourceSnapshots: [idle(START)],
+                secondSourceSnapshots: [
+                    ...w2moves(START + 61000, START + 111000),
+                    fs(START + 116000),
+                    w1move(START + 117000),
+                    w1move(START + 122000),
+                    ...w2moves(START + 127000, START + 177000),
+                ],
+                expectedLeadingUnplayableMs: 116000,
+                expectedUnrenderableWindowMs: 55000,
+                expectedHasUnrenderable: true,
+            },
+        ])(
+            '$description',
+            ({
+                firstSourceSnapshots,
+                secondSourceSnapshots,
+                expectedLeadingUnplayableMs,
+                expectedUnrenderableWindowMs,
+                expectedHasUnrenderable,
+            }) => {
+                seedRecording(firstSourceSnapshots, secondSourceSnapshots)
+
+                expect(logic.values.leadingUnplayableMs).toBe(expectedLeadingUnplayableMs)
+                expect(logic.values.unrenderableWindowMs).toBe(expectedUnrenderableWindowMs)
+                expect(logic.values.hasUnrenderableWindow).toBe(expectedHasUnrenderable)
+            }
+        )
 
         it('leaves a recording with no full snapshot at all to the unplayable takeover', () => {
             // the full-screen error replaces the player here, so a banner behind it would count
