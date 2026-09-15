@@ -707,7 +707,7 @@ Note: The developer hub serves a Swagger UI whose visible initializer points at 
 
 ## BambooHR — **thin**
 
-Today (13): `employee_compensation`, `employee_employment_status`, `employee_job_info`, `employee_time_off_balances`, `employee_time_off_policies`, `employees`, `meta_fields`, `meta_lists`, `meta_users`, `time_off_policies`, `time_off_requests`, `time_off_types`, `timesheet_entries`
+Today (22): `applicant_statuses`, `application_details`, `applications`, `ats_locations`, `employee_compensation`, `employee_employment_status`, `employee_goal_comments`, `employee_goals`, `employee_job_info`, `employee_time_off_balances`, `employee_time_off_policies`, `employees`, `job_openings`, `locations`, `meta_fields`, `meta_lists`, `meta_users`, `time_off_policies`, `time_off_requests`, `time_off_types`, `timesheet_entries`, `whos_out`
 
 Diffed against: <https://documentation.bamboohr.com/sitemap.xml>
 
@@ -715,10 +715,10 @@ Diffed against: <https://documentation.bamboohr.com/sitemap.xml>
 - [x] `GET time off policies + employee time off policies` — lookup resolving the policy behind time_off_requests and accrual rules (high)
 - [x] `GET time off balance` — current accrued balance per employee - the headline time-off metric, absent even though requests and types are synced (high)
 - [x] `GET timesheet entries / time tracking records` — hours worked, the core fact table for the whole time-tracking product (high)
-- [ ] `GET applications, application details, job summaries, statuses (ATS)` — recruiting funnel - candidates, applications and stage; an entire product area with zero coverage (high)
-- [ ] `GET company locations / list locations` — lookup resolving the location ID on employees (high)
-- [ ] `GET who's out` — resolved out-of-office calendar, commonly wanted alongside time_off_requests (medium)
-- [ ] `GET goals + goal comments` — performance goals and progress updates per employee (medium)
+- [x] `GET applications, application details, job summaries, statuses (ATS)` — recruiting funnel - candidates, applications and stage; an entire product area with zero coverage (high)
+- [x] `GET company locations / list locations` — lookup resolving the location ID on employees (high)
+- [x] `GET who's out` — resolved out-of-office calendar, commonly wanted alongside time_off_requests (medium)
+- [x] `GET goals + goal comments` — performance goals and progress updates per employee (medium)
 - [ ] `GET employee trainings + training types + training categories` — completion facts plus the lookup tables that name them (medium)
 - [ ] `GET company benefits, employee benefits, benefit coverages, deduction types` — benefits enrollment and its lookup tables - a major HRIS reporting area (medium)
 - [ ] `GET list datasets + get data from dataset (Workforce Analytics)` — the vendor's own analytics datasets, discoverable at sync time (medium)

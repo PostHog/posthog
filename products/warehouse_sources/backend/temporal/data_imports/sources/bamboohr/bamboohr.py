@@ -3,13 +3,15 @@ import dataclasses
 from collections.abc import Iterable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional, cast
+from urllib.parse import parse_qs, quote, urlsplit
 
-from requests import Response
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bamboohr.settings import (
     BAMBOOHR_ENDPOINTS,
     EMPLOYEE_TABLE_EMPLOYEE_ID,
     EMPLOYEE_TABLE_LAST_CHANGED,
+    GOAL_ID,
     BambooHREndpointConfig,
     ChunkedDateWindow,
 )
@@ -25,6 +27,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BaseNextUrlPaginator,
+    BasePaginator,
+    PageNumberPaginator,
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
@@ -53,6 +57,10 @@ TIME_OFF_FUTURE_DAYS = 730
 # The employee-table history endpoints require a `since` cursor, so a full refresh needs a floor
 # old enough to predate any company's records.
 EMPLOYEE_TABLE_HISTORY_START = datetime(2000, 1, 1, tzinfo=UTC)
+# BambooHR's page-numbered endpoints count from zero.
+FIRST_PAGE_NUMBER = 0
+# Endpoint whose rows the goal-comment iterator walks to reach each goal.
+GOAL_COMMENTS_PARENT = "employee_goals"
 
 # A BambooHR company subdomain is the "<company>" slug from <company>.bamboohr.com — letters, digits,
 # and hyphens only. It's an editable, non-secret field spliced straight into the request path, so pin
@@ -130,11 +138,86 @@ class BambooHRPaginator(BaseNextUrlPaginator):
         return "BambooHRPaginator(_links.next|links.next)"
 
 
+def _page_from_url(url: Any) -> int | None:
+    if not isinstance(url, str):
+        return None
+    values = parse_qs(urlsplit(url).query).get("page")
+    if not values:
+        return None
+    try:
+        return int(values[0])
+    except ValueError:
+        return None
+
+
+class BambooHRApplicationsPaginator(BasePaginator):
+    """Walks the ATS applications envelope (``paginationComplete`` plus ``nextPageUrl``).
+
+    ``nextPageUrl`` is read only for the page number it carries, never followed: BambooHR builds
+    it against the company's own domain while we call the same API through the gateway host the
+    API key was issued for, so following it verbatim would leave that host.
+    """
+
+    def __init__(self, page_param: str = "page") -> None:
+        super().__init__()
+        self.page_param = page_param
+        # None until the first response tells us which page the API served by default.
+        self.page: int | None = None
+
+    def _apply(self, request: Request) -> None:
+        if self.page is None:
+            return
+        if request.params is None:
+            request.params = {}
+        request.params[self.page_param] = self.page
+
+    def init_request(self, request: Request) -> None:
+        self._apply(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        try:
+            payload = response.json()
+        except Exception:
+            payload = None
+        if not isinstance(payload, dict) or payload.get("paginationComplete") or not data:
+            self._has_next_page = False
+            return
+        next_page = _page_from_url(payload.get("nextPageUrl"))
+        if next_page is None:
+            if not payload.get("nextPageUrl"):
+                self._has_next_page = False
+                return
+            # A next link we cannot read a page number out of still means more rows, so step
+            # forward rather than truncating the table. The step is always +1 on the page we
+            # last asked for, so the walk cannot revisit a page it already fetched.
+            next_page = (self.page or 0) + 1
+        self.page = next_page
+        self._has_next_page = True
+
+    def update_request(self, request: Request) -> None:
+        self._apply(request)
+
+    def __str__(self) -> str:
+        return "BambooHRApplicationsPaginator(paginationComplete|nextPageUrl)"
+
+
+def _paginator_for(config: BambooHREndpointConfig) -> BasePaginator:
+    if config.pagination == "single":
+        return SinglePagePaginator()
+    if config.pagination == "page_number":
+        return PageNumberPaginator(base_page=FIRST_PAGE_NUMBER, stop_after_empty_page=True)
+    if config.pagination == "ats_applications":
+        return BambooHRApplicationsPaginator()
+    return BambooHRPaginator()
+
+
 def _selector_for(config: BambooHREndpointConfig) -> tuple[str | None, bool]:
     """Map an endpoint's response layout to a (data_selector, data_selector_required) pair.
 
     - "dict" shape (e.g. ``meta/users`` — ``{"<id>": {...}}``): the ``*`` wildcard flattens the
       object to its values; not required so an empty account (empty object) is a legit 0-row page.
+    - "object" shape (a by-id detail endpoint): no selector, and not required, so the single
+      object body is wrapped as one row instead of failing the list check.
     - Enveloped list (``data_key``): select the key and fail loudly when it's absent (an API
       change) rather than silently syncing zero rows.
     - Bare list body: no selector; require a list so an unexpected 200 envelope fails loudly
@@ -142,6 +225,9 @@ def _selector_for(config: BambooHREndpointConfig) -> tuple[str | None, bool]:
     """
     if config.data_shape == "dict":
         return "*", False
+    if config.data_shape == "object":
+        # A by-id detail body is one record; the client wraps it into a single row.
+        return None, False
     if config.data_key is not None:
         return config.data_key, True
     return None, True
@@ -150,7 +236,8 @@ def _selector_for(config: BambooHREndpointConfig) -> tuple[str | None, bool]:
 def _endpoint_extra(config: BambooHREndpointConfig) -> Endpoint:
     """The response-shape half of an endpoint config, for the fan-out helper's endpoint overrides."""
     data_selector, data_selector_required = _selector_for(config)
-    extra: Endpoint = {"data_selector_required": data_selector_required}
+    # Parent and child are paginated separately, so each side needs its own paginator instance.
+    extra: Endpoint = {"data_selector_required": data_selector_required, "paginator": _paginator_for(config)}
     if data_selector is not None:
         extra["data_selector"] = data_selector
     return extra
@@ -161,7 +248,8 @@ def _rest_client(base_url: str, api_key: str) -> RESTClient:
         base_url=base_url,
         headers={"Accept": "application/json"},
         auth=BambooHRBasicAuth(username=api_key, password=BAMBOOHR_BASIC_AUTH_PASSWORD),
-        # Neither stream built on this client paginates: each response carries its whole collection.
+        # Default for the streams this client drives directly; callers that need an endpoint's
+        # own paginator pass one to `paginate`.
         paginator=SinglePagePaginator(),
         # Pins every request to the gateway host the API key was issued for.
         allowed_hosts=[],
@@ -232,6 +320,61 @@ def _window_pages(
             yield page
 
 
+def _format_path(path: str, **values: Any) -> str:
+    """Bind path placeholders to ids taken from an API response.
+
+    The ids are percent-encoded because they land in the request path: an id carrying a ``/`` or
+    a ``?`` would otherwise add path segments or query params to an authenticated request.
+    """
+    for key, value in values.items():
+        path = path.replace("{" + key + "}", quote(str(value), safe=""))
+    return path
+
+
+def _rows_for(
+    client: RESTClient, config: BambooHREndpointConfig, path: str | None = None, params: dict[str, Any] | None = None
+) -> Iterator[dict[str, Any]]:
+    data_selector, data_selector_required = _selector_for(config)
+    for page in client.paginate(
+        path=path or config.path,
+        params=config.params if params is None else params,
+        paginator=_paginator_for(config),
+        data_selector=data_selector,
+        data_selector_required=data_selector_required,
+    ):
+        yield from page
+
+
+def _goal_comment_pages(client: RESTClient, config: BambooHREndpointConfig) -> Iterator[list[dict[str, Any]]]:
+    """Walk the directory, then each employee's goals, then each goal's comments.
+
+    Two fan-out levels deep, which the single-hop dependent-resource helper cannot express. A
+    comment row names neither the goal nor the employee it belongs to, so both are stamped on.
+    """
+    goals_config = BAMBOOHR_ENDPOINTS[GOAL_COMMENTS_PARENT]
+    goals_fanout = goals_config.fanout
+    if goals_fanout is None:
+        raise ValueError(f"'{GOAL_COMMENTS_PARENT}' must fan out over a parent endpoint")
+    employees_config = BAMBOOHR_ENDPOINTS[goals_fanout.parent_name]
+
+    for employee in _rows_for(client, employees_config):
+        employee_id = employee.get(goals_fanout.resolve_field)
+        if employee_id is None:
+            continue
+        goals_path = _format_path(goals_config.path, employeeId=employee_id)
+        for goal in _rows_for(client, goals_config, path=goals_path, params=dict(goals_fanout.child_params)):
+            goal_id = goal.get("id")
+            if goal_id is None:
+                continue
+            path = _format_path(config.path, employeeId=employee_id, goalId=goal_id)
+            rows = [
+                {**row, EMPLOYEE_TABLE_EMPLOYEE_ID: str(employee_id), GOAL_ID: str(goal_id)}
+                for row in _rows_for(client, config, path=path)
+            ]
+            if rows:
+                yield rows
+
+
 def _employee_table_since(should_use_incremental_field: bool, db_incremental_field_last_value: Any) -> datetime:
     if not should_use_incremental_field:
         return EMPLOYEE_TABLE_HISTORY_START
@@ -250,6 +393,14 @@ def bamboohr_source(
 ) -> SourceResponse:
     config = BAMBOOHR_ENDPOINTS[endpoint]
     base_url = _base_url(subdomain)
+
+    if config.custom_iterator == "goal_comments":
+        client = _rest_client(base_url, api_key)
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: _goal_comment_pages(client, config),
+            primary_keys=config.primary_keys,
+        )
 
     if config.employee_table is not None:
         client = _rest_client(base_url, api_key)
@@ -275,7 +426,7 @@ def bamboohr_source(
         # Auth goes through the framework config so the API key is redacted from logs;
         # only the non-secret Accept header is set on the session.
         "auth": BambooHRBasicAuth(username=api_key, password=BAMBOOHR_BASIC_AUTH_PASSWORD),
-        "paginator": BambooHRPaginator(),
+        "paginator": _paginator_for(config),
     }
 
     if config.fanout is not None:
@@ -303,10 +454,10 @@ def bamboohr_source(
             primary_keys=config.primary_keys,
         )
 
-    params: dict[str, Any] = {}
+    params: dict[str, Any] = dict(config.params)
     if config.requires_date_window:
-        end = (datetime.now(UTC) + timedelta(days=TIME_OFF_FUTURE_DAYS)).strftime("%Y-%m-%d")
-        params = {"start": TIME_OFF_WINDOW_START, "end": end}
+        params["start"] = TIME_OFF_WINDOW_START
+        params["end"] = (datetime.now(UTC) + timedelta(days=TIME_OFF_FUTURE_DAYS)).strftime("%Y-%m-%d")
 
     data_selector, data_selector_required = _selector_for(config)
 
