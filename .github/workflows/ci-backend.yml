@@ -51,6 +51,11 @@ concurrency:
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
+    # Depot CI check runs the routing handshake and the relay read. One place to
+    # update when the Depot workflow or its gate job is renamed.
+    DEPOT_APP_ID: '219785'
+    DEPOT_CHANGES_CHECK: '[optional, does not block merge] Backend CI / Determine need to run backend and migration checks'
+    DEPOT_GATE_CHECK: '[optional, does not block merge] Backend CI / [optional, does not block merge] Django Tests Pass'
     # Schema cache epoch. Bump to abandon every shared schema cache entry at once
     # (key is posthog-schema-mig-<epoch>-<hash>). Single-sourced so it can't drift
     # between the merge-base (PR) and HEAD (push) key computations below.
@@ -175,35 +180,6 @@ jobs:
                   IS_FORK: ${{ github.event.pull_request.head.repo.fork }}
                   IS_DRAFT: ${{ github.event.pull_request.draft }}
               run: python3 .github/scripts/ci_backend_route.py
-            # Depot creates every check run at queue time, so the gate check existing
-            # proves nothing. Its changes job leaves `queued` only once Depot's sample job
-            # accepted the route: in_progress or a non-skipped completion means accepted.
-            - name: Wait for Depot to accept the route
-              id: handshake
-              if: steps.route.outputs.route == 'depot'
-              env:
-                  GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
-                  REPO: ${{ github.repository }}
-                  SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-              run: |
-                  set -euo pipefail
-                  accepted=false
-                  state=absent
-                  for _ in $(seq 1 12); do
-                      state=$(gh api "repos/$REPO/commits/$SHA/check-runs?app_id=219785&per_page=100" \
-                          --jq '[.check_runs[] | select(.name | endswith("/ Determine need to run backend and migration checks"))] | sort_by(.id) | last | if . == null then "absent" elif .status == "completed" then .conclusion else .status end' || echo "error")
-                      case "$state" in
-                          in_progress|success|failure|cancelled) accepted=true; break ;;
-                          skipped|neutral) break ;;
-                      esac
-                      sleep 10
-                  done
-                  echo "accepted=$accepted" >> "$GITHUB_OUTPUT"
-                  if [ "$accepted" = "true" ]; then
-                      echo "::notice::Depot accepted this run; GitHub Actions relays its verdict."
-                  else
-                      echo "::warning::Depot did not accept this run (last state: $state); GitHub Actions runs the tests."
-                  fi
             - uses: ./.github/actions/paths-filter
               # Skipped on master push and on the hourly schedule: every output then
               # defaults to true. See "The hourly master lane" in
@@ -461,6 +437,35 @@ jobs:
                         - 'services/mcp/src/templates/sections/**/*'
                         - 'services/mcp/schema/exec-command-reference.md'
 
+            # Depot creates every check run at queue time, so the gate check existing
+            # proves nothing. Its changes job leaves `queued` only once Depot's sample job
+            # accepted the route: in_progress or a non-skipped completion means accepted.
+            # Runs after the paths filter so that step's seconds count as waiting.
+            - name: Wait for Depot to accept the route
+              id: handshake
+              if: steps.route.outputs.route == 'depot'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+                  REPO: ${{ github.repository }}
+                  SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+              run: |
+                  set -euo pipefail
+                  accepted=false
+                  for attempt in $(seq 1 12); do
+                      state=$(gh api -X GET "repos/$REPO/commits/$SHA/check-runs" -f check_name="$DEPOT_CHANGES_CHECK" -f app_id="$DEPOT_APP_ID" \
+                          --jq '[.check_runs[]] | max_by(.id) | if . == null then "absent" elif .status == "completed" then .conclusion else .status end' || echo "error")
+                      case "$state" in
+                          in_progress|success|failure|cancelled) accepted=true; break ;;
+                          skipped|neutral) break ;;
+                      esac
+                      [ "$attempt" -lt 12 ] && sleep 10
+                  done
+                  echo "accepted=$accepted" >> "$GITHUB_OUTPUT"
+                  if [ "$accepted" = "true" ]; then
+                      echo "::notice::Depot accepted this run; GitHub Actions relays its verdict."
+                  else
+                      echo "::warning::Depot did not accept this run (last state: $state); GitHub Actions runs the tests."
+                  fi
     detect-snapshot-mode:
         name: Detect snapshot mode
         runs-on: depot-ubuntu-24.04
@@ -835,7 +840,6 @@ jobs:
             needs.build-product-test-matrix.result == 'success' &&
             needs.build-product-test-matrix.outputs.include != '[]' &&
             needs.build-product-test-matrix.outputs.include != ''
-            && needs.changes.outputs.engine != 'depot'
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 40
         name: Product tests (${{ matrix.group }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }})
@@ -2536,7 +2540,6 @@ jobs:
             !cancelled() &&
             needs.changes.outputs.backend == 'true' &&
             needs.get_clickhouse_versions.result == 'success'
-            && needs.changes.outputs.engine != 'depot'
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         outputs:
@@ -2878,7 +2881,6 @@ jobs:
             (needs.changes.outputs.legacy == 'true' ||
              needs.turbo-discover.outputs.run_legacy == 'true' ||
              (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
-            && needs.changes.outputs.engine != 'depot'
         # increase for tmate testing
         # 45 for slow Temporal shards on master; keep <= deploy gate wait (container-images-cd.yml)
         timeout-minutes: 45
@@ -3846,7 +3848,7 @@ jobs:
         needs: [changes, detect-snapshot-mode, django, turbo-tests]
         # Only in UPDATE mode - CHECK mode verifies snapshots match exactly
         # Run even if some matrix jobs failed (to commit snapshots from passing jobs)
-        if: ${{ !cancelled() && needs.detect-snapshot-mode.outputs.mode == 'update' && needs.changes.outputs.backend == 'true' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.engine != 'depot' }}
+        if: ${{ !cancelled() && needs.detect-snapshot-mode.outputs.mode == 'update' && needs.changes.outputs.backend == 'true' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
         runs-on: ubuntu-latest
         timeout-minutes: 5
         permissions:
@@ -3943,15 +3945,40 @@ jobs:
             || needs.repo-checks.outputs.deterministic_failure == 'true'
             || needs.check-openapi-types.outputs.deterministic_failure == 'true'
         steps:
-            # Relay mode polls the check-runs API for up to 90 minutes; a dedicated App bucket
-            # keeps that off the ambient token.
-            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              id: relay-token
+            # Relay mode: the tests ran on Depot CI, so this required check mirrors the
+            # conclusion of Depot's gate for the same commit. Anything but success, including
+            # a cancelled or missing Depot run, fails closed. The job token outlives a 60 minute
+            # App token, and 304 responses are free, so the poll stays off the rate limit.
+            - name: Relay the Depot verdict
               if: needs.changes.outputs.engine == 'depot'
-              continue-on-error: true
-              with:
-                  client-id: ${{ vars.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+              run: |
+                  set -uo pipefail
+                  deadline=$((SECONDS + 5400))
+                  url="https://api.github.com/repos/$REPO/commits/$SHA/check-runs?check_name=$(jq -rn --arg n "$DEPOT_GATE_CHECK" '$n | @uri')&app_id=$DEPOT_APP_ID"
+                  while [ "$SECONDS" -lt "$deadline" ]; do
+                      # curl rewrites the saved ETag empty on a 304, so promote it only after a 200.
+                      code=$(curl -s -o /tmp/relay-body -w '%{http_code}' --etag-compare /tmp/relay-etag --etag-save /tmp/relay-etag.new \
+                          -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "$url")
+                      if [ "$code" = "200" ]; then
+                          mv /tmp/relay-etag.new /tmp/relay-etag
+                          verdict=$(jq -r '[.check_runs[]] | max_by(.id) | if . == null then "absent" elif .status == "completed" then .conclusion else .status end' /tmp/relay-body)
+                          echo "Depot gate: $verdict"
+                          case "$verdict" in
+                              success) exit 0 ;;
+                              queued|in_progress|absent|pending|waiting|requested) ;;
+                              *) echo "::error::Depot gate concluded $verdict for $SHA"; exit 1 ;;
+                          esac
+                      elif [ "$code" != "304" ]; then
+                          echo "::warning::check-runs API returned $code"
+                      fi
+                      sleep 30
+                  done
+                  echo "::error::No Depot verdict for $SHA within 90 minutes"
+                  exit 1
             - name: Summarize dependency results
               if: needs.changes.outputs.engine != 'depot'
               run: |
@@ -4006,43 +4033,7 @@ jobs:
                       [[ "$d" == "$latest" ]] || rm -rf "$d"
                   done
             - name: Check dependency results
-              env:
-                  ENGINE: ${{ needs.changes.outputs.engine }}
-                  RELAY_TOKEN: ${{ steps.relay-token.outputs.token || github.token }}
-                  REPO: ${{ github.repository }}
-                  SHA: ${{ github.event.pull_request.head.sha || github.sha }}
               run: |
-                  # Relay mode: the tests ran on Depot CI, so this required check mirrors the
-                  # conclusion of Depot's gate for the same commit. Anything but success,
-                  # including a cancelled or missing Depot run, fails closed. 304 responses are
-                  # free, so the poll stays off the rate limit while nothing changes.
-                  if [ "$ENGINE" = "depot" ]; then
-                      deadline=$((SECONDS + 5400))
-                      etag=""
-                      while :; do
-                          headers=(-H "Authorization: Bearer $RELAY_TOKEN" -H "Accept: application/vnd.github+json")
-                          if [ -n "$etag" ]; then headers+=(-H "If-None-Match: $etag"); fi
-                          code=$(curl -s -D /tmp/relay-headers -o /tmp/relay-body -w '%{http_code}' "${headers[@]}" \
-                              "https://api.github.com/repos/$REPO/commits/$SHA/check-runs?app_id=219785&per_page=100")
-                          if [ "$code" = "200" ]; then
-                              etag=$(grep -i '^etag:' /tmp/relay-headers | awk '{print $2}' | tr -d '\r')
-                              verdict=$(jq -r '[.check_runs[] | select(.name | endswith("Django Tests Pass"))] | sort_by(.id) | last | if . == null then "absent" elif .status == "completed" then .conclusion else .status end' /tmp/relay-body)
-                              echo "Depot gate: $verdict"
-                              case "$verdict" in
-                                  success) exit 0 ;;
-                                  queued|in_progress|absent|pending|waiting|requested) ;;
-                                  *) echo "::error::Depot gate concluded $verdict for $SHA"; exit 1 ;;
-                              esac
-                          elif [ "$code" != "304" ]; then
-                              echo "::warning::check-runs API returned $code"
-                          fi
-                          if [ "$SECONDS" -ge "$deadline" ]; then
-                              echo "::error::No Depot verdict for $SHA within 90 minutes"
-                              exit 1
-                          fi
-                          sleep 30
-                      done
-                  fi
                   # Per-test failure rollup, emitted from THIS step because GitHub only
                   # auto-expands the failed step in the log view. Best-effort via `|| true`
                   # so a parser hiccup never changes the verdict computed below.
