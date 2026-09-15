@@ -1243,9 +1243,7 @@ class SignalReportViewSet(
         return self._current_suggested_reviewer_artefacts(Q(team=self.team), where, params).values("report_id")
 
     def _report_has_suggested_reviewer(self, where: str, params: list[str]):
-        return Exists(
-            self._current_suggested_reviewer_artefacts(Q(report_id=OuterRef("id")), where, params)
-        )
+        return Exists(self._current_suggested_reviewer_artefacts(Q(report_id=OuterRef("id")), where, params))
 
     def _implementation_pr_report_filter(self):
         return implementation_pr_report_filter(team_id=self.team.id)
