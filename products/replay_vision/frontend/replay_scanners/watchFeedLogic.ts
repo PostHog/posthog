@@ -1,7 +1,9 @@
 import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
 import posthog from 'lib/posthog-typed'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { visionScannersWatchFeedRetrieve } from '../generated/api'
@@ -75,7 +77,9 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
                 loadFeed: async (_, breakpoint) => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
-                        return values.feedItems
+                        // Reporting this as a successful empty result would read as "nothing to watch";
+                        // fail instead so the tab shows the error state and a retry.
+                        throw new Error('No current team')
                     }
                     const params: VisionScannersWatchFeedRetrieveParams = { date_from: values.dateFrom }
                     if (values.dateTo) {
@@ -143,6 +147,17 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
                 clip_count: feedItems?.length ?? 0,
                 scanner_count: new Set((feedItems ?? []).map((item) => item.observation.scanner_id)).size,
             })
+        },
+        // A card writes `?t=<seconds>` so the player opens at the cited moment; clear it on close so a
+        // link copied afterwards doesn't seek a recording the user is no longer looking at.
+        [sessionPlayerModalLogic.actionTypes.closeSessionPlayer]: () => {
+            const { location, searchParams, hashParams } = router.values
+            if (searchParams.t === undefined) {
+                return
+            }
+            const nextParams = { ...searchParams }
+            delete nextParams.t
+            router.actions.replace(location.pathname, nextParams, hashParams)
         },
     })),
 

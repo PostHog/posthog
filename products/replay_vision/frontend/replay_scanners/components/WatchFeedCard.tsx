@@ -5,17 +5,20 @@ import { IconPlay } from '@posthog/icons'
 import { LemonButton, LemonDivider, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import posthog from 'lib/posthog-typed'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { urls } from 'scenes/urls'
+
+import { PersonIcon } from 'products/persons/frontend/components/PersonDisplay'
 
 import { CitedText, ObservationResultSummary, readResult } from '../../components/ObservationCard'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import type { ReplayObservationApi, WatchFeedItemApi, WatchFeedReasonApi } from '../../generated/api.schemas'
 import { citedTimestampRange } from '../../utils/citations'
 import { ScannerType } from '../types'
+
+const roundScore = (value: number): number => Math.round(value * 100) / 100
 
 export function watchReasonCopy(reason: WatchFeedReasonApi): string {
     switch (reason.kind) {
@@ -24,13 +27,19 @@ export function watchReasonCopy(reason: WatchFeedReasonApi): string {
                 ? `The scanner raised ${reason.signals_count} signals from this session.`
                 : 'The scanner raised a signal from this session.'
         case 'unusual_verdict':
-            return `The scanner answered ${reason.verdict}, which is rare for it in this window.`
+            return reason.verdict
+                ? `The scanner answered ${reason.verdict}, which is rare for it in this window.`
+                : 'The scanner gave a rare answer for this window.'
         case 'verdict_yes':
             return 'The scanner answered yes for this session.'
         case 'outlier_score':
-            return `Scored ${reason.score}, far from this scanner's recent average of ${reason.window_mean}.`
+            return reason.score != null && reason.window_mean != null
+                ? `Scored ${roundScore(reason.score)}, far from this scanner's recent average of ${roundScore(reason.window_mean)}.`
+                : "Scored far from this scanner's recent average."
         case 'rare_tag':
-            return `Tagged "${reason.tag}", which is uncommon for this scanner lately.`
+            return reason.tag
+                ? `Tagged "${reason.tag}", which is uncommon for this scanner lately.`
+                : 'Tagged something uncommon for this scanner lately.'
         case 'novel_summary':
             return "Reads unlike this scanner's other sessions in this window."
         case 'friction':
@@ -39,6 +48,9 @@ export function watchReasonCopy(reason: WatchFeedReasonApi): string {
             return 'New since you last looked.'
         case 'recent':
             return 'The newest from this scanner.'
+        default:
+            // The backend owns this enum, so a kind that ships before this frontend deploys still needs a sentence.
+            return 'Worth a look.'
     }
 }
 
@@ -48,7 +60,9 @@ export function observationClipRange(observation: ReplayObservationApi): { start
     if (!result) {
         return null
     }
-    const scannerType = result.scanner_type as ScannerType | undefined
+    const scannerType =
+        (observation.scanner_snapshot?.scanner_type as ScannerType | undefined) ??
+        (result.scanner_type as ScannerType | undefined)
     const [text, segments] =
         scannerType === 'summarizer'
             ? [result.summary, result.summary_segments]
@@ -69,6 +83,11 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
     const scannerType = observation.scanner_snapshot?.scanner_type as ScannerType | undefined
     const scannerName = (observation.scanner_snapshot?.name as string | undefined) || '(untitled scanner)'
     const person = observation.recording_subject_email || observation.distinct_id
+    // Same person shape the recordings player uses, so the avatar renders through PersonIcon.
+    const personProp = {
+        distinct_id: observation.distinct_id ?? undefined,
+        properties: { email: observation.recording_subject_email ?? undefined },
+    }
     // Summarizers already tell the story through title + summary; the other types show only an
     // outcome chip, so bring their reasoning along for context, clamped to keep the card scannable.
     const result = readResult(observation)
@@ -180,20 +199,12 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
                                 className="relative z-10 flex items-center gap-1.5 min-w-0"
                                 data-attr="vision-watch-feed-person"
                             >
-                                <ProfilePicture
-                                    user={{ email: observation.recording_subject_email ?? undefined }}
-                                    name={person}
-                                    size="sm"
-                                />
+                                <PersonIcon person={personProp} size="sm" />
                                 <span className="truncate">{person}</span>
                             </Link>
                         ) : (
                             <span className="flex items-center gap-1.5 min-w-0">
-                                <ProfilePicture
-                                    user={{ email: observation.recording_subject_email ?? undefined }}
-                                    name={person}
-                                    size="sm"
-                                />
+                                <PersonIcon person={personProp} size="sm" />
                                 <span className="truncate">{person}</span>
                             </span>
                         )
