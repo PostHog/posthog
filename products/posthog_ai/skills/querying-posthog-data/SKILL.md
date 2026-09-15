@@ -1,27 +1,28 @@
 ---
 name: querying-posthog-data
 description: >
-  Required reading before writing HogQL/SQL or calling execute-sql against PostHog.
-  Guides selection between typed queries and SQL by the requested calculation and output.
-  Use to find, search, or aggregate PostHog entities: insights, dashboards, cohorts,
-  feature flags, experiments, surveys, hog flows, data warehouse, and persons.
-  Also covers analytics: trends, funnels, retention, lifecycle, paths, stickiness,
+  Explains how to choose typed queries or SQL for PostHog data.
+  Read it before you write HogQL/SQL.
+  Also read it before you call execute-sql against PostHog.
+  Use it to find or aggregate PostHog entities.
+  These entities include insights, dashboards, cohorts, feature flags, experiments,
+  surveys, hog flows, warehouse data, and persons.
+  Use it for trends, funnels, retention, lifecycle, paths, stickiness,
   web analytics, error tracking, logs, sessions, and LLM traces.
-  For governed business or telemetry measures (MRR, activation, billable usage,
-  active organizations, failure rates), check for approved definitions in
-  system.information_schema.metrics before deriving from raw events or using
-  a typed domain tool.
-  Covers HogQL differences from ClickHouse SQL, system.* table schemas,
-  available functions, query examples, and schema discovery.
+  Before you calculate a governed business or telemetry measure, check
+  system.information_schema.metrics for an approved definition.
+  Examples include MRR, activation, billable usage, active organizations, and failure rates.
+  Use the approved definition before you derive a measure from raw events or use a typed domain tool.
+  It also covers HogQL differences, system table schemas, functions, query examples, and schema discovery.
 ---
 
 # Querying data in PostHog
 
-The [guidelines](./references/guidelines.md) describe SQL syntax and schema discovery. Read them when you choose `posthog:execute-sql`; typed-query requests do not need them.
+The [guidelines](./references/guidelines.md) explain SQL syntax and schema discovery. Read them when you choose `posthog:execute-sql`. You do not need them for typed queries.
 
 ## Choose the query path
 
-Choose the method from the requested result and calculation rules, not from the tool name. Neither method has priority for all tasks.
+Choose the method from the requested calculation and output. Do not choose a method from the tool name. No method fits all tasks.
 
 For governed measures, follow the semantic-layer workflow below before deriving a query. Reuse a matching approved metric or saved query when it defines the requested measure.
 
@@ -51,15 +52,15 @@ Use `posthog:execute-sql` when:
 
 For a new event-analytics query, prefer a typed query when both methods preserve the requested calculation and output. This includes simple counts, sums, and other supported aggregates. Use SQL directly when the task calls for it. You do not need to try a typed query first.
 
-Keep a valid existing query when it fits the task. Reassess the method when the task changes, regardless of the previous tool call. A chart or table alone does not determine the method: both typed queries and SQL can support saved visualizations.
+Keep a valid existing query when it fits the task. Choose the method again when the task changes. The previous tool call does not determine the method. Do not choose a method only because the user requests a chart or table. Both methods can support saved visualizations.
 
 ## Render query results
 
-Check the selected tool's declared UI resource and the client's rendering support. For example, `posthog:query-trends` declares `query-results`. If the client renders the result automatically, do not also call `posthog:render-ui` for that result.
+Check the selected tool's declared UI resource. Check whether the client supports this resource. For example, `posthog:query-trends` declares `query-results`. If the client renders the result automatically, do not also call `posthog:render-ui` for that result.
 
 If the client uses `posthog:render-ui`, check that it supports the selected tool. After validating a trends query, use `posthog:render-ui({ "tool_name": "query-trends", "tool_input": { ...same input passed to query-trends... } })`.
 
-Pass the exact input used for the query. The UI app fetches its own data; rendering is not a discovery step. Keep a written summary alongside the visualization.
+Pass the exact input used for the query. The UI app fetches its own data. Do not use rendering as a discovery step. Keep a written summary with the visualization.
 
 ## When to use this skill
 
