@@ -376,7 +376,7 @@ export function WorkflowRunsScene(): JSX.Element {
                         tooltip={
                             costSummary?.estimatedCostUsd != null
                                 ? `${compactMinutes(costSummary.billableMinutes)} billable · ${compactUsd(
-                                      healthSummary.totalRuns > 0
+                                      !workflowHealthFailed && healthSummary.totalRuns > 0
                                           ? costSummary.estimatedCostUsd / healthSummary.totalRuns
                                           : null
                                   )} per run.`
