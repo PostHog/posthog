@@ -176,6 +176,27 @@ class TestRepairReplayLinkedFlagKeys(BaseTest):
         assert self.team.session_recording_linked_flag == {"id": other_flag.id, "key": "other-current"}
         assert report["repairs"] == []
 
+    def test_a_flag_hard_deleted_at_write_time_writes_nothing(self) -> None:
+        # The key is read again inside the team's row lock. A hard delete landing in that window
+        # leaves no key to adopt, and writing the None it reads would store a gate the SDKs
+        # cannot resolve, which stops the team recording.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="gate-current")
+        set_linked_flag(self.team, {"id": flag.id, "key": "gate-stale"})
+
+        real_save = repair_command.save_replay_gate_rewrites
+
+        def hard_delete_then_save(team_id: int, compute: Any) -> None:
+            FeatureFlag.objects_including_soft_deleted.filter(pk=flag.id).delete()
+            real_save(team_id, compute)
+
+        with patch.object(repair_command, "save_replay_gate_rewrites", side_effect=hard_delete_then_save):
+            report = self._run("--live-run", teams=[self.team])
+
+        self.team.refresh_from_db()
+        assert self.team.session_recording_linked_flag == {"id": flag.id, "key": "gate-stale"}
+        assert report["repairs"] == []
+        assert report["outcomes"] == {"flag_missing": 1}
+
     def test_a_team_row_gone_at_write_time_is_not_reported_as_a_missing_flag(self) -> None:
         # `save_replay_gate_rewrites` skips the rewrite when the team row is gone, which reads the
         # same as a flag that resolved to nothing. Filing it under flag_missing sends whoever runs
