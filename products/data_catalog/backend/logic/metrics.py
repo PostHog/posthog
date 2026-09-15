@@ -31,6 +31,7 @@ from products.product_analytics.backend.facade.models import Insight
 
 from ..facade.enums import CreatedSource, MetricStatus
 from ..models import METRIC_NAME_REGEX, Metric
+from ..tasks.tasks import sync_metric_lineage_task
 from .analytics import (
     METRIC_APPROVAL_BLOCKED_EVENT,
     METRIC_APPROVED_EVENT,
@@ -41,6 +42,7 @@ from .analytics import (
 )
 from .drift import canonical_query_hash, compute_drift, fetch_insight
 from .exceptions import MetricDrifted, SourceInsightUnavailable
+from .lineage import remove_metric_lineage
 from .validation import validate_description, validate_metric_definition
 
 if TYPE_CHECKING:
@@ -59,6 +61,7 @@ _UNSET = _Unset()
 
 # The columns _reset_to_proposed touches, so a lifecycle reset can be scoped into update_fields.
 _APPROVAL_FIELDS = frozenset({"status", "approved_by", "approved_at"})
+_LINEAGE_FIELDS = frozenset({"definition", "referenced_table_names"})
 
 # Fields that carry the metric's reviewed meaning: editing any of them invalidates a prior approval.
 # The definition is compared by canonical hash separately; these are compared by value. display_name
@@ -200,6 +203,19 @@ def _refine(metric: Metric, fields: dict) -> None:
     metric.save()
 
 
+def _schedule_lineage_sync(metric: Metric) -> None:
+    """Refresh the metric's lineage node after the write it belongs to commits.
+
+    Dispatched rather than run inline: resolving dependency names builds the team's HogQL schema,
+    which is far more work than the write itself and must not sit in the caller's request.
+
+    `robust=True` so a broker that refuses the message does not turn a committed metric write into
+    an error for the person who made it. The backfill is the repair for a message that never went.
+    """
+    metric_id, team_id = str(metric.id), metric.team_id
+    transaction.on_commit(lambda: sync_metric_lineage_task.delay(metric_id, team_id), robust=True)
+
+
 def upsert_metric(
     *,
     team: Team,
@@ -274,6 +290,7 @@ def upsert_metric(
                 _refine(existing, fields)
                 metric, created = existing, False
 
+    _schedule_lineage_sync(metric)
     capture_metric_event(
         METRIC_CREATED_EVENT if created else METRIC_UPDATED_EVENT, metric, team=team, user=user, request=request
     )
@@ -324,6 +341,8 @@ def update_metric(
         if renamed_from is None:
             raise
         raise ValidationError({"name": "A metric with this name already exists."})
+    if renamed_from is not None or changed_fields & _LINEAGE_FIELDS:
+        _schedule_lineage_sync(metric)
     capture_metric_event(
         METRIC_UPDATED_EVENT,
         metric,
@@ -391,6 +410,7 @@ def refresh_metric_from_insight(metric: Metric, user: Optional[User], request: "
             changed_fields |= _APPROVAL_FIELDS
 
         metric.save(update_fields=[*changed_fields, "updated_at"])
+    _schedule_lineage_sync(metric)
     capture_metric_event(METRIC_UPDATED_EVENT, metric, team=metric.team, user=user, request=request)
     return metric
 
@@ -404,6 +424,7 @@ def _apply_soft_delete(metric: Metric) -> None:
 def soft_delete_metric(metric: Metric, user: Optional[User] = None, request: "Request | None" = None) -> None:
     with team_scope(metric.team_id):
         _apply_soft_delete(metric)
+    remove_metric_lineage(metric)
     capture_metric_event(METRIC_DELETED_EVENT, metric, team=metric.team, user=user, request=request)
 
 
@@ -513,6 +534,9 @@ def bulk_soft_delete_metrics(
             _apply_soft_delete(metric)
             deleted.append(metric)
         _capture_after_commit(METRIC_DELETED_EVENT, deleted, team=team, user=user, request=request)
+
+    for metric in deleted:
+        remove_metric_lineage(metric)
 
     return deleted, skipped
 

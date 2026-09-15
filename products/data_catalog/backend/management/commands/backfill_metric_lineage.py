@@ -1,0 +1,107 @@
+from dataclasses import dataclass
+
+from django.core.management.base import BaseCommand, CommandParser
+
+import structlog
+
+from posthog.hogql.database.database import Database
+
+from posthog.models import Team
+from posthog.models.scoping import team_scope
+
+from products.data_modeling.backend.facade.models import Node, NodeType
+from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
+
+from ...logic.lineage import LineageSyncOutcome, sync_metric_lineage
+from ...models.metric import Metric
+
+logger = structlog.get_logger(__name__)
+
+METRIC_CHUNK_SIZE = 200
+
+
+@dataclass
+class TeamResult:
+    seen: int = 0
+    synced: int = 0
+    removed: int = 0
+    degraded: int = 0
+    stranded: int = 0
+
+    def add(self, other: "TeamResult") -> None:
+        self.seen += other.seen
+        self.synced += other.synced
+        self.removed += other.removed
+        self.degraded += other.degraded
+        self.stranded += other.stranded
+
+    def __str__(self) -> str:
+        return (
+            f"{self.seen} seen, {self.synced} synced, {self.removed} removed, "
+            f"{self.degraded} degraded, {self.stranded} stranded node(s) dropped"
+        )
+
+
+class Command(BaseCommand):
+    help = "Create lineage nodes for metrics written before the catalog started syncing them"
+
+    def add_arguments(self, parser: CommandParser) -> None:
+        parser.add_argument("--team-id", type=int, default=None, help="Only backfill this team")
+        parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            default=False,
+            help="Only report how many metrics would be synced, without writing any node",
+        )
+
+    def handle(self, *args, **options) -> None:
+        team_id = options["team_id"]
+        dry_run = options["dry_run"]
+        total = TeamResult()
+        for team in self._teams(team_id):
+            result = self._backfill_team(team, dry_run)
+            total.add(result)
+            if result.seen or result.stranded:
+                logger.info("Backfilled metric lineage for team", team_id=team.pk, result=str(result), dry_run=dry_run)
+                self.stdout.write(f"team {team.pk}: {result}")
+        self.stdout.write(f"{'would sync' if dry_run else 'done'}: {total}")
+
+    def _teams(self, team_id: int | None):
+        teams = Team.objects.all() if team_id is None else Team.objects.filter(pk=team_id)
+        return teams.order_by("pk").iterator()
+
+    def _backfill_team(self, team: Team, dry_run: bool) -> TeamResult:
+        result = TeamResult()
+        with team_scope(team.pk):
+            metrics = Metric.objects.for_team(team.pk).filter(deleted=False)
+            if dry_run:
+                result.seen = metrics.count()
+                result.stranded = self._stranded_nodes(team).count()
+                return result
+            if metrics.exists():
+                # One schema for the whole team: building it per metric is the expensive part.
+                database = Database.create_for(
+                    team=team,
+                    bypass_warehouse_access_control=True,
+                    allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+                )
+                for metric in metrics.select_related("team").iterator(chunk_size=METRIC_CHUNK_SIZE):
+                    result.seen += 1
+                    outcome = sync_metric_lineage(metric, database=database)
+                    if outcome == LineageSyncOutcome.SYNCED:
+                        result.synced += 1
+                    elif outcome == LineageSyncOutcome.REMOVED:
+                        result.removed += 1
+                    else:
+                        result.degraded += 1
+            result.stranded = self._stranded_nodes(team).delete()[0]
+        return result
+
+    def _stranded_nodes(self, team: Team):
+        """Metric nodes whose metric is deleted or gone.
+
+        A metric delete removes its node best effort, so a failure there leaves the node in the
+        graph with nothing to take it out again. This is that repair.
+        """
+        live_metric_ids = Metric.objects.for_team(team.pk).filter(deleted=False).values("id")
+        return Node.objects.filter(team=team, type=NodeType.METRIC).exclude(metric_id__in=live_metric_ids)
