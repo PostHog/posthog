@@ -211,7 +211,14 @@ export function initKea({
                     console.error({ error, reducerKey, actionKey })
                 }
                 if (shouldReportApiFailure(error)) {
-                    posthog.captureException(error)
+                    // Every `ApiError` is built in one place, so grouping puts unrelated failures in
+                    // one issue with one generic message. The action that failed is the only thing
+                    // that tells them apart on the issue's events.
+                    posthog.captureException(error, {
+                        kea_action: actionKey,
+                        kea_reducer: reducerKey,
+                        api_status: error?.status ?? null,
+                    })
                 }
             },
         }),

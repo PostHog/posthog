@@ -83,6 +83,29 @@ function classifyQueryError(error: unknown): { error_type: string; status_code: 
     return { error_type: 'unknown', status_code: statusCode }
 }
 
+/**
+ * The shape of the query that failed, for the `logs query failed` event. Filter and search values
+ * stay out of it: a failure report has to be readable by someone who cannot open the project, and
+ * the counts already separate a heavy query from a broken backend.
+ */
+function queryFailureContext(values: {
+    utcDateRange: { date_from?: string | null; date_to?: string | null }
+    orderBy: LogsOrderBy
+    filters: LogsViewerFilters
+    personId: string | undefined
+    sessionId: string | undefined
+}): Record<string, unknown> {
+    return {
+        date_from: values.utcDateRange.date_from ?? null,
+        date_to: values.utcDateRange.date_to ?? null,
+        order_by: values.orderBy,
+        search_term_length: values.filters.searchTerm?.length ?? 0,
+        filter_count: (values.filters.filterGroup.values[0] as UniversalFiltersGroup | undefined)?.values.length ?? 0,
+        is_person_scoped: !!values.personId,
+        is_session_scoped: !!values.sessionId,
+    }
+}
+
 const stringifyLogAttributes = (attributes: Record<string, any>): Record<string, string> => {
     const result: Record<string, string> = {}
     for (const attributeKey of Object.keys(attributes)) {
@@ -1042,6 +1065,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                 error_type,
                 status_code,
                 error_message: String(error),
+                ...queryFailureContext(values),
             })
         },
         fetchNextLogsPageFailure: ({ error, errorObject }) => {
@@ -1055,6 +1079,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                 error_type,
                 status_code,
                 error_message: String(error),
+                ...queryFailureContext(values),
             })
         },
         fetchSparklineFailure: ({ error, errorObject }) => {
@@ -1067,6 +1092,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                 error_type,
                 status_code,
                 error_message: String(error),
+                ...queryFailureContext(values),
             })
         },
         fetchLogsSuccess: ({ logs }) => {
@@ -1198,6 +1224,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     error_type,
                     status_code,
                     error_message: String(error),
+                    ...queryFailureContext(values),
                 })
                 actions.setLiveTailRunning(false)
             } finally {
