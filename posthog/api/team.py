@@ -966,8 +966,9 @@ class TeamDataManagementConfigSerializer(serializers.ModelSerializer, UserAccess
         extra_kwargs = {
             "stale_event_days": {
                 "help_text": (
-                    "How many days an event can go without arriving before PostHog marks it stale. Drives the "
-                    "stale tag PostHog shows on an action whose event stopped arriving. Defaults to 30 days."
+                    "How many days an event can go without arriving before PostHog shows a stale tag on the "
+                    "actions that use it. Event search is not affected and keeps a fixed 30 day window. "
+                    "Defaults to 30 days."
                 )
             }
         }

@@ -1060,7 +1060,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'stale-event-threshold',
                 title: 'Stale event threshold',
                 description:
-                    'PostHog marks an event stale when it has not arrived for this many days, and tags the actions that point at it. Lower it if your events arrive every day, so an event that dies shows up in days instead of a month.',
+                    'PostHog tags an action as stale when the event it points at has not arrived for this many days. Lower it if your events arrive every day, so an event that dies shows up in days instead of a month. Event search is not affected and keeps a fixed 30 day window.',
                 component: <StaleEventThreshold />,
                 keywords: ['stale', 'event', 'threshold', 'last seen', 'data management'],
             },
