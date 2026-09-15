@@ -37,6 +37,14 @@ from products.endpoints.backend.rate_limit import clear_endpoint_materialization
 logger = structlog.get_logger(__name__)
 
 
+def _validation_error_message(error: ValidationError) -> str:
+    """Flatten a DRF validation detail to one line; ``str(error)`` exposes the ErrorDetail repr."""
+    detail = error.detail
+    if isinstance(detail, list):
+        return " ".join(str(item) for item in detail)
+    return str(detail)
+
+
 def apply_tags(endpoint: Endpoint, tags: list[str] | None) -> None:
     """Replace the endpoint's tags. No-op when tags is None (field omitted)."""
     if tags is None:
@@ -406,6 +414,18 @@ class EndpointCrudService:
                         saved_query_id=str(target_version.saved_query_id),
                         bucket_overrides=bucket_overrides,
                     )
+        except ValidationError as e:
+            if not version_was_created:
+                raise
+            # A user-fixable request problem, not a system fault. The service layer already
+            # counted it as a validation error, so report the message without capturing it.
+            logger.warning(
+                "Materialization rejected after version creation",
+                endpoint_name=endpoint.name,
+                version=target_version.version,
+                team_id=self.team.pk,
+            )
+            return _validation_error_message(e)
         except Exception as e:
             if not version_was_created:
                 raise
