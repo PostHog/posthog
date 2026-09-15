@@ -454,7 +454,7 @@ Note: PostHog exposes three aggregate Pull API v5 reports (daily, geo, partners)
 
 ## Appsignal — gaps
 
-Today (11): `apps`, `deploy_markers`, `error_samples`, `exception_incidents`, `log_lines`, `metric_names`, `metric_timeseries`, `performance_incidents`, `performance_samples`, `performance_traces`, `trace_spans`
+Today (18): `anomaly_incidents`, `apps`, `deploy_markers`, `deploy_stats`, `error_samples`, `exception_incidents`, `log_incidents`, `log_lines`, `metric_names`, `metric_timeseries`, `performance_actions`, `performance_incidents`, `performance_samples`, `performance_traces`, `service_edges`, `slow_event_actions`, `slow_events`, `trace_spans`
 
 Diffed against: <https://docs.appsignal.com/api/v2/overview>
 
@@ -464,15 +464,15 @@ Diffed against: <https://docs.appsignal.com/api/v2/overview>
 - [ ] `POST /api/v2/metrics/list` — the same metric data aggregated into rows by a caller-chosen `group_by`; derivable in SQL from `metric_timeseries`, so it was skipped (low)
 - [x] `POST /api/v2/tracing/traces/performance and /api/v2/tracing/trace (spans)` — distributed trace and span data underlying the samples we already sync (high)
 - [ ] `POST /api/v2/tracing/traces/errors` — error traces, keyed by incident digest; no digest-listing endpoint appears on the published V2 reference (medium)
-- [ ] `AnomalyIncident (GraphQL)` — anomaly/trigger incidents are a first-class incident type alongside exception and performance incidents we sync (high)
-- [ ] `LogIncident (GraphQL)` — log-based incidents, the fourth incident type, otherwise invisible (medium)
-- [ ] `POST /api/v2/deploys/stats` — throughput, mean and error_rate per revision — joins directly onto deploy_markers (medium)
-- [ ] `POST /api/v2/tracing/actions and service-dependency/slow-event endpoints` — aggregated per-action performance and downstream dependency breakdown (medium)
+- [x] `AnomalyIncident (GraphQL)` — anomaly/trigger incidents are a first-class incident type alongside exception and performance incidents we sync (high)
+- [x] `LogIncident (GraphQL)` — log-based incidents, the fourth incident type, otherwise invisible (medium)
+- [x] `POST /api/v2/deploys/stats` — throughput, mean and error_rate per revision — joins directly onto deploy_markers (medium)
+- [x] `POST /api/v2/tracing/actions and service-dependency/slow-event endpoints` — aggregated per-action performance and downstream dependency breakdown (medium)
 - [ ] `POST /api/v2/kubernetes/nodes and /api/v2/kubernetes/pods` — node and pod resource metrics for correlating app incidents with infrastructure (medium)
 - [ ] `uptime monitors (GraphQL)` — uptime check results, a separate monitoring signal from incidents (medium)
 - [ ] `check-ins / cron (GraphQL)` — scheduled-job execution history — misses and late runs (medium)
 
-Note: AppSignal split its API in two: GraphQL for models (apps, incidents, markers, dashboards, alerts, uptime monitors, check-ins) and a REST Public API V2 for bulk data (metrics, logs, traces, Kubernetes, deploy stats). PostHog reads the legacy /api/{app_id}/\*.json endpoints, GraphQL incidents and the app list, plus the V2 logs, metrics and tracing endpoints; Kubernetes, deploy stats and check-ins are still unmapped. Anomaly and log incident types confirmed from the GraphQL mutations page; V2 routes confirmed from the per-page docs.
+Note: AppSignal split its API in two: GraphQL for models (apps, incidents, markers, dashboards, alerts, uptime monitors, check-ins) and a REST Public API V2 for bulk data (metrics, logs, traces, Kubernetes, deploy stats). PostHog reads the legacy /api/{app_id}/\*.json endpoints, all four GraphQL incident types and the app list, plus the V2 logs, metrics, deploy-stats and tracing endpoints; Kubernetes, uptime monitors and check-ins are still unmapped. `POST /api/v2/tracing/action_edges` is deliberately skipped: its `namespace` argument takes a "<service>/<namespace>" pair and no endpoint we sync reports the service half, so site_edges covers service dependencies instead.
 
 ## Appstack — adequate
 
@@ -503,7 +503,7 @@ Note: Diffed against the upstream swagger spec (82 paths). PostHog's deployment_
 
 ## Asana — gaps
 
-Today (15): `ai_studio_runs`, `ai_studio_seats`, `custom_fields`, `goals`, `parent_goals`, `project_memberships`, `projects`, `sections`, `stories`, `tags`, `tasks`, `teams`, `time_tracking_entries`, `users`, `workspaces`
+Today (22): `ai_studio_runs`, `ai_studio_seats`, `custom_field_settings`, `custom_fields`, `goal_status_updates`, `goals`, `parent_goals`, `portfolio_items`, `portfolio_status_updates`, `portfolios`, `project_memberships`, `project_status_updates`, `projects`, `sections`, `stories`, `tags`, `tasks`, `team_memberships`, `teams`, `time_tracking_entries`, `users`, `workspaces`
 
 Diffed against: <https://raw.githubusercontent.com/Asana/openapi/master/defs/asana_oas.yaml>
 
@@ -513,10 +513,10 @@ Diffed against: <https://raw.githubusercontent.com/Asana/openapi/master/defs/asa
 - [x] `projects/{project_gid}/project_memberships` — who is on which project and in what role; joins users to projects we already sync (high)
 - [x] `goals (+ goals/{gid}/parentGoals)` — Asana's headline OKR object with progress/status, entirely absent today (high)
 - [x] `time_tracking_entries` — actual hours logged per task/user, the basis of any effort or capacity analysis (high)
-- [ ] `projects/{project_gid}/custom_field_settings` — lookup mapping synced custom_fields to the projects/portfolios that use them (high)
-- [ ] `status_updates` — project/goal/portfolio status history (color + narrative) over time (medium)
-- [ ] `team_memberships` — user-to-team membership lookup joining synced users and teams (medium)
-- [ ] `portfolios (+ portfolios/{gid}/items)` — program-level rollup grouping projects we already sync (medium)
+- [x] `projects/{project_gid}/custom_field_settings` — lookup mapping synced custom_fields to the projects/portfolios that use them; lands as `custom_field_settings`, covering the project endpoint only (high)
+- [x] `status_updates` — project/goal/portfolio status history (color + narrative) over time; the endpoint takes one `parent` gid, so it lands as `project_status_updates`, `goal_status_updates` and `portfolio_status_updates` (medium)
+- [x] `team_memberships` — user-to-team membership lookup joining synced users and teams (medium)
+- [x] `portfolios (+ portfolios/{gid}/items)` — program-level rollup grouping projects we already sync (medium)
 - [ ] `tasks/{task_gid}/dependencies and /dependents` — task dependency graph for blocked-work and critical-path analysis (medium)
 - [ ] `goal_relationships` — resolves goal hierarchy and which projects contribute to which goal (medium)
 - [ ] `time_tracking_categories` — lookup resolving the category ID carried on time tracking entries (medium)
@@ -785,7 +785,7 @@ Diffed against: <https://api.bettermode.com/ (live GraphQL introspection of quer
 
 ## BetterStack — gaps
 
-Today (13): `escalation_policies`, `heartbeat_groups`, `heartbeats`, `incident_comments`, `incidents`, `monitor_availability`, `monitor_groups`, `monitor_response_times`, `monitors`, `on_calls`, `roles`, `status_pages`, `team_members`
+Today (19): `escalation_policies`, `heartbeat_availability`, `heartbeat_groups`, `heartbeats`, `incident_comments`, `incidents`, `monitor_availability`, `monitor_groups`, `monitor_response_times`, `monitors`, `on_call_events`, `on_call_rotations`, `on_calls`, `roles`, `severities`, `severity_groups`, `status_page_resources`, `status_pages`, `team_members`
 
 Diffed against: <https://betterstack.com/docs/uptime/api/getting-started-with-uptime-api/>
 
@@ -793,16 +793,16 @@ Diffed against: <https://betterstack.com/docs/uptime/api/getting-started-with-up
 - [x] `GET monitor response times (/api/v2/monitors/{id}/response-times)` — latency time series per monitor and region; the other core performance metric (high)
 - [x] `GET /api/v2/team-members (and /api/v2/roles)` — lookup resolving the user IDs referenced by incidents, on-call calendars and escalation policies (high)
 - [x] `GET incident comments (/api/v2/incidents/{id}/comments)` — acknowledgement and resolution commentary - the timeline behind incident MTTA/MTTR (high)
-- [ ] `GET on-call calendar events and rotation` — who was actually on call and when; on_calls only carries the calendar definitions (high)
-- [ ] `GET heartbeat availability summary` — the heartbeat equivalent of the monitor SLA summary (medium)
-- [ ] `GET severities and severity groups (/api/v2/severities)` — call-routing severity lookup resolving the severity referenced on incidents (medium)
-- [ ] `GET status page resources (/api/v2/status-pages/{id}/resources)` — join table mapping status pages to the monitors and heartbeats they display (medium)
+- [x] `GET on-call calendar events and rotation` — who was actually on call and when; on_calls only carries the calendar definitions (high)
+- [x] `GET heartbeat availability summary` — the heartbeat equivalent of the monitor SLA summary (medium)
+- [x] `GET severities and severity groups (/api/v2/urgencies, /api/v2/urgency-groups)` — call-routing severity lookup resolving the severity referenced on incidents (medium)
+- [x] `GET status page resources (/api/v2/status-pages/{id}/resources)` — join table mapping status pages to the monitors and heartbeats they display (medium)
 - [ ] `GET status page reports and report status updates` — published incident reports and their update history - the customer-facing incident record (medium)
 - [ ] `GET status page subscribers (/api/v2/status-pages/{id}/subscribers)` — audience reach per status page (medium)
 - [ ] `GET metadata records (/api/v3/metadata)` — the catalog/metadata store used to attach ownership and context to monitors and incidents (medium)
 - [ ] `GET escalation policy groups and status page groups/sections` — grouping lookups for the policies and status pages already synced (low)
 
-Note: The docs are HTML-only with no downloadable OpenAPI; I enumerated the API reference nav across several fetched pages under /docs/uptime/api/. Excluded: the Reporting page, which is an outbound incident log drain (webhook payload schema), not a queryable resource, and the New Relic integrations endpoint (integration config).
+Note: The docs are HTML-only with no downloadable OpenAPI; I enumerated the API reference nav across several fetched pages under /docs/uptime/api/. The severities routes are `/api/v2/urgencies` and `/api/v2/urgency-groups` — `/api/v2/severities` is a 404; the product was renamed but the API paths were not. On-call events and the on-call rotation are two separate per-schedule endpoints, so they became two tables. Excluded: the Reporting page, which is an outbound incident log drain (webhook payload schema), not a queryable resource, and the New Relic integrations endpoint (integration config).
 
 ## BigMailer — gaps
 
@@ -934,7 +934,7 @@ Note: Source uses the Braintree GraphQL API (payments.braintree-api.com/graphql)
 
 ## Braze — gaps
 
-Today (13): `campaign_analytics`, `campaigns`, `canvas_analytics`, `canvases`, `content_blocks`, `email_templates`, `event_analytics`, `events`, `kpi_dau`, `kpi_mau`, `kpi_new_users`, `kpi_uninstalls`, `segments`
+Today (16): `campaign_analytics`, `campaign_details`, `campaigns`, `canvas_analytics`, `canvas_details`, `canvases`, `content_blocks`, `email_templates`, `event_analytics`, `events`, `kpi_dau`, `kpi_mau`, `kpi_new_users`, `kpi_uninstalls`, `segment_analytics`, `segments`
 
 Diffed against: <https://www.braze.com/docs/sitemap.xml>
 
@@ -942,16 +942,19 @@ Diffed against: <https://www.braze.com/docs/sitemap.xml>
 - [x] `/canvas/data_series` — per-canvas per-step time series; the canvases table is unusable analytically without it (high)
 - [x] `/events/data_series` — custom event occurrence time series for the event names already synced (high)
 - [x] `/kpi/dau/data_series, /kpi/mau/data_series, /kpi/new_users/data_series, /kpi/uninstalls/data_series` — workspace-level DAU/MAU/new users/uninstalls trends (high)
-- [ ] `/segments/data_series` — segment size over time, the only way to trend audience growth (high)
-- [ ] `/campaigns/details` — enriches the campaign list with message variants, channels, tags and conversion behaviors (high)
-- [ ] `/canvas/details` — canvas step and variant structure needed to attribute canvas analytics (high)
+- [x] `/segments/data_series` — segment size over time, the only way to trend audience growth (high)
+- [x] `/campaigns/details` — enriches the campaign list with message variants, channels, tags and conversion behaviors (high)
+- [x] `/canvas/details` — canvas step and variant structure needed to attribute canvas analytics (high)
 - [ ] `/sends/data_series` — per-send_id analytics for API-triggered campaign sends (medium)
 - [ ] `/purchases/revenue_series, /purchases/quantity_series, /purchases/product_list` — revenue and purchase counts, plus the product lookup that resolves product ids (medium)
 - [ ] `/sessions/data_series` — app session counts by app and date (medium)
 - [ ] `/email/unsubscribes and /email/hard_bounces` — deliverability events joinable to campaigns (medium)
 - [ ] `/catalogs and /catalogs/{catalog_name}/items` — lookup tables resolving catalog item ids referenced in personalization and purchases (medium)
 
-Note: Braze has no OpenAPI/llms.txt (llms.txt 404s), so I enumerated every /docs/api/endpoints/\* page from the docs sitemap and then opened the individual pages to read the literal REST paths (confirmed /campaigns/data_series, /canvas/data_series, /segments/data_series, /events/data_series, /sends/data_series, /kpi/dau/data_series, /sessions/data_series, /purchases/revenue_series, /email/unsubscribes, /canvas/details, /catalogs, /custom_attributes). The connector now syncs the campaign, Canvas, custom event and workspace KPI `data\_series` endpoints alongside the six `list` endpoints; the remaining analytics gaps are listed above.
+Note: Braze has no OpenAPI/llms.txt (llms.txt 404s), so I enumerated every /docs/api/endpoints/\* page from the docs sitemap and then opened the individual pages to read the literal REST paths (confirmed /campaigns/data_series, /canvas/data_series, /segments/data_series, /events/data_series, /sends/data_series, /kpi/dau/data_series, /sessions/data_series, /purchases/revenue_series, /email/unsubscribes, /canvas/details, /catalogs, /custom_attributes). The connector now syncs the campaign, Canvas, custom event and workspace KPI `data\_series` endpoints alongside the six `list` endpoints, plus `/segments/data_series` and both `details` endpoints.
+The segment series fans out only over segments with analytics tracking enabled, since Braze keeps no size history for the others.
+`/sends/data_series` is deliberately left out: it needs a `send_id` alongside the `campaign_id`, and Braze mints send IDs at send time (`POST /sends/id/create`) with no endpoint that lists them, so a sync has nothing to enumerate.
+The remaining analytics gaps are listed above.
 
 ## Breezometer — adequate
 
@@ -965,7 +968,7 @@ Note: BreezoMeter is now Google Maps Platform: the connector calls airquality.go
 
 ## Brex — gaps
 
-Today (13): `budgets`, `card_accounts`, `card_transactions`, `cards`, `cash_accounts`, `cash_transactions`, `departments`, `expenses`, `locations`, `spend_limits`, `transfers`, `users`, `vendors`
+Today (17): `budget_programs`, `budgets`, `card_accounts`, `card_transactions`, `cards`, `cash_accounts`, `cash_transactions`, `departments`, `expenses`, `field_values`, `fields`, `locations`, `spend_limits`, `titles`, `transfers`, `users`, `vendors`
 
 Diffed against: <https://developer.brex.com/llms.txt>
 
@@ -974,15 +977,27 @@ Diffed against: <https://developer.brex.com/llms.txt>
 - [x] `GET /v1/transfers (Payments API)` — outbound bill-pay/ACH/wire transactions, entirely absent from card and cash transactions (high)
 - [x] `GET /v2/spend_limits (Budgets API v2)` — the limit objects budgets and cards are governed by; budgets alone do not show spend controls (high)
 - [ ] `GET /v3/accounting/records (Accounting API)` — the accounting ledger export — how finance teams reconcile Brex spend to the GL (high)
-- [ ] `GET /v1/fields and GET /v1/fields/{field_id}/values (Fields API)` — lookup resolving the custom field ids/values tagged on expenses and transactions (medium)
-- [ ] `GET /v2/titles (Team API)` — lookup resolving the title id on users, alongside the departments and locations already synced (medium)
-- [ ] `GET /v1/budget_programs (Budgets API)` — lookup grouping the budgets already synced into programs (medium)
+- [x] `GET /v1/fields and GET /v1/fields/{field_id}/values (Fields API)` — lookup resolving the custom field ids/values tagged on expenses and transactions (medium)
+- [x] `GET /v2/titles (Team API)` — lookup resolving the title id on users, alongside the departments and locations already synced (medium)
+- [x] `GET /v1/budget_programs (Budgets API)` — lookup grouping the budgets already synced into programs (medium)
 - [ ] `GET /v1/trips and GET /v1/trips/{trip_id}/bookings (Travel API)` — travel spend and per-booking line items, not derivable from card transactions (medium)
 - [ ] `GET /v2/accounts/card/primary/statements and GET /v2/accounts/cash/{id}/statements` — period-end statement balances for reconciliation against transactions (medium)
 - [ ] `GET /v1/linked_accounts (Payments API)` — lookup resolving the external bank accounts transfers move money to and from (medium)
 - [ ] `GET /v2/legal_entities (Team API)` — lookup for multi-entity companies, needed to split spend by entity (low)
 
-Note: developer.brex.com serves an SPA (the openapi.json URLs return HTML), but the llms.txt index plus the per-API markdown mirrors (e.g. https://developer.brex.com/openapi/team\_api.md) list every operation with its literal path. Brex ships nine APIs — Accounting, Budgets, Expenses, Fields, Onboarding, Payments, Team, Transactions, Travel — and the connector covers pieces of only four. The connector now also exposes /v2/accounts/cash as its own table, alongside the fan-out it already drove.
+Note: developer.brex.com serves an SPA (the openapi.json URLs return HTML), but the llms.txt index plus the per-API markdown mirrors (e.g. https://developer.brex.com/openapi/team\_api.md) list every operation with its literal path. Brex ships ten APIs — Accounting, Budgets, Expenses, Fields, Onboarding, Payments, Team, Transactions, Travel, Webhooks — and the connector covers pieces of six. The connector now also exposes /v2/accounts/cash as its own table, alongside the fan-out it already drove.
+
+`GET /v3/accounting/records` is left unticked on purpose. The whole Accounting API is gated
+Alpha: its own overview states "To access the Accounting Alpha API, please email
+developer-support@brex.com to express your interest. Please note that participation is determined
+by Brex based on program needs." A table nearly every connected account would get a 403 on, whose
+1.0.0-alpha response contract is expected to change, is not shippable yet — its receipt objects
+also carry 15-minute presigned S3 download URLs, which would land expiring credentials in the
+warehouse. Revisit when Brex promotes the API out of Alpha. The Fields API is Beta by contrast,
+but explicitly "available for use. Customers do not need to explicitly opt-in", so /v1/fields is
+fine to sync today. /v1/fields/{field_id}/values is a fan-out over /v1/fields, keyed on
+(field_id, brex_id) because Brex documents no uniqueness for brex_id across fields. Every
+endpoint added here is full refresh: none of the four accepts a server-side timestamp filter.
 
 ## Browserbase — **thin**
 
@@ -1033,18 +1048,19 @@ Note: docs.bugherd.com/api is a Scalar shell; the real spec is at /api/openapi.y
 
 ## Bugsnag — gaps
 
-Today (15): `collaborators`, `errors`, `event_fields`, `events`, `organizations`, `pivot_values`, `pivots`, `projects`, `release_groups`, `releases`, `saved_searches`, `stability_trend`, `teams`, `trace_fields`, `trend`
+Today (19): `collaborators`, `error_pivot_values`, `error_trend`, `errors`, `event_fields`, `events`, `organizations`, `pivot_values`, `pivots`, `projects`, `release_groups`, `releases`, `saved_searches`, `span_group_spans`, `span_groups`, `stability_trend`, `teams`, `trace_fields`, `trend`
 
 Diffed against: <https://bugsnagapiv2.docs.apiary.io/api-description-document>
 
 - [x] `GET /projects/{project_id}/stability_trend` — crash-free sessions and users over time — BugSnag's headline stability metric (high)
 - [x] `GET /projects/{project_id}/release_groups` — lookup grouping the releases already synced (e.g. by app version), plus their stability rollups (high)
 - [x] `GET /projects/{project_id}/trend` — bucketed error occurrence time series at project grain (high)
-- [ ] `GET /projects/{project_id}/errors/{error_id}/trend` — the same time series at error grain; skipped because it costs one request per error per sync, unbounded and with no server-side filter to narrow it (high)
+- [x] `GET /projects/{project_id}/errors/{error_id}/trend` — the same time series at error grain; capped at each project's most recently seen errors, since it costs one request per error and the API exposes no filter to narrow the error list (high)
 - [x] `GET /projects/{project_id}/pivots/{event_field_display_id}/values` — the actual breakdown values behind the pivots table already synced; pivots alone list only dimension names (high)
-- [ ] `GET /projects/{project_id}/errors/{error_id}/pivots/{display_id}/values` — the same breakdown at error grain; skipped for the same per-error fan-out cost (high)
-- [ ] `GET /projects/{project_id}/span_groups` — performance monitoring aggregates — an entire product surface with no coverage today (medium)
-- [ ] `GET /projects/{project_id}/span_groups/{id}/spans and /projects/{project_id}/traces/{trace_id}/spans` — individual span records, the event grain under span groups (trace_fields is already synced but has nothing to describe) (medium)
+- [x] `GET /projects/{project_id}/errors/{error_id}/pivots/{display_id}/values` — the same breakdown at error grain; both the error and pivot dimensions are capped to bound the fan-out (high)
+- [x] `GET /projects/{project_id}/span_groups` — performance monitoring aggregates — an entire product surface with no coverage today (medium)
+- [x] `GET /projects/{project_id}/span_groups/{id}/spans` — individual span records, the event grain under span groups (trace_fields is already synced but has nothing to describe). The endpoint takes no offset or cursor, so the table is a sample of each group's most recent spans (medium)
+- [ ] `GET /projects/{project_id}/traces/{trace_id}/spans` — the same span records addressed by trace; skipped because the API has no endpoint that lists trace ids, so there is nothing to fan out over (medium)
 - [ ] `GET /projects/{project_id}/page_load_span_groups` — web vitals / page load performance breakdown (medium)
 - [ ] `GET /organizations/{organization_id}/teams/{id}/collaborators` — membership join between the teams and collaborators tables already synced (medium)
 - [ ] `GET /organizations/{organization_id}/collaborators/{collaborator_id}/project_accesses` — which projects each collaborator can access — needed to attribute errors to owners (medium)
