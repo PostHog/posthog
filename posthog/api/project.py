@@ -1706,12 +1706,7 @@ class ProjectViewSet(
         try:
             cancel_delete_project_data_workflow(project_id=project.pk)
         except Exception:
-            Project.objects.filter(
-                pk=project.pk,
-                is_pending_deletion=False,
-                deletion_scheduled_at__isnull=True,
-            ).update(is_pending_deletion=True, deletion_scheduled_at=deletion_scheduled_at)
-            raise
+            logger.exception("Failed to cancel the project deletion workflow", project_id=project.pk)
 
         project.is_pending_deletion = False
         project.deletion_scheduled_at = None

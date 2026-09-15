@@ -38,6 +38,8 @@ class ProjectAdmin(admin.ModelAdmin):
         "id",
         "created_at",
         "updated_at",
+        "is_pending_deletion",
+        "deletion_scheduled_at",
         "trigger_deletion_display",
         "delete_now_display",
     ]

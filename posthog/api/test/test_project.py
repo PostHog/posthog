@@ -624,7 +624,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         "posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow",
         side_effect=Exception("temporal unavailable"),
     )
-    def test_project_deletion_cancellation_failure_restores_schedule(self, mock_cancel_delete_task):
+    def test_project_deletion_cancellation_failure_keeps_project_active(self, mock_cancel_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         scheduled_at = timezone.now() + timedelta(hours=48)
@@ -635,10 +635,10 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         response = self.client.post(f"/api/projects/{self.project.id}/cancel-deletion/")
 
-        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.project.refresh_from_db()
-        self.assertTrue(self.project.is_pending_deletion)
-        self.assertEqual(self.project.deletion_scheduled_at, scheduled_at)
+        self.assertFalse(self.project.is_pending_deletion)
+        self.assertIsNone(self.project.deletion_scheduled_at)
         mock_cancel_delete_task.assert_called_once_with(project_id=self.project.id)
 
     @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")

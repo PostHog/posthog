@@ -113,6 +113,10 @@ class TestProjectAdminDeleteNow(BaseTest):
         self.assertTrue(self.project.is_pending_deletion)
         self.assertEqual(self.project.deletion_scheduled_at, timezone.now() + timedelta(hours=2))
 
+    def test_deletion_state_fields_are_read_only(self):
+        self.assertIn("is_pending_deletion", self.admin.readonly_fields)
+        self.assertIn("deletion_scheduled_at", self.admin.readonly_fields)
+
     def test_staff_outside_deletion_group_cannot_delete_now(self):
         self.user.groups.clear()
 
