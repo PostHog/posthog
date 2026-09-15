@@ -1,0 +1,53 @@
+-- no-transaction
+--
+-- Add a covering index on posthog_persondistinctid for the identity resolve.
+-- The validation shadow table gets the same index in 20260901000004.
+--
+-- resolve_distinct_ids is the hottest identity lookup: get_or_create and all
+-- three merge paths run it on the primary pool. It joins a batch of
+-- (team_id, distinct_id) keys against the distinct id table, then reads
+-- person_id and is_deleted off the matched row. The unique
+-- (team_id, distinct_id) index probes cleanly but carries no payload, so
+-- every matched key costs a random heap fetch.
+--
+-- INCLUDE (person_id, is_deleted) lets the join leg run as an index-only scan:
+-- both columns are read from the index leaf, so PostgreSQL skips the heap for
+-- any page the visibility map marks all-visible. Distinct id UPDATEs clear
+-- that bit, so the heap-free win holds only while autovacuum keeps the touched
+-- pages all-visible; confirm on real batches with EXPLAIN (ANALYZE, BUFFERS)
+-- that Heap Fetches stays low.
+--
+-- NOT UNIQUE, and the existing unique index stays. The alternative is to
+-- replace unique_distinct_id_for_team with a UNIQUE ... INCLUDE index, which
+-- serves the same read from one B-tree instead of two: ON CONFLICT infers the
+-- arbiter by column list, and included columns take no part in uniqueness. It
+-- is the cheaper steady state, and it is not in this migration, because it
+-- ends with dropping the index that enforces identity uniqueness on a large
+-- production table. That needs its own concurrent build, concurrent drop, and
+-- change management, so it belongs in its own change. The cost of staying
+-- here is a second B-tree over the same key set, maintained on every stub
+-- create, attach, merge, and tombstone.
+--
+-- CONCURRENTLY, alone in its own no-transaction file: a plain CREATE INDEX
+-- takes SHARE on the table, which conflicts with the ROW EXCLUSIVE every
+-- identity write needs, and the runner would hold it until the whole file
+-- commits. Identity sets statement_timeout to 5s, so blocked writes fail
+-- rather than only wait.
+--
+-- Recovery note: if this CONCURRENTLY build is ever interrupted, it leaves the
+-- index INVALID and a rerun's IF NOT EXISTS will NOT rebuild it. PostgreSQL
+-- cannot use an INVALID index and still maintains it on every write. Nothing
+-- reports that state: the run that left it INVALID already failed, and every
+-- later run skips the file and reports success, so check before assuming the
+-- index is there.
+--   SELECT indisvalid FROM pg_index
+--    WHERE indexrelid = to_regclass('posthog_persondistinctid_team_distinct_covering_idx');
+-- On `f`, drop it first:
+--   DROP INDEX CONCURRENTLY posthog_persondistinctid_team_distinct_covering_idx;
+-- What rebuilds it depends on whether this file is already recorded as applied
+-- (_sqlx_migrations for sqlx, _persons_migrations_applied for the Django
+-- runner). A run that no-ops past an INVALID index records the file, so the
+-- common case is recorded. If it is not recorded, re-run migrations. If it is,
+-- both runners skip the file, so run the statement below by hand.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS posthog_persondistinctid_team_distinct_covering_idx
+    ON posthog_persondistinctid (team_id, distinct_id) INCLUDE (person_id, is_deleted);
