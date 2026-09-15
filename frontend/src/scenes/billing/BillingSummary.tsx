@@ -42,7 +42,7 @@ export const BillingSummary = (): JSX.Element => {
                                                 } and the remaining time left in this billing period. This number updates once daily. ${
                                                     billing.projected_total_amount_usd_with_limit !==
                                                     billing.projected_total_amount_usd
-                                                        ? ` This value is capped at your current billing limit, we will never charge you more than your billing limit. If you did not have a billing limit set then your projected total would be ${humanFriendlyCurrency(
+                                                        ? ` This value is capped by the billing limits you set. A billing limit covers one product, so any product without a limit keeps billing. Without any billing limit your projected total would be ${humanFriendlyCurrency(
                                                               parseFloat(billing.projected_total_amount_usd || '0')
                                                           )}`
                                                         : ''
