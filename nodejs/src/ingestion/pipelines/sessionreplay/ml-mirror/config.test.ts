@@ -1,6 +1,22 @@
-import { resolveMlAnonymizeMaxConcurrency, resolveMlMirrorRedisConnection } from './config'
+import { getMlMirrorConfig, resolveMlAnonymizeMaxConcurrency, resolveMlMirrorRedisConnection } from './config'
 
 describe('ml-mirror config', () => {
+    it.each(['S3_PREFIX', 'PSEUDONYM_SECRET', 'PSEUDONYM_KMS_REGION', 'PSEUDONYM_KEY_FINGERPRINT'] as const)(
+        'resolves %s from either environment name with canonical precedence',
+        (suffix) => {
+            const canonical = `AI_RESEARCH_REPLAY_${suffix}` as const
+            const legacy = `SESSION_RECORDING_ML_${suffix}`
+            for (const [env, expected] of [
+                [{ [legacy]: 'legacy' }, 'legacy'],
+                [{ [canonical]: 'canonical' }, 'canonical'],
+                [{ [legacy]: 'legacy', [canonical]: 'canonical' }, 'canonical'],
+                [{ [legacy]: 'legacy', [canonical]: '' }, ''],
+            ] as const) {
+                expect(getMlMirrorConfig(env)[canonical]).toBe(expected)
+            }
+        }
+    )
+
     describe('resolveMlAnonymizeMaxConcurrency', () => {
         it.each([
             ['explicit value passes through verbatim, even above the pool', 8, 3, 4, 8],

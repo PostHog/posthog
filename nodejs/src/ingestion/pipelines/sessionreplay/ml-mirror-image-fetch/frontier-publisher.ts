@@ -2,6 +2,7 @@ import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { ConcurrencyController } from '~/common/utils/concurrencyController'
 import { logger } from '~/common/utils/logger'
 import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-transport'
+import { encryptedKafkaValue } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/transport'
 
 import {
     FetchCandidate,
@@ -110,7 +111,7 @@ export class FrontierPublisher {
         if (!result.bytes || !result.contentType) {
             throw new Error('an image publish needs response bytes and a content type')
         }
-        const bytes = result.bytes
+        const encrypted = encryptedKafkaValue(candidate.privacyKey, 'image-source', result.bytes, candidate.originalRef)
         const headers: Record<string, string> = {
             'content-type': result.contentType,
             [CAPTURE_TIMESTAMP_HEADER]: String(candidate.firstSeenAtMs),
@@ -128,8 +129,8 @@ export class FrontierPublisher {
                     this.producer.produce({
                         topic: this.options.scrubTopic,
                         key: Buffer.from(candidate.originalRef),
-                        value: bytes,
-                        headers,
+                        value: encrypted.value,
+                        headers: { ...headers, ...encrypted.headers },
                     }),
             }
         )
@@ -229,7 +230,7 @@ class BufferedRepublishBatch implements RepublishBatch {
     private planMessages(): PlannedRepublishMessage[] {
         const groups = new Map<string, PendingRepublish[]>()
         for (const item of this.pending) {
-            const key = `${item.destination.topic}\0${item.candidate.registrableDomain}`
+            const key = `${item.destination.topic}\0${item.candidate.registrableDomain}\0${JSON.stringify(item.candidate.privacyKey?.identity ?? null)}`
             const group = groups.get(key)
             if (group) {
                 group.push(item)
@@ -303,7 +304,11 @@ class BufferedRepublishBatch implements RepublishBatch {
                             await this.producer.produce({
                                 topic: plan.topic,
                                 key: Buffer.from(plan.registrableDomain),
-                                value: serializeFrontierRecord(plan.candidates),
+                                ...encryptedKafkaValue(
+                                    plan.candidates[0].privacyKey,
+                                    'image-frontier',
+                                    serializeFrontierRecord(plan.candidates)
+                                ),
                             })
                             return 'published'
                         } catch {

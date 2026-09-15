@@ -1,12 +1,16 @@
+import logging
 from datetime import datetime
 
 import pytest
 
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_generation.research import (
+    FixVerificationOutput,
+    ReportPresentationOutput,
     SignalFinding,
     _render_previous_metrics_context,
     _render_signal_for_research,
+    build_fix_verification_prompt,
     build_initial_research_prompt,
     build_report_presentation_prompt,
     build_signal_investigation_prompt,
@@ -152,6 +156,46 @@ class TestBuildInitialResearchPrompt:
             assert "There is no previous finding for this signal" in followup_prompt
 
 
+class TestBuildFixVerificationPrompt:
+    def test_is_a_final_step_based_on_completed_research(self):
+        prompt = build_fix_verification_prompt()
+
+        assert "As the final step" in prompt
+        assert "Do not do more research in this turn" in prompt
+        assert "Do not prescribe a resolution" in prompt
+        assert "In `current_state`" in prompt
+        assert "In `outcome`" in prompt
+        assert "query, test, log search, replay, code review, or manual check" in prompt
+        assert "What evidence to collect" in prompt
+        assert "What result supports the conclusion" in prompt
+        assert "What result is inconclusive" in prompt
+        assert "Missing data, insufficient traffic, and failed checks are inconclusive" in prompt
+        assert "Do not invent tool arguments, IDs, events, baselines, or numerical thresholds" in prompt
+        assert '"current_state"' in prompt
+        assert '"outcome"' in prompt
+
+    def test_formats_plan_as_a_note_with_the_expected_headings(self):
+        current_state = (
+            'Run query-trends with {"kind":"TrendsQuery","dateRange":{"date_from":"-1h"},'
+            '"interval":"hour","series":[{"kind":"EventsNode","event":"upload_failed","math":"total"},'
+            '{"kind":"EventsNode","event":"upload_completed","math":"total"}]}. '
+            "Any upload_failed events confirm that uploads still fail. No upload events is inconclusive."
+        )
+        outcome = (
+            "Repeat the same query after the chosen resolution, once an hour of traffic is available. Use a window "
+            "that excludes earlier data. Zero upload_failed events alongside "
+            "upload_completed events supports recovery; any failure means the issue still occurs. "
+            "No upload events or a failed query is inconclusive."
+        )
+        result = FixVerificationOutput(current_state=f" {current_state} ", outcome=f" {outcome} ")
+
+        assert result.to_note().note == (
+            f"## Verification plan\n\n"
+            f"### Confirm the current state\n\n{current_state}\n\n"
+            f"### Confirm the outcome\n\n{outcome}"
+        )
+
+
 def _make_chart() -> ReportChart:
     return ReportChart(
         chart_id="signups-drop",
@@ -243,3 +287,61 @@ class TestBuildReportPresentationPrompt:
 
         assert '"comparison"' not in prompt
         assert "Previous period" not in prompt
+
+
+class TestReportPresentationOutputCharts:
+    # Title, summary, and charts arrive as one response, so a chart that fails validation used to
+    # take the whole presentation step down and end the research run with no report.
+    def test_a_malformed_chart_is_dropped_and_the_rest_of_the_response_survives(self):
+        parsed = ReportPresentationOutput.model_validate(
+            {
+                "title": "fix(signups): Handle the drop",
+                "summary": "Signups fell 60% over the week.",
+                "charts": [
+                    {
+                        "chart_id": "signups-drop",
+                        "title": "Daily signups",
+                        "query": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}},
+                    },
+                    {"chart_id": "bare-trends", "title": "Wrong node", "query": {"kind": "TrendsQuery"}},
+                ],
+            }
+        )
+
+        assert parsed.title == "fix(signups): Handle the drop"
+        assert [chart.chart_id for chart in parsed.charts] == ["signups-drop"]
+
+    def test_the_dropped_chart_warning_names_the_rule_without_the_rejected_query(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            ReportPresentationOutput.model_validate(
+                {
+                    "title": "fix(signups): Handle the drop",
+                    "summary": "Signups fell 60% over the week.",
+                    "charts": [
+                        {
+                            "chart_id": "leaky",
+                            "title": "Wrong node",
+                            "query": {"kind": "HogQLQuery", "query": "SELECT email FROM persons WHERE team='acme'"},
+                        }
+                    ],
+                }
+            )
+
+        warning = "".join(record.getMessage() for record in caplog.records)
+        # Pydantic renders the rejected input in the error's own text, so logging it would copy the
+        # chart's query into application logs.
+        assert "SELECT email" not in warning
+        assert "acme" not in warning
+        assert "query: value_error" in warning
+
+    def test_a_response_whose_every_chart_is_malformed_still_yields_the_prose(self):
+        parsed = ReportPresentationOutput.model_validate(
+            {
+                "title": "fix(signups): Handle the drop",
+                "summary": "Signups fell 60% over the week.",
+                "charts": [{"chart_id": "NOT A SLUG", "title": "Bad id", "query": {"kind": "InsightVizNode"}}],
+            }
+        )
+
+        assert parsed.charts == []
+        assert parsed.summary == "Signups fell 60% over the week."

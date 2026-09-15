@@ -90,6 +90,10 @@ class RunAgenticReportOutput:
     # Resolved impact-metric payload, with the same replay-safe replace/clear/preserve semantics as
     # charts. The transition activity writes it with the matching title and summary.
     metrics: list[dict[str, Any]] | None = None
+    # Whether the rollout let this run author charts at all. Carried so telemetry can tell a run
+    # that chose not to chart apart from one that was never allowed to, which would otherwise read
+    # as the agent's charting rate moving on every rollout step. `None` predates the field.
+    charts_enabled: bool | None = None
 
 
 _ArtefactContentT = TypeVar("_ArtefactContentT", bound=BaseModel)
@@ -482,7 +486,9 @@ async def _persist_agentic_report_artefacts(
         else ArtefactAttribution.system()
     )
     # Everything the run flagged as new gets persisted; the artefact type derives from each content
-    # model. Reviewers are derived from findings, so they're only re-persisted when a finding changed.
+    # model. The verification note is fresh output from the final turn of every actionable research
+    # run, so it is appended as a log entry rather than folded into the latest-wins research state.
+    # Reviewers are derived from findings, so they're only re-persisted when a finding changed.
     has_new_finding = any(isinstance(content, SignalFinding) for content in result.new_artefacts)
 
     # A reviewer or a scout can rewrite the selection while this run is in flight (a wrong-repo
@@ -509,6 +515,8 @@ async def _persist_agentic_report_artefacts(
         ),
         *(ArtefactDraft(content=content, attribution=research_attribution) for content in result.new_artefacts),
     ]
+    if result.verification_note is not None:
+        artefacts.append(ArtefactDraft(content=result.verification_note, attribution=research_attribution))
     if reviewers_content and has_new_finding:
         artefacts.append(
             ArtefactDraft(
@@ -775,6 +783,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             repository=repository,
             charts=charts_payload,
             metrics=metrics_payload,
+            charts_enabled=charts_enabled,
         )
     except Exception as error:
         logger.exception(

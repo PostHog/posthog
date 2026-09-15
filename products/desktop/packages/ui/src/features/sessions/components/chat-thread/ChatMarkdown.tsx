@@ -25,6 +25,7 @@ import {
   InlineFileLink,
   looksLikeBareFilename,
 } from "@posthog/ui/features/sessions/components/session-update/fileLinkChips";
+import { useThrottledValue } from "@posthog/ui/hooks/useThrottledValue";
 import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
 import { MermaidDiagram } from "@posthog/ui/primitives/MermaidDiagram";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
@@ -40,7 +41,7 @@ import { parseEvidenceLink } from "@posthog/ui/utils/evidenceLinks";
 import { MERMAID_LANGUAGE } from "@posthog/ui/utils/mermaidBlocks";
 import { remarkObjectTags } from "@posthog/ui/utils/remarkObjectTags";
 import { IconButton } from "@radix-ui/themes";
-import { memo, type ReactNode, useMemo } from "react";
+import { memo, type ReactNode, useEffect, useMemo, useRef } from "react";
 import Markdown, { type Components, defaultUrlTransform } from "react-markdown";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
@@ -133,7 +134,7 @@ const components: Components = {
     <ul className="list-disc space-y-0.5 ps-4">{children}</ul>
   ),
   ol: ({ children, start }) => (
-    <ol start={start} className="list-decimal space-y-0.5 ps-5">
+    <ol start={start} className="list-decimal space-y-0.5 ps-8">
       {children}
     </ol>
   ),
@@ -277,6 +278,21 @@ export const ChatMarkdown = memo(function ChatMarkdown({
   );
 });
 
+const LARGE_TAIL_CHARS = 2_000;
+const TAIL_CHARS_PER_INTERVAL_MS = 100;
+const MIN_TAIL_PARSE_INTERVAL_MS = 100;
+const MAX_TAIL_PARSE_INTERVAL_MS = 500;
+
+function tailParseInterval(tailLength: number): number {
+  return Math.min(
+    MAX_TAIL_PARSE_INTERVAL_MS,
+    Math.max(
+      MIN_TAIL_PARSE_INTERVAL_MS,
+      tailLength / TAIL_CHARS_PER_INTERVAL_MS,
+    ),
+  );
+}
+
 /**
  * Streaming variant of {@link ChatMarkdown}: splits the message into top-level blocks so completed
  * blocks keep a stable string and their memoized parse is reused — each streamed frame re-parses
@@ -291,25 +307,55 @@ export const ChatStreamingMarkdown = memo(function ChatStreamingMarkdown({
   content,
   renderObjectTags,
 }: ChatMarkdownProps) {
-  const blocks = useMemo(() => splitMarkdownBlocks(content), [content]);
+  // The throttle has to be sized before the split that measures the tail, so it reads the
+  // last rendered tail instead: the interval lags by at most one interval.
+  const tailLengthRef = useRef(0);
+  const renderedContent = useThrottledValue(
+    content,
+    tailParseInterval(tailLengthRef.current),
+    tailLengthRef.current > LARGE_TAIL_CHARS,
+  );
+  const blocks = useMemo(
+    () => splitMarkdownBlocks(renderedContent),
+    [renderedContent],
+  );
   const lastIndex = blocks.length - 1;
+  const tailBlock = blocks[lastIndex];
+  useEffect(() => {
+    tailLengthRef.current = tailBlock.length;
+  }, [tailBlock]);
+  const tail = useMemo(
+    () => ({
+      openFence: parseOpenFence(tailBlock),
+      linked: markOpenLinkDestination(tailBlock, PENDING_LINK_DESTINATION),
+    }),
+    [tailBlock],
+  );
 
   return (
     <div className="flex flex-col gap-3 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
       {blocks.map((block, index) => {
         const key = `b${index}`;
-        const openFence = index === lastIndex ? parseOpenFence(block) : null;
-        if (openFence) {
+        if (index !== lastIndex) {
+          return (
+            <ChatMarkdown
+              key={key}
+              content={block}
+              renderObjectTags={renderObjectTags}
+            />
+          );
+        }
+        if (tail.openFence) {
           return (
             <div key={key} className="flex flex-col gap-3">
-              {openFence.before.trim() ? (
+              {tail.openFence.before.trim() ? (
                 <ChatMarkdown
-                  content={openFence.before}
+                  content={tail.openFence.before}
                   renderObjectTags={renderObjectTags}
                 />
               ) : null}
-              <ChatCodeBlock code={openFence.code}>
-                <code className="font-mono text-xs">{openFence.code}</code>
+              <ChatCodeBlock code={tail.openFence.code}>
+                <code className="font-mono text-xs">{tail.openFence.code}</code>
               </ChatCodeBlock>
             </div>
           );
@@ -317,11 +363,7 @@ export const ChatStreamingMarkdown = memo(function ChatStreamingMarkdown({
         return (
           <ChatMarkdown
             key={key}
-            content={
-              index === lastIndex
-                ? markOpenLinkDestination(block, PENDING_LINK_DESTINATION)
-                : block
-            }
+            content={tail.linked}
             renderObjectTags={renderObjectTags}
           />
         );

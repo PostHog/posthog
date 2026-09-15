@@ -135,13 +135,15 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   `-config-list` shows the warning as `status=pending_pause` and the pause as `status=paused_by_system`; setting `enabled=true` again resumes the scout with a fresh grace window before the sweep may judge it again.
   Set `auto_pause_exempt=true` up front for a watchdog scout whose whole job is to stay quiet, so it never even picks up the quiet flag.
 - `write_scopes` — defaults to `[]`: the scout reads the project and writes only what every scout writes (its findings, its memory, and notebooks).
-  Grant `dashboard:write`, `insight:write`, `annotation:write`, `alert:write`, `llm_skill:write`, `warehouse_view:write`, or `warehouse_table:write` to a scout whose job is to **maintain** one of those things rather than only describe what it would change.
+  Grant `dashboard:write`, `insight:write`, `annotation:write`, `alert:write`, `llm_skill:write`, `warehouse_view:write`, `warehouse_table:write`, or `replay_scanner:write` to a scout whose job is to **maintain** one of those things rather than only describe what it would change.
   Each scope is project-wide and covers update and delete of every object of its kind, not only the ones the scout made, so grant only what the scout's body actually tends, and say in the body what it may change and when.
   `llm_skill:write` is the one to think twice about: custom scouts are skills in the same store, so a scout holding it can edit a sibling scout's body, or the body it runs from itself. Grant it to a scout whose job really is tending a set of skills, name that set in the body, and say there that the scouts are off limits unless tending them is the job.
   `warehouse_view:write` and `warehouse_table:write` are separate on purpose: a scout that keeps a set of views healthy does not also need to create tables. Take both rows only when the scout tends both.
+  `replay_scanner:write` permits scanner maintenance. A scout must set a `credit_limit` when it creates, copies, or enables a scanner, and before it changes targeting, sampling, or the model of an enabled scanner. It cannot clear a limit, delete a scanner, or start manual scans, prompt tests, retries, or backfills. Use `enabled: false` to stop a scanner and keep its observations. Use existing human ratings for prompt suggestions; change a shared rating only to record an explicit user verdict.
   Only the person the scout's runs act as (whoever authored it) or a project admin can set the field, and grants are activity-logged. A scoped API key must itself carry each scope it grants.
   A granted scout is told in its run prompt which objects it may change, and is asked to name every change in its close-out. The grant is an upper bound: the acting user's own permissions still apply to each object, and the scout reports a refused write rather than retrying it.
   A dry run (`emit: false`) never holds the grant, so a scout can be previewed without it changing anything.
+  To audit the writes after a run, see "Auditing what a scout changed" in `working-with-scouts`: the changes land in the activity log under the scout's acting user, tagged "via MCP", with no scout or run name on the row.
   Applies from the scout's next run.
 - `output_destinations` — defaults to none.
   When adding Slack to an existing scout, first read `output_destinations`, then send the full object with every key preserved. Updates replace the object, so sending only `slack` removes an existing `webhook` pointer.
@@ -157,6 +159,13 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
 - `mcp_gateway_server_ids`: MCP store servers (by id) this scout's runs may mount, chosen from the connections members have shared with the whole team.
   Empty (the default) mounts none of the shared servers. The intent is that only team-shared connections back a scout run, so runs behave the same whoever edits the scout; where MCP gateway enforcement is not yet active on the project, the launch path may still mount the acting user's personal connections, so check the run's mounted servers in its transcript when that matters.
   Treat it like `network_access`: it hands the scout third-party tools with whatever access the shared connection carries, changes are activity-logged, and the body should name what the scout uses each server for.
+- `repositories` — defaults to `[]`: the scout's sandbox holds no checkout, which is right for a scout that only reads the project over MCP.
+  Set `["organization/repository", ...]` for a scout that reasons about code, and its sandbox clones each one before the run starts, so the scout can grep the tree, read the layout, and run the project's own build, type check, and tests instead of fetching files one `gh api` call at a time.
+  Up to 10 per scout, and each must be reachable through the project's GitHub connection — an unreachable name is refused on write rather than surfacing as a clone failure mid-run.
+  The scout's GitHub access stays read-only whether or not it clones, so a listed repository gives it a tree to read and never the ability to push, comment, or open a pull request. Write access for a scout is a separate opt-in that does not exist yet.
+  A multi-repository scout gets each tree on its default branch; there is no per-repository branch selection.
+  Each tree carries the repository's full commit history, so a skill body can run `git log`, `git blame`, and `--since` against it without an unshallow fetch first.
+  Applies from the scout's next run, and changes are activity-logged.
 - `tags` — free-form labels grouping the fleet, e.g. `["revenue", "on-call"]`. Up to 10 per scout, normalized to lowercase kebab-case (`On Call` → `on-call`) and deduped.
   Set them at create time: a scout that lands already grouped saves a follow-up edit, and the desktop app's scout list filters on them.
   Prefer a tag that already exists on the fleet (`-config-list` shows every scout's tags) over minting a near-duplicate — `revenue` and `revenue-analytics` fragment the same group.

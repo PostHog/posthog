@@ -44,7 +44,7 @@ from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, changes_between, load_activity
-from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.utils import UUIDT, uuid7
 from posthog.renderers import ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
@@ -71,6 +71,7 @@ from products.notebooks.backend.facade.compute_pricing import (
     get_compute_rates,
 )
 from products.notebooks.backend.facade.contracts import NotebookRunBusy, TeamRunCapacityFull
+from products.notebooks.backend.facade.kernel_sandbox_usage import record_sandbox_ended_by_id
 from products.notebooks.backend.facade.sql_v2 import acquire_run_slots, release_run_slots
 from products.notebooks.backend.facade.widgets import (
     WidgetConflictError,
@@ -1258,6 +1259,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         cpu_cores = sandbox_config.cpu_cores
 
         status = runtime.status if runtime else KernelRuntime.Status.STOPPED
+        sandbox_still_running = False
         if (
             runtime
             and runtime.sandbox_id
@@ -1274,6 +1276,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     status = KernelRuntime.Status.STOPPED
             except Exception:
                 status = KernelRuntime.Status.STOPPED
+                sandbox_still_running = True
 
         if runtime and status == KernelRuntime.Status.STOPPED:
             if (
@@ -1288,6 +1291,13 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             if runtime.status != status:
                 runtime.status = status
                 runtime.save(update_fields=["status"])
+            record_sandbox_ended_by_id(
+                runtime.id,
+                team_id=runtime.team_id,
+                user_id=runtime.user_id,
+                reason=status,
+                sandbox_still_running=sandbox_still_running,
+            )
 
         # A running sandbox keeps the shape it started with, so price that rather than the
         # notebook's configuration. They differ between a resize and the restart that applies it.
@@ -2372,23 +2382,23 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     @extend_schema(operation_id="notebooks_all_activity_retrieve")
     @action(methods=["GET"], url_path="activity", detail=False)
     def all_activity(self, request: Request, **kwargs):
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        page_params = parse_activity_page_params(request)
 
-        activity_page = load_activity(scope="Notebook", team_id=self.team_id, limit=limit, page=page)
-        return activity_page_response(activity_page, limit, page, request)
+        activity_page = load_activity(
+            scope="Notebook", team_id=self.team_id, limit=page_params.limit, page=page_params.page
+        )
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
     @action(methods=["GET"], url_path="activity", detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: Request, **kwargs):
         notebook = self.get_object()
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        page_params = parse_activity_page_params(request)
 
         activity_page = load_activity(
             scope="Notebook",
             team_id=self.team_id,
             item_ids=[notebook.id, notebook.short_id],
-            limit=limit,
-            page=page,
+            limit=page_params.limit,
+            page=page_params.page,
         )
-        return activity_page_response(activity_page, limit, page, request)
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)
