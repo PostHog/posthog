@@ -25,7 +25,8 @@ export function AutonomySettingRow({
                     <span className="text-sm font-medium text-default">{title}</span>
                     {description && <p className="m-0 text-xs leading-snug text-secondary">{description}</p>}
                 </div>
-                {control && <div className="flex shrink-0 items-center gap-1">{control}</div>}
+                {/* max-w-full caps a control wider than the row, so a full-width segmented button compresses instead of overflowing. */}
+                {control && <div className="flex max-w-full shrink-0 items-center gap-1">{control}</div>}
             </div>
             {children && (
                 <div className="ml-0.5 flex flex-col divide-y divide-primary border-l-2 border-primary pl-4 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0">

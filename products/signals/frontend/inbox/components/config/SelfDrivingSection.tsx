@@ -176,6 +176,7 @@ function BaseBranchOverridePicker(): JSX.Element {
  */
 function BaseBranchesRow(): JSX.Element {
     const { githubIntegrations } = useValues(integrationsLogic)
+    const { baseBranchOverrides } = useValues(signalTeamConfigLogic)
 
     return (
         <AutonomySettingRow
@@ -191,10 +192,11 @@ function BaseBranchesRow(): JSX.Element {
                 )
             }
         >
-            {githubIntegrations.length > 0 && (
+            {/* Stored overrides stay in view without an integration, so a team can still read and remove them. */}
+            {(githubIntegrations.length > 0 || baseBranchOverrides.length > 0) && (
                 <div className="flex flex-col gap-2 py-3">
                     <BaseBranchOverrideList />
-                    <BaseBranchOverridePicker />
+                    {githubIntegrations.length > 0 && <BaseBranchOverridePicker />}
                 </div>
             )}
         </AutonomySettingRow>
@@ -517,6 +519,7 @@ function ProjectPullRequestStateRow(): JSX.Element {
             control={
                 <LemonSegmentedButton
                     size="small"
+                    fullWidth
                     value={defaultOpenPullRequestReady ? 'ready' : 'draft'}
                     options={PR_STATE_SEGMENTS}
                     disabledReason={teamConfigUpdating ? 'Saving changes' : undefined}
@@ -542,6 +545,7 @@ function MyPullRequestStateRow(): JSX.Element {
             control={
                 <LemonSegmentedButton
                     size="small"
+                    fullWidth
                     value={myState}
                     options={MY_PR_STATE_SEGMENTS}
                     disabledReason={
@@ -572,6 +576,7 @@ function ProjectThresholdRow(): JSX.Element {
             control={
                 <LemonSegmentedButton
                     size="small"
+                    fullWidth
                     value={defaultAutostartPriority}
                     options={THRESHOLD_SEGMENTS}
                     disabledReason={teamConfigUpdating ? 'Saving changes' : undefined}
@@ -594,6 +599,7 @@ function MyThresholdRow(): JSX.Element {
             control={
                 <LemonSegmentedButton
                     size="small"
+                    fullWidth
                     value={myThreshold}
                     options={MY_THRESHOLD_SEGMENTS}
                     disabledReason={

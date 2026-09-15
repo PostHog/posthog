@@ -143,6 +143,12 @@ export const SettingsTabBaseBranches: Story = {
     ),
 }
 
+// GitHub disconnected after an override was saved: the override stays readable and removable, the picker hides.
+export const SettingsTabBaseBranchesWithoutGitHub: Story = {
+    parameters: REDESIGN,
+    render: () => <SettingsCard width="wide" baseBranches={{ 'posthog/posthog.com': 'develop' }} />,
+}
+
 // Master switch off in the Settings tab: the project threshold, base branches, and personal threshold hide.
 export const SettingsTabDisabled: Story = {
     parameters: REDESIGN,
