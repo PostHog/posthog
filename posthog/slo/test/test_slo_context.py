@@ -146,6 +146,32 @@ def test_slo_operation_emits_failure_with_automatic_error_properties(
     }
 
 
+@patch("posthog.slo.context.emit_slo_completed")
+@patch("posthog.slo.context.emit_slo_started")
+def test_slo_operation_records_error_properties_for_handled_exception(
+    mock_emit_slo_started: MagicMock, mock_emit_slo_completed: MagicMock
+) -> None:
+    spec = _build_spec()
+
+    with slo_operation(spec=spec) as slo:
+        try:
+            _raise_runtime_error()
+        except RuntimeError as exc:
+            slo.fail(exc, failed_checks=1)
+
+    mock_emit_slo_started.assert_called_once()
+    mock_emit_slo_completed.assert_called_once()
+    completed_kwargs = mock_emit_slo_completed.call_args.kwargs
+    assert completed_kwargs["properties"].outcome == SloOutcome.FAILURE
+    assert completed_kwargs["extra_properties"] == {
+        "correlation_id": mock_emit_slo_started.call_args.kwargs["extra_properties"]["correlation_id"],
+        "error_type": "RuntimeError",
+        "error_message": "boom",
+        "error_origin": _expected_origin_for(_raise_runtime_error),
+        "failed_checks": 1,
+    }
+
+
 def test_build_error_origin_returns_deepest_frame() -> None:
     try:
         _raise_runtime_error()
