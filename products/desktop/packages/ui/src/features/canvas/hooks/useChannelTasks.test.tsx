@@ -1,16 +1,39 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, renderHook } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import type { ReactElement, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+interface FilingResult {
+  taskId: string;
+  channelId: string;
+  createdAt: number;
+}
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  reject: (error: Error) => void;
+  resolve: (value: T) => void;
+} {
+  let reject!: (error: Error) => void;
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
+}
+
 const LIST_PATH = [["channelTasks", "list"]];
+const FILE_KEY = [["channelTasks", "file"]];
 const listKey = (channelId: string) => [
   ...LIST_PATH,
   { input: { channelId }, type: "query" },
 ];
 
-const mutations = vi.hoisted(() => ({
-  file: vi.fn().mockResolvedValue({ taskId: "t1", channelId: "dest" }),
+const mocks = vi.hoisted(() => ({
+  file: vi.fn(),
+  listFetches: {} as Record<string, number>,
+  rows: {} as Record<string, FilingResult[]>,
   unfile: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -18,95 +41,244 @@ vi.mock("@posthog/host-router/react", () => ({
   useHostTRPC: () => ({
     channelTasks: {
       list: {
+        mutationKey: () => FILE_KEY,
         pathFilter: () => ({ queryKey: LIST_PATH }),
         queryFilter: ({ channelId }: { channelId: string }) => ({
           queryKey: listKey(channelId),
         }),
+        queryOptions: (
+          { channelId }: { channelId: string },
+          options: object,
+        ) => ({
+          ...options,
+          queryKey: listKey(channelId),
+          queryFn: async () => {
+            mocks.listFetches[channelId] =
+              (mocks.listFetches[channelId] ?? 0) + 1;
+            return mocks.rows[channelId] ?? [];
+          },
+        }),
       },
       file: {
+        mutationKey: () => FILE_KEY,
         mutationOptions: (options: object) => ({
           ...options,
-          mutationFn: mutations.file,
+          mutationKey: FILE_KEY,
+          mutationFn: mocks.file,
         }),
       },
       unfile: {
         mutationOptions: (options: object) => ({
           ...options,
-          mutationFn: mutations.unfile,
+          mutationFn: mocks.unfile,
         }),
       },
     },
   }),
 }));
 
-import { useChannelTaskMutations } from "./useChannelTasks";
+import {
+  applyPendingTaskFilings,
+  useChannelTaskMutations,
+  useChannelTasks,
+} from "./useChannelTasks";
 
-describe("useChannelTaskMutations", () => {
+describe("useChannelTasks", () => {
   let queryClient: QueryClient;
 
-  function wrapper({ children }: { children: ReactNode }) {
+  function wrapper({ children }: { children: ReactNode }): ReactElement {
     return (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     );
   }
 
-  const invalidatedChannels = () =>
-    queryClient
-      .getQueryCache()
-      .getAll()
-      .filter((query) => query.state.isInvalidated)
-      .map(
-        (query) =>
-          (query.queryKey[1] as { input: { channelId: string } }).input
-            .channelId,
-      )
-      .sort();
+  function useFilingHarness(): {
+    source: ReturnType<typeof useChannelTasks>;
+    destination: ReturnType<typeof useChannelTasks>;
+    third: ReturnType<typeof useChannelTasks>;
+    mutations: ReturnType<typeof useChannelTaskMutations>;
+  } {
+    return {
+      source: useChannelTasks("source"),
+      destination: useChannelTasks("dest"),
+      third: useChannelTasks("third"),
+      mutations: useChannelTaskMutations(),
+    };
+  }
 
   beforeEach(() => {
     vi.clearAllMocks();
     queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
-    // A user who has browsed around holds a list per channel visited. Only the
-    // ones a filed task actually moves between should be refetched.
-    queryClient.setQueryData(listKey("source"), [{ taskId: "t1" }]);
-    queryClient.setQueryData(listKey("dest"), [{ taskId: "t2" }]);
-    queryClient.setQueryData(listKey("unrelated"), [{ taskId: "t3" }]);
+    mocks.listFetches = { source: 0, dest: 0, third: 0 };
+    mocks.rows = {
+      source: [{ channelId: "source", taskId: "t1", createdAt: 1 }],
+      dest: [{ channelId: "dest", taskId: "t2", createdAt: 2 }],
+      third: [],
+    };
+    for (const [channelId, rows] of Object.entries(mocks.rows)) {
+      queryClient.setQueryData(listKey(channelId), rows);
+    }
   });
 
-  it("filing a task invalidates only its old and new channel", async () => {
-    const { result } = renderHook(() => useChannelTaskMutations(), { wrapper });
+  it("moves a task between visible channels while filing is pending", async () => {
+    const request = deferred<FilingResult>();
+    mocks.file.mockReturnValueOnce(request.promise);
+    const { result } = renderHook(useFilingHarness, { wrapper });
+    let filing = Promise.resolve<unknown>(undefined);
 
-    await act(async () => {
-      await result.current.fileTask("dest", "t1");
+    act(() => {
+      filing = result.current.mutations.fileTask("dest", "t1");
     });
 
-    expect(invalidatedChannels()).toEqual(["dest", "source"]);
-  });
-
-  it("filing a task invalidates a channel whose list is still loading", async () => {
-    // A first load has no cached membership to check, and its request may have
-    // gone out before the mutation. Skipping it lets the pre-mutation response
-    // land and sit fresh, leaving the task showing in the space it left.
-    queryClient
-      .getQueryCache()
-      .build(queryClient, { queryKey: listKey("loading") });
-    const { result } = renderHook(() => useChannelTaskMutations(), { wrapper });
-
-    await act(async () => {
-      await result.current.fileTask("dest", "t1");
+    await waitFor(() => {
+      expect(result.current.source.tasks).toEqual([]);
+      expect(
+        result.current.destination.tasks.map((task) => task.taskId),
+      ).toEqual(["t2", "t1"]);
     });
 
-    expect(invalidatedChannels()).toEqual(["dest", "loading", "source"]);
+    mocks.rows.source = [];
+    mocks.rows.dest = [
+      { channelId: "dest", taskId: "t2", createdAt: 2 },
+      { channelId: "dest", taskId: "t1", createdAt: 1 },
+    ];
+    await act(async () => {
+      request.resolve({ channelId: "dest", taskId: "t1", createdAt: 1 });
+      await filing;
+    });
+
+    expect(result.current.source.tasks).toEqual([]);
+    expect(result.current.destination.tasks.map((task) => task.taskId)).toEqual(
+      ["t2", "t1"],
+    );
   });
 
-  it("unfiling a task invalidates only the channel that listed it", async () => {
+  it("shows the server-backed channels again when filing fails", async () => {
+    const request = deferred<FilingResult>();
+    mocks.file.mockReturnValueOnce(request.promise);
+    const { result } = renderHook(useFilingHarness, { wrapper });
+    let filing = Promise.resolve<unknown>(undefined);
+
+    act(() => {
+      filing = result.current.mutations.fileTask("dest", "t1");
+    });
+    await waitFor(() => expect(result.current.source.tasks).toEqual([]));
+
+    await act(async () => {
+      request.reject(new Error("Request failed"));
+      await filing.catch(() => undefined);
+    });
+
+    await waitFor(() => {
+      expect(result.current.source.tasks.map((task) => task.taskId)).toEqual([
+        "t1",
+      ]);
+      expect(
+        result.current.destination.tasks.map((task) => task.taskId),
+      ).toEqual(["t2"]);
+    });
+  });
+
+  it("sends overlapping filings of one task in order", async () => {
+    const firstRequest = deferred<FilingResult>();
+    const secondRequest = deferred<FilingResult>();
+    mocks.file
+      .mockReturnValueOnce(firstRequest.promise)
+      .mockReturnValueOnce(secondRequest.promise);
+    const filedChannels = (): string[] =>
+      mocks.file.mock.calls.map(
+        (call) => (call[0] as { channelId: string }).channelId,
+      );
+    const { result } = renderHook(useFilingHarness, { wrapper });
+    let firstFiling = Promise.resolve<unknown>(undefined);
+    let secondFiling = Promise.resolve<unknown>(undefined);
+
+    act(() => {
+      firstFiling = result.current.mutations.fileTask("dest", "t1");
+      secondFiling = result.current.mutations.fileTask("third", "t1");
+    });
+
+    await waitFor(() => expect(filedChannels()).toEqual(["dest"]));
+
+    await act(async () => {
+      firstRequest.resolve({ channelId: "dest", taskId: "t1", createdAt: 1 });
+      await firstFiling;
+    });
+    await waitFor(() => expect(filedChannels()).toEqual(["dest", "third"]));
+
+    await act(async () => {
+      secondRequest.resolve({ channelId: "third", taskId: "t1", createdAt: 1 });
+      await secondFiling;
+    });
+  });
+
+  it("shows a task only in its latest pending destination", () => {
+    const records = [{ channelId: "source", taskId: "t1", createdAt: 1 }];
+    const filings = [
+      { channelId: "dest", taskId: "t1", submittedAt: 2 },
+      { channelId: "third", taskId: "t1", submittedAt: 3 },
+    ];
+
+    expect(applyPendingTaskFilings(records, "source", filings)).toEqual([]);
+    expect(applyPendingTaskFilings([], "dest", filings)).toEqual([]);
+    expect(applyPendingTaskFilings([], "third", filings)).toEqual([
+      { channelId: "third", taskId: "t1", createdAt: 3 },
+    ]);
+  });
+
+  it("refetches only the channel lists a filing changes", async () => {
+    const request = deferred<FilingResult>();
+    mocks.file.mockReturnValueOnce(request.promise);
+    const { result } = renderHook(useFilingHarness, { wrapper });
+    let filing = Promise.resolve<unknown>(undefined);
+
+    act(() => {
+      filing = result.current.mutations.fileTask("dest", "t1");
+    });
+    await act(async () => {
+      request.resolve({ channelId: "dest", taskId: "t1", createdAt: 1 });
+      await filing;
+    });
+
+    expect(mocks.listFetches.source).toBe(1);
+    expect(mocks.listFetches.dest).toBe(1);
+    expect(mocks.listFetches.third).toBe(0);
+  });
+
+  it("invalidates the space tree and saved searches when filing succeeds", async () => {
+    const treeKey = ["space-tree-tasks", "source"];
+    const searchKey = ["task-feed-results", "space:source"];
+    queryClient.setQueryData(treeKey, { tasks: [], count: 0 });
+    queryClient.setQueryData(searchKey, { tasks: [], isComplete: true });
+    mocks.file.mockResolvedValueOnce({
+      channelId: "dest",
+      taskId: "t1",
+      createdAt: 1,
+    });
+    const { result } = renderHook(useFilingHarness, { wrapper });
+
+    await act(async () => {
+      await result.current.mutations.fileTask("dest", "t1");
+    });
+
+    expect(queryClient.getQueryState(treeKey)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(searchKey)?.isInvalidated).toBe(true);
+  });
+
+  it("invalidates channel lists when unfiling succeeds", async () => {
     const { result } = renderHook(() => useChannelTaskMutations(), { wrapper });
 
     await act(async () => {
       await result.current.unfileTask("t1");
     });
 
-    expect(invalidatedChannels()).toEqual(["source"]);
+    expect(
+      queryClient
+        .getQueryCache()
+        .find({ queryKey: listKey("source"), exact: true })?.state
+        .isInvalidated,
+    ).toBe(true);
   });
 });

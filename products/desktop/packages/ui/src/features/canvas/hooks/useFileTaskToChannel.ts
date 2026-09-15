@@ -1,7 +1,28 @@
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
 import { toast } from "@posthog/ui/primitives/toast";
+import { useNavigate, useParams, useRouter } from "@tanstack/react-router";
 import { useCallback } from "react";
+
+interface RouteFiling {
+  /**
+   * The route the task sat on before the first filing of this run, or null
+   * when the task was not the open route.
+   */
+  origin: { channelId: string | undefined } | null;
+  /** Marks the newest filing, so an older failure cannot move the route. */
+  token: symbol;
+}
+
+const latestRouteFilings = new WeakMap<object, Map<string, RouteFiling>>();
+
+function latestRouteFilingsFor(router: object): Map<string, RouteFiling> {
+  const existing = latestRouteFilings.get(router);
+  if (existing) return existing;
+  const filings = new Map<string, RouteFiling>();
+  latestRouteFilings.set(router, filings);
+  return filings;
+}
 
 /**
  * Files a task to a space and reports the outcome, naming the space in the
@@ -9,28 +30,95 @@ import { useCallback } from "react";
  * tasks the same way — filing is a mutation plus the two toasts that make it
  * legible, and duplicating that is how the two paths drift.
  */
-export function useFileTaskToChannel(): (
-  channelId: string,
-  taskId: string,
-  taskTitle: string,
-) => Promise<void> {
+export function useFileTaskToChannel(options?: {
+  enabled?: boolean;
+}): (channelId: string, taskId: string) => Promise<void> {
   const { fileTask } = useChannelTaskMutations();
-  const { channels } = useChannels();
+  const { channels } = useChannels(options);
+  const navigate = useNavigate();
+  const router = useRouter();
+  const activeTaskId = useParams({
+    strict: false,
+    select: (params) => params.taskId,
+  });
+  const activeChannelId = useParams({
+    strict: false,
+    select: (params) => params.channelId,
+  });
 
   return useCallback(
     async (channelId: string, taskId: string) => {
+      const routeFilings = latestRouteFilingsFor(router);
+      const filingToken = Symbol(taskId);
+      // Hold the origin of the first filing in a run. A filing that starts
+      // while another is in flight reads an activeChannelId that the earlier
+      // optimistic move already changed, so a rollback to it would leave the
+      // route on a space the task never entered.
+      const origin =
+        routeFilings.get(taskId)?.origin ??
+        (activeTaskId === taskId ? { channelId: activeChannelId } : null);
+      routeFilings.set(taskId, { origin, token: filingToken });
+      const moveActiveRoute =
+        activeTaskId === taskId && activeChannelId !== channelId;
+      const filing = fileTask(channelId, taskId);
+      const routeMove = moveActiveRoute
+        ? navigate({
+            to: "/spaces/$channelId/tasks/$taskId",
+            params: { channelId, taskId },
+            replace: true,
+          })
+        : null;
+
       try {
-        await fileTask(channelId, taskId);
+        await filing;
+        // The server holds this space now, so a newer filing of the same task
+        // must roll back to here instead of to where the run started.
+        const laterFiling = routeFilings.get(taskId);
+        if (laterFiling?.origin && laterFiling.token !== filingToken) {
+          laterFiling.origin = { channelId };
+        }
         const channelName = channels.find(
           (channel) => channel.id === channelId,
         )?.name;
         toast.success(channelName ? `Filed to ${channelName}` : "Task filed");
       } catch (error) {
+        await routeMove?.catch(() => undefined);
+        const optimisticPath = `/spaces/${channelId}/tasks/${taskId}`;
+        // Read the origin back from the map, because an earlier filing that
+        // succeeded moves it to the space the server settled on.
+        const pending = routeFilings.get(taskId);
+        // The pathname match is what says the route needs restoring, rather
+        // than whether this call moved it: a retry to the same destination
+        // moves nothing and still leaves the route on the failed space.
+        if (
+          pending?.token === filingToken &&
+          pending.origin &&
+          pending.origin.channelId !== channelId &&
+          router.state.location.pathname === optimisticPath
+        ) {
+          if (pending.origin.channelId) {
+            void navigate({
+              to: "/spaces/$channelId/tasks/$taskId",
+              params: { channelId: pending.origin.channelId, taskId },
+              replace: true,
+            });
+          } else {
+            void navigate({
+              to: "/tasks/$taskId",
+              params: { taskId },
+              replace: true,
+            });
+          }
+        }
         toast.error("Couldn't file task", {
           description: error instanceof Error ? error.message : String(error),
         });
+      } finally {
+        if (routeFilings.get(taskId)?.token === filingToken) {
+          routeFilings.delete(taskId);
+        }
       }
     },
-    [channels, fileTask],
+    [activeChannelId, activeTaskId, channels, fileTask, navigate, router],
   );
 }
