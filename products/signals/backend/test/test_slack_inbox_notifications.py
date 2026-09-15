@@ -890,6 +890,62 @@ def test_build_signal_thread_blocks_renders_header_content_and_github_details() 
     assert fallback.startswith("GitHub · Issue:")
 
 
+@pytest.mark.parametrize(
+    ("source_product", "extra", "expected_detail"),
+    [
+        (
+            "zendesk",
+            {"priority": "urgent", "status": "pending", "url": "https://support.example.com/tickets/7"},
+            "Priority: urgent  ·  Status: pending  ·  <https://support.example.com/tickets/7|Open ticket>",
+        ),
+        (
+            "llm_analytics",
+            {"model": "claude-opus-5", "provider": "anthropic", "trace_id": "0123456789abcdefghij"},
+            "Model: claude-opus-5  ·  Provider: anthropic  ·  Trace: `0123456789ab…`",
+        ),
+        ("session_replay", {"problem_type": "rage_click_loop"}, "Problem: rage click loop"),
+    ],
+)
+def test_build_signal_thread_blocks_renders_source_specific_details(
+    source_product: str, extra: dict, expected_detail: str
+) -> None:
+    signal = {"source_product": source_product, "source_type": "ticket", "content": "body", "extra": extra}
+    blocks, _ = _build_signal_thread_blocks(signal)
+    assert blocks[2]["elements"][0]["text"] == expected_detail
+
+
+@pytest.mark.parametrize(
+    ("source_product", "extra"),
+    [
+        ("zendesk", {}),
+        ("llm_analytics", {}),
+        ("session_replay", {}),
+        ("logs", {"service": "ingestion"}),
+    ],
+)
+def test_build_signal_thread_blocks_omits_empty_detail_block(source_product: str, extra: dict) -> None:
+    signal = {"source_product": source_product, "source_type": "ticket", "content": "body", "extra": extra}
+    blocks, _ = _build_signal_thread_blocks(signal)
+    assert [block["type"] for block in blocks] == ["context", "markdown"]
+
+
+def test_build_signal_thread_blocks_escapes_mrkdwn_in_source_specific_details() -> None:
+    # Detail values come from the source payload, so they must not carry a live mention into Slack.
+    signal = {
+        "source_product": "llm_analytics",
+        "source_type": "evaluation",
+        "content": "body",
+        "extra": {"model": "<@U42>", "provider": "<!channel>"},
+    }
+    blocks, _ = _build_signal_thread_blocks(signal)
+    detail = blocks[2]["elements"][0]["text"]
+    assert "<@U42>" not in detail
+    assert "<!channel>" not in detail
+    # Both values must survive as escaped text, so dropping a field outright also fails.
+    assert "Model: &lt;@U42&gt;" in detail
+    assert "Provider: &lt;!channel&gt;" in detail
+
+
 def test_build_signal_thread_blocks_escapes_content_to_block_mention_injection() -> None:
     signal = {
         "source_product": "logs",
