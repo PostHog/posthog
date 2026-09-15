@@ -25,6 +25,7 @@ describe('productSetupLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+        jest.restoreAllMocks()
     })
 
     const task = (id: SetupTaskId): SetupTaskWithState =>
@@ -80,6 +81,18 @@ describe('productSetupLogic', () => {
         router.actions.push(router.values.location.pathname, { tab: 'yours' })
 
         expect(globalSetupLogic.values.highlight).not.toBeNull()
+    })
+
+    // A task with no target selector used to leave the previous pulse polling, because nothing
+    // cleared it and a docs task never changes the route.
+    it('drops a pending highlight when a task without a target selector runs', async () => {
+        jest.spyOn(window, 'open').mockReturnValue(null)
+        await expectLogic(logic, () => logic.actions.runTask(SetupTaskId.CreateFirstInsight)).toFinishAllListeners()
+        expect(globalSetupLogic.values.highlight).not.toBeNull()
+
+        await expectLogic(logic, () => logic.actions.runTask(SetupTaskId.UsePosthogMcp)).toFinishAllListeners()
+
+        expect(globalSetupLogic.values.highlight).toBeNull()
     })
 
     // A skipped dependency counts as satisfied — skipping used to leave dependents locked forever.
