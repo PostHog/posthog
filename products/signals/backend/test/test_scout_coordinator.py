@@ -566,8 +566,6 @@ def test_register_missing_configs_stamps_scout_category():
         scout.refresh_from_db()
         helper.refresh_from_db()
         assert scout.category == "scout"
-        # The skills list serves conditional requests off Max(updated_at), so the stamp has to move
-        # it. QuerySet.update() skips auto_now, and the scout would stay off a revalidated Scouts tab.
         assert scout.updated_at > stamped_before
         # Non-scout skills are left untouched.
         assert helper.category == ""

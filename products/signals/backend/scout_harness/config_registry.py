@@ -92,9 +92,7 @@ def ensure_scout_category(team_id: int, skill_name: str | None = None) -> None:
         rows = rows.filter(name=skill_name)
     else:
         rows = rows.filter(name__in=SignalScoutConfig.objects.for_team(team_id).values_list("skill_name", flat=True))
-    # `updated_at` is `auto_now`, which `QuerySet.update()` skips. Stamp it explicitly: the skills
-    # list answers conditional requests off `Max(updated_at)`, so without it a client revalidates
-    # onto a cached list that still omits the scout from the Scouts tab.
+    # QuerySet.update() skips auto_now, but the shared marketplace version uses updated_at.
     rows.update(category=SCOUT_SKILL_CATEGORY, updated_at=timezone.now())
 
 

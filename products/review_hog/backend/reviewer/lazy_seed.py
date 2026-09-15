@@ -440,9 +440,7 @@ def _sync_canonicals(
             # The sync owns the category tag; re-stamp a seeded row whose category drifted (e.g. after
             # the canonical category was changed). In-place — it's our metadata, not user content, so
             # no version bump. Idempotent: only writes on actual drift.
-            # `updated_at` is `auto_now`, which `QuerySet.update()` skips. Stamp it explicitly: the
-            # skills list answers conditional requests off `Max(updated_at)`, so without it a client
-            # revalidates onto a cached list still holding the drifted category.
+            # QuerySet.update() skips auto_now, but the shared marketplace version uses updated_at.
             LLMSkill.objects.filter(pk=live.pk).update(category=category, updated_at=timezone.now())
 
         live_files = list(live.files.all())

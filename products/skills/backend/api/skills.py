@@ -135,7 +135,7 @@ from .skill_services import (
     set_skill_owners,
     skill_name_is_well_formed,
     skill_names_owned_by,
-    skills_list_version,
+    team_skills_version,
 )
 
 
@@ -1862,15 +1862,13 @@ class LLMSkillViewSet(
     @llma_track_latency("llma_skills_list")
     @monitor(feature=None, endpoint="llma_skills_list", method="GET")
     def list(self, request: Request, *args, **kwargs) -> HttpResponseBase:
-        validators = self._list_validators(request)
-        # get_conditional_response (not a string compare) matches weak validators too, so a proxy
-        # or middleware that weakens the ETag cannot silently break the 304 path.
-        response = get_conditional_response(request._request, etag=validators.etag) or self._list_response(request)
+        version = team_skills_version(self.team)
+        response = self._list_response(request)
+        validators = self._list_validators(request, response, version)
+        # Validate and apply access rules before a conditional response can reuse a cached body.
+        response = get_conditional_response(request._request, etag=validators.etag) or response
         response["ETag"] = validators.etag
         response["X-Skills-Version"] = validators.version
-        # no-cache means "store, but revalidate every time": a polling client that sends
-        # If-None-Match pays two aggregates instead of the filtered query and a full body. The
-        # ETag is per-user, so a shared cache must never key this response on the URL alone.
         patch_cache_control(response, private=True, no_cache=True)
         patch_vary_headers(response, ["Authorization", "Cookie"])
         return response
@@ -1889,38 +1887,20 @@ class LLMSkillViewSet(
         data = serializer.data
         return Response({"count": len(data), "results": data})
 
-    def _list_validators(self, request: Request) -> SkillsListValidators:
-        """The team's skills version, and an ETag identifying this exact list response.
-
-        `skills_list_version` covers the store rows; the ETag adds what only the request knows.
-        The whole query string covers the filters (search, created_by_id, owner_id, category) and
-        the page, and the user id covers per-user access filtering. A bare team version would
-        hand a client another client's page. Over-invalidating on a param the endpoint ignores is
-        the safe direction.
-
-        The deploy revision covers the representation itself. This runs before `_list_response`,
-        so no serializer, paginator or output-shape change can reach the hash through the store
-        rows, and a release that renders the list differently would keep answering 304 with the
-        previous shape. The cost is one full body per client per deploy.
-
-        Known bound: a change to a member's access, made with no skill and no owner touched, does
-        not move the fingerprint, so that member can revalidate onto their previous list until the
-        next store change. Nothing new is disclosed, because the client only keeps a body it already
-        had and every read path still enforces access on the skill itself.
-        """
-        list_version = skills_list_version(self.team)
+    def _list_validators(self, request: Request, response: Response, version: str) -> SkillsListValidators:
         seed = urlencode(
             [
                 ("rev", get_git_commit_short() or ""),
-                ("store", list_version.store_fingerprint),
                 ("user", request.user.pk),
                 *sorted(request.query_params.lists()),
             ],
             doseq=True,
         )
+        body = SafeJSONRenderer().render(response.data)
+        # A weak ETag identifies the data across renderer formatting and content encodings.
         return SkillsListValidators(
-            version=list_version.version,
-            etag='"' + hashlib.sha256(seed.encode()).hexdigest() + '"',
+            version=version,
+            etag='W/"' + hashlib.sha256(seed.encode() + b"\0" + body).hexdigest() + '"',
         )
 
     # `Sequence`, not `list[...]`: the viewset defines a `list` method that shadows the builtin in the

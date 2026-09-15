@@ -394,14 +394,15 @@ class TestLLMSkillAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("non_numeric", "abc"),
-            ("float", "1.5"),
+            ("non_numeric", "abc", ""),
+            ("float", "1.5", ""),
+            ("conditional", "abc", "*"),
         ]
     )
-    def test_list_skills_invalid_created_by_id_returns_400(self, _label, value):
+    def test_list_skills_invalid_created_by_id_returns_400(self, _label, value, etag):
         self.create_skill(name="some-skill")
 
-        response = self.client.get(self._url() + f"?created_by_id={value}")
+        response = self.client.get(self._url() + f"?created_by_id={value}", HTTP_IF_NONE_MATCH=etag)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
@@ -424,27 +425,25 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.json()["count"] == len(expected_names)
         assert sorted(r["name"] for r in response.json()["results"]) == sorted(expected_names)
 
-    def test_list_answers_304_without_querying_skills_when_nothing_changed(self):
+    @parameterized.expand([("weak",), ("strong",), ("wildcard",)])
+    def test_list_answers_304_when_nothing_changed(self, validator: str) -> None:
         self.create_skill(name="skill-a", description="Does A things.")
         first = self.client.get(self._url())
         assert first.status_code == status.HTTP_200_OK
         assert first["ETag"]
         assert first["Cache-Control"] == "private, no-cache"
 
-        with CaptureQueriesContext(connection) as revalidated:
-            second = self.client.get(self._url(), HTTP_IF_NONE_MATCH=first["ETag"])
+        etag = first["ETag"]
+        if validator == "strong":
+            etag = etag.removeprefix("W/")
+        elif validator == "wildcard":
+            etag = "*"
+        second = self.client.get(self._url(), HTTP_IF_NONE_MATCH=etag)
 
         assert second.status_code == status.HTTP_304_NOT_MODIFIED
         assert second["ETag"] == first["ETag"]
         assert second["X-Skills-Version"] == first["X-Skills-Version"]
         assert not second.content
-        # The saving is the point: revalidation must not reach the skill or file rows at all.
-        assert not [
-            q
-            for q in revalidated.captured_queries
-            if "llm_analytics_llmskillfile" in q["sql"]
-            or ("llm_analytics_llmskill" in q["sql"] and "MAX" not in q["sql"].upper())
-        ]
 
     @parameterized.expand(
         [
@@ -467,19 +466,34 @@ class TestLLMSkillAPI(APIBaseTest):
                 "owner_change",
                 lambda self: set_skill_owners(self.team, "skill-a", [self._create_user("newowner@example.com")]),
             ),
+            ("category", lambda self: LLMSkill.objects.filter(team=self.team, name="skill-a").update(category="scout")),
+            ("hard_delete", lambda self: LLMSkill.objects.filter(team=self.team, name="skill-a").delete()),
+            ("creator_profile", lambda self: User.objects.filter(pk=self.user.pk).update(first_name="Updated")),
+            (
+                "owner_profile",
+                lambda self: User.objects.filter(email="listowner@example.com").update(first_name="Updated"),
+            ),
+            (
+                "owner_access",
+                lambda self: OrganizationMembership.objects.filter(
+                    organization=self.organization, user__email="listowner@example.com"
+                ).delete(),
+            ),
         ]
     )
     def test_list_etag_changes_after_a_store_change(self, _label, change):
-        # No clock control: every case lands inside the version cache TTL, so reading the version
-        # through its cached wrapper would answer 304 for a list that already changed.
         self.create_skill(name="skill-a", description="Does A things.")
-        etag = self.client.get(self._url())["ETag"]
+        set_skill_owners(self.team, "skill-a", [])
+        self.create_skill(name="skill-b", description="Does B things.")
+        set_skill_owners(self.team, "skill-b", [self._create_user("listowner@example.com")])
+        first = self.client.get(self._url())
 
         change(self)
-        response = self.client.get(self._url(), HTTP_IF_NONE_MATCH=etag)
+        response = self.client.get(self._url(), HTTP_IF_NONE_MATCH=first["ETag"])
 
         assert response.status_code == status.HTTP_200_OK
-        assert response["ETag"] != etag
+        assert response["ETag"] != first["ETag"]
+        assert response.json() != first.json()
 
     def test_list_etag_does_not_carry_across_a_deploy(self):
         # Every other seed input is a store row, so without the revision a release that serializes
@@ -2232,6 +2246,18 @@ class TestSkillAccessControlRBAC(APIBaseTest):
             assert response.status_code == status.HTTP_200_OK
             assert response.json()["count"] == 1
             assert [skill["name"] for skill in response.json()["results"]] == [self.skill.name]
+            for access, expected_count in [("viewer", 2), ("none", 1)]:
+                AccessControl.objects.filter(
+                    team=self.team,
+                    resource="llm_skill",
+                    resource_id=str(restricted.id),
+                    organization_member=membership,
+                ).update(access_level=access)
+                response = self.client.get(
+                    self._url(), {"limit": "1", "order_by": "name"}, HTTP_IF_NONE_MATCH=response["ETag"]
+                )
+                assert response.status_code == status.HTTP_200_OK
+                assert response.json()["count"] == expected_count
             return
 
         allowed_status = status.HTTP_302_FOUND if endpoint == "id" else status.HTTP_200_OK
@@ -2438,9 +2464,11 @@ class TestLLMSkillOwners(APIBaseTest):
         create_skill(self.team, user=self.user, name="orphaned", description="d", body="# b")
         set_skill_owners(self.team, "orphaned", [member])
 
+        url = self._url() + f"?owner_id={member.id}"
+        etag = self.client.get(url)["ETag"]
         member.organization_memberships.filter(organization=self.organization).delete()
 
-        response = self.client.get(self._url() + f"?owner_id={member.id}")
+        response = self.client.get(url, HTTP_IF_NONE_MATCH=etag)
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["results"] == []

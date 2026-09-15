@@ -361,17 +361,9 @@ def _read_zip_text(archive: zipfile.ZipFile, member: str, label: str) -> str:
         raise SkillImportError(f"'{label}' must be UTF-8 text; binary files are not supported.")
 
 
-def compute_plugin_version(latest_change_epoch_millis: int) -> str:
-    """Content-derived, monotonic plugin version so auto-update fires on any change.
-
-    Keyed off the most recent change time (in epoch milliseconds) across all of a team's skill
-    rows (see ``skill_services.team_skills_version``): publishes and file edits add/refresh a row's
-    ``updated_at``, and archive bumps it too, so this advances on every change and never
-    regresses. Millisecond resolution keeps two edits within the same second distinct. Whether
-    Claude Code re-pulls on any version *difference* vs. strictly-greater is the open question
-    the auto-update spike answers — this scheme is safe for either.
-    """
-    return f"1.0.{latest_change_epoch_millis}"
+def compute_plugin_version(latest_change_epoch_microseconds: int) -> str:
+    """Use full timestamp precision so updates within one millisecond have distinct versions."""
+    return f"1.0.{latest_change_epoch_microseconds}"
 
 
 def build_marketplace_tree(

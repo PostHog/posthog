@@ -1,11 +1,10 @@
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, TypeVar
 
-from django.core.cache import cache
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Max, QuerySet
+from django.db.models import Max, QuerySet
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -43,11 +42,6 @@ MAX_SKILL_NAME_LENGTH = 64
 # Bundled-file paths that would collide with generated artifacts in the exported skill
 # tree / plugin marketplace (the rendered SKILL.md). Compared case-insensitively.
 RESERVED_SKILL_FILE_PATHS = {"skill.md"}
-# The skills version is a Max(updated_at) aggregate — cheap, but the marketplace runs it on every
-# info/refs, every upload-pack and every auto-update poll. Briefly cache it so a clone plus a burst
-# of polls collapse to one query per window. Auto-update detection lags by at most this TTL
-# (content is never stale — only the version label that triggers a re-pull).
-_SKILLS_VERSION_CACHE_TTL_SECONDS = 15
 
 
 def skill_name_is_well_formed(value: str) -> bool:
@@ -347,67 +341,18 @@ def get_latest_skills_queryset(team: Team) -> QuerySet[LLMSkill]:
     return get_active_skill_queryset(team).filter(is_latest=True)
 
 
-def _epoch_millis(value: datetime | None) -> int:
-    # Milliseconds, not seconds, so two edits within the same second stay distinct and a client
-    # never misses an update.
-    return int(value.timestamp() * 1000) if value is not None else 0
-
-
 def team_skills_version(team: Team) -> str:
-    """The team's content-derived skills version: monotonic, and it advances on every change.
+    """Keep archived rows in the version so an archive does not expose an older timestamp.
 
-    Max over ALL of the team's skill rows, including archived ones. Publishes add a row with a
-    fresh updated_at and archive_skill bumps updated_at on the rows it soft-deletes, so this is
-    monotonic and reflects archives. Deriving it from only live skills would regress the version
-    when the most-recently-updated skill is archived.
-
-    Owner rows are deliberately out of scope, so an owner-only PATCH cannot invalidate the
-    marketplace repo this version keys. `skills_list_version` covers them for the list endpoint.
-
-    `updated_at` is `auto_now`, which `QuerySet.update()` skips, so any writer changing a
-    list-visible column in place must stamp `updated_at` itself or this version cannot see it.
+    This is a marketplace version, not a validator for the access-filtered list.
+    In-place writers must update updated_at because QuerySet.update() skips auto_now.
     """
     latest = LLMSkill.objects.filter(team=team).aggregate(latest=Max("updated_at"))["latest"]
-    return compute_plugin_version(_epoch_millis(latest)) if latest is not None else "1.0.0"
-
-
-def team_skills_version_cached(team: Team) -> str:
-    """`team_skills_version` behind a short TTL, for callers that poll it many times per change.
-
-    Not for conditional requests: the TTL can hand a client a 304 for a list that already changed.
-    """
-    cache_key = f"skills_marketplace_version:{team.id}"
-    version = cache.get(cache_key)
-    if version is None:
-        version = team_skills_version(team)
-        cache.set(cache_key, version, timeout=_SKILLS_VERSION_CACHE_TTL_SECONDS)
-    return version
-
-
-@frozen
-class SkillsListVersion:
-    version: str
-    store_fingerprint: str
-
-
-def skills_list_version(team: Team) -> SkillsListVersion:
-    """The team's skills version, and a fingerprint of every store row the skills list body shows.
-
-    Two values because they answer different questions: the version is the label clients compare,
-    while the fingerprint also covers the owner rows the list serializes. Owners are keyed on the
-    logical skill name, so an owner-only PATCH changes no skill row and the version alone cannot
-    see it. Count plus Max(created_at) catches every owner write: `set_skill_owners` replaces the
-    rows, so any change to the set mints a fresh created_at, and a pure removal drops the count.
-
-    Read uncached, unlike `team_skills_version_cached`, because a conditional request answered from
-    a TTL can hand a client a 304 for a list that already changed.
-    """
-    version = team_skills_version(team)
-    owners = _owner_qs(team).aggregate(latest=Max("created_at"), total=Count("id"))
-    return SkillsListVersion(
-        version=version,
-        store_fingerprint=f"{version}|{owners['total']}.{_epoch_millis(owners['latest'])}",
-    )
+    if latest is None:
+        return "1.0.0"
+    elapsed = latest - datetime(1970, 1, 1, tzinfo=UTC)
+    epoch_microseconds = (elapsed.days * 86400 + elapsed.seconds) * 1_000_000 + elapsed.microseconds
+    return compute_plugin_version(epoch_microseconds)
 
 
 def get_skill_by_name_from_db(

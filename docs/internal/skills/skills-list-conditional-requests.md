@@ -1,11 +1,8 @@
 # Skills list conditional requests
 
-The skills list endpoint answers `304 Not Modified` for a client that already holds the current list.
-A client that polls the store on every connect then pays two aggregate queries per poll instead of the filtered list query, the owner lookup and a full serialized body.
-The MCP server answering `skills/list` is the case this exists for.
-
-Viewset: `products/skills/backend/api/skills.py` (`LLMSkillViewSet.list`).
-Version and fingerprint: `products/skills/backend/api/skill_services.py` (`team_skills_version`, `skills_list_version`).
+The skills list returns `304 Not Modified` when a client already has the current response data.
+Clients can reuse the body and reduce network traffic.
+Each request still validates its parameters, applies access rules, queries the list, and serializes the response.
 
 ## Endpoint
 
@@ -13,35 +10,39 @@ Version and fingerprint: `products/skills/backend/api/skill_services.py` (`team_
 GET /api/projects/{team_id}/llm_skills/
 ```
 
-| Response header    | Value                                                                                      |
-| ------------------ | ------------------------------------------------------------------------------------------ |
-| `ETag`             | Strong validator, `"<sha256 hex>"`. Send it back as `If-None-Match` to revalidate.         |
-| `X-Skills-Version` | The team's content version, `1.0.<epoch millis>`. For clients that compare without a 304.  |
-| `Cache-Control`    | `private, no-cache`. Store the body, but revalidate on every use.                          |
-| `Vary`             | `Authorization, Cookie`. The validator is per user, so a shared cache must not key on URL. |
+| Response header    | Value                                                                                  |
+| ------------------ | -------------------------------------------------------------------------------------- |
+| `ETag`             | Weak validator, `W/"<sha256 hex>"`. Send it as `If-None-Match` to revalidate the list. |
+| `X-Skills-Version` | Marketplace version, `1.0.<epoch microseconds>`. This is a content change hint.        |
+| `Cache-Control`    | `private, no-cache`. Store the body, but revalidate before reuse.                      |
+| `Vary`             | `Authorization, Cookie`. Caches must separate credentials.                             |
 
-A request whose `If-None-Match` matches gets `304` with no body, before the list query runs.
-A stale or absent `If-None-Match` gets the usual `200` and a fresh `ETag`.
+A matching `If-None-Match` returns `304` with no body.
+A stale or absent validator returns the usual `200` response with a current ETag.
+Invalid parameters still return an error, including when `If-None-Match` is `*`.
+An invalid page still returns `404`.
 
-## What moves the validators
+## ETag
 
-`X-Skills-Version` is `Max(updated_at)` over **all** of the team's skill rows, archived ones included.
-A publish adds a row, a file edit publishes a new version, and an archive bumps `updated_at` on the rows it soft-deletes, so the version advances on every change and never regresses.
-It is the same version the git marketplace stamps on its plugin, so the two surfaces report one number.
+The ETag hashes the serialized response data, the user ID, the query string, and the deployment revision.
+Access changes, owner membership changes, profile edits, category changes, and hard deletions change the ETag when they change the response.
+The response also reflects any owner redaction required by the caller's credential.
+The validator is weak because it identifies equivalent data across formatting and content encoding changes.
 
-The `ETag` covers more, because the list body shows more than the skill rows:
+This design saves response bytes.
+It does not skip the list query or serialization.
+A timestamp aggregate cannot identify all changes in a response that includes access rules and user profiles.
+No separate owner aggregate or access fingerprint runs for conditional requests.
 
-| Input                  | Why it is in the ETag                                                                                                                                                  |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The skills version     | Publishes, file edits and archives.                                                                                                                                    |
-| The team's owner rows  | Owners are keyed on the skill name, so an owner-only `PATCH` changes no skill row.                                                                                     |
-| The requesting user    | Access filtering is per user, so one caller's validator must never match another caller's list.                                                                        |
-| The whole query string | `search`, `created_by_id`, `owner_id`, `category`, ordering and the page all change the body.                                                                          |
-| The deploy revision    | Every other input is a store row, so a release that serializes the list differently would otherwise keep its old validator. Costs one full body per client per deploy. |
+## Marketplace version
 
-The version is read uncached.
-`team_skills_version_cached` exists for the marketplace, which polls it far more often than it changes; its TTL would let a publish inside the window answer `304` for a list that already moved.
+`team_skills_version` in `products/skills/backend/api/skill_services.py` reads `Max(updated_at)` across the team's skill rows, including archived rows.
+The version preserves microseconds with integer arithmetic.
+The list and marketplace read this version without a time-based cache.
+The marketplace still caches the synthesized repository by team and version.
 
-**Known bound.** A change to one member's access, made with no skill and no owner touched, moves neither validator.
-That member can revalidate onto their previous list until the next store change.
-Nothing new is disclosed, because the client only keeps a body it already received and every read path still enforces access on the skill itself.
+A publish, file edit, or archive updates a skill timestamp.
+In-place category writers must update `updated_at` explicitly.
+Owner and profile changes do not change this version.
+A hard deletion can leave the maximum timestamp unchanged or move it backward.
+Clients must use the ETag to validate the list; `X-Skills-Version` is not a complete list validator.

@@ -16,12 +16,7 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
-from ..api.skill_services import (
-    compute_spec_problems,
-    skill_names_owned_by,
-    team_skills_version,
-    team_skills_version_cached,
-)
+from ..api.skill_services import compute_spec_problems, skill_names_owned_by, team_skills_version
 from ..models.skills import LLMSkill, LLMSkillFile
 from .git_smart_http import FileTree, SynthesizedRepo, synthesize_repo
 from .packaging import (
@@ -94,7 +89,7 @@ def synthesize_team_marketplace_repo(team: Team) -> SynthesizedRepo:
     each time would be wasteful. The cache key embeds ``team_skills_version`` (which changes
     exactly when content changes), so a hit is always current and any change invalidates it.
     """
-    version = team_skills_version_cached(team)
+    version = team_skills_version(team)
     cache_key = f"skills_marketplace_repo:{team.id}:{version}"
     cached = cache.get(cache_key)
     if cached is not None:
