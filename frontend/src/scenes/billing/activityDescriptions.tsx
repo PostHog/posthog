@@ -1,9 +1,9 @@
 import {
     ActivityChange,
     ActivityLogItem,
-    defaultDescriber,
+    ActivityLogUserName,
     HumanizedChange,
-    userNameForLogItem,
+    defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
@@ -62,7 +62,7 @@ export function billingActivityDescriber(logItem: ActivityLogItem, asNotificatio
     return {
         description: (
             <>
-                <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> {action} in{' '}
+                <ActivityLogUserName logItem={logItem} /> {action} in{' '}
                 <Link to={urls.organizationBilling()}>billing</Link>
                 {detail ? ` (${detail})` : ''}
             </>

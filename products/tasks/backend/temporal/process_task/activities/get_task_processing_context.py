@@ -194,7 +194,11 @@ class TaskProcessingContext:
 
     @property
     def github_read_access(self) -> bool:
-        """Repo-less run that asked for a read-only GitHub token (see Task.create_and_run)."""
+        """Run that asked to be downscoped to a read-only GitHub token (see Task.create_and_run).
+
+        Independent of ``repositories``: a run that pins repos still clones them, with a token
+        that carries ``contents: read`` and nothing else.
+        """
         return (self.state or {}).get("github_read_access") is True
 
     @property
@@ -237,6 +241,14 @@ class TaskProcessingContext:
     @property
     def reasoning_effort(self) -> str | None:
         value = (self.state or {}).get("reasoning_effort")
+        return value if isinstance(value, str) else None
+
+    @property
+    def service_tier(self) -> str | None:
+        """OpenAI service tier for a codex run ("default" | "priority" | "flex"), or None for the
+        provider default. Only the codex adapter reads it; codex drops a tier its model catalogue
+        does not advertise."""
+        value = (self.state or {}).get("service_tier")
         return value if isinstance(value, str) else None
 
     @property
@@ -350,6 +362,7 @@ class TaskProcessingContext:
             "provider": self.provider,
             "model": self.model,
             "reasoning_effort": self.reasoning_effort,
+            "service_tier": self.service_tier,
             "initial_permission_mode": self.initial_permission_mode,
         }
 

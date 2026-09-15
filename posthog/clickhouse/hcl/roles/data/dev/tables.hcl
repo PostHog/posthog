@@ -100,93 +100,6 @@ database "posthog" {
     }
   }
 
-  table "eni_inventory" {
-    order_by     = ["eni_id", "ip_address"]
-    partition_by = "toYYYYMMDD(collected_at)"
-    settings = {
-      index_granularity = "8192"
-    }
-    column "collected_at" {
-      type = "DateTime"
-    }
-    column "eni_id" {
-      type = "String"
-    }
-    column "ip_address" {
-      type = "String"
-    }
-    column "owner_account" {
-      type = "String"
-    }
-    column "subnet_id" {
-      type = "String"
-    }
-    column "security_groups" {
-      type = "Array(JSON)"
-    }
-    column "instance_id" {
-      type = "String"
-    }
-    column "node_name" {
-      type = "String"
-    }
-    column "karpenter_nodeclaim" {
-      type = "String"
-    }
-    column "karpenter_ec2nodeclass" {
-      type = "String"
-    }
-    engine "replacing_merge_tree" {
-      version_column = "collected_at"
-    }
-  }
-
-  table "flow_logs_local" {
-    order_by     = ["ts_start", "dstport", "dstaddr", "interface_id"]
-    partition_by = "toYYYYMMDD(ts_start)"
-    settings = {
-      index_granularity = "8192"
-    }
-    column "interface_id" {
-      type = "String"
-    }
-    column "srcaddr" {
-      type = "String"
-    }
-    column "dstaddr" {
-      type = "String"
-    }
-    column "srcport" {
-      type = "UInt16"
-    }
-    column "dstport" {
-      type = "UInt16"
-    }
-    column "protocol" {
-      type = "UInt8"
-    }
-    column "packets" {
-      type = "UInt32"
-    }
-    column "bytes" {
-      type = "UInt64"
-    }
-    column "ts_start" {
-      type = "DateTime"
-    }
-    column "ts_end" {
-      type = "DateTime"
-    }
-    column "action" {
-      type = "LowCardinality(String)"
-    }
-    column "log_status" {
-      type = "LowCardinality(String)"
-    }
-    engine "merge_tree" {
-    }
-  }
-
   table "groups2" {
     order_by = ["group_key"]
     settings = {
@@ -201,44 +114,6 @@ database "posthog" {
     engine "replicated_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.groups2"
       replica_name = "{replica}-{shard}"
-    }
-  }
-
-  table "k8s_node_inventory" {
-    order_by     = ["nodepool", "instance_id"]
-    partition_by = "toYYYYMMDD(collected_at)"
-    settings = {
-      index_granularity = "8192"
-    }
-    column "collected_at" {
-      type = "DateTime"
-    }
-    column "node_name" {
-      type = "String"
-    }
-    column "instance_id" {
-      type = "String"
-    }
-    column "region" {
-      type = "String"
-    }
-    column "nodeclaim" {
-      type = "String"
-    }
-    column "nodepool" {
-      type = "String"
-    }
-    column "ec2nodeclass" {
-      type = "String"
-    }
-    column "labels" {
-      type = "JSON"
-    }
-    column "enis" {
-      type = "Array(JSON)"
-    }
-    engine "replacing_merge_tree" {
-      version_column = "collected_at"
     }
   }
 
@@ -475,35 +350,6 @@ database "posthog" {
       remote_database = "posthog"
       remote_table    = "sharded_precalculated_person_properties"
       sharding_key    = "sipHash64(distinct_id)"
-    }
-  }
-
-  table "rds_inventory" {
-    order_by     = ["region", "instance_name"]
-    partition_by = "toYYYYMMDD(collected_at)"
-    settings = {
-      index_granularity = "8192"
-    }
-    column "collected_at" {
-      type = "DateTime"
-    }
-    column "region" {
-      type = "String"
-    }
-    column "instance_name" {
-      type = "String"
-    }
-    column "cluster_name" {
-      type = "String"
-    }
-    column "endpoint" {
-      type = "String"
-    }
-    column "ip_address" {
-      type = "String"
-    }
-    engine "replacing_merge_tree" {
-      version_column = "collected_at"
     }
   }
 

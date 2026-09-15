@@ -12,8 +12,7 @@ import structlog
 
 from posthog.exceptions_capture import capture_exception
 
-from products.alerts.backend.scheduling import compute_shard_offset_seconds
-from products.alerts.backend.state_machine import (
+from products.alerts.backend.facade.lifecycle import (
     BILLING_ALERT_POLICY,
     MAX_CONSECUTIVE_FAILURES,
     AlertCheckOutcome,
@@ -30,6 +29,7 @@ from products.alerts.backend.state_machine import (
     evaluate_alert_check as shared_evaluate_alert_check,
     evaluate_alert_failure as shared_evaluate_alert_failure,
 )
+from products.alerts.backend.facade.scheduling import compute_shard_offset_seconds
 from products.billing_alerts.backend.logic.evaluator import (
     BillingAlertEvaluation,
     evaluate_billing_alert,

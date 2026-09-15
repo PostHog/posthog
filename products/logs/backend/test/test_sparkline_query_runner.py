@@ -3,10 +3,8 @@ import json
 import uuid
 from datetime import datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-
-from django.urls import get_resolver
 
 from rest_framework import status
 
@@ -31,13 +29,6 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        # Import the URL tree before any test freezes time. Every test here requests under
-        # freeze_time, and the first such request is what imports the URL conf — which reaches
-        # pydantic.v1, whose ConstrainedDate subclasses `date`. freezegun has swapped that for
-        # FakeDate by then, so the import dies with a metaclass conflict and whichever test happens
-        # to run first fails.
-        assert get_resolver().url_patterns is not None
-
         with open(os.path.join(os.path.dirname(__file__), "test_logs.jsonnd")) as f:
             sql = ""
             for line in f:
@@ -66,7 +57,7 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, expected_status)
         return response.json() if expected_status == status.HTTP_200_OK else response
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_sparkline_single_log(self):
         query_params = {
             "dateRange": {"date_from": "2025-12-16T10:23:16.449937Z", "date_to": "2025-12-16T10:23:16.449937Z"},
@@ -78,7 +69,7 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response), 1)
         self.assertEqual(response[0]["count"], 1)
 
-    @freeze_time("2025-12-16T10:33:00Z")
+    @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_sparkline_near_full(self):
         query_params = {
             "dateRange": {"date_from": "2025-12-16T09:00:00.000000Z", "date_to": "2025-12-16T10:31:35.692143Z"},
@@ -100,7 +91,7 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
             query_params["sparklineRankBy"] = rank_by
         return self._make_sparkline_api_request(query_params)
 
-    @freeze_time("2026-03-02T00:10:00Z")
+    @time_machine.travel("2026-03-02T00:10:00Z", tick=False)
     def test_service_breakdown_collapses_the_tail_into_one_other_bucket(self):
         response = self._service_sparkline()
 
@@ -118,7 +109,7 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
             folded_count * self.BUCKET_COUNT,
         )
 
-    @freeze_time("2026-03-02T00:10:00Z")
+    @time_machine.travel("2026-03-02T00:10:00Z", tick=False)
     def test_rank_by_bytes_keeps_a_different_top_ten_than_rank_by_count(self):
         # Every service logs the same number of times, but one carries a million-fold more bytes per
         # log. A caller charting bytes has to see that service as its own series; ranking by count

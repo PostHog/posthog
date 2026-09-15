@@ -192,7 +192,8 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRIC_SERIES2_TABLE_NAME}
     INDEX idx_service_set service_name TYPE set(1000) GRANULARITY 1,
     INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX idx_attr_keys mapKeys(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
-    INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1
+    INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+    INDEX idx_last_seen_minmax last_seen TYPE minmax GRANULARITY 1
 )
 ENGINE = {ReplacingMergeTree(METRIC_SERIES2_TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED, ver="last_seen")}
 ORDER BY (team_id, metric_name, series_fingerprint)
@@ -343,6 +344,17 @@ def METRICS2_DROP_SERIES_MINUTE_PROJECTION_SQL() -> str:
 
 def METRICS2_DROP_UUID_COLUMN_SQL() -> str:
     return f"ALTER TABLE {_db()}.{METRICS2_TABLE_NAME} DROP COLUMN IF EXISTS uuid"
+
+
+def METRIC_SERIES2_ADD_LAST_SEEN_INDEX_SQL() -> str:
+    return (
+        f"ALTER TABLE {_db()}.{METRIC_SERIES2_TABLE_NAME} "
+        "ADD INDEX IF NOT EXISTS idx_last_seen_minmax last_seen TYPE minmax GRANULARITY 1"
+    )
+
+
+def METRIC_SERIES2_MATERIALIZE_LAST_SEEN_INDEX_SQL() -> str:
+    return f"ALTER TABLE {_db()}.{METRIC_SERIES2_TABLE_NAME} MATERIALIZE INDEX IF EXISTS idx_last_seen_minmax"
 
 
 def METRICS_DISTRIBUTED_DROP_UUID_COLUMN_SQL() -> str:

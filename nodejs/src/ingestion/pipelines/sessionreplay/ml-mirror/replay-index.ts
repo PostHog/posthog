@@ -1,5 +1,6 @@
 import { ParquetSchema } from '@dsnp/parquetjs'
 
+import { parseJSON } from '~/common/utils/json-parse'
 import {
     ReplayIndexEntry,
     ReplayIndexEntrySchema,
@@ -8,6 +9,8 @@ import { parquetRecordsToBuffer } from '~/ingestion/pipelines/sessionreplay/shar
 
 import { MlBlockMetadataRow } from './block-metadata-row'
 import { MlParquetSinkMetrics } from './metrics'
+import { MlDataKey, MlEncryptedEnvelope, encryptEnvelope } from './privacy/crypto'
+import { sessionStartTimestampFromUuidV7 } from './session-identifier-format'
 
 const DAY_MS = 86_400_000
 const schema = new ParquetSchema({
@@ -108,4 +111,29 @@ export function replayIndexPartitions(rows: MlBlockMetadataRow[]): Map<string, R
 
 export function replayIndexToParquetBuffer(records: Record<string, unknown>[]): Promise<Buffer> {
     return parquetRecordsToBuffer(schema, records)
+}
+
+export interface EncryptedReplayIndex {
+    kind: ReplayIndexEntry['kind']
+    rowCount: number
+    envelope: MlEncryptedEnvelope
+}
+
+export function encryptReplayIndex(row: MlBlockMetadataRow, key: MlDataKey): EncryptedReplayIndex[] {
+    if (row.team_id !== String(key.identity.teamId) || row.session_id !== key.identity.sessionId) {
+        return []
+    }
+    const partitions = replayIndexPartitions([
+        { ...row, session_start_ts_ms: sessionStartTimestampFromUuidV7(row.session_id) ?? undefined },
+    ])
+    return [...partitions.values()].map((records) => {
+        const kind = records[0].kind as ReplayIndexEntry['kind']
+        return {
+            kind,
+            rowCount: records.length,
+            envelope: parseJSON(
+                encryptEnvelope(key, 'replay-index', Buffer.from(JSON.stringify(records)), kind).toString()
+            ) as MlEncryptedEnvelope,
+        }
+    })
 }

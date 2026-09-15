@@ -436,7 +436,8 @@ def load_deletion_request(
 
 _HOGQL_UNSWEEPABLE_REASON = (
     "the request carries a HogQL predicate, which only compiles against the events schema "
-    "(this table has no HogQL table definition, so the compiled fragment names columns it lacks). "
+    "(compile_hogql_predicate resolves every predicate against the events HogQL table, varying only "
+    "legacy vs native-JSON, and nothing checks the result against this table's columns). "
     "To proceed, re-file the request without the predicate, or narrow its events to ones this "
     f"table never stores. See {COVERAGE_DOC}."
 )
@@ -616,13 +617,15 @@ def _queue_events_for_deferred_deletion(
     db = django_settings.CLICKHOUSE_DATABASE
     shards = sorted(cluster.shards)
     predicate, params = event_removal_where(deletion_request)
+    params["data_deletion_request_id"] = deletion_request.request_id
 
     def run_on_shard(client: Client) -> int:
         for source in sources:
             # nosemgrep: clickhouse-fstring-param-audit (all interpolated values are internal constants/settings)
             client.execute(
-                f"INSERT INTO {db}.{ADHOC_EVENTS_DELETION_TABLE} (team_id, uuid) "
-                f"SELECT team_id, uuid FROM {db}.{source.data_table} WHERE {predicate}",
+                f"INSERT INTO {db}.{ADHOC_EVENTS_DELETION_TABLE} (team_id, uuid, data_deletion_request_id) "
+                f"SELECT team_id, uuid, toUUID(%(data_deletion_request_id)s) "
+                f"FROM {db}.{source.data_table} WHERE {predicate}",
                 params,
                 settings={"max_execution_time": 1800},
             )

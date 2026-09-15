@@ -68,7 +68,7 @@ rules:
     - match: '/onboarding/legacy/sdks/ai-observability/'
       owners: team-ai-observability
     - match: '/onboarding/legacy/sdks/surveys/'
-      owners: team-surveys
+      owners: conversations
     - match: ['/paths-v2/', '/paths/', '/persons-management/', '/persons/']
       owners: team-product-analytics
     - match: '/resource-transfer/'
@@ -79,10 +79,15 @@ rules:
       owners: team-replay
     - match: '/sessions/'
       owners: team-analytics-platform
+    # Org SSO settings: verified domains, and the SAML/SCIM/OIDC config behind them.
+    - match:
+          - '/settings/organization/IdentityProviderConfig/'
+          - '/settings/organization/VerifiedDomains/'
+      owners: team-platform-features
     - match: '/startups/'
       owners: team-growth
     - match: '/surveys/'
-      owners: team-surveys
+      owners: conversations
     - match: ['/themes/', '/trends/']
       owners: team-product-analytics
     - match: '/web-analytics/'

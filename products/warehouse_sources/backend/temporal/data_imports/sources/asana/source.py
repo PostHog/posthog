@@ -61,6 +61,9 @@ Grant these read scopes so every table can sync:
 - `users:read`
 - `projects:read`
 - `tasks:read`
+- `stories:read`
+- `goals:read`
+- `time_tracking_entries:read`
 - `tags:read`
 - `teams:read`
 - `custom_fields:read`

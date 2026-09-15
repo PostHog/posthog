@@ -414,6 +414,11 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team):
         "base_branch": None,
     }
     with patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create:
+        assignment_model = apps.get_model("signals", "SignalReportAssignment")
+        assignment_model.all_teams.create(team=team, report=report, actor_kind="user", actor_user=user)
+        assert _create_implementation_task_if_absent(**kwargs) is False
+        mock_create.assert_not_called()
+        assignment_model.all_teams.filter(report=report).update(actor_kind=None, actor_user=None)
         first = _create_implementation_task_if_absent(**kwargs)
         second = _create_implementation_task_if_absent(**kwargs)
 
@@ -904,6 +909,83 @@ async def test_quota_gate_blocks_autostart_only_when_enforced(enforced):
         )
 
     assert (mock_create.call_count == 0) is enforced
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    ("on_trial", "repository_autostart_eligible", "expect_task", "expect_pause_event"),
+    [
+        (True, True, False, True),
+        (False, True, True, False),
+        # An inferred repository blocks the reviewer-less fallback, so no runner resolves and the
+        # report opens no pull request off the trial either. The trial held nothing back, so the
+        # sales count must not carry it.
+        (True, False, False, False),
+    ],
+)
+async def test_free_trial_gate_blocks_autostart(
+    on_trial, repository_autostart_eligible, expect_task, expect_pause_event
+):
+    # A trial org gets reports, not pull requests: the implementation task is the step that opens
+    # one, so auto-start creates none while the flag is on, and counts the held-back PR.
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
+
+    def _setup() -> tuple[Team, SignalReport]:
+        organization = Organization.objects.create(name="trial-org")
+        team = Team.objects.create(organization=organization, name="trial-team")
+        enabler = User.objects.create(email="trial-enabler@example.com")
+        OrganizationMembership.objects.create(user=enabler, organization=organization)
+        SignalSourceConfig.objects.create(
+            team=team, source_product="error_tracking", source_type="issue_created", created_by=enabler
+        )
+        report = SignalReport.objects.create(
+            team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+        )
+        return team, report
+
+    team, report = await sync_to_async(_setup)()
+
+    def _fake_create_and_run_task(**kwargs):
+        task = Task.objects.create(
+            team_id=team.id,
+            title=kwargs["title"],
+            description=kwargs["description"],
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        run = TaskRun.objects.create(task=task, team_id=team.id)
+        return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
+
+    with (
+        patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
+        patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=AgentRuntime()),
+        patch("products.signals.backend.auto_start.self_driving_free_trial_enabled", return_value=on_trial),
+        patch("products.signals.backend.auto_start.capture_signal_report_free_trial_paused") as capture_mock,
+    ):
+        await maybe_autostart_implementation_task(
+            team_id=team.id,
+            report_id=str(report.id),
+            repository="owner/repo",
+            title="t",
+            summary="s",
+            actionability=ActionabilityAssessment(
+                explanation="Clear fix in the affected module.",
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                already_addressed=False,
+            ),
+            reviewers_content=[],
+            priority=PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
+            repository_autostart_eligible=repository_autostart_eligible,
+        )
+
+    assert (mock_create.call_count == 1) is expect_task
+    if expect_task:
+        # The verdict travels with the create, so the gate behind it re-reads no flag under the lock.
+        assert mock_create.call_args.kwargs["free_trial_enabled"] is False
+    assert (capture_mock.call_count == 1) is expect_pause_event
+    if expect_pause_event:
+        assert capture_mock.call_args.kwargs == {"report_id": str(report.id), "stage": "autostart"}
 
 
 @pytest.mark.asyncio

@@ -32,7 +32,12 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.permissions import AccessControlPermission, ActiveOrganizationPermission, PostHogFeatureFlagPermission
+from posthog.permissions import (
+    FEATURE_FLAG_REQUIRED_ERROR_CODE,
+    AccessControlPermission,
+    ActiveOrganizationPermission,
+    PostHogFeatureFlagPermission,
+)
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
@@ -1350,6 +1355,14 @@ class TestPostHogFeatureFlagPermission(BaseTest):
         result = self.permission.has_permission(request, view)
 
         self.assertFalse(result)
+        # DRF passes both onto the 403 body. The code lets a client tell a not-yet-ingested
+        # alpha enrollment (which clears on its own seconds later) apart from a plain
+        # access-control denial.
+        self.assertEqual(self.permission.code, FEATURE_FLAG_REQUIRED_ERROR_CODE)
+        self.assertEqual(
+            self.permission.message,
+            "This action requires feature flag 'my-flag' to be enabled for your organization.",
+        )
 
     @patch("posthog.permissions._FORCE_ENABLED_FLAGS", frozenset({"my-flag"}))
     @patch("posthoganalytics.feature_enabled")

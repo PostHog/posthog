@@ -34,34 +34,18 @@ function isTypingTarget(target: EventTarget | null): boolean {
   );
 }
 
-/**
- * A focused button or link owns Enter/Space activation. The global Enter
- * shortcut must yield to it, or Tab-then-Enter on any control in the card
- * (Next, Exit, a section toggle, a verdict button) exits triage instead of
- * doing what the control says.
- */
-export function isInteractiveTarget(target: EventTarget | null): boolean {
-  return (
-    target instanceof HTMLElement &&
-    target.closest("button, a[href], [role='button']") !== null
-  );
-}
-
-export function triageEnterAction(input: {
+export function isTriageSummaryHotkey(input: {
   key: string;
   metaKey: boolean;
   ctrlKey: boolean;
   altKey: boolean;
-  target: EventTarget | null;
-}): "toggle" | "open" | null {
-  if (
-    input.key !== "Enter" ||
-    input.altKey ||
-    isInteractiveTarget(input.target)
-  ) {
-    return null;
-  }
-  return input.metaKey || input.ctrlKey ? "open" : "toggle";
+}): boolean {
+  return (
+    input.key.toLowerCase() === "s" &&
+    !input.metaKey &&
+    !input.ctrlKey &&
+    !input.altKey
+  );
 }
 
 /**
@@ -173,8 +157,8 @@ export function ReportTriageFocus({
   }, [finishSession, reportId, setChatOpen]);
 
   // Triage is intentionally sequential, so the next destination is known as
-  // soon as the card renders. Warm it before Enter/Review is pressed instead
-  // of making the detail route begin its work after navigation.
+  // soon as the card renders. Warm it before navigation so the detail route
+  // does not begin its work only after the user opens it.
   useEffect(() => {
     prefetch();
   }, [prefetch]);
@@ -226,13 +210,7 @@ export function ReportTriageFocus({
       ) {
         return;
       }
-      const enterAction = triageEnterAction(event);
-      if (enterAction === "open") {
-        event.preventDefault();
-        handleOpenReport();
-        return;
-      }
-      if (enterAction === "toggle") {
+      if (isTriageSummaryHotkey(event)) {
         event.preventDefault();
         if (report) setExpanded((current) => !current);
         return;

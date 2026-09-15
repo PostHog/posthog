@@ -118,6 +118,31 @@ describe('dashboard SQL visualization support', () => {
         }
     )
 
+    it('sets up a dashboard horizontal bar chart from category and numeric columns', () => {
+        const response = responses['date and numeric']
+        const columns = columnsFromResponse(response)
+        const autoVisualizationType = getAutoVisualizationType(columns, response.result.length)
+
+        expect(
+            sqlVisualizationDisabledReason(
+                ChartDisplayType.ActionsBarValue,
+                baseQuery,
+                columns,
+                response.result.length,
+                autoVisualizationType
+            )
+        ).toBeUndefined()
+
+        const saved = applyVisualizationType(
+            baseQuery,
+            ChartDisplayType.ActionsBarValue,
+            columns,
+            response.result.length
+        )
+        expect(saved.chartSettings!.xAxis!.column).toBe('day')
+        expect(saved.chartSettings!.yAxis!.map((series) => series.column)).toEqual(['total'])
+    })
+
     it('does not offer Auto when it resolves to a type the card cannot set up', () => {
         const response = responses['two strings and a numeric, which Auto resolves to a 2d heatmap']
         const columns = columnsFromResponse(response)

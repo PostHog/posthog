@@ -3,7 +3,7 @@
 Django mints a `phe_` off the PostHog-owned wizard team's `phs_`
 (WIZARD_GATEWAY_MINT_KEY) rather than sending the user's OAuth token to the
 gateway. The mint pins what the caller must not control (product=wizard, obo=the
-customer organization, the acting user) plus a per-run cap and an expiry, and the
+customer's team id, the acting user) plus a per-run cap and an expiry, and the
 debit lands on the wizard team, never the customer's wallet. Kept separate from
 products/tasks' sandbox mint (ai_gateway_token.py): the wizard needs
 `expires_at` back for CLI-side refresh, and an interactive mint answers one
@@ -193,23 +193,26 @@ NO_TIER_LIMITS = WizardTierLimits()
 
 # In code so a malformed WIZARD_GATEWAY_TIERS degrades toward the tier the
 # operator meant, not toward the flat setting, whose cap is wider than all three.
+# Caps do not pool across a run's tokens and the mint throttle is one bucket per
+# account, so mints_per_week is the hard per-account ceiling: keep the counts
+# low, since the weekly window can be spent in a day.
 _TIER_FLOORS: dict[str, WizardTierLimits] = {
     "new": WizardTierLimits(
         cap_usd=Decimal("6").quantize(_CAP_QUANTUM),
         max_cap_usd=Decimal("6").quantize(_CAP_QUANTUM),
-        mints_per_week=5,
+        mints_per_week=3,
         ttl_seconds=_MAX_TTL_SECONDS,
     ),
     "active": WizardTierLimits(
         cap_usd=Decimal("7").quantize(_CAP_QUANTUM),
         max_cap_usd=Decimal("12").quantize(_CAP_QUANTUM),
-        mints_per_week=15,
+        mints_per_week=6,
         ttl_seconds=_MAX_TTL_SECONDS,
     ),
     "paid": WizardTierLimits(
         cap_usd=Decimal("10").quantize(_CAP_QUANTUM),
         max_cap_usd=Decimal("12").quantize(_CAP_QUANTUM),
-        mints_per_week=30,
+        mints_per_week=12,
         ttl_seconds=_MAX_TTL_SECONDS,
     ),
 }

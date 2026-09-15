@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Optional
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -49,7 +49,7 @@ class TestGoogleCloudIntegrationModel(BaseTest):
         mock_credentials.return_value.expiry = datetime.fromtimestamp(1704110400 + 3600)
         mock_credentials.return_value.refresh = lambda _: None
 
-        with freeze_time("2024-01-01T12:00:00Z"):
+        with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
             integration = GoogleCloudIntegration.integration_from_key(
                 "google-pubsub",
                 self.mock_keyfile,
@@ -77,7 +77,7 @@ class TestGoogleCloudIntegrationModel(BaseTest):
         mock_credentials.return_value.expiry = datetime.fromtimestamp(1704110400 + 3600)
         mock_credentials.return_value.refresh = lambda _: None
 
-        with freeze_time("2024-01-01T12:00:00Z"):
+        with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
             integration = GoogleCloudIntegration.integration_from_key(
                 "google-pubsub",
                 self.mock_keyfile,
@@ -85,10 +85,10 @@ class TestGoogleCloudIntegrationModel(BaseTest):
                 self.user,
             )
 
-        with freeze_time("2024-01-01T12:00:00Z"):
+        with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
             assert GoogleCloudIntegration(integration).access_token_expired() is False
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             assert GoogleCloudIntegration(integration).access_token_expired() is True
 
             mock_credentials.return_value.expiry = datetime.fromtimestamp(1704110400 + 3600 * 3)
@@ -130,7 +130,7 @@ class TestGoogleCloudIntegrationModel(BaseTest):
             sensitive_config=self.mock_keyfile,
         )
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             GoogleCloudIntegration(integration).refresh_access_token()
 
         # After refresh, sensitive_config should be migrated to the nested structure
@@ -151,7 +151,7 @@ class TestGoogleCloudIntegrationModel(BaseTest):
         mock_credentials.return_value.expiry = datetime.fromtimestamp(1704110400 + 3600)
         mock_credentials.return_value.refresh = lambda _: None
 
-        with freeze_time("2024-01-01T12:00:00Z"):
+        with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
             integration = GoogleCloudIntegration.integration_from_key(
                 "google-pubsub",
                 self.mock_keyfile,
@@ -159,7 +159,7 @@ class TestGoogleCloudIntegrationModel(BaseTest):
                 self.user,
             )
 
-        with freeze_time("2024-01-01T12:00:00Z"):
+        with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
             token = GoogleCloudIntegration(integration).get_access_token()
 
         assert token == "ACCESS_TOKEN"

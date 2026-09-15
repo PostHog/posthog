@@ -67,6 +67,7 @@ export const HEALTH_LABELS: Record<string, string> = {
 export const SUBJECT_TYPE_TAGS: Record<string, { label: string; type: LemonTagType }> = {
     table: { label: 'Table', type: 'default' },
     view: { label: 'View', type: 'primary' },
+    metric: { label: 'Metric', type: 'option' },
 }
 
 export const SEVERITY_TAG_TYPES: Record<string, LemonTagType> = {

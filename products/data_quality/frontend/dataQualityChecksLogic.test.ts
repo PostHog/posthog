@@ -6,6 +6,9 @@ import { expectLogic } from '~/test/keaTestUtils'
 
 import { DataQualityChecksLogicProps, dataQualityChecksLogic } from './dataQualityChecksLogic'
 import {
+    dataCatalogMetricsChecksList,
+    dataCatalogMetricsChecksHealthRetrieve,
+    dataCatalogMetricsCheckSuiteRunsList,
     warehouseSavedQueriesCheckSuiteRunsCheckRunsList,
     warehouseSavedQueriesCheckSuiteRunsList,
     warehouseSavedQueriesCheckSuiteRunsRetrieve,
@@ -49,6 +52,9 @@ jest.mock('scenes/data-management/database/databaseTableListLogic', () => ({
 }))
 
 jest.mock('./generated/api', () => ({
+    dataCatalogMetricsChecksList: jest.fn(),
+    dataCatalogMetricsChecksHealthRetrieve: jest.fn(),
+    dataCatalogMetricsCheckSuiteRunsList: jest.fn(),
     warehouseSavedQueriesChecksList: jest.fn(),
     warehouseSavedQueriesChecksCreate: jest.fn(),
     warehouseSavedQueriesChecksPartialUpdate: jest.fn(),
@@ -137,6 +143,13 @@ describe('dataQualityChecksLogic', () => {
         })
         ;(warehouseSavedQueriesCheckSuiteRunsList as jest.Mock).mockResolvedValue({ results: [] })
         ;(warehouseTablesCheckSuiteRunsList as jest.Mock).mockResolvedValue({ results: [] })
+        ;(dataCatalogMetricsChecksList as jest.Mock).mockResolvedValue({ results: [] })
+        ;(dataCatalogMetricsChecksHealthRetrieve as jest.Mock).mockResolvedValue({
+            health: 'unknown',
+            checks_total: 0,
+            checks_failing: 0,
+        })
+        ;(dataCatalogMetricsCheckSuiteRunsList as jest.Mock).mockResolvedValue({ results: [] })
     })
 
     afterEach(() => {
@@ -146,6 +159,11 @@ describe('dataQualityChecksLogic', () => {
     })
 
     it.each<[DataQualityChecksLogicProps, jest.Mock, jest.Mock]>([
+        [
+            { subjectType: 'metric', subjectId: 'metric-1' },
+            dataCatalogMetricsChecksList as jest.Mock,
+            warehouseTablesChecksList as jest.Mock,
+        ],
         [VIEW_PROPS, warehouseSavedQueriesChecksList as jest.Mock, warehouseTablesChecksList as jest.Mock],
         [
             { subjectType: 'table', subjectId: 'table-1' },
@@ -159,6 +177,28 @@ describe('dataQualityChecksLogic', () => {
         expect(notExpected).not.toHaveBeenCalled()
     })
 
+    it('keeps a failed metric check load distinct from an empty result and can retry', async () => {
+        ;(dataCatalogMetricsChecksList as jest.Mock).mockRejectedValueOnce(new Error('Service unavailable'))
+        await mountLogic({ subjectType: 'metric', subjectId: 'metric-1' })
+        expect(logic.values.checksLoadError).toBe('Service unavailable')
+        expect(logic.values.checksLoaded).toBe(false)
+        logic.actions.loadChecks()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.checksLoadError).toBeNull()
+        expect(logic.values.checksLoaded).toBe(true)
+    })
+
+    it('keeps the loaded checks when a later refresh fails', async () => {
+        await mountLogic()
+        ;(warehouseSavedQueriesChecksList as jest.Mock).mockRejectedValueOnce(new Error('Service unavailable'))
+        logic.actions.loadChecks()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.checksLoadError).toBe('Service unavailable')
+        expect(logic.values.checksLoaded).toBe(true)
+        expect(logic.values.checks).toHaveLength(1)
+    })
+
     it('fails closed without a toast when the subject is forbidden', async () => {
         ;(warehouseSavedQueriesChecksList as jest.Mock).mockRejectedValue(forbidden())
 
@@ -166,6 +206,24 @@ describe('dataQualityChecksLogic', () => {
 
         expect(logic.values.accessDenied).toBe(true)
         expect(lemonToast.error).not.toHaveBeenCalled()
+    })
+
+    // A failed history request leaves the loader's empty default behind, which the table would
+    // otherwise present as "no check runs yet" - a claim the request never established.
+    it('marks the run history as failed, and clears that once a retry succeeds', async () => {
+        ;(warehouseSavedQueriesCheckSuiteRunsList as jest.Mock).mockRejectedValue(new Error('boom'))
+
+        await mountLogic()
+
+        expect(logic.values.suiteRuns).toEqual([])
+        expect(logic.values.suiteRunsError).toBe(true)
+        ;(warehouseSavedQueriesCheckSuiteRunsList as jest.Mock).mockResolvedValue({ results: [] })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSuiteRuns()
+        }).toFinishAllListeners()
+
+        expect(logic.values.suiteRunsError).toBe(false)
     })
 
     it('drops the deleted row and refreshes health', async () => {
@@ -208,17 +266,13 @@ describe('dataQualityChecksLogic', () => {
         expect(lemonToast.success).toHaveBeenCalledWith('All 2\u00a0checks passed')
     })
 
-    it('reloads the run history after completion when it was opened while empty', async () => {
-        // History opened with no prior runs leaves suiteRuns empty, so length is a wrong proxy for
-        // "opened". A finished run must still refresh the list rather than stay on "No runs yet".
+    it('reloads the run history after completion when it was empty', async () => {
+        // An empty history must still refresh after a run finishes, rather than stay on
+        // "No runs yet", so the reload cannot be conditional on the list having rows.
         ;(warehouseSavedQueriesChecksRunCreate as jest.Mock).mockResolvedValue(
             buildSuiteRun({ status: 'completed', checks_passed: 1 })
         )
         await mountLogic()
-
-        // The user expands the run history while it is still empty.
-        logic.actions.loadSuiteRuns()
-        await expectLogic(logic).toFinishAllListeners()
         ;(warehouseSavedQueriesCheckSuiteRunsList as jest.Mock).mockClear()
 
         logic.actions.runCheck('check-1')
@@ -389,13 +443,41 @@ describe('dataQualityChecksLogic', () => {
         expect((warehouseSavedQueriesCheckSuiteRunsRetrieve as jest.Mock).mock.calls.length).toEqual(pollsBeforeDenied)
     })
 
-    it('adopts a run that was already in flight on mount', async () => {
+    it('adopts a run that was already in flight on mount, without a second request', async () => {
         ;(warehouseSavedQueriesCheckSuiteRunsList as jest.Mock).mockResolvedValue({ results: [buildSuiteRun()] })
 
         await mountLogic()
 
-        expect(warehouseSavedQueriesCheckSuiteRunsList).toHaveBeenCalledWith('1', 'view-1', { limit: 1 })
+        // Adoption reads the newest row of the history this logic already loads, so mounting hits
+        // the list endpoint once rather than twice.
+        expect(warehouseSavedQueriesCheckSuiteRunsList).toHaveBeenCalledTimes(1)
         expect(logic.values.isSuiteRunning).toBe(true)
+    })
+
+    it('adopts the run the first metric check schedules once the worker writes it', async () => {
+        await mountLogic({ subjectType: 'metric', subjectId: 'metric-1' })
+        expect(logic.values.checks).toEqual([])
+
+        jest.useFakeTimers()
+        logic.actions.upsertCheck(buildCheck())
+        await drainListeners()
+        expect(logic.values.isSuiteRunning).toBe(false)
+
+        ;(dataCatalogMetricsCheckSuiteRunsList as jest.Mock).mockResolvedValue({ results: [buildSuiteRun()] })
+        await advancePoll(2000)
+
+        expect(logic.values.isSuiteRunning).toBe(true)
+    })
+
+    it('does not look for a scheduled run after a first check on a warehouse subject', async () => {
+        await mountLogic({ subjectType: 'table', subjectId: 'table-1' })
+        const listCallsAfterMount = (warehouseTablesCheckSuiteRunsList as jest.Mock).mock.calls.length
+
+        jest.useFakeTimers()
+        logic.actions.upsertCheck(buildCheck())
+        await advancePoll(2000)
+
+        expect((warehouseTablesCheckSuiteRunsList as jest.Mock).mock.calls.length).toEqual(listCallsAfterMount)
     })
 
     // kea-test-utils waits on real timers, so the polling tests settle listeners by draining

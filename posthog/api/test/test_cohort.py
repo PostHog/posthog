@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -2736,7 +2736,7 @@ email@example.org,
         created_at_by_label = {"a": "2021-01-02", "b": "2021-01-04", "c": "2021-01-01", "d": "2021-01-03"}
         uuid_by_label = {}
         for label in ["a", "b", "c", "d"]:  # insertion order → ascending id
-            with freeze_time(created_at_by_label[label]):
+            with time_machine.travel(created_at_by_label[label], tick=False):
                 person = create_person(team=self.team, distinct_ids=[label], properties={"$os": "Chrome"})
                 uuid_by_label[label] = str(person.uuid)
 

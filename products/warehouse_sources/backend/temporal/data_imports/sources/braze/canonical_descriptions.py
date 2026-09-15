@@ -71,4 +71,76 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "last_edited": "Time at which the Content Block was last edited.",
         },
     },
+    "campaign_analytics": {
+        "description": "A daily series of send, engagement and conversion stats for one campaign.",
+        "docs_url": "https://www.braze.com/docs/api/endpoints/export/campaigns/get_campaign_analytics/",
+        "columns": {
+            "campaign_id": "Identifier of the campaign the row describes.",
+            "time": "Date the stats cover, as an ISO 8601 date.",
+            "unique_recipients": "Number of unique users who received a message from the campaign.",
+            "revenue": "Revenue attributed to the campaign, in US dollars.",
+            "conversions": "Conversions of the campaign's primary conversion event.",
+            "conversions_by_send_time": "Primary conversions attributed to the date the campaign was sent.",
+            "conversions1": "Conversions of the campaign's second conversion event.",
+            "conversions2": "Conversions of the campaign's third conversion event.",
+            "conversions3": "Conversions of the campaign's fourth conversion event.",
+            "messages": "Per-channel, per-variation message stats, JSON-encoded because the channels present vary per campaign.",
+        },
+    },
+    "canvas_analytics": {
+        "description": "A daily series of entry, conversion and revenue stats for one Canvas.",
+        "docs_url": "https://www.braze.com/docs/api/endpoints/export/canvas/get_canvas_analytics/",
+        "columns": {
+            "canvas_id": "Identifier of the Canvas the row describes.",
+            "canvas_name": "Name of the Canvas.",
+            "time": "Date the stats cover, as an ISO 8601 date.",
+            "entries": "Number of users who entered the Canvas.",
+            "conversions": "Conversions of the Canvas's primary conversion event.",
+            "conversions_by_entry_time": "Primary conversions attributed to the date the user entered the Canvas.",
+            "revenue": "Revenue attributed to the Canvas, in US dollars.",
+            "variant_stats": "Per-variant stats keyed by variant API identifier, JSON-encoded.",
+            "step_stats": "Per-step stats and message stats keyed by step API identifier, JSON-encoded.",
+        },
+    },
+    "event_analytics": {
+        "description": "A daily series of how often one custom event occurred.",
+        "docs_url": "https://www.braze.com/docs/api/endpoints/export/custom_events/get_custom_events_analytics/",
+        "columns": {
+            "event_name": "Name of the custom event the row describes.",
+            "time": "Date the count covers, as an ISO 8601 date.",
+            "count": "Number of occurrences of the custom event.",
+        },
+    },
+    "kpi_dau": {
+        "description": "A daily series of the number of daily active users across the workspace.",
+        "docs_url": "https://www.braze.com/docs/api/endpoints/export/kpi/get_kpi_dau_date/",
+        "columns": {
+            "time": "Date the count covers, as an ISO 8601 date.",
+            "dau": "Number of daily active users.",
+        },
+    },
+    "kpi_mau": {
+        "description": "A daily series of unique active users over a rolling 30-day window.",
+        "docs_url": "https://www.braze.com/docs/api/endpoints/export/kpi/get_kpi_mau_30_days/",
+        "columns": {
+            "time": "Date the rolling window ends on, as an ISO 8601 date.",
+            "mau": "Number of unique active users in the 30 days ending on this date.",
+        },
+    },
+    "kpi_new_users": {
+        "description": "A daily series of the number of new users across the workspace.",
+        "docs_url": "https://www.braze.com/docs/api/endpoints/export/kpi/get_kpi_daily_new_users_date/",
+        "columns": {
+            "time": "Date the count covers, as an ISO 8601 date.",
+            "new_users": "Number of new users first seen on this date.",
+        },
+    },
+    "kpi_uninstalls": {
+        "description": "A daily series of the number of app uninstalls across the workspace.",
+        "docs_url": "https://www.braze.com/docs/api/endpoints/export/kpi/get_kpi_uninstalls_date/",
+        "columns": {
+            "time": "Date the count covers, as an ISO 8601 date.",
+            "uninstalls": "Number of uninstalls recorded on this date.",
+        },
+    },
 }

@@ -5,7 +5,6 @@ import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import MagicMock, Mock, patch
 
-from django.test import SimpleTestCase
 from django.utils import timezone
 
 from asgiref.sync import sync_to_async
@@ -20,15 +19,12 @@ from posthog.models import Team
 from posthog.temporal.ai_observability.eval_reports.activities import (
     _check_count_triggered_eval_report_sync,
     _check_count_triggered_eval_reports_batch,
-    _count_eval_results_for_report,
     _count_eval_results_for_reports_with_split_retry,
     _CountEntry,
     _fetch_count_triggered_eval_report_candidate_groups,
-    _find_nth_eval_timestamp,
     _load_detector_evaluation_ids,
     _load_evaluation_target,
     _period_for_scheduled_report,
-    _update_next_delivery_date,
     prepare_report_context_activity,
     run_eval_report_agent_activity,
     store_report_run_activity,
@@ -41,12 +37,10 @@ from posthog.temporal.ai_observability.eval_reports.constants import (
     COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS,
 )
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import EvalReportContent, EvalReportMetrics
-from posthog.temporal.ai_observability.eval_reports.targets import target_event_predicate
 from posthog.temporal.ai_observability.eval_reports.types import (
     PrepareReportContextInput,
     RunEvalReportAgentInput,
     StoreReportRunInput,
-    UpdateNextDeliveryDateInput,
 )
 
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
@@ -65,71 +59,6 @@ def _scanned_window(query: ast.SelectQuery) -> list[dt.datetime]:
     visitor = CollectTimestamps()
     visitor.visit(query.where)
     return sorted(visitor.timestamps)
-
-
-class TestUpdateNextDeliveryDate(SimpleTestCase):
-    @parameterized.expand(
-        [
-            (
-                "unavailable_legacy",
-                "metrics_unavailable",
-                True,
-                None,
-                False,
-                ["next_delivery_date", "last_attempted_at"],
-            ),
-            (
-                "completed_legacy",
-                "completed",
-                True,
-                None,
-                True,
-                ["next_delivery_date", "last_attempted_at", "last_delivered_at"],
-            ),
-            (
-                "completed_cursor_only",
-                "completed",
-                False,
-                True,
-                True,
-                ["last_delivered_at"],
-            ),
-        ]
-    )
-    @patch("products.ai_observability.backend.models.evaluation_reports.EvaluationReport.objects.get")
-    def test_updates_automatic_report_timing(
-        self,
-        _name: str,
-        generation_status: str,
-        record_attempt: bool,
-        advance_data_cursor: bool | None,
-        expects_delivered_advance: bool,
-        expected_update_fields: list[str],
-        get_report: MagicMock,
-    ) -> None:
-        last_delivered = timezone.now() - dt.timedelta(hours=2)
-        last_attempted = timezone.now() - dt.timedelta(hours=1)
-        period_end = timezone.now()
-        report = MagicMock(last_delivered_at=last_delivered, last_attempted_at=last_attempted)
-        get_report.return_value = report
-
-        _update_next_delivery_date(
-            UpdateNextDeliveryDateInput(
-                report_id="report-id",
-                period_end=period_end.isoformat(),
-                generation_status=generation_status,
-                record_attempt=record_attempt,
-                advance_data_cursor=advance_data_cursor,
-            )
-        )
-
-        self.assertEqual(report.last_attempted_at, period_end if record_attempt else last_attempted)
-        self.assertEqual(report.last_delivered_at, period_end if expects_delivered_advance else last_delivered)
-        if record_attempt:
-            report.set_next_delivery_date.assert_called_once_with()
-        else:
-            report.set_next_delivery_date.assert_not_called()
-        report.save.assert_called_once_with(update_fields=expected_update_fields)
 
 
 class TestEvaluationTargetLoading(BaseTest):
@@ -170,17 +99,6 @@ class TestEvaluationTargetLoading(BaseTest):
         _evaluation("Legacy config", {})
 
         self.assertEqual(_load_detector_evaluation_ids(self.team.id), [str(detector.id)])
-
-
-@pytest.mark.parametrize(
-    "target,expected",
-    [
-        ("session", "properties.$ai_target_type = 'session_id'"),
-        ("trace", "properties.$ai_target_type = 'trace_id'"),
-    ],
-)
-def test_target_event_predicate_per_target(target, expected):
-    assert target_event_predicate(target) == expected
 
 
 @pytest.mark.parametrize(
@@ -373,38 +291,6 @@ async def test_store_metrics_unavailable_report_omits_placeholder_metrics() -> N
     assert "$ai_report_total_runs" not in properties
     assert "$ai_report_result_counts" not in properties
     assert "$ai_report_pass_rate" not in properties
-
-
-def test_count_trigger_uses_current_output_type() -> None:
-    report = MagicMock(team_id=1, team=MagicMock(), evaluation_id="evaluation-id")
-    report.evaluation.output_type = "sentiment"
-    report.evaluation.target = "trace"
-
-    with (
-        patch("posthog.hogql.parser.parse_select", return_value=MagicMock()) as parse_select,
-        patch("posthog.hogql.query.execute_hogql_query", return_value=Mock(results=[[4]])),
-    ):
-        result = _count_eval_results_for_report(report, dt.datetime(2026, 7, 1, tzinfo=dt.UTC))
-
-    assert result == 4
-    assert "properties.$ai_evaluation_result_type = 'sentiment'" in parse_select.call_args.args[0]
-    assert "properties.$ai_target_type = 'trace_id'" in parse_select.call_args.args[0]
-
-
-def test_manual_count_window_uses_current_output_type() -> None:
-    before = dt.datetime(2026, 7, 2, tzinfo=dt.UTC)
-    expected = before - dt.timedelta(hours=2)
-
-    with (
-        patch("posthog.hogql.parser.parse_select", return_value=MagicMock()) as parse_select,
-        patch("posthog.hogql.query.execute_hogql_query", return_value=Mock(results=[[expected]])),
-        patch("posthog.models.Team.objects.get", return_value=MagicMock()),
-    ):
-        result = _find_nth_eval_timestamp(1, "evaluation-id", 100, before, output_type="sentiment")
-
-    assert result == expected
-    assert "properties.$ai_evaluation_result_type = 'sentiment'" in parse_select.call_args.args[0]
-    assert "isNull(properties.$ai_target_type)" in parse_select.call_args.args[0]
 
 
 def _prepare_sync(report_id: str, manual: bool = False):

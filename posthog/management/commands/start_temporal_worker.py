@@ -37,6 +37,10 @@ from posthog.temporal.backfill_group_type_created_at import (
     ACTIVITIES as BACKFILL_GROUP_TYPE_CREATED_AT_ACTIVITIES,
     WORKFLOWS as BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS,
 )
+from posthog.temporal.backfill_materialized_property import (
+    ACTIVITIES as BACKFILL_MATERIALIZED_PROPERTY_ACTIVITIES,
+    BackfillMaterializedPropertiesBatchWorkflow,
+)
 from posthog.temporal.cleanup_property_definitions import (
     ACTIVITIES as CLEANUP_PROPDEFS_ACTIVITIES,
     WORKFLOWS as CLEANUP_PROPDEFS_WORKFLOWS,
@@ -87,10 +91,6 @@ from posthog.temporal.ingestion_acceptance_test import (
 from posthog.temporal.mcp_analytics.intent_clustering import (
     MCP_ANALYTICS_INTENT_CLUSTERING_ACTIVITIES,
     MCP_ANALYTICS_INTENT_CLUSTERING_WORKFLOWS,
-)
-from posthog.temporal.product_analytics import (
-    ACTIVITIES as PRODUCT_ANALYTICS_ACTIVITIES,
-    WORKFLOWS as PRODUCT_ANALYTICS_WORKFLOWS,
 )
 from posthog.temporal.proxy_service import (
     ACTIVITIES as PROXY_SERVICE_ACTIVITIES,
@@ -151,6 +151,12 @@ from posthog.temporal.weekly_digest import (
     WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS,
 )
 
+from products.alerts.backend.facade.temporal import (
+    DELIVERY_ACTIVITIES as ALERTS_PRODUCT_DELIVERY_ACTIVITIES,
+    DELIVERY_WORKFLOWS as ALERTS_PRODUCT_DELIVERY_WORKFLOWS,
+    EVALUATION_ACTIVITIES as ALERTS_PRODUCT_EVALUATION_ACTIVITIES,
+    EVALUATION_WORKFLOWS as ALERTS_PRODUCT_EVALUATION_WORKFLOWS,
+)
 from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
@@ -230,6 +236,10 @@ from products.managed_warehouse.backend.facade.temporal import (
 from products.notebooks.backend.facade.temporal import (
     ACTIVITIES as NOTEBOOKS_ACTIVITIES,
     WORKFLOWS as NOTEBOOKS_WORKFLOWS,
+)
+from products.product_analytics.backend.facade.temporal import (
+    ACTIVITIES as PRODUCT_ANALYTICS_ACTIVITIES,
+    WORKFLOWS as PRODUCT_ANALYTICS_WORKFLOWS,
 )
 from products.pulse.backend.temporal.registry import (
     ACTIVITIES as PULSE_ACTIVITIES,
@@ -335,6 +345,7 @@ _task_queue_specs = [
         + EXPERIMENT_CANARY_WORKFLOWS
         + EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS
         + CLEANUP_PROPDEFS_WORKFLOWS
+        + [BackfillMaterializedPropertiesBatchWorkflow]
         + BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS
         + INGESTION_ACCEPTANCE_TEST_WORKFLOWS
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_WORKFLOWS
@@ -358,6 +369,7 @@ _task_queue_specs = [
         + EXPERIMENT_CANARY_ACTIVITIES
         + EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES
         + CLEANUP_PROPDEFS_ACTIVITIES
+        + BACKFILL_MATERIALIZED_PROPERTY_ACTIVITIES
         + BACKFILL_GROUP_TYPE_CREATED_AT_ACTIVITIES
         + INGESTION_ACCEPTANCE_TEST_ACTIVITIES
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_ACTIVITIES
@@ -536,6 +548,16 @@ _task_queue_specs = [
         settings.STAMPHOG_TASK_QUEUE,
         STAMPHOG_WORKFLOWS,
         STAMPHOG_ACTIVITIES,
+    ),
+    (
+        settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
+        ALERTS_PRODUCT_EVALUATION_WORKFLOWS,
+        ALERTS_PRODUCT_EVALUATION_ACTIVITIES,
+    ),
+    (
+        settings.ALERTS_PRODUCT_DELIVERY_TASK_QUEUE,
+        ALERTS_PRODUCT_DELIVERY_WORKFLOWS,
+        ALERTS_PRODUCT_DELIVERY_ACTIVITIES,
     ),
 ]
 

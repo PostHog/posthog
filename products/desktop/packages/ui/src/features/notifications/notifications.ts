@@ -20,16 +20,30 @@ import {
   type INotificationSettings,
   NOTIFICATION_SETTINGS_PROVIDER,
 } from "./identifiers";
-import { routeNotification } from "./routeNotification";
+import { describeTarget, routeNotification } from "./routeNotification";
 
 const MAX_TITLE_LENGTH = 50;
 const log = logger.scope("notifications");
+
+// Why a notification was raised. Every delivery logs it, so a sound the user
+// did not expect can be traced back to the producer that asked for it.
+export type NotificationReason =
+  | "task_completed"
+  | "task_needs_input"
+  | "canvas_generation"
+  | "image_build"
+  | "error"
+  | "settings_test";
 
 // In-app toast presentation for the focused-but-elsewhere tier. Only levels that
 // support an action link are allowed (the bus derives the action from `target`).
 type ToastLevel = "success" | "error" | "warning";
 
 export interface NotificationDescriptor {
+  reason: NotificationReason;
+  // Extra facts the producer knows about the trigger (which code path raised
+  // it, the stop reason, the task run). Logged verbatim beside `reason`.
+  debug?: Record<string, unknown>;
   // Native title; defaults to "PostHog".
   title?: string;
   body: string;
@@ -79,12 +93,13 @@ export class NotificationBus {
   ) {}
 
   notify(descriptor: NotificationDescriptor): void {
+    const appFocused = this.view.hasFocus();
+    const viewingTarget = this.view.getActiveTarget();
     const channel = routeNotification({
-      appFocused: this.view.hasFocus(),
-      viewingTarget: this.view.getActiveTarget(),
+      appFocused,
+      viewingTarget,
       notificationTarget: descriptor.target,
     });
-    if (channel === "suppress") return;
 
     const settings = this.settings.get();
     const playbackRate =
@@ -92,6 +107,41 @@ export class NotificationBus {
       descriptor.soundDurationMs !== undefined
         ? playbackRateForTaskDuration(descriptor.soundDurationMs)
         : 1;
+    // Answers "does a sound come out of this?" for both the log line and the
+    // native silent flag below. A `custom:` id whose sound was deleted
+    // resolves to nothing. Under a `random-*` sound this re-picks, so it
+    // reports whether a sound plays, not which one.
+    const willPlaySound =
+      resolveSoundUrl(settings.completionSound, settings.customSounds) !== null;
+    // A native notification we leave unsilenced rings the OS chime instead, so
+    // the line has to name that noise rather than read as silence.
+    const nativeSilent = descriptor.silent ?? willPlaySound;
+    const osChimePlayed =
+      channel === "native" && settings.desktopNotifications && !nativeSilent;
+
+    // One line for every notification, including the suppressed ones. At info
+    // level on purpose: packaged builds drop debug, and "the app made a noise
+    // and I do not know why" is not reproducible without this in the log file.
+    // `body` stays out — info lines reach central logs and it carries task,
+    // canvas and image names, which `reason` and `target` identify without.
+    log.info("Notification", {
+      reason: descriptor.reason,
+      channel,
+      target: describeTarget(descriptor.target),
+      viewingTarget: describeTarget(viewingTarget),
+      appFocused,
+      sound: settings.completionSound,
+      soundPlayed: channel !== "suppress" && willPlaySound,
+      osChimePlayed,
+      volume: settings.completionVolume,
+      playbackRate,
+      soundDurationMs: descriptor.soundDurationMs,
+      desktopNotifications: settings.desktopNotifications,
+      context: descriptor.debug,
+    });
+
+    if (channel === "suppress") return;
+
     // Sound fires on both delivered tiers (toast + native), not on suppress —
     // matching the pre-bus behavior where any non-suppressed notification rang.
     playCompletionSound(
@@ -99,6 +149,7 @@ export class NotificationBus {
       settings.completionVolume,
       settings.customSounds,
       playbackRate,
+      descriptor.reason,
     );
 
     if (channel === "toast") {
@@ -107,17 +158,11 @@ export class NotificationBus {
     }
 
     // native
-    // Silence the OS notification's own chime only when we'll actually play a
-    // completion sound. A `custom:` id whose sound was deleted resolves to
-    // nothing, so the native chime should still ring rather than leaving the
-    // notification silent-and-soundless.
-    const willPlaySound =
-      resolveSoundUrl(settings.completionSound, settings.customSounds) !== null;
     if (settings.desktopNotifications) {
       this.notifications.notify({
         title: descriptor.title ?? "PostHog",
         body: descriptor.body,
-        silent: descriptor.silent ?? willPlaySound,
+        silent: nativeSilent,
         target: descriptor.target,
       });
     }
@@ -133,9 +178,12 @@ export class NotificationBus {
     stopReason: string,
     taskId?: string,
     durationMs?: number,
+    debug?: Record<string, unknown>,
   ): void {
     if (stopReason !== "end_turn") return;
     this.notify({
+      reason: "task_completed",
+      debug: { ...debug, stopReason },
       body: `"${this.truncateTitle(taskTitle)}" finished`,
       target: taskId ? { kind: "task", taskId } : undefined,
       toast: { level: "success" },
@@ -151,8 +199,14 @@ export class NotificationBus {
     return () => this.taskActivityListeners.delete(listener);
   }
 
-  notifyPermissionRequest(taskTitle: string, taskId?: string): void {
+  notifyPermissionRequest(
+    taskTitle: string,
+    taskId?: string,
+    debug?: Record<string, unknown>,
+  ): void {
     this.notify({
+      reason: "task_needs_input",
+      debug,
       body: `"${this.truncateTitle(taskTitle)}" needs your input`,
       target: taskId ? { kind: "task", taskId } : undefined,
       toast: { level: "warning" },
@@ -169,6 +223,7 @@ export class NotificationBus {
   ): void {
     const summary = summarizeError(error);
     this.notify({
+      reason: "error",
       title,
       body: summary,
       target,

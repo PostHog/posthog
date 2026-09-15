@@ -22,10 +22,19 @@ GitHub Releases in `PostHog/posthog` remain the human-facing changelog and downl
 **macOS**: DMG + zip artifacts are uploaded; the merged `latest-mac.yml` covers both arm64 and x64 so the correct build is selected per architecture.
 
 **Windows**: A single NSIS installer is shipped and updated through electron-updater via `latest.yml`. The legacy Squirrel.Windows installer is no longer built; anyone still on an old Squirrel install must reinstall once via the NSIS installer to keep receiving updates.
+Release builds are signed through Azure Artifact Signing, and the certificate subject ships in `app-update.yml` as `publisherName`, so electron-updater rejects a downloaded installer that is not signed by the same publisher.
 
 **Linux**: No auto-update. AppImage, deb and rpm packages are manual downloads from the GitHub Release, also mirrored to the S3 feed.
 
 Remote announcements can drive this flow: a `required-update` announcement blocks apps below a version and reuses the updater; where the updater is unavailable it degrades to a manual download link. See [ANNOUNCEMENTS.md](./ANNOUNCEMENTS.md).
+
+## In-app update surfaces
+
+- The sidebar footer shows the update banner while the sidebar is on screen. It covers the available, downloading, ready and installing states.
+- The title bar shows a compact chip for the same states while the sidebar is collapsed, peeked away or absent, so only one copy is on screen at a time.
+- Both surfaces open the update modal, which shows the release notes and holds the Download and Restart actions. The sidebar card also has its own Restart button for a staged update.
+- "Check for Updates..." in the app menu runs a check. It shows a toast when the app is up to date or the check fails, and opens the update modal when the check finds an available, downloading or staged update.
+- The modal is mounted in the app shell above the router, so it also opens from the sign-in, access and consent screens.
 
 ## How it works
 

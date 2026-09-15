@@ -1,4 +1,5 @@
 import uuid
+import hashlib
 from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
@@ -33,7 +34,10 @@ from ...api.skill_serializers import (
 )
 from ...api.skill_services import (
     MAX_SKILL_FILE_COUNT,
+    SkillDigestBackfillCounts,
     archive_skill,
+    backfill_skill_digests,
+    compute_spec_problems,
     create_skill,
     publish_skill_version,
     resolve_skill_owners,
@@ -313,6 +317,36 @@ class TestLLMSkillAPI(APIBaseTest):
         assert all("body" not in r for r in results)
         # Body-paging metadata is meaningless without the body — it must not leak into the list.
         assert all("body_total_length" not in r and "body_next_offset" not in r for r in results)
+
+    def test_list_skills_reports_spec_problems_in_one_file_query(self):
+        # The list serializer drops the file manifest but still reports spec_problems, so the file
+        # paths must come from one query for the page, not one query per skill.
+        for index in range(3):
+            skill = self.create_skill(name=f"skill-{index}", description="Does things.")
+            LLMSkillFile.objects.create(skill=skill, path="references/guide.md", content="x")
+        broken = self.create_skill(name="broken", description="Does things.")
+        # Bypasses the serializer validation so the row looks like one that predates it.
+        LLMSkillFile.objects.create(skill=broken, path="references\\guide.md", content="x")
+
+        with CaptureQueriesContext(connection) as captured_queries:
+            response = self.client.get(self._url())
+
+        assert response.status_code == status.HTTP_200_OK
+        problems_by_name = {result["name"]: result["spec_problems"] for result in response.json()["results"]}
+        assert problems_by_name["skill-0"] == []
+        assert problems_by_name["broken"] == [
+            {
+                "code": "file_path_not_canonical",
+                "message": "Rename this file to 'references/guide.md'. The stored path does not unpack to that location.",
+                "file_path": "references\\guide.md",
+            }
+        ]
+        file_queries = [
+            query["sql"]
+            for query in captured_queries.captured_queries
+            if query["sql"].lstrip().startswith('SELECT "llm_analytics_llmskillfile".')
+        ]
+        assert len(file_queries) == 1, "\n---\n".join(file_queries)
 
     def test_list_skills_search_by_name(self):
         self.create_skill(name="pdf-processing", description="Handles PDFs.")
@@ -652,16 +686,24 @@ class TestLLMSkillAPI(APIBaseTest):
     def test_get_skill_by_name_returns_file_manifest(self):
         skill = self.create_skill(name="with-files")
         LLMSkillFile.objects.create(skill=skill, path="scripts/setup.sh", content="#!/bin/bash\necho hi")
-        LLMSkillFile.objects.create(skill=skill, path="references/guide.md", content="# Guide")
+        # Multibyte on purpose: the MCP Skills extension sizes a file in bytes, so a manifest that
+        # reported the character count would understate this one and a host would reject the file.
+        LLMSkillFile.objects.create(skill=skill, path="references/guide.md", content="# Guía ✅")
 
         response = self.client.get(self._url("name/with-files"))
 
         assert response.status_code == status.HTTP_200_OK
         files = response.json()["files"]
         assert len(files) == 2
-        manifest = {f["path"]: (f["line_count"], f["char_count"]) for f in files}
-        assert manifest["scripts/setup.sh"] == (2, len("#!/bin/bash\necho hi"))
-        assert manifest["references/guide.md"] == (1, len("# Guide"))
+        manifest = {f["path"]: f for f in files}
+        assert (manifest["scripts/setup.sh"]["line_count"], manifest["scripts/setup.sh"]["char_count"]) == (
+            2,
+            len("#!/bin/bash\necho hi"),
+        )
+        guide = manifest["references/guide.md"]
+        assert (guide["line_count"], guide["char_count"]) == (1, 8)
+        assert guide["size"] == len("# Guía ✅".encode()) == 11
+        assert guide["sha256"] == hashlib.sha256("# Guía ✅".encode()).hexdigest()
 
     def test_get_skill_not_found(self):
         response = self.client.get(self._url("name/nonexistent"))
@@ -1243,6 +1285,12 @@ class TestLLMSkillAPI(APIBaseTest):
         v2.refresh_from_db()
         assert v2.updated_at > updated_at_before
         assert v1.name == "typo-free"
+        # The name is the first frontmatter key of the rendered SKILL.md, so a digest left behind by
+        # the rename describes bytes no version serves any more.
+        for version in (v1, v2):
+            rendered = version.rendered_skill_md().encode()
+            assert version.skill_md_sha256 == hashlib.sha256(rendered).hexdigest()
+            assert version.skill_md_size == len(rendered)
 
     def test_rename_to_an_existing_name_is_rejected(self):
         self.create_skill(name="source")
@@ -2330,3 +2378,137 @@ class TestLLMSkillDescriptionCapSplit(SimpleTestCase):
         assert create_description.max_length == SPEC_DESCRIPTION_MAX_LENGTH
         assert detail_description.max_length == 4096
         assert list_description.max_length == 4096
+
+
+# Digests must land on every write path: a host that speaks the MCP Skills extension rejects
+# content whose bytes disagree with the manifest.
+class TestSkillContentDigests(APIBaseTest):
+    def _digest_of(self, content: str) -> str:
+        return hashlib.sha256(content.encode()).hexdigest()
+
+    def test_create_and_publish_stamp_digests_on_the_skill_and_its_files(self):
+        created = create_skill(
+            self.team,
+            user=self.user,
+            name="digested",
+            description="A skill",
+            body="# Guía ✅",
+            # A jsonb column keeps object keys sorted by length and then bytewise, so these come
+            # back in neither the written order nor alphabetical order. The digest is stamped
+            # before the insert, so it has to describe bytes that do not depend on that order.
+            metadata={"seeded_by": "review_hog", "source": "products/skills", "nested": {"z": "1", "a": "2"}},
+            files=[{"path": "references/guide.md", "content": "# Guía ✅"}],
+        )
+
+        # `create_skill` returns the stored row, which is what the store renders its SKILL.md from.
+        assert created.skill_md_sha256 == self._digest_of(created.rendered_skill_md())
+        assert created.skill_md_size == len(created.rendered_skill_md().encode())
+        created_file = LLMSkillFile.objects.get(skill=created)
+        assert created_file.content_sha256 == self._digest_of("# Guía ✅")
+        assert created_file.content_size == 11
+
+        # The publish path carries files forward with `bulk_create`, which never calls `save()`.
+        published = publish_skill_version(
+            self.team,
+            user=self.user,
+            skill_name="digested",
+            body="# Changed ✅",
+            base_version=1,
+        )
+
+        assert published.skill_md_sha256 == self._digest_of(published.rendered_skill_md())
+        assert published.skill_md_sha256 != created.skill_md_sha256
+        carried = LLMSkillFile.objects.get(skill=published)
+        assert carried.content_sha256 == created_file.content_sha256
+        assert carried.content_size == 11
+
+    def test_backfill_stamps_legacy_rows_and_is_repeatable(self):
+        skill = create_skill(self.team, user=self.user, name="legacy", description="A skill", body="# Body")
+        LLMSkillFile.objects.create(skill=skill, path="notes.md", content="# Notes ✅")
+        LLMSkill.objects.filter(pk=skill.pk).update(skill_md_sha256=None, skill_md_size=None)
+        LLMSkillFile.objects.filter(skill=skill).update(content_sha256=None, content_size=None)
+
+        first = backfill_skill_digests(batch_size=1)
+
+        assert (first.skills, first.files) == (1, 1)
+        skill.refresh_from_db()
+        stamped_file = LLMSkillFile.objects.get(skill=skill)
+        assert skill.skill_md_sha256 == self._digest_of(skill.rendered_skill_md())
+        assert stamped_file.content_sha256 == self._digest_of("# Notes ✅")
+        assert stamped_file.content_size == 11
+
+        # A second run has nothing left to do, and forcing a recompute leaves the same values.
+        assert backfill_skill_digests() == SkillDigestBackfillCounts(skills=0, files=0)
+        assert backfill_skill_digests(batch_size=1, recompute=True) == SkillDigestBackfillCounts(skills=1, files=1)
+        stamped_file.refresh_from_db()
+        assert stamped_file.content_sha256 == self._digest_of("# Notes ✅")
+
+
+class TestSpecProblems(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("clean", "my-skill", "Does things.", ["references/guide.md"], []),
+            # The exact sidecar path replaces the generated entry rather than colliding with it.
+            ("sidecar_exact_path", "my-skill", "Does things.", ["agents/openai.yaml"], []),
+            ("malformed_name", "Bad/Name", "Does things.", [], ["name_malformed"]),
+            ("empty_description", "my-skill", "   ", [], ["description_empty"]),
+            ("overlong_description", "my-skill", "x" * 1025, [], ["description_too_long"]),
+            ("invalid_path", "my-skill", "Does things.", ["../escape.md"], ["file_path_invalid"]),
+            ("not_canonical_path", "my-skill", "Does things.", ["refs\\guide.md"], ["file_path_not_canonical"]),
+            ("case_collision", "my-skill", "Does things.", ["a.md", "A.md"], ["file_path_collides"]),
+            ("sidecar_case_variant", "my-skill", "Does things.", ["Agents/OpenAI.yaml"], ["file_path_collides"]),
+            (
+                "file_where_a_directory_is_needed",
+                "my-skill",
+                "Does things.",
+                ["assets", "assets/logo.png"],
+                ["file_path_shadows_directory"],
+            ),
+        ]
+    )
+    def test_reports_a_stable_code_per_problem(
+        self, _label: str, name: str, description: str, paths: list[str], expected_codes: list[str]
+    ) -> None:
+        # The codes are the contract the bundle walk, the marketplace walk and the API field share.
+        problems = compute_spec_problems(name, description, paths)
+
+        assert [problem.code for problem in problems] == expected_codes
+
+    @parameterized.expand(
+        [
+            ("case_variant", ["a.md", "A.md"], "Rename this file."),
+            # A zip can hold one member twice, and the backslash swap on import can collapse two
+            # members onto one path, so a collision is not always a case variant.
+            ("exact_duplicate", ["a.md", "a.md"], "Remove this duplicate."),
+        ]
+    )
+    def test_collision_problem_tells_the_author_what_to_change(
+        self, _label: str, paths: list[str], expected_instruction: str
+    ) -> None:
+        problems = compute_spec_problems("my-skill", "Does things.", paths)
+
+        assert [problem.code for problem in problems] == ["file_path_collides"]
+        assert problems[0].message.startswith(expected_instruction)
+
+    @parameterized.expand(
+        [
+            ("bundled_pair", ["assets", "assets/logo.png"], "assets", "Rename 'assets'."),
+            # The skill generates `agents/openai.yaml`, so a bundled file named `agents` blocks it.
+            ("generated_child", ["agents"], "agents", "Rename 'agents'."),
+            (
+                "generated_parent",
+                ["SKILL.md/notes.txt"],
+                "SKILL.md/notes.txt",
+                "Move this file out of 'SKILL.md/'.",
+            ),
+        ]
+    )
+    def test_shadow_problem_reports_a_file_the_author_can_change(
+        self, _label: str, paths: list[str], expected_file_path: str, expected_instruction: str
+    ) -> None:
+        # SKILL.md and the Codex sidecar are generated for every skill, so the author has no row to
+        # rename for either one.
+        problems = compute_spec_problems("my-skill", "Does things.", paths)
+
+        assert [problem.file_path for problem in problems] == [expected_file_path]
+        assert problems[0].message.startswith(expected_instruction)
