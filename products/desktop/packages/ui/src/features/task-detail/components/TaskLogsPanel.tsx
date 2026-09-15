@@ -1,7 +1,4 @@
-import {
-  GITHUB_CONNECTION_REQUIRED_MESSAGE,
-  isGithubConnectionRequiredError,
-} from "@posthog/core/integrations/connectErrors";
+import { GITHUB_CONNECTION_REQUIRED_MESSAGE } from "@posthog/core/integrations/connectErrors";
 import { getTaskRepository } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { Box, Flex } from "@radix-ui/themes";
@@ -70,6 +67,7 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
     errorTitle,
     errorMessage,
     errorRetryable,
+    githubConnectionRequired,
   } = useSessionViewState(taskId, task);
 
   useSessionConnection({
@@ -99,8 +97,6 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
     typeof task.latest_run?.state?.slack_thread_url === "string"
       ? task.latest_run.state.slack_thread_url
       : undefined;
-  const githubConnectionRequired =
-    hasError && isGithubConnectionRequiredError(errorMessage);
   const [githubRecoveryOpen, setGithubRecoveryOpen] = useState(
     githubConnectionRequired,
   );
@@ -190,7 +186,7 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
               onCancelPrompt={handleCancelPrompt}
               repoPath={repoPath}
               cloudBranch={cloudBranch}
-              hasError={hasError}
+              hasError={hasError || githubConnectionRequired}
               errorTitle={errorTitle}
               errorMessage={
                 githubConnectionRequired
