@@ -5,6 +5,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { FetchOptions, FetchResponse, Response } from '~/common/utils/request'
 
 import { LegacyPluginLogger } from '../legacy-plugins/types'
+import { coerceFields } from '../segment/coerce-inputs'
 import { SEGMENT_DESTINATIONS_BY_ID } from '../segment/segment-templates'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
 import { destinationE2eLagMsSummary } from '../utils'
@@ -189,6 +190,11 @@ export class SegmentDestinationExecutorService {
                 throw new Error(`Action ${config.internal_partner_action} not found`)
             }
 
+            // Payload and settings are the same rendered inputs read through two schemas, so each
+            // needs its own pass: a number declared for authentication arrives as a string too.
+            const payload = coerceFields(config, action.fields)
+            const settings = coerceFields(config, segmentDestination.destination.authentication?.fields)
+
             await action.perform(
                 // @ts-expect-error can't figure out unknown extends Data
                 async (endpoint, options) => {
@@ -199,9 +205,9 @@ export class SegmentDestinationExecutorService {
                         addLog('debug', 'options', options)
                     }
                     const requestExtension = segmentDestination.destination.extendRequest?.({
-                        settings: config,
-                        auth: config as any,
-                        payload: config,
+                        settings,
+                        auth: settings as any,
+                        payload,
                     })
                     if (config.debug_mode) {
                         addLog('debug', 'requestExtension', requestExtension)
@@ -367,8 +373,8 @@ export class SegmentDestinationExecutorService {
                     return convertedResponse
                 },
                 {
-                    payload: config,
-                    settings: config,
+                    payload,
+                    settings,
                 }
             )
 

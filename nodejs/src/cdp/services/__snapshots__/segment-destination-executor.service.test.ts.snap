@@ -1379,7 +1379,9 @@ exports[`SegmentDestinationExecutorService segment plugins works with multiple f
     "dealField": "id",
     "debug_mode": true,
     "domain": "posthog-sandbox",
-    "email": "max@posthog.com",
+    "email": [
+      "max@posthog.com",
+    ],
     "internal_partner_action": "createUpdatePerson",
     "match_field": "email",
     "match_value": "max@posthog.com",

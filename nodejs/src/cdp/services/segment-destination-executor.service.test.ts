@@ -508,6 +508,37 @@ describe('SegmentDestinationExecutorService', () => {
             }
         })
 
+        it('coerces inputs into the types the action declares', async () => {
+            const fn = createHogFunction({
+                name: 'Plugin test',
+                template_id: 'segment-actions-pinterest-conversions-api',
+            })
+
+            const invocation = createExampleSegmentInvocation(fn, {
+                ad_account_id: 'ad-account-id',
+                conversions_token: 'conversions-token',
+                event_name: 'checkout',
+                action_source: 'web',
+                event_time: '2025-01-01T00:00:00Z',
+                event_id: 'event-id',
+                // Every input renders as a hog template, so a field the action declares as an
+                // integer arrives as a string, and a field it declares as an array arrives as a
+                // scalar. Pinterest drops the first and throws on the second.
+                custom_data: { currency: 'USD', num_items: '3' },
+                user_data: { email: 'max@example.com' },
+                internal_partner_action: 'reportConversionEvent',
+            })
+
+            const result = await service.execute(invocation)
+
+            expect(result.error).toBeUndefined()
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+
+            const event = parseJSON(mockFetch.mock.calls[0][1].body).data[0]
+            expect(event.custom_data.num_items).toBe(3)
+            expect(event.user_data.em).toHaveLength(1)
+        })
+
         it.each([
             ['omits them when enabled', true, false],
             ['keeps them when disabled', false, true],
