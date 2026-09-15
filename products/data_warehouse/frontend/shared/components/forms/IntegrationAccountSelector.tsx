@@ -88,6 +88,15 @@ export function normalizeMultiValue(value: unknown, legacySingle?: unknown): str
     return normalized
 }
 
+/** What the picker's dropdown says when it has no accounts to list. A failed listing request also
+ *  leaves the list empty, and claiming the connection reaches no accounts sends the user to fix
+ *  permissions they never lost. */
+export function accountsDropdownEmptyMessage(accountsError: string | null): string {
+    return accountsError
+        ? "Couldn't load your accounts. Reconnect the integration, or type the value in above."
+        : 'No accounts accessible by this integration.'
+}
+
 /** Generic account/resource picker for OAuth ad sources: a dropdown of the connected integration's
  *  accounts (shared IntegrationAccount contract), falling back to a text input until one is connected. */
 export function IntegrationAccountSelector(props: IntegrationAccountSelectorProps): JSX.Element {
@@ -496,7 +505,7 @@ function IntegrationAccountFieldWithDropdown({
                             suggestionsLoading={accountsLoading}
                             onSearchChange={setSearch}
                             searchPlaceholder="Filter accounts…"
-                            emptyMessage="No accounts accessible by this integration."
+                            emptyMessage={accountsDropdownEmptyMessage(accountsError)}
                             noMatchMessage={() =>
                                 'No accounts match your filter. Clear it to see every account this connection can reach.'
                             }
