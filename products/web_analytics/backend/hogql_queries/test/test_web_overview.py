@@ -1224,6 +1224,21 @@ class TestWebOverviewNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
         )
         return WebOverviewQueryRunner(team=self.team, query=query)
 
+    def test_no_join_runs_on_v1_sessions_table(self):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
+            with override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[self.team.pk]):
+                runner = self._make_runner(modifiers=HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V1))
+                assert runner.should_skip_session_join
+                results = runner.calculate().results
+
+        assert [item.key for item in results] == [
+            "visitors",
+            "views",
+            "sessions",
+            "session duration",
+            "bounce rate",
+        ]
+
     @parameterized.expand([(True,), (False,)])
     def test_no_join_results_match_join_path(self, compare: bool):
         self._create_pageviews()

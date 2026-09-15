@@ -139,6 +139,7 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$event_count_map": DatabaseField(name="$event_count_map"),
     "$pageview_count": IntegerDatabaseField(name="$pageview_count"),
     "$autocapture_count": IntegerDatabaseField(name="$autocapture_count"),
+    "$screen_count": IntegerDatabaseField(name="$screen_count"),
     # Derived
     "$channel_type": StringDatabaseField(
         name="$channel_type",
@@ -270,6 +271,17 @@ def select_from_sessions_table_v1(
         ),
         "$pageview_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "pageview_count"])]),
         "$autocapture_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "autocapture_count"])]),
+        # v1 has no dedicated screen column, so read the count out of the event map. Reading the key per row keeps
+        # one counter per session in the group by, rather than a merged map of every event name in the session.
+        "$screen_count": ast.Call(
+            name="sum",
+            args=[
+                ast.ArrayAccess(
+                    array=ast.Field(chain=[table_name, "event_count_map"]),
+                    property=ast.Constant(value="$screen"),
+                )
+            ],
+        ),
     }
     # Some fields are calculated from others. It'd be good to actually deduplicate common sub expressions in SQL, but
     # for now just remove the duplicate definitions from the code
