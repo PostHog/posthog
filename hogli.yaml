@@ -213,11 +213,6 @@ devbox:
     devbox:sync:
         click: hogli_commands.devbox.sync:cmd_sync
         description: Mirror your local PostHog checkout to a devbox
-    devbox:task:
-        click: hogli_commands.devbox.cli:devbox_task
-        description: Run a background agent task on a fresh devbox
-        # exec-replaces the process (os.execvp): completed events can't fire
-        untracked: true
     devbox:secret:list:
         click: hogli_commands.devbox.cli:devbox_secret_list
         description: List your Coder user secrets
@@ -1253,4 +1248,8 @@ environment:
     profile_migrations:
         bin_script: profile_migrations
         description: 'Profile Django migrations on fresh DBs and render a per-op timing report'
+        hidden: true
+    docker:worker:ai:training:privacy:
+        bin_script: docker-worker-ai-training-privacy
+        description: 'Start the dedicated AI training privacy worker'
         hidden: true

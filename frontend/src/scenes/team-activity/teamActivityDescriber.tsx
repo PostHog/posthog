@@ -755,8 +755,6 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     managed_viewsets: () => null,
     workflows_config: () => null,
     feature_flag_policy_config: () => null,
-    event_retention_months: () => null,
-    events_retention_enforced: () => null,
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {

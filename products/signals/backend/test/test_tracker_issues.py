@@ -9,7 +9,7 @@ from django.utils import timezone
 from celery.exceptions import Retry
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.integration import (
     GitHubIntegration,
     GitHubIntegrationError,
@@ -242,6 +242,41 @@ def test_close_tracker_issue_is_recorded_once(team):
         assert close_tracker_issue_for_report(team_id=team.id, report_id=str(report.id)) is False
 
     close_issue.assert_called_once_with("web", 12, completed=False)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("comment_fails", [False, True])
+def test_tracker_issue_comment_names_the_actor_and_never_blocks_the_close(team, comment_fails):
+    # The close goes out under the GitHub App, so this comment is the only place the person who
+    # dismissed the report appears. A comment that fails must still leave the issue closed:
+    # an issue left open grows the backlog the close exists to prevent.
+    integration = _connect_tracker(team, "github")
+    report = _make_report(team)
+    user = User.objects.create_user(email="dismisser@example.com", password=None, first_name="Dismisser")
+    SignalReportTrackerIssue.all_teams.create(
+        team=team,
+        report=report,
+        integration=integration,
+        provider="github",
+        status=SignalReportTrackerIssue.Status.CREATED,
+        external_context={"repository": "web", "number": 12},
+    )
+
+    with (
+        patch.object(User, "get_github_login", return_value="octocat"),
+        patch.object(
+            GitHubIntegration,
+            "comment_on_issue",
+            side_effect=GitHubIntegrationError("boom") if comment_fails else None,
+        ) as comment,
+        patch.object(GitHubIntegration, "close_issue") as close_issue,
+    ):
+        assert close_tracker_issue_for_report(team_id=team.id, report_id=str(report.id), actor_user_id=user.id) is True
+
+    close_issue.assert_called_once_with("web", 12, completed=False)
+    body = comment.call_args.args[2]
+    assert "@octocat closed the" in body
+    assert f"/project/{team.id}/inbox/reports/{report.id})" in body
 
 
 @pytest.mark.django_db

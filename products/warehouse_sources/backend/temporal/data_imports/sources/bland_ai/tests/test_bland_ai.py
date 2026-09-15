@@ -10,6 +10,8 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.bland_ai.bland_ai import (
     BASE_URL,
     PAGE_SIZE,
+    PERSONAS_PAGE_SIZE,
+    SMS_PAGE_SIZE,
     BlandAIResumeConfig,
     _format_start_date,
     bland_ai_source,
@@ -430,9 +432,285 @@ class TestPathways:
         assert _rows(_source("pathways", _make_manager())) == []
 
 
+def _conversations_page(ids: list[str], total_pages: int, created_at: str = "2026-01-01T00:00:00.000Z") -> Response:
+    return _response(
+        {
+            "data": [{"id": i, "created_at": created_at} for i in ids],
+            "errors": None,
+            "extra": {"pagination": {"totalItems": 0, "totalPages": total_pages, "currentPage": 1, "pageSize": 100}},
+        }
+    )
+
+
+class TestSmsConversations:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_by_page_number_until_total_pages(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(session, [_conversations_page(["v1"], 2), _conversations_page(["v2"], 2)])
+
+        rows = _rows(_source("sms_conversations", _make_manager()))
+
+        assert [r["id"] for r in rows] == ["v1", "v2"]
+        # Reaching totalPages terminates without paying for an extra empty page.
+        assert session.send.call_count == 2
+        assert snapshots[0]["url"] == f"{BASE_URL}/v1/sms/conversations"
+        assert snapshots[0]["params"]["page"] == 1
+        assert snapshots[0]["params"]["pageSize"] == SMS_PAGE_SIZE
+        # The endpoint defaults to newest-first; the watermark needs ascending creation order.
+        assert snapshots[0]["params"]["sortBy"] == "created_at"
+        assert snapshots[0]["params"]["sortDir"] == "asc"
+        assert snapshots[1]["params"]["page"] == 2
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_full_refresh_sends_no_filter(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(session, [_conversations_page(["v1"], 1)])
+
+        _rows(_source("sms_conversations", _make_manager()))
+
+        assert "filters" not in snapshots[0]["params"]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_watermark_becomes_created_at_filter(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(session, [_conversations_page(["v1"], 1)])
+
+        rows = _rows(
+            _source(
+                "sms_conversations",
+                _make_manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2026, 1, 5, tzinfo=UTC),
+            )
+        )
+
+        assert [r["id"] for r in rows] == ["v1"]
+        # `filters` is a JSON-encoded array of {field, operator, value} objects.
+        assert json.loads(snapshots[0]["params"]["filters"]) == [
+            {"field": "created_at", "operator": "gte", "value": "2026-01-05T00:00:00+00:00"}
+        ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_saves_state_after_each_page_with_filter(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(session, [_conversations_page(["v1"], 2), _conversations_page(["v2"], 2)])
+
+        manager = _make_manager()
+        _rows(
+            _source(
+                "sms_conversations",
+                manager,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2026, 1, 5, tzinfo=UTC),
+            )
+        )
+
+        # State is saved once (after page one; page two is the last) and carries both the next page
+        # and the exact filter, so a resume continues the same result set.
+        manager.save_state.assert_called_once()
+        saved = manager.save_state.call_args.args[0]
+        assert saved.page == 2
+        assert saved.start_date == "2026-01-05T00:00:00+00:00"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_page_and_filter(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        saved_filter = "2026-01-05T00:00:00+00:00"
+        snapshots = _wire(session, [_conversations_page(["v3"], 3)])
+
+        manager = _make_manager(BlandAIResumeConfig(page=3, start_date=saved_filter))
+        rows = _rows(
+            _source(
+                "sms_conversations",
+                manager,
+                should_use_incremental_field=True,
+                # The checkpointed watermark has advanced past the interrupted run's filter; the
+                # resumed run must reuse the saved filter or the saved page points at other rows.
+                db_incremental_field_last_value=datetime(2026, 1, 7, tzinfo=UTC),
+            )
+        )
+
+        assert [r["id"] for r in rows] == ["v3"]
+        assert snapshots[0]["params"]["page"] == 3
+        assert json.loads(snapshots[0]["params"]["filters"])[0]["value"] == saved_filter
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_account_yields_nothing(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(session, [_conversations_page([], 0)])
+
+        manager = _make_manager()
+        assert _rows(_source("sms_conversations", manager)) == []
+        manager.save_state.assert_not_called()
+
+
+class TestSmsMessages:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_hydrates_each_conversation_and_injects_parent_keys(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response(
+                    {
+                        "data": [
+                            {"id": "v1", "created_at": "2026-01-01T00:00:00.000Z"},
+                            {"id": "v2", "created_at": "2026-01-02T00:00:00.000Z"},
+                        ],
+                        "extra": {"pagination": {"totalPages": 1}},
+                    }
+                ),
+                _response(
+                    {
+                        "data": {
+                            "id": "v1",
+                            "messages": [
+                                {"id": 100001, "message": "hey", "sender": "USER", "status": "delivered"},
+                                {"id": 100002, "message": "hi", "sender": "AGENT", "status": "sent"},
+                            ],
+                        }
+                    }
+                ),
+                # A conversation with no messages yet must not break the batch.
+                _response({"data": {"id": "v2", "messages": None}}),
+            ],
+        )
+
+        rows = _rows(_source("sms_messages", _make_manager()))
+
+        assert [r["id"] for r in rows] == [100001, 100002]
+        # Rows carry the parent conversation id (composite primary key) and the parent's creation
+        # time (the incremental/partition field — message timestamps aren't monotonic across
+        # conversations).
+        assert all(r["conversation_id"] == "v1" for r in rows)
+        assert all(r["conversation_created_at"] == "2026-01-01T00:00:00.000Z" for r in rows)
+        assert rows[0]["message"] == "hey"
+        # One list request plus one hydration request per listed conversation.
+        assert [s["url"] for s in snapshots] == [
+            f"{BASE_URL}/v1/sms/conversations",
+            f"{BASE_URL}/v1/sms/conversations/v1",
+            f"{BASE_URL}/v1/sms/conversations/v2",
+        ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_checkpoints_fanout_state_with_filter(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _conversations_page(["v1"], 1, created_at="2026-01-05T00:00:00.000Z"),
+                _response({"data": {"id": "v1", "messages": [{"id": 1}]}}),
+            ],
+        )
+
+        manager = _make_manager()
+        _rows(
+            _source(
+                "sms_messages",
+                manager,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2026, 1, 5, tzinfo=UTC),
+            )
+        )
+
+        assert manager.save_state.call_count > 0
+        saved = manager.save_state.call_args.args[0]
+        assert saved.fanout_state["completed"] == ["v1/sms/conversations/v1"]
+        assert saved.fanout_state["current"] is None
+        assert saved.start_date == "2026-01-05T00:00:00+00:00"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_skips_already_hydrated_conversations(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response(
+                    {
+                        "data": [
+                            {"id": "v1", "created_at": "2026-01-01T00:00:00.000Z"},
+                            {"id": "v2", "created_at": "2026-01-02T00:00:00.000Z"},
+                        ],
+                        "extra": {"pagination": {"totalPages": 1}},
+                    }
+                ),
+                _response({"data": {"id": "v2", "messages": [{"id": 7, "message": "yo"}]}}),
+            ],
+        )
+
+        manager = _make_manager(
+            BlandAIResumeConfig(
+                start_date=None,
+                fanout_state={"completed": ["v1/sms/conversations/v1"], "current": None, "child_state": None},
+            )
+        )
+        rows = _rows(_source("sms_messages", manager))
+
+        # v1 was fully hydrated before the interruption — only v2 is fetched again.
+        assert [r["id"] for r in rows] == [7]
+        assert all(r["conversation_id"] == "v2" for r in rows)
+        assert [s["url"] for s in snapshots] == [
+            f"{BASE_URL}/v1/sms/conversations",
+            f"{BASE_URL}/v1/sms/conversations/v2",
+        ]
+
+
+class TestLookupEndpoints:
+    @parameterized.expand(
+        [
+            # The response wrapper key differs per endpoint; a wrong selector silently yields
+            # zero rows instead of failing.
+            ("inbound_numbers", "v1/inbound", {"inbound_numbers": [{"phone_number": "+15550001111"}]}, "phone_number"),
+            ("voices", "v1/voices", {"voices": [{"id": "voice-1", "name": "Karen"}]}, "id"),
+        ]
+    )
+    def test_single_page_lookup_selects_rows(
+        self, endpoint: str, path: str, api_response: dict[str, Any], key: str
+    ) -> None:
+        with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
+            session = MockSession.return_value
+            snapshots = _wire(session, [_response(api_response)])
+
+            rows = _rows(_source(endpoint, _make_manager()))
+
+            assert len(rows) == 1
+            assert rows[0][key] == api_response[endpoint][0][key]
+            assert session.send.call_count == 1
+            assert snapshots[0]["url"] == f"{BASE_URL}/{path}"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_personas_paginate_until_empty_page(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response({"data": [{"id": "p1", "name": "Support"}], "errors": None}),
+                # The body carries no page count, so an empty page is what ends pagination.
+                _response({"data": [], "errors": None}),
+            ],
+        )
+
+        rows = _rows(_source("personas", _make_manager()))
+
+        assert [r["id"] for r in rows] == ["p1"]
+        assert snapshots[0]["url"] == f"{BASE_URL}/v1/personas"
+        assert snapshots[0]["params"]["page"] == 1
+        assert snapshots[0]["params"]["limit"] == PERSONAS_PAGE_SIZE
+        assert snapshots[1]["params"]["page"] == 2
+
+
 class TestBlandAISourceResponse:
     def test_endpoints_inventory(self) -> None:
-        assert ENDPOINTS == ("calls", "call_transcripts", "pathways")
+        assert ENDPOINTS == (
+            "calls",
+            "call_transcripts",
+            "pathways",
+            "sms_conversations",
+            "sms_messages",
+            "inbound_numbers",
+            "personas",
+            "voices",
+        )
 
     @parameterized.expand(
         [
@@ -441,6 +719,14 @@ class TestBlandAISourceResponse:
             # call's stable creation time.
             ("call_transcripts", ["call_id", "id"], ["call_created_at"]),
             ("pathways", ["id"], None),
+            ("sms_conversations", ["id"], ["created_at"]),
+            # The composite key keeps messages unique table-wide; partitioning uses the parent
+            # conversation's stable creation time.
+            ("sms_messages", ["conversation_id", "id"], ["conversation_created_at"]),
+            # Small account-level lookups — no partitioning.
+            ("inbound_numbers", ["phone_number"], None),
+            ("personas", ["id"], None),
+            ("voices", ["id"], None),
         ]
     )
     def test_source_response_shape(

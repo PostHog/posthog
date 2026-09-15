@@ -27,9 +27,8 @@ index to read. All three go to the visual review maintainers, in a message of th
 inside the digest those maintainers get for what they own, because holding an item until a team
 takes it is not owning it.
 
-GitHub keeps that build artifact for one day, so a baseline set on any other day of the week has no
-readable artifact left by Monday. The scheduled task therefore runs twice a day: every run reads the
-index into the cache while the artifact still exists, and only the Monday morning run posts.
+The CLI uploads that story index with the run that built it, named by its content hash, so the
+digest reads the index of the newest default-branch Storybook run and needs nothing else from CI.
 
 Every message is Block Kit: a lead naming the team and the counts, then one thread reply per
 condition, with the one action that resolves an item on a button beside it.
@@ -37,7 +36,6 @@ condition, with the one action that resolves an item on a button beside it.
 
 from __future__ import annotations
 
-from calendar import MONDAY
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime, timedelta
 from enum import StrEnum
@@ -75,6 +73,7 @@ from posthog.team_notifications.slack import (
     post_with_join,
     section_block,
 )
+from posthog.utils import human_list, pluralize
 
 from products.engineering_analytics.backend.facade.api import resolve_path_owners
 from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM, PathOwnership
@@ -97,8 +96,6 @@ _PRODUCER: Producer = "visual_review"
 # delivery path to keep working.
 _PRODUCT_PATH = "products/visual_review/"
 
-# Said of a run type whose items have no default-branch run to attribute against.
-_NO_BASELINE_RUN_DETAIL = "there is no default branch run to read"
 
 _MAX_LINE_CHARS = MAX_SECTION_CHARS // 2
 # The full identifier still goes into the URL, so a cut display costs the reader nothing.
@@ -118,13 +115,8 @@ MODES = (MODE_PREVIEW, MODE_LIVE)
 # seven days apart, and without the overlap a quarantine expiring in that gap is never reported.
 _DIGEST_EXPIRY_WINDOW_DAYS = FLAKINESS_EXPIRY_SOON_DAYS + 1
 
-# A run at or after this hour posts nothing, so the second run of a Monday only warms the story
-# index. Late enough that a child task held in a queue still counts as the morning run it came from.
-_POSTS_BEFORE_HOUR_UTC = 12
-
-_LEAD_BODY = (
-    "Each item and its action is in the thread. Quarantines that lapse start failing the gate again on the next run."
-)
+_LEAD_BODY = "Each item and its action is in the thread."
+_LEAD_LAPSE_NOTE = "Quarantines that lapse start failing the gate again on the next run."
 _QUARANTINE_HEADING = (
     "*Quarantines expiring soon*\n"
     "Fix the story and let the quarantine lapse, or extend it with a new reason. "
@@ -293,6 +285,15 @@ def _repo_flakiness_url(repo: Repo) -> str:
     return f"{settings.SITE_URL}/project/{repo.team_id}/visual_review/repos/{repo.id}/flakiness"
 
 
+def _quarantined_story_url(repo: Repo, story: str) -> str:
+    """The flakiness page narrowed to the quarantined snapshots of one story, in every theme.
+
+    Falls back to the whole page when the search makes the URL too long for a Slack button.
+    """
+    url = f"{_repo_flakiness_url(repo)}#preset=quarantined&q={quote(story, safe='')}"
+    return url if len(url) <= MAX_BUTTON_URL_CHARS else _repo_flakiness_url(repo)
+
+
 def _snapshot_button(repo: Repo, item: DebtItem, text: str) -> SlackButton:
     """The item's button, pointing at the repo's list when the snapshot URL is too long for Slack.
 
@@ -386,51 +387,26 @@ def _display_names(user_ids: set[int]) -> dict[int, str]:
     }
 
 
-def _workflow_run_id(run: Run) -> str | None:
-    """The GitHub workflow run that produced one run, or None when the run records none.
-
-    Read on a query of its own because the shared default-branch universe defers `metadata`. Every
-    other reader of that universe needs the run ids alone, so it stays lean for the pages that use
-    it.
-    """
-    metadata = Run.objects.filter(id=run.id).values_list("metadata", flat=True).first()
-    github_run_id = (metadata or {}).get("github_run_id")
-    return github_run_id if isinstance(github_run_id, str) and github_run_id else None
-
-
 def _attribution_sources(
     repo: Repo, run_types: set[str], newest_run_by_type: Mapping[str, Run]
 ) -> dict[str, story_index.StoryIndex | str]:
     """What each run type in play can be attributed against: a story index, or why there is none.
 
-    One artifact read per run type, not per item. A run type nothing owes today is never read, so a
-    repo with no Storybook debt costs no download at all.
+    One map read per run type, not per item. A run type nothing owes today is never read, so a repo
+    with no Storybook debt reads no map at all.
     """
     sources: dict[str, story_index.StoryIndex | str] = {}
     for run_type in run_types:
         if run_type != RunType.STORYBOOK:
             sources[run_type] = f"{run_type} runs are not supported yet"
             continue
-        run = newest_run_by_type.get(run_type)
-        if run is None:
-            sources[run_type] = _NO_BASELINE_RUN_DETAIL
-            continue
-        github_run_id = _workflow_run_id(run)
-        if github_run_id is None:
-            sources[run_type] = "the run behind the baseline records no workflow run"
-            continue
-        index = story_index.fetch_story_index(repo, github_run_id)
-        sources[run_type] = (
-            index if index is not None else f"the Storybook build artifact for run {github_run_id} was not read"
-        )
+        sources[run_type] = story_index.latest_story_index(repo, newest_run_by_type)
     return sources
 
 
 def _attribution(sources: Mapping[str, story_index.StoryIndex | str], run_type: str, identifier: str) -> Attribution:
     """Where one snapshot's story lives, or why the index cannot say."""
-    source = sources.get(run_type)
-    if source is None:
-        return Attribution(kind=AttributionKind.UNAVAILABLE, detail=_NO_BASELINE_RUN_DETAIL)
+    source = sources[run_type]
     if isinstance(source, str):
         return Attribution(kind=AttributionKind.UNAVAILABLE, detail=source)
     path = story_index.story_path(source, identifier)
@@ -584,57 +560,130 @@ def _closing_parts(text: str) -> list[MessagePart]:
     return [MessagePart(block=divider_block(), line=""), _context_part(text)]
 
 
-def _item_text(item: DebtItem, extra: str = "") -> str:
-    """One item's section: what it is, then its facts, then whatever its group adds under them."""
+@frozen
+class ListedEntry:
+    """What one section of a reply lists: one snapshot, or the theme variants of one story that share every fact."""
+
+    items: list[DebtItem]
+    # The identifier the section shows. Merged variants show it without the theme.
+    identifier: str
+    # Empty for a single snapshot.
+    themes: list[str]
+
+
+def _single_entry(item: DebtItem) -> ListedEntry:
+    return ListedEntry(items=[item], identifier=item.identifier, themes=[])
+
+
+def _merge_theme_variants(items: Sequence[DebtItem]) -> list[ListedEntry]:
+    """The items as entries, with the theme variants of one story merged into its first entry.
+
+    A story snapshots once per theme, so one unreliable story usually lists twice. Variants merge
+    only when the reader sees the same facts for each, so the merge hides nothing.
+    """
+    groups: list[list[DebtItem]] = []
+    open_groups: dict[tuple[str, str, str, Attribution], list[DebtItem]] = {}
+    for item in items:
+        split = story_index.split_theme(item.identifier)
+        if not split.theme:
+            groups.append([item])
+            continue
+        key = (item.run_type, split.rest, item.facts, item.attribution)
+        group = open_groups.get(key)
+        if group is None or any(other.identifier == item.identifier for other in group):
+            group = []
+            open_groups[key] = group
+            groups.append(group)
+        group.append(item)
+
+    entries: list[ListedEntry] = []
+    for group in groups:
+        if len(group) == 1:
+            entries.append(_single_entry(group[0]))
+            continue
+        splits = [story_index.split_theme(item.identifier) for item in group]
+        entries.append(ListedEntry(items=group, identifier=splits[0].rest, themes=[split.theme for split in splits]))
+    return entries
+
+
+def _item_text(entry: ListedEntry, extra: str = "") -> str:
+    """One entry's section: what it is, then its facts, then whatever its group adds under them."""
+    first = entry.items[0]
+    themes = f" · {human_list(entry.themes)}" if entry.themes else ""
     title = (
-        f"*{escape_slack_mrkdwn(clip_text(item.identifier, _MAX_IDENTIFIER_CHARS))}* "
-        f"{escape_slack_mrkdwn(item.run_type)}"
+        f"*{escape_slack_mrkdwn(clip_text(entry.identifier, _MAX_IDENTIFIER_CHARS))}* "
+        f"{escape_slack_mrkdwn(first.run_type)}{themes}"
     )
-    return clip_text("\n".join(part for part in (title, item.facts, extra) if part), MAX_SECTION_CHARS)
+    return clip_text("\n".join(part for part in (title, first.facts, extra) if part), MAX_SECTION_CHARS)
 
 
-def _item_part(repo: Repo, item: DebtItem, button_text: str) -> MessagePart:
-    return MessagePart(block=section_block(_item_text(item), _snapshot_button(repo, item, button_text)), line=item.line)
+def _item_part(repo: Repo, item: DebtItem, button_text: str, line: str | None = None) -> MessagePart:
+    return MessagePart(
+        block=section_block(_item_text(_single_entry(item)), _snapshot_button(repo, item, button_text)),
+        line=item.line if line is None else line,
+    )
+
+
+def _quarantine_part(repo: Repo, entry: ListedEntry) -> MessagePart:
+    """One expiring quarantine, or the theme variants of one story that expire together.
+
+    A merged entry links to the flakiness page, because the snapshot page shows one theme and each
+    variant needs the same extension.
+    """
+    if not entry.themes:
+        return _item_part(repo, entry.items[0], "Extend or fix")
+    # The page searches identifiers by substring, and a webkit identifier puts the theme before the
+    # browser suffix, so only the bare story id matches every variant.
+    story_id = story_index.split_theme(entry.items[0].identifier).story_id
+    button = SlackButton(text="Extend or fix", url=_quarantined_story_url(repo, story_id))
+    return MessagePart(
+        block=section_block(_item_text(entry), button), line="\n".join(item.line for item in entry.items)
+    )
 
 
 def _footer_parts(now: datetime) -> list[MessagePart]:
-    """What closes the last reply: when the next one comes, and how to stop getting them."""
-    return _closing_parts(
-        f"Next digest Monday, {_month_day(_monday_of(now) + timedelta(days=7))}. "
-        "Opt out with `notifications: {visual_review: false}` under your team in owners.yaml."
-    )
+    """What closes the last reply: when the next one comes."""
+    return _closing_parts(f"Next digest Monday, {_month_day(_monday_of(now) + timedelta(days=7))}.")
+
+
+def _count_phrases(digest: TeamDigest, emphasis: str = "") -> list[str]:
+    """How much of each condition the team carries. A condition with no items is left out, because a
+    zero count reads as one more thing to look at."""
+    phrases: list[str] = []
+    expiring = len(digest.expiring_quarantines)
+    if expiring:
+        phrases.append(
+            f"{emphasis}{pluralize(expiring, 'quarantine')}{emphasis} expire{'s' if expiring == 1 else ''} soon"
+        )
+    pileups = len(digest.variant_pileups)
+    if pileups:
+        phrases.append(f"{emphasis}{pluralize(pileups, 'snapshot')}{emphasis} with piled-up variants")
+    return phrases
 
 
 def lead_text(repo: Repo, digest: TeamDigest) -> str:
     """The lead as one sentence, for the notification Slack shows before the blocks render."""
-    expiring = len(digest.expiring_quarantines)
-    pileups = len(digest.variant_pileups)
     return clip_text(
-        f"Visual review debt for {digest.team_slug} in {repo.repo_full_name}: "
-        f"{expiring} quarantine{'' if expiring == 1 else 's'} expire{'s' if expiring == 1 else ''} soon, "
-        f"{pileups} snapshot{'' if pileups == 1 else 's'} with piled-up variants.",
+        f"Visual review debt for {digest.team_slug} in {repo.repo_full_name}: {', '.join(_count_phrases(digest))}.",
         MAX_SECTION_CHARS,
     )
 
 
 def lead_message(repo: Repo, digest: TeamDigest, now: datetime) -> SlackMessage:
-    """What lands in the channel: the team, the week, the two counts, and the pages behind them."""
-    expiring = len(digest.expiring_quarantines)
-    pileups = len(digest.variant_pileups)
+    """What lands in the channel: the team, the week, the counts, and the pages behind them."""
     return SlackMessage(
         blocks=[
             header_block(f"Visual review debt for {digest.team_slug}"),
             context_block(f"{repo.repo_full_name} · week of {_month_day(_monday_of(now))} · weekly digest"),
-            fields_block(
-                [
-                    f"*{expiring} quarantine{'' if expiring == 1 else 's'}* expire{'s' if expiring == 1 else ''} soon",
-                    f"*{pileups} snapshot{'' if pileups == 1 else 's'}* with piled-up variants",
-                ]
-            ),
-            section_block(_LEAD_BODY),
+            fields_block(_count_phrases(digest, emphasis="*")),
+            section_block(f"{_LEAD_BODY} {_LEAD_LAPSE_NOTE}" if digest.expiring_quarantines else _LEAD_BODY),
             actions_block(
                 [
-                    SlackButton(text="Open flakiness overview", url=_repo_flakiness_url(repo), primary=True),
+                    SlackButton(
+                        text="Open flakiness overview",
+                        url=f"{_repo_flakiness_url(repo)}#teams={quote(digest.team_slug, safe='')}",
+                        primary=True,
+                    ),
                     SlackButton(text="Open snapshots", url=_repo_snapshots_url(repo)),
                 ]
             ),
@@ -648,7 +697,7 @@ def thread_messages(repo: Repo, digest: TeamDigest, now: datetime) -> list[Slack
     groups = [
         ReplyGroup(
             heading=_heading_part(_QUARANTINE_HEADING),
-            items=[_item_part(repo, item, "Extend or fix") for item in digest.expiring_quarantines],
+            items=[_quarantine_part(repo, entry) for entry in _merge_theme_variants(digest.expiring_quarantines)],
         ),
         ReplyGroup(
             heading=_heading_part(_PILEUP_HEADING),
@@ -679,25 +728,23 @@ def _file_button(repo: Repo, item: DebtItem) -> SlackButton | None:
     return SlackButton(text="Open file", url=url) if len(url) <= MAX_BUTTON_URL_CHARS else None
 
 
-def _placed_part(repo: Repo, item: DebtItem) -> MessagePart:
+def _placed_part(repo: Repo, entry: ListedEntry) -> MessagePart:
+    """One unowned story file. Theme variants share the file, so one button covers all of them."""
+    first = entry.items[0]
     # The path stays in the text as well as behind the button, because it is what somebody types
     # into owners.yaml.
-    text = _item_text(item, f"`{escape_slack_mrkdwn(item.attribution.source_path)}`")
-    return MessagePart(block=section_block(text, _file_button(repo, item)), line=_triage_line(item))
+    text = _item_text(entry, f"`{escape_slack_mrkdwn(first.attribution.source_path)}`")
+    return MessagePart(
+        block=section_block(text, _file_button(repo, first)), line="\n".join(_triage_line(item) for item in entry.items)
+    )
 
 
 def _triage_group(repo: Repo, group: TriageGroup) -> ReplyGroup:
     """One reason for having no owner, and the items behind it."""
     if group.kind == AttributionKind.PLACED:
-        items = [_placed_part(repo, item) for item in group.items]
+        items = [_placed_part(repo, entry) for entry in _merge_theme_variants(group.items)]
     else:
-        items = [
-            MessagePart(
-                block=section_block(_item_text(item), _snapshot_button(repo, item, "Open snapshot")),
-                line=_triage_line(item),
-            )
-            for item in group.items
-        ]
+        items = [_item_part(repo, item, "Open snapshot", line=_triage_line(item)) for item in group.items]
     return ReplyGroup(heading=_heading_part(_TRIAGE_HEADINGS[group.kind]), items=items)
 
 
@@ -889,32 +936,6 @@ def _send_one(
         for reply in post.replies:
             post_message(slack, delivery.channel_id, reply.blocks, reply.text, thread_ts=thread_ts)
     return _post_text(post)
-
-
-def posts_today(now: datetime) -> bool:
-    """Whether a run at this moment posts the digest, or only warms the story index.
-
-    The weekday and the hour are read here rather than passed down from the beat, because that
-    keeps the child task's arguments unchanged and there is only one rule to read.
-    """
-    return now.weekday() == MONDAY and now.hour < _POSTS_BEFORE_HOUR_UTC
-
-
-def warm_story_index(repo: Repo) -> None:
-    """Read the story index behind the repo's current Storybook baseline into the cache.
-
-    Nothing is evaluated and nothing is posted. This runs on the days the digest does not, so the
-    weekly post still finds an index for a baseline whose build artifact GitHub has since deleted.
-    """
-    newest_run_by_type = run_queries.newest_run_by_run_type(run_queries.latest_default_branch_runs(repo.id))
-    run_types: set[str] = {RunType.STORYBOOK}
-    source = _attribution_sources(repo, run_types, newest_run_by_type)[RunType.STORYBOOK]
-    logger.info(
-        "visual_review.debt_digest_story_index_warmed",
-        repo_id=str(repo.id),
-        team_id=repo.team_id,
-        read=isinstance(source, story_index.StoryIndex),
-    )
 
 
 def repos_in_scope() -> list[Repo]:

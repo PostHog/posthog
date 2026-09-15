@@ -10,10 +10,12 @@ from collections.abc import Collection
 from uuid import UUID
 
 from products.data_catalog.backend.facade import api as data_catalog_facade
+from products.data_catalog.backend.facade.enums import HOGQL_DEFINITION_KIND
 from products.data_modeling.backend.facade import api as data_modeling_facade
 from products.warehouse_sources.backend.facade import api as warehouse_facade
 from products.warehouse_sources.backend.facade.contracts import WAREHOUSE_OBJECT_TABLE, WAREHOUSE_OBJECT_VIEW
 
+from ..facade.contracts import MetricSubject
 from ..facade.enums import SubjectType
 from .contracts import SubjectRef
 
@@ -31,6 +33,14 @@ def resolve_subject(team_id: int, subject_type: str, subject_uuid: str | UUID) -
     if kind is SubjectType.METRIC:
         return _resolve_metric(team_id, subject_uuid)
     return _resolve_view(team_id, subject_uuid)
+
+
+def testable_metric_subjects(team_id: int) -> list[MetricSubject]:
+    return [
+        MetricSubject(id=metric.id, name=metric.name, display_name=metric.display_name)
+        for metric in data_catalog_facade.live_metric_summaries(team_id)
+        if metric.definition_kind == HOGQL_DEFINITION_KIND
+    ]
 
 
 def _resolve_metric(team_id: int, subject_uuid: str | UUID) -> SubjectRef:

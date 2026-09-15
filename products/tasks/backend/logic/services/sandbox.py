@@ -34,6 +34,7 @@ from posthog.dataclasses import frozen
 from products.tasks.backend.constants import (
     DEFAULT_SANDBOX_WORKING_DIR,
     DEV_STACK_IMAGE_NAME,
+    SANDBOX_REPOSITORIES_ROOT,
     SNAPSHOT_KIND_DIRECTORY,
     SNAPSHOT_KIND_FILESYSTEM,
     SnapshotKind,
@@ -111,10 +112,30 @@ import path; a test pins them to the enum so a rename can't drop a product off t
 """
 
 
+FULL_HISTORY_ORIGIN_PRODUCTS: frozenset[str] = frozenset(
+    {
+        # Signals report research reads history for `git blame`
+        "signal_report",
+        # A pinned scout asks the same questions of the tree: `git log`, `git blame`, `--since`
+        "signals_scout",
+    }
+)
+"""Origin products whose sandboxes clone the full commit history instead of `--depth 1`.
+
+Every other origin keeps the fast-boot shallow clone. Nobody watches a fleet run, so a slower
+boot costs less than the unshallow fetch a skill body pays mid-run to get history back. Held as
+strings for the same reason as ``SELF_DRIVING_ORIGIN_PRODUCTS``; a test pins them to the enum.
+"""
+
+
 def workload_for_origin_product(origin_product: str | None) -> SandboxWorkload:
     if origin_product in SELF_DRIVING_ORIGIN_PRODUCTS:
         return SandboxWorkload.SELF_DRIVING
     return SandboxWorkload.DEFAULT
+
+
+def needs_full_history(origin_product: str | None) -> bool:
+    return origin_product in FULL_HISTORY_ORIGIN_PRODUCTS
 
 
 class ExecutionResult(BaseModel):
@@ -269,7 +290,7 @@ def is_public_sandbox_repo(repository: str | None) -> bool:
 def sandbox_repo_path(repository: str) -> str:
     """Absolute path an ``org/repo`` is cloned to inside the sandbox (the agent-server's cwd)."""
     org, repo = repository.lower().split("/")
-    return f"{WORKING_DIR}/repos/{org}/{repo}"
+    return f"{SANDBOX_REPOSITORIES_ROOT}/{org}/{repo}"
 
 
 def redact_sandbox_command(command: str) -> str:
@@ -535,7 +556,7 @@ class SandboxBase(ABC):
         )
 
         target_path = sandbox_repo_path(repository)
-        org_path = f"{WORKING_DIR}/repos/{org}"
+        org_path = f"{SANDBOX_REPOSITORIES_ROOT}/{org}"
 
         depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
         branch_flag = f" --branch {shlex.quote(branch)}" if branch else ""

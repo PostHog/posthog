@@ -569,6 +569,8 @@ const RESERVED_LEADER_ENV: &[&str] = &[
     "ETCD_PREFIX",
     "KAFKA_PERSON_STATE_TOPIC",
     "FALLBACK_TABLE",
+    "LIFECYCLE_OP_TABLE",
+    "LIFECYCLE_OP_PERSON_TABLE",
     "FALLBACK_DATABASE_URL",
     "WRITER_CONSUMER_GROUP",
     // Derived fencing timeouts scale off the lease TTL, so overriding it
