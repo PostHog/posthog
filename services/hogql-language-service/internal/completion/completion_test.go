@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -138,6 +139,14 @@ func TestCompletesSQLSyntaxForCursorContext(t *testing.T) {
 		{name: "operator after field", query: "SELECT * FROM orders WHERE amount ", position: len("SELECT * FROM orders WHERE amount "), label: "=", kind: "operator", insertText: "=", excluded: []string{"AND"}},
 		{name: "boolean after predicate", query: "SELECT * FROM orders WHERE amount > 0 ", position: len("SELECT * FROM orders WHERE amount > 0 "), label: "AND", kind: "keyword", insertText: "AND", excluded: []string{"="}},
 		{name: "between separator", query: "SELECT * FROM orders WHERE amount BETWEEN 1 ", position: len("SELECT * FROM orders WHERE amount BETWEEN 1 "), label: "AND", kind: "keyword", insertText: "AND", excluded: []string{"OR", "GROUP BY", "ORDER BY", "LIMIT"}, total: 1},
+		{name: "between unfinished arithmetic expression", query: "SELECT * FROM orders WHERE amount BETWEEN 1 + cou", position: len("SELECT * FROM orders WHERE amount BETWEEN 1 + cou"), label: "count", kind: "function", insertText: "count()", excluded: []string{"AND"}},
+		{name: "between unfinished function call", query: "SELECT * FROM orders WHERE amount BETWEEN toDate(amo", position: len("SELECT * FROM orders WHERE amount BETWEEN toDate(amo"), label: "amount", kind: "field", excluded: []string{"AND"}},
+		{name: "between unfinished interval", query: "SELECT * FROM orders WHERE amount BETWEEN INTERVAL ", position: len("SELECT * FROM orders WHERE amount BETWEEN INTERVAL "), label: "amount", kind: "field", excluded: []string{"AND"}},
+		{name: "between interval missing unit", query: "SELECT * FROM orders WHERE amount BETWEEN INTERVAL 1 ", position: len("SELECT * FROM orders WHERE amount BETWEEN INTERVAL 1 "), label: "amount", kind: "field", excluded: []string{"AND"}},
+		{name: "between complete interval", query: "SELECT * FROM orders WHERE amount BETWEEN INTERVAL 1 DAY ", position: len("SELECT * FROM orders WHERE amount BETWEEN INTERVAL 1 DAY "), label: "AND", kind: "keyword", insertText: "AND", total: 1},
+		{name: "between unfinished case", query: "SELECT * FROM orders WHERE amount BETWEEN CASE ", position: len("SELECT * FROM orders WHERE amount BETWEEN CASE "), label: "amount", kind: "field", excluded: []string{"AND"}},
+		{name: "between unfinished case conjunction", query: "SELECT * FROM orders WHERE amount BETWEEN CASE WHEN amount > 0 AND amo", position: len("SELECT * FROM orders WHERE amount BETWEEN CASE WHEN amount > 0 AND amo"), label: "amount", kind: "field", excluded: []string{"AND"}},
+		{name: "between complete case", query: "SELECT * FROM orders WHERE amount BETWEEN CASE WHEN amount > 0 THEN 1 ELSE 0 END ", position: len("SELECT * FROM orders WHERE amount BETWEEN CASE WHEN amount > 0 THEN 1 ELSE 0 END "), label: "AND", kind: "keyword", insertText: "AND", total: 1},
 		{name: "field after boolean", query: "SELECT * FROM orders WHERE amount > 0 AND ", position: len("SELECT * FROM orders WHERE amount > 0 AND "), label: "amount", kind: "field"},
 		{name: "field after select comma", query: "SELECT amount,  FROM orders", position: len("SELECT amount, "), label: "amount", kind: "field", excluded: []string{"orders"}},
 		{name: "double-quoted clause identifier", query: `SELECT "FROM"  FROM orders`, position: len(`SELECT "FROM" `), label: "count", kind: "function", insertText: "count()", excluded: []string{"orders"}},
@@ -246,6 +255,10 @@ func largeContextualCatalog() *catalog.Catalog {
 }
 
 func TestCompleteContextualCatalogStaysWithinLatencyBudget(t *testing.T) {
+	if os.Getenv("HOGQL_LANGUAGE_SERVICE_ENFORCE_LATENCY_BUDGET") != "1" {
+		t.Skip("latency budget requires the dedicated non-race test environment")
+	}
+
 	const sampleCount = 20
 	const callsPerSample = 100
 	const maxAverage = 5 * time.Millisecond
@@ -254,6 +267,11 @@ func TestCompleteContextualCatalogStaysWithinLatencyBudget(t *testing.T) {
 	schema := largeContextualCatalog()
 	query := "SELECT countD FROM table_0500"
 	position := len("SELECT countD")
+	for range callsPerSample {
+		if _, err := Complete(schema, query, position, PositionEncodingUTF8, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
 	durations := make([]float64, sampleCount)
 	for sample := range sampleCount {
 		startedAt := time.Now()

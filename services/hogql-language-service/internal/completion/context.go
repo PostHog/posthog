@@ -76,26 +76,42 @@ func activeClause(tokens []sqlToken, depth int) (int, string) {
 func predicateMode(tokens []sqlToken, depth int) completionMode {
 	start := 0
 	betweenPending := false
+	caseDepth := 0
 	for index, token := range tokens {
 		if token.kind == sqlTokenLeftParen && token.depth == depth-1 {
 			start = index + 1
 			betweenPending = false
+			caseDepth = 0
 			continue
 		}
 		if token.depth != depth || token.kind != sqlTokenWord {
 			continue
 		}
-		if token.text == "BETWEEN" {
-			betweenPending = true
-			continue
-		}
-		if token.text == "AND" && betweenPending {
-			betweenPending = false
-			continue
-		}
-		if token.text == "AND" || token.text == "OR" {
+		switch token.text {
+		case "CASE":
+			caseDepth++
+		case "END":
+			if caseDepth > 0 {
+				caseDepth--
+			}
+		case "BETWEEN":
+			if caseDepth == 0 {
+				betweenPending = true
+			}
+		case "AND":
+			if caseDepth > 0 {
+				continue
+			}
+			if betweenPending {
+				betweenPending = false
+				continue
+			}
 			start = index + 1
-			betweenPending = false
+		case "OR":
+			if caseDepth == 0 {
+				start = index + 1
+				betweenPending = false
+			}
 		}
 	}
 	segment := tokens[start:]
@@ -115,10 +131,8 @@ func predicateMode(tokens []sqlToken, depth int) completionMode {
 	}
 	if comparisonIndex >= 0 {
 		if betweenPending && segment[comparisonIndex].text == "BETWEEN" {
-			for _, token := range segment[comparisonIndex+1:] {
-				if token.depth <= depth && token.text != "NOT" {
-					return completionModeBetweenSeparator
-				}
+			if betweenLowerBoundComplete(segment[comparisonIndex+1:], depth) {
+				return completionModeBetweenSeparator
 			}
 			return completionModeExpression
 		}
@@ -133,6 +147,58 @@ func predicateMode(tokens []sqlToken, depth int) completionMode {
 		return completionModePostExpression
 	}
 	return completionModeComparison
+}
+
+func betweenLowerBoundComplete(tokens []sqlToken, depth int) bool {
+	hasExpressionToken := false
+	openCases := 0
+	for index, token := range tokens {
+		if token.depth < depth {
+			break
+		}
+		if token.kind == sqlTokenWord {
+			switch token.text {
+			case "CASE":
+				openCases++
+			case "END":
+				if openCases > 0 {
+					openCases--
+				}
+			case "INTERVAL":
+				if !completeIntervalExpression(tokens[index+1:], token.depth) {
+					return false
+				}
+			}
+		}
+		if token.text != "NOT" {
+			hasExpressionToken = true
+		}
+	}
+	return hasExpressionToken && openCases == 0
+}
+
+func completeIntervalExpression(tokens []sqlToken, depth int) bool {
+	hasExpressionToken := false
+	for _, token := range tokens {
+		if token.depth < depth {
+			break
+		}
+		if token.depth == depth && token.kind == sqlTokenWord && isIntervalUnit(token.text) && hasExpressionToken {
+			return true
+		}
+		if token.kind == sqlTokenWord || token.kind == sqlTokenValue {
+			hasExpressionToken = true
+		}
+	}
+	return false
+}
+
+func isIntervalUnit(value string) bool {
+	switch value {
+	case "MILLISECOND", "SECOND", "MINUTE", "HOUR", "DAY", "WEEK", "MONTH", "QUARTER", "YEAR":
+		return true
+	}
+	return false
 }
 
 func lastTokenAtDepth(tokens []sqlToken, depth int) sqlToken {
