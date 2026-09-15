@@ -10,7 +10,12 @@ from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
 
 from products.error_tracking.backend.logic.alerts import NATIVE_ALERTS_FLAG
-from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertDestination, ErrorTrackingIssue
+from products.error_tracking.backend.models import (
+    ErrorTrackingAlert,
+    ErrorTrackingAlertDestination,
+    ErrorTrackingAlertThread,
+    ErrorTrackingIssue,
+)
 
 # Sentinel swapped for a real integration id inside the test body; parameterized
 # cases are built before setUp so they cannot reference one directly.
@@ -475,3 +480,117 @@ class TestErrorTrackingAlertPreview(APIBaseTest):
             f"/api/projects/{self.team.id}/error_tracking/alerts/preview/", {"trigger": "issue_deleted"}
         )
         assert response.status_code == 400
+
+
+class TestErrorTrackingAlertThreads(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        flag_patcher = patch("products.error_tracking.backend.logic.alerts.feature_enabled_or_false", return_value=True)
+        flag_patcher.start()
+        self.addCleanup(flag_patcher.stop)
+
+    def test_lists_an_issues_threads_with_provider_links_and_health(self):
+        integration = Integration.objects.create(
+            team=self.team, kind="slack", config={"team": {"id": "T0WORK", "name": "PostHog"}}
+        )
+        issue = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError")
+        other_issue = ErrorTrackingIssue.objects.create(team=self.team, name="Other")
+        with team_scope(self.team.id):
+            alert = ErrorTrackingAlert.objects.create(
+                team=self.team, name="Production errors", triggers=["issue_created"]
+            )
+            destination = alert.destinations.create(
+                team=self.team,
+                channel_type="slack",
+                integration=integration,
+                config={"channel": "C0123", "channel_name": "#alerts"},
+                last_error="Slack error: not_in_channel",
+                consecutive_failures=2,
+            )
+            rooted = ErrorTrackingAlertThread.objects.create(
+                team=self.team,
+                alert=alert,
+                issue=issue,
+                destination=destination,
+                external_ref={"channel": "C0123", "ts": "1725270000.123456"},
+                root_headline="🔴 New issue",
+                delivered_notification_ids=["n1", "n2"],
+            )
+            ErrorTrackingAlertThread.objects.create(
+                team=self.team, alert=alert, issue=other_issue, destination=destination
+            )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/error_tracking/alerts/threads/", {"issue_id": str(issue.id)}
+        )
+
+        assert response.status_code == 200, response.json()
+        body = response.json()
+        assert [t["id"] for t in body] == [str(rooted.id)]
+        thread = body[0]
+        assert thread["alert_name"] == "Production errors"
+        assert thread["channel_name"] == "#alerts"
+        assert thread["external_url"] == "https://app.slack.com/client/T0WORK/C0123/thread/C0123-1725270000.123456"
+        assert "delivered_count" not in thread
+        assert thread["last_error"] == "Slack error: not_in_channel"
+        assert thread["consecutive_failures"] == 2
+
+    def test_unrooted_thread_has_no_link_and_missing_issue_id_is_rejected(self):
+        integration = Integration.objects.create(team=self.team, kind="slack", config={"team": {"name": "PostHog"}})
+        issue = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError")
+        with team_scope(self.team.id):
+            alert = ErrorTrackingAlert.objects.create(team=self.team, name="Alert", triggers=["issue_created"])
+            destination = alert.destinations.create(
+                team=self.team, channel_type="slack", integration=integration, config={"channel": "C1"}
+            )
+            ErrorTrackingAlertThread.objects.create(team=self.team, alert=alert, issue=issue, destination=destination)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/error_tracking/alerts/threads/", {"issue_id": str(issue.id)}
+        )
+        assert response.status_code == 200
+        assert response.json()[0]["external_url"] is None
+
+        assert self.client.get(f"/api/projects/{self.team.id}/error_tracking/alerts/threads/").status_code == 400
+
+    def test_threads_follow_the_issues_environment_access(self):
+        # Thread rows live on the project, but the issue belongs to one environment: a
+        # caller must be allowed on that environment, and a key confined elsewhere is not.
+        integration = Integration.objects.create(team=self.team, kind="slack", config={"team": {"name": "PostHog"}})
+        sibling = Team.objects.create(organization=self.organization, project_id=self.team.project_id, name="staging")
+        sibling_issue = ErrorTrackingIssue.objects.create(team=sibling, name="Sibling secret")
+        elsewhere = Team.objects.create(organization=self.organization, name="elsewhere")
+        foreign_issue = ErrorTrackingIssue.objects.create(team=elsewhere, name="Foreign")
+        with team_scope(self.team.id):
+            alert = ErrorTrackingAlert.objects.create(team=self.team, name="Alert", triggers=["issue_created"])
+            destination = alert.destinations.create(
+                team=self.team, channel_type="slack", integration=integration, config={"channel": "C1"}
+            )
+            ErrorTrackingAlertThread.objects.create(
+                team=self.team, alert=alert, issue=sibling_issue, destination=destination
+            )
+        url = f"/api/projects/{self.team.id}/error_tracking/alerts/threads/"
+
+        allowed = self.client.get(url, {"issue_id": str(sibling_issue.id)})
+        assert allowed.status_code == 200, allowed.json()
+        assert len(allowed.json()) == 1
+
+        assert self.client.get(url, {"issue_id": str(foreign_issue.id)}).status_code == 404
+
+        with patch(
+            "products.error_tracking.backend.presentation.views.alerts.UserAccessControl.check_access_level_for_resource",
+            return_value=False,
+        ):
+            assert self.client.get(url, {"issue_id": str(sibling_issue.id)}).status_code == 403
+
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="scoped",
+            user=self.user,
+            secure_value=hash_key_value(raw_key),
+            scopes=["error_tracking:read"],
+            scoped_teams=[self.team.id],
+        )
+        self.client.logout()
+        scoped = self.client.get(url, {"issue_id": str(sibling_issue.id)}, HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+        assert scoped.status_code == 403, scoped.json()
