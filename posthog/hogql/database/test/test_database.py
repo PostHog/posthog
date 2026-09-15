@@ -1217,6 +1217,10 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         config = self.team.revenue_analytics_config
         config.events = [REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT]
         config.save()
+        # Team.revenue_analytics_config memoizes by team pk in a module-level lru_cache, so the
+        # configured object would outlive this test's transaction and leak into later tests
+        # in this class, which share the team pk.
+        self.addCleanup(Team.__dict__["revenue_analytics_config"].fget.cache_clear)
 
     def test_revenue_views_build_only_on_revenue_table_access(self):
         self._configure_revenue_events()
