@@ -1016,7 +1016,7 @@ export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
  * Parses the SQL only, so it is cheap enough to call from the editor as the user types. Lets
  * the editor explain why the incremental option is unavailable before anything is saved.
  */
-export const warehouseSavedQueriesCheckIncrementalCreateBodyQueryMax = 65536
+export const warehouseSavedQueriesCheckIncrementalCreateBodyQueryMax = 262144
 
 export const warehouseSavedQueriesCheckIncrementalCreateBodyLookbackSecondsMin = 0
 export const warehouseSavedQueriesCheckIncrementalCreateBodyLookbackSecondsMax = 2592000

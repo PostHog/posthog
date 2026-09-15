@@ -17,10 +17,15 @@ class DataWarehouseExpression(ModelActivityMixin, TeamScopedRootMixin, UUIDTMode
 
     # db_constraint=False on the hot-table FKs (team, created_by) so CreateModel takes no lock
     # on posthog_team / posthog_user; app-level enforcement is enough here.
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        related_name="+",
     )
     table_name = models.CharField(max_length=400)
     field_name = models.CharField(max_length=400)

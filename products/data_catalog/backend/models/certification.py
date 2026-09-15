@@ -16,13 +16,9 @@ class TableCertification(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
 
     objects = EnvironmentScopedManager()
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_by = models.ForeignKey(
-        "posthog.User",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_constraint=False,
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
     table = models.ForeignKey(
         "warehouse_sources.DataWarehouseTable",

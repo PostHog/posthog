@@ -175,10 +175,11 @@ class TestAssignReviewersToPullRequest:
         ("failing_call", "outcome"),
         [
             ("get_pull_request", Exception("boom")),
+            ("get_pull_request", {"success": False, "error": "Failed to fetch pull request"}),
             ("add_pull_request_assignees", Exception("boom")),
             ("add_pull_request_assignees", {"success": False, "error": "Failed to assign pull request"}),
         ],
-        ids=["pr_read_raises", "assign_raises", "assign_reports_failure"],
+        ids=["pr_read_raises", "pr_read_reports_failure", "assign_raises", "assign_reports_failure"],
     )
     def test_a_github_failure_is_swallowed(self, org_and_team, failing_call: str, outcome: object):
         org, team = org_and_team
@@ -193,6 +194,38 @@ class TestAssignReviewersToPullRequest:
         with patch(
             "products.signals.backend.reviewer_pr_assignment.GitHubIntegration.first_for_team_repository",
             return_value=github,
+        ):
+            assert assign_reviewers_to_pull_request(team_id=team.id, report_id=str(report.id), pr_url=PR_URL) == []
+
+    @pytest.mark.django_db
+    def test_a_url_that_is_not_a_pull_request_is_not_assigned(self, org_and_team):
+        org, team = org_and_team
+        _make_reviewer(org, "opted-in", opted_in=True)
+        report = _make_report(team, ["opted-in"])
+
+        with patch(
+            "products.signals.backend.reviewer_pr_assignment.GitHubIntegration.first_for_team_repository"
+        ) as mock_lookup:
+            assigned = assign_reviewers_to_pull_request(
+                team_id=team.id, report_id=str(report.id), pr_url="https://example.com/not-a-pr"
+            )
+
+        assert assigned == []
+        mock_lookup.assert_not_called()
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        "lookup",
+        [{"return_value": None}, {"side_effect": Exception("boom")}],
+        ids=["no_integration", "lookup_raises"],
+    )
+    def test_an_unavailable_integration_is_not_assigned(self, org_and_team, lookup: dict):
+        org, team = org_and_team
+        _make_reviewer(org, "opted-in", opted_in=True)
+        report = _make_report(team, ["opted-in"])
+
+        with patch(
+            "products.signals.backend.reviewer_pr_assignment.GitHubIntegration.first_for_team_repository", **lookup
         ):
             assert assign_reviewers_to_pull_request(team_id=team.id, report_id=str(report.id), pr_url=PR_URL) == []
 
@@ -331,6 +364,7 @@ class TestPullRequestLinkingQueuesAssignment:
         SignalReportAssignment.all_teams.filter(report=report).update(
             pr_url=None, repository=None, pr_number=None, pr_state=SignalReportAssignment.PrState.UNKNOWN
         )
+        SignalReportArtefact.objects.filter(report=report, type="pull_request").delete()
         self.mock_delay.reset_mock()
 
         update_assignments_for_pull_request(

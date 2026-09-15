@@ -1779,13 +1779,81 @@ export interface TaskDetailDTOApi {
     origin_key?: string | null
 }
 
-export interface PaginatedTaskDetailDTOListApi {
+/**
+ * @nullable
+ */
+export type TaskBasicApiJsonSchema = { [key: string]: unknown } | null
+
+/**
+ * Basic list response for a task, returned when the list is asked for ``basic=true``.
+ *
+ * A surface that renders only a summary of each task asks for the basic payload and gets this
+ * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+ * replaces it with ``description_preview`` (the first characters) so a feed can still show a
+ * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+ * always returns it. A client uses the ``search`` query parameter to match description text
+ * server-side.
+ */
+export interface TaskBasicApi {
+    id: string
+    /** @nullable */
+    task_number: number | null
+    slug: string
+    title: string
+    title_manually_set: boolean
+    origin_product: string
+    /** Agent protocol and harness used for this task's runs.
+     *
+     * * `acp` - ACP
+     * * `pi` - Pi */
+    runtime: TaskRuntimeEnumApi
+    /** @nullable */
+    repository: string | null
+    repositories: string[]
+    /** @nullable */
+    github_integration: number | null
+    /** @nullable */
+    github_user_integration: string | null
+    /** @nullable */
+    signal_report: string | null
+    /** @nullable */
+    json_schema: TaskBasicApiJsonSchema
+    internal: boolean
+    archived: boolean
+    /** @nullable */
+    archived_at: string | null
+    /** Latest run details for this task */
+    latest_run?: TaskRunDetailDTOApi | null
+    /** @nullable */
+    created_at?: string | null
+    /** @nullable */
+    updated_at?: string | null
+    /** @nullable */
+    last_activity_at?: string | null
+    created_by?: TaskUserBasicInfoApi | null
+    /** @nullable */
+    ci_prompt: string | null
+    /** @nullable */
+    channel?: string | null
+    readonly slack_thread_references: readonly SlackThreadReferenceDTOApi[]
+    /**
+     * Stable key of the server-side flow that created this task, e.g. `desktop_onboarding_session:<user_id>`. Null for tasks people create themselves.
+     * @nullable
+     */
+    origin_key?: string | null
+    /** First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text. */
+    readonly description_preview: string
+}
+
+export type TaskListItemApi = TaskDetailDTOApi | TaskBasicApi
+
+export interface PaginatedTaskListItemListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: TaskDetailDTOApi[]
+    results: TaskListItemApi[]
 }
 
 /**
@@ -4451,6 +4519,101 @@ export interface PinnedTaskIdsResponseApi {
     task_ids: string[]
 }
 
+/**
+ * * `engineering` - Engineering
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `student` - Student
+ * * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Student: 'student',
+    Other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
+
+export interface RepoRoutingRuleApi {
+    readonly id: string
+    /**
+     * Plain-text description of the requests that should route to the repository, e.g. 'anything about the internal dashboard'. At most 300 characters.
+     * @maxLength 300
+     */
+    rule_text: string
+    /**
+     * Target repository as owner/repo, e.g. 'posthog/posthog.com'.
+     * @maxLength 255
+     */
+    repository: string
+    readonly priority: number
+    /** Who created the rule, from the UI or the Slack commands. Null when that user was deleted. */
+    readonly created_by: UserBasicApi | null
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PatchedRepoRoutingRuleApi {
+    readonly id?: string
+    /**
+     * Plain-text description of the requests that should route to the repository, e.g. 'anything about the internal dashboard'. At most 300 characters.
+     * @maxLength 300
+     */
+    rule_text?: string
+    /**
+     * Target repository as owner/repo, e.g. 'posthog/posthog.com'.
+     * @maxLength 255
+     */
+    repository?: string
+    readonly priority?: number
+    /** Who created the rule, from the UI or the Slack commands. Null when that user was deleted. */
+    readonly created_by?: UserBasicApi | null
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
 export interface TaskRepositoriesResponseApi {
     /** Distinct repositories in use by non-deleted, non-internal tasks for the current team. */
     repositories: string[]
@@ -5076,7 +5239,7 @@ export type TasksListParams = {
      */
     archived?: TasksListArchived
     /**
-     * Return a basic payload with heavy fields dropped, for surfaces that render only a summary of each task. Defaults to false. Currently this omits the description body, which dominates the list payload; the search parameter still matches description text server-side.
+     * With true, return basic list rows for summary surfaces: each row omits the full description and includes description_preview, its first 1000 characters. Defaults to false, which returns full task rows with description. The search parameter still matches description text server-side.
      */
     basic?: boolean
     /**

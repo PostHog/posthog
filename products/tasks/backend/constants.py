@@ -5,6 +5,8 @@ from typing import Any, Literal, get_args
 
 import posthoganalytics
 
+from products.tasks.backend import model_catalog
+
 # Canonical PR/CI snapshot vocabulary, as produced by the GitHub integration's
 # pull-request snapshot (`_map_pr_state` / `_map_ci_status`) and persisted on
 # ``TaskRun.output`` (``pr_state`` / ``ci_status``) for the task list filters.
@@ -79,28 +81,18 @@ DEV_STACK_PREVIEW_STATE_KEY = "dev_stack_preview"
 DEV_STACK_PREVIEW_FEATURE_FLAG = "tasks-dev-stack-preview"
 DEV_STACK_PREVIEW_PORT = 8020
 
-# Models a caller may only select while the paired flag is enabled for them. The Desktop
-# pickers already hide these client-side (`products/desktop/packages/shared/src/flags.ts`),
-# but a picker is a convenience rather than a gate: a stored per-task model preference, an
-# older client, or a direct API call all reach the write paths without consulting a flag, so
-# entitlement is re-checked server-side. Keys are the model ids callers send.
-MODEL_ACCESS_FLAGS: dict[str, str] = {
-    "moonshotai/kimi-k3": "tasks-kimi-k3",
-    "deepseek-ai/deepseek-v4-flash-0731": "posthog-code-deepseek-model",
-    "zai-org/glm-5.3": "posthog-code-glm-53-model",
-    "zai-org/glm-5.3-flash": "posthog-code-glm-53-flash-model",
-}
-
 
 def get_required_model_flag(model: str | None) -> str | None:
-    """The feature flag a caller needs to select `model`, or None when it's generally available."""
+    """The feature flag a caller needs to select `model`, or None when it's generally available.
+
+    Read from the catalog, which is also what the pickers project into TypeScript, so a
+    model cannot be offered on one surface and gated on another. The lookup folds a
+    provider-qualified id onto the model it names, so a gate matching raw strings cannot
+    read `anthropic/zai-org/glm-5.3` as an unknown model and skip the check.
+    """
     if not model:
         return None
-    normalized = model.strip().lower()
-    for gated_model, flag_key in MODEL_ACCESS_FLAGS.items():
-        if gated_model.lower() == normalized:
-            return flag_key
-    return None
+    return model_catalog.access_flag_for_model(model)
 
 
 def _decode_vm_sandbox_payload(payload: object) -> object:
@@ -231,6 +223,10 @@ SnapshotKind = Literal["filesystem", "directory"]
 SNAPSHOT_KIND_FILESYSTEM: SnapshotKind = "filesystem"
 SNAPSHOT_KIND_DIRECTORY: SnapshotKind = "directory"
 DEFAULT_SANDBOX_WORKING_DIR = "/tmp/workspace"
+# Directory a sandbox clones repositories under, as `<root>/<organization>/<repository>`. Anything
+# that tells an agent where its checkout is must read it from here (see `sandbox_repo_path`), or a
+# prompt sends the agent to a path the clone never used.
+SANDBOX_REPOSITORIES_ROOT = f"{DEFAULT_SANDBOX_WORKING_DIR}/repos"
 # Directory resume snapshots capture a directory and re-mount it into the next sandbox. The mount
 # REPLACES the target directory in the running sandbox, so only the quiescent workspace dir is safe:
 # mounting over a live system directory (the old "/tmp" default) rips scratch space and sockets out

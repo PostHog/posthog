@@ -9,6 +9,7 @@ _CASE_INSENSITIVE_OPTS = re2.Options()
 _CASE_INSENSITIVE_OPTS.case_sensitive = False
 
 COST_PER_UNIT = 8
+MAX_MEMORY = 64 * 1024 * 1024  # 64 MB
 
 
 def _temporal_seconds(value: Any) -> float | None:

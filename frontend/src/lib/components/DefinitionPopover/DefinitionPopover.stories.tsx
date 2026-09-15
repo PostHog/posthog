@@ -5,7 +5,6 @@ import { BindLogic } from 'kea'
 import { useRef } from 'react'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
 import {
@@ -311,7 +310,6 @@ const DataWarehouseColumnMappingWrapper = (): JSX.Element => {
 export const DataWarehouseColumnMapping: Story = {
     render: () => <DataWarehouseColumnMappingWrapper />,
     parameters: {
-        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill' },
         testOptions: { waitForSelector: '.definition-popover-data-warehouse-schema-form' },
     },
     // Open the first column picker so the snapshot captures the filterable

@@ -38,8 +38,6 @@ import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { mathsLogic } from 'scenes/trends/mathsLogic'
-import { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -74,6 +72,9 @@ import {
 } from '~/types'
 
 import { insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
+import { mathsLogic } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
+import type { MathDefinition } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
+import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 import type { AlertType } from '../../../../products/alerts/frontend/types'
 import type { InsightFilterOverrideContextApi } from '../../../../products/product_analytics/frontend/generated/api.schemas'
@@ -83,7 +84,6 @@ import type { Noun } from '../../models/groupsModel'
 import type { QueryStatus, ResolvedDateRangeResponse } from '../../queries/schema/schema-general'
 import type { CohortType, DashboardTileBasicType, TeamPublicType, TeamType, UserBasicType, UserType } from '../../types'
 import { teamLogic } from '../teamLogic'
-import type { MathDefinition } from '../trends/mathsLogic'
 import { insightDataLogic, isInsightSceneInstance } from './insightDataLogic'
 import { getInsightId } from './utils'
 import { insightsApi } from './utils/api'
@@ -972,7 +972,12 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     deferToUserWording?: boolean
                 ) => import('~/models/groupsModel').Noun,
                 cohortsById: Partial<Record<number | string, import('~/types').CohortType>>,
-                mathDefinitions: Partial<Record<string, import('scenes/trends/mathsLogic').MathDefinition>>
+                mathDefinitions: Partial<
+                    Record<
+                        string,
+                        import('products/product_analytics/frontend/insights/trends/mathsLogic').MathDefinition
+                    >
+                >
             ) =>
                 summarizeInsight(query, {
                     aggregationLabel,

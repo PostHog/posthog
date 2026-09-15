@@ -85,8 +85,15 @@ You can create an Uptime API token in your [Better Stack dashboard](https://upti
             # 401/403 surface as a requests HTTPError when `_fetch_page` calls `raise_for_status()`.
             # No retry can satisfy a credential problem. Match the stable status text + base host,
             # not the per-request path/query.
+            # Team members and roles are served from betterstack.com rather than the Uptime
+            # subdomain, so both hosts need an entry.
             "401 Client Error: Unauthorized for url: https://uptime.betterstack.com": "Your Better Stack API token is invalid or has been revoked. Create a new Uptime API token in your Better Stack dashboard, then reconnect.",
             "403 Client Error: Forbidden for url: https://uptime.betterstack.com": "Your Better Stack API token does not have access to this resource. Check the token's team scope in your Better Stack dashboard, then reconnect.",
+            "401 Client Error: Unauthorized for url: https://betterstack.com": "Your Better Stack API token is invalid or has been revoked. Create a new Uptime API token in your Better Stack dashboard, then reconnect.",
+            "403 Client Error: Forbidden for url: https://betterstack.com": "Your Better Stack API token does not have access to this resource. Check the token's team scope in your Better Stack dashboard, then reconnect.",
+            # Team members are listed per team, so a token spanning several teams cannot resolve
+            # which one to read and no retry will change that.
+            "422 Client Error: Unprocessable Entity for url: https://betterstack.com/api/v2/team-members": "Team members can only be synced with a team-scoped Uptime API token. Create one for the team you want to sync in your Better Stack dashboard, then reconnect.",
         }
 
     def get_schemas(
@@ -102,6 +109,14 @@ You can create an Uptime API token in your [Better Stack dashboard](https://upti
             ENDPOINTS,
             {name: endpoint_config.incremental_fields for name, endpoint_config in BETTER_STACK_ENDPOINTS.items()},
             names,
+            # Fan-out children re-request each parent's whole child collection every sync, because
+            # neither child endpoint takes a server-side time filter. Appending that would
+            # duplicate every row the previous sync wrote, so they only offer incremental merge.
+            merge_only=[
+                name
+                for name, endpoint_config in BETTER_STACK_ENDPOINTS.items()
+                if endpoint_config.fanout is not None and endpoint_config.incremental_fields
+            ],
             should_sync_default={
                 name: endpoint_config.should_sync_default for name, endpoint_config in BETTER_STACK_ENDPOINTS.items()
             },

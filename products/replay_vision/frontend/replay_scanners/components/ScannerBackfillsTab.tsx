@@ -47,12 +47,6 @@ const BACKFILL_STATUS_TAG: Record<BackfillStatusEnumApi, { label: string; type: 
 /** Raw instant, so two window bounds can be compared at a glance. */
 const WINDOW_TIME_FORMAT = { formatDate: 'MMM D, YYYY', formatTime: 'HH:mm' }
 
-/** A full UUID overflows the observations filter row; the leading block still identifies a backfill,
- * and the Backfills table shows the whole id to match against. */
-export function shortBackfillId(id: string): string {
-    return id.slice(0, 8)
-}
-
 /** Convert a DateFilter token (`-30d`, an ISO date, or null) into an ISO instant for the API. */
 export function resolveWindowBound(value: string | null, fallback: dayjs.Dayjs): string {
     return ((value && dateStringToDayJs(value)) || fallback).toISOString()

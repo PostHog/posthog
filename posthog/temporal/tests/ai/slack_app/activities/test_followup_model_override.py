@@ -145,5 +145,5 @@ class TestRunPreferenceState:
             "products.slack_app.backend.facade.run_preferences.resolve_run_preferences",
             return_value=prefs,
         ):
-            state = _run_preference_state(integration=None, slack_user_id="U1", model_override=None)
+            state = _run_preference_state(model_override=None)
         assert state == expected
