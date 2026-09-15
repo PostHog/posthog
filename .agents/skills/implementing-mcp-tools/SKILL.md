@@ -87,7 +87,7 @@ Without action trimming, `experiment-freeze-exposure` can advertise the
 redundant domain `experiment-freeze` instead of `experiment`.
 
 Whenever you add or rename an action tool, check the
-[`TRAILING_ACTIONS`](services/mcp/src/lib/instructions.ts) set in the
+[`TRAILING_ACTIONS`](../../../services/mcp/src/lib/instructions.ts) set in the
 same change. If a rendered domain can end in an operation verb that is not
 already present, add the verb. Cover it in
 `services/mcp/tests/unit/instructions.test.ts`. This applies even when the verb
