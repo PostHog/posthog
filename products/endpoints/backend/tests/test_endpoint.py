@@ -1432,6 +1432,90 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_invalid_bucket_override_on_create_is_rejected(self):
+        from products.endpoints.backend.models import Endpoint
+        from products.product_analytics.backend.facade.models import InsightVariable
+
+        InsightVariable.objects.create(
+            team=self.team, id="00000000-0000-0000-0000-000000000001", code_name="start_ts", type="String"
+        )
+        InsightVariable.objects.create(
+            team=self.team, id="00000000-0000-0000-0000-000000000002", code_name="end_ts", type="String"
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/",
+            {
+                "name": "create-bad-bucket",
+                "query": self.variable_query,
+                "is_materialized": True,
+                "bucket_overrides": {"timestamp": "invalid_fn"},
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not Endpoint.objects.filter(name="create-bad-bucket", team=self.team).exists()
+
+    def test_invalid_bucket_override_on_update_does_not_create_a_version(self):
+        from products.endpoints.backend.models import Endpoint, EndpointVersion
+
+        self._create_endpoint_with_variables("reject-bucket")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/reject-bucket/",
+            {"is_materialized": True, "bucket_overrides": {"timestamp": "hour"}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        new_query = {
+            **self.variable_query,
+            "query": "SELECT event, count() FROM events WHERE timestamp >= {variables.start_ts} AND timestamp < {variables.end_ts} GROUP BY event",
+        }
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/reject-bucket/",
+            {"query": new_query, "bucket_overrides": {"timestamp": "invalid_fn"}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        endpoint = Endpoint.objects.get(name="reject-bucket", team=self.team)
+        assert endpoint.current_version == 1
+        assert EndpointVersion.objects.filter(endpoint=endpoint).count() == 1
+
+    def test_inherited_invalid_bucket_override_rejects_a_query_change_without_writing(self):
+        # The request omits bucket_overrides, so the value under test is the one the
+        # update would carry over from the current version.
+        from products.endpoints.backend.models import Endpoint, EndpointVersion
+
+        self._create_endpoint_with_variables("inherit-bucket")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/inherit-bucket/",
+            {"is_materialized": True, "bucket_overrides": {"timestamp": "hour"}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        version = EndpointVersion.objects.get(endpoint__name="inherit-bucket", endpoint__team=self.team, version=1)
+        version.bucket_overrides = {"timestamp": "invalid_fn"}
+        version.save(update_fields=["bucket_overrides"])
+
+        new_query = {
+            **self.variable_query,
+            "query": "SELECT event, count() FROM events WHERE timestamp >= {variables.start_ts} AND timestamp < {variables.end_ts} GROUP BY event",
+        }
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/inherit-bucket/",
+            {"query": new_query},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        endpoint = Endpoint.objects.get(name="inherit-bucket", team=self.team)
+        assert endpoint.current_version == 1
+        assert EndpointVersion.objects.filter(endpoint=endpoint).count() == 1
+
     def test_reenable_materialization_without_bucket_overrides_clears_old_value(self):
         from products.endpoints.backend.models import EndpointVersion
 
