@@ -85,4 +85,11 @@ export function getCurrentOrganizationId(): OrganizationType['id'] {
     return maybeOrgId
 }
 
+export function getCurrentOrganizationIdOrNone(): OrganizationType['id'] | null {
+    return (
+        getAppContext()?.current_team?.organization ??
+        (isOAuthMode() ? (getOAuthContextIds()?.organizationId ?? null) : null)
+    )
+}
+
 export const isUserLoggedIn = (): boolean => !getAppContext()?.anonymous

@@ -6,6 +6,7 @@ import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAu
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { bindModalToUrl } from 'lib/logic/bindModalToUrl'
+import { buildUserScopedOrganizationPersistenceConfig } from 'lib/logic/persistence'
 import { pluralize } from 'lib/utils/strings'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -147,9 +148,6 @@ export interface inviteLogicActions {
         inviteIndex: number
         projectId: number
     }
-    resetInviteRows: () => {
-        value: true
-    }
     setIsInviteConfirmed: (inviteConfirmed: boolean) => {
         inviteConfirmed: boolean
     }
@@ -196,7 +194,6 @@ export const inviteLogic = kea<inviteLogicType>([
         deleteInviteAtIndex: (index: number) => ({ index }),
         updateMessage: (message: string) => ({ message }),
         appendInviteRow: true,
-        resetInviteRows: true,
         setIsInviteConfirmed: (inviteConfirmed: boolean) => ({ inviteConfirmed }),
         addProjectAccess: (inviteIndex: number, projectId: number, level: AccessControlLevel) => ({
             inviteIndex,
@@ -279,71 +276,86 @@ export const inviteLogic = kea<inviteLogicType>([
             },
         ],
     })),
-    reducers(() => ({
-        isInviteModalShown: [
-            false,
-            {
-                showInviteModal: () => true,
-                hideInviteModal: () => false,
-            },
-        ],
-        invitesToSend: [
-            [EMPTY_INVITE] as InviteRowState[],
-            {
-                updateInviteAtIndex: (state, { payload, index }) => {
-                    const newState = [...state]
-                    newState[index] = { ...state[index], ...payload }
-                    return newState
-                },
-                deleteInviteAtIndex: (state, { index }) => {
-                    const newState = [...state]
-                    newState.splice(index, 1)
-                    return newState
-                },
-                appendInviteRow: (state) => [...state, EMPTY_INVITE],
-                resetInviteRows: () => [EMPTY_INVITE],
-                inviteTeamMembersSuccess: () => [EMPTY_INVITE],
-                addProjectAccess: (state, { inviteIndex, projectId, level }) => {
-                    const newState = [...state]
-                    const invite = { ...newState[inviteIndex] }
+    reducers(() => {
+        // Re-authenticating with SSO leaves the app for the identity provider and comes back through
+        // a full page load, which drops in-memory state. Persisting the draft keeps what the user
+        // typed. The draft is cleared when the modal closes and when the invites are sent, so invitee
+        // email addresses do not stay in storage.
+        const draftPersistence = buildUserScopedOrganizationPersistenceConfig('invite_modal_draft__')
 
-                    // Remove existing access for this project if it exists
-                    invite.private_project_access = invite.private_project_access.filter(
-                        (access) => access.id !== projectId
-                    )
+        return {
+            isInviteModalShown: [
+                false,
+                {
+                    showInviteModal: () => true,
+                    hideInviteModal: () => false,
+                },
+            ],
+            invitesToSend: [
+                [EMPTY_INVITE] as InviteRowState[],
+                draftPersistence,
+                {
+                    updateInviteAtIndex: (state, { payload, index }) => {
+                        const newState = [...state]
+                        newState[index] = { ...state[index], ...payload }
+                        return newState
+                    },
+                    deleteInviteAtIndex: (state, { index }) => {
+                        const newState = [...state]
+                        newState.splice(index, 1)
+                        return newState
+                    },
+                    appendInviteRow: (state) => [...state, EMPTY_INVITE],
+                    hideInviteModal: () => [EMPTY_INVITE],
+                    inviteTeamMembersSuccess: () => [EMPTY_INVITE],
+                    addProjectAccess: (state, { inviteIndex, projectId, level }) => {
+                        const newState = [...state]
+                        const invite = { ...newState[inviteIndex] }
 
-                    // Add new access
-                    invite.private_project_access.push({
-                        id: projectId,
-                        level: level as AccessControlLevel.Member | AccessControlLevel.Admin,
-                    })
-                    newState[inviteIndex] = invite
-                    return newState
+                        // Remove existing access for this project if it exists
+                        invite.private_project_access = invite.private_project_access.filter(
+                            (access) => access.id !== projectId
+                        )
+
+                        // Add new access
+                        invite.private_project_access.push({
+                            id: projectId,
+                            level: level as AccessControlLevel.Member | AccessControlLevel.Admin,
+                        })
+                        newState[inviteIndex] = invite
+                        return newState
+                    },
+                    removeProjectAccess: (state, { inviteIndex, projectId }) => {
+                        const newState = [...state]
+                        const invite = { ...newState[inviteIndex] }
+                        invite.private_project_access = invite.private_project_access.filter(
+                            (access) => access.id !== projectId
+                        )
+                        newState[inviteIndex] = invite
+                        return newState
+                    },
                 },
-                removeProjectAccess: (state, { inviteIndex, projectId }) => {
-                    const newState = [...state]
-                    const invite = { ...newState[inviteIndex] }
-                    invite.private_project_access = invite.private_project_access.filter(
-                        (access) => access.id !== projectId
-                    )
-                    newState[inviteIndex] = invite
-                    return newState
+            ],
+            message: [
+                '',
+                draftPersistence,
+                {
+                    updateMessage: (_, { message }) => message,
+                    hideInviteModal: () => '',
+                    inviteTeamMembersSuccess: () => '',
                 },
-            },
-        ],
-        message: [
-            '',
-            {
-                updateMessage: (_, { message }) => message,
-            },
-        ],
-        isInviteConfirmed: [
-            false,
-            {
-                setIsInviteConfirmed: (_, { inviteConfirmed }) => inviteConfirmed,
-            },
-        ],
-    })),
+            ],
+            isInviteConfirmed: [
+                false,
+                draftPersistence,
+                {
+                    setIsInviteConfirmed: (_, { inviteConfirmed }) => inviteConfirmed,
+                    hideInviteModal: () => false,
+                    inviteTeamMembersSuccess: () => false,
+                },
+            ],
+        }
+    }),
     selectors({
         inviteContainsOwnerLevel: [
             (selectors) => [selectors.invitesToSend],
