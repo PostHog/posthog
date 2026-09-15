@@ -26,6 +26,7 @@ All three budgets use the default reserve ladder.
 Deferrable background callers construct their client on the `BATCH` lane (`GitHubIntegration(integration, source=..., priority=Priority.BATCH)`; `api_request` also takes a per-call override).
 A shed sweep stops for the cycle and resumes on the next scheduled run.
 A caller that walks pages, such as the warehouse source, paces with `github_installation_pace_seconds` instead of getting denied.
+The warehouse source's page fetches run on `BATCH`, while its repository validation and webhook management run on `NORMAL`, because a person waits on them.
 
 The `BATCH` floor on the `core` resource is **demand-responsive**, because a reserve is only worth holding against traffic that exists.
 An installation whose only consumer is a bulk one (a warehouse backfill of a repository nothing else touches) would otherwise forfeit 30% of its hourly budget to contention that never arrives, and the hourly budget is what decides whether a large backfill finishes in one run.
@@ -59,7 +60,7 @@ resp = github_request(
 
 `raise_if_github_rate_limited` and `GitHubRateLimitError` (GitHub's own 429, the reactive twin of `GitHubEgressBudgetExhausted`) live in `transport.py` for callers that want to raise and retry.
 The model-coupled `GitHubIntegrationBase.api_request` layers the installation-token lifecycle (proactive refresh, 401 refresh-retry, rate-limit raising, per-instance `source` attribution) on top. Hold an integration, call that. Hold a bare token, call `github_request`.
-The `github-api-calls-go-through-egress` semgrep rule reads the URL argument only, which is why `posthog/plugins/utils.py` still calls `requests.get` directly with a URL it builds into a variable first.
+The `github-api-calls-go-through-egress` semgrep rule reads the URL argument only, so a call that builds its URL into a variable first gets past it, and review is the only check on that shape.
 
 ## Identity-blind callers and the PAT scope decision
 

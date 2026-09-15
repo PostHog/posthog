@@ -9597,6 +9597,7 @@ export const externalDataSources = [
     'Skio',
     'Smartlead',
     'Substack',
+    'ElectricityMaps',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -9849,6 +9850,11 @@ export enum SubscriptionFreeTierLimit {
 /** Maximum length, in characters, of an AI subscription prompt. */
 export enum SubscriptionAIPromptMaxLength {
     CHARACTERS = 4000,
+}
+
+/** Maximum number of dashboards and insights an AI subscription may use as context. */
+export enum SubscriptionAIContextLimit {
+    COUNT = 3,
 }
 
 export type UsageMetricFormat = 'numeric' | 'currency'

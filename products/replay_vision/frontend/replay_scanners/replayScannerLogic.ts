@@ -56,6 +56,8 @@ import type { ScannerCreationMethodEnumApi, ScannerTypeEnumApi } from '../genera
 import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations } from '../logics/observationPolling'
 import { requestObservationRetry } from '../logics/observationRetry'
 import { refreshVisionQuota } from '../logics/visionQuotaLogic'
+import { neighborFilterParams } from '../observations/replayObservationLogic'
+import { lastObservationsPage } from '../observations/replayObservationSceneLogic'
 import { observationClipboardText } from '../utils/observation'
 import {
     type UrlSorting,
@@ -1593,6 +1595,15 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             actions.setScannerDraftSavedAt(savedAt)
         }
         return {
+            loadObservationsSuccess: ({ observations, total }) => {
+                lastObservationsPage.current = {
+                    rows: observations,
+                    number: values.observationsPage,
+                    pageSize: OBSERVATIONS_PAGE_SIZE,
+                    total,
+                    filterParams: neighborFilterParams(values.observationDetailLinkParams),
+                }
+            },
             // kea-forms' exact rejection for failed client-side validation. API failures toast in submit's catch.
             submitScannerFailure: async ({ error }) => {
                 if (error?.message !== 'Validation Failed') {

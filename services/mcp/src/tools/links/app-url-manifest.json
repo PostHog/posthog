@@ -1429,6 +1429,11 @@
         "params": ["shareToken"],
         "scope": "project"
     },
+    "shipIt": {
+        "template": "/games/shipit",
+        "params": [],
+        "scope": "project"
+    },
     "signup": {
         "template": "/signup",
         "params": [],
