@@ -1,4 +1,7 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
+
+from django.db import InterfaceError, OperationalError
 
 from parameterized import parameterized
 
@@ -125,6 +128,27 @@ class TestRevenueAnalyticsViews(BaseTest):
         self.assertEqual(len(events_views), 6)
         revenue_item_view = next(v for v in events_views if isinstance(v, RevenueAnalyticsRevenueItemView))
         self.assertIn("localhost", revenue_item_view.query)
+
+    @parameterized.expand(
+        [
+            ("operational_error", OperationalError("server closed the connection unexpectedly")),
+            ("interface_error", InterfaceError("connection already closed")),
+        ]
+    )
+    def test_database_failure_resolving_a_filter_drops_only_the_events_views(self, _name, database_error):
+        self.team.test_account_filters = [
+            {"type": "event", "key": "$host", "operator": "exact", "value": ["localhost"]}
+        ]
+        self.team.save()
+        self.team.revenue_analytics_config.filter_test_accounts = True
+        self.team.revenue_analytics_config.events = [REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT]
+        self.team.revenue_analytics_config.save()
+
+        with patch("posthog.hogql.property.property_to_expr", side_effect=database_error):
+            views = build_all_revenue_analytics_views(self.team, self.timings)
+
+        self.assertEqual([v for v in views if v.source_id is None], [])
+        self.assertEqual(len([v for v in views if v.source_id == str(self.source.id)]), 6)
 
     def test_revenue_view_with_disabled_source(self):
         """Test that the orchestrator returns None for disabled sources"""

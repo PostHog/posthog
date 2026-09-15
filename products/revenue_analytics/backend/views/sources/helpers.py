@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import cast
 
 from django.conf import settings
+from django.db import InterfaceError, OperationalError
 
 from posthog.schema import CurrencyCode
 
@@ -88,6 +89,11 @@ def events_expr_for_team(team: Team) -> ast.Expr:
             # only its own narrowing. Resolving the list as a whole drops every events-based view.
             try:
                 exprs.append(property_to_expr(filter, team))
+            except (OperationalError, InterfaceError):
+                # A database failure says nothing about the filter, so dropping it would report
+                # revenue that includes test accounts. Fail the events views instead, because the
+                # next query rebuilds them.
+                raise
             except Exception as e:
                 capture_exception(e, {"team_id": team.pk})
 
