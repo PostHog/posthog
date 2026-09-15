@@ -1,4 +1,5 @@
 import re
+import copy
 import json
 import uuid as uuid_mod
 import hashlib
@@ -46,7 +47,10 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr
 
 from posthog.api.app_metrics2 import (
+    AppMetricResponseSerializer,
     AppMetricsMixin,
+    AppMetricsTotalsResponseSerializer,
+    HogFlowMetricsRequestSerializer,
     fetch_app_metric_totals,
     fetch_app_metric_totals_by_source,
     fetch_app_metric_totals_by_team_and_source,
@@ -3882,7 +3886,8 @@ class WorkflowProposalCreateSerializer(serializers.Serializer):
         help_text=(
             "Only the workflow content fields this proposal changes. Approving merges them over the live "
             "content to build the staged draft, so unrelated parts of the workflow stay as they are. "
-            "In `actions`, send only the steps you change, each with its `id`."
+            "In `actions`, send each step you change with its `id` and only the fields you change; they "
+            "merge into the live step, and a null field deletes it."
         )
     )
     evidence = WorkflowProposalEvidenceField(
@@ -4112,8 +4117,9 @@ EVIDENCE_UNITS = ("rate", "count")
 
 
 def merge_proposal_content(live_content: dict, proposal_content: dict) -> dict:
-    """Live content with the proposal applied. Whole-list fields replace; `actions` merges per step,
-    so a proposal that rewrites one email leaves the rest of the graph exactly as it is now."""
+    """Live content with the proposal applied. Whole-list fields replace; `actions` merges per step
+    and, within a step, per field, so a proposal that rewrites one subject line leaves the rest of
+    that email and the rest of the graph exactly as they are now."""
     merged = {**live_content, **proposal_content}
     for field in PROPOSAL_MERGE_BY_ID_FIELDS:
         if field in proposal_content:
@@ -4122,9 +4128,15 @@ def merge_proposal_content(live_content: dict, proposal_content: dict) -> dict:
 
 
 def _merge_by_id(live_items: list, changed_items: list) -> list:
+    """Merge each changed step into the live step with the same id, field by field, the way the
+    graph API's `update_action` does: a producer sends the fields it changes and nothing else, so a
+    step can never lose its template inputs to a payload that only carried a subject line."""
     changed_by_id = {item["id"]: item for item in changed_items if isinstance(item, dict) and "id" in item}
-    merged = [changed_by_id.pop(item["id"], item) if _item_id(item) in changed_by_id else item for item in live_items]
-    # Anything left names a step the workflow does not have yet, so the proposal is adding it.
+    merged = []
+    for item in live_items:
+        patch = changed_by_id.pop(_item_id(item), None) if _item_id(item) in changed_by_id else None
+        merged.append(_deep_merge(copy.deepcopy(item), patch) if patch is not None else item)
+    # Anything left names a step the workflow does not have yet, so the proposal is adding it whole.
     merged.extend(changed_by_id.values())
     return merged
 
@@ -4301,6 +4313,10 @@ def mint_audience_confirm_token(
 
 @extend_schema(extensions={"x-product": "workflows"})
 @extend_schema_view(
+    metrics=extend_schema(parameters=[HogFlowMetricsRequestSerializer], responses=AppMetricResponseSerializer),
+    metrics_totals=extend_schema(
+        parameters=[HogFlowMetricsRequestSerializer], responses=AppMetricsTotalsResponseSerializer
+    ),
     list=extend_schema(
         parameters=[
             OpenApiParameter(
@@ -4331,7 +4347,7 @@ def mint_audience_confirm_token(
                 description='Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {"type": "event"}.',
             ),
         ]
-    )
+    ),
 )
 class HogFlowViewSet(
     TeamAndOrgViewSetMixin, AccessControlViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet
@@ -4382,6 +4398,7 @@ class HogFlowViewSet(
     log_source = "hog_flow"
     app_source = "hog_flow"
     function_kind = "hog_flow"
+    metrics_request_serializer_class = HogFlowMetricsRequestSerializer
 
     def dangerously_get_required_scopes(self, request, view) -> Optional[list[str]]:
         # Dual-method custom actions need method-aware scopes — the action-name-based read/write
@@ -4394,11 +4411,12 @@ class HogFlowViewSet(
                 return ["hog_flow:read"]
             return ["hog_flow:write"]
         if self.action == "proposals":
-            # Listing suggestions is workflow-read; authoring one is a workflow write, since approving
-            # it stages content into the draft.
+            # Listing suggestions is workflow-read. Authoring one takes its own narrow scope rather
+            # than `hog_flow:write`, so a producer can suggest without also being able to publish,
+            # update or test-send the workflow it is suggesting about.
             if request.method in ("GET", "HEAD", "OPTIONS"):
                 return ["hog_flow:read"]
-            return ["hog_flow:write"]
+            return ["hog_flow_proposal:write"]
         if self.action in ("batch_jobs", "schedules"):
             # Dispatching (or scheduling) fans out to persons and renders person properties into
             # outbound messages, so it's person-data access on top of the workflow write - same
@@ -5551,6 +5569,19 @@ class HogFlowViewSet(
                             "by `id` while `edges` replaces the whole list, so an edge to a step that no longer "
                             "exists is the usual cause.",
                             *_flatten_graph_errors(error),
+                        ]
+                    }
+                )
+            # Publish revalidates the staged draft with the workflow serializer, and a person cannot
+            # fix what it refuses from the suggestion card. Run the same validation here, where the
+            # producer can.
+            draft_serializer = self.get_serializer(instance, data=dict(merged), partial=True)
+            if not draft_serializer.is_valid():
+                raise exceptions.ValidationError(
+                    {
+                        "content": [
+                            "Publishing this change would be refused, so it cannot be suggested as it is.",
+                            *_flatten_graph_errors(serializers.ValidationError(dict(draft_serializer.errors))),
                         ]
                     }
                 )

@@ -306,6 +306,32 @@ const workflowsListRevisions = (): ToolBase<
     },
 })
 
+const WorkflowsListVersionsSchema = () => {
+    const HogFlowsRevisionsListParams = orvalSchemas.HogFlowsRevisionsListParams()
+    const HogFlowsRevisionsListQueryParams = orvalSchemas.HogFlowsRevisionsListQueryParams()
+    return HogFlowsRevisionsListParams.omit({ project_id: true }).extend(HogFlowsRevisionsListQueryParams.shape)
+}
+
+const workflowsListVersions = (): ToolBase<
+    ReturnType<typeof WorkflowsListVersionsSchema>,
+    WithPostHogUrl<Schemas.PaginatedHogFlowRevisionBasicList>
+> => ({
+    name: 'workflows-list-versions',
+    schema: WorkflowsListVersionsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsListVersionsSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedHogFlowRevisionBasicList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/revisions/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/workflows')
+    },
+})
+
 const WorkflowsLogsSchema = () => {
     const HogFlowsLogsRetrieveParams = orvalSchemas.HogFlowsLogsRetrieveParams()
     const HogFlowsLogsRetrieveQueryParams = orvalSchemas.HogFlowsLogsRetrieveQueryParams()
@@ -450,6 +476,7 @@ const workflowsStats = (): ToolBase<ReturnType<typeof WorkflowsStatsSchema>, Sch
                 interval: params.interval,
                 kind: params.kind,
                 name: params.name,
+                version: params.version,
             },
         })
         return result
@@ -627,6 +654,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-list-invocations': workflowsListInvocations,
     'workflows-list-proposals': workflowsListProposals,
     'workflows-list-revisions': workflowsListRevisions,
+    'workflows-list-versions': workflowsListVersions,
     'workflows-logs': workflowsLogs,
     'workflows-patch-action-email': workflowsPatchActionEmail,
     'workflows-patch-graph': workflowsPatchGraph,

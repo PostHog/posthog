@@ -15,6 +15,7 @@ from django.utils import timezone
 import yaml
 
 from posthog.models.team.team import Team
+from posthog.temporal.oauth import SCOUT_GRANTABLE_WRITE_SCOPES
 
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
@@ -107,7 +108,8 @@ class CanonicalSkill:
     The agentskills.io spec uses `allowed-tools` (hyphen); we accept both, preferring the
     spec form. `files` is the recursive content of the `_ALLOWED_BUNDLE_SUBDIRS` directories
     alongside SKILL.md. `config_tags` is the optional `scout-tags` frontmatter list, seeded onto
-    the scout's `SignalScoutConfig` when that row is first created. `role` is the optional
+    the scout's `SignalScoutConfig` when that row is first created, and `config_write_scopes` the
+    optional `scout-write-scopes` list seeded the same way. `role` is the optional
     `scout-role` frontmatter value — what the harness is allowed to do to the scout.
     """
 
@@ -119,6 +121,7 @@ class CanonicalSkill:
     source_path: Path
     config_tags: tuple[str, ...] = ()
     role: ScoutRole = SCOUT_ROLE_SPECIALIST
+    config_write_scopes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -162,6 +165,33 @@ SeedResult = SyncResult
 
 class CanonicalSkillParseError(ValueError):
     """A canonical SKILL.md on disk is malformed (missing frontmatter, bad YAML, etc.)."""
+
+
+def _parse_config_write_scopes(frontmatter: dict, skill_file: Path, *, is_scout: bool) -> tuple[str, ...]:
+    """Read the optional `scout-write-scopes` frontmatter list: the write grant a canonical scout
+    needs to do its job, seeded onto its config at creation the way `scout-tags` is.
+
+    Bounded by `SCOUT_GRANTABLE_WRITE_SCOPES`, the same ceiling a person's grant is validated
+    against, so a skill on disk can declare nothing a person could not grant it by hand. A scope
+    outside it fails the parse: seeding a scout without the grant it declares is a scout that
+    cannot do what its body says, and it would fail at its first write rather than here.
+    """
+    if "scout-write-scopes" not in frontmatter:
+        return ()
+    if not is_scout:
+        raise CanonicalSkillParseError(f"Only a signals-scout-* skill may declare 'scout-write-scopes': {skill_file}")
+    raw_scopes = frontmatter["scout-write-scopes"]
+    if not isinstance(raw_scopes, list) or not all(isinstance(scope, str) for scope in raw_scopes):
+        raise CanonicalSkillParseError(
+            f"SKILL.md frontmatter 'scout-write-scopes' must be a list of strings: {skill_file}"
+        )
+    ungrantable = sorted(set(raw_scopes) - SCOUT_GRANTABLE_WRITE_SCOPES)
+    if ungrantable:
+        raise CanonicalSkillParseError(
+            f"SKILL.md frontmatter 'scout-write-scopes' names scopes no scout may hold "
+            f"({', '.join(ungrantable)}): {skill_file}"
+        )
+    return tuple(sorted(set(raw_scopes)))
 
 
 def _parse_config_tags(frontmatter: dict, skill_file: Path, *, is_scout: bool) -> tuple[str, ...]:
@@ -294,6 +324,7 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
     config_tags = _parse_config_tags(frontmatter, skill_file, is_scout=is_scout)
     role = _parse_scout_role(frontmatter, skill_file, is_scout=is_scout)
 
+    config_write_scopes = _parse_config_write_scopes(frontmatter, skill_file, is_scout=is_scout)
     body = raw[match.end() :]
     if len(body.encode("utf-8")) > _MAX_SKILL_BODY_BYTES:
         raise CanonicalSkillParseError(f"SKILL.md body exceeds the {_MAX_SKILL_BODY_BYTES} byte limit: {skill_file}")
@@ -339,6 +370,7 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
         source_path=skill_dir,
         config_tags=config_tags,
         role=role,
+        config_write_scopes=config_write_scopes,
     )
 
 
@@ -424,6 +456,26 @@ def _canonical_config_tags() -> dict[str, tuple[str, ...]]:
     except CanonicalSkillParseError:
         logger.warning("canonical_config_tags: malformed canonical skill on disk; seeding no tags")
         return {}
+
+
+@lru_cache(maxsize=1)
+def _canonical_config_write_scopes() -> dict[str, tuple[str, ...]]:
+    """`scout-write-scopes` per canonical scout name, cached and degraded like the tags above."""
+    try:
+        return {
+            skill.name: skill.config_write_scopes for skill in discover_canonical_skills() if skill.config_write_scopes
+        }
+    except CanonicalSkillParseError:
+        logger.warning("canonical_config_write_scopes: malformed canonical skill on disk; seeding no grant")
+        return {}
+
+
+def canonical_config_write_scopes_for(skill_name: str) -> tuple[str, ...]:
+    """The write grant the canonical scout of this name declares, to stamp on its config at creation.
+
+    Same caller contract as `canonical_config_tags_for`: confirm the name is canonical first.
+    """
+    return _canonical_config_write_scopes().get(skill_name, ())
 
 
 def canonical_config_tags_for(skill_name: str) -> tuple[str, ...]:

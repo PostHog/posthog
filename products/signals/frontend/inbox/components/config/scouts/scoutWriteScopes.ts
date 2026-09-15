@@ -2,7 +2,7 @@
 export interface ScoutWriteScopeRow {
     scope: string
     /** Heading the row sits under. Purely a label: the API stores a flat list of scopes. */
-    group: 'Analytics' | 'Monitoring' | 'Scouts and skills' | 'Data' | 'Replay vision'
+    group: 'Analytics' | 'Monitoring' | 'Scouts and skills' | 'Data' | 'Replay vision' | 'Workflows'
     label: string
     description: string
 }
@@ -70,6 +70,13 @@ export const SCOUT_WRITE_SCOPE_ROWS: ScoutWriteScopeRow[] = [
         label: 'Replay vision scanners',
         description:
             'Create and update scanners, rate observations, and apply prompt suggestions. A scanner spends credits as it runs, so a scout has to give any it creates a credit limit. Scouts cannot delete scanners',
+    },
+    {
+        scope: 'hog_flow_proposal:write',
+        group: 'Workflows',
+        label: 'Workflow suggestions',
+        description:
+            'Suggest changes to workflows whose owner turned suggestions on. A person approves or rejects each one; the scout cannot publish',
     },
 ]
 

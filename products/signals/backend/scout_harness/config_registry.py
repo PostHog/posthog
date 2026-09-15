@@ -30,6 +30,7 @@ from products.signals.backend.scout_harness.lazy_seed import (
     HARNESS_SEEDED_BY,
     SCOUT_SKILL_CATEGORY,
     canonical_config_tags_for,
+    canonical_config_write_scopes_for,
     canonical_skill_names,
     is_operational_scout,
 )
@@ -290,6 +291,11 @@ def register_missing_configs(
         # removed. Only canonical names read from disk: a team's scout sharing the name is its own.
         if name in canonical_names and (canonical_tags := canonical_config_tags_for(name)):
             defaults["tags"] = list(canonical_tags)
+        # Likewise the write grant a canonical scout declares (`scout-write-scopes`): seeded once, so
+        # a person who later narrows it in settings keeps it narrowed. Mint time intersects it
+        # against the allowlist again, so a scope removed from the allowlist stops reaching runs.
+        if name in canonical_names and (canonical_scopes := canonical_config_write_scopes_for(name)):
+            defaults["write_scopes"] = list(canonical_scopes)
         # The launch cadence is stamped on every canonical (gated) scout — whether it seeds
         # enabled now or stays disabled for the user to switch on later — so a specialist a user
         # toggles on runs at the flag's launch cadence rather than the model default (daily).

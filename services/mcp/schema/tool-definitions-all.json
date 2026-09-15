@@ -13628,6 +13628,20 @@
             "readOnlyHint": true
         }
     },
+    "workflows-list-versions": {
+        "description": "List the published versions of one workflow, newest first, each with the time it went live. Read it to tell how long the live version has been sending before you trust its metrics: a version whose sends began in the last two days has not had time to collect opens. A workflow never published since version history began has no rows here, so its live version is missing: judge that one's age from when its sends began in workflows-stats instead. Takes the workflow id as 'id'.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "List a workflow's published versions",
+        "title": "List a workflow's published versions",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "workflows-logs": {
         "description": "Retrieve execution logs for a specific workflow by ID. Returns log entries with timestamp, level (DEBUG, LOG, INFO, WARN, ERROR), and message. Use to debug why a workflow is failing or not producing expected results. Supports filtering by log level, text search, time range (after/before), and pagination via limit.",
         "category": "Workflows",
@@ -13755,7 +13769,7 @@
         }
     },
     "workflows-stats": {
-        "description": "Execution stats for a single workflow by ID: time-series success/failure counts over a configurable interval (hour, day, or week). Use to inspect one workflow's health — failure spikes and reliability trends. For an at-a-glance view across ALL workflows, call workflows-global-stats first, then drill in here. Supports breakdown by metric kind (success/failure) or name, and time range filtering. For email engagement, read email_opened and email_link_clicked against (email_sent - email_untracked): email_untracked counts sends with open/click tracking off, which can never register an open or a click.",
+        "description": "Execution stats for a single workflow by ID: time-series success/failure counts over a configurable interval (hour, day, or week). Use to inspect one workflow's health — failure spikes and reliability trends. For an at-a-glance view across ALL workflows, call workflows-global-stats first, then drill in here. Supports breakdown by metric kind (success/failure) or name, and time range filtering. For email engagement, read email_opened and email_link_clicked against (email_sent - email_untracked): email_untracked counts sends with open/click tracking off, which can never register an open or a click. Pass version=<n> to read one published version instead of the workflow's whole history - that is how you tell whether a change helped, by comparing the version before it with the version after it.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Get workflow stats",
@@ -13769,12 +13783,12 @@
         }
     },
     "workflows-suggest": {
-        "description": "Suggest a change to a workflow for a human to review. Send only the content fields you want to change (usually actions), and in actions only the steps you change, each carrying its id. Send the evidence behind the suggestion, and a rationale a person can judge without re-deriving your numbers. This changes nothing on its own: a person approves the suggestion, which stages it as a draft, and publishes that draft to make it live. Pass a stable source_id for your run or finding so retrying returns the suggestion you already made instead of creating a second one. There is no tool to approve a suggestion, by design - only a person resolves one.",
+        "description": "Suggest a change to a workflow for a human to review. Send only the content fields you want to change (usually actions), and in actions only the steps you change, each carrying its id and only the fields you change; the rest of the step stays as it is. Send the evidence behind the suggestion, and a rationale a person can judge without re-deriving your numbers. This changes nothing on its own: a person approves the suggestion, which stages it as a draft, and publishes that draft to make it live. Pass a stable source_id for your run or finding so retrying returns the suggestion you already made instead of creating a second one. There is no tool to approve a suggestion, by design - only a person resolves one.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Suggest a workflow change",
         "title": "Suggest a workflow change",
-        "required_scopes": ["hog_flow:write"],
+        "required_scopes": ["hog_flow_proposal:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,

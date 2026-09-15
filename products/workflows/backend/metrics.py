@@ -5,10 +5,10 @@ Kept in one place because the two sides of a suggestion have to agree: whatever 
 different metrics, a proposal's "before" and "after" stop being comparable.
 """
 
-# Every hog flow metric is mirrored under this app source with the version appended to the flow id,
-# which is what makes a per-version read possible at all. See "Metrics and version attribution" in
+# Re-exported from the metrics API, which owns the name and serves the same series over HTTP, so a
+# reader here and a reader there cannot drift. See "Metrics and version attribution" in
 # products/workflows/CONTRIBUTING.md.
-HOG_FLOW_VERSION_APP_SOURCE = "hog_flow_version"
+from posthog.api.app_metrics2 import HOG_FLOW_VERSION_APP_SOURCE  # noqa: F401
 
 TARGET_SEND_METRIC = "email_sent"
 TARGET_OPEN_METRIC = "email_opened"
