@@ -5304,6 +5304,10 @@ snapshots:
         hash: v1.k794b7964.5882b745c748c44c9f3b1026e1c35953d8e2034b5f31588d2030a8502bd5afdd.k0NFXRurTVmlsO_6I1VF93n7KlCAP3ye3kztNwuaV0k
     products-alerts-shared-components--quiet-hours--light:
         hash: v1.k794b7964.fcd387116bcdd0296037b1d39ca7292a9f907f38e1de5dd3cdf7208f2b030090.qfzWLrCzf5SGKavDpoj3Kp6bw_h6tyghF8SEt3aunp4
+    products-alerts-simulation-summary--ai-with-unscored-points--dark:
+        hash: v1.k794b7964.a7994590bbb3fb0f067e258336bef10f18aaa52ce4bdc71643db10117445036d.jJHYFJEEBHz9Fy0Z3opITdSIxuFV_wMgvOxzk_-QNg0
+    products-alerts-simulation-summary--ai-with-unscored-points--light:
+        hash: v1.k794b7964.0f5c892d029a74b38c17c85b25c139af0403ae7aa4227f02b7f69a9e7ac25f7f.Vnvt1oB3t1XIp2FKPahwQ7Fp6lBj7dDhHTsyrjy7UQQ
     products-alerts-simulation-summary--single-score--dark:
         hash: v1.k794b7964.52732be1b1a7af402cb41d4b8361d4d24a6455fd6f7bdf1fb54f7b12e32fafd8.19leX4mo_tEocdO-VLg8z7U62BH6AM47wP6997Ny8FA
     products-alerts-simulation-summary--single-score--light:
