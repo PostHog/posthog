@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import { register } from 'prom-client'
 
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
@@ -225,6 +226,25 @@ describe('Invocation utils', () => {
             })
         })
 
+        const buildFailureCount = async (step: string): Promise<number> => {
+            const metric = await (register.getSingleMetric('cdp_invocation_build_failures_total') as any).get()
+            return metric.values.find((v: any) => v.labels.step === step)?.value ?? 0
+        }
+
+        it('counts a build failure when a filter throws', async () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.broken_filters,
+            })
+            const before = await buildFailureCount('filter')
+
+            const results = await buildHogFunctionInvocations(hogInputsService, [fn], pageviewGlobals())
+
+            expect(results.metrics.map((m) => m.metric_name)).toEqual(['filtering_failed'])
+            expect(await buildFailureCount('filter')).toBe(before + 1)
+        })
+
         it('reports a function whose inputs fail to build without dropping the rest of the batch', async () => {
             const broken = createHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
@@ -238,6 +258,8 @@ describe('Invocation utils', () => {
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
+
+            const inputsFailuresBefore = await buildFailureCount('inputs')
 
             const results = await buildHogFunctionInvocations(hogInputsService, [broken, healthy], pageviewGlobals())
 
@@ -253,6 +275,7 @@ describe('Invocation utils', () => {
                     message: expect.stringContaining('Error building inputs for event uuid:'),
                 },
             ])
+            expect(await buildFailureCount('inputs')).toBe(inputsFailuresBefore + 1)
         })
     })
 

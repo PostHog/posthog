@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 
 import { UUIDT } from '~/common/utils/utils'
 
+import { counterInvocationBuildFailures } from '../consumers/metrics'
 import type { HogInputsService } from '../services/hog-inputs.service'
 import {
     CyclotronJobInvocation,
@@ -95,6 +96,8 @@ export async function buildHogFunctionInvocations(
 
             return createInvocation(globalsWithInputs, hogFunction)
         } catch (error) {
+            counterInvocationBuildFailures.labels({ step: 'inputs', function_type: hogFunction.type }).inc()
+
             logs.push({
                 team_id: hogFunction.team_id,
                 log_source: 'hog_function',

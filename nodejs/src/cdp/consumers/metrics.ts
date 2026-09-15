@@ -23,3 +23,11 @@ export const counterBatchHogFlowTriggerFailed = new Counter({
     help: 'A batch hog flow run failed during audience resolution and was skipped',
     labelNames: ['hog_flow_id', 'reason'],
 })
+
+// The signal that was missing when a HogVM regression broke input templates: an invocation that
+// never gets built produces an app metric per function, but nothing fleet-wide to alert on.
+export const counterInvocationBuildFailures = new Counter({
+    name: 'cdp_invocation_build_failures_total',
+    help: 'An event matched a function but no invocation could be built for it',
+    labelNames: ['step', 'function_type'],
+})

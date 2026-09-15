@@ -10,6 +10,7 @@ import { createTrackedRE2 } from '~/common/utils/tracked-re2'
 import { UUIDT, clickHouseTimestampToISO } from '~/common/utils/utils'
 
 import { RawClickHouseEvent } from '../../types'
+import { counterInvocationBuildFailures } from '../consumers/metrics'
 import {
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
@@ -446,6 +447,8 @@ export async function filterFunctionInstrumented(options: {
             error: error.message,
             result: execResult,
         })
+
+        counterInvocationBuildFailures.labels({ step: 'filter', function_type: type }).inc()
 
         metrics.push({
             team_id: fn.team_id,
