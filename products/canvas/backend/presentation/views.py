@@ -6,7 +6,7 @@ from uuid import UUID
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import connection, transaction
 from django.db.models import Q, QuerySet
-from django.http import HttpResponseBase
+from django.http import Http404, HttpResponseBase
 from django.utils import timezone
 from django.utils.cache import get_conditional_response
 
@@ -468,6 +468,56 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         "patch_layout",
         "home",
     ]
+
+    def get_object(self) -> Any:
+        """Answer 403, not 404, when a readable canvas was hidden only by its space.
+
+        ``safely_get_queryset`` drops a canvas whose space the caller cannot see, so
+        a read answers 404 both for "no such canvas here" and for "it exists, but it
+        sits in a personal or private space nobody shared with you". A link into
+        someone else's space is then indistinguishable from a link to a deleted
+        canvas, and the client can only render one dead end for both.
+
+        Existence is disclosed inside the caller's own team, on read actions, and to
+        a real user only; a sandbox principal keeps the opaque 404. ``super()`` still
+        runs the object permission checks — this only rewrites the miss.
+        """
+        try:
+            return super().get_object()
+        except (Http404, NotFound):
+            if self._hidden_by_space_visibility():
+                raise PermissionDenied("This canvas is in a space that has not been shared with you.")
+            raise
+
+    def _hidden_by_space_visibility(self) -> bool:
+        """True when space visibility is the only reason the row did not resolve.
+
+        Every other gate (soft deletion, a non-standard source policy such as a
+        notebook widget, another team) must keep answering 404, so they are asserted
+        here rather than assumed.
+        """
+        user = self._request_user()
+        if user is None or self._is_sandbox_authenticated(self.request):
+            return False
+        if self.action not in self.scope_object_read_actions:
+            return False
+        lookup = self.kwargs.get(self.lookup_url_kwarg or self.lookup_field)
+        if not lookup:
+            return False
+        try:
+            return (
+                self.queryset.filter(
+                    pk=lookup,
+                    team_id=self.team_id,
+                    deleted=False,
+                    channel__deleted=False,
+                    source_policy=Canvas.SOURCE_POLICY_STANDARD,
+                )
+                .exclude(tasks_facade.visible_channels_q(user.id, relation="channel"))
+                .exists()
+            )
+        except (DjangoValidationError, ValueError):
+            return False
 
     def get_throttles(self) -> list[BaseThrottle]:
         # On top of the defaults, not instead of them: the per-canvas key must
