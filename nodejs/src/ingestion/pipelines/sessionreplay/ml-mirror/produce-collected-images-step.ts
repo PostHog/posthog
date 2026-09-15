@@ -7,7 +7,7 @@ import { ML_IMAGE_SCRUB_OUTPUT, MlImageScrubOutput } from '~/ingestion/pipelines
 import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-dedup-cache'
 
 import { MlKeyBatchController } from './keys/batch-controller'
-import { encryptedKafkaValue, validateImageOwner } from './keys/transport'
+import { encryptedKafkaValue, mlWireVersion, validateImageOwner } from './keys/transport'
 import { MlMirrorMetrics } from './metrics'
 import { CollectedImage } from './parse-and-anonymize-step'
 import { usesRawSessionIdentifiers } from './session-identifier-format'
@@ -90,6 +90,7 @@ export function createProduceCollectedImagesStep<
             .then(() => {
                 // queueMessages resolves on delivery acks, so `produced` counts what actually landed.
                 MlMirrorMetrics.incrementMlImagesCollected('produced', refs.length)
+                MlMirrorMetrics.incrementMlProducedVersion('image', mlWireVersion(key), refs.length)
                 MlMirrorMetrics.incrementMlImageBytesProduced(bytes)
             })
             .catch((error) => {

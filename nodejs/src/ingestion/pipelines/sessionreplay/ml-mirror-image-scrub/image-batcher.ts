@@ -227,8 +227,12 @@ export class ImageBatcher {
                   if (ingestionVersion(message) === 2) {
                       throw new Error('ML v2 images require key manager configuration')
                   }
-                  return { message, original: message, invalid: undefined }
+                  return { message, original: message, key: undefined, invalid: undefined }
               })
+        const decodedValid = decoded.filter((entry) => !entry.invalid)
+        const encrypted = decodedValid.filter((entry) => entry.key).length
+        ImageScrubConsumerMetrics.incrementVersion('2', encrypted)
+        ImageScrubConsumerMetrics.incrementVersion('1', decodedValid.length - encrypted)
         for (const entry of decoded.filter((entry) => entry.invalid)) {
             if (!this.deadLetters) {
                 throw new Error('Invalid encrypted ML image requires a dead-letter destination')

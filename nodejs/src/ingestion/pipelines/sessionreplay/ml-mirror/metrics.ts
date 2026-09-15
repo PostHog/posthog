@@ -1,5 +1,9 @@
 import { Counter, Histogram } from 'prom-client'
 
+import { MlWireVersion } from './keys/schema'
+
+export type MlProducedLane = 'image' | 'url' | 'metadata'
+
 /** Which anonymizer produced the output; the label makes the flag rollout a direct A/B. */
 export type MlAnonymizeImpl = 'rust' | 'ts'
 /** Rust engine that produced the output (tree = the parse fallback fired). `''` when not applicable. */
@@ -48,6 +52,12 @@ export class MlMirrorMetrics {
         name: 'recording_blob_ingestion_v2_ml_urls_collected',
         help: 'Remote image URLs through the fetch lane, by stage: collected (returned by the addon), deduped (suppressed by the cross-message cache), queued (handed to the producer), produced (delivery acked), produce_failed (delivery failed)',
         labelNames: ['outcome'],
+    })
+
+    private static readonly mlProducedVersion = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_produced_version_total',
+        help: 'Kafka records the mirror delivered, by lane and wire format version, counted on the delivery ack. Version 2 is encrypted per session and version 1 is cleartext, so the split across a deploy is how far the encryption switchover has reached. The consumer counters count records too, so the two rates compare directly. A lane stuck on version 1 means the session key never resolved, which no other mirror metric distinguishes from ordinary traffic',
+        labelNames: ['lane', 'version'],
     })
 
     private static readonly mlImageReferencesByProperty = new Counter({
@@ -134,6 +144,12 @@ export class MlMirrorMetrics {
 
     public static incrementMlImagesCollected(outcome: MlImageLaneStage, count: number): void {
         this.mlImagesCollected.labels(outcome).inc(count)
+    }
+
+    public static incrementMlProducedVersion(lane: MlProducedLane, version: MlWireVersion, count: number): void {
+        if (count > 0) {
+            this.mlProducedVersion.labels(lane, version).inc(count)
+        }
     }
 
     public static incrementMlImageReferencesByProperty(
