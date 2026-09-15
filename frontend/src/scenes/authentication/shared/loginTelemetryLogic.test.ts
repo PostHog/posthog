@@ -33,6 +33,7 @@ const LISTENED_ACTION_SOURCES: Record<keyof typeof LISTENED_ACTIONS, () => strin
     codeVerificationFailure: () => loginLogic.actionTypes.submitCodeVerificationFailure,
     twoFactorError: () => login2FALogic.actionTypes.setGeneralError,
     resetRequested: () => passwordResetLogic.actionTypes.submitRequestPasswordResetSuccess,
+    precheckCompleted: () => loginLogic.actionTypes.precheckSuccess,
 }
 
 describe('loginTelemetryLogic', () => {
@@ -101,6 +102,31 @@ describe('loginTelemetryLogic', () => {
         login.actions.setCodeVerificationManualErrors({})
 
         expect(captureCount('login failed')).toBe(0)
+    })
+
+    it.each([
+        ['a dead-end account', { password_login_available: false, social_providers: [] }, 1],
+        ['an account with a password', { password_login_available: true, social_providers: [] }, 0],
+    ])('reports %s once the precheck completes', async (_name, precheck, expected) => {
+        precheckHandler.mockReturnValue([200, { saml_available: false, ...precheck }])
+        login.actions.setLoginValue('email', 'user@example.com')
+        login.actions.precheck({ email: 'user@example.com' })
+        await expectLogic(login).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
+
+        expect(captureCount('login dead end')).toBe(expected)
+    })
+
+    it('reports the deep link a dead-end account would lose', async () => {
+        router.actions.push('/login', { next: '/oauth/authorize?client_id=abc' })
+        precheckHandler.mockReturnValue([
+            200,
+            { saml_available: false, password_login_available: false, social_providers: [] },
+        ])
+        login.actions.setLoginValue('email', 'user@example.com')
+        login.actions.precheck({ email: 'user@example.com' })
+        await expectLogic(login).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
+
+        expect(capturedProperties('login dead end')).toMatchObject({ has_next_path: true })
     })
 
     it('reports the step that rejected a second factor', async () => {

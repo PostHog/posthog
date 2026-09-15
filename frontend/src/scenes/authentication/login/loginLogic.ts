@@ -14,7 +14,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isWebKitBrowser } from 'lib/utils/dom'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
-import { getRelativeNextPath } from 'lib/utils/url'
+import { getRelativeNextPath, withNextPath } from 'lib/utils/url'
 import { devLoginLogic } from 'scenes/authentication/shared/devLoginLogic'
 import {
     clearPendingVerificationEmail,
@@ -194,6 +194,7 @@ export interface loginLogicValues {
         detail: string
     } | null
     hasNoConfiguredLoginMethod: boolean
+    nextPath: string | null
     isCodeVerificationSubmitting: boolean
     isCodeVerificationValid: boolean
     isLoginSubmitting: boolean
@@ -382,7 +383,8 @@ export interface loginLogicMeta {
             precheckResponse: PrecheckResponseType,
             isPasswordLoginUnavailable: boolean
         ) => SSOProvider[] | null
-        signupUrl: (searchParams: Record<string, any>) => string
+        nextPath: (searchParams: Record<string, any>) => string | null
+        signupUrl: (nextPath: string | null) => string
         wasSignedOutForSessionRisk: (searchParams: Record<string, any>) => boolean
     }
 }
@@ -566,13 +568,14 @@ export const loginLogic = kea<loginLogicType>([
             (precheckResponse: PrecheckResponseType, isPasswordLoginUnavailable: boolean): SSOProvider[] | null =>
                 isPasswordLoginUnavailable ? (precheckResponse.social_providers ?? []) : null,
         ],
-        signupUrl: [
+        // The deep link the person came to finish, e.g. an OAuth authorization or a Vercel account
+        // link. Every exit off this page has to carry it, or the flow they started is abandoned.
+        nextPath: [
             () => [router.selectors.searchParams],
-            (searchParams: Record<string, string>) => {
-                const nextParam = getRelativeNextPath(searchParams['next'], location)
-                return nextParam ? `/signup?next=${encodeURIComponent(nextParam)}` : '/signup'
-            },
+            (searchParams: Record<string, string>): string | null =>
+                getRelativeNextPath(searchParams['next'], location),
         ],
+        signupUrl: [(s) => [s.nextPath], (nextPath: string | null) => withNextPath(urls.signup(), nextPath)],
         wasSignedOutForSessionRisk: [
             () => [router.selectors.searchParams],
             (searchParams: Record<string, string>): boolean => searchParams['reason'] === 'session_risk',

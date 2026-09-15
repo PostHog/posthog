@@ -2,12 +2,14 @@ import { MakeLogicType, kea, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { ValidatedPasswordResult, validatePassword } from 'lib/components/PasswordStrength'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { getRelativeNextPath, withNextPath } from 'lib/utils/url'
+import { urls } from 'scenes/urls'
 
 export interface ResponseType {
     success: boolean
@@ -34,6 +36,8 @@ export interface passwordResetLogicValues {
     isPasswordResetValid: boolean
     isRequestPasswordResetSubmitting: boolean
     isRequestPasswordResetValid: boolean
+    loginUrl: string
+    nextPath: string | null
     passwordReset: PasswordResetForm
     passwordResetAllErrors: Record<string, any>
     passwordResetChanged: boolean
@@ -215,6 +219,8 @@ export interface passwordResetLogicActions {
 export interface passwordResetLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         validatedPassword: (passwordReset: PasswordResetForm) => ValidatedPasswordResult
+        nextPath: (searchParams: Record<string, any>) => string | null
+        loginUrl: (nextPath: string | null) => string
     }
 }
 
@@ -267,7 +273,7 @@ export const passwordResetLogic = kea<passwordResetLogicType>([
                 breakpoint()
 
                 try {
-                    await api.create('api/reset/', { email })
+                    await api.create('api/reset/', { email, next_url: values.nextPath ?? undefined })
                 } catch (e: any) {
                     actions.setRequestPasswordResetManualErrors({ email: e.detail ?? 'An error occurred' })
                     posthog.captureException('Failed to reset password', { extra: { error: e } })
@@ -306,6 +312,9 @@ export const passwordResetLogic = kea<passwordResetLogicType>([
                     if (response.email) {
                         url.searchParams.set('email', response.email)
                     }
+                    if (values.nextPath) {
+                        url.searchParams.set('next', values.nextPath)
+                    }
                     window.location.href = url.href // We need the refresh
                 } catch (e: any) {
                     actions.setPasswordResetManualErrors({ password: e.detail })
@@ -321,6 +330,13 @@ export const passwordResetLogic = kea<passwordResetLogicType>([
                 return validatePassword(password)
             },
         ],
+        // The deep link the person was trying to reach when login stopped them. It travels with them
+        // through the reset email, so the flow they started still completes afterwards.
+        nextPath: [
+            () => [router.selectors.searchParams],
+            (searchParams: Record<string, any>): string | null => getRelativeNextPath(searchParams['next'], location),
+        ],
+        loginUrl: [(s) => [s.nextPath], (nextPath: string | null): string => withNextPath(urls.login(), nextPath)],
     }),
     urlToAction(({ actions }) => ({
         '/reset/:uuid/:token': ({ uuid, token }) => {

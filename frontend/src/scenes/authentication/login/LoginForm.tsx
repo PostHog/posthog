@@ -119,9 +119,19 @@ export function LoginForm(): JSX.Element {
         restrictToProviders,
         autoRedirectingToProvider,
         availableLoginMethods,
+        nextPath,
     } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
     const { pendingConnection } = useValues(pendingOAuthConnectionLogic({ screen: 'login' }))
+
+    // A reset is the only way back in for these accounts, so the pending deep link has to ride along
+    // through it. Without `next` the reset finishes on a bare login page and the flow is lost.
+    const passwordResetParams = { email: login.email, ...(nextPath ? { next: nextPath } : {}) }
+    const deadEndReturnCopy = pendingConnection
+        ? `We'll bring you back here to finish connecting ${pendingConnection.clientName}.`
+        : nextPath
+          ? "We'll bring you back to where you left off."
+          : null
 
     const isPasswordHidden = !!precheckResponse.sso_enforcement || isPasswordLoginUnavailable
     const isCodeSent = codeVerificationRequired
@@ -344,7 +354,7 @@ export function LoginForm(): JSX.Element {
                                     <div className="flex items-baseline justify-between w-full">
                                         <span>Password</span>
                                         <Link
-                                            to={[urls.passwordReset(), { email: login.email }]}
+                                            to={[urls.passwordReset(), passwordResetParams]}
                                             data-attr="forgot-password"
                                             className="text-xs font-semibold text-warning"
                                             tabIndex={-1}
@@ -374,7 +384,7 @@ export function LoginForm(): JSX.Element {
                             <div className="py-2.5 px-3 text-sm leading-normal text-primary text-left bg-warning-highlight border border-warning rounded">
                                 <span>No sign-in method is set up for this account. Use</span>{' '}
                                 <Link
-                                    to={[urls.passwordReset(), { email: login.email }]}
+                                    to={[urls.passwordReset(), passwordResetParams]}
                                     // Autocapture reports the click. Each reset entry point has its
                                     // own `data-attr`, so one funnel can tell them apart.
                                     data-attr="login-no-method-reset-password"
@@ -382,7 +392,8 @@ export function LoginForm(): JSX.Element {
                                 >
                                     Forgot password?
                                 </Link>{' '}
-                                <span>to set a password by email.</span>
+                                <span>to set a password by email.</span>{' '}
+                                {deadEndReturnCopy && <span>{deadEndReturnCopy}</span>}
                             </div>
                         )}
                         {autoRedirectingToProvider && (

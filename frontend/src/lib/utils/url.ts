@@ -269,3 +269,8 @@ export function getRelativeNextPath(nextPath: string | null | undefined, locatio
         return null
     }
 }
+
+/** `path` with the pending deep link attached, so an auth detour does not abandon it. */
+export function withNextPath(path: string, nextPath: string | null): string {
+    return nextPath ? `${path}?next=${encodeURIComponent(nextPath)}` : path
+}

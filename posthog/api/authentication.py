@@ -85,7 +85,7 @@ from posthog.tasks.email import (
     send_password_reset,
     send_two_factor_auth_backup_code_used_email,
 )
-from posthog.utils import get_instance_available_sso_providers, get_ip_address, get_short_user_agent
+from posthog.utils import get_instance_available_sso_providers, get_ip_address, get_short_user_agent, is_relative_url
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
 logger = structlog.get_logger("posthog.auth")
@@ -1128,9 +1128,21 @@ class LoginPrecheckViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
 
 class PasswordResetSerializer(serializers.Serializer):
     email = serializers.EmailField(write_only=True)
+    next_url = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        help_text="Relative path the person was trying to reach before login stopped them. It is put in the reset email link so the flow survives the round trip. A non-relative value is ignored.",
+    )
+
+    def validate_next_url(self, value: str) -> str | None:
+        # Dropped rather than rejected: the reset itself must still go through, the deep link is only
+        # a convenience on top of it.
+        return value if is_relative_url(value) else None
 
     def create(self, validated_data):
         email = validated_data.pop("email")
+        next_url = validated_data.pop("next_url", None)
         # Same lookup login uses, so a reset link can never reach a different account than the
         # password it replaces.
         user = EmailLookupHandler.get_user_by_email(email)
@@ -1152,7 +1164,7 @@ class PasswordResetSerializer(serializers.Serializer):
             user.requested_password_reset_at = datetime.datetime.now(datetime.UTC)
             user.save()
             token = password_reset_token_generator.make_token(user)
-            send_password_reset(user.id, token)
+            send_password_reset(user.id, token, next_url)
 
         return True
 

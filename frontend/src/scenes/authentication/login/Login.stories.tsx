@@ -4,6 +4,7 @@ import {
 } from 'scenes/authentication/shared/pendingOAuthConnection.mock'
 
 import type { Meta, StoryFn } from '@storybook/react'
+import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { useStorybookMocks } from '~/mocks/browser'
@@ -22,6 +23,8 @@ type StoryArgs = {
     ssoEnforcement: 'none' | 'google-oauth2' | 'github' | 'gitlab' | 'saml'
     generalError: 'none' | 'invalid_credentials' | 'code_based_verification_sent'
     pendingOAuthConnection: boolean
+    noLoginMethod: boolean
+    next: string
 }
 
 const meta: Meta<StoryArgs> = {
@@ -49,6 +52,8 @@ const meta: Meta<StoryArgs> = {
             options: ['none', 'invalid_credentials', 'code_based_verification_sent'],
         },
         pendingOAuthConnection: { control: 'boolean', name: 'Pending OAuth connection' },
+        noLoginMethod: { control: 'boolean', name: 'No sign-in method set up' },
+        next: { control: 'text', name: 'Pending deep link (?next=)' },
     },
     args: {
         cloud: true,
@@ -60,6 +65,8 @@ const meta: Meta<StoryArgs> = {
         ssoEnforcement: 'none',
         generalError: 'none',
         pendingOAuthConnection: false,
+        noLoginMethod: false,
+        next: '',
     },
 }
 export default meta
@@ -74,6 +81,8 @@ const Template: StoryFn<StoryArgs> = ({
     ssoEnforcement,
     generalError,
     pendingOAuthConnection,
+    noLoginMethod,
+    next,
 }) => {
     const enforcement = ssoEnforcement === 'none' ? null : ssoEnforcement
     // Set synchronously: the scene reads the cookie while it mounts during this same render.
@@ -97,16 +106,24 @@ const Template: StoryFn<StoryArgs> = ({
             },
         },
         post: {
-            '/api/login/precheck': { sso_enforcement: enforcement, saml_available: samlAvailable },
+            '/api/login/precheck': {
+                sso_enforcement: enforcement,
+                saml_available: samlAvailable,
+                ...(noLoginMethod ? { password_login_available: false, social_providers: [] } : {}),
+            },
         },
     })
 
     useEffect(() => {
-        if (enforcement) {
+        router.actions.replace('/login', next ? { next } : {})
+    }, [next])
+
+    useEffect(() => {
+        if (enforcement || noLoginMethod) {
             loginLogic.actions.setLoginValue('email', 'test@posthog.com')
             loginLogic.actions.precheck({ email: 'test@posthog.com' })
         }
-    }, [enforcement])
+    }, [enforcement, noLoginMethod])
 
     useEffect(() => {
         if (generalError !== 'none') {
@@ -146,3 +163,19 @@ PendingOAuthConnection.args = { pendingOAuthConnection: true }
 
 export const EmailVerification: StoryFn<StoryArgs> = Template.bind({})
 EmailVerification.args = { generalError: 'code_based_verification_sent' }
+
+// A dead end needs every provider off: one linked provider is a way in, so the banner would not show.
+const NO_SOCIAL = { googleOAuth: false, github: false, gitlab: false }
+
+export const NoLoginMethod: StoryFn<StoryArgs> = Template.bind({})
+NoLoginMethod.storyName = 'No sign-in method set up'
+NoLoginMethod.args = { noLoginMethod: true, ...NO_SOCIAL }
+
+export const NoLoginMethodWithPendingOAuthConnection: StoryFn<StoryArgs> = Template.bind({})
+NoLoginMethodWithPendingOAuthConnection.storyName = 'No sign-in method set up, pending OAuth connection'
+NoLoginMethodWithPendingOAuthConnection.args = {
+    noLoginMethod: true,
+    pendingOAuthConnection: true,
+    next: '/oauth/authorize?client_id=abc&scope=read',
+    ...NO_SOCIAL,
+}

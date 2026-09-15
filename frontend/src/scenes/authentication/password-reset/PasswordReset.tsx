@@ -138,7 +138,7 @@ function ResetForm(): JSX.Element {
 }
 
 function ResetSuccess(): JSX.Element {
-    const { requestPasswordReset } = useValues(passwordResetLogic)
+    const { requestPasswordReset, loginUrl } = useValues(passwordResetLogic)
     const { push } = useActions(router)
 
     return (
@@ -152,7 +152,7 @@ function ResetSuccess(): JSX.Element {
                     data-attr="back-to-login"
                     center
                     fullWidth
-                    onClick={() => push('/login')}
+                    onClick={() => push(loginUrl)}
                     size="large"
                 >
                     Back to login
@@ -163,7 +163,7 @@ function ResetSuccess(): JSX.Element {
 }
 
 function ResetThrottled(): JSX.Element {
-    const { requestPasswordReset } = useValues(passwordResetLogic)
+    const { requestPasswordReset, loginUrl } = useValues(passwordResetLogic)
     const { push } = useActions(router)
 
     return (
@@ -177,7 +177,7 @@ function ResetThrottled(): JSX.Element {
                     data-attr="back-to-login"
                     center
                     fullWidth
-                    onClick={() => push('/login')}
+                    onClick={() => push(loginUrl)}
                     size="large"
                 >
                     Back to login

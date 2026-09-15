@@ -1632,6 +1632,29 @@ class TestPasswordResetAPI(APIBaseTest):
             )
         )
 
+    @parameterized.expand(
+        [
+            ("relative", "/oauth/authorize?client_id=abc&scope=read", "next=%2Foauth%2Fauthorize"),
+            ("absolute", "https://evil.example.com/steal", None),
+            ("protocol_relative", "//evil.example.com/steal", None),
+        ]
+    )
+    def test_reset_link_carries_only_a_relative_next_url(self, _name, next_url, expected_fragment):
+        set_instance_setting("EMAIL_HOST", "localhost")
+
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+            response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL, "next_url": next_url})
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
+        link_index = html_message.find("https://my.posthog.net/reset")
+        reset_link = html_message[link_index : html_message.find('"', link_index)]
+        if expected_fragment:
+            self.assertIn(expected_fragment, reset_link)
+        else:
+            self.assertNotIn("next=", reset_link)
+            self.assertNotIn("evil.example.com", html_message)
+
     def test_password_reset_is_case_insensitive(self):
         set_instance_setting("EMAIL_HOST", "localhost")
         assert self.CONFIG_EMAIL is not None

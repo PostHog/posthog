@@ -2,6 +2,7 @@ import uuid
 import datetime
 from enum import Enum
 from typing import Any, Literal, Optional, cast
+from urllib.parse import urlencode
 
 from django.conf import settings
 from django.db import transaction
@@ -52,6 +53,7 @@ from posthog.models.utils import UUIDT
 from posthog.ph_client import feature_enabled_or_false, get_client, ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.user_permissions import UserPermissions
+from posthog.utils import is_relative_url
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
@@ -599,8 +601,14 @@ def send_provisioning_welcome(user_id: int, token: str, partner_name: str = "", 
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
-def send_password_reset(user_id: int, token: str) -> None:
+def send_password_reset(user_id: int, token: str, next_url: Optional[str] = None) -> None:
     user = User.objects.get(pk=user_id)
+    # `next_url` is the deep link the person was trying to reach when login stopped them. This email
+    # is the only way it reaches them again, so it has to survive the round trip. Only a relative
+    # path goes into the link — an absolute one would make the email an open redirect.
+    path = f"/reset/{user.uuid}/{token}"
+    if next_url and is_relative_url(next_url):
+        path += "?" + urlencode({"next": next_url})
     message = EmailMessage(
         use_http=True,
         campaign_key=f"password-reset-{user.uuid}-{timezone.now().timestamp()}",
@@ -608,11 +616,11 @@ def send_password_reset(user_id: int, token: str) -> None:
         template_name="password_reset",
         template_context={
             "preheader": "Please follow the link inside to reset your password.",
-            "link": f"/reset/{user.uuid}/{token}",
+            "link": path,
             "cloud": is_cloud(),
             "site_url": settings.SITE_URL,
             "social_providers": list(user.social_auth.values_list("provider", flat=True)),
-            "url": f"{settings.SITE_URL}/reset/{user.uuid}/{token}",
+            "url": f"{settings.SITE_URL}{path}",
         },
     )
     message.add_user_recipient(user)

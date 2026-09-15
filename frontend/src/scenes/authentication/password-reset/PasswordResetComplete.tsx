@@ -12,6 +12,7 @@ import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { withNextPath } from 'lib/utils/url'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -109,6 +110,7 @@ function NewPasswordForm(): JSX.Element {
 
 function ResetInvalid(): JSX.Element {
     const { user } = useValues(userLogic)
+    const { nextPath } = useValues(passwordResetLogic)
 
     return (
         <div className="text-center">
@@ -120,7 +122,11 @@ function ResetInvalid(): JSX.Element {
                     center
                     data-attr="back-to-login"
                     // Scene.PasswordReset is onlyUnauthenticated, so /reset would bounce a signed-in user.
-                    to={user ? urls.settings('user-profile', 'change-password') : urls.passwordReset()}
+                    to={
+                        user
+                            ? urls.settings('user-profile', 'change-password')
+                            : withNextPath(urls.passwordReset(), nextPath)
+                    }
                 >
                     Request new link
                 </LemonButton>
