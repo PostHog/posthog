@@ -2689,7 +2689,10 @@ export interface CreateFromPromptInputApi {
     name?: string
     /** Optional feature flag key. If omitted, a slug is derived from the experiment name. */
     feature_flag_key?: string
-    /** Optional experiment description. */
+    /**
+     * Optional experiment description.
+     * @maxLength 3000
+     */
     description?: string
 }
 

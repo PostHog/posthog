@@ -666,4 +666,106 @@ describe('schema-utils', () => {
             expect(TOKEN_CHAR_LIMIT).toBe(48_000)
         })
     })
+
+    describe('scalar constraints', () => {
+        // The exec `info` summary is the only schema an exec-mode agent sees. Dropping
+        // the length cap here meant the agent learned about it from the rejection.
+        it('keeps length, range, pattern and format constraints on object properties', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    description: { type: 'string', maxLength: 3000 },
+                    name: { type: 'string', minLength: 1, pattern: '^[a-z-]+$' },
+                    start: { type: 'string', format: 'date-time' },
+                    rollout: { type: 'integer', minimum: 0, maximum: 100 },
+                },
+            }
+
+            const result = summarizeSchema(schema, 'my-tool')
+
+            expect(result.properties.description).toEqual({ type: 'string', maxLength: 3000 })
+            expect(result.properties.name).toEqual({ type: 'string', minLength: 1, pattern: '^[a-z-]+$' })
+            expect(result.properties.start).toEqual({ type: 'string', format: 'date-time' })
+            expect(result.properties.rollout).toEqual({ type: 'integer', minimum: 0, maximum: 100 })
+        })
+
+        // zod renders `.nullable()` as `anyOf: [scalar, null]`; the experiment tools'
+        // `description` arrives this way, and the summary used to say
+        // "union of 1 types" with no cap.
+        it('summarizes a nullable scalar as the scalar, keeping its constraints and enum', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    description: {
+                        anyOf: [{ type: 'string', maxLength: 3000 }, { type: 'null' }],
+                        description: 'Hypothesis',
+                    },
+                    stats: { anyOf: [{ type: 'string', enum: ['bayesian', 'frequentist'] }, { type: 'null' }] },
+                    config: { anyOf: [{ type: 'object', properties: { a: {} } }, { type: 'null' }] },
+                },
+            }
+
+            const result = summarizeSchema(schema, 'my-tool')
+
+            expect(result.properties.description).toEqual({
+                type: 'string',
+                maxLength: 3000,
+                description: 'Hypothesis',
+            })
+            expect(result.properties.stats).toEqual({ type: 'string', enum: ['bayesian', 'frequentist'] })
+            // A nullable object is still complex and keeps its drill-down hint.
+            expect(result.properties.config!.hint).toContain('schema my-tool config')
+        })
+
+        it('keeps constraints on a leaf schema summarized on its own', () => {
+            const result = summarizeSchema({ type: 'string', maxLength: 400 }, 'my-tool')
+
+            expect(result).toMatchObject({ type: 'string', maxLength: 400 })
+        })
+
+        // zod puts a field's `default` (and `description`) on the nullable wrapper,
+        // not on the variant. `endpoint-run.refresh` is one: `{default: "cache",
+        // anyOf: [{type: "string", enum: [...]}, {type: "null"}]}`.
+        it('keeps a default that sits on the nullable wrapper, in a property and in a drill-down', () => {
+            const refresh = {
+                default: 'cache',
+                anyOf: [{ type: 'string', enum: ['cache', 'force', 'direct'] }, { type: 'null' }],
+            }
+
+            expect(summarizeSchema({ type: 'object', properties: { refresh } }, 'my-tool').properties.refresh).toEqual({
+                type: 'string',
+                enum: ['cache', 'force', 'direct'],
+                default: 'cache',
+            })
+            // `schema <tool> refresh` summarizes the wrapper on its own.
+            expect(summarizeSchema(refresh, 'my-tool')).toMatchObject({
+                type: 'string',
+                enum: ['cache', 'force', 'direct'],
+                default: 'cache',
+            })
+        })
+
+        // zod's ISO date-time `pattern` is a 310-character regex the agent cannot
+        // act on, and it rides on 85 fields; `format` says the same in a word.
+        it('drops a pattern that has a format or is too long to read, keeps a short one', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    at: {
+                        type: 'string',
+                        format: 'date-time',
+                        pattern: '^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26])-02-29)',
+                    },
+                    long: { type: 'string', pattern: 'x'.repeat(81) },
+                    slug: { type: 'string', pattern: '^[a-z-]+$' },
+                },
+            }
+
+            const result = summarizeSchema(schema, 'my-tool')
+
+            expect(result.properties.at).toEqual({ type: 'string', format: 'date-time' })
+            expect(result.properties.long).toEqual({ type: 'string' })
+            expect(result.properties.slug).toEqual({ type: 'string', pattern: '^[a-z-]+$' })
+        })
+    })
 })

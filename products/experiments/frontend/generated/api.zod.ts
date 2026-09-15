@@ -1346,6 +1346,8 @@ export const experimentsCreateFromPromptCreateBodyVersionsMax = 10
 
 export const experimentsCreateFromPromptCreateBodyTemplatesMax = 3
 
+export const experimentsCreateFromPromptCreateBodyDescriptionMax = 3000
+
 export const ExperimentsCreateFromPromptCreateBody = /* @__PURE__ */ zod.object({
     prompt_name: zod
         .string()
@@ -1376,7 +1378,11 @@ export const ExperimentsCreateFromPromptCreateBody = /* @__PURE__ */ zod.object(
         .string()
         .optional()
         .describe('Optional feature flag key. If omitted, a slug is derived from the experiment name.'),
-    description: zod.string().optional().describe('Optional experiment description.'),
+    description: zod
+        .string()
+        .max(experimentsCreateFromPromptCreateBodyDescriptionMax)
+        .optional()
+        .describe('Optional experiment description.'),
 })
 
 /**
