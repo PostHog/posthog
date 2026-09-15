@@ -84,10 +84,9 @@ class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControl
         serializer.save(team_id=self.team_id, created_by=self.request.user)
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        from products.data_modeling.backend.facade.api import get_dependent_saved_queries
+        from products.data_modeling.backend.facade.api import dependent_saved_query_ids
 
         folder: DataWarehouseSavedQueryFolder = self.get_object()
-        # `deleted` is nullable, so `deleted=False` would skip NULL rows and orphan them.
         saved_queries = list(
             DataWarehouseSavedQuery.objects.filter(folder=folder)
             .exclude(deleted=True)
@@ -99,10 +98,9 @@ class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControl
             self.check_object_permissions(request, saved_query)
 
         in_folder_ids = {saved_query.id for saved_query in saved_queries}
+        dependents = dependent_saved_query_ids(self.team_id, in_folder_ids)
         blocked_names = sorted(
-            saved_query.name
-            for saved_query in saved_queries
-            if any(dependent.id not in in_folder_ids for dependent in get_dependent_saved_queries(saved_query))
+            saved_query.name for saved_query in saved_queries if dependents[saved_query.id] - in_folder_ids
         )
         if blocked_names:
             raise serializers.ValidationError(
@@ -129,6 +127,6 @@ class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControl
                 except HasDependentsError:
                     continue
             if not deleted_ids:
-                raise HasDependentsError("Views in this folder depend on each other in a cycle")
+                raise serializers.ValidationError("Cannot delete this folder because its views still have dependencies")
             for saved_query_id in deleted_ids:
                 remaining.pop(saved_query_id, None)
