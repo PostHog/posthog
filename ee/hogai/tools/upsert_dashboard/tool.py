@@ -11,6 +11,7 @@ from posthog.event_usage import EventSource, report_user_action
 from posthog.sync import database_sync_to_async
 from posthog.utils import pluralize
 
+from products.dashboards.backend.facade.enums import DashboardSourceContext
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
@@ -180,6 +181,7 @@ class UpsertDashboardTool(MaxTool):
                 "template_key": None,
                 "duplicated": False,
                 "duplicated_from_dashboard_id": None,
+                "source_context": DashboardSourceContext.POSTHOG_AI,
             },
         )
         await self._report_new_insights(validated_artifacts, insights)

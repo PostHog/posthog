@@ -1783,6 +1783,28 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
 
     @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_dashboard_creation_reports_source_context(self, mock_report_user_action):
+        self.dashboard_api.create_dashboard({"name": "Experiment: checkout", "source_context": "experiments"})
+
+        reported_properties = mock_report_user_action.call_args[0][2]
+        assert reported_properties["source_context"] == "experiments"
+
+    def test_dashboard_creation_rejects_unknown_source_context(self):
+        self.dashboard_api.create_dashboard(
+            {"name": "another", "source_context": "not-a-surface"},
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    def test_dashboard_update_rejects_source_context(self):
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "another"})
+
+        self.dashboard_api.update_dashboard(
+            dashboard_id,
+            {"source_context": "experiments"},
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
     def test_soft_delete_reports_dashboard_deleted(self, mock_report_user_action):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "to delete"})
         self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
@@ -2799,10 +2821,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert expected_dashboards_on_insight == [dashboard_two_id]
 
     @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_create_from_template_json_omits_unknown_source_context(self, mock_report_user_action) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
+            {"template": valid_template},
+        )
+        assert response.status_code == 200, response.content
+
+        reported_properties = mock_report_user_action.call_args[0][2]
+        assert "source_context" not in reported_properties
+
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
     def test_create_from_template_json(self, mock_report_user_action) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
-            {"template": valid_template, "creation_context": "onboarding"},
+            {"template": valid_template, "source_context": "onboarding"},
             headers={"Referer": "https://posthog.com/my-referer", "X-Posthog-Session-Id": "my-session-id"},
         )
         self.assertEqual(response.status_code, 200, response.content)
@@ -2824,7 +2857,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             "dashboard created",
             {
                 "created_at": mock.ANY,
-                "creation_context": "onboarding",
+                "source_context": "onboarding",
                 "creation_mode": "default",
                 "dashboard_id": dashboard["id"],
                 "duplicated": False,

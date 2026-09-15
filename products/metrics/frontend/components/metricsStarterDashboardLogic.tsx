@@ -210,6 +210,7 @@ export const metricsStarterDashboardLogic = kea<metricsStarterDashboardLogicType
                 // nosemgrep: prefer-codegen-api
                 dashboard = await api.create<DashboardType>(`api/projects/${values.currentTeamId}/dashboards/`, {
                     name,
+                    source_context: 'metrics',
                 })
                 for (const { name: metricName, metric_type: rawType } of pickedMetrics) {
                     // The names endpoint reports raw ingest strings; only enum members

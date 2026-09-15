@@ -25,7 +25,7 @@ const DashboardCreateSchema = () => {
 
 const dashboardCreate = (): ToolBase<
     ReturnType<typeof DashboardCreateSchema>,
-    WithAgentNote<WithPostHogUrl<Schemas.Dashboard>>
+    WithAgentNote<WithPostHogUrl<Schemas.DashboardCreate>>
 > => ({
     name: 'dashboard-create',
     schema: DashboardCreateSchema(),
@@ -71,7 +71,7 @@ const dashboardCreate = (): ToolBase<
         if (params.delete_insights !== undefined) {
             body['delete_insights'] = params.delete_insights
         }
-        const result = await context.api.request<Schemas.Dashboard>({
+        const result = await context.api.request<Schemas.DashboardCreate>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/`,
             body,
