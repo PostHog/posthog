@@ -936,6 +936,17 @@ class TestHasDuplicatePrimaryKeys:
             assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is False
         mock_capture.assert_not_called()
 
+    def test_undefined_table_is_not_reported(self, impl, cursor, logger):
+        # The table was dropped or renamed in the source between schema discovery and this probe.
+        # The real extraction query reads the same relation and surfaces the missing table through
+        # the normal non-retryable path, so skip gracefully without reporting to error tracking.
+        cursor.execute.side_effect = psycopg.errors.UndefinedTable('relation "public.t" does not exist')
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift.capture_exception"
+        ) as mock_capture:
+            assert impl.has_duplicate_primary_keys(cursor, "public", "t", ["id"], logger) is False
+        mock_capture.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # Listing — exercise impl methods that take a real cursor mock
