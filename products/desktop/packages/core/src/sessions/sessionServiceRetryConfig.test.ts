@@ -85,6 +85,11 @@ function createHarness(session: AgentSession) {
       },
     },
     adapterStore: { removeAdapter: vi.fn(), setAdapter: vi.fn() },
+    billingStore: {
+      getBilling: vi.fn(),
+      setBilling: vi.fn(),
+      removeBilling: vi.fn(),
+    },
     removePersistedConfigOptions: vi.fn(),
     settings: {},
     track: vi.fn(),

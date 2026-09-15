@@ -41,6 +41,7 @@ import {
 import { useAddDirectoryDialogStore } from "@posthog/ui/features/folder-picker/addDirectoryDialogStore";
 import { SpeechNotifier } from "@posthog/ui/features/notifications/speechNotifier";
 import { useSessionAdapterStore } from "@posthog/ui/features/sessions/sessionAdapterStore";
+import { useSessionBillingStore } from "@posthog/ui/features/sessions/sessionBillingStore";
 import {
   getPersistedConfigOptions,
   removePersistedConfigOptions,
@@ -151,6 +152,14 @@ function buildSessionServiceDeps(): SessionServiceDeps {
         useSessionAdapterStore.getState().setAdapter(taskRunId, adapter),
       removeAdapter: (taskRunId) =>
         useSessionAdapterStore.getState().removeAdapter(taskRunId),
+    },
+    billingStore: {
+      getBilling: (taskRunId) =>
+        useSessionBillingStore.getState().getBilling(taskRunId),
+      setBilling: (taskRunId, billing) =>
+        useSessionBillingStore.getState().setBilling(taskRunId, billing),
+      removeBilling: (taskRunId) =>
+        useSessionBillingStore.getState().removeBilling(taskRunId),
     },
     get settings() {
       const state = useSettingsStore.getState();

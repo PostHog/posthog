@@ -53,6 +53,11 @@ function createHarness() {
     getIsOnline: () => true,
     addDirectoryDialog: { open: false },
     usageLimit: { show: usageLimitShow },
+    billingStore: {
+      getBilling: () => undefined,
+      setBilling: vi.fn(),
+      removeBilling: vi.fn(),
+    },
     trpc: {
       agent: {
         prompt: { mutate: promptMutate },

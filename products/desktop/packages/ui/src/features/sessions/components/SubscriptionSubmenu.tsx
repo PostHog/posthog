@@ -52,12 +52,21 @@ interface SubscriptionSubmenuProps {
   adapter: Adapter;
   closeOnChange?: boolean;
   workspaceMode?: WorkspaceModeForAccess;
+  /**
+   * Per-conversation billing for a running local task. When set, the submenu
+   * reads and writes this run's choice through onScopedChange instead of the
+   * global default that new tasks inherit.
+   */
+  scopedValue?: ModelAccess;
+  onScopedChange?: (access: ModelAccess) => void;
 }
 
 export function SubscriptionSubmenu({
   adapter,
   closeOnChange = false,
   workspaceMode,
+  scopedValue,
+  onScopedChange,
 }: SubscriptionSubmenuProps): React.JSX.Element | null {
   const subscription = useAdapterSubscription(adapter);
   const cloudTask = workspaceMode === "cloud";
@@ -71,17 +80,23 @@ export function SubscriptionSubmenu({
   ) {
     return null;
   }
+  // Cloud always bills PostHog, so a per-conversation choice only applies off
+  // cloud.
+  const scopedAccess = cloudTask ? undefined : scopedValue;
   const providerLabel = PROVIDER_LABEL[adapter];
   const value: ModelAccess = cloudTask
     ? subscriptionModelAccess(subscription, "cloud")
-    : subscription.subscriptionOn
-      ? "own-subscription"
-      : "posthog-gateway";
-  const valueLabel =
-    subscriptionModelAccess(subscription, workspaceMode ?? "local") ===
-    "own-subscription"
-      ? providerLabel
-      : "PostHog";
+    : scopedAccess !== undefined
+      ? scopedAccess
+      : subscription.subscriptionOn
+        ? "own-subscription"
+        : "posthog-gateway";
+  const wantsOwnSubscription =
+    scopedAccess !== undefined
+      ? scopedAccess === "own-subscription"
+      : subscriptionModelAccess(subscription, workspaceMode ?? "local") ===
+        "own-subscription";
+  const valueLabel = wantsOwnSubscription ? providerLabel : "PostHog";
 
   return (
     <DropdownMenuSub>
@@ -94,19 +109,21 @@ export function SubscriptionSubmenu({
       <DropdownMenuSubContent>
         <DropdownMenuRadioGroup
           value={value}
-          onValueChange={(next) =>
-            cloudTask && adapter === "claude"
-              ? subscription.setCloudSubscriptionOn?.(
-                  next === "own-subscription",
-                )
-              : applyModelAccess(
-                  adapter,
-                  next === "own-subscription"
-                    ? "own-subscription"
-                    : "posthog-gateway",
-                  subscription.loggedIn,
-                )
-          }
+          onValueChange={(next) => {
+            const access: ModelAccess =
+              next === "own-subscription"
+                ? "own-subscription"
+                : "posthog-gateway";
+            if (cloudTask && adapter === "claude") {
+              subscription.setCloudSubscriptionOn?.(
+                next === "own-subscription",
+              );
+            } else if (scopedAccess !== undefined) {
+              onScopedChange?.(access);
+            } else {
+              applyModelAccess(adapter, access, subscription.loggedIn);
+            }
+          }}
         >
           <DropdownMenuRadioItem
             value="posthog-gateway"
@@ -141,27 +158,25 @@ export function SubscriptionSubmenu({
             </DropdownMenuRadioItem>
           )}
         </DropdownMenuRadioGroup>
-        {!cloudTask &&
-          subscription.subscriptionOn &&
-          !subscription.loggedIn && (
-            // A quiet inline note rather than a permanent menu row: it appears
-            // only once the provider option is picked without a confirmed
-            // login, and sessions keep running on PostHog until the login
-            // completes. Unknown status counts as not logged in, so the note
-            // stays reachable when the status check cannot run or is pending.
-            <div className="px-2 py-1.5 text-muted-foreground text-xs">
-              <button
-                type="button"
-                className="underline underline-offset-2 hover:text-foreground"
-                onClick={() =>
-                  openSettings("harness", SUBSCRIPTION_LOGIN_ACTION[adapter])
-                }
-              >
-                {LOGIN_NOTE[adapter].link}
-              </button>
-              {LOGIN_NOTE[adapter].rest}
-            </div>
-          )}
+        {!cloudTask && wantsOwnSubscription && !subscription.loggedIn && (
+          // A quiet inline note rather than a permanent menu row: it appears
+          // only once the provider option is picked without a confirmed
+          // login, and sessions keep running on PostHog until the login
+          // completes. Unknown status counts as not logged in, so the note
+          // stays reachable when the status check cannot run or is pending.
+          <div className="px-2 py-1.5 text-muted-foreground text-xs">
+            <button
+              type="button"
+              className="underline underline-offset-2 hover:text-foreground"
+              onClick={() =>
+                openSettings("harness", SUBSCRIPTION_LOGIN_ACTION[adapter])
+              }
+            >
+              {LOGIN_NOTE[adapter].link}
+            </button>
+            {LOGIN_NOTE[adapter].rest}
+          </div>
+        )}
       </DropdownMenuSubContent>
     </DropdownMenuSub>
   );

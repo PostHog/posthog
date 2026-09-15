@@ -86,6 +86,13 @@ interface ReasoningLevelSelectorProps {
   isLoading?: boolean;
   modelAccess?: ModelAccess;
   showBillingMenu?: boolean;
+  /**
+   * Per-conversation billing for a running task, forwarded to the Billing
+   * submenu. When set, the submenu switches this run's billing instead of the
+   * global default.
+   */
+  billingScopedValue?: ModelAccess;
+  onBillingScopedChange?: (access: ModelAccess) => void;
   /** Workspace mode of the task being composed; cloud disables plan billing. */
   workspaceMode?: WorkspaceModeForAccess;
   /**
@@ -163,6 +170,8 @@ export function ReasoningLevelSelector({
   isLoading,
   modelAccess,
   showBillingMenu,
+  billingScopedValue,
+  onBillingScopedChange,
   workspaceMode,
   isDefaultSelection,
   onResetToDefault,
@@ -615,6 +624,8 @@ export function ReasoningLevelSelector({
                   <SubscriptionSubmenu
                     adapter={adapter}
                     workspaceMode={workspaceMode}
+                    scopedValue={billingScopedValue}
+                    onScopedChange={onBillingScopedChange}
                   />
                 )}
                 {hasEffort && (
