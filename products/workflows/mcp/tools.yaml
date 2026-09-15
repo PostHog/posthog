@@ -360,7 +360,9 @@ tools:
         description: >
             List the published versions of one workflow, newest first, each with the time it went live. Read it to tell
             how long the live version has been sending before you trust its metrics: a version whose sends began in the
-            last two days has not had time to collect opens. Takes the workflow id as 'id'.
+            last two days has not had time to collect opens. A workflow never published since version history began has
+            no rows here, so its live version is missing: judge that one's age from when its sends began in
+            workflows-stats instead. Takes the workflow id as 'id'.
     workflows-logs:
         operation: hog_flows_logs_retrieve
         enabled: true
