@@ -2100,6 +2100,22 @@ class TestQuerySingleFlightRunner(BaseTest):
         assert report.call_args.args[0] == "query executed"
         assert report.call_args.args[1]["cache_hit"] is True
 
+    def test_follower_serves_the_published_entry_whatever_cache_age_was_requested(self):
+        runner_class = setup_test_query_runner_class()
+        runner = runner_class(query={"some_attr": "bla"}, team=self.team)
+
+        def leader_writes_while_we_wait(*args: Any, **kwargs: Any) -> FlightWait:
+            with mock.patch("posthoganalytics.feature_enabled", return_value=False):
+                leader_response = runner_class(query={"some_attr": "bla"}, team=self.team).run(
+                    execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+                )
+            return FlightWait(outcome="done", last_refresh=leader_response.last_refresh)
+
+        self._become_follower(leader_writes_while_we_wait)
+        with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_flag):
+            response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, cache_age_seconds=0)
+        assert response.is_cached is True  # a zero cache age window must not reject the leader's own write
+
     def test_flag_off_never_touches_the_flight(self):
         runner_class = setup_test_query_runner_class()
         runner = runner_class(query={"some_attr": "bla"}, team=self.team)

@@ -2452,9 +2452,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # The follower serves the entry the leader published and nothing else. Any other entry
         # means the leader's write did not land, and the follower must run the query itself so
         # that failure is not masked by earlier data, even data still fresh for this request.
+        # Identity is settled by last_refresh, so the read ignores the request's freshness window:
+        # a leader's entry a moment old is still the answer, whatever cache age was requested.
         if wait.outcome == "done" and self._published_entry_present(cache_manager, wait.last_refresh):
             served = self.handle_cache_and_async_logic(
-                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
                 cache_manager=cache_manager,
                 user=user,
                 analytics_props=analytics_props,
