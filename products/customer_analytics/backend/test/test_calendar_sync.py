@@ -5,8 +5,11 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
+
 from products.customer_analytics.backend.logic import calendar_sync
 from products.customer_analytics.backend.models import Account, Meeting, MeetingParticipant, MeetingStatus
+from products.customer_analytics.backend.temporal.calendar_sync import _collect_calendar_integrations
 
 
 def _event(**overrides) -> dict:
@@ -39,8 +42,6 @@ class TestCalendarSync(BaseTest):
         self.integration = self._create_integration()
 
     def _create_integration(self):
-        from posthog.models.integration import Integration
-
         return Integration.objects.create(
             team=self.team,
             kind="google-calendar",
@@ -269,3 +270,18 @@ class TestCalendarSync(BaseTest):
         meeting.refresh_from_db()
         assert updated == 1
         assert meeting.account_id == account.id
+
+
+class TestCalendarSyncCollection(BaseTest):
+    def test_hourly_collection_skips_calendars_that_need_a_reconnect(self) -> None:
+        healthy = Integration.objects.create(team=self.team, kind="google-calendar", integration_id="google-sub-ok")
+        Integration.objects.create(
+            team=self.team,
+            kind="google-calendar",
+            integration_id="google-sub-dead",
+            errors=ERROR_TOKEN_REFRESH_FAILED,
+        )
+
+        collected = _collect_calendar_integrations()
+
+        assert [item.integration_id for item in collected] == [healthy.id]

@@ -17,6 +17,7 @@ import { CalendarSyncBackfillModal } from './CalendarSyncBackfillModal'
 import { calendarSyncLogic } from './calendarSyncLogic'
 
 const GMAIL_READONLY_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly'
+const TOKEN_REFRESH_FAILED = 'TOKEN_REFRESH_FAILED'
 
 export function CalendarSyncConfig(): JSX.Element {
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
@@ -75,12 +76,16 @@ export function CalendarSyncConfig(): JSX.Element {
                 const hasGmailScope = String(integration.config?.scope ?? '')
                     .split(' ')
                     .includes(GMAIL_READONLY_SCOPE)
-                const backfillDisabledReason = backfillSubmitting
-                    ? 'Another backfill request is starting'
-                    : isSyncing
-                      ? 'A sync is already running'
-                      : (adminRestrictedReason ??
-                        (!hasGmailScope ? 'Reconnect this Google account before you backfill email' : null))
+                const disconnected = (integration.errors ?? '').split(',').includes(TOKEN_REFRESH_FAILED)
+                const disconnectedReason = disconnected ? 'Reconnect this Google account to sync it again' : null
+                const backfillDisabledReason =
+                    disconnectedReason ??
+                    (backfillSubmitting
+                        ? 'Another backfill request is starting'
+                        : isSyncing
+                          ? 'A sync is already running'
+                          : (adminRestrictedReason ??
+                            (!hasGmailScope ? 'Reconnect this Google account before you backfill email' : null)))
                 return (
                     <IntegrationView
                         key={integration.id}
@@ -89,7 +94,9 @@ export function CalendarSyncConfig(): JSX.Element {
                         suffix={
                             <div className="flex flex-row flex-wrap items-center justify-end gap-2">
                                 <span className="text-xs text-secondary whitespace-nowrap">
-                                    {isSyncing ? (
+                                    {disconnected ? (
+                                        'Sync paused'
+                                    ) : isSyncing ? (
                                         'Syncing Google account...'
                                     ) : syncStatus?.last_synced_at ? (
                                         <>
@@ -103,7 +110,10 @@ export function CalendarSyncConfig(): JSX.Element {
                                     type="secondary"
                                     icon={<IconRefresh />}
                                     loading={isSyncing}
-                                    disabledReason={isSyncing ? 'A sync is already running' : restrictedReason}
+                                    disabledReason={
+                                        disconnectedReason ??
+                                        (isSyncing ? 'A sync is already running' : restrictedReason)
+                                    }
                                     onClick={() => syncNow(integration.id)}
                                 >
                                     Sync now
