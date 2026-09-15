@@ -17,12 +17,12 @@ export function encodeKey(key: TableKey): DynamoItem {
 
 export function decodeKey(item: DynamoItem): TableKey {
     if (!item.pk?.S || !item.sk?.S) {
-        throw new Error('Invalid ML privacy item key')
+        throw new Error('Invalid ML key manager item key')
     }
     return { pk: item.pk.S, sk: item.sk.S }
 }
 
-export class MlPrivacyDynamoDB {
+export class MlKeyDynamoDB {
     private readonly concurrency = pLimit(4)
 
     constructor(
@@ -59,7 +59,7 @@ export class MlPrivacyDynamoDB {
                         }
                     }
                     if (pending.length) {
-                        throw new Error('ML privacy bulk read exhausted retries')
+                        throw new Error('ML key manager bulk read exhausted retries')
                     }
                 })
             )
@@ -72,7 +72,7 @@ export class MlPrivacyDynamoDB {
             transactions.map((items) =>
                 this.concurrency(async () => {
                     if (!items.length || items.length > 100) {
-                        throw new Error('Invalid ML privacy transaction size')
+                        throw new Error('Invalid ML key manager transaction size')
                     }
                     await this.client.send(new TransactWriteItemsCommand({ TransactItems: items }), {
                         abortSignal: AbortSignal.timeout(this.requestTimeoutMs),

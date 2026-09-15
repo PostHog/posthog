@@ -3,7 +3,7 @@ import { TransactWriteItem } from '@aws-sdk/client-dynamodb'
 import { sessionStartMonth } from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format'
 
 import { MlDataKey, MlKeyEncryption } from './crypto'
-import { DynamoItem, MlPrivacyDynamoDB, encodeKey } from './dynamodb'
+import { DynamoItem, MlKeyDynamoDB, encodeKey } from './dynamodb'
 import {
     MlKeyIdentity,
     MlSessionIdentity,
@@ -31,11 +31,11 @@ function storedKeyId(identity: MlKeyIdentity): TableKey {
 function actionId(action: TransactWriteItem): string {
     const operation = action.ConditionCheck ?? action.Put ?? action.Update ?? action.Delete
     if (!operation) {
-        throw new Error('Empty ML privacy transaction action')
+        throw new Error('Empty ML key manager transaction action')
     }
     const key = 'Item' in operation ? operation.Item : 'Key' in operation ? operation.Key : undefined
     if (!key?.pk?.S || !key.sk?.S) {
-        throw new Error('Missing ML privacy transaction key')
+        throw new Error('Missing ML key manager transaction key')
     }
     return JSON.stringify([key.pk.S, key.sk.S])
 }
@@ -49,13 +49,13 @@ export function groupTransactions(units: TransactWriteItem[][]): TransactWriteIt
             const id = actionId(action)
             const existing = next.get(id)
             if (existing && JSON.stringify(existing) !== JSON.stringify(action)) {
-                throw new Error('Conflicting ML privacy transaction actions')
+                throw new Error('Conflicting ML key manager transaction actions')
             }
             next.set(id, action)
         }
         if (next.size > 100 || Buffer.byteLength(JSON.stringify([...next.values()])) > 3_500_000) {
             if (!current.size) {
-                throw new Error('ML privacy transaction unit exceeds limits')
+                throw new Error('ML key manager transaction unit exceeds limits')
             }
             transactions.push([...current.values()])
             current = new Map(unit.map((action) => [actionId(action), action]))
@@ -71,7 +71,7 @@ export function groupTransactions(units: TransactWriteItem[][]): TransactWriteIt
 
 export class MlSessionKeyStore {
     constructor(
-        private readonly db: MlPrivacyDynamoDB,
+        private readonly db: MlKeyDynamoDB,
         private readonly encryption: MlKeyEncryption
     ) {}
 
@@ -97,7 +97,7 @@ export class MlKeyBatch {
     private committed = false
 
     constructor(
-        private readonly db: MlPrivacyDynamoDB,
+        private readonly db: MlKeyDynamoDB,
         private readonly encryption: MlKeyEncryption,
         private readonly identities: MlSessionIdentity[]
     ) {}

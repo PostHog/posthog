@@ -4,27 +4,27 @@ import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared
 import { ML_BLOCK_METADATA_OUTPUT, MlBlockMetadataOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 
 import { toBlockMetadataRow } from './block-metadata-row'
-import { MlKeyReader } from './privacy/reader'
-import { sessionKeyId, tableKeyString } from './privacy/schema'
-import { encryptedKafkaValue } from './privacy/transport'
+import { MlKeyReader } from './keys/reader'
+import { sessionKeyId, tableKeyString } from './keys/schema'
+import { encryptedKafkaValue } from './keys/transport'
 import { usesRawSessionIdentifiers } from './session-identifier-format'
 
 export class MlBlockMetadataSink implements SessionMetadataSink {
     constructor(
         private readonly outputs: IngestionOutputs<MlBlockMetadataOutput>,
         private readonly pseudonymSecret: string | Buffer,
-        private readonly privacy?: MlKeyReader
+        private readonly keyManager?: MlKeyReader
     ) {}
 
     public async storeSessionBlocks(blocks: SessionBlockMetadata[]): Promise<void> {
         const currentBlocks = blocks.filter(
             (block) => block.blockUrl && !block.isDeleted && usesRawSessionIdentifiers(block.sessionId)
         )
-        if (currentBlocks.length && !this.privacy) {
-            throw new Error('ML v2 metadata requires privacy configuration')
+        if (currentBlocks.length && !this.keyManager) {
+            throw new Error('ML v2 metadata requires key manager configuration')
         }
         const keys =
-            (await this.privacy?.read(currentBlocks.map((block) => sessionKeyId(block.teamId, block.sessionId)))) ??
+            (await this.keyManager?.read(currentBlocks.map((block) => sessionKeyId(block.teamId, block.sessionId)))) ??
             new Map()
         const messages = blocks.flatMap((block) => {
             const row = toBlockMetadataRow(block, this.pseudonymSecret)
