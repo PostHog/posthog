@@ -2,21 +2,16 @@ from posthog.test.base import APIBaseTest
 
 from rest_framework import status
 
+from products.warehouse_sources.backend.source_config import SourceConfigMapResponse
+
 
 class TestPublicSourceConfigs(APIBaseTest):
     def test_list_returns_source_configs(self):
         response = self.client.get("/api/public_source_configs/")
         assert response.status_code == status.HTTP_200_OK
 
-        data = response.json()
-        assert isinstance(data, dict)
-        assert len(data) > 0
-
-        first_config = next(iter(data.values()))
-        assert "name" in first_config
-        assert "label" in first_config
-        assert "iconPath" in first_config
-        assert "fields" in first_config
+        catalog = SourceConfigMapResponse.model_validate_json(response.content).root
+        assert len(catalog) > 0
 
     def test_matches_wizard_response(self):
         """Public endpoint returns the same data as the authenticated /wizard endpoint, plus the

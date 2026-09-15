@@ -188,6 +188,7 @@ from products.warehouse_sources.backend.presentation.views.source_api_versions i
     ExternalDataSourceApiVersionDeprecationSerializer,
     api_version_deprecation_payload,
 )
+from products.warehouse_sources.backend.source_config import SourceConfigMapResponse
 
 logger = structlog.get_logger(__name__)
 
@@ -4898,6 +4899,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 ),
             )
         ],
+        responses={200: SourceConfigMapResponse},
     )
     @action(methods=["GET"], detail=False)
     def wizard(self, request: Request, *arg: Any, **kwargs: Any):
