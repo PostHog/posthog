@@ -177,4 +177,14 @@ describe('sourceManagementLogic', () => {
 
         expect(api.externalDataSources.list).not.toHaveBeenCalled()
     })
+
+    it('loads table metadata without fields on the sources page', async () => {
+        router.actions.push('/data-management/sources')
+
+        databaseLogic.mount()
+        logic.mount()
+
+        await expectLogic(databaseLogic).toDispatchActions(['loadDatabaseSuccess'])
+        expect(performQuery).toHaveBeenCalledWith(expect.objectContaining({ includeFields: false }))
+    })
 })
