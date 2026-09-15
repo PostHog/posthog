@@ -549,6 +549,22 @@ describe("ReportVerdictBanner", () => {
       "PR task failed. Open the report to continue.",
     );
   });
+  it("explains an assigned task the lookup can no longer find", () => {
+    useReportTasks.mockReturnValue({ data: [], isLoading: false });
+    render(
+      <ReportVerdictBanner
+        report={{
+          ...report,
+          assignee: { kind: "task", task_id: "implementation-gone" },
+        }}
+        variant="triage-actions"
+        surface="triage"
+      />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Task status unavailable. Open the report to continue.",
+    );
+  });
   it("does not reopen a report dismissed while its task starts", () => {
     render(
       <ReportVerdictBanner

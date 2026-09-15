@@ -154,11 +154,17 @@ export function ReportVerdictBanner({
     isLoading: reportTasksLoading,
     isError: reportTasksFailed,
   } = useReportTasks(report.id, report.status);
+  const assignedTask = reportTasks?.find(
+    (entry) => entry.task.id === report.assignee?.task_id,
+  )?.task;
   const implementationState = deriveReportImplementationState(
     report,
-    reportTasks?.find((entry) => entry.task.id === report.assignee?.task_id)
-      ?.task,
-    reportTasksFailed,
+    assignedTask,
+    // A settled lookup that still has no assigned task means the task is gone:
+    // fetchReportTasks drops a row whose task returns 404. Treat that as a
+    // failed lookup, the same way the batch list does, so the banner shows the
+    // unavailable status instead of staying in "checking" forever.
+    reportTasksFailed || (!!reportTasks && !assignedTask),
   );
   const continuableTask = findContinuableImplementationTask(reportTasks);
   const canCreatePr = canCreateImplementationPr(report, {
