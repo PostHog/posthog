@@ -45,13 +45,24 @@ fn group_to_filter_node(group: &Value) -> Value {
             json!({"type": "AND", "values": values})
         }
         // A property group that already carries its own AND/OR structure, which the
-        // evaluator reads as-is.
-        Some(Value::Object(properties)) if properties.contains_key("values") => {
+        // evaluator reads as-is. Both keys are required, the same test `_parse_data` in
+        // posthog/models/filters/mixins/property.py applies before it parses a group.
+        Some(Value::Object(properties))
+            if properties.contains_key("type") && properties.contains_key("values") =>
+        {
             Value::Object(properties.clone())
         }
         // The oldest shape on record: a plain `{"key": "value"}` map of implicit
-        // person-property equality checks.
-        Some(Value::Object(properties)) if !properties.is_empty() => {
+        // person-property equality checks. An object carrying `type` or `values` is
+        // excluded, because Python reads a partial group like `{"type": "OR"}` as an event
+        // property named `type` rather than a person property. This evaluator cannot
+        // resolve event properties, so such a group falls through to a non-match instead
+        // of comparing a person's own `type` property against the group's structure.
+        Some(Value::Object(properties))
+            if !properties.is_empty()
+                && !properties.contains_key("type")
+                && !properties.contains_key("values") =>
+        {
             let values: Vec<Value> = properties
                 .iter()
                 .map(|(key, value)| json!({"key": key, "value": value, "type": "person"}))
@@ -176,10 +187,15 @@ mod tests {
 
     #[test]
     fn test_event_and_unconvertible_groups_become_unsupported_leaves() {
+        // The last two groups are partial structural groups. Python reads each as an event
+        // property named after the key it carries, which this evaluator cannot resolve, so
+        // neither may become a person property compared against the group's structure.
         let groups = json!([
             {"action_id": 7, "days": 30, "count": 1},
             {"event_id": "$pageview", "days": 7},
-            {"name": "a group that defines no audience"}
+            {"name": "a group that defines no audience"},
+            {"properties": {"type": "OR"}},
+            {"properties": {"values": [{"key": "plan", "value": "pro", "type": "person"}]}}
         ]);
 
         assert_eq!(
@@ -187,6 +203,8 @@ mod tests {
             json!({"properties": {"type": "OR", "values": [
                 {"type": "behavioral", "key": 7},
                 {"type": "behavioral", "key": "$pageview"},
+                {"type": UNSUPPORTED_LEAF_TYPE},
+                {"type": UNSUPPORTED_LEAF_TYPE},
                 {"type": UNSUPPORTED_LEAF_TYPE}
             ]}})
         );
