@@ -18,11 +18,19 @@ A failed capture keeps the current answer and text available for retry.
 The confirmation means the SDK accepted the event for delivery, not that the server acknowledged receipt.
 
 A prompt starts a 30-day cooldown for that signed-in user in the browser, including when dismissed or left unanswered.
-The header button remains available during the cooldown and opens the existing general feedback popover.
+The header button remains available during the cooldown and opens the existing general feedback survey through the SDK's selector listener.
 All placements share the same cooldown.
 The cooldown uses local storage; it does not follow the user across browsers or coordinate simultaneous tabs.
 
 ## Configuration and release
+
+Configure the existing header survey as a Feedback button (`widget`) survey with an Always schedule.
+Select an existing element with `appearance.widgetType: selector` and `appearance.widgetSelector: #mcp-analytics-feedback-button`.
+Set URL targeting to contain `/mcp-analytics` instead of the programmatic-only placeholder URL.
+Keep the survey ID and question IDs unchanged to preserve response history.
+Configure the survey before deploying the selector button; the previous frontend can still open it programmatically during rollout.
+The SDK owns the click listener and captures `survey shown`, `survey sent`, and `survey dismissed`.
+Do not add a second `displaySurvey` click handler or capture duplicate lifecycle events.
 
 Create the API survey in draft with partial responses enabled and an Always schedule.
 The questions are:
@@ -75,7 +83,8 @@ The context key isolates local state when changing items and is never captured.
 Keep `entryPoint` stable and increment `version` when changing either question's wording.
 `MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT` configures the session detail placement.
 Other placements must mount the same component only when their content is ready for review.
-Header responses carry `feedback_entry_point: header` and the active tab.
+Identify header feedback by its separate survey ID and use the SDK's `$pathname` or `$current_url` to determine the tab.
+The selector widget does not receive the inline prompt's custom placement properties.
 No MCP session IDs, tool inputs, outputs, or customer end-user details are attached by this prompt.
 The SDK's existing viewer identity and group context remain available for cohort analysis.
 

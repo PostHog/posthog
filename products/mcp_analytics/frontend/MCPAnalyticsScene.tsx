@@ -3,7 +3,6 @@ import { router, combineUrl } from 'kea-router'
 
 import { LemonButton, LemonTab, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
-import { FeedbackSurveyButton } from 'lib/components/FeedbackSurveyButton/FeedbackSurveyButton'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -19,7 +18,6 @@ import { MCPAnalyticsClustering } from './clustering/MCPAnalyticsClustering'
 import { MCPAnalyticsActivityDashboard } from './earlyData/MCPAnalyticsEarlyData'
 import { mcpAnalyticsEmptyState } from './emptyState/mcpAnalyticsEmptyState'
 import { mcpAnalyticsFeaturePreviewGate } from './featurePreviewGate'
-import { MCP_ANALYTICS_FEEDBACK_SURVEY_ID } from './feedback/constants'
 import { MCPAnalyticsDashboard } from './MCPAnalyticsDashboard'
 import { mcpAnalyticsOnboardingLogic } from './mcpAnalyticsOnboardingLogic'
 import { MCPAnalyticsTab, TAB_DESCRIPTIONS, mcpAnalyticsSceneLogic } from './mcpAnalyticsSceneLogic'
@@ -141,15 +139,14 @@ function MCPAnalyticsSceneContent(): JSX.Element {
                 resourceType={{ type: 'mcp_analytics' }}
                 actions={
                     <>
-                        <FeedbackSurveyButton
-                            surveyId={MCP_ANALYTICS_FEEDBACK_SURVEY_ID}
-                            properties={{
-                                feedback_surface: 'mcp_analytics',
-                                feedback_entry_point: 'header',
-                                mcp_analytics_tab: activeTab,
-                            }}
+                        <LemonButton
+                            id="mcp-analytics-feedback-button"
                             data-attr="mcp-analytics-feedback-button"
-                        />
+                            size="small"
+                            tooltip="Have any questions or feedback?"
+                        >
+                            Feedback
+                        </LemonButton>
                         <LemonButton to={MCP_DOCS_URL} type="secondary" targetBlank size="small">
                             Documentation
                         </LemonButton>
