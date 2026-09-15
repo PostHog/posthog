@@ -193,6 +193,8 @@ describe('SegmentDestinationExecutorService', () => {
                 dump: () => Promise.resolve(),
             })
 
+            // Take the reference time before the call, because the call calculates the retry time.
+            const beforeFirstExecution = DateTime.utc()
             const result = await service.execute(invocation)
 
             expect(result.finished).toBe(false)
@@ -236,15 +238,18 @@ describe('SegmentDestinationExecutorService', () => {
                 teamId: 1,
             })
 
-            let minBackoffMs = DateTime.utc().plus({ milliseconds: defaultConfig.CDP_FETCH_BACKOFF_BASE_MS }).toMillis()
-            let maxBackoffMs = DateTime.utc()
-                .plus({ milliseconds: defaultConfig.CDP_FETCH_BACKOFF_BASE_MS * 2 })
-                .toMillis()
-            let scheduledAt = result.invocation.queueScheduledAt!.toMillis()
-            expect(scheduledAt > minBackoffMs && scheduledAt < maxBackoffMs).toBe(true)
+            expect(result.invocation.queueScheduledAt!.toMillis()).toBeGreaterThanOrEqual(
+                beforeFirstExecution.plus({ milliseconds: defaultConfig.CDP_FETCH_BACKOFF_BASE_MS }).toMillis()
+            )
+            expect(result.invocation.queueScheduledAt!.toMillis()).toBeLessThan(
+                DateTime.utc()
+                    .plus({ milliseconds: defaultConfig.CDP_FETCH_BACKOFF_BASE_MS * 2 })
+                    .toMillis()
+            )
 
             // second fetch call
 
+            const beforeSecondExecution = DateTime.utc()
             const invocationResults2 = await service.execute(result.invocation)
 
             expect(invocationResults2.finished).toBe(false)
@@ -267,14 +272,14 @@ describe('SegmentDestinationExecutorService', () => {
                 teamId: 1,
             })
 
-            minBackoffMs = DateTime.utc()
-                .plus({ milliseconds: defaultConfig.CDP_FETCH_BACKOFF_BASE_MS * 2 })
-                .toMillis()
-            maxBackoffMs = DateTime.utc()
-                .plus({ milliseconds: defaultConfig.CDP_FETCH_BACKOFF_BASE_MS * 3 })
-                .toMillis()
-            scheduledAt = invocationResults2.invocation.queueScheduledAt!.toMillis()
-            expect(scheduledAt > minBackoffMs && scheduledAt < maxBackoffMs).toBe(true)
+            expect(invocationResults2.invocation.queueScheduledAt!.toMillis()).toBeGreaterThanOrEqual(
+                beforeSecondExecution.plus({ milliseconds: defaultConfig.CDP_FETCH_BACKOFF_BASE_MS * 2 }).toMillis()
+            )
+            expect(invocationResults2.invocation.queueScheduledAt!.toMillis()).toBeLessThan(
+                DateTime.utc()
+                    .plus({ milliseconds: defaultConfig.CDP_FETCH_BACKOFF_BASE_MS * 3 })
+                    .toMillis()
+            )
 
             // third fetch call
 
