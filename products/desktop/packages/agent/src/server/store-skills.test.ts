@@ -480,6 +480,8 @@ describe("store skills", () => {
 
   it("adds a prompt section only when a stub was installed", () => {
     expect(buildStoreSkillsInstructions(0)).toBe("");
-    expect(buildStoreSkillsInstructions(3)).toContain("skill-get");
+    const instructions = buildStoreSkillsInstructions(3);
+    expect(instructions).toContain('call skill-get {"skill_name": "<name>"}');
+    expect(instructions).toContain("`exec` tool");
   });
 });

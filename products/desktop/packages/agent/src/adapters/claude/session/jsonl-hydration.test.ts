@@ -492,6 +492,34 @@ describe("selectRecentTurns", () => {
     expect(keptIds).toEqual(["toolu_03"]);
   });
 
+  it("charges the tool name, which a shell call fills with its whole command", () => {
+    const command = `bash -lc "${"echo hello; ".repeat(250)}"`;
+    const turns = [
+      {
+        role: "user" as const,
+        content: [{ type: "text" as const, text: "go" }],
+      },
+      {
+        role: "assistant" as const,
+        content: [],
+        toolCalls: [{ toolCallId: "call-1", toolName: command, input: {} }],
+      },
+      {
+        role: "user" as const,
+        content: [{ type: "text" as const, text: "again" }],
+      },
+      {
+        role: "assistant" as const,
+        content: [],
+        toolCalls: [{ toolCallId: "call-2", toolName: command, input: {} }],
+      },
+    ];
+
+    // Each call costs ~1,000 tokens through its name alone, so only the last
+    // exchange fits. Uncounted names would keep all four turns.
+    expect(selectRecentTurns(turns, 1_500)).toHaveLength(2);
+  });
+
   it("returns recent turns that fit the budget unchanged", () => {
     const turns = [
       {

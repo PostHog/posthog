@@ -4,6 +4,8 @@ import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
 import type { PostHogAPIClient } from "../posthog-api";
 import { ResumeSaga } from "./resume-saga";
 import {
+  createAcpToolCall,
+  createAcpToolCallUpdate,
   createAgentChunk,
   createAgentMessage,
   createMockApiClient,
@@ -346,6 +348,197 @@ describe("ResumeSaga", () => {
         toolName: "ReadFile",
         input: { path: "/test.ts" },
         result: "file contents here",
+      });
+    });
+
+    it("tracks a Claude tool call that carries only its name in meta", async () => {
+      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
+        createTaskRun(),
+      );
+      (
+        mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
+      ).mockResolvedValue([
+        createAcpToolCall("call-1", {
+          title: "Read /test.ts",
+          claudeToolName: "Read",
+          rawInput: { file_path: "/test.ts" },
+        }),
+        createAcpToolCallUpdate("call-1", {
+          rawOutput: { content: [{ type: "text", text: "file contents" }] },
+        }),
+      ]);
+
+      const saga = new ResumeSaga(mockLogger);
+      const result = await saga.run({
+        taskId: "task-1",
+        runId: "run-1",
+        repositoryPath: repo.path,
+        apiClient: mockApiClient,
+      });
+
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+
+      expect(result.data.conversation[0].toolCalls?.[0]).toMatchObject({
+        toolCallId: "call-1",
+        toolName: "Read",
+        input: { file_path: "/test.ts" },
+        result: { content: [{ type: "text", text: "file contents" }] },
+      });
+    });
+
+    it("tracks a Codex MCP tool call from its ACP fields, minus host-only result meta", async () => {
+      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
+        createTaskRun(),
+      );
+      (
+        mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
+      ).mockResolvedValue([
+        createAcpToolCall("call-1", {
+          title: "posthog/exec",
+          toolName: "mcp__posthog__exec",
+          rawInput: { command: "call skill-get" },
+        }),
+        createAcpToolCallUpdate("call-1", {
+          rawOutput: {
+            content: [{ type: "text", text: "skill body" }],
+            _meta: {
+              "com.posthog.mcp/app_data": { rows: "UI_ONLY".repeat(500) },
+            },
+          },
+        }),
+      ]);
+
+      const saga = new ResumeSaga(mockLogger);
+      const result = await saga.run({
+        taskId: "task-1",
+        runId: "run-1",
+        repositoryPath: repo.path,
+        apiClient: mockApiClient,
+      });
+
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+
+      const toolCall = result.data.conversation[0].toolCalls?.[0];
+      expect(toolCall).toMatchObject({
+        toolCallId: "call-1",
+        toolName: "mcp__posthog__exec",
+        input: { command: "call skill-get" },
+      });
+      expect(toolCall?.result).toEqual({
+        content: [{ type: "text", text: "skill body" }],
+      });
+    });
+
+    it("keeps the error text of a failed MCP call that reports a null raw output", async () => {
+      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
+        createTaskRun(),
+      );
+      (
+        mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
+      ).mockResolvedValue([
+        createAcpToolCall("call-1", {
+          title: "posthog/exec",
+          toolName: "mcp__posthog__exec",
+          rawInput: { command: "call skill-get" },
+        }),
+        createAcpToolCallUpdate("call-1", {
+          rawOutput: null,
+          text: "skill not found",
+        }),
+      ]);
+
+      const saga = new ResumeSaga(mockLogger);
+      const result = await saga.run({
+        taskId: "task-1",
+        runId: "run-1",
+        repositoryPath: repo.path,
+        apiClient: mockApiClient,
+      });
+
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+
+      expect(result.data.conversation[0].toolCalls?.[0]).toMatchObject({
+        toolCallId: "call-1",
+        toolName: "mcp__posthog__exec",
+        result: "skill not found",
+      });
+    });
+
+    it.each([
+      {
+        name: "a later snapshot replaces the opening empty input",
+        opening: {},
+        later: { command: "ls -la" },
+      },
+      {
+        name: "a later empty input does not clobber a stored one",
+        opening: { command: "ls -la" },
+        later: {},
+      },
+    ])("keeps the useful input when $name", async ({ opening, later }) => {
+      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
+        createTaskRun(),
+      );
+      (
+        mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
+      ).mockResolvedValue([
+        createAcpToolCall("call-1", {
+          title: "shell",
+          toolName: "exec",
+          rawInput: opening,
+        }),
+        createAcpToolCallUpdate("call-1", { rawInput: later }),
+        createAcpToolCallUpdate("call-1", { rawOutput: "listing" }),
+      ]);
+
+      const saga = new ResumeSaga(mockLogger);
+      const result = await saga.run({
+        taskId: "task-1",
+        runId: "run-1",
+        repositoryPath: repo.path,
+        apiClient: mockApiClient,
+      });
+
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+
+      expect(result.data.conversation[0].toolCalls?.[0]).toMatchObject({
+        toolCallId: "call-1",
+        toolName: "exec",
+        input: { command: "ls -la" },
+        result: "listing",
+      });
+    });
+
+    it("tracks a shell tool call that carries no meta, using its title and content", async () => {
+      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
+        createTaskRun(),
+      );
+      (
+        mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
+      ).mockResolvedValue([
+        createAcpToolCall("call-1", { title: "cat SKILL.md" }),
+        createAcpToolCallUpdate("call-1", { text: "pointer stub" }),
+      ]);
+
+      const saga = new ResumeSaga(mockLogger);
+      const result = await saga.run({
+        taskId: "task-1",
+        runId: "run-1",
+        repositoryPath: repo.path,
+        apiClient: mockApiClient,
+      });
+
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+
+      expect(result.data.conversation[0].toolCalls?.[0]).toMatchObject({
+        toolCallId: "call-1",
+        toolName: "cat SKILL.md",
+        result: "pointer stub",
       });
     });
 
