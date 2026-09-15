@@ -269,8 +269,6 @@ async def test_file_download_retrieve_returns_empty_when_no_data_exported(
     assert data["files"] == []
 
 
-@requires_aws_credentials
-@pytest.mark.usefixtures("override_file_download_settings")
 @pytest.mark.django_db(transaction=True)
 async def test_file_download_download_fails_when_not_completed(
     async_client: AsyncClient, temporal_client, team, user, data_interval_start, data_interval_end, generate_test_data
