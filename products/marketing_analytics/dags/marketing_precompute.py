@@ -161,8 +161,7 @@ def _recently_active_team_ids(days: int) -> set[int] | None:
               AND event_time > now() - toIntervalDay(%(days)s)
               AND JSONExtractString(log_comment, 'query_type') IN (
                 'marketing_analytics_table_query',
-                'marketing_analytics_aggregated_query',
-                'non_integrated_conversions_table_query'
+                'marketing_analytics_aggregated_query'
               )
               AND team_id > 0
             """,

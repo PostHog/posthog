@@ -148,8 +148,10 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
             compareFilter=CompareFilter(compare=True),
             draftConversionGoal=self._create_test_conversion_goal("warm_me"),
         )
+        # Set on the team, not the runner: the previous-period runner builds its own config from the same
+        # team instance, and it is the one that has to read the flag as on.
+        self.team._ma_precompute_flags = {"conversion": True, "costs": False}
         runner = self._create_query_runner(query)
-        runner.config.conversion_goal_precomputation_enabled = True
 
         response = runner.calculate()
 
