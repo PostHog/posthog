@@ -1,7 +1,6 @@
 import { Gauge } from 'prom-client'
 
-import { InternalCaptureEvent, InternalCaptureService } from '~/common/services/internal-capture'
-import { logger } from '~/common/utils/logger'
+import { InternalCaptureEvent, InternalCaptureService, isRemoteOriginError } from '~/common/services/internal-capture'
 import { captureException } from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
 
@@ -103,8 +102,12 @@ export class CapturedEventsService {
 
         await Promise.all(
             events.map((event) =>
-                this.internalCaptureService.capture(event).catch((error) => {
-                    logger.error('Error capturing internal event', { error })
+                this.internalCaptureService.capture(event, 'CapturedEventsService.flush').catch((error) => {
+                    // capture() already logs and counts the failure. One exception per queued
+                    // event buries every other signal in error tracking, so it stops there.
+                    if (isRemoteOriginError(error)) {
+                        return
+                    }
                     captureException(error)
                 })
             )
