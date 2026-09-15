@@ -3,7 +3,7 @@ import sys
 
 import structlog
 
-from posthog.settings.utils import assert_debug_not_in_production, get_from_env, str_to_bool
+from posthog.settings.utils import assert_debug_not_in_production, get_from_env, is_interactive_shell, str_to_bool
 
 logger = structlog.get_logger(__name__)
 
@@ -18,13 +18,9 @@ TEST = get_from_env(
     "test" in sys.argv or "reset_test_clickhouse_db" in sys.argv or sys.argv[0].endswith("pytest"),
     type_cast=str_to_bool,
 )
-# Interactive shells where startup noise — app-ready logs, third-party deprecation
-# warnings — should stay out of the prompt. Matches Django's own subcommand
-# resolution (argv[1]; global options come after the subcommand, not before).
-# `shell_plus` is intentionally excluded: it has no command override to restore the
-# level once the REPL opens, so forcing ERROR would silence its whole session. For
-# `dbshell` there is no Python REPL (it execs the DB client), so nothing to restore.
-IS_INTERACTIVE_SHELL: bool = len(sys.argv) > 1 and sys.argv[1] in ("shell", "dbshell")
+# A REPL a person types into. Startup noise — app-ready logs, third-party deprecation
+# warnings — stays out of the prompt, and exceptions stay out of error tracking.
+IS_INTERACTIVE_SHELL: bool = is_interactive_shell(sys.argv, sys.stdin)
 COMMAND_EXEC_AUDIT_ENABLED: bool = get_from_env("COMMAND_EXEC_AUDIT_ENABLED", not TEST, type_cast=str_to_bool)
 ORGANIZATION_ACCESS_CACHE_ENABLED: bool = get_from_env(
     "ORGANIZATION_ACCESS_CACHE_ENABLED", not TEST, type_cast=str_to_bool

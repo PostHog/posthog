@@ -194,11 +194,9 @@ class ObjectStorage(ObjectStorageClient):
             if error_code in {"404", "NoSuchKey", "NotFound"} or status_code == 404:
                 return None
             logger.exception("object_storage.head_object_failed", bucket=bucket, file_key=file_key, error=e)
-            capture_exception(e)
             raise ObjectStorageError("head_object failed") from e
         except Exception as e:
             logger.exception("object_storage.head_object_failed", bucket=bucket, file_key=file_key, error=e)
-            capture_exception(e)
             raise ObjectStorageError("head_object failed") from e
 
     def get_presigned_url(
@@ -286,7 +284,6 @@ class ObjectStorage(ObjectStorageClient):
                 file_name=key,
                 error=e,
             )
-            capture_exception(e)
             raise ObjectStorageError("read failed") from e
         except Exception as e:
             logger.exception(
@@ -296,7 +293,6 @@ class ObjectStorage(ObjectStorageClient):
                 error=e,
                 s3_response=s3_response,
             )
-            capture_exception(e)
             raise ObjectStorageError("read failed") from e
 
     def tag(self, bucket: str, key: str, tags: dict[str, str]) -> None:
@@ -308,7 +304,6 @@ class ObjectStorage(ObjectStorageClient):
             )
         except Exception as e:
             logger.exception("object_storage.tag_failed", bucket=bucket, file_name=key, error=e)
-            capture_exception(e)
             raise ObjectStorageError("tag failed") from e
 
     def write(self, bucket: str, key: str, content: Union[str, bytes], extras: dict | None) -> None:
@@ -323,7 +318,6 @@ class ObjectStorage(ObjectStorageClient):
                 error=e,
                 s3_response=s3_response,
             )
-            capture_exception(e)
             raise ObjectStorageError("write failed") from e
 
     def write_stream(self, bucket: str, key: str, fileobj: IO[bytes], extras: dict | None = None) -> None:
@@ -347,7 +341,6 @@ class ObjectStorage(ObjectStorageClient):
                 file_name=key,
                 error=e,
             )
-            capture_exception(e)
             raise ObjectStorageError("write_stream failed") from e
 
     def write_from_file(self, bucket: str, key: str, file_path: str) -> None:
@@ -362,7 +355,6 @@ class ObjectStorage(ObjectStorageClient):
                 file_path=file_path,
                 error=e,
             )
-            capture_exception(e)
             raise ObjectStorageError("write_from_file failed") from e
 
     def copy_objects(self, bucket: str, source_prefix: str, target_prefix: str) -> int | None:
@@ -396,7 +388,6 @@ class ObjectStorage(ObjectStorageClient):
                 target_key=target_key,
                 error=e,
             )
-            capture_exception(e)
             raise ObjectStorageError("copy failed") from e
 
     def delete(self, bucket: str, key: str) -> None:
@@ -405,7 +396,6 @@ class ObjectStorage(ObjectStorageClient):
             response = self.aws_client.delete_object(Bucket=bucket, Key=key)
         except Exception as e:
             logger.exception("object_storage.delete_failed", bucket=bucket, key=key, error=e, s3_response=response)
-            capture_exception(e)
             raise ObjectStorageError("delete failed") from e
 
     def delete_objects(self, bucket: str, keys: list[str]) -> list[str]:
