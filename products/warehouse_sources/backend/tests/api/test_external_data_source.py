@@ -11110,7 +11110,7 @@ class TestDisableCDC(APIBaseTest):
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
         return_value=None,
     )
-    def test_disable_cdc_clears_an_earlier_auto_disable(self, _cleanup) -> None:
+    def test_disable_cdc_clears_an_earlier_auto_disable(self, _cleanup, _purge_buffer_prefix) -> None:
         # PostHog can halt a CDC schema before the user gives up on CDC. The halt must not
         # survive their disable, or the failure digest keeps emailing them about a sync
         # they switched off themselves.
