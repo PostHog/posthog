@@ -1,24 +1,156 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::{routing::get, Router};
+use axum::{
+    extract::{Json, Query, State},
+    http::{HeaderMap, StatusCode},
+    routing::get,
+    Router,
+};
 use common_database::{get_pool_with_config, PoolConfig};
 use common_grpc::GrpcMetricsLayer;
 use common_kafka::kafka_producer::create_kafka_producer;
 use envconfig::Envconfig;
 use health::HealthRegistry;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
+use serde::{Deserialize, Serialize};
 use tonic::transport::Server;
+use tonic::{Code, Status};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 use usage_ingestion::config::Config;
-use usage_ingestion::counters::{spawn_flush_task, CounterAccumulator};
+use usage_ingestion::counters::{spawn_flush_task, CounterAccumulator, RedisCounterReader};
 use usage_ingestion::resolver::PostgresOrganizationResolver;
-use usage_ingestion::service::UsageIngestionService;
-use usage_ingestion_proto::usage_ingestion::v1::usage_ingestion_server::UsageIngestionServer;
+use usage_ingestion::service::{UsageIngestionService, USAGE_COUNTERS_API_SECRET_HEADER};
+use usage_ingestion_proto::usage_ingestion::v1::{
+    get_usage_counters_request, usage_ingestion_server::UsageIngestionServer, CounterGranularity,
+    GetUsageCountersRequest, GetUsageCountersResponse, UsageCounterBucket, UsageCounterValue,
+};
+
+#[derive(Deserialize)]
+struct HttpUsageCountersRequest {
+    team_id: Option<i64>,
+    organization_id: Option<String>,
+    start_timestamp_ms: i64,
+    end_timestamp_ms: i64,
+    granularity: HttpCounterGranularity,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum HttpCounterGranularity {
+    Hour,
+    Day,
+}
+
+impl TryFrom<HttpUsageCountersRequest> for GetUsageCountersRequest {
+    type Error = Status;
+
+    fn try_from(request: HttpUsageCountersRequest) -> Result<Self, Self::Error> {
+        let scope = match (request.team_id, request.organization_id) {
+            (Some(team_id), None) => Some(get_usage_counters_request::Scope::TeamId(team_id)),
+            (None, Some(organization_id)) => Some(
+                get_usage_counters_request::Scope::OrganizationId(organization_id),
+            ),
+            _ => return Err(Status::invalid_argument("exactly one scope is required")),
+        };
+        Ok(Self {
+            scope,
+            start_timestamp_ms: request.start_timestamp_ms,
+            end_timestamp_ms: request.end_timestamp_ms,
+            granularity: match request.granularity {
+                HttpCounterGranularity::Hour => CounterGranularity::Hour.into(),
+                HttpCounterGranularity::Day => CounterGranularity::Day.into(),
+            },
+        })
+    }
+}
+
+#[derive(Serialize)]
+struct HttpUsageCountersResponse {
+    buckets: Vec<HttpUsageCounterBucket>,
+}
+
+#[derive(Serialize)]
+struct HttpUsageCounterBucket {
+    start_timestamp_ms: i64,
+    values: Vec<HttpUsageCounterValue>,
+}
+
+#[derive(Serialize)]
+struct HttpUsageCounterValue {
+    usage_key: String,
+    unit: String,
+    quantity: i64,
+}
+
+impl From<GetUsageCountersResponse> for HttpUsageCountersResponse {
+    fn from(response: GetUsageCountersResponse) -> Self {
+        Self {
+            buckets: response
+                .buckets
+                .into_iter()
+                .map(HttpUsageCounterBucket::from)
+                .collect(),
+        }
+    }
+}
+
+impl From<UsageCounterBucket> for HttpUsageCounterBucket {
+    fn from(bucket: UsageCounterBucket) -> Self {
+        Self {
+            start_timestamp_ms: bucket.start_timestamp_ms,
+            values: bucket
+                .values
+                .into_iter()
+                .map(HttpUsageCounterValue::from)
+                .collect(),
+        }
+    }
+}
+
+impl From<UsageCounterValue> for HttpUsageCounterValue {
+    fn from(value: UsageCounterValue) -> Self {
+        Self {
+            usage_key: value.usage_key,
+            unit: value.unit,
+            quantity: value.quantity,
+        }
+    }
+}
+
+async fn get_usage_counters_http(
+    State(service): State<UsageIngestionService>,
+    headers: HeaderMap,
+    Query(request): Query<HttpUsageCountersRequest>,
+) -> Result<Json<HttpUsageCountersResponse>, (StatusCode, Json<serde_json::Value>)> {
+    let request = GetUsageCountersRequest::try_from(request).map_err(http_error)?;
+    let secret = headers
+        .get(USAGE_COUNTERS_API_SECRET_HEADER)
+        .and_then(|value| value.to_str().ok());
+    service
+        .get_usage_counters(request, secret)
+        .await
+        .map(HttpUsageCountersResponse::from)
+        .map(Json)
+        .map_err(http_error)
+}
+
+fn http_error(status: Status) -> (StatusCode, Json<serde_json::Value>) {
+    let status_code = match status.code() {
+        Code::Unauthenticated => StatusCode::UNAUTHORIZED,
+        Code::InvalidArgument => StatusCode::BAD_REQUEST,
+        Code::FailedPrecondition | Code::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    (
+        status_code,
+        Json(serde_json::json!({"error": status.message()})),
+    )
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -80,12 +212,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let grpc_max_connection_age = config.grpc_max_connection_age();
     let redis_counter_config = config.redis_counter_config();
     let counters = (!config.redis_url.is_empty()).then(|| Arc::new(CounterAccumulator::default()));
+    let counter_reader = (!config.redis_url.is_empty())
+        .then(|| Arc::new(RedisCounterReader::new(config.redis_url.clone())));
     let service = UsageIngestionService::new(
         producer,
         resolver,
         config.max_batch_size,
         config.topic.clone(),
         counters.as_ref().map(Arc::clone),
+        counter_reader,
+        config.usage_counters_api_secret.clone(),
     );
 
     // Buckets only for the shared gRPC histogram, so it renders the same way personhog's does
@@ -110,6 +246,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let metrics_address = config.metrics_address.clone();
     let health_for_routes = health.clone();
+    let usage_counter_routes = Router::new()
+        .route("/v1/usage-counters", get(get_usage_counters_http))
+        .with_state(service.clone());
     tokio::spawn(async move {
         let router = Router::new()
             .route(
@@ -123,7 +262,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .route(
                 "/metrics",
                 get(move || std::future::ready(metrics_handle.render())),
-            );
+            )
+            .merge(usage_counter_routes);
         let listener = tokio::net::TcpListener::bind(metrics_address)
             .await
             .expect("failed to bind usage-ingestion metrics listener");
