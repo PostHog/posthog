@@ -57,8 +57,15 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
     # otherwise truncation makes them undercount in misleading ways (a 6000-id
     # repo would show 0 frequently-tolerated if all of them sat past the slice).
     universe_identifiers = list({s.identifier for s in universe})
+    # `.order_by()` clears the ordering before DISTINCT. Django appends an ORDER BY column to
+    # the select list of a DISTINCT query, so the `-run__completed_at` ordering above would join
+    # the DISTINCT key and yield one row per (identifier, run) rather than one per identifier.
+    # The list feeds `identifier__in` filters, so that pushes the parameter count toward the
+    # Postgres bind-parameter limit and adds a join and a sort that the caller has no use for.
     full_universe_identifiers = (
-        list(universe_qs.values_list("identifier", flat=True).distinct()) if truncated else universe_identifiers
+        list(universe_qs.order_by().values_list("identifier", flat=True).distinct())
+        if truncated
+        else universe_identifiers
     )
 
     # Accepted variants still standing against each baseline's current hash. Scoped to the
