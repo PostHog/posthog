@@ -51,6 +51,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.tasks.usage_report import (
+    AI_BILLING_TRACED_PRODUCTS,
     MCP_ANALYTICS_EVENT_METRICS,
     OrgReport,
     UsageReportCounters,
@@ -4962,6 +4963,163 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         # 1.0 USD * 100 * 1.2 = 120
         self.assertEqual(result, [(self.org_1_team_1.id, 120)])
+
+    def _create_ai_billing_trace(
+        self, team: Team, trace_id: str, tool_calls: list[dict[str, Any]], timestamp: datetime
+    ) -> None:
+        _create_event(
+            event="$ai_trace",
+            team=team,
+            distinct_id="user_1",
+            timestamp=timestamp,
+            properties={
+                "$ai_trace_id": trace_id,
+                "$ai_output_state": {"messages": [{"tool_calls": tool_calls}]},
+                "$group_1": "https://us.posthog.com",
+            },
+        )
+
+    def _create_ai_billing_generation(
+        self, team: Team, trace_id: str, ai_product: str, cost_usd: float, timestamp: datetime
+    ) -> None:
+        _create_event(
+            event="$ai_generation",
+            team=team,
+            distinct_id="user_1",
+            timestamp=timestamp,
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": trace_id,
+                "$ai_total_cost_usd": cost_usd,
+                "$ai_billable": True,
+                "ai_product": ai_product,
+                "$group_1": "https://us.posthog.com",
+            },
+        )
+
+    @parameterized.expand([("slack_app",), ("workflows",), ("alert_investigation_agent",)])
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_free_trace_does_not_exempt_a_product_that_emits_no_trace(
+        self, ai_product: str, mock_region: MagicMock
+    ) -> None:
+        mock_region.return_value = "US"
+        self._setup_teams()
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+        self._setup_instance_group_mapping(analytics_team)
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+
+        self._create_ai_billing_trace(
+            analytics_team,
+            "trace_free_elsewhere",
+            [{"name": "search", "args": {"kind": "docs"}}],
+            period.start + relativedelta(hours=1),
+        )
+        self._create_ai_billing_generation(
+            analytics_team, "trace_free_elsewhere", ai_product, 1.0, period.start + relativedelta(hours=1, minutes=1)
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period.start, period.end)
+
+        # 1.0 USD * 100 * 1.2 = 120
+        self.assertEqual(result, [(self.org_1_team_1.id, 120)])
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_free_trace_exempts_traced_product(self, mock_region: MagicMock) -> None:
+        mock_region.return_value = "US"
+        self._setup_teams()
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+        self._setup_instance_group_mapping(analytics_team)
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+
+        self._create_ai_billing_trace(
+            analytics_team,
+            "trace_free",
+            [{"name": "search", "args": {"kind": "docs"}}],
+            period.start + relativedelta(hours=1),
+        )
+        self._create_ai_billing_generation(
+            analytics_team, "trace_free", "posthog_ai", 2.0, period.start + relativedelta(hours=1, minutes=1)
+        )
+        self._create_ai_billing_generation(
+            analytics_team, "trace_untraced", "posthog_ai", 1.0, period.start + relativedelta(hours=2)
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period.start, period.end)
+
+        # Only the 1.0 USD generation with no trace bills: 1.0 * 100 * 1.2 = 120
+        self.assertEqual(result, [(self.org_1_team_1.id, 120)])
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_billable_trace_row_outranks_a_free_one(self, mock_region: MagicMock) -> None:
+        mock_region.return_value = "US"
+        self._setup_teams()
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+        self._setup_instance_group_mapping(analytics_team)
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+
+        self._create_ai_billing_trace(
+            analytics_team, "trace_shared", [{"name": "query_executor"}], period.start + relativedelta(hours=1)
+        )
+        self._create_ai_billing_trace(
+            analytics_team,
+            "trace_shared",
+            [{"name": "search", "args": {"kind": "docs"}}],
+            period.start + relativedelta(hours=1, minutes=2),
+        )
+        self._create_ai_billing_generation(
+            analytics_team, "trace_shared", "posthog_ai", 1.0, period.start + relativedelta(hours=1, minutes=1)
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period.start, period.end)
+
+        # 1.0 USD * 100 * 1.2 = 120
+        self.assertEqual(result, [(self.org_1_team_1.id, 120)])
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_duplicate_billable_trace_rows_bill_generation_once(self, mock_region: MagicMock) -> None:
+        mock_region.return_value = "US"
+        self._setup_teams()
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+        self._setup_instance_group_mapping(analytics_team)
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+
+        self._create_ai_billing_trace(
+            analytics_team, "trace_repeated", [{"name": "query_executor"}], period.start + relativedelta(hours=1)
+        )
+        self._create_ai_billing_trace(
+            analytics_team,
+            "trace_repeated",
+            [{"name": "query_executor"}],
+            period.start + relativedelta(hours=1, minutes=2),
+        )
+        self._create_ai_billing_generation(
+            analytics_team, "trace_repeated", "posthog_ai", 1.0, period.start + relativedelta(hours=1, minutes=1)
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period.start, period.end)
+
+        # Billed once: 1.0 USD * 100 * 1.2 = 120
+        self.assertEqual(result, [(self.org_1_team_1.id, 120)])
+
+    def test_traced_products_are_pinned(self) -> None:
+        # Update the parametrized free-trace tests when this set changes.
+        self.assertEqual(set(AI_BILLING_TRACED_PRODUCTS), {"posthog_ai"})
 
     def test_has_non_zero_usage_counts_signals_credits(self) -> None:
         """A signals-only org must survive has_non_zero_usage so its report still reaches billing."""
