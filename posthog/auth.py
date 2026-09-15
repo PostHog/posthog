@@ -951,8 +951,7 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
 
         self.access_token = access_token
 
-        # The user FK is `SET_NULL`, so a token row outlives the user it was minted for.
-        # `_validate_token` rejects that already, but the delegated path reaches here without it.
+        # The delegated query rejects missing users, but the nullable relation needs a type guard.
         user = access_token.user
         if user is None:
             raise AuthenticationFailed(detail="User associated with access token not found.")

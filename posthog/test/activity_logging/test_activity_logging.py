@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, Trigger, log_activity
 from posthog.models.activity_logging.model_activity import ActivityTriggerContext
@@ -552,7 +553,7 @@ class TestActivityTriggerContext(BaseTest):
 class TestAgentAttributionOnApiWrites(APIBaseTest):
     """The intent header, the OAuth token binding and the audit row only meet on a real request."""
 
-    def _authenticate_as_sandbox_agent(self, task_id: UUID | None) -> None:
+    def _authenticate_as_sandbox_agent(self, task_id: UUID | None, delegated: bool = False) -> None:
         application = OAuthApplication.objects.create(
             name="Sandbox",
             client_id=ARRAY_APP_CLIENT_ID_DEV,
@@ -573,24 +574,44 @@ class TestAgentAttributionOnApiWrites(APIBaseTest):
             sandbox_task_id=task_id,
         )
         self.client.logout()
-        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
+        token_value = token.token
+        if delegated:
+            token_value = encode_jwt(
+                {"id": self.user.id, "oauth_access_token_id": str(token.id)},
+                timedelta(minutes=15),
+                PosthogJwtAudience.DELEGATED_USER,
+            )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token_value}")
 
     @parameterized.expand(
         [
             (
                 "records the intent of a token bound to a sandbox task",
                 UUID("019f4c2a-0000-7000-8000-0000000000aa"),
+                False,
                 {
                     "job_type": "agent",
                     "job_id": "019f4c2a-0000-7000-8000-0000000000aa",
                     "payload": {"intent": "Repairing a tile that hit the query row limit"},
                 },
             ),
-            ("ignores the header on a token with no task", None, None),
+            (
+                "records the intent of a delegated token bound to a sandbox task",
+                UUID("019f4c2a-0000-7000-8000-0000000000aa"),
+                True,
+                {
+                    "job_type": "agent",
+                    "job_id": "019f4c2a-0000-7000-8000-0000000000aa",
+                    "payload": {"intent": "Repairing a tile that hit the query row limit"},
+                },
+            ),
+            ("ignores the header on a token with no task", None, False, None),
         ]
     )
-    def test_agent_write(self, _name: str, task_id: UUID | None, expected_trigger: dict | None) -> None:
-        self._authenticate_as_sandbox_agent(task_id)
+    def test_agent_write(
+        self, _name: str, task_id: UUID | None, delegated: bool, expected_trigger: dict | None
+    ) -> None:
+        self._authenticate_as_sandbox_agent(task_id, delegated)
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/",

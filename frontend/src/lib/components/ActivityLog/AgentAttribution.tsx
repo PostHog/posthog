@@ -27,7 +27,7 @@ export function AgentAttribution({ logItem }: { logItem: HumanizedActivityLogIte
             <div>
                 Agent task{' '}
                 <Link to={urls.codeTaskLink(attribution.taskId)} target="_blank" targetBlankIcon>
-                    {attribution.taskId}
+                    {attribution.taskId.slice(0, 8)}
                 </Link>
             </div>
         </div>
