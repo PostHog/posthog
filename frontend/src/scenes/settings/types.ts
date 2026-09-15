@@ -206,6 +206,7 @@ export type SettingId =
     | 'logs-distinct-id-attribute-key'
     | 'logs-drop-rules'
     | 'logs-json-parse'
+    | 'logs-json-parse-attribute'
     | 'logs-metric-rules'
     | 'logs-pattern-message-keys'
     | 'logs-pii-scrub'

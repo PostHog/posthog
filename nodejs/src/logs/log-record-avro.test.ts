@@ -13,6 +13,7 @@ import {
     extractJsonAttributesFromBody,
     flattenJson,
     processLogMessageBuffer,
+    transformDecodedLogRecordsInPlace,
 } from './log-record-avro'
 
 const LOG_RECORD_SCHEMA = avro.parse(`{
@@ -406,6 +407,97 @@ describe('log-record-avro', () => {
     })
 
     describe('processLogMessageBuffer', () => {
+        it.each([
+            [
+                'structured object',
+                '{"user":{"id":"sample-user"},"enabled":true}',
+                { 'context.user.id': '"sample-user"', 'context.enabled': 'true' },
+            ],
+            [
+                'stringified object',
+                JSON.stringify('{"sessionId":"sample-session"}'),
+                { 'context.sessionId': '"sample-session"' },
+            ],
+            ['array', '[{"count":2}]', { 'context.0.count': '2' }],
+            ['nested JSON string', '{"nested":"{\\"count\\":2}"}', { 'context.nested': JSON.stringify('{"count":2}') }],
+            ['invalid JSON', 'not JSON', {}],
+            ['invalid stringified JSON', JSON.stringify('{invalid'), {}],
+            ['null', 'null', {}],
+            ['number', '42', {}],
+            ['boolean', 'true', {}],
+            ['empty object', '{}', {}],
+        ])('parses a selected attribute: %s', async (_name, attribute, expected) => {
+            const record: LogRecord = {
+                uuid: 'test-uuid',
+                trace_id: null,
+                span_id: null,
+                trace_flags: null,
+                timestamp: null,
+                observed_timestamp: null,
+                body: 'plain text',
+                severity_text: null,
+                severity_number: null,
+                service_name: null,
+                resource_attributes: { context: attribute },
+                instrumentation_scope: null,
+                event_name: null,
+                attributes: { context: attribute, other: '{"ignored":true}' },
+                bytes_uncompressed: null,
+            }
+            const input = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', [record])
+            const onRecordsDecoded = jest.fn()
+            const result = await processLogMessageBuffer(
+                input,
+                { json_parse_logs_attribute_key: 'context' },
+                { onRecordsDecoded }
+            )
+            const [, codec, decoded] = await decodeLogRecords(result.value!)
+            expect(codec).toBe('zstandard')
+            expect(decoded[0]).toEqual({ ...record, attributes: { ...expected, ...record.attributes } })
+            expect(onRecordsDecoded.mock.calls[0][0][0].attributes).toEqual(decoded[0].attributes)
+            expect(result.pii.piiReplacements).toBe(0)
+        })
+
+        it.each([
+            ['missing', { unrelated: '"value"' }],
+            ['null', null],
+        ])('leaves %s attributes unchanged', async (_name, attributes) => {
+            const records = [{ body: null, attributes } as LogRecord]
+            await transformDecodedLogRecordsInPlace(records, { json_parse_logs_attribute_key: 'context' })
+            expect(records[0].attributes).toEqual(attributes)
+        })
+
+        it('extracts after body parsing and scrubbing, preserving existing fields and literal keys', async () => {
+            const records = [
+                {
+                    body: JSON.stringify({ 'app.context': JSON.stringify({ email: 'sample@example.com', count: 2 }) }),
+                    attributes: { 'app.context.count': '3' },
+                } as unknown as LogRecord,
+            ]
+            await transformDecodedLogRecordsInPlace(records, {
+                json_parse_logs: true,
+                pii_scrub_logs: true,
+                json_parse_logs_attribute_key: 'app.context',
+            })
+            expect(records[0].attributes).toEqual({
+                'app.context': JSON.stringify(JSON.stringify({ email: PII_REDACTED, count: 2 })),
+                'app.context.email': JSON.stringify(PII_REDACTED),
+                'app.context.count': '3',
+            })
+        })
+
+        it('limits extraction to 50 attributes without removing the original', async () => {
+            const attribute = JSON.stringify(
+                Object.fromEntries(Array.from({ length: 60 }, (_, index) => [`field${index}`, index]))
+            )
+            const records = [{ body: null, attributes: { context: attribute } } as unknown as LogRecord]
+            await transformDecodedLogRecordsInPlace(records, { json_parse_logs_attribute_key: 'context' })
+            expect(Object.keys(records[0].attributes!)).toHaveLength(51)
+            expect(records[0].attributes!.context).toBe(attribute)
+            expect(records[0].attributes!['context.field49']).toBe('49')
+            expect(records[0].attributes!['context.field50']).toBeUndefined()
+        })
+
         it('processes buffer with JSON parsing enabled', async () => {
             const records: LogRecord[] = [
                 {
@@ -562,6 +654,8 @@ describe('log-record-avro', () => {
         it.each([
             ['everything off', {}, 0, false, 'passthrough'],
             ['json parse on', { json_parse_logs: true }, 0, false, 'decode_and_reencode'],
+            ['attribute parse on', { json_parse_logs_attribute_key: 'context' }, 0, false, 'decode_and_reencode'],
+            ['attribute parse cleared', { json_parse_logs_attribute_key: '' }, 0, false, 'passthrough'],
             ['pii scrub on', { pii_scrub_logs: true }, 0, false, 'decode_and_reencode'],
             ['a stage present', {}, 1, false, 'decode_and_reencode'],
             ['a decoded-records visitor present', {}, 0, true, 'decode_only'],

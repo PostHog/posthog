@@ -21,6 +21,7 @@ const MAX_JSON_ATTRIBUTES = 50
 const SPAN_LOGS_DECODE = 'logsIngestionConsumer.handleEachBatch.decodeLogRecords'
 const SPAN_LOGS_PARSE_BODIES = 'logsIngestionConsumer.handleEachBatch.parseLogBodies'
 const SPAN_LOGS_ENRICH_JSON = 'logsIngestionConsumer.handleEachBatch.enrichJsonAttributes'
+const SPAN_LOGS_ENRICH_ATTRIBUTE_JSON = 'logsIngestionConsumer.handleEachBatch.enrichJsonAttributesFromAttribute'
 const SPAN_LOGS_PII_SCRUB = 'logsIngestionConsumer.handleEachBatch.piiScrubLogRecords'
 const SPAN_LOGS_ENCODE = 'logsIngestionConsumer.handleEachBatch.encodeLogRecords'
 const SPAN_LOGS_PROCESS_BUFFER = 'logsIngestionConsumer.handleEachBatch.processLogMessageBuffer'
@@ -205,12 +206,12 @@ export function flattenJson(obj: unknown, prefix = '', result: Record<string, an
     return result
 }
 
-function jsonAttributesFromBodyParse(bodyParse: LogBodyParseResult): Record<string, string> {
+function jsonAttributesFromBodyParse(bodyParse: LogBodyParseResult, prefix = ''): Record<string, string> {
     if (bodyParse.kind !== 'json_object_or_array') {
         return {}
     }
 
-    const flattened = flattenJson(bodyParse.value)
+    const flattened = flattenJson(bodyParse.value, prefix)
     const newAttributes: Record<string, string> = {}
     let count = 0
 
@@ -223,6 +224,17 @@ function jsonAttributesFromBodyParse(bodyParse: LogBodyParseResult): Record<stri
     }
 
     return newAttributes
+}
+
+function addJsonAttributes(record: LogRecord, jsonAttributes: Record<string, string>): void {
+    if (Object.keys(jsonAttributes).length === 0) {
+        return
+    }
+
+    record.attributes = {
+        ...jsonAttributes,
+        ...record.attributes, // existing attributes take precedence
+    }
 }
 
 /**
@@ -246,15 +258,7 @@ export function enrichLogRecordWithJsonAttributes(record: LogRecord, bodyParse?:
     }
 
     const parse = bodyParse ?? parseLogBodyForIngestion(record.body)
-    const existingAttributes = record.attributes || {}
-    const jsonAttributes = jsonAttributesFromBodyParse(parse)
-
-    if (Object.keys(jsonAttributes).length > 0) {
-        record.attributes = {
-            ...jsonAttributes,
-            ...existingAttributes, // existing attributes take precedence
-        }
-    }
+    addJsonAttributes(record, jsonAttributesFromBodyParse(parse))
 
     return record
 }
@@ -265,6 +269,25 @@ const enrichBatchJsonAttributes = instrumented({
 })((records: LogRecord[], bodyParses: LogBodyParseResult[]): Promise<void> => {
     for (let i = 0; i < records.length; i++) {
         enrichLogRecordWithJsonAttributes(records[i], bodyParses[i])
+    }
+    return Promise.resolve()
+})
+
+const enrichBatchAttributeJsonAttributes = instrumented({
+    key: SPAN_LOGS_ENRICH_ATTRIBUTE_JSON,
+    ...logRecordProcessInstrumentOpts,
+})((records: LogRecord[], attributeKey: string): Promise<void> => {
+    for (const record of records) {
+        const attribute = record.attributes?.[attributeKey]
+        if (typeof attribute !== 'string') {
+            continue
+        }
+        let parsed = parseLogBodyForIngestion(attribute)
+        if (parsed.kind === 'json_string') {
+            // SDKs commonly stringify the attribute value, so the first parse yields the JSON document as a string.
+            parsed = parseLogBodyForIngestion(parsed.value)
+        }
+        addJsonAttributes(record, jsonAttributesFromBodyParse(parsed, attributeKey))
     }
     return Promise.resolve()
 })
@@ -301,6 +324,10 @@ export async function transformDecodedLogRecordsInPlace(
         await enrichBatchJsonAttributes(records, bodyParses)
     } else if (piiScrub) {
         pii = await scrubBatch(records)
+    }
+    const attributeKey = settings.json_parse_logs_attribute_key
+    if (attributeKey) {
+        await enrichBatchAttributeJsonAttributes(records, attributeKey)
     }
     return pii
 }
@@ -339,7 +366,10 @@ export function bufferProcessingMode(
     stageCount: number,
     hasVisitor: boolean
 ): BufferProcessingMode {
-    const normalizeActive = (settings.json_parse_logs ?? false) || (settings.pii_scrub_logs ?? false)
+    const normalizeActive =
+        (settings.json_parse_logs ?? false) ||
+        (settings.pii_scrub_logs ?? false) ||
+        !!settings.json_parse_logs_attribute_key
     if (normalizeActive || stageCount > 0) {
         return 'decode_and_reencode'
     }

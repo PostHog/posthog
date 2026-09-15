@@ -67,6 +67,8 @@ export type LogsIngestionConsumerConfig = {
     LOGS_RETENTION_KILLSWITCH: boolean
     /** Comma-separated team IDs, or `*` for all teams, or empty (default) to disable measure-only pattern masking. */
     LOGS_PATTERN_MASKING_ENABLED_TEAMS: string
+    /** Comma-separated team IDs, `*` for all teams, or empty to disable JSON attribute parsing. */
+    LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS: string
     /**
      * When `true`, rows removed by drop rules are credited back to the billed usage metrics
      * (`bytes_ingested` / `records_ingested`). When `false` (default), the credit is only
@@ -120,6 +122,7 @@ export function getDefaultLogsIngestionConsumerConfig(): LogsIngestionConsumerCo
         LOGS_RETENTION_KILLSWITCH: false,
         // Off by default: enabling forces decode+re-encode for allowlisted teams.
         LOGS_PATTERN_MASKING_ENABLED_TEAMS: '',
+        LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS: '',
         LOGS_BILLING_PRORATE_ENABLED: false,
         LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '',
         LOGS_TRANSFORMATIONS_KILLSWITCH: false,
