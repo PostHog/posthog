@@ -66,10 +66,20 @@ def test_transpiles_core_table_with_values_without_django_queries(
         "date('2026-01-01')",
         "Date('2026-01-01')",
         "ifNotFinite(1, 2)",
+        "ifnotfinite(1, 2)",
+        "IFNOTFINITE(1, 2)",
+        "cardinality([1, 2])",
+        "CARDINALITY([1, 2])",
+        "json_value('{\"a\": 1}', '$.a')",
         "medianExactWeighted(3, 2)",
+        "medianexactweighted(3, 2)",
         "medianExactWeightedIf(3, 2, true)",
+        "medianexactweightedif(3, 2, true)",
         "quantiles(0.25, 0.75)(3)",
         "quantilesIf(0.25, 0.75)(3, true)",
+        "sum(DISTINCT 3) FILTER (WHERE true)",
+        "array_agg(3 ORDER BY 3 DESC)",
+        "percentile_cont(0.5) WITHIN GROUP (ORDER BY 3 ASC)",
     ],
 )
 @pytest.mark.parametrize("alias", ["", " AS result"])
@@ -87,9 +97,13 @@ def test_hogql_diagnostics_accept_trino_signatures(expression: str, alias: str) 
 
 
 @pytest.mark.parametrize("include_hogql", [False, True])
-def test_hogql_diagnostics_reject_invalid_quantiles_arguments(include_hogql: bool) -> None:
-    with pytest.raises(QueryError, match="quantiles"):
-        transpile_hogql_to_trino("SELECT quantiles(0.5)(1, 2)", manifest=_manifest(), include_hogql=include_hogql)
+@pytest.mark.parametrize(
+    ("expression", "error"),
+    [("quantiles(0.5)(1, 2)", "quantiles"), ("unknownFunction(1)", "(?i)unknownfunction")],
+)
+def test_hogql_diagnostics_preserve_trino_validation(expression: str, error: str, include_hogql: bool) -> None:
+    with pytest.raises(QueryError, match=error):
+        transpile_hogql_to_trino(f"SELECT {expression}", manifest=_manifest(), include_hogql=include_hogql)
 
 
 def test_transpiles_manifest_table_without_django_queries(django_assert_num_queries: Any) -> None:
