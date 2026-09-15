@@ -516,6 +516,24 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert [r["name"] for r in response.json()["results"]] == ["skill-a"]
 
+    @parameterized.expand([("burst", "Burst"), ("sustained", "Sustained")])
+    def test_list_skills_throttles_a_session_caller(self, _label: str, window: str) -> None:
+        # The default burst/sustained classes count personal-API-key traffic only, so without its
+        # own throttles the list action lets a session or OAuth client poll it with no ceiling.
+        self.create_skill(name="throttle-list-skill")
+        period = "minute" if window == "Burst" else "hour"
+        with (
+            patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
+            patch("posthog.rate_limit.team_is_allowed_to_bypass_throttle", return_value=False),
+            patch(f"products.skills.backend.api.skills.SkillList{window}Throttle.rate", new=f"1/{period}"),
+            patch("rest_framework.throttling.SimpleRateThrottle.timer", return_value=1000),
+        ):
+            assert self.client.get(self._url()).status_code == status.HTTP_200_OK
+            blocked = self.client.get(self._url())
+
+            assert blocked.status_code == status.HTTP_429_TOO_MANY_REQUESTS, blocked.content
+            assert int(blocked["Retry-After"]) > 0
+
     # --- Search ---
 
     def test_search_skills_orders_fields_by_relevance_and_skips_non_markdown_file_contents(self):

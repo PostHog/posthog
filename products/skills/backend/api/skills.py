@@ -367,6 +367,16 @@ class SkillSearchSustainedThrottle(_SkillUserThrottle):
     rate = SustainedRateThrottle.rate
 
 
+class SkillListBurstThrottle(_SkillUserThrottle):
+    scope = "skills_list_burst"
+    rate = BurstRateThrottle.rate
+
+
+class SkillListSustainedThrottle(_SkillUserThrottle):
+    scope = "skills_list_sustained"
+    rate = SustainedRateThrottle.rate
+
+
 class ZipRenderer(BaseRenderer):
     """Lets ``Accept: application/zip`` through content negotiation on the zip actions.
 
@@ -439,6 +449,8 @@ class LLMSkillViewSet(
             return [SkillBundleBurstThrottle(), SkillBundleSustainedThrottle()]
         if self.action == "search":
             return [SkillSearchBurstThrottle(), SkillSearchSustainedThrottle()]
+        if self.action == "list":
+            return [SkillListBurstThrottle(), SkillListSustainedThrottle()]
         if self.action in ["update_by_name", "get_by_name", "resolve_by_name"]:
             return [BurstRateThrottle(), SustainedRateThrottle()]
         return super().get_throttles()
