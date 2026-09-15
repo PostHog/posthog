@@ -1,7 +1,14 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useEffect } from 'react'
 
+import {
+    EMPTY_STATE_PARAM,
+    forcedModeFromParam,
+    productEmptyStateGateRender,
+} from 'lib/components/ProductEmptyState/gateRender'
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { navPanelProductPushWelcomeLogic } from './navPanelProductPushWelcomeLogic'
@@ -31,17 +38,33 @@ function ProductPushWelcome({
     welcome: PendingProductPushWelcome
     isOpen: boolean
 }): JSX.Element | null {
-    const { activeExportedScene, activeSceneProductKey } = useValues(sceneLogic)
+    const { activeExportedScene, activeSceneProductKey, activeSceneId, activeSceneComponentParams } =
+        useValues(sceneLogic)
+    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
+    const { searchParams } = useValues(router)
     const { status, skipped } = useValues(productSetupStatusLogic({ productKey: welcome.productKey }))
     const { openWelcome, closeWelcome } = useActions(navPanelProductPushWelcomeLogic)
 
     const sceneEmptyState = activeExportedScene?.emptyState
+    const gatesPushedProduct = sceneEmptyState?.config.productKey === welcome.productKey
+    // The gate renders more than the setup status: `?empty_state=1` forces the screen onto a product
+    // that has data, and a flag or a `scenes` scope takes it away from a product that has none.
     const ready = shouldShowProductPushWelcome({
         pending: welcome,
         activeSceneProductKey,
-        sceneEmptyState,
-        status,
-        skipped,
+        pushedProductGate:
+            sceneEmptyState && gatesPushedProduct
+                ? productEmptyStateGateRender({
+                      emptyState: sceneEmptyState,
+                      activeSceneId,
+                      params: activeSceneComponentParams,
+                      featureFlags,
+                      receivedFeatureFlags,
+                      forcedMode: forcedModeFromParam(searchParams[EMPTY_STATE_PARAM]),
+                      status,
+                      skipped,
+                  })
+                : null,
     })
 
     useEffect(() => {
@@ -53,6 +76,6 @@ function ProductPushWelcome({
     if (!isOpen) {
         return null
     }
-    const config = sceneEmptyState?.config.productKey === welcome.productKey ? sceneEmptyState.config : undefined
+    const config = gatesPushedProduct ? sceneEmptyState?.config : undefined
     return <ProductPushWelcomeModal welcome={welcome} config={config} onClose={closeWelcome} />
 }
