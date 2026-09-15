@@ -8,9 +8,9 @@ from posthog.ingress.contracts import WebhookConsumer, WebhookDelivery
 
 
 def _run_workflows(delivery: WebhookDelivery) -> None:
-    from products.workflows.backend.github_workflow_events import emit_github_event  # noqa: PLC0415
+    from products.workflows.backend.facade.api import accept_github_event  # noqa: PLC0415
 
-    emit_github_event(delivery.event_type, dict(delivery.payload), delivery.delivery_id or "")
+    accept_github_event(delivery)
 
 
 WEBHOOK_CONSUMERS = (

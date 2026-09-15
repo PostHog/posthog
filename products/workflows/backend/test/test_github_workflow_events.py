@@ -1,3 +1,5 @@
+import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -5,12 +7,14 @@ from unittest.mock import patch
 
 from django.db import OperationalError
 
+from posthog.ingress.contracts import WebhookDelivery
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
-from products.workflows.backend.github_workflow_events import emit_github_event
+from products.workflows.backend.github_workflow_events import _GITHUB_EVENT_NAMESPACE, emit_github_event
+from products.workflows.backend.webhook_consumers import WEBHOOK_CONSUMERS
 
 INSTALLATION_ID = 4242
 
@@ -298,3 +302,26 @@ def test_a_kafka_failure_does_not_reach_the_webhook(produce, integration) -> Non
 
     with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
         emit_github_event("issues", ISSUE_EVENT, "delivery-1")
+
+
+def test_the_webhook_consumer_passes_the_whole_delivery_through_the_facade(produce, integration) -> None:
+    # The facade unpacks the delivery into emit's three arguments. The delivery id only shows up
+    # in the event uuid, so dropping it emits an event that looks correct and dedupes wrong.
+    (consumer,) = WEBHOOK_CONSUMERS
+    delivery = WebhookDelivery(
+        provider="github",
+        app="posthog",
+        delivery_id="delivery-1",
+        event_type="issues",
+        payload=ISSUE_EVENT,
+        received_at=datetime(2026, 1, 1, tzinfo=UTC),
+        context={},
+    )
+
+    with patch("django.conf.settings.GITHUB_WORKFLOW_TRIGGERS_ENABLED", True):
+        consumer.handler(delivery)
+
+    event = produce.call_args.args[1]
+    assert event.properties["event_type"] == "issues"
+    assert event.properties["github_event"] == ISSUE_EVENT
+    assert event.uuid == str(uuid.uuid5(_GITHUB_EVENT_NAMESPACE, f"{integration.team_id}:delivery-1"))
