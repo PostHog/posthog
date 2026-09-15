@@ -5,6 +5,7 @@ import api, { ApiConfig, ApiError, ApiRequest, NetworkError } from 'lib/api'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
+import { hogql } from '~/queries/utils'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 // Mirrors SESSION_KEY in lib/oauth/oauthClient — the localStorage key its real getStoredSession reads.
@@ -157,6 +158,16 @@ describe('API helper', () => {
             await api.query({} as Record<string, any>)
 
             expect(fakeFetch.mock.calls[0][0]).toEqual('/api/environments/2/query/')
+        })
+
+        it.each([
+            ['query', () => api.query({ kind: NodeKind.EventsQuery, select: ['timestamp'] })],
+            ['queryHogQL', () => api.queryHogQL(hogql`select 1`, { scene: 'Test' })],
+            ['groups.listClickhouse', () => api.groups.listClickhouse({ group_type_index: 0, search: '' })],
+        ])('names an empty-body response from %s rather than resolving to null', async (_wrapper, callWrapper) => {
+            fakeFetch.mockResolvedValue({ ok: true, status: 204, body: null })
+
+            await expect(callWrapper()).rejects.toThrow('Empty response from the query endpoint')
         })
 
         it('throws when the query URL kind does not match the request body', async () => {
