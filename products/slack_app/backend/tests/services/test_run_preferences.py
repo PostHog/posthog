@@ -17,6 +17,7 @@ from products.slack_app.backend.services.run_preferences import (
     resolve_run_preferences,
 )
 from products.slack_app.backend.services.slack_settings import AIPreferences
+from products.tasks.backend.facade.ai_run_defaults import ResolvedAIRunConfig
 
 # Real model ids: the resolver validates efforts against the tasks catalogue (the
 # authority on what a model accepts), not against these tuples, so inventing ids here
@@ -96,6 +97,15 @@ class TestResolveRunPreferences:
     # just never on the configured model. This locks the deferral in.
     def test_a_central_default_leaves_the_triple_empty_for_downstream_resolution(self, catalogue):
         assert _resolve(central_default=CENTRAL) == AIPreferences(None, None, None)
+
+    def test_a_pi_central_default_does_not_apply_to_slack_runs(self):
+        """Slack runs are ACP, so a preference naming the Pi runtime must defer to the
+        floor instead of coercing its model onto a derived adapter."""
+        with patch(
+            "products.tasks.backend.facade.ai_run_defaults.resolve_ai_run_defaults",
+            return_value=ResolvedAIRunConfig(runtime="pi", model="gpt-5.6-terra"),
+        ):
+            assert run_preferences._central_run_default(1, 7) is None
 
     # An effort named on its own has no model to be validated against while the run is
     # deferring, so without the deferred default it is silently dropped and the mention

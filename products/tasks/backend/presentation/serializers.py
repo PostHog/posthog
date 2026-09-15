@@ -4555,6 +4555,17 @@ class TasksAIRunPreferencesSerializer(serializers.Serializer):
     RUNTIME_ADAPTER_CHOICES = [adapter.value for adapter in RuntimeAdapter]
     REASONING_EFFORT_CHOICES = [effort.value for effort in PUBLIC_REASONING_EFFORTS]
 
+    runtime = serializers.ChoiceField(
+        choices=tasks_facade.TaskRuntime.choices,
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "Agent runtime this preference launches. 'acp' (the default, matching rows stored "
+            "before this field) pairs `runtime_adapter` with `model`; 'pi' forbids `runtime_adapter` "
+            "and requires `model`."
+        ),
+    )
     runtime_adapter = serializers.ChoiceField(
         choices=RUNTIME_ADAPTER_CHOICES,
         required=False,
@@ -4562,7 +4573,8 @@ class TasksAIRunPreferencesSerializer(serializers.Serializer):
         default=None,
         help_text=(
             "Default agent runtime adapter for new task runs. Use 'claude' for the Claude "
-            "runtime or 'codex' for the Codex runtime. Must be set together with `model`."
+            "runtime or 'codex' for the Codex runtime. Must be set together with `model`, and "
+            "left null when `runtime` is 'pi'."
         ),
     )
     model = serializers.CharField(
@@ -4570,7 +4582,7 @@ class TasksAIRunPreferencesSerializer(serializers.Serializer):
         allow_null=True,
         allow_blank=False,
         default=None,
-        help_text="Default LLM model identifier for new task runs. Must be set together with `runtime_adapter`.",
+        help_text="Default LLM model identifier for new task runs. Must be set together with `runtime_adapter` on the acp arm, or with `runtime` on the pi arm.",
     )
     reasoning_effort = serializers.ChoiceField(
         choices=REASONING_EFFORT_CHOICES,
@@ -4582,12 +4594,16 @@ class TasksAIRunPreferencesSerializer(serializers.Serializer):
 
 
 class TasksResolvedAIRunDefaultsSerializer(serializers.Serializer):
-    """The AI run triple a new run will effectively use when the caller pins nothing,
+    """The AI run selection a new run will effectively use when the caller pins nothing,
     plus which preference level supplied it."""
 
     # Not bound to `ResolvedAIRunConfig` via DataclassSerializer: that dataclass also carries the
     # internal `explicit` resolution state this endpoint never returns, and its per-field defaults
-    # would mark every field optional when the response always sends all four.
+    # would mark every field optional when the response always sends all fields.
+    runtime = serializers.ChoiceField(
+        choices=tasks_facade.TaskRuntime.choices,
+        help_text="Agent runtime the effective default launches: 'acp' or 'pi'.",
+    )
     runtime_adapter = serializers.CharField(
         allow_null=True, help_text="Effective default runtime adapter, or null when no preference is stored."
     )

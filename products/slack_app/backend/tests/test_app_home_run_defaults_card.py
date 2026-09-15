@@ -37,3 +37,11 @@ class TestRunDefaultsCardRouting(APIBaseTest):
         state = _resolve_run_defaults_state(self.int_b, "U1", accessible=[])
         assert state.model is None
         assert state.settings_url is None
+
+    def test_card_names_no_default_when_the_preference_names_pi(self):
+        update_team_ai_run_preferences(
+            self.team.id, runtime="pi", runtime_adapter=None, model="model-a", reasoning_effort=None
+        )
+        state = _resolve_run_defaults_state(self.int_a, "U1", accessible=[self.int_a])
+        assert state.model is None
+        assert state.settings_url is not None

@@ -64,6 +64,9 @@ class TestResolveAIRunDefaults(APIBaseTest):
             ("empty_payload", {}),
             ("model_without_adapter", {"model": "claude-opus-4-8"}),
             ("unknown_adapter", {"runtime_adapter": "gemini", "model": "gemini-3"}),
+            ("pi_without_model", {"runtime": "pi"}),
+            ("pi_with_adapter", {"runtime": "pi", "runtime_adapter": "claude", "model": "claude-opus-4-8"}),
+            ("unknown_runtime", {"runtime": "zai", "model": "claude-opus-4-8"}),
         ]
     )
     def test_unusable_user_row_falls_through_to_team(self, _name: str, user_prefs: dict[str, Any]):
@@ -72,6 +75,25 @@ class TestResolveAIRunDefaults(APIBaseTest):
         resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
         assert resolved.source == "team"
         assert resolved.model == "claude-opus-4-8"
+
+    # A pi preference steers clients that preselect a harness, and reports no adapter
+    # so ACP-only consumers can decline it — Slack does, and the ACP run injection does.
+    def test_pi_preference_resolves_without_an_adapter(self):
+        self._set_user({"runtime": "pi", "model": "gpt-5.6-terra", "reasoning_effort": "high"})
+        resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
+        assert (
+            resolved.runtime,
+            resolved.runtime_adapter,
+            resolved.model,
+            resolved.reasoning_effort,
+            resolved.source,
+        ) == (
+            "pi",
+            None,
+            "gpt-5.6-terra",
+            "high",
+            "user",
+        )
 
     def test_another_users_preference_does_not_leak(self):
         other = User.objects.create_and_join(self.organization, "other@posthog.com", None)
@@ -257,6 +279,17 @@ class TestCreateRunAppliesDefaults(APIBaseTest):
         assert "model" not in run.state
         assert "ai_defaults_source" not in run.state
 
+    # Without the runtime guard in `apply_ai_run_defaults`, a pi default's model would
+    # inject into an ACP run's state against no adapter.
+    def test_pi_default_never_injects_into_acp_run_state(self):
+        update_team_ai_run_preferences(
+            self.team.id, runtime="pi", runtime_adapter=None, model="gpt-5.6-terra", reasoning_effort=None
+        )
+        run = self._task().create_run()
+        assert "model" not in run.state
+        assert "runtime_adapter" not in run.state
+        assert "ai_defaults_source" not in run.state
+
     # The composer states the launch mode even when it pins no runtime, deferring the
     # model to the stored default — the mode must then be clamped to whichever
     # runtime's vocabulary the default resolves to, not fail the run downstream.
@@ -328,15 +361,39 @@ class TestTasksConfigAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/tasks/config/")
         assert response.status_code == 200
         assert response.json() == {
-            "ai_run_preferences": {"runtime_adapter": None, "model": None, "reasoning_effort": None}
+            "ai_run_preferences": {
+                "runtime": None,
+                "runtime_adapter": None,
+                "model": None,
+                "reasoning_effort": None,
+            }
         }
 
         response = self.client.post(f"/api/projects/{self.team.id}/tasks/config/", TEAM_TRIPLE)
         assert response.status_code == 200
-        assert response.json()["ai_run_preferences"] == TEAM_TRIPLE
+        assert response.json()["ai_run_preferences"] == {"runtime": None, **TEAM_TRIPLE}
 
         response = self.client.get(f"/api/projects/{self.team.id}/tasks/config/")
-        assert response.json()["ai_run_preferences"] == TEAM_TRIPLE
+        assert response.json()["ai_run_preferences"] == {"runtime": None, **TEAM_TRIPLE}
+
+    def test_pi_preference_round_trip(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/tasks/@me/config/",
+            {"runtime": "pi", "model": "gpt-5.6-terra"},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["ai_run_preferences"] == {
+            "runtime": "pi",
+            "runtime_adapter": None,
+            "model": "gpt-5.6-terra",
+            "reasoning_effort": None,
+        }
+        assert body["resolved_ai_run_defaults"]["runtime"] == "pi"
+        assert body["resolved_ai_run_defaults"]["model"] == "gpt-5.6-terra"
+
+        response = self.client.get(f"/api/projects/{self.team.id}/tasks/@me/config/")
+        assert response.json()["resolved_ai_run_defaults"]["runtime"] == "pi"
 
     @parameterized.expand(
         [
@@ -346,6 +403,16 @@ class TestTasksConfigAPI(APIBaseTest):
             (
                 "unsupported_effort",
                 {"runtime_adapter": "claude", "model": "claude-sonnet-4-6", "reasoning_effort": "max"},
+            ),
+            ("pi_without_model", {"runtime": "pi"}),
+            (
+                "pi_with_adapter",
+                {"runtime": "pi", "runtime_adapter": "claude", "model": "claude-opus-4-8"},
+            ),
+            ("unknown_runtime", {"runtime": "zai", "model": "claude-opus-4-8"}),
+            (
+                "pi_with_unknown_effort",
+                {"runtime": "pi", "model": "gpt-5.6-terra", "reasoning_effort": "extreme"},
             ),
         ]
     )
@@ -363,10 +430,20 @@ class TestTasksConfigAPI(APIBaseTest):
         )
         assert response.status_code == 200
         assert response.json() == {
-            "ai_run_preferences": {"runtime_adapter": None, "model": None, "reasoning_effort": None}
+            "ai_run_preferences": {
+                "runtime": None,
+                "runtime_adapter": None,
+                "model": None,
+                "reasoning_effort": None,
+            }
         }
         assert self.client.get(f"/api/projects/{self.team.id}/tasks/config/").json() == {
-            "ai_run_preferences": {"runtime_adapter": None, "model": None, "reasoning_effort": None}
+            "ai_run_preferences": {
+                "runtime": None,
+                "runtime_adapter": None,
+                "model": None,
+                "reasoning_effort": None,
+            }
         }
 
     def test_unauthenticated_requests_are_rejected(self):
@@ -391,14 +468,20 @@ class TestTasksConfigAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/tasks/@me/config/")
         assert response.status_code == 200
         body = response.json()
-        assert body["ai_run_preferences"] == {"runtime_adapter": None, "model": None, "reasoning_effort": None}
+        assert body["ai_run_preferences"] == {
+            "runtime": None,
+            "runtime_adapter": None,
+            "model": None,
+            "reasoning_effort": None,
+        }
         assert body["resolved_ai_run_defaults"]["source"] == "team"
+        assert body["resolved_ai_run_defaults"]["runtime"] == "acp"
         assert body["resolved_ai_run_defaults"]["model"] == "claude-opus-4-8"
 
         response = self.client.post(f"/api/projects/{self.team.id}/tasks/@me/config/", USER_TRIPLE)
         assert response.status_code == 200
         body = response.json()
-        assert body["ai_run_preferences"] == USER_TRIPLE
+        assert body["ai_run_preferences"] == {"runtime": None, **USER_TRIPLE}
         assert body["resolved_ai_run_defaults"]["source"] == "user"
         assert body["resolved_ai_run_defaults"]["model"] == "gpt-5.5"
 
@@ -408,7 +491,12 @@ class TestTasksConfigAPI(APIBaseTest):
         )
         assert response.status_code == 200
         body = response.json()
-        assert body["ai_run_preferences"] == {"runtime_adapter": None, "model": None, "reasoning_effort": None}
+        assert body["ai_run_preferences"] == {
+            "runtime": None,
+            "runtime_adapter": None,
+            "model": None,
+            "reasoning_effort": None,
+        }
         assert body["resolved_ai_run_defaults"]["source"] == "team"
 
     # The project default decides what every unpinned run on the project launches with, so a member
@@ -428,6 +516,7 @@ class TestTasksConfigAPI(APIBaseTest):
         )
         response = self.client.get(f"/api/projects/{self.team.id}/tasks/@me/config/")
         assert response.json()["ai_run_preferences"] == {
+            "runtime": None,
             "runtime_adapter": None,
             "model": None,
             "reasoning_effort": None,
