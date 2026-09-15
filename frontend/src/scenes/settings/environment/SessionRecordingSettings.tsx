@@ -322,6 +322,31 @@ export function ReplayMaskingSettings(): JSX.Element {
     )
 }
 
+const RETENTION_PERIODS: SessionRecordingRetentionPeriod[] = ['30d', '90d', '1y', '5y']
+
+const RETENTION_PERIOD_LABELS: Record<SessionRecordingRetentionPeriod, string> = {
+    '30d': '30 days',
+    '90d': '90 days',
+    '1y': '1 year',
+    '5y': '5 years',
+}
+
+function maxEntitledRetentionPeriod(limitInMonths?: number | null): SessionRecordingRetentionPeriod {
+    if (!limitInMonths) {
+        return '30d'
+    }
+    if (limitInMonths >= 60) {
+        return '5y'
+    }
+    if (limitInMonths >= 12) {
+        return '1y'
+    }
+    if (limitInMonths >= 3) {
+        return '90d'
+    }
+    return '30d'
+}
+
 export function ReplayDataRetentionSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
@@ -340,6 +365,11 @@ export function ReplayDataRetentionSettings(): JSX.Element {
         retentionFeature?.limit &&
         retentionFeature?.limit >= 60
     const currentRetention = currentTeam?.session_recording_retention_period || '30d'
+    const entitledRetention = retentionFeature?.unit?.startsWith('month')
+        ? maxEntitledRetentionPeriod(retentionFeature.limit)
+        : '30d'
+    const hasUnusedRetentionEntitlement =
+        RETENTION_PERIODS.indexOf(entitledRetention) > RETENTION_PERIODS.indexOf(currentRetention)
 
     const renderOptions = (loading: boolean): LemonSegmentedButtonOption<SessionRecordingRetentionPeriod>[] => {
         const disabledReason = loading ? 'Loading...' : (restrictedReason ?? undefined)
@@ -424,7 +454,14 @@ export function ReplayDataRetentionSettings(): JSX.Element {
                 options={renderOptions(currentTeamLoading)}
                 disabledReason={restrictedReason ?? undefined}
             />
-            {!hasMaxRetentionEntitlement && (
+            {hasUnusedRetentionEntitlement && (
+                <LemonBanner type="warning" className="mt-4">
+                    Your plan includes up to {RETENTION_PERIOD_LABELS[entitledRetention]} of recording retention, but
+                    this project still deletes recordings after {RETENTION_PERIOD_LABELS[currentRetention]}. Select a
+                    longer period above to keep new recordings. Recordings that are already deleted cannot be restored.
+                </LemonBanner>
+            )}
+            {!hasMaxRetentionEntitlement && !hasUnusedRetentionEntitlement && (
                 <p className="mt-4">
                     Need longer data retention? Head over to our{' '}
                     <Link to={urls.organizationBilling()} target="_blank">
