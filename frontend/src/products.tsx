@@ -213,6 +213,9 @@ export const productRoutes: Record<string, [string, string]> = {
     '/mcp-servers': ['McpGateway', 'mcpGateway'],
     '/mcp-servers/:tab': ['McpGateway', 'mcpGatewayTab'],
     '/metrics': ['Metrics', 'metrics'],
+    '/person/*': ['Person', 'personByDistinctId'],
+    '/persons/*': ['Person', 'personByUUID'],
+    '/persons': ['Persons', 'persons'],
     '/tasks': ['TaskTracker', 'taskTracker'],
     '/tasks/:taskId': ['TaskTracker', 'taskDetail'],
     '/pulse': ['Pulse', 'pulse'],
@@ -874,6 +877,14 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'metrics',
         docsHref: 'https://posthog.com/docs/metrics',
     },
+    Person: { projectBased: true, name: 'People', activityScope: ActivityScope.PERSON, iconType: 'user' },
+    Persons: {
+        projectBased: true,
+        name: 'Persons',
+        description: 'A catalog of all the people behind your events',
+        activityScope: ActivityScope.PERSON,
+        iconType: 'persons',
+    },
     TaskTracker: {
         name: 'Tasks',
         projectBased: true,
@@ -1179,7 +1190,8 @@ export const productUrls = {
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
-    dataCatalogMetric: (name: string): string => `/data-catalog/metrics/${name}`,
+    dataCatalogMetric: (name: string, tab?: 'definition' | 'tests'): string =>
+        `/data-catalog/metrics/${name}${tab === 'tests' ? '?tab=tests' : ''}`,
     dataOps: (tab?: string): string => {
         const params = new URLSearchParams()
         if (tab) {

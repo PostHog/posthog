@@ -5,7 +5,7 @@ set -o pipefail
 
 # Image used to read the old MinIO data — must match the format the dev/hobby MinIO
 # wrote (same RELEASE tag as docker-compose.hobby.yml).
-MINIO_IMAGE="minio/minio:RELEASE.2025-04-22T22-12-26Z"
+MINIO_IMAGE="quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z"
 TEMP_CONTAINER="objectstorage-salvage-src"
 S3_KEY="object_storage_root_user"
 S3_SECRET="object_storage_root_password"

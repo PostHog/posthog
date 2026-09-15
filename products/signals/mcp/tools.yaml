@@ -546,8 +546,10 @@ tools:
             a report routed to the wrong codebase: pass `owner/repo` to replace the report's target in place, rather
             than authoring a duplicate that carries the right one, or the `NO_REPO` sentinel for a report where nothing
             under version control could change. It re-runs autostart too, and omitting it leaves the report's target
-            alone. Prefer `append_note` over rewriting a report you didn't author (additive and audit-friendly);
-            title/summary edits are best-effort, since the pipeline may later re-research and overwrite them. Optional
+            alone. The response carries `repository`, the target the report holds after the edit, read back from the
+            report — check it against what you sent, because the call fails when a correction you named did not land.
+            Prefer `append_note` over rewriting a report you didn't author (additive and audit-friendly); title/summary
+            edits are best-effort, since the pipeline may later re-research and overwrite them. Optional
             `append_evidence` adds observations to the report's evidence rail, each becoming a bound signal that moves
             the report's signal count and weight — use it for a new observation a reader should be able to check, and
             `append_note` for commentary. Optional `charts` is the full set of queries the inbox renders on the report —

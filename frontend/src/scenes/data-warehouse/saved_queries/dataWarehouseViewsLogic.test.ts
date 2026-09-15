@@ -42,6 +42,22 @@ describe('dataWarehouseViewsLogic', () => {
         databaseLogic.unmount()
     })
 
+    it.each([200, 500])('reconciles a reverted view after a %s response and releases its controls', async (status) => {
+        useMocks({
+            post: {
+                '/api/environments/:team_id/warehouse_saved_queries/:id/revert_materialization/': [status, {}],
+            },
+        })
+        logic.actions.addMaterializingViews(['view-1'])
+
+        logic.actions.revertMaterialization('view-1')
+        expect(logic.values.materializationActionLoading).toBe(true)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.materializationActionLoading).toBe(false)
+        expect(logic.values.materializingViewIds).toEqual(status === 200 ? [] : ['view-1'])
+    })
+
     // Regression: delete must drop the view from the sidebar (via the loader's optimistic filter)
     // and refresh the picker (schema), but must NOT reload the whole list — that replaces every
     // row's identity and makes the tree flash.
@@ -265,6 +281,62 @@ describe('dataWarehouseViewsLogic', () => {
 
         expect(calls).toEqual(['update', 'materialize'])
         expect(patchBody?.incremental).toEqual(incremental)
+    })
+
+    // Regression: reverting a materialization leaves the stored incremental config behind, so
+    // materializing again with full refresh selected has to clear it. Sending nothing left the old
+    // config in place and the next run went on refreshing incrementally.
+    it('clears a stored incremental config when materializing without one', async () => {
+        const calls: string[] = []
+        let patchBody: Record<string, any> | undefined
+        useMocks({
+            patch: {
+                '/api/environments/:team_id/warehouse_saved_queries/:id/': async ({ request }) => {
+                    calls.push('update')
+                    patchBody = (await request.json()) as Record<string, any>
+                    return [200, { id: 'view-1', name: 'v1' }]
+                },
+            },
+            post: {
+                '/api/projects/:team_id/warehouse_saved_queries/:id/materialize/': () => {
+                    calls.push('materialize')
+                    return [200]
+                },
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.materializeDataWarehouseSavedQuery('view-1', '24hour', null)
+        }).toFinishAllListeners()
+
+        expect(calls).toEqual(['update', 'materialize'])
+        expect(patchBody?.incremental).toBeNull()
+    })
+
+    // The save-as-view flow creates the view with its config already stored, so passing nothing
+    // must leave it alone rather than clear what was just written.
+    it('does not touch the incremental config when none is passed', async () => {
+        const calls: string[] = []
+        useMocks({
+            patch: {
+                '/api/environments/:team_id/warehouse_saved_queries/:id/': () => {
+                    calls.push('update')
+                    return [200, { id: 'view-1', name: 'v1' }]
+                },
+            },
+            post: {
+                '/api/projects/:team_id/warehouse_saved_queries/:id/materialize/': () => {
+                    calls.push('materialize')
+                    return [200]
+                },
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.materializeDataWarehouseSavedQuery('view-1', '24hour')
+        }).toFinishAllListeners()
+
+        expect(calls).toEqual(['materialize'])
     })
 
     // Regression: when the config write is rejected (the server re-checks eligibility), the view

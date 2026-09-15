@@ -731,6 +731,21 @@ class TestMSSQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # SQL Server error 209 — a stale view whose body joins two tables that now share a
+            # column name. Real pymssql message shape, with the driver's trailing DB-Lib frame.
+            "(209, b\"Ambiguous column name 'modified_at'.DB-Lib error message 20018, severity 16:\\n"
+            'General SQL Server error: Check messages from the SQL Server\\n")',
+            # Different column name must still match the stable substring.
+            "Ambiguous column name 'order_id'.",
+        ],
+    )
+    def test_ambiguous_column_name_is_non_retryable(self, error_msg):
+        non_retryable = MSSQLSource().get_non_retryable_errors()
+        assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Real pymssql MSSQLDatabaseException for SQL Server error 245 raised mid-fetch when a
             # view body implicitly converts a varchar value to int.
             "SQL Server message 245, severity 16, state 1, procedure b'@\\x88[\\xd4\\xfe\\xff', line 1:\n"

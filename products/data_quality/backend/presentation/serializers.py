@@ -23,6 +23,21 @@ class CheckConfigField(serializers.JSONField):
     """Type-specific configuration. Call /check_types/ for the JSON schema of each type."""
 
 
+class DataQualityMetricSubjectSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Metric identifier used by the nested check endpoints.")
+    name = serializers.CharField(help_text="Queryable metric name.")
+    display_name = serializers.CharField(allow_blank=True, help_text="Metric label shown in the data catalog.")
+
+
+class DataQualityOutputColumnSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Output column name available through the {metric} relation.")
+    type = serializers.CharField(allow_null=True, help_text="ClickHouse type, or null when it could not be inferred.")
+
+
+class DataQualityOutputSchemaSerializer(serializers.Serializer):
+    columns = DataQualityOutputColumnSerializer(many=True, help_text="Columns returned by the saved metric query.")
+
+
 @extend_schema_serializer(component_name="DataQualityCheck")
 class DataQualityCheckSerializer(serializers.ModelSerializer):
     """The subject is implied by the URL (the parent saved query or table), never part of the body."""
