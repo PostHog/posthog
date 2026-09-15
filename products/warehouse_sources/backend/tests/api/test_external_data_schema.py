@@ -4114,7 +4114,144 @@ class TestFanoutParentSelection(APIBaseTest):
                     stack.enter_context(p)
                 response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_schemas/{parent.id}")
             assert response.status_code == 204
+    def test_schema_soft_delete_also_soft_deletes_linked_warehouse_table(self):
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        table = DataWarehouseTable.objects.create(
+            name="test_ghost_table",
+            format="DeltaS3Wrapper",
+            team=self.team,
+            url_pattern="https://bucket.s3/data/*",
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="test_ghost_table",
+            team=self.team,
+            source=source,
+            table=table,
+        )
 
+        assert not schema.deleted
+        assert not table.deleted
+
+        schema.soft_delete()
+
+        reloaded_schema = ExternalDataSchema.objects.get(pk=schema.pk)
+        reloaded_table = DataWarehouseTable.objects.get(pk=table.pk)
+
+        assert reloaded_schema.deleted is True
+        assert reloaded_table.deleted is True
+        assert not DataWarehouseTable.objects.queryable().filter(pk=table.pk).exists()
+
+    def test_schema_soft_delete_does_not_delete_table_if_shared_with_another_active_schema(self):
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        table = DataWarehouseTable.objects.create(
+            name="shared_table",
+            format="DeltaS3Wrapper",
+            team=self.team,
+            url_pattern="https://bucket.s3/shared/*",
+        )
+        active_schema = ExternalDataSchema.objects.create(
+            name="shared_table",
+            team=self.team,
+            source=source,
+            table=table,
+        )
+        ghost_schema = ExternalDataSchema.objects.create(
+            name="shared_table_ghost",
+            team=self.team,
+            source=source,
+            table=table,
+        )
+
+        assert not active_schema.deleted
+        assert not ghost_schema.deleted
+        assert not table.deleted
+
+        ghost_schema.soft_delete()
+
+        reloaded_ghost = ExternalDataSchema.objects.get(pk=ghost_schema.pk)
+        reloaded_active = ExternalDataSchema.objects.get(pk=active_schema.pk)
+        reloaded_table = DataWarehouseTable.objects.get(pk=table.pk)
+
+        assert reloaded_ghost.deleted is True
+        assert reloaded_active.deleted is False
+        assert reloaded_table.deleted is False
+        assert DataWarehouseTable.objects.queryable().filter(pk=table.pk).exists()
+
+    def test_destroy_schema_via_api_does_not_delete_table_if_shared_with_another_active_schema(self):
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        table = DataWarehouseTable.objects.create(
+            name="shared_api_table",
+            format="DeltaS3Wrapper",
+            team=self.team,
+            url_pattern="https://bucket.s3/shared_api/*",
+        )
+        active_schema = ExternalDataSchema.objects.create(
+            name="shared_api_table",
+            team=self.team,
+            source=source,
+            table=table,
+        )
+        ghost_schema = ExternalDataSchema.objects.create(
+            name="shared_api_table_ghost",
+            team=self.team,
+            source=source,
+            table=table,
+        )
+
+        response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_schemas/{ghost_schema.id}")
+        assert response.status_code == 204
+
+        reloaded_ghost = ExternalDataSchema.objects.get(pk=ghost_schema.pk)
+        reloaded_active = ExternalDataSchema.objects.get(pk=active_schema.pk)
+        reloaded_table = DataWarehouseTable.objects.get(pk=table.pk)
+
+        assert reloaded_ghost.deleted is True
+        assert reloaded_active.deleted is False
+        assert reloaded_table.deleted is False
+        assert DataWarehouseTable.objects.queryable().filter(pk=table.pk).exists()
+
+    @mock.patch("products.data_warehouse.backend.facade.api.get_s3_client")
+    def test_delete_table_preserves_shared_table_and_cleans_up_on_last_owner(self, mock_get_s3_client):
+        mock_s3 = mock.MagicMock()
+        mock_get_s3_client.return_value = mock_s3
+
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        table = DataWarehouseTable.objects.create(
+            name="shared_delete_table",
+            format="DeltaS3Wrapper",
+            team=self.team,
+            url_pattern=f"https://bucket.s3/team_{self.team.pk}_table_folder/*",
+        )
+        schema1 = ExternalDataSchema.objects.create(
+            name="schema1",
+            team=self.team,
+            source=source,
+            table=table,
+        )
+        schema2 = ExternalDataSchema.objects.create(
+            name="schema2",
+            team=self.team,
+            source=source,
+            table=table,
+        )
+
+        # Deleting table from schema1 when schema2 is still an active owner
+        schema1.delete_table()
+        schema1.refresh_from_db()
+        table.refresh_from_db()
+
+        assert schema1.table_id is None
+        assert table.deleted is False
+        assert mock_s3.delete.call_count == 0
+
+        # Now deleting table from schema2 (last active owner)
+        schema2.delete_table()
+        schema2.refresh_from_db()
+        table.refresh_from_db()
+
+        assert schema2.table_id is None
+        assert table.deleted is True
+        assert mock_s3.delete.call_count > 0
 
 class TestSchemaDisplayStatus(SimpleTestCase):
     @parameterized.expand(

@@ -1023,30 +1023,106 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             self.save(skip_activity_log=True)
 
     def soft_delete(self):
-        self.deleted = True
-        self.deleted_at = timezone.now()
-        self.save()
+        from products.warehouse_sources.backend.models.table import DataWarehouseTable  # noqa: PLC0415
+
+        with transaction.atomic():
+            table = None
+            if self.table_id is not None:
+                table = (
+                    DataWarehouseTable.raw_objects.filter(id=self.table_id)
+                    .order_by("id")
+                    .select_for_update()
+                    .first()
+                )
+
+            self.deleted = True
+            self.deleted_at = timezone.now()
+            self.save()
+
+            if table is not None and not table.deleted:
+                # Guard against shared-table states left by legacy ghost-table bugs:
+                # a DataWarehouseTable is many-to-one, so multiple ExternalDataSchema rows
+                # can point to the same table_id. Only propagate soft-deletion when this
+                # schema is the sole remaining active (non-deleted) owner of the table.
+                other_active_owner_exists = (
+                    ExternalDataSchema.objects.filter(
+                        table_id=self.table_id,
+                        deleted=False,
+                    )
+                    .exclude(pk=self.pk)
+                    .exists()
+                )
+                if not other_active_owner_exists:
+                    table.soft_delete()
 
     def delete_table(self):
         # s3fs/boto3 at module scope would load at app population — only this method needs them
         from products.data_warehouse.backend.facade.api import get_s3_client  # noqa: PLC0415
+        from products.warehouse_sources.backend.models.external_data_source import (  # noqa: PLC0415
+            extract_team_folder_from_url_pattern,
+        )
+        from products.warehouse_sources.backend.models.table import DataWarehouseTable  # noqa: PLC0415
 
-        if self.table is not None:
-            try:
-                client = get_s3_client()
-                client.delete(f"{settings.BUCKET_URL}/{self.folder_path()}", recursive=True)
-            except Exception as e:
-                capture_exception(e)
+        folders_to_delete: set[str] = set()
 
-            if not self.table.deleted:
-                self.table.soft_delete()
+        with transaction.atomic():
+            table = None
+            if self.table_id is not None:
+                table = (
+                    DataWarehouseTable.raw_objects.filter(id=self.table_id)
+                    .order_by("id")
+                    .select_for_update()
+                    .first()
+                )
+
+            # Guard against shared-table states: if another active schema shares this table,
+            # do not wipe S3 data or soft-delete the table.
+            other_active_owner_exists = False
+            if self.table_id is not None:
+                other_active_owner_exists = (
+                    ExternalDataSchema.objects.filter(
+                        table_id=self.table_id,
+                        deleted=False,
+                    )
+                    .exclude(pk=self.pk)
+                    .exists()
+                )
+
+            if other_active_owner_exists:
+                self.table_id = None
+                self.last_synced_at = None
+                self.status = None
+                self.save(update_fields=["table_id", "last_synced_at", "status"])
+                self.update_sync_type_config_for_reset_pipeline()
+                return
+
+            if table is not None and not table.deleted:
+                table.soft_delete()
+                # If table.url_pattern points at an S3 folder (e.g. from an earlier-deleted sharing schema),
+                # clean up that folder too so the actual data is not left behind.
+                table_folder = extract_team_folder_from_url_pattern(table.url_pattern, team_id=self.team_id)
+                if table_folder:
+                    folders_to_delete.add(table_folder)
+
+            folders_to_delete.add(self.folder_path())
 
             self.table_id = None
             self.last_synced_at = None
             self.status = None
-            self.save()
-
+            self.save(update_fields=["table_id", "last_synced_at", "status"])
             self.update_sync_type_config_for_reset_pipeline()
+
+        # Best-effort physical S3 cleanup executed outside the atomic block
+        if folders_to_delete:
+            try:
+                client = get_s3_client()
+                for folder in folders_to_delete:
+                    try:
+                        client.delete(f"{settings.BUCKET_URL}/{folder}", recursive=True)
+                    except Exception as e:
+                        capture_exception(e)
+            except Exception as e:
+                capture_exception(e)
 
 
 # JS `Date.prototype.toString()` output (e.g. "Sun Mar 15 2026 16:59:47 GMT+0000 (Coordinated
