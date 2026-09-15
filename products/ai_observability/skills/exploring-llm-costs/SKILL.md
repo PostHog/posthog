@@ -22,18 +22,21 @@ regression debugging, and materializing results as insights, dashboards, or aler
 
 ## Tools
 
-| Tool                            | Purpose                                                             |
-| ------------------------------- | ------------------------------------------------------------------- |
-| `posthog:execute-sql`           | Ad-hoc HogQL for any cost aggregation — the workhorse of this skill |
-| `posthog:query-llm-traces-list` | List traces with rolled-up cost, token, and error metrics           |
-| `posthog:query-llm-trace`       | Cost breakdown of a single trace across all its events              |
-| `posthog:read-data-schema`      | Discover which custom properties exist for breakdowns               |
-| `posthog:insight-create`        | Materialize a cost chart as a saved insight                         |
-| `posthog:dashboard-create`      | Bundle cost insights into a dashboard                               |
-| `posthog:alert-create`          | Alert when cost crosses a threshold                                 |
-| `posthog:generate-app-url`      | Build region- and project-qualified links back to the UI            |
+| Tool                            | Purpose                                                              |
+| ------------------------------- | -------------------------------------------------------------------- |
+| `posthog:query-trends`          | Native cost trends with supported sums, breakdowns, and comparisons  |
+| `posthog:execute-sql`           | Existing SQL, custom cost calculations, joins, and record inspection |
+| `posthog:query-llm-traces-list` | List traces with rolled-up cost, token, and error metrics            |
+| `posthog:query-llm-trace`       | Cost breakdown of a single trace across all its events               |
+| `posthog:read-data-schema`      | Discover which custom properties exist for breakdowns                |
+| `posthog:insight-create`        | Materialize a cost chart as a saved insight                          |
+| `posthog:dashboard-create`      | Bundle cost insights into a dashboard                                |
+| `posthog:alert-create`          | Alert when cost crosses a threshold                                  |
+| `posthog:generate-app-url`      | Build region- and project-qualified links back to the UI             |
 
 ## Core rules
+
+Choose the method from the calculation and output, not from the SQL examples below. Use native trends when their controls fit the task. Use trace tools for trace-level inspection and SQL for custom accounting. Either query method can answer a simple total if it preserves the cost rules below. Check for a matching approved metric before deriving a governed measure.
 
 Three rules cover most of what goes wrong:
 

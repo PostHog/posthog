@@ -8,7 +8,7 @@ This directory also happens to host the build pipeline for _every_ product's ski
 
 ## Skills
 
-- **querying-posthog-data** — required reading before writing any HogQL/SQL. Indexes ~60 references covering the `system.*` table schemas, HogQL's differences from ClickHouse SQL, available functions, and the semantic layer (canonical metrics in `system.information_schema.metrics`).
+- **querying-posthog-data** — guidance for choosing typed queries or SQL from the requested calculation and output. Covers schema discovery, query examples, rendering, and canonical metrics in `system.information_schema.metrics`.
 - **managing-subscriptions** — scheduled email, Slack, and webhook deliveries of insight or dashboard snapshots, optionally with an AI-written summary. Covers subscriptions vs alerts, prompt subscriptions, and the AI-consent and quota gates.
 - **auditing-experiments-flags** — health-checks experiments and feature flags for configuration issues, staleness, and best-practice violations, with severity-badged findings.
 - **writing-simplified-technical-english** — writes English a reader cannot misread, based on ASD-STE100. Used at runtime by Signals and Review Hog for any prose an agent produces that someone else acts on.

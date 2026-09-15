@@ -1,18 +1,18 @@
 Executes HogQL — PostHog's variant of SQL that supports most of ClickHouse SQL. "HogQL" and "SQL" are used interchangeably.
 
-{guidelines}
-
 ### When to use `execute-sql`
 
-**Use `query-*` tools whenever the question maps to a supported insight type.** These tools produce typed, saveable insights; SQL forfeits that.
-Reach for `execute-sql` only when no `query-*` tool can express the question:
+Use SQL for record inspection, custom calculations, joins, existing SQL, or requests for SQL. It can also prepare data for a typed query.
 
-- **Searching or listing existing PostHog entities** — insights, dashboards, cohorts, feature flags, experiments, surveys. No `query-*` tool covers these; query the `system.*` tables.
-- **Multi-event joins or aggregations across event types** that don't fit a single series.
-- **Sophisticated queries beyond `query-*` schemas** — custom grouping, window functions, non-trivial CTEs, data warehouse joins.
-- **Pre-filtering or shaping** a large dataset before running a `query-*` call.
+For PostHog entity search, query the `system.*` tables. For governed measures, check for a matching approved metric before deriving a new calculation.
 
-If a `query-*` tool fits, use it. Default to `query-*`; SQL is the escape hatch, not the starting point.
+Use typed queries when standard PostHog calculation rules or native insight controls matter. Do not approximate standard funnels or retention with SQL.
+
+For simple aggregates that either method supports, choose the method that needs less work and preserves the required definition and output. SQL does not require a failed typed-query attempt. Keep valid existing SQL when it fits the task, and reassess when the task changes.
+
+Both typed queries and SQL can support saved visualizations. A chart or table alone does not determine the method.
+
+{guidelines}
 
 {schema_discovery}
 

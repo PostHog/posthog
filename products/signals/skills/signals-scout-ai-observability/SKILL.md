@@ -123,11 +123,12 @@ Telemetry & cost:
 - `query-llm-traces-list` — recent traces, filterable by user / model / cost / error / tool.
 - `query-llm-trace` — drill into a single trace (full request/response, tool calls, spans).
 - `get-llm-total-costs-for-project` — top-level cost surface.
-- `execute-sql` — the workhorse for trends and breakdowns over `$ai_*` events (read `posthog:querying-posthog-data` for HogQL discipline).
+- `query-trends` — native trends, breakdowns, and comparisons over `$ai_*` events when its aggregations preserve the required calculation.
+- `execute-sql` — existing SQL, custom calculations, joins, and record inspection. Either method can answer a simple aggregate. Follow `posthog:querying-posthog-data` for query selection and SQL guidance.
 
 Evals & enrichment config:
 
-- `llma-evaluation-list` — eval **config** only (name, type, enabled). Pass-rates are NOT here — read the trend from `$ai_evaluation` events via `execute-sql` (the reliable path).
+- `llma-evaluation-list` — eval **config** only (name, type, enabled). Calculate pass rates from `$ai_evaluation` events with `query-trends` or `execute-sql`. Preserve the intended numerator and denominator.
 - `llma-evaluation-report-list` / `-run-list` — the scheduled AI reports configured on an eval, and what past runs said about it (a drill-down, not the spine). Pair with `llma-evaluation-get` / `-test-hog`.
 - `llma-tagger-list` / `llma-score-definition-list` — the enrichment config surface (auto-taggers and scorers — LLM/Hog jobs that can silently break).
 - `llma-clustering-job-list` / `-get` — semantic clusters over traces/generations.
