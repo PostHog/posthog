@@ -859,7 +859,7 @@ export namespace Schemas {
          * @nullable
          */
       title?: string | null;
-      /** Notebook content as a ProseMirror JSON document structure. */
+      /** Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook. */
       content?: unknown;
       /**
          * Plain text representation of the notebook content for search.
@@ -2808,6 +2808,7 @@ export namespace Schemas {
 
     export interface ActionConversionGoal {
       actionId: number;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[] | null;
     }
 
     export interface ActionReference {
@@ -3666,6 +3667,7 @@ export namespace Schemas {
 
     export interface CustomEventConversionGoal {
       customEventName: string;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[] | null;
     }
 
     export type DaysOfWeekEnum = typeof DaysOfWeekEnum[keyof typeof DaysOfWeekEnum];
@@ -5145,6 +5147,7 @@ export namespace Schemas {
       includeHost?: boolean | null;
       includeRevenue?: boolean | null;
       includeScrollDepth?: boolean | null;
+      includeTrafficMetrics?: boolean | null;
       /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
       interval?: IntervalType | null;
       kind?: 'WebStatsTableQuery';
@@ -11135,6 +11138,229 @@ export namespace Schemas {
       P3: 'P3',
       P4: 'P4',
     } as const;
+
+    /**
+     * Resolved target definition: {"type": "event"} or {"type": "action", "action_id": N}.
+     */
+    export type AutoresearchPipelineTargetDefinition = {
+      type: 'event';
+    } | {
+      type: 'action';
+      /**
+         * ID of the action to predict.
+         * @minimum 1
+         */
+      action_id: number;
+    };
+
+    /**
+     * Population used for training. Defines which users can appear as training examples.
+     */
+    export type AutoresearchPipelineTrainingPopulation = { [key: string]: unknown };
+
+    /**
+     * Population scored daily. Typically broader than the training population.
+     */
+    export type AutoresearchPipelineInferencePopulation = { [key: string]: unknown };
+
+    /**
+     * * `draft` - Draft
+     * * `bootstrapping` - Bootstrapping
+     * * `running` - Running
+     * * `converged` - Converged
+     * * `paused` - Paused
+     * * `archived` - Archived
+     */
+    export type AutoresearchPipelineStatusEnum = typeof AutoresearchPipelineStatusEnum[keyof typeof AutoresearchPipelineStatusEnum];
+
+
+    export const AutoresearchPipelineStatusEnum = {
+      Draft: 'draft',
+      Bootstrapping: 'bootstrapping',
+      Running: 'running',
+      Converged: 'converged',
+      Paused: 'paused',
+      Archived: 'archived',
+    } as const;
+
+    export interface AutoresearchPipeline {
+      /** Unique UUID of this pipeline. */
+      readonly id: string;
+      /**
+         * Display name for the pipeline.
+         * @maxLength 255
+         */
+      name: string;
+      /** Optional free-text description. */
+      description?: string;
+      /**
+         * PostHog event name to predict, e.g. '$pageview' or 'signed_up'.
+         * @maxLength 255
+         */
+      target_event: string;
+      /** Resolved target definition: {"type": "event"} or {"type": "action", "action_id": N}. */
+      target_definition: AutoresearchPipelineTargetDefinition;
+      /**
+         * Prediction horizon in days. The model predicts whether the target event occurs within this window.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      horizon_days?: number;
+      /**
+         * How far back to look for training examples. Larger windows give more data but may include stale behavior.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      training_lookback_days?: number;
+      /** Population used for training. Defines which users can appear as training examples. */
+      training_population: AutoresearchPipelineTrainingPopulation;
+      /** Population scored daily. Typically broader than the training population. */
+      inference_population: AutoresearchPipelineInferencePopulation;
+      /**
+         * Re-score the inference population every N days.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      cadence_days?: number;
+      /**
+         * Total training iterations allowed for the autoresearch loop.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      iteration_budget?: number;
+      /** Iterations remaining in the current budget. */
+      readonly iteration_budget_remaining: number;
+      /**
+         * Target AUC threshold. Training stops early if this score is reached.
+         * @nullable
+         */
+      success_auc?: number | null;
+      /**
+         * Stop training if no AUC improvement is seen in this many consecutive iterations.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      plateau_iterations?: number;
+      /**
+         * Person property name that stores the daily prediction score, e.g. 'predicted_p_pageview'.
+         * @maxLength 255
+         */
+      output_person_property?: string;
+      /** Pipeline lifecycle status: draft, bootstrapping, running, converged, paused, or archived.
+       *
+       * * `draft` - Draft
+       * * `bootstrapping` - Bootstrapping
+       * * `running` - Running
+       * * `converged` - Converged
+       * * `paused` - Paused
+       * * `archived` - Archived */
+      readonly status: AutoresearchPipelineStatusEnum;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+      /**
+         * Timestamp of the most recent completed inference run.
+         * @nullable
+         */
+      readonly last_scored_at: string | null;
+      /**
+         * Offline holdout AUC of the current champion model (predictive accuracy on held-out training data).
+         * @nullable
+         */
+      readonly champion_holdout_auc: number | null;
+      /**
+         * Realized online AUC of the current champion model, computed from mature predictions against actual outcomes.
+         * @nullable
+         */
+      readonly champion_realized_auc: number | null;
+    }
+
+    /**
+     * Omit (or pass {"type": "event"}) to predict target_event; pass {"type": "action", "action_id": N} to predict a PostHog action. No other shapes are accepted.
+     */
+    export type AutoresearchPipelineCreateTargetDefinition = {
+      type: 'event';
+    } | {
+      type: 'action';
+      /**
+         * ID of the action to predict.
+         * @minimum 1
+         */
+      action_id: number;
+    };
+
+    /**
+     * Training population filter. Use {} for all identified users.
+     */
+    export type AutoresearchPipelineCreateTrainingPopulation = { [key: string]: unknown };
+
+    /**
+     * Inference population filter. Defaults to training_population if not set.
+     */
+    export type AutoresearchPipelineCreateInferencePopulation = { [key: string]: unknown };
+
+    export interface AutoresearchPipelineCreate {
+      /**
+         * Display name for the pipeline.
+         * @maxLength 255
+         */
+      name: string;
+      /** Optional free-text description. */
+      description?: string;
+      /**
+         * PostHog event name to predict, e.g. '$pageview' or 'signed_up'. Omit when predicting an action target (pass target_definition instead).
+         * @maxLength 255
+         */
+      target_event?: string;
+      /** Omit (or pass {"type": "event"}) to predict target_event; pass {"type": "action", "action_id": N} to predict a PostHog action. No other shapes are accepted. */
+      target_definition?: AutoresearchPipelineCreateTargetDefinition;
+      /**
+         * Prediction horizon in days (1-365). The model predicts whether the target event occurs within this window.
+         * @minimum 1
+         * @maximum 365
+         */
+      horizon_days?: number;
+      /**
+         * How far back to look for training examples (7-730 days). Larger windows give more data but may include stale behavior. Default: 180.
+         * @minimum 7
+         * @maximum 730
+         */
+      training_lookback_days?: number;
+      /** Training population filter. Use {} for all identified users. */
+      training_population?: AutoresearchPipelineCreateTrainingPopulation;
+      /** Inference population filter. Defaults to training_population if not set. */
+      inference_population?: AutoresearchPipelineCreateInferencePopulation;
+      /**
+         * Re-score the inference population every N days (1-365). Default: 1.
+         * @minimum 1
+         * @maximum 365
+         */
+      cadence_days?: number;
+      /**
+         * Total training iterations allowed for the autoresearch loop (1-500). Default: 50.
+         * @minimum 1
+         * @maximum 500
+         */
+      iteration_budget?: number;
+      /**
+         * Target AUC threshold (0-1). Training stops early if reached. Default: 0.75.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      success_auc?: number | null;
+      /**
+         * Stop training if no improvement in this many consecutive iterations (at least 1). Default: 10.
+         * @minimum 1
+         * @maximum 2147483647
+         */
+      plateau_iterations?: number;
+      /**
+         * Person property name for the prediction score, e.g. 'predicted_p_pageview'. Auto-derived from target_event if omitted. Letters, digits, and _ $ . - only, and it cannot start with $ (reserved for PostHog's own properties); must be unique among this project's non-archived pipelines.
+         * @maxLength 255
+         */
+      output_person_property?: string;
+    }
 
     /**
      * Discovered detail fields and their value distributions.
@@ -17836,6 +18062,36 @@ export namespace Schemas {
       FleetOverview: 'fleet_overview',
       RecentSignals: 'recent_signals',
     } as const;
+
+    export type CheckComparisonOperatorEnum = typeof CheckComparisonOperatorEnum[keyof typeof CheckComparisonOperatorEnum];
+
+
+    export const CheckComparisonOperatorEnum = {
+      Lte: 'lte',
+      Gte: 'gte',
+      Between: 'between',
+    } as const;
+
+    export interface CheckThresholdBounds {
+      lower: number;
+      upper: number;
+    }
+
+    /**
+     * What the measured value must satisfy for the check to pass.
+     *
+     * The operators are the ones the shared alerts comparator expresses exactly. Strict `lt` / `gt`
+     * would need a second comparison engine for a distinction a soak window does not make, so they are
+     * not offered: "stays at or below 10 a day" is the same expectation.
+     */
+    export interface CheckComparison {
+      /** `lte`, `gte`, or `between`. */
+      operator: CheckComparisonOperatorEnum;
+      /** The bound for `lte` and `gte`; unused by `between`. */
+      value?: number | null;
+      /** The inclusive range for `between`; unused by `lte` and `gte`. */
+      bounds?: CheckThresholdBounds | null;
+    }
 
     export interface CheckDatabaseNameResponse {
       name: string;
@@ -25480,6 +25736,7 @@ export namespace Schemas {
      * * `Skio` - Skio
      * * `Smartlead` - Smartlead
      * * `Substack` - Substack
+     * * `ElectricityMaps` - ElectricityMaps
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -26823,6 +27080,7 @@ export namespace Schemas {
       Skio: 'Skio',
       Smartlead: 'Smartlead',
       Substack: 'Substack',
+      ElectricityMaps: 'ElectricityMaps',
     } as const;
 
     /**
@@ -28179,7 +28437,8 @@ export namespace Schemas {
        * * `Sequenzy` - Sequenzy
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
-       * * `Substack` - Substack */
+       * * `Substack` - Substack
+       * * `ElectricityMaps` - ElectricityMaps */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -28535,6 +28794,75 @@ export namespace Schemas {
       include_posthog_hint?: boolean;
     }
 
+    export interface DurationDistribution {
+      /** Pull requests in the distribution. Every statistic is null when this is 0. */
+      pr_count: number;
+      /**
+         * Fastest duration, in seconds.
+         * @nullable
+         */
+      min_seconds: number | null;
+      /**
+         * 5th percentile, in seconds: the lower whisker.
+         * @nullable
+         */
+      p05_seconds: number | null;
+      /**
+         * 25th percentile, in seconds: the box's lower edge.
+         * @nullable
+         */
+      p25_seconds: number | null;
+      /**
+         * Median, in seconds.
+         * @nullable
+         */
+      p50_seconds: number | null;
+      /**
+         * Mean, in seconds.
+         * @nullable
+         */
+      mean_seconds: number | null;
+      /**
+         * 75th percentile, in seconds: the box's upper edge.
+         * @nullable
+         */
+      p75_seconds: number | null;
+      /**
+         * 95th percentile, in seconds: the upper whisker.
+         * @nullable
+         */
+      p95_seconds: number | null;
+      /**
+         * Slowest duration, in seconds.
+         * @nullable
+         */
+      max_seconds: number | null;
+    }
+
+    export interface ScopeRepoDistribution {
+      /** The deployed pull requests in scope. */
+      scope: DurationDistribution;
+      /** Every deployed pull request in the repository. */
+      repo: DurationDistribution;
+    }
+
+    export interface DeliveryLeadTime {
+      /** Open to the first successful deploy containing the merge, over PRs deployed in the window. */
+      open_to_deploy: ScopeRepoDistribution;
+      /** Open to merge over the same deployed PRs, so it composes with merge_to_deploy. Includes draft time. */
+      open_to_merge: ScopeRepoDistribution;
+      /** Merge to deploy over the same deployed PRs. */
+      merge_to_deploy: ScopeRepoDistribution;
+      /** False when the deployments and deployment statuses tables aren't synced. The distributions are then empty. */
+      deploy_data_available: boolean;
+      /** The deploy environments lead time was scoped to: production by default. Empty when deploy data is not available. */
+      environment_scope: string;
+      /** PRs in scope merged in the window (bots and drafts excluded). */
+      merged_pr_count: number;
+      /** Of merged_pr_count, the PRs a successful in-scope deploy contains. The rest are still waiting for a deploy or fall outside the scan. */
+      deployed_merged_pr_count: number;
+    }
+
     /**
      * * `open_to_gate` - OPEN_TO_GATE
      * * `gate_to_merge` - GATE_TO_MERGE
@@ -28572,6 +28900,96 @@ export namespace Schemas {
       stages: DeliveryStageTiming[];
       /** PRs merged in the window with bots and drafts excluded. A narrower population than RepoOverview.merged_pr_count, which counts all authors. */
       merged_pr_count: number;
+    }
+
+    /**
+     * * `author` - AUTHOR
+     * * `github_team` - GITHUB_TEAM
+     * * `pull_request` - PULL_REQUEST
+     */
+    export type DeliveryScopeKindEnum = typeof DeliveryScopeKindEnum[keyof typeof DeliveryScopeKindEnum];
+
+
+    export const DeliveryScopeKindEnum = {
+      Author: 'author',
+      GithubTeam: 'github_team',
+      PullRequest: 'pull_request',
+    } as const;
+
+    export interface ScopeRepoFigure {
+      /**
+         * The figure over the pull requests in scope. Null when the scope has nothing to measure.
+         * @nullable
+         */
+      scope: number | null;
+      /**
+         * The same figure over every non-bot pull request in the repository, the scope included. Null when the repository has nothing to measure.
+         * @nullable
+         */
+      repo: number | null;
+    }
+
+    export interface DeliverySummary {
+      /** Median estimated CI cost per merged PR, in USD, over every run linked to the PR (merge-queue gate runs included) that started up to 30 days before the window. Null when the jobs table isn't synced. */
+      cost_per_merged_pr_usd: ScopeRepoFigure;
+      /** Median billable runner minutes per merged PR, on the billed clock. Null when the jobs table isn't synced. */
+      billable_minutes_per_merged_pr: ScopeRepoFigure;
+      /** Total CI cost divided by total pushes over the merged PRs: the price of one iteration. A push is a distinct head commit that triggered CI. */
+      cost_per_push_usd: ScopeRepoFigure;
+      /** Median seconds from the last ready_for_review to merge. Null when issue events aren't synced. */
+      median_ready_to_merge_seconds: ScopeRepoFigure;
+      /** 90th percentile of the ready-to-merge seconds. */
+      p90_ready_to_merge_seconds: ScopeRepoFigure;
+      /** Median seconds from ready to the first approval. An approval given while the PR was a draft counts as 0. PRs merged without an approval are left out. Null when reviews aren't synced. */
+      median_ready_to_first_approval_seconds: ScopeRepoFigure;
+      /** Median seconds from the first approval to merge. This median and the one before it do not add up to the ready-to-merge median. */
+      median_first_approval_to_merge_seconds: ScopeRepoFigure;
+      /** Share (0 to 1) of all ready-to-merge hours spent before the first approval, summed over the PRs, so long PRs weigh more. The rest came after the approval. */
+      before_first_approval_share: ScopeRepoFigure;
+      /** Mean pushes after the first approval per merged PR, over PRs with an approval. */
+      pushes_after_approval_per_merged_pr: ScopeRepoFigure;
+      /** Mean merge-queue gate attempts per merged PR that went through the queue. A bisection probe folds into its attempt. */
+      merge_queue_attempts_per_merged_pr: ScopeRepoFigure;
+      /** Share (0 to 1) of queue-landed merged PRs with at least one failed gate attempt. A failure caused by another PR ahead in the queue also counts, because the queue history is not in the warehouse. */
+      failed_merge_queue_share: ScopeRepoFigure;
+      /** Lead time to deploy for the scope against the repository. */
+      lead_time: DeliveryLeadTime;
+      /** What the read covers: 'author' (one GitHub login), 'github_team' (the members of one GitHub team, through the team membership table), or 'pull_request' (one pull request).
+       *
+       * * `author` - AUTHOR
+       * * `github_team` - GITHUB_TEAM
+       * * `pull_request` - PULL_REQUEST */
+      scope_kind: DeliveryScopeKindEnum;
+      /** The GitHub login or GitHub team slug the summary is for. */
+      scope: string;
+      /** True when the team membership table is synced. A github_team scope without it matches no pull requests, so every scope figure is empty rather than the whole repository. */
+      has_membership_data: boolean;
+      /** True when the workflow jobs table is synced, which cost needs. */
+      jobs_available: boolean;
+      /** True when the reviews table is synced, which the approval split needs. */
+      review_data_available: boolean;
+      /** True when issue events are synced, which ready-to-merge time needs. */
+      ready_data_available: boolean;
+      /** PRs in scope opened in the window, drafts included, bots excluded. */
+      opened_pr_count: number;
+      /** PRs in scope merged in the window (bots and drafts excluded): the population of every per-merged-PR figure. */
+      merged_pr_count: number;
+      /** PRs in scope that are open and not drafts right now. Ignores the window. */
+      open_pr_count: number;
+      /** PRs in scope that are open drafts right now. Ignores the window. */
+      draft_pr_count: number;
+      /**
+         * Estimated CI cost summed over the merged PRs in scope. Null when nothing was costable.
+         * @nullable
+         */
+      total_cost_usd: number | null;
+      /**
+         * Billable minutes summed over the merged PRs in scope. Null when the jobs table isn't synced.
+         * @nullable
+         */
+      total_billable_minutes: number | null;
+      /** Pushes summed over the merged PRs in scope. */
+      push_count: number;
     }
 
     export interface DependentFlag {
@@ -30227,7 +30645,8 @@ export namespace Schemas {
        * * `Sequenzy` - Sequenzy
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
-       * * `Substack` - Substack */
+       * * `Substack` - Substack
+       * * `ElectricityMaps` - ElectricityMaps */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -39232,7 +39651,8 @@ export namespace Schemas {
        * * `Sequenzy` - Sequenzy
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
-       * * `Substack` - Substack */
+       * * `Substack` - Substack
+       * * `ElectricityMaps` - ElectricityMaps */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -40609,7 +41029,8 @@ export namespace Schemas {
        * * `Sequenzy` - Sequenzy
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
-       * * `Substack` - Substack */
+       * * `Substack` - Substack
+       * * `ElectricityMaps` - ElectricityMaps */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -54129,6 +54550,36 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created.
+     */
+    export type MetricThresholdConfigQuery = { [key: string]: unknown } | null;
+
+    /**
+     * A deterministic check: measure one number, compare it, record the verdict.
+     *
+     * The number comes either from a metric the report already shows (``metric_id``) or from a query
+     * the author supplies. Both end up in the same runner, so a supplied query must satisfy the live
+     * metric contract — the node allowlist, the bounded window, and the single-output-series rule.
+     *
+     * A caller names one source. When it names a metric, the create path copies that metric's query
+     * into ``query`` before the row is stored, so the check keeps measuring what its author saw even if
+     * the report's metric is later rewritten under the same id; ``metric_id`` stays as provenance.
+     *
+     * Unknown keys are refused rather than ignored, so a misspelled field name is reported instead of
+     * being dropped in silence and stored as it arrived.
+     */
+    export interface MetricThresholdConfig {
+      /** Identifier of a metric on the report whose query this check measures. The metric's query is copied into `query` when the check is created. */
+      metric_id?: string | null;
+      /** Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. */
+      query?: MetricThresholdConfigQuery;
+      /** What the measured value must satisfy to pass. */
+      comparison: CheckComparison;
+      /** The value observed when the check was written, recorded on each result for context. */
+      baseline_value?: number | null;
+    }
+
+    /**
      * * `funnel` - funnel
      * * `mean_count` - mean_count
      * * `mean_sum_or_avg` - mean_sum_or_avg
@@ -54331,7 +54782,7 @@ export namespace Schemas {
          * @nullable
          */
       title?: string | null;
-      /** Notebook content as a ProseMirror JSON document structure. */
+      /** Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook: one ph-markdown-notebook node that holds the converted markdown. */
       content?: unknown;
       /**
          * Plain text representation of the notebook content for search.
@@ -56249,6 +56700,102 @@ export namespace Schemas {
       metric_quality?: MetricQualityEnum;
     }
 
+    /**
+     * * `draft` - DRAFT
+     * * `waiting_for_review` - WAITING_FOR_REVIEW
+     * * `changes_requested` - CHANGES_REQUESTED
+     * * `approved_not_enqueued` - APPROVED_NOT_ENQUEUED
+     * * `review_state_unknown` - REVIEW_STATE_UNKNOWN
+     * * `ci_running` - CI_RUNNING
+     * * `red_passed_on_rerun` - RED_PASSED_ON_RERUN
+     * * `red_master_broken` - RED_MASTER_BROKEN
+     * * `red_fixed_by_push` - RED_FIXED_BY_PUSH
+     * * `red_not_provable` - RED_NOT_PROVABLE
+     * * `merge_queue` - MERGE_QUEUE
+     * * `out_of_merge_queue` - OUT_OF_MERGE_QUEUE
+     */
+    export type PRTimelineSegmentKindEnum = typeof PRTimelineSegmentKindEnum[keyof typeof PRTimelineSegmentKindEnum];
+
+
+    export const PRTimelineSegmentKindEnum = {
+      Draft: 'draft',
+      WaitingForReview: 'waiting_for_review',
+      ChangesRequested: 'changes_requested',
+      ApprovedNotEnqueued: 'approved_not_enqueued',
+      ReviewStateUnknown: 'review_state_unknown',
+      CiRunning: 'ci_running',
+      RedPassedOnRerun: 'red_passed_on_rerun',
+      RedMasterBroken: 'red_master_broken',
+      RedFixedByPush: 'red_fixed_by_push',
+      RedNotProvable: 'red_not_provable',
+      MergeQueue: 'merge_queue',
+      OutOfMergeQueue: 'out_of_merge_queue',
+    } as const;
+
+    export interface PRTimelineSegment {
+      /** What the PR waited on: draft; waiting_for_review (no approval yet, or re-review after a push); changes_requested (no push since); approved_not_enqueued (approved, with no failing or running check); review_state_unknown (reviews not synced); ci_running; red_passed_on_rerun (the failed workflows passed a re-run of the same commit); red_master_broken (the failed jobs also failed on the default branch within 12 hours); red_fixed_by_push (a later commit arrived); red_not_provable; merge_queue (every queue state collapsed); out_of_merge_queue (open PR, Trunk says failed or cancelled).
+       *
+       * * `draft` - DRAFT
+       * * `waiting_for_review` - WAITING_FOR_REVIEW
+       * * `changes_requested` - CHANGES_REQUESTED
+       * * `approved_not_enqueued` - APPROVED_NOT_ENQUEUED
+       * * `review_state_unknown` - REVIEW_STATE_UNKNOWN
+       * * `ci_running` - CI_RUNNING
+       * * `red_passed_on_rerun` - RED_PASSED_ON_RERUN
+       * * `red_master_broken` - RED_MASTER_BROKEN
+       * * `red_fixed_by_push` - RED_FIXED_BY_PUSH
+       * * `red_not_provable` - RED_NOT_PROVABLE
+       * * `merge_queue` - MERGE_QUEUE
+       * * `out_of_merge_queue` - OUT_OF_MERGE_QUEUE */
+      kind: PRTimelineSegmentKindEnum;
+      /** Segment start. */
+      started_at: string;
+      /** Segment end: the next segment's start, the merge or close, or now. */
+      ended_at: string;
+    }
+
+    export interface PRTimeline {
+      /** The repository the pull request belongs to. */
+      repo: RepoRef;
+      /** Consecutive segments from started_at to the merge, the close, or now, with no gaps. */
+      segments: PRTimelineSegment[];
+      /** Pull request number. */
+      number: number;
+      /** Pull request title. */
+      title: string;
+      /** The pull request's author. */
+      author: Author;
+      /** open, merged, or closed. Author and team scopes list open and merged PRs only; a pull_request scope returns the PR whatever its state.
+       *
+       * * `open` - OPEN
+       * * `closed` - CLOSED
+       * * `merged` - MERGED */
+      state: EngineeringAnalyticsPRStateEnum;
+      /** True when the PR is a draft right now. */
+      is_draft: boolean;
+      /** When the PR was opened. */
+      created_at: string;
+      /** Where the timeline starts: the last ready_for_review before the end, else created_at. A PR listed for an author or a team starts no earlier than 30 days before the window, because older CI is not read. */
+      started_at: string;
+      /**
+         * Merge time; null when not merged.
+         * @nullable
+         */
+      merged_at: string | null;
+      /** Distinct head commits that triggered CI, merge-queue gate runs excluded. */
+      pushes: number;
+      /**
+         * Estimated CI cost over the PR's runs, in USD. Null when nothing was costable.
+         * @nullable
+         */
+      estimated_cost_usd: number | null;
+      /**
+         * Billable minutes over the PR's runs. Null when the jobs table isn't synced.
+         * @nullable
+         */
+      billable_minutes: number | null;
+    }
+
     export interface PaginatedAccountChannelSummaryList {
       count: number;
       /** @nullable */
@@ -56400,6 +56947,15 @@ export namespace Schemas {
       previous?: string | null;
       count?: number;
       results?: AsyncDeletionStatus[];
+    }
+
+    export interface PaginatedAutoresearchPipelineList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AutoresearchPipeline[];
     }
 
     export interface PaginatedBatchExportBackfillList {
@@ -59271,6 +59827,7 @@ export namespace Schemas {
      * * `work_claim` - Work Claim
      * * `work_release` - Work Release
      * * `pull_request` - Pull Request
+     * * `check_result` - Check Result
      */
     export type SignalReportArtefactArtefactTypeEnum = typeof SignalReportArtefactArtefactTypeEnum[keyof typeof SignalReportArtefactArtefactTypeEnum];
 
@@ -59296,6 +59853,7 @@ export namespace Schemas {
       WorkClaim: 'work_claim',
       WorkRelease: 'work_release',
       PullRequest: 'pull_request',
+      CheckResult: 'check_result',
     } as const;
 
     export type SignalActorKindEnum = typeof SignalActorKindEnum[keyof typeof SignalActorKindEnum];
@@ -59358,6 +59916,110 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: SignalReportArtefact[];
+    }
+
+    /**
+     * * `metric_threshold` - Metric Threshold
+     */
+    export type SignalReportCheckKindEnum = typeof SignalReportCheckKindEnum[keyof typeof SignalReportCheckKindEnum];
+
+
+    export const SignalReportCheckKindEnum = {
+      MetricThreshold: 'metric_threshold',
+    } as const;
+
+    /**
+     * * `active` - Active
+     * * `passed` - Passed
+     * * `failed` - Failed
+     * * `errored` - Errored
+     * * `expired` - Expired
+     * * `cancelled` - Cancelled
+     */
+    export type SignalReportCheckStatusEnum = typeof SignalReportCheckStatusEnum[keyof typeof SignalReportCheckStatusEnum];
+
+
+    export const SignalReportCheckStatusEnum = {
+      Active: 'active',
+      Passed: 'passed',
+      Failed: 'failed',
+      Errored: 'errored',
+      Expired: 'expired',
+      Cancelled: 'cancelled',
+    } as const;
+
+    export type SignalReportCheckConfig = MetricThresholdConfig;
+
+    /**
+     * * `passed` - Passed
+     * * `failed` - Failed
+     * * `errored` - Errored
+     */
+    export type SignalReportCheckOutcomeEnum = typeof SignalReportCheckOutcomeEnum[keyof typeof SignalReportCheckOutcomeEnum];
+
+
+    export const SignalReportCheckOutcomeEnum = {
+      Passed: 'passed',
+      Failed: 'failed',
+      Errored: 'errored',
+    } as const;
+
+    export interface SignalReportCheck {
+      readonly id: string;
+      /** Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`. */
+      readonly title: string;
+      /** Why the author set the check. */
+      readonly rationale: string;
+      /** How the check is evaluated.
+       *
+       * * `metric_threshold` - Metric Threshold */
+      readonly kind: SignalReportCheckKindEnum;
+      /** `active` while the check still runs; every other value is terminal.
+       *
+       * * `active` - Active
+       * * `passed` - Passed
+       * * `failed` - Failed
+       * * `errored` - Errored
+       * * `expired` - Expired
+       * * `cancelled` - Cancelled */
+      readonly status: SignalReportCheckStatusEnum;
+      /** What the check measures and what the result must satisfy; the shape depends on `kind`. `query` and `baseline_value` are null when you cannot read the data they describe. */
+      config: SignalReportCheckConfig;
+      /** When the coordinator next evaluates the check. */
+      readonly next_run_at: string;
+      /**
+         * Gap between runs for a recurring check; null for a one-shot.
+         * @nullable
+         */
+      readonly run_interval_minutes: number | null;
+      /** Evaluations still owed before the check retires as passed. */
+      readonly runs_remaining: number;
+      /** Horizon after which the check retires without running again. */
+      readonly expires_at: string;
+      /**
+         * When the check last ran; null before its first run.
+         * @nullable
+         */
+      readonly last_run_at: string | null;
+      /** Verdict of the most recent run.
+       *
+       * * `passed` - Passed
+       * * `failed` - Failed
+       * * `errored` - Errored */
+      readonly last_outcome: SignalReportCheckOutcomeEnum | null;
+      /** Runs that could not be measured since the last clean one. */
+      readonly consecutive_errors: number;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface PaginatedSignalReportCheckList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SignalReportCheck[];
     }
 
     /**
@@ -63454,6 +64116,93 @@ export namespace Schemas {
     }
 
     /**
+     * Omit (or pass {"type": "event"}) to predict target_event; pass {"type": "action", "action_id": N} to predict a PostHog action. No other shapes are accepted.
+     */
+    export type PatchedAutoresearchPipelineCreateTargetDefinition = {
+      type: 'event';
+    } | {
+      type: 'action';
+      /**
+         * ID of the action to predict.
+         * @minimum 1
+         */
+      action_id: number;
+    };
+
+    /**
+     * Training population filter. Use {} for all identified users.
+     */
+    export type PatchedAutoresearchPipelineCreateTrainingPopulation = { [key: string]: unknown };
+
+    /**
+     * Inference population filter. Defaults to training_population if not set.
+     */
+    export type PatchedAutoresearchPipelineCreateInferencePopulation = { [key: string]: unknown };
+
+    export interface PatchedAutoresearchPipelineCreate {
+      /**
+         * Display name for the pipeline.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Optional free-text description. */
+      description?: string;
+      /**
+         * PostHog event name to predict, e.g. '$pageview' or 'signed_up'. Omit when predicting an action target (pass target_definition instead).
+         * @maxLength 255
+         */
+      target_event?: string;
+      /** Omit (or pass {"type": "event"}) to predict target_event; pass {"type": "action", "action_id": N} to predict a PostHog action. No other shapes are accepted. */
+      target_definition?: PatchedAutoresearchPipelineCreateTargetDefinition;
+      /**
+         * Prediction horizon in days (1-365). The model predicts whether the target event occurs within this window.
+         * @minimum 1
+         * @maximum 365
+         */
+      horizon_days?: number;
+      /**
+         * How far back to look for training examples (7-730 days). Larger windows give more data but may include stale behavior. Default: 180.
+         * @minimum 7
+         * @maximum 730
+         */
+      training_lookback_days?: number;
+      /** Training population filter. Use {} for all identified users. */
+      training_population?: PatchedAutoresearchPipelineCreateTrainingPopulation;
+      /** Inference population filter. Defaults to training_population if not set. */
+      inference_population?: PatchedAutoresearchPipelineCreateInferencePopulation;
+      /**
+         * Re-score the inference population every N days (1-365). Default: 1.
+         * @minimum 1
+         * @maximum 365
+         */
+      cadence_days?: number;
+      /**
+         * Total training iterations allowed for the autoresearch loop (1-500). Default: 50.
+         * @minimum 1
+         * @maximum 500
+         */
+      iteration_budget?: number;
+      /**
+         * Target AUC threshold (0-1). Training stops early if reached. Default: 0.75.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      success_auc?: number | null;
+      /**
+         * Stop training if no improvement in this many consecutive iterations (at least 1). Default: 10.
+         * @minimum 1
+         * @maximum 2147483647
+         */
+      plateau_iterations?: number;
+      /**
+         * Person property name for the prediction score, e.g. 'predicted_p_pageview'. Auto-derived from target_event if omitted. Letters, digits, and _ $ . - only, and it cannot start with $ (reserved for PostHog's own properties); must be unique among this project's non-archived pipelines.
+         * @maxLength 255
+         */
+      output_person_property?: string;
+    }
+
+    /**
      * Request body for create/partial_update on BatchExportViewSet.
      *
      * Mirrors the writeable fields of `BatchExportSerializer` but uses a polymorphic
@@ -67522,7 +68271,7 @@ export namespace Schemas {
          * @nullable
          */
       title?: string | null;
-      /** Notebook content as a ProseMirror JSON document structure. */
+      /** Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook: one ph-markdown-notebook node that holds the converted markdown. */
       content?: unknown;
       /**
          * Plain text representation of the notebook content for search.
@@ -73254,6 +74003,23 @@ export namespace Schemas {
     }
 
     /**
+     * The compact envelope returned ahead of the verbose `payload`.
+     *
+     * Both sections are repeated from `payload.inventory`. They lead the response because a
+     * client that truncates a long tool result keeps the prefix, and these are the two things a
+     * scout has to know before it does anything: whether its output can reach the inbox at all,
+     * and what is already there. Read `summary` rather than digging for the same keys inside
+     * `payload.inventory`, because it is the same data and it is guaranteed to be in the part you
+     * received.
+     */
+    export interface ProjectProfileSummary {
+      /** The delivery gate: whether scout findings can reach the inbox for this team, with a one-line `remediation` when they cannot. Check `can_emit` before investigating anything, because when it is False every emit is silently dropped. Null only for a stored profile built before this section existed, which the caller should treat as unknown rather than as permission to emit. */
+      emit_eligibility: EmitEligibility | null;
+      /** Counts of reports already in the inbox, grouped by status, which is what a new finding would be deduped against. Null for a stored profile built before this section existed. */
+      existing_inbox_reports: ExistingInboxReports | null;
+    }
+
+    /**
      * One row in either bucket of `inventory.signal_source_configs`.
      */
     export interface SignalSourceConfigEntry {
@@ -73796,8 +74562,14 @@ export namespace Schemas {
      * is per-team with a soft TTL (`PROFILE_TTL`); the response always reflects either the
      * latest cached profile or a freshly-built one if the cache was stale or the caller passed
      * `force_refresh=true`.
+     *
+     * `summary` leads the response and `payload` trails it: the inventory runs to tens of
+     * kilobytes, so a client that truncates a long tool result would otherwise cut off the emit
+     * gate the scout has to read before doing any work.
      */
     export interface ProjectProfile {
+      /** Compact envelope repeating the emit gate and the inbox report counts from `payload.inventory`. Declared first so it survives a truncated response. */
+      summary: ProjectProfileSummary;
       /** UUID of the `SignalProjectProfile` row. */
       profile_id: string;
       /** ISO-8601 timestamp the profile was built. */
@@ -73806,8 +74578,8 @@ export namespace Schemas {
       expires_at: string;
       /** Schema version of the inventory builder. Bumps invalidate older cached rows. */
       source_version: string;
-      /** Structured profile content. v1 has `inventory` only. */
-      payload: ProjectProfilePayload;
+      /** Structured profile content. v1 has `inventory` only. Omitted when `summary_only=true`. */
+      payload?: ProjectProfilePayload;
     }
 
     export interface Property {
@@ -74403,6 +75175,33 @@ export namespace Schemas {
      */
     export interface PullRequestReviewCommentReactionCreateResponse {
       readonly reaction: PullRequestCommentReaction;
+    }
+
+    export interface PullRequestTimelines {
+      /** The pull requests in scope, newest first: open PRs plus PRs merged in the window, or the one pull request of a pull_request scope. */
+      items: PRTimeline[];
+      /** What the read covers: 'author' (one GitHub login), 'github_team' (the members of one GitHub team, through the team membership table), or 'pull_request' (one pull request).
+       *
+       * * `author` - AUTHOR
+       * * `github_team` - GITHUB_TEAM
+       * * `pull_request` - PULL_REQUEST */
+      scope_kind: DeliveryScopeKindEnum;
+      /** The GitHub login, GitHub team slug, or 'owner/name#number' the timelines are for. */
+      scope: string;
+      /** True when the team membership table is synced. A github_team scope without it lists no pull requests. */
+      has_membership_data: boolean;
+      /** False when reviews aren't synced: review stretches read review_state_unknown. */
+      review_data_available: boolean;
+      /** False when workflow jobs aren't synced: a check a re-run turned green is not visible, and no red stretch reads red_master_broken. */
+      jobs_available: boolean;
+      /** True when the Trunk merge-queue table is synced, so out_of_merge_queue can appear. */
+      merge_queue_state_available: boolean;
+      /** The now every open PR's timeline ends at. */
+      generated_at: string;
+      /** True when more PRs matched than the limit. */
+      truncated: boolean;
+      /** The maximum number of PRs returned. */
+      limit: number;
     }
 
     /**
@@ -81018,6 +81817,48 @@ export namespace Schemas {
       not_found_count: number;
     }
 
+    /**
+     * Request body for creating a check on a report.
+     *
+     * The schedule is the check's own: `next_run_at` says when to look, rather than the system
+     * deriving a soak window from a merged pull request that many fixes never have.
+     */
+    export interface SignalReportCheckWrite {
+      /**
+         * Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`.
+         * @maxLength 200
+         */
+      title: string;
+      /**
+         * Why the check is worth running.
+         * @maxLength 2000
+         */
+      rationale?: string;
+      /** How the check is evaluated.
+       *
+       * * `metric_threshold` - Metric Threshold */
+      kind: SignalReportCheckKindEnum;
+      /** What the check measures and what the result must satisfy; the shape depends on `kind`. */
+      config: SignalReportCheckConfig;
+      /** When to first evaluate the check. Must be in the future and within 90 days. Defaults to 7 days from now. */
+      next_run_at?: string;
+      /**
+         * Gap between runs for a recurring check, between 360 and 129600 minutes. Omit for a one-shot check.
+         * @minimum 360
+         * @maximum 129600
+         * @nullable
+         */
+      run_interval_minutes?: number | null;
+      /**
+         * How many times to evaluate the check, at most 10. Defaults to 1.
+         * @minimum 1
+         * @maximum 10
+         */
+      runs_remaining?: number;
+      /** Horizon after which the check retires unrun. Defaults to 30 days after the last scheduled run, or the 90-day horizon if that comes first. */
+      expires_at?: string;
+    }
+
     export interface SignalReportClaim {
       /** Active claim ID returned by an earlier call. Stale claims are rejected. */
       claim_id?: string;
@@ -83229,7 +84070,8 @@ export namespace Schemas {
        * * `Sequenzy` - Sequenzy
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
-       * * `Substack` - Substack */
+       * * `Substack` - Substack
+       * * `ElectricityMaps` - ElectricityMaps */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -84622,7 +85464,8 @@ export namespace Schemas {
        * * `Sequenzy` - Sequenzy
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
-       * * `Substack` - Substack */
+       * * `Substack` - Substack
+       * * `ElectricityMaps` - ElectricityMaps */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -85997,7 +86840,8 @@ export namespace Schemas {
        * * `Sequenzy` - Sequenzy
        * * `Skio` - Skio
        * * `Smartlead` - Smartlead
-       * * `Substack` - Substack */
+       * * `Substack` - Substack
+       * * `ElectricityMaps` - ElectricityMaps */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -96027,6 +96871,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type AutoresearchListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type BatchExportsListParams = {
     /**
      * Number of results to return per page.
@@ -96222,7 +97077,24 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Case-insensitive substring match against the source name and URL.
+     */
+    search?: string;
+    /**
+     * Filter to a single source type (text, url, or file).
+     */
+    source_type?: BusinessKnowledgeSourcesListSourceType;
     };
+
+    export type BusinessKnowledgeSourcesListSourceType = typeof BusinessKnowledgeSourcesListSourceType[keyof typeof BusinessKnowledgeSourcesListSourceType];
+
+
+    export const BusinessKnowledgeSourcesListSourceType = {
+      File: 'file',
+      Text: 'text',
+      Url: 'url',
+    } as const;
 
     export type BusinessKnowledgeSourcesTextRetrieve200 = {
       text?: string;
@@ -97916,6 +98788,33 @@ export namespace Schemas {
     source_id?: string;
     };
 
+    export type EngineeringAnalyticsDeliverySummaryParams = {
+    /**
+     * GitHub login: scope the read to this author's pull requests. Pass exactly one scope.
+     */
+    author?: string;
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * GitHub team slug: scope the read to pull requests authored by the team's members, through the team membership table. Pass exactly one scope.
+     */
+    github_team?: string;
+    /**
+     * 'owner/name' repository. Required with pr_number; otherwise it picks the repository when the selected source syncs several.
+     */
+    repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
     export type EngineeringAnalyticsDoraParams = {
     /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
@@ -98098,6 +98997,37 @@ export namespace Schemas {
      * 'owner/name' repository the pull request belongs to.
      */
     repo: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
+    export type EngineeringAnalyticsPullRequestTimelinesParams = {
+    /**
+     * GitHub login: scope the read to this author's pull requests. Pass exactly one scope.
+     */
+    author?: string;
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * GitHub team slug: scope the read to pull requests authored by the team's members, through the team membership table. Pass exactly one scope.
+     */
+    github_team?: string;
+    /**
+     * Pull request number: scope the read to this one pull request. Needs repo. Pass exactly one scope.
+     */
+    pr_number?: number;
+    /**
+     * 'owner/name' repository. Required with pr_number; otherwise it picks the repository when the selected source syncs several.
+     */
+    repo?: string;
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
@@ -103784,6 +104714,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type SignalsReportChecksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type SignalsReportsPrCiStatusesParams = {
     /**
      * Comma-separated report UUIDs to resolve CI state for, at most 100 per request.
@@ -103868,6 +104809,10 @@ export namespace Schemas {
      * When true, skip the cache and rebuild the profile from authoritative sources before responding. Use after seeding events, importing data, or any other change the caller knows just landed but hasn't surfaced through natural cache expiry yet. Honored only for the internal scout token — public read callers get the cached profile regardless. Concurrent forced rebuilds are serialized by the team-keyed advisory lock — at most one extra `build_inventory` per simultaneous request.
      */
     force_refresh?: boolean;
+    /**
+     * When true, respond with the cache metadata and the `summary` envelope only, and omit `payload` entirely. Use it when you need the emit gate and the inbox counts but not the full inventory. The full profile runs to tens of kilobytes, which a client can truncate. Costs nothing extra: the profile is read or built the same way either way.
+     */
+    summary_only?: boolean;
     };
 
     export type SignalsScoutRunsListParams = {

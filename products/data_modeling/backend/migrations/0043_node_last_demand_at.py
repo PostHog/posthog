@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("data_modeling", "0041_datamodelingjob_sq_engine_run_idx"),
+        ("data_modeling", "0042_dwsavedquery_team_live_matvw_idx"),
     ]
 
     operations = [

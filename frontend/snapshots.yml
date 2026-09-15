@@ -1864,6 +1864,10 @@ snapshots:
         hash: v1.k794b7964.c0cd3727394a11388389774d7880c2a28aeb059a308d75feeb1341b13673a104.SetdbHN--yP6YcrM12BpBzA0_aqJVqwxQM3Uc2Wchmg
     components-product-empty-state--error-tracking-needs-setup--light:
         hash: v1.k794b7964.7f40a4a9bc119d95d61ef68b1ed144de44a460d8015a7196100e9048c6b57ce5.cKeg20m9AJX9GmwJ0XKpX1qaZB5sopbADXCeE9ZsHL0
+    components-product-empty-state--error-tracking-needs-setup-new-wizard--dark:
+        hash: v1.k794b7964.97078a8193b2f01f0cdfdcfa57bdbd57634fa1a823b6b7edd6094761ffd1ca51.wy1tp5DHhvEP4pAy3q0YnUBLk6gXKtnPAAobLnuOqoI
+    components-product-empty-state--error-tracking-needs-setup-new-wizard--light:
+        hash: v1.k794b7964.26df8e4c1300ed356335f5a0e341c4f871153a643362f6d91b92e39af677e421.ZLuBcDzu_KP3gTng_eMJM1rl3L6vY_MFfIypyY9rUHk
     components-product-empty-state--error-tracking-waiting-for-data--dark:
         hash: v1.k794b7964.80bdd04e414ed36e173f1dcac8e4ccf407375157fdd5b9497e7209bdb623564b.RbOoZt9BkTBAV3sXCR0IHWu0wvAh9JNPIdFcZJ7axOU
     components-product-empty-state--error-tracking-waiting-for-data--light:
@@ -1993,9 +1997,9 @@ snapshots:
     components-product-empty-state--surveys-needs-setup--light:
         hash: v1.k794b7964.996f4451c62d87a34121aeca5f87204586188f91960b4c5e1db65514b5e85095.71ClaVTix-yBEo66Pd-FsX2paPQ_jx1SHEJUdkJNsaQ
     components-product-empty-state--tracing-needs-setup--dark:
-        hash: v1.k794b7964.b509c25c4828f3147eb5e83fe0e60b5c7fd92c4eb97cdb6f2f1199163963d7fa.BL4xbLKbTR1DwxgebUirZz2N7dnZdG7K4a5PNPZqetc
+        hash: v1.k794b7964.80eaacab108fb90cbf7a9ba7a5d48a3d362f86e7b46844adc59eaafa6ec97036.-RZB3mUo07Rr1vVapQk-UoDw4gpVd-LABsad3IJG1wI
     components-product-empty-state--tracing-needs-setup--light:
-        hash: v1.k794b7964.58a52808fdf381267e5dc776c528d7f7eb88d897d45e50e030c4d8489c81c6d4.AMaR5hj81GG6OFTeFEsxWhjc-yk-hmqZ-MKV-yvL0hk
+        hash: v1.k794b7964.f8f9d5bdd310899b3192e94fd9673b1e2838829fb6a7f69aa43af59a8840f94a.fMVkYrIwNhEslztsOeW6N-cOO8oljjmwdBpAz0b0s0U
     components-product-empty-state--transformations-needs-setup--dark:
         hash: v1.k794b7964.48584f21d48763853573991689622b0af35fac432c0cadaef6a6a75d0f0c9212.6EHjBCMPD2ZHVQrc_tGG8hCLGL8HVk-YRmZDXj3GZHE
     components-product-empty-state--transformations-needs-setup--light:
@@ -7368,6 +7372,18 @@ snapshots:
         hash: v1.k794b7964.fadc2b2c0b5eedb49391586e0b3e5ea2aa845dd0b27c006cfad7389017158568.9Gke9ur_lx2xjtG29fVYUTYyUhDzjVg-dWWgpo5znTQ
     scenes-app-discussions--threads--light:
         hash: v1.k794b7964.28ac830bf83be5cbb6d7a397d67c9b9c61711904a822de38402b82220b0f7a49.7wENY7hvo1-qAJwq5fcsvKGJsfRAF_vDkpnM8iqFZcc
+    scenes-app-engineering-analytics-author--author--dark:
+        hash: v1.k794b7964.8520adcd3ce8680c16613e32f5d64566355a27bade6dfc442e19be47be8bfbb2._hZPqT7OcEhiSKDedzXlSpJpzb8jceYtcwwSyqB801A
+    scenes-app-engineering-analytics-author--author--light:
+        hash: v1.k794b7964.ad664cfe6903ddfe5bdc7bb15c1817088b89b858eb6e781d2eaa93bfcd6bd74d.KnT1_QSVMPtOR_dHTGSxaXVUDLtkjWcvqfWY_Dy3w3U
+    scenes-app-engineering-analytics-author--author-narrow--dark:
+        hash: v1.k794b7964.3bca0cb64645bdd887796aa0ccdc1e4f38ae3e91f6d536dd540b83fd72a3b91f.oXXTVcvEsGIrPvGCG0HR1FqpAwid9TXkQpa00ScMiYM
+    scenes-app-engineering-analytics-author--author-narrow--light:
+        hash: v1.k794b7964.29c171a5bdbe8125b19c449a55fef1ad52b249d6361d5785929473c53437208f.P_bjFcBIITGAsCj_c-Fo6jdxvgMJiKi1xqwS6x0X0uo
+    scenes-app-engineering-analytics-author--author-without-reviews-or-deploys--dark:
+        hash: v1.k794b7964.079499fddb5d88126b2fc93501d215aad1e361fd0622ec9e06aae82b0f81b1b3.X1gQOWOwe8W2YokDSb50W_fa0YC5LU0KyhI3S0wnsxs
+    scenes-app-engineering-analytics-author--author-without-reviews-or-deploys--light:
+        hash: v1.k794b7964.bea96d256929e856604648b09c72202d92938002ccd8042ceaa02a252172612d.x7UvuyHwU-uYlZiQXM5X2WYPiCte2j2OGUFfQeQ130A
     scenes-app-engineering-analytics-delivery-pipeline--all-stages--dark:
         hash: v1.k794b7964.e6fc5778d62714ed6fd4174b65c767a850d116b902223aa6f2086ce967edcaed.HoZOw65AQI9tW_L6CG_9JN6y7lmyhzy_Q1PQL__zCsk
     scenes-app-engineering-analytics-delivery-pipeline--all-stages--light:

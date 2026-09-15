@@ -963,6 +963,9 @@
             "properties": {
                 "actionId": {
                     "$ref": "#/definitions/integer"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 }
             },
             "required": ["actionId"],
@@ -17384,6 +17387,9 @@
             "properties": {
                 "customEventName": {
                     "type": "string"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
                 }
             },
             "required": ["customEventName"],
@@ -27326,7 +27332,8 @@
                 "Sequenzy",
                 "Skio",
                 "Smartlead",
-                "Substack"
+                "Substack",
+                "ElectricityMaps"
             ],
             "type": "string"
         },
@@ -57604,6 +57611,9 @@
                     "type": "boolean"
                 },
                 "includeScrollDepth": {
+                    "type": "boolean"
+                },
+                "includeTrafficMetrics": {
                     "type": "boolean"
                 },
                 "interval": {

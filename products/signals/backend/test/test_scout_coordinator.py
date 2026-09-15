@@ -73,6 +73,7 @@ from products.signals.backend.temporal.agentic.scout_coordinator import (
     _overdue_seconds,
     _slot_anchor,
     fetch_enabled_signals_scout_runs_activity,
+    run_due_signal_report_checks_activity,
     stamp_dispatched_signals_scout_runs_activity,
 )
 from products.skills.backend.models.skills import LLMSkill
@@ -2015,18 +2016,61 @@ def _fake_info(workflow_id: str = "tick-1"):
     return type("Info", (), {"workflow_id": workflow_id, "start_time": _TICK_STARTED_AT})()
 
 
+# `workflow.patched` reads the workflow runtime, which a direct `run()` does not have. True is the
+# live path; False is what an in-flight coordinator replaying a pre-patch history takes.
+def _patch_check_gate(enabled: bool = True):
+    return patch(
+        "products.signals.backend.temporal.agentic.scout_coordinator.workflow.patched",
+        return_value=enabled,
+    )
+
+
 @pytest.mark.asyncio
 async def test_workflow_returns_zero_counts_when_no_planned_runs():
     coordinator = SignalsScoutCoordinatorWorkflow()
 
-    with patch(
-        "products.signals.backend.temporal.agentic.scout_coordinator.workflow.execute_activity",
-        new_callable=AsyncMock,
-        return_value=FetchEnabledRunsOutput(planned_runs=[]),
+    with (
+        _patch_check_gate(),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_coordinator.workflow.execute_activity",
+            new_callable=AsyncMock,
+            return_value=FetchEnabledRunsOutput(planned_runs=[]),
+        ),
     ):
         output = await coordinator.run(CoordinatorWorkflowInput())
 
     assert output == CoordinatorWorkflowOutput(0, 0, 0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "gate_open,expected_activities",
+    [
+        (True, [run_due_signal_report_checks_activity, fetch_enabled_signals_scout_runs_activity]),
+        (False, [fetch_enabled_signals_scout_runs_activity]),
+    ],
+)
+async def test_report_checks_run_only_on_the_patched_path(gate_open, expected_activities):
+    # An in-flight coordinator replays its recorded history through the closed gate. Commanding the
+    # new activity there fails that replay with a non-determinism error, which under
+    # `ScheduleOverlapPolicy.SKIP` starves every later tick.
+    executed: list[Any] = []
+
+    async def fake_execute_activity(activity, *args, **kwargs):
+        executed.append(activity)
+        return FetchEnabledRunsOutput(planned_runs=[])
+
+    coordinator = SignalsScoutCoordinatorWorkflow()
+    with (
+        _patch_check_gate(gate_open),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_coordinator.workflow.execute_activity",
+            side_effect=fake_execute_activity,
+        ),
+    ):
+        await coordinator.run(CoordinatorWorkflowInput())
+
+    assert executed == expected_activities
 
 
 @pytest.mark.asyncio
@@ -2066,6 +2110,7 @@ async def test_workflow_dispatches_children_fire_and_forget():
 
     coordinator = SignalsScoutCoordinatorWorkflow()
     with (
+        _patch_check_gate(),
         patch(
             "products.signals.backend.temporal.agentic.scout_coordinator.workflow.execute_activity",
             side_effect=fake_execute_activity,
@@ -2125,6 +2170,7 @@ async def test_smeared_fan_out_paces_batches_and_stamps_each_one():
 
     coordinator = SignalsScoutCoordinatorWorkflow()
     with (
+        _patch_check_gate(),
         patch(
             "products.signals.backend.temporal.agentic.scout_coordinator.workflow.execute_activity",
             side_effect=fake_execute_activity,
@@ -2182,6 +2228,7 @@ async def test_smeared_fan_out_stops_sleeping_once_the_window_is_spent():
 
     coordinator = SignalsScoutCoordinatorWorkflow()
     with (
+        _patch_check_gate(),
         patch(
             "products.signals.backend.temporal.agentic.scout_coordinator.workflow.execute_activity",
             side_effect=fake_execute_activity,
@@ -2240,6 +2287,7 @@ async def test_hard_dispatch_error_does_not_stamp():
 
     coordinator = SignalsScoutCoordinatorWorkflow()
     with (
+        _patch_check_gate(),
         patch(
             "products.signals.backend.temporal.agentic.scout_coordinator.workflow.execute_activity",
             side_effect=fake_execute_activity,
@@ -2256,5 +2304,8 @@ async def test_hard_dispatch_error_does_not_stamp():
         with pytest.raises(RuntimeError, match="temporal unavailable"):
             await coordinator.run(CoordinatorWorkflowInput())
 
-    # Only the planning activity ran — the stamp activity never executed.
-    assert execute_activity_calls == [fetch_enabled_signals_scout_runs_activity]
+    # Only the report checks and the planning activity ran — the stamp activity never executed.
+    assert execute_activity_calls == [
+        run_due_signal_report_checks_activity,
+        fetch_enabled_signals_scout_runs_activity,
+    ]
