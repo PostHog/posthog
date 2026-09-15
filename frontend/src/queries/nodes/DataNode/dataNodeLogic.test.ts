@@ -628,7 +628,11 @@ describe('dataNodeLogic', () => {
 
         expect(performQuery).toHaveBeenCalledTimes(0)
 
-        await expectLogic(logic).toDispatchActions(['loadDataSuccess']).toMatchValues({ response: null })
+        await expectLogic(logic)
+            .toDispatchActions([
+                ({ type, payload }) => type === logic.actionTypes.loadDataSuccess && payload.response === null,
+            ])
+            .toMatchValues({ response: null })
     })
 
     it('passes filtersOverride to api', async () => {
