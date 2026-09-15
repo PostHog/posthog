@@ -39,6 +39,13 @@ TRANSIENT_RPC_STATUS_CODES = frozenset(
     }
 )
 
+# tonic cancels a call that outruns the core client's per-request deadline and reports status
+# CANCELLED with the message "Timeout expired". A transport connection that closes mid-request
+# reports CANCELLED with "operation was canceled". Both describe the frontend, not the request, so
+# match the message instead of the whole CANCELLED status, which would also swallow a real
+# cancellation. The data imports client in products/warehouse_sources rides out the same pair.
+TRANSIENT_CANCELLED_RPC_MESSAGES = ("Timeout expired", "operation was canceled")
+
 RPC_MAX_ATTEMPTS = 3
 RPC_INITIAL_BACKOFF_SECONDS = 0.5
 RPC_BACKOFF_MULTIPLIER = 2.0
@@ -46,7 +53,13 @@ RPC_BACKOFF_MULTIPLIER = 2.0
 
 def is_transient_rpc_error(error: BaseException) -> bool:
     """Whether this error is a Temporal RPC failure that a later call can still get past."""
-    return isinstance(error, RPCError) and error.status in TRANSIENT_RPC_STATUS_CODES
+    if not isinstance(error, RPCError):
+        return False
+    if error.status in TRANSIENT_RPC_STATUS_CODES:
+        return True
+    return error.status == RPCStatusCode.CANCELLED and any(
+        phrase in error.message for phrase in TRANSIENT_CANCELLED_RPC_MESSAGES
+    )
 
 
 def retry_transient_rpc(

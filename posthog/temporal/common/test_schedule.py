@@ -16,6 +16,9 @@ pytestmark = pytest.mark.asyncio
 
 TIMEOUT = RPCError("Timeout expired", RPCStatusCode.DEADLINE_EXCEEDED, b"")
 NOT_FOUND = RPCError("schedule not found", RPCStatusCode.NOT_FOUND, b"")
+CLIENT_TIMEOUT = RPCError("Timeout expired", RPCStatusCode.CANCELLED, b"")
+LOST_CONNECTION = RPCError("operation was canceled", RPCStatusCode.CANCELLED, b"")
+CANCELLED = RPCError("Cancelled by caller", RPCStatusCode.CANCELLED, b"")
 
 
 def fake_client(side_effect: list[Any], method: str = "delete") -> tuple[Any, AsyncMock]:
@@ -26,7 +29,14 @@ def fake_client(side_effect: list[Any], method: str = "delete") -> tuple[Any, As
 
 
 @pytest.mark.parametrize(
-    "side_effect,expected_calls", [([None], 1), ([TIMEOUT, None], 2), ([TIMEOUT, TIMEOUT, None], 3)]
+    "side_effect,expected_calls",
+    [
+        ([None], 1),
+        ([TIMEOUT, None], 2),
+        ([TIMEOUT, TIMEOUT, None], 3),
+        # the client cancels its own call on deadline, which the frontend status alone would miss
+        ([CLIENT_TIMEOUT, None], 2),
+    ],
 )
 async def test_transient_rpc_failure_is_retried_until_it_lands(side_effect, expected_calls):
     client, delete = fake_client(side_effect)
@@ -55,10 +65,20 @@ async def test_non_transient_rpc_failure_is_not_retried():
     assert delete.await_count == 1
 
 
-def test_only_transient_statuses_are_classified_as_transient():
-    assert is_transient_rpc_error(TIMEOUT)
-    assert not is_transient_rpc_error(NOT_FOUND)
-    assert not is_transient_rpc_error(ValueError("not an RPC error"))
+@pytest.mark.parametrize(
+    "error,transient",
+    [
+        (TIMEOUT, True),
+        (CLIENT_TIMEOUT, True),
+        (LOST_CONNECTION, True),
+        # a real cancellation shares the status but none of the transport messages
+        (CANCELLED, False),
+        (NOT_FOUND, False),
+        (ValueError("not an RPC error"), False),
+    ],
+)
+def test_only_transient_failures_are_classified_as_transient(error, transient):
+    assert is_transient_rpc_error(error) is transient
 
 
 async def test_not_found_after_a_retried_delete_counts_as_deleted():
