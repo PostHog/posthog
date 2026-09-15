@@ -127,6 +127,12 @@ export const ConversationsTicketsListQueryParams = () => zod.object({
         .describe(
             "Apply a saved ticket view's filters by its `short_id` (list views via the `conversations\/views` endpoint). Any filter param passed explicitly overrides the view's saved value for that dimension. Returns 400 if no view matches."
         ),
+    zendesk_ticket_ids: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated list of Zendesk ticket ids to filter by, matched against `zendesk_ticket_id` (max 100). Each id may be prefixed with `#`. Use this to map Zendesk ticket ids onto PostHog tickets imported from Zendesk. Returns 400 if the list is empty, too long, or holds an entry that is not a number.'
+        ),
 })
 
 /**
