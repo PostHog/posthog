@@ -127,7 +127,7 @@ describe("useInboxReportDismissAction", () => {
     });
   });
 
-  it("keeps the dialog closed once the dismissal lands", async () => {
+  it("keeps the dialog closed and confirms when the dismissal lands", async () => {
     mocks.updateState.mockResolvedValue({ ...report, status: "suppressed" });
     const user = userEvent.setup();
     render(<DismissActionHarness />, { wrapper: createWrapper() });
@@ -135,6 +135,7 @@ describe("useInboxReportDismissAction", () => {
     await enterDismissal(user);
 
     await waitFor(() => expect(mocks.updateState).toHaveBeenCalled());
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("1 report dismissed");
     expect(
       screen.queryByPlaceholderText("Optional: add detail"),
     ).not.toBeInTheDocument();
