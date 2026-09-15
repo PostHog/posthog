@@ -25,6 +25,7 @@ from products.canvas.backend.facade.api import (
     ConnectorKind,
 )
 from products.canvas.backend.models import Canvas, CanvasState
+from products.canvas.backend.sharing import canvas_app_path
 
 # Base64 expands 3 source bytes into 4 characters (padded); size the asset field
 # from the contract's total-source cap rather than restating the number.
@@ -39,7 +40,7 @@ _CANVAS_URL_HELP_TEXT = (
 def canvas_url(canvas: Canvas) -> str:
     # The same shape the thread-message announcements use; the route deep-links
     # into the desktop app and renders in the web app.
-    return f"{settings.SITE_URL}/desktop/canvas/{canvas.channel_id}/{canvas.id}"
+    return f"{settings.SITE_URL}{canvas_app_path(canvas)}"
 
 
 class CanvasComponentSizeSerializer(serializers.Serializer):
