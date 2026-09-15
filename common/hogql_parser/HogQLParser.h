@@ -2056,6 +2056,7 @@ public:
     std::vector<ColumnExprValueContext *> columnExprValue();
     ColumnExprValueContext* columnExprValue(size_t i);
     antlr4::tree::TerminalNode *IN();
+    antlr4::tree::TerminalNode *AS();
     antlr4::tree::TerminalNode *EQ_DOUBLE();
     antlr4::tree::TerminalNode *EQ_SINGLE();
     antlr4::tree::TerminalNode *NOT_EQ();
@@ -2071,6 +2072,8 @@ public:
     antlr4::tree::TerminalNode *IREGEX_SINGLE();
     antlr4::tree::TerminalNode *IREGEX_DOUBLE();
     antlr4::tree::TerminalNode *NOT_IREGEX();
+    IdentifierContext *identifier();
+    antlr4::tree::TerminalNode *STRING_LITERAL();
     antlr4::tree::TerminalNode *COHORT();
     antlr4::tree::TerminalNode *NOT();
 

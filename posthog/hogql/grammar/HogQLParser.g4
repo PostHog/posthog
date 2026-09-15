@@ -279,7 +279,18 @@ columnExprValue
                  | operator=DASH                                                          // -
                  | operator=CONCAT                                                        // ||
                  ) right=columnExprValue                                                  # ColumnExprPrecedence2
-    | left=columnExprValue ( operator=EQ_DOUBLE                                           // =
+    // The optional `AS` lets a comparison take an aliased expression as its left operand
+    // (`x AS er > 0` → `(x AS er) > 0`), the one value-tier continuation ClickHouse itself
+    // allows after an alias in nested contexts (`if(1 AS x > 0, …)` is valid CH). It rides on
+    // this alternative rather than getting one of its own so that both forms share a single
+    // precedence level: the right operand then binds like any comparison
+    // (`1 AS x > 0 IS NULL` is `((1 AS x) > 0) IS NULL`), and the operator set stays in one
+    // tier. Repeating the set in the outer tier instead would make every comparison position
+    // ambiguous, costing ANTLR a full-context prediction each time. An alias that no
+    // comparison follows is left to the outer tier's `ColumnExprAlias`, so `1 AS x + 2` and
+    // `1 AS x IS NULL` stay rejected — parenthesise as `(1 AS x) + 2`.
+    | left=columnExprValue (AS (identifier | STRING_LITERAL))?
+                 ( operator=EQ_DOUBLE                                                     // =
                  | operator=EQ_SINGLE                                                     // ==
                  | operator=NOT_EQ                                                        // !=
                  | operator=LT_EQ                                                         // <=
