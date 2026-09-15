@@ -42,7 +42,7 @@ def main() -> None:
 
         def do_POST(self) -> None:
             if self.authorized():
-                body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+                self.rfile.read(int(self.headers.get("Content-Length", "0")))
                 if self.path == f"{run_path}append_log/":
                     self.respond(200, run)
                 elif urlparse(self.path).path.endswith("/v1/messages"):
@@ -52,7 +52,7 @@ def main() -> None:
                             "id": "msg_workflow_test",
                             "type": "message",
                             "role": "assistant",
-                            "model": json.loads(body)["model"],
+                            "model": "claude-workflow-test",
                             "content": [{"type": "text", "text": "."}],
                             "stop_reason": "max_tokens",
                             "stop_sequence": None,
