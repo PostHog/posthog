@@ -860,19 +860,7 @@ export interface insightVizDataLogicMeta {
                 | WebStatsTableQuery
                 | null
         ) => boolean | null | undefined
-        annotationsFilter: (
-            querySource:
-                | FunnelsQuery
-                | LifecycleQuery
-                | PathsQuery
-                | PathsV2Query
-                | RetentionQuery
-                | StickinessQuery
-                | TrendsQuery
-                | WebOverviewQuery
-                | WebStatsTableQuery
-                | null
-        ) => AnnotationsFilter | null | undefined
+        annotationsFilter: (querySource: InsightQueryNode | null) => AnnotationsFilter | null | undefined
         showLegend: (
             querySource:
                 | FunnelsQuery
@@ -1837,18 +1825,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
         annotationsFilter: [
             (s) => [s.querySource],
-            (
-                q:
-                    | FunnelsQuery
-                    | LifecycleQuery
-                    | RetentionQuery
-                    | StickinessQuery
-                    | TrendsQuery
-                    | null
-                    | import('~/queries/schema/schema-general').PathsQuery
-                    | import('~/queries/schema/schema-general').WebOverviewQuery
-                    | import('~/queries/schema/schema-general').WebStatsTableQuery
-            ) => (q ? getAnnotationsFilter(q) : null),
+            (querySource: InsightQueryNode | null) => (querySource ? getAnnotationsFilter(querySource) : null),
         ],
         showLegend: [
             (s) => [s.querySource],
