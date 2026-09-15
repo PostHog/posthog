@@ -20,9 +20,9 @@ export function ContextEmptyHero({
           Tell agents what {channelName} is about
         </Text>
         <Text size="xs" variant="muted" className="max-w-[520px]">
-          An agent reads the repository and this project in PostHog, then drafts
-          the briefing, links the objects it finds, and proposes goals. You keep
-          what fits.
+          An agent reads the repository and this project, then drafts the
+          briefing, links the dashboards, flags, and experiments it finds, and
+          proposes goals. You keep what fits.
         </Text>
       </div>
       <div className="flex items-center gap-2">

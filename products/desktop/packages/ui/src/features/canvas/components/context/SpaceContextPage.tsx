@@ -244,6 +244,7 @@ export function SpaceContextPage({
                   onAskAgentForMeasure={askAgentForMeasure}
                   isSaving={store.isSaving}
                 />
+                <SpaceSignals channelId={channelId} />
                 <div className="grid @3xl:grid-cols-[minmax(0,1fr)_260px] gap-8">
                   <KnowledgeBriefing
                     knowledge={doc.knowledge}
@@ -260,7 +261,6 @@ export function SpaceContextPage({
                     isSaving={store.isSaving}
                   />
                 </div>
-                <SpaceSignals channelId={channelId} />
               </>
             )}
           </div>
