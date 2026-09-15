@@ -195,8 +195,7 @@ def _print_executions(stats: QueryStats) -> list[dict[str, Any]] | SkipReason:
 def _print_execution(execution: RecordedExecution, subquery_budget: int) -> dict[str, Any] | SkipReason:
     """One execution as the job's payload entry, or why it cannot be shipped."""
     try:
-        # The run's context still holds every value the run printed, credentials included, so the
-        # job's print goes into a fresh set and the payload carries only what its SQL refers to.
+        # The run's context still holds every value the run printed, credentials included.
         context = copy.copy(execution.context)
         context.values = {}
         stub = stub_in_subqueries(execution.tree)
@@ -215,9 +214,7 @@ def _print_execution(execution: RecordedExecution, subquery_budget: int) -> dict
             "event_filter": _event_filter_verdict(execution.tree),
         }
         if any(key.endswith("_sensitive") for key in context.values):
-            # A value the printer marks sensitive is a credential or an access-control list, and the
-            # broker must not hold either. A warehouse table is stubbed out before the print, so
-            # this is the backstop for any other source of one.
+            # The warehouse stub runs before the print, so this catches any other credential or access list.
             return "sensitive_values"
         if len(json.dumps(entry, default=str).encode("utf-8")) > MAX_EXECUTION_BYTES:
             return "too_large"

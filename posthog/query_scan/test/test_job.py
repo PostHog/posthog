@@ -193,8 +193,6 @@ class TestQueryScanJobOnClickhouse(ClickhouseTestMixin, BaseTest):
         _create_event(
             team=self.team, event="$pageview", distinct_id="user_1", timestamp=datetime.now(UTC) - timedelta(days=1)
         )
-        # The warehouse join is planned against its empty stand-in, so the file behind the table
-        # need not exist and its credentials never reach ClickHouse.
         credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
         DataWarehouseTable.objects.create(
             team=self.team,

@@ -227,8 +227,6 @@ class TestQueryScanTrigger(SimpleTestCase):
         [
             # The values count because one large literal can outweigh the SQL around it.
             ("too large to ship", {"hogql_val_0": "x" * (MAX_EXECUTION_BYTES + 1)}, "too_large"),
-            # A warehouse table is stubbed out before the print, so a sensitive value the print
-            # still adds is one with no stand-in, and it must not reach the broker.
             ("carrying a sensitive value", {"hogql_val_0_sensitive": "warehouse-secret"}, "sensitive_values"),
         ]
     )
@@ -259,8 +257,7 @@ class TestQueryScanTrigger(SimpleTestCase):
         assert [execution["rows_read"] for execution in enqueued] == [100, 50]
         assert enqueued[0]["stubbed_sql"] == "SELECT 1"
         assert enqueued[0]["subqueries"] == ["SELECT 1"]
-        # The run's own values stay behind: a warehouse run's hold its source credentials, and the
-        # job's SQL refers only to what its own print added.
+        # A warehouse run's own values hold its source credentials, so only the job's print travels.
         assert [execution["values"] for execution in enqueued] == [{}, {}]
 
     @parameterized.expand(

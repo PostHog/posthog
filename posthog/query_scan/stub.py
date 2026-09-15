@@ -58,8 +58,6 @@ def _stand_in_table_type(table_type: ast.TableType | ast.LazyTableType) -> ast.T
     if not isinstance(table_type, ast.TableType):
         return None
     table = table_type.table
-    # A table with no column list has nothing to print as its stand-in, so it keeps its real
-    # printing, and the trigger's sensitive-value check keeps the run out.
     if not isinstance(table, DataWarehouseTable) or isinstance(table, EmptyWarehouseTable) or not table.structure:
         return None
     stand_in = EmptyWarehouseTable(
@@ -116,8 +114,7 @@ class _StubVisitor(CloningVisitor):
         if isinstance(node.table, (ast.SelectQuery, ast.SelectSetQuery)):
             self.mark_source(node.table)
         cloned = super().visit_join_expr(node)
-        # The printer reads the join's type for the table to print, and the clone shares the type
-        # with the run's tree, so the swap builds a new type rather than editing that one.
+        # The clone shares its type with the run's tree, so the swap builds a new one rather than editing it.
         stand_in = _stand_in_join_type(cloned.type)
         if stand_in is not None:
             cloned.type = stand_in
