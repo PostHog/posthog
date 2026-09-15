@@ -258,9 +258,8 @@ export const RELATED_ERRORS_WINDOW_HOURS = 6
 // Wide enough to cover a session around a single event without drowning it in unrelated logs.
 export const SESSION_LOGS_WINDOW_MINUTES = 30
 
-// The window the exception card's Logs tab opens on, either side of the occurrence. Tighter than
-// SESSION_LOGS_WINDOW_MINUTES because that tab can be unscoped: with no session to narrow it, the
-// range is the only thing keeping the panel off the whole project's log volume.
+// Tighter than SESSION_LOGS_WINDOW_MINUTES because the exception card's Logs tab can run unscoped,
+// where the range is all that holds it off the project's whole log volume.
 export const EXCEPTION_LOGS_WINDOW_MINUTES = 5
 
 export function buildDateRangeAround(timestamp: string, windowMinutes: number): { date_from: string; date_to: string } {
@@ -275,9 +274,8 @@ export function buildDateRangeAround(timestamp: string, windowMinutes: number): 
 // session replay). The session id goes to the server as a scope rather than a filter group: it
 // has to match across every configured and conventional key in both attribute maps, and the
 // query runner reads a filter group's inner group as an AND of its leaves, so a group could only
-// ever express "every key holds this id at once". A timestamp scopes the date range around it so
-// old sessions aren't hidden by the viewer's default range. The session id is optional because a
-// server-side event often carries none, and the window is then the only scope.
+// ever express "every key holds this id at once". A timestamp scopes the date range to
+// windowMinutes either side, so old sessions aren't hidden by the viewer's default range.
 export function buildLogsSessionScope(
     sessionId: string | undefined,
     timestamp?: string,

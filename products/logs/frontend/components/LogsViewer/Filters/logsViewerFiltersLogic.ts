@@ -145,6 +145,7 @@ export interface logsViewerFiltersLogicValues {
     personIdScope: string
     pinnedFilters: UniversalFiltersGroup | undefined
     queryFilterGroup: UniversalFiltersGroup
+    queryScopeKey: string
     searchTerm: LogsQuery['searchTerm']
     sessionId: string | undefined
     sessionIdScope: string
@@ -215,6 +216,7 @@ export interface logsViewerFiltersLogicMeta {
         id: (id: string) => string
         personId: (personIdScope: string) => string | undefined
         sessionId: (sessionIdScope: string) => string | undefined
+        queryScopeKey: (personIdScope: string, sessionIdScope: string) => string
         filters: (
             dateRange: DateRange,
             searchTerm: string | undefined,
@@ -343,9 +345,8 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
                 setPinnedFilters: (_, { pinnedFilters }) => pinnedFilters,
             },
         ],
-        // Both scopes are clearable: an embedding scene can toggle one off, or move between
-        // subjects. A kea reducer cannot return undefined, so an absent scope is held as an empty
-        // string and read back through the personId and sessionId selectors below.
+        // A kea reducer cannot return undefined, so a cleared scope is held as an empty string and
+        // mapped back by the selectors below.
         personIdScope: [
             '',
             {
@@ -363,6 +364,8 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
     selectors({
         id: [(_, p) => [p.id], (id: string) => id],
         personId: [(s) => [s.personIdScope], (personIdScope: string): string | undefined => personIdScope || undefined],
+        // One value the data logic can subscribe to that changes when either scope does.
+        queryScopeKey: [(s) => [s.personIdScope, s.sessionIdScope], (p: string, sid: string) => `${p}|${sid}`],
         sessionId: [
             (s) => [s.sessionIdScope],
             (sessionIdScope: string): string | undefined => sessionIdScope || undefined,

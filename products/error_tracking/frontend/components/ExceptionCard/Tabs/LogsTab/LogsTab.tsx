@@ -22,9 +22,8 @@ export function LogsTab({ timestamp }: LogsTabProps): JSX.Element {
     const { setLogsScope } = useActions(exceptionCardLogic)
     const { sessionId } = useValues(errorPropertiesLogic)
 
-    // logsViewerFiltersLogic compares `initialFilters` by identity and re-applies it whenever the
-    // object changes, which resets the date range and any sparkline zoom the user set. So the
-    // window is memoized on the occurrence alone, and the scope toggle only moves the session id.
+    // logsViewerFiltersLogic re-applies `initialFilters` whenever the object identity changes, which
+    // resets the date range the user set, so the window depends on the occurrence and not the scope.
     const { initialFilters } = useMemo(
         () => buildLogsSessionScope(undefined, timestamp, EXCEPTION_LOGS_WINDOW_MINUTES),
         [timestamp]
@@ -37,9 +36,8 @@ export function LogsTab({ timestamp }: LogsTabProps): JSX.Element {
                 <TabSpinner />
             ) : (
                 <>
-                    {/* The caption has to wrap rather than clip: truncating it in the narrow detail
-                        pane would cut off the docs link, which is the only remedy offered when an
-                        exception carries no session id. */}
+                    {/* The caption wraps rather than truncates, because truncating it in a narrow
+                        pane cuts off the docs link the no-session case depends on. */}
                     <SubHeader className="h-auto min-h-9 justify-between gap-2 py-1">
                         <span className="min-w-0 text-xs text-secondary">
                             Logs from {EXCEPTION_LOGS_WINDOW_MINUTES} minutes before and after this exception.{' '}
@@ -78,8 +76,7 @@ export function LogsTab({ timestamp }: LogsTabProps): JSX.Element {
                         )}
                     </SubHeader>
                     <div className="min-h-0 flex-1 overflow-hidden p-2">
-                        {/* Keyed by issue rather than by occurrence, so paging through an issue's
-                            occurrences keeps the filters and display settings set on the last one. */}
+                        {/* Keyed by issue, so paging through its occurrences keeps the user's filters. */}
                         <LogsViewer
                             id={`error-tracking-issue-${issueId}`}
                             sessionId={scopedSessionId}

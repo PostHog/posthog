@@ -7,9 +7,9 @@ import { LemonCard } from '@posthog/lemon-ui'
 import { ErrorPropertiesLogicProps, errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorEventType } from 'lib/components/Errors/types'
 import type { TimelineMarkerColor } from 'lib/components/SessionTimeline/SessionTimeline'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tabs, TabsList, TabsTrigger } from 'lib/ui/quill'
 
-import { useLogsInErrorTracking } from 'products/logs/frontend/components/useLogsInErrorTracking'
 import { ViewLogsButton } from 'products/logs/frontend/components/ViewLogsButton'
 
 import { ExceptionCardFooter } from './ExceptionCardFooter'
@@ -80,7 +80,7 @@ function ExceptionCardContent({
     const { currentTab } = useValues(exceptionCardLogic)
     const { sessionId } = useValues(errorPropertiesLogic)
     const { setCurrentTab } = useActions(exceptionCardLogic)
-    const logsEnabled = useLogsInErrorTracking()
+    const logsEnabled = useFeatureFlag('LOGS_IN_ERROR_TRACKING')
     const headerRef = useRef<HTMLDivElement>(null)
 
     // Base UI scrolls the active tab into view on mount and on keyboard navigation, but not when the

@@ -417,8 +417,7 @@ describe('logsViewerDataLogic', () => {
         })
 
         it('mounting a scoped viewer runs one query, not one per scope prop', async () => {
-            // The scope subscriptions fire on mount as well as on change, so without the guard an
-            // embedded viewer would query once per scope prop before showing a row.
+            // Without the guard the mount firing of each scope subscription adds its own query.
             let queryCalls = 0
             useMocks({
                 post: {

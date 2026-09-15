@@ -702,8 +702,6 @@ function headerActionParameters(): Record<string, unknown> {
 
 const LOGS_STORY_SESSION_ID = 'session-with-logs'
 
-// Rows either side of the exception, so the tab shows what the surrounding minutes actually look
-// like: the request that failed, the exception's own line, and the retries after it.
 function buildStoryLogs(event: ErrorEventType): LogMessage[] {
     const center = new Date(event.timestamp).getTime()
     const at = (deltaMs: number): string => new Date(center + deltaMs).toISOString()
@@ -786,6 +784,4 @@ function logsStory(
 
 export const ExceptionCardLogs = logsStory('issue-id', LOGS_STORY_SESSION_ID)
 
-// Server-side exceptions usually have no session id, so the tab falls back to every log in the
-// window and the scope toggle has nothing to switch between.
 export const ExceptionCardLogsWithoutSession = logsStory('issue-no-session', null)
