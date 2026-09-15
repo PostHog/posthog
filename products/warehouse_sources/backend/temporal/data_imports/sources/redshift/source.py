@@ -29,6 +29,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
+    MISSING_INCREMENTAL_FIELD_MATCH,
+    MISSING_INCREMENTAL_FIELD_MESSAGE,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.redshift import (
     RedshiftSourceConfig,
@@ -185,6 +189,10 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
             "failed: timeout expired": None,
             "SSL connection has been closed unexpectedly": None,
             "server does not support SSL": None,
+            # Raised before the first query when the table's incremental field is gone from the
+            # catalog. Every query puts that field in its WHERE and ORDER BY, so the sync cannot
+            # run until the customer picks another one.
+            MISSING_INCREMENTAL_FIELD_MATCH: MISSING_INCREMENTAL_FIELD_MESSAGE,
             "does not exist": None,
             "QueryTimeoutException": None,
             # `QueryTimeoutException` above only matches once Temporal's `ApplicationError` wraps

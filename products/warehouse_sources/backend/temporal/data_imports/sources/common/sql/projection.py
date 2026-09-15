@@ -172,6 +172,29 @@ def project_arrow_columns(
     return Table(name=table.name, columns=projected, parents=table.parents, alias=table.alias, type=table.type)
 
 
+# Stable fragment of the exception below, for a source's `get_non_retryable_errors` map. The
+# exception carries the field and table names, which the map matches on as a substring.
+MISSING_INCREMENTAL_FIELD_MATCH = "no longer exists in the source table"
+
+MISSING_INCREMENTAL_FIELD_MESSAGE = (
+    "The incremental field this table syncs on no longer exists in your source table. It was "
+    "renamed or dropped at the source. Pick a different incremental field in the table's sync "
+    "settings, or switch the table to full table replication, then re-enable the sync."
+)
+
+
+class MissingIncrementalFieldError(Exception):
+    """The table's incremental field is absent from the catalog read this run."""
+
+
+def missing_incremental_field_message(incremental_field: str, table_name: str) -> str:
+    return (
+        f'The incremental field "{incremental_field}" {MISSING_INCREMENTAL_FIELD_MATCH} {table_name}. '
+        "It was renamed or dropped at the source. Pick a different incremental field in the table's "
+        "sync settings, or switch the table to full table replication, then re-enable the sync."
+    )
+
+
 @frozen
 class TableProjection(Generic[_ColumnT]):
     """The columns a read projects, and the discovered table narrowed to them."""
@@ -186,7 +209,9 @@ def resolve_table_projection(
     enabled_columns: list[str] | None,
     primary_keys: list[str] | None = None,
     incremental_field: str | None = None,
+    should_use_incremental_field: bool = False,
     available_columns: list[str] | None = None,
+    table_name: str = "",
 ) -> TableProjection[_ColumnT]:
     """Name the columns a read projects, and narrow `full_table` to them.
 
@@ -201,12 +226,27 @@ def resolve_table_projection(
     that window fails the read with an error we classify as permanent, which disables the schema,
     where `SELECT *` only returned fewer columns.
 
+    A stored selection is checked against the same catalog. `enabled_columns` is otherwise only
+    reconciled when a person reloads the source, so a column dropped or renamed at the source stays
+    in the SELECT list and every run fails on it, which disables the schema. Dropping the stale
+    name lets the sync carry on with the columns that still exist. Nothing is persisted, so a
+    catalog that hides a column for another reason, such as a revoked column grant, stops hiding it
+    as soon as the grant returns.
+
+    The incremental field is the exception: it sits in the WHERE and ORDER BY of every query, so
+    the sync cannot run without it.
+
     Pass `available_columns` for a source that must keep some discovered columns out of the
-    read. An empty catalog keeps the `SELECT *` fallback.
+    read. An empty catalog leaves the selection alone, because it says nothing about the table.
     """
+    catalog = {column.name for column in full_table.columns}
     if enabled_columns is None:
         names = available_columns if available_columns is not None else [column.name for column in full_table.columns]
         enabled_columns = list(names) or None
+    elif catalog:
+        if should_use_incremental_field and incremental_field and incremental_field not in catalog:
+            raise MissingIncrementalFieldError(missing_incremental_field_message(incremental_field, table_name))
+        enabled_columns = [column for column in enabled_columns if column in catalog]
     projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
     return TableProjection(enabled_columns=enabled_columns, table=project_arrow_columns(full_table, projected))
 

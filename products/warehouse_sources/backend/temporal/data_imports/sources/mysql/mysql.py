@@ -1649,7 +1649,9 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                 enabled_columns=enabled_columns,
                 primary_keys=primary_keys,
                 incremental_field=incremental_field,
+                should_use_incremental_field=should_use_incremental_field,
                 available_columns=available_columns,
+                table_name=f"{schema}.{table_name}",
             )
 
         def _discover_metadata() -> MySQLTableSetup:
