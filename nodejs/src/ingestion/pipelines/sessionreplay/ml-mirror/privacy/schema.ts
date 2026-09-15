@@ -52,10 +52,6 @@ export function keySessionMonth(identity: MlKeyIdentity): string {
     return identity.sessionMonth
 }
 
-export function monthBlockId(month: string): TableKey {
-    return { pk: `month:${month}`, sk: 'deleted' }
-}
-
 export function monthKeyIndexId(identity: MlKeyIdentity, key: TableKey): TableKey {
     const id = tableKeyString(key)
     return { pk: `month:${keySessionMonth(identity)}:shard:${sessionShard(id)}`, sk: `key:${id}` }

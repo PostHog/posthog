@@ -26,7 +26,6 @@ use async_trait::async_trait;
 use common_sqlx_macros::{mirrored_query, mirrored_query_as, mirrored_query_scalar};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sqlx::postgres::PgPool;
 use uuid::Uuid;
 
 use personhog_proto::personhog::types::v1::LifecycleOpType;
@@ -40,7 +39,7 @@ use crate::lifecycle::engine::{
 use crate::lifecycle::leader_calls::{
     fence_victims, release_fenced, Fenced, FencedVictim, LeaderCalls,
 };
-use crate::storage::postgres::begin_timed;
+use crate::pools::{IdentityPools, Lane};
 
 // Derived from the shared enum so the op-type string cannot drift from
 // the leader's fence records or the lifecycle_op CHECK constraint.
@@ -192,7 +191,7 @@ impl OpDriver for DeleteDriver {
         DeleteStep::Started.as_str()
     }
 
-    async fn run_step(&self, pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
+    async fn run_step(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError> {
         let step = DeleteStep::parse(&op.step).ok_or_else(|| {
             SagaError::CorruptState(format!(
                 "delete op {} is on unknown step '{}'",
@@ -200,10 +199,10 @@ impl OpDriver for DeleteDriver {
             ))
         })?;
         match step {
-            DeleteStep::Started => mark(pool, &self.tables, op).await,
-            DeleteStep::Marked => seal(pool, self.leader_calls(), &self.tables, op).await,
-            DeleteStep::Sealed => unmap(pool, &self.tables, op).await,
-            DeleteStep::Unmapped => complete(pool, self.leader_calls(), &self.tables, op).await,
+            DeleteStep::Started => mark(pools, &self.tables, op).await,
+            DeleteStep::Marked => seal(pools, self.leader_calls(), &self.tables, op).await,
+            DeleteStep::Sealed => unmap(pools, &self.tables, op).await,
+            DeleteStep::Unmapped => complete(pools, self.leader_calls(), &self.tables, op).await,
         }
     }
 }
@@ -223,11 +222,11 @@ fn parse_request(op: &OpRow) -> Result<DeleteRequest, SagaError> {
 /// `skipped_conflict`. Requested ids with no live person row get no row at
 /// all — they surface as `not_found` in the outcome. If nothing was claimed
 /// the op aborts here, before anything was mutated.
-async fn mark(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(), SagaError> {
+async fn mark(pools: &IdentityPools, tables: &IdentityTables, op: &OpRow) -> Result<(), SagaError> {
     let request = parse_request(op)?;
     let team_id = op.team_id as i32;
     let person_table = &tables.person;
-    let mut tx = begin_timed(pool).await?;
+    let mut tx = pools.begin(Lane::Heavy).await?;
 
     // Rows from a previous attempt of this op (crash between the insert and
     // the advance): whatever they claimed stays claimed.
@@ -403,7 +402,7 @@ async fn mark(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(), 
 /// past `started`, and a parked delete is an operator signal, not a stuck
 /// customer flow.
 async fn seal(
-    pool: &PgPool,
+    pools: &IdentityPools,
     calls: LeaderCalls<'_>,
     tables: &IdentityTables,
     op: &OpRow,
@@ -416,7 +415,7 @@ async fn seal(
         ORDER BY person_id
         "#,
         op.op_id
-        => fetch_all(pool)
+        => fetch_all(pools.fast())
     )?;
     let fenced = fence_victims(calls, op, &victims).await?;
 
@@ -446,7 +445,7 @@ async fn seal(
         }
     }
 
-    let mut tx = begin_timed(pool).await?;
+    let mut tx = pools.begin(Lane::Heavy).await?;
     mirrored_query!(
         tables.is_validation(),
         r#"
@@ -501,9 +500,13 @@ async fn seal(
 /// at sealed + 1 so the tombstone outranks every write the old incarnation
 /// ever produced. Revival (a later create on the same key) upserts above
 /// this version.
-async fn unmap(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(), SagaError> {
+async fn unmap(
+    pools: &IdentityPools,
+    tables: &IdentityTables,
+    op: &OpRow,
+) -> Result<(), SagaError> {
     let team_id = op.team_id as i32;
-    let mut tx = begin_timed(pool).await?;
+    let mut tx = pools.begin(Lane::Heavy).await?;
 
     let mut victims: Vec<i64> = mirrored_query_scalar!(
         tables.is_validation(),
@@ -664,7 +667,7 @@ async fn unmap(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(),
 /// exactly when `FencePerson` sealed them, so an op sealed pre-fence (or
 /// across a kill-switch flip) completes without phantom release calls.
 async fn complete(
-    pool: &PgPool,
+    pools: &IdentityPools,
     calls: LeaderCalls<'_>,
     tables: &IdentityTables,
     op: &OpRow,
@@ -683,11 +686,11 @@ async fn complete(
         ORDER BY person_id
         "#,
         op.op_id
-        => fetch_all(pool)
+        => fetch_all(pools.fast())
     )?;
     release_fenced(calls, op, &fenced).await?;
 
-    let mut tx = begin_timed(pool).await?;
+    let mut tx = pools.begin(Lane::Heavy).await?;
 
     mirrored_query!(
         tables.is_validation(),
