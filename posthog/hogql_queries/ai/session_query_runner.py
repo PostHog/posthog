@@ -161,17 +161,23 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
                     argMin(distinct_id, timestamp)
                 ) AS first_distinct_id,
                 round(
-                    CASE
-                        WHEN countIf(latency > 0 AND event != '$ai_generation') = 0
-                             AND countIf(latency > 0 AND event = '$ai_generation') > 0
-                        THEN sumIf(latency,
-                                   event = '$ai_generation' AND latency > 0
-                             )
-                        ELSE sumIf(latency,
-                                   parent_id IS NULL
-                                   OR parent_id = trace_id
-                             )
-                    END, 2
+                    coalesce(
+                        -- The root $ai_trace event reports the wall-clock latency of the whole
+                        -- trace, so its children are already inside that number. Same rule as
+                        -- products/ai_observability/backend/queries/sessions.sql.
+                        nullIf(maxIf(latency, event = '$ai_trace' AND latency > 0), 0),
+                        CASE
+                            WHEN countIf(latency > 0 AND event != '$ai_generation') = 0
+                                 AND countIf(latency > 0 AND event = '$ai_generation') > 0
+                            THEN sumIf(latency,
+                                       event = '$ai_generation' AND latency > 0
+                                 )
+                            ELSE sumIf(latency,
+                                       parent_id IS NULL
+                                       OR parent_id = trace_id
+                                 )
+                        END
+                    ), 2
                 ) AS total_latency,
                 -- NULL means no event carried the field, 0 is a reported zero.
                 -- These columns are Nullable, so a bare sum already returns NULL
@@ -272,7 +278,7 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
     def get_cache_payload(self) -> dict[str, Any]:
         return {
             **super().get_cache_payload(),
-            "schema_version": 1,
+            "schema_version": 2,
         }
 
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:

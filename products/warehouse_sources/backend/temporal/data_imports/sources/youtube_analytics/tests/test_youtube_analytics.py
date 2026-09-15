@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 from typing import Any, cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -270,8 +270,12 @@ class TestResolveStartDay:
         assert resolve_start_day(start_date, should_use_incremental_field, last_value, date(2026, 7, 26)) == expected
 
 
-@freeze_time(FROZEN_NOW)
 class TestGetRows:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(FROZEN_NOW, tick=False):
+            yield
+
     def test_day_dimension_report_covers_a_multi_day_window_per_request(self) -> None:
         manager = FakeResumeManager()
         result = _result(["day", "views"], [["2026-07-20", 5], ["2026-07-21", 6]])
@@ -385,8 +389,12 @@ class TestGetRows:
         assert sent[0]["ids"] == "channel==UC123"
 
 
-@freeze_time(FROZEN_NOW)
 class TestValidateCredentials:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(FROZEN_NOW, tick=False):
+            yield
+
     def _patch_client(self, query: Any) -> Any:
         client = mock.MagicMock(spec=YouTubeAnalyticsClient)
         client.query.side_effect = query
@@ -478,7 +486,7 @@ class TestYouTubeAnalyticsSourceResponse:
         # Windows are walked oldest-first, so the incremental watermark advances safely.
         assert response.sort_mode == "asc"
 
-    @freeze_time(FROZEN_NOW)
+    @time_machine.travel(FROZEN_NOW, tick=False)
     def test_items_is_lazy_until_iterated(self) -> None:
         manager = FakeResumeManager()
         response = youtube_analytics_source(

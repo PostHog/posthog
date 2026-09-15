@@ -248,6 +248,7 @@ class TestHogFlowAPI(APIBaseTest):
         [
             ("messaging", "messaging", {"Email drip", "Push blast"}),
             ("automation", "automation", {"Webhook sync"}),
+            ("loop", "loop", {"Loop with email action"}),
         ]
     )
     def test_list_filter_by_workflow_type(self, _name, workflow_type, expected_names):
@@ -268,6 +269,16 @@ class TestHogFlowAPI(APIBaseTest):
             name="Webhook sync",
             created_by=self.user,
             actions=[{"id": "a", "type": "function", "config": {}}],
+        )
+        # Loop-origin workflow with a messaging action - the frontend always tags this "Loop"
+        # (see WorkflowTypeTag), so it must be excluded from both the messaging and automation
+        # filters and returned only by the loop filter.
+        HogFlow.objects.create(
+            team=self.team,
+            name="Loop with email action",
+            created_by=self.user,
+            origin_product="loops",
+            actions=[{"id": "a", "type": "function_email", "config": {}}],
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?type={workflow_type}")
@@ -1069,6 +1080,78 @@ class TestHogFlowAPI(APIBaseTest):
 
         conversion = response.json()["conversion"]
         assert conversion["bytecode"] == [], conversion
+
+    @parameterized.expand(
+        [
+            ("duration string", {"window": "7d"}, 201),
+            ("hours", {"window": "12h"}, 201),
+            ("over the ceiling", {"window": "400d"}, 400),
+            ("zero", {"window": "0d"}, 400),
+            ("zero seconds", {"window": "0s"}, 400),
+            ("not a duration", {"window": "7 days"}, 400),
+            ("legacy minutes", {"window_minutes": 60}, 201),
+            # 604800 is seven days in seconds, in a field that takes minutes. Rejecting it turns a
+            # silently shortened window into an error that names the unit.
+            ("legacy seconds mistaken for minutes", {"window_minutes": 604800}, 400),
+            ("both forms", {"window": "7d", "window_minutes": 60}, 400),
+            # A valid 7-day window padded past the length cap. Without max_length the regex accepts it and
+            # it stores as 7 days; the cap rejects it, which is what keeps arbitrarily long input off the
+            # regex and the float parse.
+            ("over the length cap", {"window": "0" * 40 + "7d"}, 400),
+            # Non-ASCII digits: Python's \d and float() accept these, but the Node worker's ASCII regex
+            # rejects them, so storing one would silently fall back to the default window. The [0-9] grammar
+            # rejects them here, at the API, the same way the worker does.
+            ("arabic-indic digits", {"window": "٧d"}, 400),
+            ("full-width digits", {"window": "７d"}, 400),
+        ]
+    )
+    def test_hog_flow_conversion_window(self, _name, conversion_window, expected_status):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["conversion"] = {"filters": [], **conversion_window}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == expected_status, response.json()
+
+    def test_hog_flow_conversion_window_minutes_error_names_the_unit(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["conversion"] = {"filters": [], "window_minutes": 604800}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert "minutes" in response.json()["detail"]
+        assert "420 days" in response.json()["detail"]
+
+    def test_hog_flow_conversion_window_minutes_grandfathers_stored_over_ceiling_value(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        # Seed a row from before the ceiling existed, bypassing the serializer that now refuses this value.
+        flow = HogFlow.objects.get(id=flow_id)
+        flow.conversion = {"filters": [], "window_minutes": 604800}
+        flow.save()
+
+        # An unrelated edit that resends the unchanged over-ceiling value must still succeed.
+        unrelated_edit = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"name": "Renamed", "conversion": {"filters": [], "window_minutes": 604800}},
+        )
+        assert unrelated_edit.status_code == 200, unrelated_edit.json()
+        assert unrelated_edit.json()["conversion"]["window_minutes"] == 604800
+
+        # Changing the stored value to a different over-ceiling value is still refused.
+        changed = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"conversion": {"filters": [], "window_minutes": 700000}},
+        )
+        assert changed.status_code == 400, changed.json()
 
     def test_hog_flow_conversion_filters_compiles_bytecode_on_update(self):
         expected_conversion_bytecode = [
@@ -3182,6 +3265,54 @@ class TestHogFlowAPI(APIBaseTest):
         assert "limit" in body
         assert body["limit"] > 0
 
+    def test_hog_flow_user_blast_radius_routes_to_v2_when_flag_enabled(self):
+        with (
+            patch("products.workflows.backend.api.hog_flow.use_audience_query_v2", return_value=True),
+            patch("products.workflows.backend.api.hog_flow.get_person_audience_count_v2") as mock_v2,
+            patch("products.workflows.backend.api.hog_flow.get_dedupe_audience_count_v2") as mock_dedupe_v2,
+            patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_v1,
+        ):
+            from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
+
+            mock_v2.return_value = BlastRadiusResult(affected=6400, total=64000)
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": []}},
+            )
+
+            assert response.status_code == 200, response.json()
+            body = response.json()
+            assert body["affected"] == 6400
+            assert body["total"] == 64000
+            mock_v1.assert_not_called()
+
+            # Dedupe-enabled workflows route to the sampled dedupe count.
+            mock_dedupe_v2.return_value = BlastRadiusResult(affected=3200, total=64000)
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": []}, "dedupe_key": "email"},
+            )
+
+            assert response.status_code == 200, response.json()
+            body = response.json()
+            assert body["affected"] == 3200
+            assert body["dedupe_key"] == "email"
+            mock_dedupe_v2.assert_called_once_with(self.team, {"properties": []}, "email")
+            mock_v1.assert_not_called()
+
+            # Group audiences stay on the v1 query even with the flag on: the v2
+            # sampled count only covers person audiences.
+            mock_v1.return_value = BlastRadiusResult(affected=1, total=2)
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": []}, "group_type_index": 0},
+            )
+
+            assert response.status_code == 200, response.json()
+            mock_v1.assert_called_once()
+            mock_v2.assert_called_once()
+
     @override_settings(
         HOGFLOW_BATCH_TRIGGER_LIMIT=5000,
         HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED=50000,
@@ -3327,7 +3458,9 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == 200, response.json()
         assert response.json()["users_affected"] == ["id-1"]
-        mock_workflows_query.assert_called_once_with(self.team, {"properties": []}, None, None, dedupe_key="email")
+        mock_workflows_query.assert_called_once_with(
+            self.team, {"properties": []}, None, None, dedupe_key="email", settings=None
+        )
 
     @parameterized.expand(
         [

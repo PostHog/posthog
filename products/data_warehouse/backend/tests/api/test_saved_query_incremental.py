@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, patch
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_warehouse.backend.presentation.views.saved_query import (
+    CHECK_INCREMENTAL_MAX_QUERY_LENGTH,
     CheckIncrementalThrottle,
     DataWarehouseSavedQueryViewSet,
 )
@@ -115,7 +116,8 @@ class TestSavedQueryIncremental(APIBaseTest):
     def test_check_incremental_rejects_an_oversized_query(self):
         # Parsing runs synchronously on an API worker, so the body has to be bounded before it
         # reaches the parser.
-        response = self.client.post(self._url("check_incremental/"), {"query": "SELECT 1 -- " + "x" * (64 * 1024)})
+        oversized = "SELECT 1 -- " + "x" * CHECK_INCREMENTAL_MAX_QUERY_LENGTH
+        response = self.client.post(self._url("check_incremental/"), {"query": oversized})
 
         assert response.status_code == 400
         assert response.json()["attr"] == "query"

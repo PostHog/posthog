@@ -189,7 +189,7 @@ export const SignalsReportsPartialUpdateBody = () => zod
     )
 
 /**
- * Claim a report for the current user, internal task, or external MCP agent. A later claim silently takes over ownership. Supply pr_url to attach or replace the report's pull request, or release=true to clear only ownership while preserving the pull request.
+ * Start or update work for the current user, internal task, or external agent. Supply claim_id to resume, pull_requests to add PRs, takeover=true to explicitly take ownership, or release=true to end ownership while preserving work history and PR links.
  * @summary Claim or release a signal report
  */
 export const SignalsReportsClaimParams = () => zod.object({
@@ -201,13 +201,31 @@ export const SignalsReportsClaimParams = () => zod.object({
         ),
 })
 
+export const signalsReportsClaimBodyPullRequestsItemMax = 2048
+
+export const signalsReportsClaimBodyPullRequestsMax = 50
+
+export const signalsReportsClaimBodyTakeoverDefault = false
 export const signalsReportsClaimBodyReleaseDefault = false
 
 export const SignalsReportsClaimBody = () => zod.object({
+    claim_id: zod
+        .string()
+        .optional()
+        .describe('Active claim ID returned by an earlier call. Stale claims are rejected.'),
+    pull_requests: zod
+        .array(zod.url().max(signalsReportsClaimBodyPullRequestsItemMax))
+        .max(signalsReportsClaimBodyPullRequestsMax)
+        .optional()
+        .describe("GitHub PR URLs to add to this report's work. Additive and deduplicated; may span repositories."),
+    takeover: zod
+        .boolean()
+        .default(signalsReportsClaimBodyTakeoverDefault)
+        .describe("Explicitly end another actor's claim and take ownership."),
     pr_url: zod
         .url()
         .optional()
-        .describe('Optional GitHub pull request to attach to the claim. The report may be claimed without one.'),
+        .describe('Compatibility alias for adding one PR. Prefer pull_requests for new callers.'),
     release: zod
         .boolean()
         .default(signalsReportsClaimBodyReleaseDefault)
@@ -215,7 +233,9 @@ export const SignalsReportsClaimBody = () => zod.object({
 })
 
 /**
- * Transition a report to a new state. The model validates allowed transitions.
+ * Transition a report to a new state. The model validates allowed transitions, except that a
+ * verdict the report already holds (dismissing a suppressed report, resolving a resolved one)
+ * is a 200 that records the dismissal feedback without touching the status.
  *
  * The request body is validated by SignalReportStateRequestSerializer — only the
  * fields it declares (state, dismissal_reason, dismissal_note, corrected_repository,
@@ -348,10 +368,14 @@ export const SignalsReportArtefactsCreateHeader = () => zod.object({
 
 export const SignalsReportArtefactsCreateBody = () => zod
     .object({
+        claim_id: zod
+            .string()
+            .optional()
+            .describe('Active claim to attribute this work to. Must belong to the caller and report.'),
         artefact_type: zod
             .string()
             .describe(
-                "The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
+                "The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
             ),
         content: zod
             .unknown()
@@ -509,7 +533,7 @@ export const SignalsReportsBulkStateCreateBody = () => zod.object({
 })
 
 /**
- * Create a `signals-scout-*` skill and its runnable config atomically. The skill always receives the report-channel tools. The optional config controls schedule, enablement, dry-run posture, network access, and typed destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields; reusing its name for a different definition returns 409.
+ * Create a scout skill and its runnable config atomically. Any valid skill name works — the config row is what makes the skill a scout. The skill always receives the report-channel tools. The optional config controls schedule, enablement, dry-run posture, network access, and typed destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields; reusing its name for a different definition returns 409.
  * @summary Create a scout
  */
 export const SignalsScoutCreateParams = () => zod.object({
@@ -529,6 +553,18 @@ export const signalsScoutCreateBodyFilesItemPathMax = 500
 export const signalsScoutCreateBodyFilesItemContentTypeDefault = `text/plain`
 export const signalsScoutCreateBodyFilesItemContentTypeMax = 100
 
+export const signalsScoutCreateBodyConfigOneModelMax = 200
+
+export const signalsScoutCreateBodyConfigOneTagsMax = 10
+
+export const signalsScoutCreateBodyConfigOneMcpGatewayServerIdsMax = 100
+
+export const signalsScoutCreateBodyConfigOneRepositoriesItemMax = 255
+
+export const signalsScoutCreateBodyConfigOneRepositoriesMax = 10
+
+export const signalsScoutCreateBodyConfigOneWriteScopesMax = 8
+
 export const signalsScoutCreateBodyConfigOneRunIntervalMinutesMin = 30
 export const signalsScoutCreateBodyConfigOneRunIntervalMinutesMax = 43200
 
@@ -541,16 +577,8 @@ export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersIt
 )
 export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneUsersMax = 5
 
-export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault = false
+export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault = true
 export const signalsScoutCreateBodyConfigOneRunCronScheduleMax = 100
-
-export const signalsScoutCreateBodyConfigOneModelMax = 200
-
-export const signalsScoutCreateBodyConfigOneTagsMax = 10
-
-export const signalsScoutCreateBodyConfigOneMcpGatewayServerIdsMax = 100
-
-export const signalsScoutCreateBodyConfigOneWriteScopesMax = 4
 
 export const SignalsScoutCreateBody = () => zod
     .object({
@@ -558,7 +586,7 @@ export const SignalsScoutCreateBody = () => zod
             .string()
             .max(signalsScoutCreateBodyNameMax)
             .describe(
-                'Unique scout name. Must start with `signals-scout-` and contain only lowercase letters, numbers, and hyphens.'
+                'Unique scout name, containing only lowercase letters, numbers, and hyphens. The `signals-scout-` prefix is optional.'
             ),
         description: zod
             .string()
@@ -590,6 +618,47 @@ export const SignalsScoutCreateBody = () => zod
             .describe('Optional reference files bundled with the scout prompt.'),
         config: zod
             .object({
+                model: zod
+                    .string()
+                    .max(signalsScoutCreateBodyConfigOneModelMax)
+                    .nullish()
+                    .describe(
+                        "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it."
+                    ),
+                tags: zod
+                    .array(zod.string())
+                    .max(signalsScoutCreateBodyConfigOneTagsMax)
+                    .optional()
+                    .describe(
+                        'Free-form labels for grouping the fleet, e.g. `[\"revenue\", \"on-call\"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.'
+                    ),
+                structured_output_schema: zod
+                    .record(zod.string(), zod.unknown())
+                    .nullish()
+                    .describe(
+                        'Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{\"type\": \"object\", \"properties\": {\"verdict\": {\"enum\": [\"good\", \"bad\", \"unsure\"]}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"verdict\", \"reason\"]}`). The root must be `\"type\": \"object\"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout\'s call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.'
+                    ),
+                mcp_gateway_server_ids: zod
+                    .array(zod.string())
+                    .max(signalsScoutCreateBodyConfigOneMcpGatewayServerIdsMax)
+                    .optional()
+                    .describe(
+                        "MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run."
+                    ),
+                repositories: zod
+                    .array(zod.string().max(signalsScoutCreateBodyConfigOneRepositoriesItemMax))
+                    .max(signalsScoutCreateBodyConfigOneRepositoriesMax)
+                    .optional()
+                    .describe(
+                        "GitHub repositories this scout clones into its sandbox, each in `organization\/repo` format. Set them for a scout that reads code, so it can search the tree and run the project's own tests instead of reading files one API call at a time. Empty (the default) leaves the sandbox without a checkout. The scout's GitHub access stays read-only either way, so a repository listed here is never writable from a run. At most 10, each reachable through the project's GitHub connection. Applies from the scout's next run."
+                    ),
+                write_scopes: zod
+                    .array(zod.string())
+                    .max(signalsScoutCreateBodyConfigOneWriteScopesMax)
+                    .optional()
+                    .describe(
+                        "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+                    ),
                 enabled: zod
                     .boolean()
                     .optional()
@@ -647,7 +716,7 @@ export const SignalsScoutCreateBody = () => zod
                                             signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault
                                         )
                                         .describe(
-                                            "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
+                                            "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. On by default; set it false to post a single message, which can truncate a long summary. It does not change how findings post."
                                         ),
                                 }),
                                 zod.null(),
@@ -694,40 +763,6 @@ export const SignalsScoutCreateBody = () => zod
                     .describe(
                         "Optional five-field cron expression, e.g. '30 9 \* \* \*' (daily at 09:30), '0 9,17 \* \* \*' (twice daily), or '0 9 \* \* 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
                     ),
-                model: zod
-                    .string()
-                    .max(signalsScoutCreateBodyConfigOneModelMax)
-                    .nullish()
-                    .describe(
-                        "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it."
-                    ),
-                tags: zod
-                    .array(zod.string())
-                    .max(signalsScoutCreateBodyConfigOneTagsMax)
-                    .optional()
-                    .describe(
-                        'Free-form labels for grouping the fleet, e.g. `[\"revenue\", \"on-call\"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.'
-                    ),
-                structured_output_schema: zod
-                    .record(zod.string(), zod.unknown())
-                    .nullish()
-                    .describe(
-                        'Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{\"type\": \"object\", \"properties\": {\"verdict\": {\"enum\": [\"good\", \"bad\", \"unsure\"]}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"verdict\", \"reason\"]}`). The root must be `\"type\": \"object\"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout\'s call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.'
-                    ),
-                mcp_gateway_server_ids: zod
-                    .array(zod.string())
-                    .max(signalsScoutCreateBodyConfigOneMcpGatewayServerIdsMax)
-                    .optional()
-                    .describe(
-                        "MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run."
-                    ),
-                write_scopes: zod
-                    .array(zod.string())
-                    .max(signalsScoutCreateBodyConfigOneWriteScopesMax)
-                    .optional()
-                    .describe(
-                        "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
-                    ),
             })
             .describe('Schedule, enablement, and delivery options accepted while creating a scout.')
             .optional()
@@ -760,7 +795,7 @@ export const SignalsScoutConfigListQueryParams = () => zod.object({
 })
 
 /**
- * Register the config for a `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it. The same call can optionally set `run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, `emit`, `network_access`, and output destinations. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it.
+ * Register the config for a skill immediately, without waiting for the coordinator to auto-register it — and the way to make a skill without the `signals-scout-` prefix a scout at all. The same call can optionally set `run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, `emit`, `network_access`, and output destinations. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it. Registering puts the skill's body on the schedule as the scout's prompt, so this call needs `llm_skill:write` and editor access to skills on top of `signal_scout:write`, like creating a scout.
  * @summary Create a scout config
  */
 export const SignalsScoutConfigCreateParams = () => zod.object({
@@ -770,6 +805,18 @@ export const SignalsScoutConfigCreateParams = () => zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
+
+export const signalsScoutConfigCreateBodyModelMax = 200
+
+export const signalsScoutConfigCreateBodyTagsMax = 10
+
+export const signalsScoutConfigCreateBodyMcpGatewayServerIdsMax = 100
+
+export const signalsScoutConfigCreateBodyRepositoriesItemMax = 255
+
+export const signalsScoutConfigCreateBodyRepositoriesMax = 10
+
+export const signalsScoutConfigCreateBodyWriteScopesMax = 8
 
 export const signalsScoutConfigCreateBodyRunIntervalMinutesMin = 30
 export const signalsScoutConfigCreateBodyRunIntervalMinutesMax = 43200
@@ -783,21 +830,54 @@ export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersItemR
 )
 export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneUsersMax = 5
 
-export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneThreadReportsDefault = false
+export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneThreadReportsDefault = true
 export const signalsScoutConfigCreateBodyRunCronScheduleMax = 100
-
-export const signalsScoutConfigCreateBodyModelMax = 200
-
-export const signalsScoutConfigCreateBodyTagsMax = 10
-
-export const signalsScoutConfigCreateBodyMcpGatewayServerIdsMax = 100
-
-export const signalsScoutConfigCreateBodyWriteScopesMax = 4
 
 export const signalsScoutConfigCreateBodySkillNameMax = 200
 
 export const SignalsScoutConfigCreateBody = () => zod
     .object({
+        model: zod
+            .string()
+            .max(signalsScoutConfigCreateBodyModelMax)
+            .nullish()
+            .describe(
+                "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it."
+            ),
+        tags: zod
+            .array(zod.string())
+            .max(signalsScoutConfigCreateBodyTagsMax)
+            .optional()
+            .describe(
+                'Free-form labels for grouping the fleet, e.g. `[\"revenue\", \"on-call\"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.'
+            ),
+        structured_output_schema: zod
+            .record(zod.string(), zod.unknown())
+            .nullish()
+            .describe(
+                'Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{\"type\": \"object\", \"properties\": {\"verdict\": {\"enum\": [\"good\", \"bad\", \"unsure\"]}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"verdict\", \"reason\"]}`). The root must be `\"type\": \"object\"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout\'s call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.'
+            ),
+        mcp_gateway_server_ids: zod
+            .array(zod.string())
+            .max(signalsScoutConfigCreateBodyMcpGatewayServerIdsMax)
+            .optional()
+            .describe(
+                "MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run."
+            ),
+        repositories: zod
+            .array(zod.string().max(signalsScoutConfigCreateBodyRepositoriesItemMax))
+            .max(signalsScoutConfigCreateBodyRepositoriesMax)
+            .optional()
+            .describe(
+                "GitHub repositories this scout clones into its sandbox, each in `organization\/repo` format. Set them for a scout that reads code, so it can search the tree and run the project's own tests instead of reading files one API call at a time. Empty (the default) leaves the sandbox without a checkout. The scout's GitHub access stays read-only either way, so a repository listed here is never writable from a run. At most 10, each reachable through the project's GitHub connection. Applies from the scout's next run."
+            ),
+        write_scopes: zod
+            .array(zod.string())
+            .max(signalsScoutConfigCreateBodyWriteScopesMax)
+            .optional()
+            .describe(
+                "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+            ),
         enabled: zod.boolean().optional().describe('Whether this scout runs on its schedule. Defaults to true.'),
         emit: zod
             .boolean()
@@ -846,7 +926,7 @@ export const SignalsScoutConfigCreateBody = () => zod
                                 .boolean()
                                 .default(signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneThreadReportsDefault)
                                 .describe(
-                                    "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
+                                    "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. On by default; set it false to post a single message, which can truncate a long summary. It does not change how findings post."
                                 ),
                         }),
                         zod.null(),
@@ -893,45 +973,11 @@ export const SignalsScoutConfigCreateBody = () => zod
             .describe(
                 "Optional five-field cron expression, e.g. '30 9 \* \* \*' (daily at 09:30), '0 9,17 \* \* \*' (twice daily), or '0 9 \* \* 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
             ),
-        model: zod
-            .string()
-            .max(signalsScoutConfigCreateBodyModelMax)
-            .nullish()
-            .describe(
-                "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it."
-            ),
-        tags: zod
-            .array(zod.string())
-            .max(signalsScoutConfigCreateBodyTagsMax)
-            .optional()
-            .describe(
-                'Free-form labels for grouping the fleet, e.g. `[\"revenue\", \"on-call\"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.'
-            ),
-        structured_output_schema: zod
-            .record(zod.string(), zod.unknown())
-            .nullish()
-            .describe(
-                'Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{\"type\": \"object\", \"properties\": {\"verdict\": {\"enum\": [\"good\", \"bad\", \"unsure\"]}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"verdict\", \"reason\"]}`). The root must be `\"type\": \"object\"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout\'s call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.'
-            ),
-        mcp_gateway_server_ids: zod
-            .array(zod.string())
-            .max(signalsScoutConfigCreateBodyMcpGatewayServerIdsMax)
-            .optional()
-            .describe(
-                "MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run."
-            ),
-        write_scopes: zod
-            .array(zod.string())
-            .max(signalsScoutConfigCreateBodyWriteScopesMax)
-            .optional()
-            .describe(
-                "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
-            ),
         skill_name: zod
             .string()
             .max(signalsScoutConfigCreateBodySkillNameMax)
             .describe(
-                'The `signals-scout-\*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.'
+                'The skill to register a config for. Any valid skill name works — the config row is what makes a skill a scout. The skill must already exist on this project — author it via the skills store first.'
             ),
     })
     .describe(
@@ -951,6 +997,8 @@ export const SignalsScoutConfigUpdateParams = () => zod.object({
         ),
 })
 
+export const signalsScoutConfigUpdateBodyDisplayNameMax = 200
+
 export const signalsScoutConfigUpdateBodyRunIntervalMinutesMin = 30
 export const signalsScoutConfigUpdateBodyRunIntervalMinutesMax = 43200
 
@@ -965,17 +1013,25 @@ export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersItemR
 )
 export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneUsersMax = 5
 
-export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneThreadReportsDefault = false
 export const signalsScoutConfigUpdateBodyModelMax = 200
 
 export const signalsScoutConfigUpdateBodyTagsMax = 10
 
 export const signalsScoutConfigUpdateBodyMcpGatewayServerIdsMax = 100
 
-export const signalsScoutConfigUpdateBodyWriteScopesMax = 4
+export const signalsScoutConfigUpdateBodyRepositoriesItemMax = 255
+
+export const signalsScoutConfigUpdateBodyRepositoriesMax = 10
+
+export const signalsScoutConfigUpdateBodyWriteScopesMax = 8
 
 export const SignalsScoutConfigUpdateBody = () => zod
     .object({
+        display_name: zod
+            .string()
+            .max(signalsScoutConfigUpdateBodyDisplayNameMax)
+            .optional()
+            .describe('Name shown in the UI. Does not change the skill name. Leave blank to use the default name.'),
         enabled: zod
             .boolean()
             .optional()
@@ -1034,9 +1090,9 @@ export const SignalsScoutConfigUpdateBody = () => zod
                                 ),
                             thread_reports: zod
                                 .boolean()
-                                .default(signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneThreadReportsDefault)
+                                .optional()
                                 .describe(
-                                    "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
+                                    "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. On by default; set it false to post a single message, which can truncate a long summary. It does not change how findings post."
                                 ),
                         }),
                         zod.null(),
@@ -1105,18 +1161,25 @@ export const SignalsScoutConfigUpdateBody = () => zod
             .describe(
                 "MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run."
             ),
+        repositories: zod
+            .array(zod.string().max(signalsScoutConfigUpdateBodyRepositoriesItemMax))
+            .max(signalsScoutConfigUpdateBodyRepositoriesMax)
+            .optional()
+            .describe(
+                "GitHub repositories this scout clones into its sandbox, each in `organization\/repo` format. Set them for a scout that reads code, so it can search the tree and run the project's own tests instead of reading files one API call at a time. Empty (the default) leaves the sandbox without a checkout. The scout's GitHub access stays read-only either way, so a repository listed here is never writable from a run. At most 10, each reachable through the project's GitHub connection. Applies from the scout's next run."
+            ),
         write_scopes: zod
             .array(zod.string())
             .max(signalsScoutConfigUpdateBodyWriteScopesMax)
             .optional()
             .describe(
-                "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+                "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
             ),
     })
-    .describe('Editable schedule, enablement, and emit posture for one scout config.')
+    .describe('Editable display name, schedule, enablement, and emit posture for one scout config.')
 
 /**
- * Delete one scout config by its `id`, removing the per-(team, skill) schedule/emit row outright. The point is cleaning up an orphaned config whose `signals-scout-*` skill was archived or deleted — it lingers in `list` with an empty `description`, never runs (the coordinator skips it and the skill can't load), but can't otherwise be removed over the API. Deletion is activity-logged. Note: if the skill still exists, the coordinator re-creates a default-schedule config on its next tick — to retire a live scout, archive its skill (or set `enabled=false` to make it inert) rather than deleting the config.
+ * Delete one scout config by its `id`, removing the per-(team, skill) schedule/emit row outright. The point is cleaning up an orphaned config whose skill was archived or deleted — it lingers in `list` with an empty `description`, never runs (the coordinator skips it and the skill can't load), but can't otherwise be removed over the API. Deletion is activity-logged. Note: auto-registration only scans live `signals-scout-*` skills, so a config deleted for one of those is back on the coordinator's next tick. A scout under any other name does not come back on its own: its config stays deleted until you re-register it, and its skill still reads as a scout meanwhile. To retire a live scout, archive its skill (or set `enabled=false` to make it inert) rather than deleting the config. A scout whose `scout_role` is `operational` cannot be deleted: it is part of the self-driving system rather than the project's own fleet.
  * @summary Delete a scout config
  */
 export const SignalsScoutConfigDestroyParams = () => zod.object({
@@ -1129,7 +1192,7 @@ export const SignalsScoutConfigDestroyParams = () => zod.object({
 })
 
 /**
- * Dispatch one on-demand run of this scout immediately, regardless of its schedule. Useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously on the worker and inherits every guard the scheduled path has: it is forbidden if scouts are not enabled for the project (403), and skipped if the project is over its Signals credits quota, daily report limit, or daily run budget (429) or a run for this scout is already in progress (409). A manual run counts against the same daily run budget as scheduled runs, so repeated manual runs of the same scout can exhaust the project's daily allowance. A manual run does not change the scout's schedule or `last_run_at`. A disabled scout can still be run this way (to test before enabling). Returns immediately with the workflow id — poll the scout's runs for the result.
+ * Dispatch one on-demand run of this scout immediately, regardless of its schedule. Useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously on the worker and inherits every guard the scheduled path has: it is forbidden if scouts are not enabled for the project (403), and skipped if self-driving is paused at the project's pull request limit, or the project is over its daily report limit or daily run budget (429), or a run for this scout is already in progress (409). A manual run counts against the same daily run budget as scheduled runs, so repeated manual runs of the same scout can exhaust the project's daily allowance. A manual run does not change the scout's schedule or `last_run_at`. A disabled scout can still be run this way (to test before enabling). Pass an optional `note` to steer this one run without leaving a scout note that would steer every later run too. Returns immediately with the workflow id: poll the scout's runs for the result.
  * @summary Run a scout now
  */
 export const SignalsScoutConfigRunParams = () => zod.object({
@@ -1140,6 +1203,22 @@ export const SignalsScoutConfigRunParams = () => zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
+
+export const signalsScoutConfigRunBodyNoteMax = 1000
+
+export const SignalsScoutConfigRunBody = () => zod
+    .object({
+        note: zod
+            .string()
+            .max(signalsScoutConfigRunBodyNoteMax)
+            .optional()
+            .describe(
+                "Optional steering for this run only, such as 'focus on the checkout regression' or 'skip the staging traffic today'. The agent reads it alongside the scout's durable notes and weighs it the same way: it directs attention, it never forces a finding. Use it instead of leaving a scout note that would also steer every later scheduled run. The note is kept on the run for history and is never read by another run. Because the agent reads it verbatim while holding privileged tools, a run that carries one needs `llm_skill:write` on top of `signal_scout:write`, plus editor access to skills, the same bar as leaving a note."
+            ),
+    })
+    .describe(
+        'Request body for an on-demand (`run now`) scout dispatch.\n\nEvery field is optional: a plain trigger sends no body at all.'
+    )
 
 /**
  * Materialize the scout fleet for this project on demand (idempotent): seed the canonical `signals-scout-*` skills, create a default-schedule config for any scout lacking one, retire the skills whose canonical scout no longer ships, and return all scout configs. Normally the Temporal coordinator does this on its next tick; this action exists so the scout UIs and setup flows (e.g. the wizard's self-driving program) can hand the user a tunable fleet immediately.
@@ -1253,12 +1332,12 @@ export const SignalsScoutNotesListQueryParams = () => zod.object({
         .min(1)
         .optional()
         .describe(
-            'Return the notes addressed to this target plus the general (blank-target) notes for the whole fleet. Pass a scout skill (`signals-scout-\*`) or a pipeline audience (`pipeline:report-research`). Omit to browse every note on the project.'
+            "Return the notes addressed to this target plus the general (blank-target) notes for the whole fleet. Pass a configured scout's skill name or a pipeline audience (`pipeline:report-research`). Omit to browse every note on the project."
         ),
 })
 
 /**
- * Leave a steering note the scout fleet reads on its next runs. Address it to one scout via `skill_name` (`signals-scout-*`), to one stage of the report pipeline via a reserved audience (`pipeline:report-research`), or omit it for a general note every scout sees. Each call creates a new note (no upsert); delete retires one. Attributed to the authenticated user.
+ * Leave a steering note the scout fleet reads on its next runs. Address it to one scout via `skill_name` (a configured scout), to one stage of the report pipeline via a reserved audience (`pipeline:report-research`), or omit it for a general note every scout sees. Each call creates a new note (no upsert); delete retires one. Attributed to the authenticated user.
  * @summary Leave a note for the scouts
  */
 export const SignalsScoutNotesCreateParams = () => zod.object({
@@ -1286,7 +1365,7 @@ export const SignalsScoutNotesCreateBody = () => zod
             .max(signalsScoutNotesCreateBodySkillNameMax)
             .optional()
             .describe(
-                'Address the note to one scout by its skill name (`signals-scout-\*`, exact match against an existing scout skill on the project — check `scout-config-list` for the roster), or to one stage of the report pipeline by its reserved audience (`pipeline:report-research`). Use a pipeline audience for guidance about how reports get researched rather than about what the scouts watch, so it reaches that stage and no scout. Omit or leave blank for a general note every scout sees.'
+                'Address the note to one scout by its skill name (exact match against a configured scout on the project — check `scout-config-list` for the roster), or to one stage of the report pipeline by its reserved audience (`pipeline:report-research`). Use a pipeline audience for guidance about how reports get researched rather than about what the scouts watch, so it reaches that stage and no scout. Omit or leave blank for a general note every scout sees.'
             ),
         expires_at: zod
             .string()
@@ -1403,7 +1482,7 @@ export const SignalsScoutRunsRetrieveParams = () => zod.object({
 })
 
 /**
- * Rewrite a report's title/summary, append a note or fresh evidence, and/or set its suggested reviewers. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Setting reviewers is how you rescue a report that surfaced routed to no one: it replaces the reviewer list and re-runs autostart, so a report missing a qualifying reviewer can open a draft PR. Title/summary edits are best-effort: the pipeline may later re-research them.
+ * Rewrite a report's title/summary, append a note or fresh evidence, set its suggested reviewers, and/or point it at another repository. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Reviewers and repository are how you rescue a report that surfaced routed to no one or against the wrong codebase: each replaces what the report holds and re-runs autostart, so a report that was missing a qualifying reviewer or a repository can open a draft PR. The response carries the repository the report holds after the edit, and the call fails when a repository it named did not land. Title/summary edits are best-effort: the pipeline may later re-research them.
  * @summary Edit an existing report for a run
  */
 export const SignalsScoutEditReportParams = () => zod.object({
@@ -1438,6 +1517,22 @@ export const signalsScoutEditReportBodyChartsItemTitleMax = 200
 export const signalsScoutEditReportBodyChartsItemCaptionMax = 500
 
 export const signalsScoutEditReportBodyChartsMax = 20
+
+export const signalsScoutEditReportBodyMetricsItemMetricIdMax = 100
+
+export const signalsScoutEditReportBodyMetricsItemTitleMax = 200
+
+export const signalsScoutEditReportBodyMetricsItemRoleDefault = `supporting`
+export const signalsScoutEditReportBodyMetricsItemSeriesMax = 14
+
+export const signalsScoutEditReportBodyMetricsItemValueFormatDefault = `number`
+export const signalsScoutEditReportBodyMetricsItemUnitMax = 40
+
+export const signalsScoutEditReportBodyMetricsItemCaptionMax = 500
+
+export const signalsScoutEditReportBodyMetricsItemComparisonOneLabelMax = 40
+
+export const signalsScoutEditReportBodyMetricsMax = 6
 
 export const signalsScoutEditReportBodySuggestedPromptsItemMax = 200
 
@@ -1503,7 +1598,7 @@ export const SignalsScoutEditReportBody = () => zod
                             .string()
                             .optional()
                             .describe(
-                                "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here."
+                                "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Use this when you know the PostHog user, whether or not they have a GitHub handle — every member is routable this way. Must be a concrete UUID; the `@me` alias is not valid here."
                             ),
                         reason: zod
                             .string()
@@ -1514,13 +1609,19 @@ export const SignalsScoutEditReportBody = () => zod
                             ),
                     })
                     .describe(
-                        "One suggested reviewer — identified by `github_login`, `user_uuid`, or both.\n\nThe server canonicalizes each entry to a lowercased GitHub login: a `user_uuid` is resolved to the\norg member's linked GitHub login (and wins over a supplied `github_login` when both are given). A\n`user_uuid` that isn't an org member of this team with a linked GitHub identity is rejected — so a\nreviewer is never silently dropped."
+                        "One suggested reviewer — identified by `github_login`, `user_uuid`, or both.\n\nA reviewer is a PostHog user, so a `user_uuid` only has to name an org member of this team: a\nmember with no linked GitHub account routes the report like anyone else. A `user_uuid` that\nisn't an org member of this team is rejected — so a reviewer is never silently dropped."
                     )
             )
             .max(signalsScoutEditReportBodySuggestedReviewersMax)
             .optional()
             .describe(
                 'Optional reviewers to set on the report (each a `github_login` and\/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list is a no-op (existing reviewers are left untouched, never cleared).'
+            ),
+        repository: zod
+            .string()
+            .nullish()
+            .describe(
+                "Optional repository to point the report at, as `owner\/repo` — the fix for a report that surfaced against the wrong codebase, so you correct it in place instead of filing a duplicate. It replaces the report's current target and re-runs autostart, so a report that had no repository to open a PR against can now open a draft PR. Omit the field to leave the target as it is, and pass the `NO_REPO` sentinel for a report where nothing under version control could change."
             ),
         charts: zod
             .array(
@@ -1567,6 +1668,110 @@ export const SignalsScoutEditReportBody = () => zod
             .describe(
                 "The full set of charts the report should show. Replaces the report's charts rather than adding to them, the way `summary` replaces the summary — so send every chart you want kept. Omit the field (or send null) to leave the report's existing charts untouched, and send an empty list to take them all down."
             ),
+        metrics: zod
+            .array(
+                zod
+                    .object({
+                        metric_id: zod
+                            .string()
+                            .max(signalsScoutEditReportBodyMetricsItemMetricIdMax)
+                            .describe(
+                                'Stable slug for this metric within the report: lowercase letters, numbers, underscores, and hyphens, starting with a letter or number.'
+                            ),
+                        title: zod
+                            .string()
+                            .max(signalsScoutEditReportBodyMetricsItemTitleMax)
+                            .describe('Short human-readable label for the measurement.'),
+                        kind: zod
+                            .enum([
+                                'affected_users',
+                                'affected_sessions',
+                                'occurrences',
+                                'conversion_rate',
+                                'error_rate',
+                                'duration',
+                                'revenue',
+                                'custom',
+                            ])
+                            .describe(
+                                '\* `affected_users` - affected_users\n\* `affected_sessions` - affected_sessions\n\* `occurrences` - occurrences\n\* `conversion_rate` - conversion_rate\n\* `error_rate` - error_rate\n\* `duration` - duration\n\* `revenue` - revenue\n\* `custom` - custom'
+                            )
+                            .describe(
+                                'What the value measures, independent of how it is formatted or drawn.\n\n\* `affected_users` - affected_users\n\* `affected_sessions` - affected_sessions\n\* `occurrences` - occurrences\n\* `conversion_rate` - conversion_rate\n\* `error_rate` - error_rate\n\* `duration` - duration\n\* `revenue` - revenue\n\* `custom` - custom'
+                            ),
+                        role: zod
+                            .enum(['primary', 'supporting'])
+                            .describe('\* `primary` - primary\n\* `supporting` - supporting')
+                            .default(signalsScoutEditReportBodyMetricsItemRoleDefault)
+                            .describe(
+                                "`primary` for the report's key observation, otherwise `supporting`.\n\n\* `primary` - primary\n\* `supporting` - supporting"
+                            ),
+                        value: zod
+                            .number()
+                            .nullish()
+                            .describe(
+                                'Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.'
+                            ),
+                        value_at: zod.iso
+                            .datetime({ offset: true })
+                            .nullish()
+                            .describe('When the visible snapshot value was measured; null when value is null.'),
+                        series: zod
+                            .array(zod.number())
+                            .max(signalsScoutEditReportBodyMetricsItemSeriesMax)
+                            .nullish()
+                            .describe(
+                                'Trailing per-bucket values of the live query, oldest first, saved with the value snapshot so a list row can draw the trend without running the query; at most 14 points. Null when no snapshot series is available to this viewer.'
+                            ),
+                        value_format: zod
+                            .enum(['number', 'count', 'percentage', 'percentage_scaled', 'duration', 'currency'])
+                            .describe(
+                                '\* `number` - number\n\* `count` - count\n\* `percentage` - percentage\n\* `percentage_scaled` - percentage_scaled\n\* `duration` - duration\n\* `currency` - currency'
+                            )
+                            .default(signalsScoutEditReportBodyMetricsItemValueFormatDefault)
+                            .describe(
+                                'How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms\/s unit; revenue uses currency with an ISO currency unit.\n\n\* `number` - number\n\* `count` - count\n\* `percentage` - percentage\n\* `percentage_scaled` - percentage_scaled\n\* `duration` - duration\n\* `currency` - currency'
+                            ),
+                        unit: zod
+                            .string()
+                            .max(signalsScoutEditReportBodyMetricsItemUnitMax)
+                            .nullish()
+                            .describe('Optional short suffix or currency code, such as `users`, `ms`, or `USD`.'),
+                        query: zod
+                            .unknown()
+                            .describe(
+                                'Required when authoring: a live InsightVizNode wrapping one bounded TrendsQuery. Consumers derive a BoldNumber execution for the whole-window aggregate and an ActionsBar execution for longitudinal buckets. The query must produce exactly one output series and no more than 1000 estimated longitudinal points; one formula may combine up to ten event or action source series. An affected_users metric uses exactly one source with `math: dau`; never sum its per-bucket unique-user values. A response omits this on list or redacts it to null on detail when the viewer lacks access to the definition.'
+                            ),
+                        caption: zod
+                            .string()
+                            .max(signalsScoutEditReportBodyMetricsItemCaptionMax)
+                            .nullish()
+                            .describe(
+                                'Optional context the tile cannot show, such as a filter that narrows the count or a caveat on the data. Omit it rather than restate the title, unit, or window.'
+                            ),
+                        comparison: zod
+                            .union([
+                                zod.object({
+                                    value: zod
+                                        .number()
+                                        .describe('Baseline or previous value, formatted like the current value.'),
+                                    label: zod
+                                        .string()
+                                        .max(signalsScoutEditReportBodyMetricsItemComparisonOneLabelMax)
+                                        .describe('Short context for the comparison, such as `Previous period`.'),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Legacy optional comparison. New report metrics must omit it.'),
+                    })
+                    .describe('Authoring shape: unlike a read response, the live query cannot be absent or redacted.')
+            )
+            .max(signalsScoutEditReportBodyMetricsMax)
+            .nullish()
+            .describe(
+                "The report's full impact-metric set. Omit or send null to preserve it; send an empty list to clear it. Every metric requires a bounded live InsightVizNode\/TrendsQuery built only from EventsNode or ActionsNode sources and capped at 1,000 estimated longitudinal points. Consumers derive BoldNumber and ActionsBar shapes; a snapshot is only an optional cached fallback. Snapshot-only\/queryless payloads are invalid, and legacy rows of that shape are always redacted."
+            ),
         suggested_prompts: zod
             .array(zod.string().max(signalsScoutEditReportBodySuggestedPromptsItemMax))
             .max(signalsScoutEditReportBodySuggestedPromptsMax)
@@ -1606,7 +1811,7 @@ export const SignalsScoutRunsEmissionReportsParams = () => zod.object({
 })
 
 /**
- * The second emit channel: author a complete `SignalReport` directly instead of emitting a weak signal. The report passes the safety judge, then surfaces at the status the scout's `actionability` call implies (or is suppressed). Backing `evidence` is written as bound signals so the report behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `reports` to find a prior report and `edit-report` to update it instead.
+ * The second emit channel: author a complete `SignalReport` directly instead of emitting a weak signal. The report passes the safety judge, then surfaces at the status the scout's `actionability` call implies (or is suppressed). Backing `evidence` is written as bound signals so the report behaves like a pipeline report. Safe to retry: resending an emission returns the report the first call authored (`idempotent_replay` true) rather than a second one, keyed on `idempotency_key` or, without one, on the report's content. Use `reports` to find a report from an earlier run and `edit-report` to update it instead of authoring a near-duplicate.
  * @summary Author a full report for a run
  */
 export const SignalsScoutEmitReportParams = () => zod.object({
@@ -1637,9 +1842,27 @@ export const signalsScoutEmitReportBodyChartsItemCaptionMax = 500
 
 export const signalsScoutEmitReportBodyChartsMax = 20
 
+export const signalsScoutEmitReportBodyMetricsItemMetricIdMax = 100
+
+export const signalsScoutEmitReportBodyMetricsItemTitleMax = 200
+
+export const signalsScoutEmitReportBodyMetricsItemRoleDefault = `supporting`
+export const signalsScoutEmitReportBodyMetricsItemSeriesMax = 14
+
+export const signalsScoutEmitReportBodyMetricsItemValueFormatDefault = `number`
+export const signalsScoutEmitReportBodyMetricsItemUnitMax = 40
+
+export const signalsScoutEmitReportBodyMetricsItemCaptionMax = 500
+
+export const signalsScoutEmitReportBodyMetricsItemComparisonOneLabelMax = 40
+
+export const signalsScoutEmitReportBodyMetricsMax = 6
+
 export const signalsScoutEmitReportBodySuggestedPromptsItemMax = 200
 
 export const signalsScoutEmitReportBodySuggestedPromptsMax = 3
+
+export const signalsScoutEmitReportBodyIdempotencyKeyMax = 200
 
 export const SignalsScoutEmitReportBody = () => zod
     .object({
@@ -1683,7 +1906,7 @@ export const SignalsScoutEmitReportBody = () => zod
                 '\* `immediately_actionable` - immediately_actionable\n\* `requires_human_input` - requires_human_input\n\* `not_actionable` - not_actionable'
             )
             .describe(
-                "The scout's actionability call: `immediately_actionable` -> the report surfaces READY; `requires_human_input` -> PENDING_INPUT; `not_actionable` -> suppressed. A safety-judge failure suppresses the report regardless.\n\n\* `immediately_actionable` - immediately_actionable\n\* `requires_human_input` - requires_human_input\n\* `not_actionable` - not_actionable"
+                "The scout's actionability call: `immediately_actionable` -> the report surfaces READY; `requires_human_input` -> PENDING_INPUT; `not_actionable` -> suppressed. A safety-judge failure suppresses the report regardless. A root cause you have not found is not human input: a report that names the evidence, the code surface, or a reproducible failure path is `immediately_actionable`, because investigating it is the action. Reserve `requires_human_input` for a report blocked on a decision only a person can make.\n\n\* `immediately_actionable` - immediately_actionable\n\* `requires_human_input` - requires_human_input\n\* `not_actionable` - not_actionable"
             ),
         already_addressed: zod
             .boolean()
@@ -1727,7 +1950,7 @@ export const SignalsScoutEmitReportBody = () => zod
                             .string()
                             .optional()
                             .describe(
-                                "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here."
+                                "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Use this when you know the PostHog user, whether or not they have a GitHub handle — every member is routable this way. Must be a concrete UUID; the `@me` alias is not valid here."
                             ),
                         reason: zod
                             .string()
@@ -1738,7 +1961,7 @@ export const SignalsScoutEmitReportBody = () => zod
                             ),
                     })
                     .describe(
-                        "One suggested reviewer — identified by `github_login`, `user_uuid`, or both.\n\nThe server canonicalizes each entry to a lowercased GitHub login: a `user_uuid` is resolved to the\norg member's linked GitHub login (and wins over a supplied `github_login` when both are given). A\n`user_uuid` that isn't an org member of this team with a linked GitHub identity is rejected — so a\nreviewer is never silently dropped."
+                        "One suggested reviewer — identified by `github_login`, `user_uuid`, or both.\n\nA reviewer is a PostHog user, so a `user_uuid` only has to name an org member of this team: a\nmember with no linked GitHub account routes the report like anyone else. A `user_uuid` that\nisn't an org member of this team is rejected — so a reviewer is never silently dropped."
                     )
             )
             .max(signalsScoutEmitReportBodySuggestedReviewersMax)
@@ -1791,12 +2014,123 @@ export const SignalsScoutEmitReportBody = () => zod
             .describe(
                 'Optional charts to attach to the report — the inbox renders them inline, so a metric move is something the reader sees rather than a number they take on trust. Attach one whenever the finding rests on a trend, a spike, or a comparison you already queried.'
             ),
+        metrics: zod
+            .array(
+                zod
+                    .object({
+                        metric_id: zod
+                            .string()
+                            .max(signalsScoutEmitReportBodyMetricsItemMetricIdMax)
+                            .describe(
+                                'Stable slug for this metric within the report: lowercase letters, numbers, underscores, and hyphens, starting with a letter or number.'
+                            ),
+                        title: zod
+                            .string()
+                            .max(signalsScoutEmitReportBodyMetricsItemTitleMax)
+                            .describe('Short human-readable label for the measurement.'),
+                        kind: zod
+                            .enum([
+                                'affected_users',
+                                'affected_sessions',
+                                'occurrences',
+                                'conversion_rate',
+                                'error_rate',
+                                'duration',
+                                'revenue',
+                                'custom',
+                            ])
+                            .describe(
+                                '\* `affected_users` - affected_users\n\* `affected_sessions` - affected_sessions\n\* `occurrences` - occurrences\n\* `conversion_rate` - conversion_rate\n\* `error_rate` - error_rate\n\* `duration` - duration\n\* `revenue` - revenue\n\* `custom` - custom'
+                            )
+                            .describe(
+                                'What the value measures, independent of how it is formatted or drawn.\n\n\* `affected_users` - affected_users\n\* `affected_sessions` - affected_sessions\n\* `occurrences` - occurrences\n\* `conversion_rate` - conversion_rate\n\* `error_rate` - error_rate\n\* `duration` - duration\n\* `revenue` - revenue\n\* `custom` - custom'
+                            ),
+                        role: zod
+                            .enum(['primary', 'supporting'])
+                            .describe('\* `primary` - primary\n\* `supporting` - supporting')
+                            .default(signalsScoutEmitReportBodyMetricsItemRoleDefault)
+                            .describe(
+                                "`primary` for the report's key observation, otherwise `supporting`.\n\n\* `primary` - primary\n\* `supporting` - supporting"
+                            ),
+                        value: zod
+                            .number()
+                            .nullish()
+                            .describe(
+                                'Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.'
+                            ),
+                        value_at: zod.iso
+                            .datetime({ offset: true })
+                            .nullish()
+                            .describe('When the visible snapshot value was measured; null when value is null.'),
+                        series: zod
+                            .array(zod.number())
+                            .max(signalsScoutEmitReportBodyMetricsItemSeriesMax)
+                            .nullish()
+                            .describe(
+                                'Trailing per-bucket values of the live query, oldest first, saved with the value snapshot so a list row can draw the trend without running the query; at most 14 points. Null when no snapshot series is available to this viewer.'
+                            ),
+                        value_format: zod
+                            .enum(['number', 'count', 'percentage', 'percentage_scaled', 'duration', 'currency'])
+                            .describe(
+                                '\* `number` - number\n\* `count` - count\n\* `percentage` - percentage\n\* `percentage_scaled` - percentage_scaled\n\* `duration` - duration\n\* `currency` - currency'
+                            )
+                            .default(signalsScoutEmitReportBodyMetricsItemValueFormatDefault)
+                            .describe(
+                                'How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms\/s unit; revenue uses currency with an ISO currency unit.\n\n\* `number` - number\n\* `count` - count\n\* `percentage` - percentage\n\* `percentage_scaled` - percentage_scaled\n\* `duration` - duration\n\* `currency` - currency'
+                            ),
+                        unit: zod
+                            .string()
+                            .max(signalsScoutEmitReportBodyMetricsItemUnitMax)
+                            .nullish()
+                            .describe('Optional short suffix or currency code, such as `users`, `ms`, or `USD`.'),
+                        query: zod
+                            .unknown()
+                            .describe(
+                                'Required when authoring: a live InsightVizNode wrapping one bounded TrendsQuery. Consumers derive a BoldNumber execution for the whole-window aggregate and an ActionsBar execution for longitudinal buckets. The query must produce exactly one output series and no more than 1000 estimated longitudinal points; one formula may combine up to ten event or action source series. An affected_users metric uses exactly one source with `math: dau`; never sum its per-bucket unique-user values. A response omits this on list or redacts it to null on detail when the viewer lacks access to the definition.'
+                            ),
+                        caption: zod
+                            .string()
+                            .max(signalsScoutEmitReportBodyMetricsItemCaptionMax)
+                            .nullish()
+                            .describe(
+                                'Optional context the tile cannot show, such as a filter that narrows the count or a caveat on the data. Omit it rather than restate the title, unit, or window.'
+                            ),
+                        comparison: zod
+                            .union([
+                                zod.object({
+                                    value: zod
+                                        .number()
+                                        .describe('Baseline or previous value, formatted like the current value.'),
+                                    label: zod
+                                        .string()
+                                        .max(signalsScoutEmitReportBodyMetricsItemComparisonOneLabelMax)
+                                        .describe('Short context for the comparison, such as `Previous period`.'),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Legacy optional comparison. New report metrics must omit it.'),
+                    })
+                    .describe('Authoring shape: unlike a read response, the live query cannot be absent or redacted.')
+            )
+            .max(signalsScoutEmitReportBodyMetricsMax)
+            .optional()
+            .describe(
+                'Optional typed impact measurements. Use one primary metric for the key observation and supporting metrics for users, sessions, occurrences, conversion, latency, or revenue. Every metric requires a bounded live InsightVizNode\/TrendsQuery built only from EventsNode or ActionsNode sources and capped at 1,000 estimated longitudinal points. Consumers derive BoldNumber and ActionsBar shapes. A value\/value_at snapshot is an optional cached fallback. Affected users must use one series with `math: dau`. Snapshot-only\/queryless payloads are invalid; legacy rows of that shape are always redacted.'
+            ),
         suggested_prompts: zod
             .array(zod.string().max(signalsScoutEmitReportBodySuggestedPromptsItemMax))
             .max(signalsScoutEmitReportBodySuggestedPromptsMax)
             .optional()
             .describe(
                 "Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them."
+            ),
+        idempotency_key: zod
+            .string()
+            .max(signalsScoutEmitReportBodyIdempotencyKeyMax)
+            .nullish()
+            .describe(
+                "Optional name for this emission, unique within the run. Reuse it verbatim to retry a call whose outcome you don't know (a timeout, a dropped connection): the retry returns the report the first call authored, with `idempotent_replay` true, instead of a second report. Omit it and the report's own content is the key, which covers a retry of the identical call — pass one when a retry might reword the report."
             ),
     })
     .describe('Request body for `emit-report`. Run attribution is taken from the URL path.')

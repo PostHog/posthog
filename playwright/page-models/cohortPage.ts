@@ -13,7 +13,17 @@ export class CohortPage {
         await this.page.click('[data-attr="cohort-personPropertyBehavioral-have_property-type"]')
         await this.page.click('[data-attr="cohort-taxonomic-field-key"]')
 
-        await this.page.locator('[data-attr=prop-filter-person_properties-0]').click()
+        const categoryDropdown = this.page.getByTestId('taxonomic-category-dropdown-trigger-pill')
+        await expect(categoryDropdown).toBeVisible()
+        await categoryDropdown.click()
+
+        const personPropertiesCategory = this.page.getByTestId('taxonomic-category-dropdown-item-person_properties')
+        await expect(personPropertiesCategory).toBeVisible()
+        await personPropertiesCategory.click()
+
+        const personProperty = this.page.getByTestId('prop-filter-person_properties-0')
+        await expect(personProperty).toBeVisible()
+        await personProperty.click()
         await this.page.locator('[data-attr=prop-val]').pressSequentially('true')
 
         await this.page.click('[data-attr="scene-title-textarea"]')

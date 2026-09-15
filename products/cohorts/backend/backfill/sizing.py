@@ -6,6 +6,7 @@ from django.conf import settings
 
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import InternalCHQueryError
+from posthog.exceptions import ClickHouseQueryTimeOut
 
 # Calibrated against a serialized `PersonSeed` (rust/cohort-core/src/seed/person.rs): the fixed
 # envelope (schema_version, kind, team_id, person_id, scanned_at_ms, run_id, claim_epoch) plus one
@@ -14,15 +15,16 @@ from posthog.errors import InternalCHQueryError
 PERSON_SEED_BASE_BYTES = 256
 PERSON_SEED_PER_HASH_BYTES = 38
 
-# TOO_MANY_ROWS / TOO_MANY_BYTES: what `read_overflow_mode: throw` raises when the scan hits the
-# caps below. Deterministic for a given team, unlike a timeout or transport failure.
+# TOO_MANY_ROWS / TOO_MANY_BYTES: what `read_overflow_mode: throw` raises when the scan hits
+# `BEHAVIORAL_BACKFILL_PERSON_SIZING_MAX_BYTES`. Deterministic for a given team, unlike a transport
+# failure.
 _READ_CAP_ERROR_CODES = (158, 307)
 
 
 class PersonSeedEstimateScanCapExceeded(Exception):
-    """The sizing scan hit its own read cap: the team's person history exceeds what the estimate may
-    read, so the answer will not change on retry and the caller should refuse rather than repeat the
-    capped scan."""
+    """The sizing scan hit one of its own caps: the team's person history exceeds what the estimate
+    may read or how long it may run, so the answer will not change on retry and the caller should
+    refuse rather than repeat the capped scan."""
 
 
 @dataclass(frozen=True)
@@ -52,10 +54,12 @@ def estimate_person_seed_topic_bytes(
     person_scan_since: datetime,
     pinned_condition_count: int,
 ) -> PersonSeedEstimate:
+    max_bytes_to_read = settings.BEHAVIORAL_BACKFILL_PERSON_SIZING_MAX_BYTES
+    max_execution_time = settings.BEHAVIORAL_BACKFILL_PERSON_SIZING_MAX_SECONDS
     # `person` is ORDER BY (team_id, id) with only a minmax index on `_timestamp`, and rows are
     # rewritten in place on every update, so the window bound prunes close to nothing: this reads the
-    # team's whole person history either way. `max_bytes_to_read` is what actually bounds it, and it
-    # throws rather than letting the gate size a run off a partial scan.
+    # team's whole person history either way. `BEHAVIORAL_BACKFILL_PERSON_SIZING_MAX_BYTES` is what
+    # actually bounds it, and it throws rather than letting the gate size a run off a partial scan.
     #
     # Collapsing versions per id before counting keeps persons whose latest in-window row is a
     # deletion out of the estimate — counting them inflates the topic-byte figure and biases the
@@ -75,17 +79,25 @@ def estimate_person_seed_topic_bytes(
             """,
             {"team_id": team_id, "person_scan_since": person_scan_since},
             settings={
-                "max_execution_time": 30,
-                "max_bytes_to_read": 10_000_000_000,
+                "max_execution_time": max_execution_time,
+                "max_bytes_to_read": max_bytes_to_read,
                 "read_overflow_mode": "throw",
             },
             team_id=team_id,
             readonly=True,
         )
+    except ClickHouseQueryTimeOut as error:
+        # `max_execution_time` is this gate's own cap, so a timeout means the same thing as the byte
+        # cap: the team's person history does not fit, and a retry pays the whole scan again for the
+        # same answer. `trigger_cohort_backfill_run_task` retries every other exception three times,
+        # which at a 300 s cap is 20 minutes of scans on the user-facing cluster per cohort save.
+        raise PersonSeedEstimateScanCapExceeded(
+            f"Person sizing scan for team {team_id} exceeded its {max_execution_time}s time cap"
+        ) from error
     except InternalCHQueryError as error:
         if error.code in _READ_CAP_ERROR_CODES:
             raise PersonSeedEstimateScanCapExceeded(
-                f"Person sizing scan for team {team_id} exceeded its read cap"
+                f"Person sizing scan for team {team_id} exceeded its {max_bytes_to_read} byte read cap"
             ) from error
         raise
     estimated_persons = int(rows[0][0])

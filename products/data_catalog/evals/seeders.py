@@ -38,6 +38,10 @@ from products.data_catalog.evals.constants import (
     CURRENT_TOP_CUSTOMERS_METRIC_DESCRIPTION,
     CURRENT_TOP_CUSTOMERS_METRIC_DISPLAY_NAME,
     CURRENT_TOP_CUSTOMERS_METRIC_NAME,
+    DAILY_ACTIVE_ORGS_METRIC_DEFINITION,
+    DAILY_ACTIVE_ORGS_METRIC_DESCRIPTION,
+    DAILY_ACTIVE_ORGS_METRIC_DISPLAY_NAME,
+    DAILY_ACTIVE_ORGS_METRIC_NAME,
     DECOY_INSIGHT_NAMES,
     DEFINITION_INSIGHT_DESCRIPTION,
     DEFINITION_INSIGHT_NAME,
@@ -54,6 +58,10 @@ from products.data_catalog.evals.constants import (
     INJECTION_RELATIONSHIP_REASONING,
     INJECTION_RELATIONSHIP_SOURCE_NAME,
     INJECTION_RELATIONSHIP_TARGET_NAME,
+    MCP_TOOL_CALL_FAIL_PCT_METRIC_DEFINITION,
+    MCP_TOOL_CALL_FAIL_PCT_METRIC_DESCRIPTION,
+    MCP_TOOL_CALL_FAIL_PCT_METRIC_DISPLAY_NAME,
+    MCP_TOOL_CALL_FAIL_PCT_METRIC_NAME,
     OPERATIONAL_METRIC_DEFINITION,
     OPERATIONAL_METRIC_DESCRIPTION,
     OPERATIONAL_METRIC_DISPLAY_NAME,
@@ -83,12 +91,14 @@ __all__ = [
     "seed_approved_metric",
     "seed_ambiguous_top_customers_metrics",
     "seed_certification_trust_sources",
+    "seed_daily_active_orgs_metric",
     "seed_definition_insight",
     "seed_deprecation_candidate_sources",
     "seed_drifted_metric",
     "seed_failing_top_customers_metric",
     "seed_instruction_like_relationship_context",
     "seed_metric_listing_catalog",
+    "seed_mcp_tool_call_fail_pct_metric",
     "seed_operational_metric",
     "seed_proposed_metric",
     "seed_top_customers_metric",
@@ -239,6 +249,51 @@ def seed_operational_metric(context: CustomPromptSandboxContext) -> dict[str, An
             "time_window": "trailing 30 days",
         }
     }
+
+
+def _seed_named_operational_metric(
+    context: CustomPromptSandboxContext,
+    *,
+    name: str,
+    display_name: str,
+    description: str,
+    unit: str,
+    definition: dict,
+) -> dict[str, Any]:
+    team, user = _team_and_user(context)
+    metric = upsert_metric(
+        team=team,
+        user=user,
+        name=name,
+        display_name=display_name,
+        description=description,
+        unit=unit,
+        definition=definition,
+    )
+    approve_metric(metric, user)
+    return {"metric": {"name": name, "status": "approved", "is_drifted": False}}
+
+
+def seed_daily_active_orgs_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return _seed_named_operational_metric(
+        context,
+        name=DAILY_ACTIVE_ORGS_METRIC_NAME,
+        display_name=DAILY_ACTIVE_ORGS_METRIC_DISPLAY_NAME,
+        description=DAILY_ACTIVE_ORGS_METRIC_DESCRIPTION,
+        unit="organizations",
+        definition=DAILY_ACTIVE_ORGS_METRIC_DEFINITION,
+    )
+
+
+def seed_mcp_tool_call_fail_pct_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return _seed_named_operational_metric(
+        context,
+        name=MCP_TOOL_CALL_FAIL_PCT_METRIC_NAME,
+        display_name=MCP_TOOL_CALL_FAIL_PCT_METRIC_DISPLAY_NAME,
+        description=MCP_TOOL_CALL_FAIL_PCT_METRIC_DESCRIPTION,
+        unit="percent",
+        definition=MCP_TOOL_CALL_FAIL_PCT_METRIC_DEFINITION,
+    )
 
 
 def seed_proposed_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:

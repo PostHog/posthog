@@ -1,11 +1,11 @@
 import {
     ActivityChange,
     ActivityLogItem,
+    ActivityLogUserName,
     ChangeMapping,
     Description,
     HumanizedChange,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { PathCleanFilterItem } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
@@ -755,8 +755,6 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     managed_viewsets: () => null,
     workflows_config: () => null,
     feature_flag_policy_config: () => null,
-    event_retention_months: () => null,
-    events_retention_enforced: () => null,
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
@@ -781,8 +779,8 @@ export function teamActivityDescriber(logItem: ActivityLogItem, asNotification?:
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>{' '}
-                    {wasSuspended ? 'suspended' : 're-enabled'} workflow email sending on {nameAndLink(logItem)}
+                    <ActivityLogUserName logItem={logItem} /> {wasSuspended ? 'suspended' : 're-enabled'} workflow email
+                    sending on {nameAndLink(logItem)}
                     {wasSuspended && reason ? <> (reason: {reason})</> : null}
                 </>
             ),
@@ -819,7 +817,7 @@ export function teamActivityDescriber(logItem: ActivityLogItem, asNotification?:
                 description: (
                     <SentenceList
                         listParts={changes}
-                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
+                        prefix={<ActivityLogUserName logItem={logItem} />}
                         suffix={changeSuffix}
                     />
                 ),

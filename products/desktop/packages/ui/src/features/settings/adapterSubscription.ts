@@ -2,6 +2,7 @@ import { useHostTRPC } from "@posthog/host-router/react";
 import {
   type Adapter,
   ANALYTICS_EVENTS,
+  CLAUDE_OWN_SUBSCRIPTION_CLOUD_FLAG,
   CLAUDE_OWN_SUBSCRIPTION_FLAG,
   CODEX_OWN_SUBSCRIPTION_FLAG,
   type ModelAccess,
@@ -80,6 +81,11 @@ export function subscriptionModelAccess(
   subscription: AdapterSubscription,
   workspaceMode: WorkspaceModeForAccess,
 ): ModelAccess {
+  if (workspaceMode === "cloud") {
+    return subscription.cloudSubscriptionOn
+      ? "own-subscription"
+      : "posthog-gateway";
+  }
   return effectiveModelAccess({
     flagEnabled: subscription.flagEnabled,
     subscriptionOn: subscription.subscriptionOn,
@@ -105,6 +111,18 @@ export function applyModelAccess(
     });
   }
   registerAdapterSubscription(adapter, { access: next, connected });
+}
+
+export function setClaudeCloudSubscriptionOn(next: boolean): void {
+  const state = useSettingsStore.getState();
+  const previous = state.claudeCloudSubscriptionOn;
+  if (previous === next) return;
+  state.setClaudeCloudSubscriptionOn(next);
+  track(ANALYTICS_EVENTS.SETTING_CHANGED, {
+    setting_name: "claude_cloud_subscription_on",
+    old_value: previous,
+    new_value: next,
+  });
 }
 
 export async function registerSubscriptionAtBoot(
@@ -142,6 +160,9 @@ function settingsHydrated(): Promise<void> {
 }
 
 export interface AdapterSubscription {
+  cloudFlagEnabled?: boolean;
+  cloudSubscriptionOn?: boolean;
+  setCloudSubscriptionOn?: (on: boolean) => void;
   flagEnabled: boolean;
   subscriptionOn: boolean;
   status: SubscriptionStatus | undefined;
@@ -153,6 +174,10 @@ export interface AdapterSubscription {
 
 export function useAdapterSubscription(adapter: Adapter): AdapterSubscription {
   const spec = SPECS[adapter];
+  const cloudFlagEnabled = useFeatureFlag(CLAUDE_OWN_SUBSCRIPTION_CLOUD_FLAG);
+  const cloudSubscriptionOn = useSettingsStore(
+    (state) => state.claudeCloudSubscriptionOn,
+  );
   const flagEnabled = useFeatureFlag(spec.flag) || import.meta.env.DEV;
   const modelAccess = useSettingsStore(spec.readAccess);
   const { localWorkspaces } = useHostCapabilities();
@@ -174,6 +199,10 @@ export function useAdapterSubscription(adapter: Adapter): AdapterSubscription {
   const loginState = status?.loginState ?? "unknown";
 
   return {
+    cloudFlagEnabled:
+      adapter === "claude" && localWorkspaces && cloudFlagEnabled,
+    cloudSubscriptionOn: adapter === "claude" && cloudSubscriptionOn,
+    setCloudSubscriptionOn: setClaudeCloudSubscriptionOn,
     flagEnabled,
     subscriptionOn,
     status,

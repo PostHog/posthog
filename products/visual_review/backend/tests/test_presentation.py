@@ -54,6 +54,20 @@ class TestRepoViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["repo_full_name"], "org/test")
 
+    def test_patch_repo_applies_every_setting_in_the_body(self):
+        repo = api.create_repo(team_id=self.team.id, repo_external_id=555, repo_full_name="org/settings")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/visual_review/repos/{repo.id}/",
+            {"enable_pr_comments": True, "debt_digest_enabled": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertTrue(data["enable_pr_comments"])
+        self.assertTrue(data["debt_digest_enabled"])
+
     def test_retrieve_project_not_found(self):
         import uuid
 
@@ -132,6 +146,39 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         upload_hashes = {u["content_hash"] for u in data["uploads"]}
         self.assertEqual(upload_hashes, {"hash1", "hash2"})
 
+    @patch("products.visual_review.backend.storage.StoryIndexStorage.get_presigned_upload_url")
+    @patch("products.visual_review.backend.storage.StoryIndexStorage.exists", return_value=False)
+    @patch("products.visual_review.backend.storage.ArtifactStorage.get_presigned_upload_url")
+    def test_add_snapshots_records_the_story_index_and_asks_for_the_map(
+        self, mock_artifact_presigned, _mock_exists, mock_index_presigned
+    ):
+        mock_artifact_presigned.return_value = {"url": "https://s3.example.com/upload", "fields": {"key": "png"}}
+        mock_index_presigned.return_value = {"url": "https://s3.example.com/upload", "fields": {"key": "map"}}
+        create_result = api.create_run(
+            CreateRunInput(
+                repo_id=self.vr_project.id, run_type=RunType.STORYBOOK, commit_sha="abc", branch="main", snapshots=[]
+            ),
+            team_id=self.team.id,
+        )
+        story_index_hash = "a" * 64
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/visual_review/runs/{create_result.run_id}/add-snapshots/",
+            {
+                "snapshots": [{"identifier": "Button-primary", "content_hash": "hash1", "width": 100, "height": 200}],
+                "story_index_hash": story_index_hash,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["story_index_upload"],
+            {"content_hash": story_index_hash, "url": "https://s3.example.com/upload", "fields": {"key": "map"}},
+        )
+        run = Run.objects.get(id=create_result.run_id)
+        self.assertEqual(run.metadata["story_index_hash"], story_index_hash)
+
     def test_retrieve_run(self):
         create_result = api.create_run(
             CreateRunInput(
@@ -166,6 +213,23 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
             team_id=self.team.id,
         )
 
+        # The row shift the diff pipeline stored has to survive the trip
+        # through the facade DTO and the serializer, because the badge and the
+        # band overlays are built from it.
+        RunSnapshot.objects.filter(run_id=create_result.run_id, identifier="Button").update(
+            diff_metadata={
+                "row_shift": {
+                    "inserted_rows": 1,
+                    "deleted_rows": 0,
+                    "changed_rows": 0,
+                    "residual_pixel_count": 0,
+                    "residual_percentage": 0.0,
+                    "raw_diff_percentage": 2.4,
+                    "bands": [{"y": 210, "rows": 1, "kind": "inserted"}],
+                }
+            }
+        )
+
         response = self.client.get(f"/api/projects/{self.team.id}/visual_review/runs/{create_result.run_id}/snapshots/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -174,6 +238,13 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         self.assertEqual(len(results), 2)
         identifiers = {s["identifier"] for s in results}
         self.assertEqual(identifiers, {"Button", "Card"})
+
+        by_identifier = {s["identifier"]: s for s in results}
+        row_shift = by_identifier["Button"]["row_shift"]
+        self.assertEqual(row_shift["inserted_rows"], 1)
+        self.assertEqual(row_shift["raw_diff_percentage"], 2.4)
+        self.assertEqual(row_shift["bands"], [{"y": 210, "rows": 1, "kind": "inserted"}])
+        self.assertIsNone(by_identifier["Card"]["row_shift"])
 
     @parameterized.expand(
         [
@@ -412,6 +483,7 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         run_type: str = RunType.STORYBOOK,
         run_status: str = RunStatus.COMPLETED,
         result: str = SnapshotResult.UNCHANGED,
+        diff_metadata: dict | None = None,
     ) -> RunSnapshot:
         """Create one Run + one RunSnapshot directly, with full control over result and status."""
         artifact, _ = artifact_store.get_or_create_artifact(
@@ -451,6 +523,7 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
             current_artifact=artifact,
             baseline_artifact=baseline_artifact,
             result=result,
+            diff_metadata=diff_metadata if diff_metadata is not None else {},
         )
 
     def _history_url(self, identifier: str, run_type: str = RunType.STORYBOOK) -> str:
@@ -482,9 +555,83 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         )
         # Tolerated drift on master: current_ flickers, baseline stays at
         # base-2 — must NOT create a new entry (the prod bug behind 252
-        # fake events on a single tolerated-drift story).
+        # fake events on a single tolerated-drift story). The pair aligned
+        # with nothing moved, which is a row shift of zero, not a shift.
         self._seed_history_row(
-            sha="ddd0000", branch="master", content_hash="hash-jitter", baseline_content_hash="base-2"
+            sha="ddd0000",
+            branch="master",
+            content_hash="hash-jitter",
+            baseline_content_hash="base-2",
+            diff_metadata={
+                "row_shift": {
+                    "inserted_rows": 0,
+                    "deleted_rows": 0,
+                    "changed_rows": 3,
+                    "residual_pixel_count": 40,
+                    "residual_percentage": 0.01,
+                    "raw_diff_percentage": 0.01,
+                    "bands": [],
+                }
+            },
+        )
+        # Absorbed shift on master: baseline stays at base-2, but the rows
+        # moved, and that trace only lives in history — must be an entry.
+        self._seed_history_row(
+            sha="ddd0001",
+            branch="master",
+            content_hash="hash-shift",
+            baseline_content_hash="base-2",
+            diff_metadata={
+                "row_shift": {
+                    "inserted_rows": 1,
+                    "deleted_rows": 0,
+                    "changed_rows": 0,
+                    "residual_pixel_count": 0,
+                    "residual_percentage": 0.0,
+                    "raw_diff_percentage": 3.2,
+                    "bands": [{"y": 20, "rows": 1, "kind": "inserted"}],
+                }
+            },
+        )
+        # Master keeps absorbing a shift against the same baseline, with jitter
+        # giving every run its own image: one entry per baseline period, not
+        # one per run.
+        self._seed_history_row(
+            sha="ddd0002",
+            branch="master",
+            content_hash="hash-shift-jitter",
+            baseline_content_hash="base-2",
+            diff_metadata={
+                "row_shift": {
+                    "inserted_rows": 1,
+                    "deleted_rows": 0,
+                    "changed_rows": 0,
+                    "residual_pixel_count": 0,
+                    "residual_percentage": 0.0,
+                    "raw_diff_percentage": 3.2,
+                    "bands": [{"y": 20, "rows": 1, "kind": "inserted"}],
+                }
+            },
+        )
+        # An actionable layout change recurs on every run until its baseline
+        # moves, so it rides the baseline transition instead of its shift.
+        self._seed_history_row(
+            sha="ddd0003",
+            branch="master",
+            content_hash="hash-layout",
+            baseline_content_hash="base-2",
+            result=SnapshotResult.CHANGED,
+            diff_metadata={
+                "row_shift": {
+                    "inserted_rows": 40,
+                    "deleted_rows": 0,
+                    "changed_rows": 0,
+                    "residual_pixel_count": 0,
+                    "residual_percentage": 0.0,
+                    "raw_diff_percentage": 12.0,
+                    "bands": [{"y": 80, "rows": 40, "kind": "inserted"}],
+                }
+            },
         )
 
         # PR-branch run — filtered out by branch.
@@ -515,12 +662,13 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         body = response.json()
         results = body["results"]
         # Two baseline transitions: aaa1111 (inception, base-1) and bbb1111
-        # (transition to base-2). aaa2222 collapses into aaa1111's period;
-        # ddd0000 collapses into bbb1111's.
-        self.assertEqual(body["count"], 2)
+        # (transition to base-2), plus the absorbed shift ddd0001. aaa2222
+        # collapses into aaa1111's period; ddd0000 collapses into bbb1111's.
+        self.assertEqual(body["count"], 3)
         # Output is newest-first.
-        self.assertEqual(results[0]["commit_sha"], "bbb1111")
-        self.assertEqual(results[1]["commit_sha"], "aaa1111")
+        self.assertEqual([entry["commit_sha"] for entry in results], ["ddd0001", "bbb1111", "aaa1111"])
+        self.assertEqual(results[0]["row_shift"]["inserted_rows"], 1)
+        self.assertIsNone(results[1]["row_shift"])
         for entry in results:
             self.assertIn("snapshot_id", entry)
             self.assertIn("review_state", entry)

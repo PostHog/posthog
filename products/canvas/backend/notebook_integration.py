@@ -62,7 +62,7 @@ class NotebookCanvasSourceInvalidError(NotebookCanvasError):
     pass
 
 
-def create_notebook_canvas(*, team_id: int, user_id: int, channel_id: UUID, name: str, context: str) -> UUID:
+def create_notebook_canvas(*, team_id: int, user_id: int, channel_id: UUID, name: str) -> UUID:
     if not tasks_facade.channel_exists(team_id, channel_id, user_id):
         raise NotebookCanvasNotFoundError
     return (
@@ -71,7 +71,6 @@ def create_notebook_canvas(*, team_id: int, user_id: int, channel_id: UUID, name
             team_id=team_id,
             channel_id=channel_id,
             name=name,
-            context=context,
             created_by_id=user_id,
             source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET,
         )

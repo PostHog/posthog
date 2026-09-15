@@ -29,7 +29,7 @@ Invoke `/django-migrations` for model changes.
 
 ## 3. Build the lifecycle adapter
 
-Create one product state-machine module, following `products/logs/backend/alert_state_machine.py`.
+Create one product state-machine module, following `products/logs/backend/alert_state_machine.py`. It imports the shared machine from `products.alerts.backend.facade.lifecycle`.
 
 1. Select or define the product's `AlertPolicy`.
 2. Convert the model and recent history into the shared snapshot.
@@ -48,8 +48,9 @@ Create a thin product module like `products/logs/backend/alert_destinations.py`.
 - Define one `EventKindSpec` per notification action.
 - Keep event IDs and properties stable because HogFunctions filter and render from them.
 - Include every template property in the internal event payload.
-- Define the product's allowed `DestinationType` values explicitly.
-- Validate, build, create, and delete destination HogFunctions through `products.alerts.backend.facade.api`.
+- Define the product's allowed `DestinationType` values explicitly. `DestinationType` and `EventKindSpec` come from `products.alerts.backend.facade.contracts`.
+- Validate, build, create, and delete destination HogFunctions through `products.alerts.backend.facade.destinations`. Create returns the new HogFunction ids, not rows.
+- Catch `AlertDestinationValidationError` at the view and raise the product's own validation error with the same message.
 - Scope deletion with the team, alert ID, and allowed event IDs.
 
 Shared support for a destination does not opt the product into it.
@@ -60,21 +61,21 @@ For HogFunction destinations:
 
 1. Evaluate alerts and retain each pre-check snapshot or outcome needed for rollback.
 2. Produce internal events and retain each `ProduceResult`.
-3. Flush once after producing the batch.
+3. Flush once after producing the batch. The three delivery helpers live in `products.alerts.backend.facade.destinations`.
 4. Check producer acknowledgement for each result with `alert_internal_event_delivered(...)`.
 5. Restore delivery-dependent outcomes for unacknowledged results before persistence.
 6. Persist acknowledged outcomes, check history, and product scheduling according to the product contract.
 
 Producer acknowledgement does not confirm downstream HogFunction execution or final destination delivery. Logs is the reference for reevaluating on the next cadence after an internal event is not acknowledged.
 
-For email, call `send_alert_email(...)` through the facade. The product must choose authorized recipients, a stable campaign key, subject, template, and context. Decide explicitly whether an email failure blocks a lifecycle transition or is recorded separately.
+For email, call `send_alert_email(...)` from `products.alerts.backend.facade.email`. The product must choose authorized recipients, a stable campaign key, subject, template, and context. Decide explicitly whether an email failure blocks a lifecycle transition or is recorded separately.
 
 ## 6. Add scheduling and due selection
 
-Import the product-facing scheduling contract directly from its implementation module:
+Import the product-facing scheduling contract from the facade:
 
 ```python
-from products.alerts.backend.scheduling import (
+from products.alerts.backend.facade.scheduling import (
     CalendarInterval,
     advance_next_check_at,
     compute_shard_offset_seconds,

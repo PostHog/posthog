@@ -1,8 +1,8 @@
 import {
     ActivityLogItem,
+    ActivityLogUserName,
     HumanizedChange,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
 // detail.name is "{prompt name}: {label name}" (set in backend activity_logging.py).
@@ -19,7 +19,6 @@ function parseDetailName(logItem: ActivityLogItem): { promptName: string; labelN
 }
 
 export function promptLabelActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
-    const user = userNameForLogItem(logItem)
     const { promptName, labelName } = parseDetailName(logItem)
     const change = logItem.detail?.changes?.[0]
     const onPrompt = promptName ? (
@@ -33,7 +32,7 @@ export function promptLabelActivityDescriber(logItem: ActivityLogItem, asNotific
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{user}</strong> created label <b>{labelName}</b> pointing at{' '}
+                    <ActivityLogUserName logItem={logItem} /> created label <b>{labelName}</b> pointing at{' '}
                     <b>v{String(change?.after ?? '?')}</b>
                     {onPrompt}
                 </>
@@ -45,7 +44,7 @@ export function promptLabelActivityDescriber(logItem: ActivityLogItem, asNotific
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{user}</strong> moved label <b>{labelName}</b> from{' '}
+                    <ActivityLogUserName logItem={logItem} /> moved label <b>{labelName}</b> from{' '}
                     <b>v{String(change?.before ?? '?')}</b> to <b>v{String(change?.after ?? '?')}</b>
                     {onPrompt}
                 </>
@@ -57,7 +56,7 @@ export function promptLabelActivityDescriber(logItem: ActivityLogItem, asNotific
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{user}</strong> removed label <b>{labelName}</b> (was pointing at{' '}
+                    <ActivityLogUserName logItem={logItem} /> removed label <b>{labelName}</b> (was pointing at{' '}
                     <b>v{String(change?.before ?? '?')}</b>){onPrompt}
                 </>
             ),

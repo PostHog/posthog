@@ -40,6 +40,10 @@ hogli evals eval_scanner_quality
 `BRAINTRUST_API_KEY` is required by the harness engine even though this private suite only logs locally.
 Without `REPLAY_VISION_EVAL_DATASET` the suite logs a warning and runs nothing, so it never breaks a full `hogli evals` run.
 Use `--trials N` for variance on Gemini nondeterminism and `--eval <case-substring>` for one case.
+Set `REPLAY_VISION_EVAL_VERIFY_POSITIVES=shadow` or `=enforce` to run monitor cases with verify-positives on.
+Only a first-pass `yes` is verified, so a case that answers `no` keeps `verification: null`, and a `yes` whose second draw cannot run (`no_cache`, `no_budget`, `draw_failed`) keeps the first verdict and records that reason.
+Both modes record the draw, but only `enforce` serves it, so `labeled_outcome` from a shadow run matches a run with the feature off.
+Compare `labeled_outcome` on the thumbs-downed `yes` cases against a run without it to see what the extra draws buy.
 
 ## Scorers
 

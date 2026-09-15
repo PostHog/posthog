@@ -1,9 +1,11 @@
+import { customModelMeta } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
 import {
   estimateUncachedInputCost,
   formatModelRates,
   modelCostInfo,
   modelListPrice,
+  toModelPickerOption,
 } from "./modelPricing";
 
 describe("modelPricing", () => {
@@ -13,6 +15,7 @@ describe("modelPricing", () => {
     ["claude-sonnet-5", "1×"],
     ["claude-opus-5", "2.5×"],
     ["gpt-5.5", "≈2.8×"],
+    ["gpt-5.4", "≈1.4×"],
     ["gpt-6-astra", "5×"],
     ["deepseek-v4", "≈0.05×"],
     ["zai-org/glm-5.3-flash", "≈0.06×"],
@@ -23,6 +26,23 @@ describe("modelPricing", () => {
   it("returns null for unknown models so no wrong chip ever renders", () => {
     expect(modelCostInfo("totally-unknown-model")).toBeNull();
     expect(modelListPrice("totally-unknown-model")).toBeNull();
+  });
+
+  it("keeps an unpriced gateway model in the picker instead of throwing", () => {
+    expect(
+      toModelPickerOption({
+        value: "future-gateway-model",
+        name: "Future gateway model",
+      }),
+    ).toMatchObject({ kind: "unpriced", name: "Future gateway model" });
+
+    expect(
+      toModelPickerOption({
+        value: "local-model",
+        name: "Local model",
+        _meta: customModelMeta(),
+      }),
+    ).toMatchObject({ kind: "custom" });
   });
 
   it("matches specific families before the broader ones they contain", () => {

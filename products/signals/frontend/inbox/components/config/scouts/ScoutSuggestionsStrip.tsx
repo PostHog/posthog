@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
 import { IconChevronDown, IconRefresh, IconSparkles, IconX } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, Link, Spinner } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { cn } from 'lib/utils/css-classes'
@@ -20,20 +20,19 @@ const COLLAPSED_TITLE_PREVIEW = 2
  * The "Suggested for this project" strip above the roster: a pre-computed batch of scouts worth
  * running here, each ready to turn on or create without waiting for a scan.
  *
- * Nothing renders until a batch exists, so a project that has never been scanned sees the roster
- * exactly as it was. `stale` is a footer note rather than an error: any fleet change flips it and
- * the picks stay valid.
+ * Nothing renders without picks to read, so a project with an empty batch sees the roster exactly
+ * as it was. `stale` is a footer note rather than an error: any fleet change flips it and the picks
+ * stay valid.
  *
  * The strip opens collapsed and can be closed outright. A closed strip comes back through the
  * "Suggest a scout" header button, so the picks are never more than one click away.
  */
 export function ScoutSuggestionsStrip(): JSX.Element | null {
-    const { suggestions, hasBatch, collapsed, stripHidden, isRefreshing, suggestionSet } =
-        useValues(scoutSuggestionsLogic)
+    const { suggestions, stripVisible, collapsed, isRefreshing, suggestionSet } = useValues(scoutSuggestionsLogic)
     const { setCollapsed, hideStrip, requestRefresh } = useActions(scoutSuggestionsLogic)
     useReportSuggestionsShown('strip')
 
-    if (!hasBatch || stripHidden) {
+    if (!stripVisible) {
         return null
     }
 
@@ -62,7 +61,7 @@ export function ScoutSuggestionsStrip(): JSX.Element | null {
                         icon={<IconRefresh />}
                         loading={isRefreshing}
                         disabledReason={isRefreshing ? 'Scanning the project…' : undefined}
-                        onClick={() => requestRefresh()}
+                        onClick={() => requestRefresh('strip')}
                         data-attr="scout-suggestions-refresh"
                     >
                         Refresh
@@ -91,29 +90,32 @@ export function ScoutSuggestionsStrip(): JSX.Element | null {
     )
 }
 
-/** Whichever of the strip's four states applies: collapsed, scanning, nothing left, or the cards. */
+/** Whichever of the strip's states applies: collapsed, placeholders with nothing yet to read, or the cards. */
 function StripBody(): JSX.Element {
     const { suggestions, collapsed, batchStatus, isRefreshing, suggestionSetLoading } = useValues(scoutSuggestionsLogic)
 
     if (collapsed) {
-        return <CollapsedLine titles={suggestions.map((item) => item.title)} />
-    }
-    if (isRefreshing || (suggestionSetLoading && suggestions.length === 0)) {
-        return <SuggestionsSkeleton />
-    }
-    if (suggestions.length === 0) {
+        // The strip opens collapsed, so most Refresh presses land here. Without titles the strip is
+        // only up because a scan is running, so the note is all there is to show.
         return (
-            <p className="m-0 text-xs text-secondary">
-                {batchStatus === 'failed'
-                    ? "The last scan didn't finish, so there are no picks yet. Refresh to try again, or "
-                    : 'Nothing left to suggest right now. Refresh to scan the project again, or '}
-                <SuggestWithAiLink />.
-            </p>
+            <>
+                {suggestions.length > 0 && <CollapsedLine titles={suggestions.map((item) => item.title)} />}
+                {isRefreshing && <ScanningNote />}
+            </>
+        )
+    }
+    if (suggestions.length === 0 && (isRefreshing || suggestionSetLoading)) {
+        return (
+            <>
+                <SuggestionsSkeleton />
+                {isRefreshing && <ScanningNote />}
+            </>
         )
     }
     return (
         <>
             <SuggestionGrid surface="strip" />
+            {isRefreshing && <ScanningNote />}
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
                 {batchStatus === 'stale' && (
                     <span>
@@ -134,10 +136,10 @@ function StripBody(): JSX.Element {
 
 /** The suggestion cards on their own, for the empty state's body. */
 export function ScoutSuggestionsEmptyStateCards(): JSX.Element | null {
-    const { suggestions, hasBatch } = useValues(scoutSuggestionsLogic)
+    const { hasPicks } = useValues(scoutSuggestionsLogic)
     useReportSuggestionsShown('empty_state')
 
-    if (!hasBatch || suggestions.length === 0) {
+    if (!hasPicks) {
         return null
     }
 
@@ -154,7 +156,8 @@ function SuggestionGrid({ surface, columns = 3 }: { surface: ScoutSuggestionSurf
     return (
         <div
             className={cn(
-                'grid grid-cols-1 gap-2',
+                // Top-aligned, so a longer motivation cannot stretch its neighbours into empty boxes.
+                'grid grid-cols-1 items-start gap-2',
                 // One card in a three-across grid stretches to a third of the row and reads as a
                 // gap where the other two should be, so a lone card keeps a single narrow column.
                 suggestions.length === 1 ? 'max-w-md' : ['@2xl:grid-cols-2', columns === 3 && '@3xl:grid-cols-3']
@@ -167,10 +170,21 @@ function SuggestionGrid({ surface, columns = 3 }: { surface: ScoutSuggestionSurf
     )
 }
 
+/** The picks a scan will replace are still on screen, so without this line a press looks ignored. */
+function ScanningNote(): JSX.Element {
+    const { refreshElapsedLabel } = useValues(scoutSuggestionsLogic)
+    return (
+        <div className="flex items-start gap-1.5 text-xs text-muted">
+            <Spinner className="mt-0.5 shrink-0" />
+            <span>
+                Scanning the project for new picks{refreshElapsedLabel ? `: ${refreshElapsedLabel}` : ''}. It usually
+                takes 2 to 5 minutes. You can leave this page. The new picks will be here when you come back.
+            </span>
+        </div>
+    )
+}
+
 function CollapsedLine({ titles }: { titles: string[] }): JSX.Element {
-    if (titles.length === 0) {
-        return <span className="text-xs text-muted">Nothing left to suggest right now.</span>
-    }
     const named = titles.slice(0, COLLAPSED_TITLE_PREVIEW).join(', ')
     const rest = titles.length - COLLAPSED_TITLE_PREVIEW
     return (
@@ -219,13 +233,13 @@ function SuggestWithAiLink(): JSX.Element {
     )
 }
 
-/** Fires the impression once per mount, the first time a batch has actually resolved on screen. */
+/** Fires the impression once per mount, the first time picks have actually reached the screen. */
 function useReportSuggestionsShown(surface: ScoutSuggestionSurface): void {
-    const { hasBatch, stripHidden } = useValues(scoutSuggestionsLogic)
+    const { hasPicks, stripHidden } = useValues(scoutSuggestionsLogic)
     const { reportSuggestionsShown } = useActions(scoutSuggestionsLogic)
     const reportedRef = useRef(false)
     // The empty state has no close control, so only the strip can be hidden.
-    const onScreen = hasBatch && (surface !== 'strip' || !stripHidden)
+    const onScreen = hasPicks && (surface !== 'strip' || !stripHidden)
     useEffect(() => {
         if (!onScreen || reportedRef.current) {
             return

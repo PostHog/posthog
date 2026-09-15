@@ -24,6 +24,7 @@ from posthog.hogql.database.schema.duckdb_table_functions import (
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
+from posthog.hogql.database.trino_unnest_table import resolve_internal_trino_table_function
 from posthog.hogql.errors import ImpossibleASTError, NotImplementedError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
@@ -1319,7 +1320,12 @@ class Resolver(CloningVisitor):
             if table_alias in scope.tables:
                 raise QueryError(f'Already have joined a table called "{table_alias}". Can\'t redefine.')
 
-            cte_table = self.ctes.get(".".join(table_name_chain))
+            internal_table_function = (
+                resolve_internal_trino_table_function(table_name_chain)
+                if self.dialect == "trino" and node.table_args is not None
+                else None
+            )
+            cte_table = self.ctes.get(".".join(table_name_chain)) if internal_table_function is None else None
             if cte_table:
                 assert isinstance(cte_table.expr.type, ast.SelectQueryType | ast.SelectSetQueryType)
                 # Use CTETableType so that fields are properly qualified with the CTE name when printed
@@ -1354,9 +1360,11 @@ class Resolver(CloningVisitor):
                 return node
 
             if self.dialect == "trino":
-                database_table = resolve_trino_table_reference(
-                    cast(ast.Field, node.table), self.context
-                ) or resolve_internal_trino_logical_table(table_name_chain, self.context)
+                database_table = (
+                    internal_table_function
+                    or resolve_trino_table_reference(cast(ast.Field, node.table), self.context)
+                    or resolve_internal_trino_logical_table(table_name_chain, self.context)
+                )
             else:
                 database_table = None
 
@@ -1825,6 +1833,20 @@ class Resolver(CloningVisitor):
             node.type = ast.FloatType()
         elif isinstance(left_type, ast.FloatType) and isinstance(right_type, ast.IntegerType):
             node.type = ast.FloatType()
+        elif (
+            node.op == ast.ArithmeticOperationOp.Sub
+            and isinstance(left_type, ast.DateTimeType | ast.DateType)
+            and isinstance(right_type, ast.DateTimeType | ast.DateType)
+        ):
+            # ClickHouse returns a number here, not a datetime, and a DateTime type would make the
+            # printer wrap later references in toTimeZone() and fail with code 43. `Date - Date` is
+            # Int32, and an integer unifies with a Decimal branch as ClickHouse does, which keeps
+            # divideDecimal on a division. A DateTime duration is Int32 or Decimal(18, 6), a precision
+            # HogQL does not carry, so Float is the widest numeric safe for both.
+            if isinstance(left_type, ast.DateType) and isinstance(right_type, ast.DateType):
+                node.type = ast.IntegerType()
+            else:
+                node.type = ast.FloatType()
         elif isinstance(left_type, ast.DateTimeType) or isinstance(right_type, ast.DateTimeType):
             node.type = ast.DateTimeType()
         elif isinstance(left_type, ast.DecimalType) or isinstance(right_type, ast.DecimalType):

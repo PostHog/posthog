@@ -7,7 +7,7 @@ from django.test import SimpleTestCase, override_settings
 from parameterized import parameterized
 
 from posthog.egress.harmonic.limiter import HARMONIC_ACCOUNT_KEY, consume_harmonic
-from posthog.egress.harmonic.observability import _parse_harmonic_rate_limit
+from posthog.egress.harmonic.observability import _parse_harmonic_rate_limit, harmonic_egress
 from posthog.egress.harmonic.transport import HarmonicEgressBudgetExhausted, harmonic_request
 from posthog.egress.limiter.backends import LimitsBackend
 from posthog.egress.limiter.outbound import OutboundRateLimiter
@@ -66,25 +66,11 @@ class TestHarmonicRateLimitHeaderParser(SimpleTestCase):
             ("empty_headers", {}, RateLimitSnapshot(resource="account")),
             (
                 "garbage_values",
-                {"X-RateLimit-Remaining": "not-a-number", "X-RateLimit-Limit": "", "X-RateLimit-Reset": "soon"},
+                {"X-Ratelimit-Remaining-Second": "not-a-number", "X-Ratelimit-Limit-Second": ""},
                 RateLimitSnapshot(resource="account"),
             ),
             (
-                "standard_names",
-                {"X-RateLimit-Remaining": "42", "X-RateLimit-Limit": "100", "X-RateLimit-Reset": "1700000000"},
-                RateLimitSnapshot(resource="account", remaining=42.0, limit=100.0, reset_at=1700000000.0),
-            ),
-            (
-                "second_variant_preferred_over_standard",
-                {
-                    "X-Ratelimit-Remaining-Second": "5",
-                    "X-RateLimit-Remaining": "500",
-                    "X-Ratelimit-Limit-Second": "15",
-                },
-                RateLimitSnapshot(resource="account", remaining=5.0, limit=15.0),
-            ),
-            (
-                "second_variant_alone",
+                "documented_names",
                 {"X-Ratelimit-Remaining-Second": "9", "X-Ratelimit-Limit-Second": "15"},
                 RateLimitSnapshot(resource="account", remaining=9.0, limit=15.0),
             ),
@@ -98,7 +84,7 @@ async def test_request_gates_before_sending_and_records_the_response() -> None:
     session = _fake_session(status=201, headers={"X-Ratelimit-Remaining-Second": "9"})
     with (
         patch("posthog.egress.harmonic.transport.acquire_harmonic", AsyncMock(return_value=True)) as acquire,
-        patch("posthog.egress.harmonic.transport.record_harmonic_api_response") as record_response,
+        patch.object(harmonic_egress, "record_response") as record_response,
     ):
         response = await harmonic_request(
             session,
@@ -115,7 +101,7 @@ async def test_request_gates_before_sending_and_records_the_response() -> None:
     session.request.assert_awaited_once()
     assert session.request.call_args.kwargs["headers"]["apikey"] == "secret"
     record_response.assert_called_once_with(
-        201, {"X-Ratelimit-Remaining-Second": "9"}, source="test", method="POST", endpoint="/graphql"
+        201, {"X-Ratelimit-Remaining-Second": "9"}, source="test", scope="default", method="POST", endpoint="/graphql"
     )
 
 

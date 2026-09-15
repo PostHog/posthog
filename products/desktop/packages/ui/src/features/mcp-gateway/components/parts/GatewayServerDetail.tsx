@@ -54,6 +54,8 @@ import { useGatewayServers } from "@posthog/ui/features/mcp-gateway/hooks/useGat
 import { useGatewayToolPolicies } from "@posthog/ui/features/mcp-gateway/hooks/useGatewayToolPolicies";
 import { useServiceAccounts } from "@posthog/ui/features/mcp-gateway/hooks/useServiceAccounts";
 import { ServerIcon } from "@posthog/ui/features/mcp-servers/components/parts/icons";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
 import {
   Badge,
@@ -61,7 +63,6 @@ import {
   Flex,
   IconButton,
   Separator,
-  Spinner,
   Switch,
   Text,
   TextField,
@@ -166,15 +167,15 @@ export function GatewayServerDetail({
     return (
       <Flex direction="column" gap="4">
         <BackButton onNavigate={onNavigate} />
-        <Flex align="center" justify="center" py="6">
-          {gateway.serversLoading ? (
-            <Spinner size="2" />
-          ) : (
+        {gateway.serversLoading ? (
+          <LoadingState className="py-6" />
+        ) : (
+          <div className="flex items-center justify-center py-6">
             <Text color="gray" className="text-sm">
               Server not found.
             </Text>
-          )}
-        </Flex>
+          </div>
+        )}
       </Flex>
     );
   }
@@ -231,7 +232,7 @@ export function GatewayServerDetail({
 
   const connectButton = connecting ? (
     <Button variant="solid" size="2" disabled>
-      <Spinner size="1" /> Authorizing…
+      <Spinner size="sm" /> Authorizing…
     </Button>
   ) : needsReconnect ? (
     <Button
@@ -571,9 +572,7 @@ export function GatewayServerDetail({
       )}
 
       {tools.policiesLoading && tools.policies.length === 0 ? (
-        <Flex align="center" justify="center" py="6">
-          <Spinner size="2" />
-        </Flex>
+        <LoadingState className="py-6" />
       ) : tools.policies.length === 0 ? (
         <Flex
           direction="column"
@@ -733,7 +732,7 @@ function RefreshToolsButton({
         onClick={onRefresh}
       >
         {pending ? (
-          <Spinner size="1" />
+          <Spinner size="sm" />
         ) : (
           <ArrowClockwise size={11} weight="bold" />
         )}
@@ -1029,7 +1028,7 @@ function AccessSection({
                 className="group border-gray-5 border-b px-3 py-2 last:border-b-0"
               >
                 <RobotAvatar />
-                <Flex direction="column" className="min-w-0 flex-1">
+                <div className="flex min-w-0 flex-1 flex-col">
                   <Text truncate className="font-medium text-sm">
                     {agent.name}
                   </Text>
@@ -1039,51 +1038,36 @@ function AccessSection({
                       isYourShare ? "you" : gatewayUserName(agent.user)
                     }`}
                   </Text>
-                </Flex>
+                </div>
+                {/* Revoking removes only the caller's own share, so the scope
+                    toggle and Revoke appear only on rows backed by the caller's
+                    connection. */}
                 {isYourShare && (
-                  <AgentScopeToggle
-                    value={agent.scope}
-                    disabled={accessPending}
-                    onChange={(scope) =>
-                      onSetAgentScope(
-                        agent.service_account_id,
-                        agent.name,
-                        scope,
-                      )
-                    }
-                  />
+                  <div className="flex shrink-0 items-center gap-3">
+                    <AgentScopeToggle
+                      value={agent.scope}
+                      disabled={accessPending}
+                      onChange={(scope) =>
+                        onSetAgentScope(
+                          agent.service_account_id,
+                          agent.name,
+                          scope,
+                        )
+                      }
+                    />
+                    <Button
+                      variant="ghost"
+                      color="red"
+                      size="1"
+                      className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+                      onClick={() =>
+                        onRevokeAgent(agent.service_account_id, agent.name)
+                      }
+                    >
+                      <X size={11} /> Revoke
+                    </Button>
+                  </div>
                 )}
-                {/* Revoking removes only the caller's own share, so it is
-                    offered only on rows backed by the caller's connection. */}
-                {isYourShare && (
-                  <Button
-                    variant="ghost"
-                    color="red"
-                    size="1"
-                    className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
-                    onClick={() =>
-                      onRevokeAgent(agent.service_account_id, agent.name)
-                    }
-                  >
-                    <X size={11} /> Revoke
-                  </Button>
-                )}
-                <Flex align="center" gap="2" className="shrink-0">
-                  <span
-                    className={`h-[6px] w-[6px] rounded-full ${
-                      agent.status === "active" ? "bg-(--green-9)" : "bg-gray-8"
-                    }`}
-                  />
-                  <Text color="gray" className="text-xs">
-                    {agent.status === "active"
-                      ? `Active${
-                          formatAgo(agent.last_active_at)
-                            ? ` ${formatAgo(agent.last_active_at)}`
-                            : ""
-                        }`
-                      : "Paused"}
-                  </Text>
-                </Flex>
               </Flex>
             );
           })}

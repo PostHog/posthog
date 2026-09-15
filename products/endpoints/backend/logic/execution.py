@@ -56,6 +56,7 @@ from posthog.clickhouse.query_tagging import (
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.exceptions import (
+    APIQueriesBudgetExceeded,
     ClickHouseAtCapacity,
     ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
@@ -68,13 +69,10 @@ from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.synthetic_user import SyntheticUser
 
-from products.data_modeling.backend.facade.api import (
-    is_materialization_fresh,
-    materialize_saved_query,
-    saved_query_materialized_at,
-)
+from products.data_modeling.backend.facade.api import materialize_saved_query, saved_query_materialized_at
 from products.endpoints.backend.exceptions import EndpointAtCapacity, EndpointQueryTooExpensive
 from products.endpoints.backend.insight_transformers import MaterializedSeriesMismatchError
+from products.endpoints.backend.logic.materialized_serving import serving_state_for_version
 from products.endpoints.backend.logic.pagination import EndpointPagination
 from products.endpoints.backend.logic.strategies import EndpointQueryStrategy, strategy_for
 from products.endpoints.backend.logs import build_execution_message, log_endpoint_execution
@@ -125,9 +123,13 @@ _QUERY_PERFORMANCE_ERRORS: dict[type[Exception], tuple[str, str]] = {
     ),
 }
 
-# Cost guardrails + transient capacity: customer problems, not faults. Skipped from capture and
-# re-raised past the materialized/ducklake inline fallback.
-_QUERY_GUARDRAIL_ERRORS: tuple[type[Exception], ...] = (*_QUERY_PERFORMANCE_ERRORS, ClickHouseAtCapacity)
+# Cost guardrails, budget refusals and transient capacity: customer problems, not faults. Skipped
+# from capture and re-raised past the materialized/ducklake inline fallback.
+_QUERY_GUARDRAIL_ERRORS: tuple[type[Exception], ...] = (
+    *_QUERY_PERFORMANCE_ERRORS,
+    ClickHouseAtCapacity,
+    APIQueriesBudgetExceeded,
+)
 
 
 def _is_query_guardrail_error(error: BaseException) -> bool:
@@ -301,6 +303,26 @@ def _endpoint_refresh_mode_to_refresh_type(
     return RefreshType.FORCE_BLOCKING
 
 
+def can_serve_from_materialized(
+    team: Team,
+    endpoint: Endpoint,
+    version: EndpointVersion,
+    data: EndpointRunRequest,
+    materialized_at: datetime | None,
+) -> bool:
+    """Whether this run request can be served from the version's materialized table.
+
+    Reads materialization state from the DB — the authoritative source. The throttle
+    caches the same snapshot in rate_limit.py; that cache is intentionally not consulted here.
+    """
+    if not version.is_materialized or not version.saved_query or not version.saved_query.table:
+        return False
+    state = serving_state_for_version(
+        version, strategy_for(endpoint, version, team), ready=True, materialized_at=materialized_at
+    )
+    return state.serves(data)
+
+
 class EndpointExecutionService(PydanticModelMixin):
     """Executes an endpoint version, choosing the best execution path."""
 
@@ -405,42 +427,8 @@ class EndpointExecutionService(PydanticModelMixin):
         version: EndpointVersion,
         materialized_at: datetime | None,
     ) -> bool:
-        """
-        Decide whether to use materialized table or inline execution.
-
-        Reads materialization state from the DB — the authoritative source. (The redis
-        "materialization ready" cache in rate_limit.py only classifies requests for
-        throttling and is intentionally not consulted here.)
-
-        Returns False if:
-        - Not materialized
-        - Materialization incomplete/failed
-        - Materialized data is stale (older than the version's data freshness target)
-        - User overrides present (variables, query)
-        - 'direct' mode requested (explicitly bypass materialization)
-        """
-        if not version.is_materialized or not version.saved_query:
-            return False
-
-        if not version.saved_query.table or materialized_at is None:
-            return False
-
-        # Check if materialized data is stale. Keyed on the version's freshness target, not
-        # saved_query.sync_frequency_interval — the v2 schedule migration nulls that field.
-        if not is_materialization_fresh(materialized_at, version.data_freshness_seconds):
-            return False
-
-        # 'direct' mode explicitly bypasses materialization to run the original query
-        if data.refresh == EndpointRefreshMode.DIRECT:
-            return False
-
-        # Check if variables are valid for materialized execution
-        if data.variables:
-            strategy = strategy_for(endpoint, version, self.team)
-            if not strategy.can_serve_variables_from_materialized(set(data.variables.keys())):
-                return False
-
-        return True
+        """Decide whether to use materialized table or inline execution."""
+        return can_serve_from_materialized(self.team, endpoint, version, data, materialized_at)
 
     def _should_shadow_ducklake(self, endpoint: Endpoint, version: EndpointVersion | None) -> bool:
         # Flag is scoped to orgs with a duckgres server; the worker re-checks before querying.
@@ -588,7 +576,9 @@ class EndpointExecutionService(PydanticModelMixin):
                         limit=limit,
                         offset=offset,
                     )
-                except ConcurrencyLimitExceeded:
+                except (ConcurrencyLimitExceeded, APIQueriesBudgetExceeded):
+                    # A refusal is not a broken table. The inline path meets the same limiter
+                    # with the same balance, so falling back cannot succeed.
                     raise
                 except Exception:
                     # Already logged/captured/signaled inside the materialized path. Re-run
@@ -643,6 +633,10 @@ class EndpointExecutionService(PydanticModelMixin):
         except ConcurrencyLimitExceeded:
             ENDPOINT_CONCURRENCY_REJECTED_TOTAL.labels(team_id=str(self.team.pk)).inc()
             raise Throttled(detail="Too many concurrent requests. Please try again later.")
+        except APIQueriesBudgetExceeded:
+            # The platform refused this query on purpose, so it is not an endpoint fault. Leave the
+            # execution counter alone: the budget path counts its own refusals.
+            raise
         except tuple(_QUERY_PERFORMANCE_ERRORS) as e:
             execution_status = "query_performance"
             error_label = type(e).__name__

@@ -33,6 +33,14 @@ export function rememberWarmTaskLease(key: string, lease: WarmTaskLease): void {
   currentLease = { key, lease };
 }
 
+export function forgetWarmTaskLease(lease: WarmTaskLease): void {
+  if (
+    currentLease?.lease.taskId === lease.taskId &&
+    currentLease.lease.runId === lease.runId
+  )
+    currentLease = null;
+}
+
 export function takeWarmTaskLease(
   parts: WarmTaskLeaseKeyParts,
 ): WarmTaskLease | null {

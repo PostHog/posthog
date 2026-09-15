@@ -23,9 +23,17 @@ inputs:
 runs:
     using: composite
     steps:
+        # The action fetches pnpm from registry.npmjs.org on every job. npm's
+        # default fetch-timeout is 5 minutes, so one stalled connection costs
+        # longer than several jobs' whole timeout-minutes budget. Cap a single
+        # attempt well above a healthy fetch and retry instead of waiting.
         - name: Install pnpm
           uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
           env:
+              NPM_CONFIG_FETCH_TIMEOUT: 45000
+              NPM_CONFIG_FETCH_RETRIES: 2
+              NPM_CONFIG_FETCH_RETRY_MINTIMEOUT: 5000
+              NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT: 15000
               # The action bootstraps pnpm with `npm ci`, which audits by default. That audit
               # covers two packages and gates nothing, but it blocks until npm answers, so a
               # degraded audit endpoint stalls the step until npm's 300s fetch timeout. That

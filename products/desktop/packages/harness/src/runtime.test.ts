@@ -52,6 +52,7 @@ describe("createHarnessRuntime", () => {
           expect.arrayContaining([
             "<inline:hog-branding>",
             "<inline:posthog-provider>",
+            "<inline:current-work>",
             "<inline:orchestration>",
             "<inline:web-access>",
             "<inline:mcp>",

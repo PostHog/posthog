@@ -115,8 +115,14 @@ class LoopCRUDAPITest(LoopsAPITestCase):
             ("model_outside_the_adapter_catalog", "claude", "openai/gpt-5.6-sol", None, status.HTTP_400_BAD_REQUEST),
         ]
     )
+    # GLM 5.2 is gated, and these cases are about model/effort validation rather than
+    # entitlement, so the flag is granted here and gating is covered in `test_feature_flags`.
+    @patch(
+        "products.tasks.backend.presentation.serializers_loops.get_model_access_error",
+        return_value=None,
+    )
     def test_create_validates_model_and_reasoning_effort(
-        self, _name, runtime_adapter, model, reasoning_effort, expected_status
+        self, _name, runtime_adapter, model, reasoning_effort, expected_status, _mock_flag
     ):
         payload = self._valid_loop_payload(
             runtime_adapter=runtime_adapter, model=model, reasoning_effort=reasoning_effort

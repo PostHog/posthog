@@ -1942,26 +1942,8 @@ export interface queryDatabaseLogicActions {
         }
     } // dataWarehouseViewsLogic
     updateDataWarehouseSavedQuery: (
-        view: Partial<DataWarehouseSavedQuery> & {
-            edited_history_id?: string
-            folder_id?: string | null
-            id: string
-            lifecycle?: string
-            shouldRematerialize?: boolean
-            soft_update?: boolean
-            sync_frequency?: string
-            types?: string[][]
-        }
-    ) => Partial<DataWarehouseSavedQuery> & {
-        edited_history_id?: string
-        folder_id?: string | null
-        id: string
-        lifecycle?: string
-        shouldRematerialize?: boolean
-        soft_update?: boolean
-        sync_frequency?: string
-        types?: string[][]
-    } // dataWarehouseViewsLogic
+        view: import('../../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
+    ) => import('../../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate // dataWarehouseViewsLogic
     updateDataWarehouseSavedQueryFailure: (
         error: string,
         errorObject?: any
@@ -1971,30 +1953,10 @@ export interface queryDatabaseLogicActions {
     } // dataWarehouseViewsLogic
     updateDataWarehouseSavedQuerySuccess: (
         dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
-        payload?:
-            | (Partial<DataWarehouseSavedQuery> & {
-                  edited_history_id?: string
-                  folder_id?: string | null
-                  id: string
-                  lifecycle?: string
-                  shouldRematerialize?: boolean
-                  soft_update?: boolean
-                  sync_frequency?: string
-                  types?: string[][]
-              })
-            | undefined
+        payload?: import('../../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate | undefined
     ) => {
         dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
-        payload?: Partial<DataWarehouseSavedQuery> & {
-            edited_history_id?: string
-            folder_id?: string | null
-            id: string
-            lifecycle?: string
-            shouldRematerialize?: boolean
-            soft_update?: boolean
-            sync_frequency?: string
-            types?: string[][]
-        }
+        payload?: import('../../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
     } // dataWarehouseViewsLogic
     ensureAllTableFields: () => {
         value: true
@@ -3595,7 +3557,6 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 const flattenedTables: TreeDataItem[] = []
                 const flattenedViews: TreeDataItem[] = []
-                const additionalItems: TreeDataItem[] = []
                 const defaultSchemaName =
                     typeof selectedDirectSource?.job_inputs?.schema === 'string'
                         ? selectedDirectSource.job_inputs.schema
@@ -3625,19 +3586,14 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     if (item.record?.type === 'managed-views') {
                         return
                     }
-
-                    additionalItems.push(item)
                 })
 
                 const hasLoadedTables = Object.keys(allTablesMap).length > 0
                 if (!databaseLoading && databaseLoadError) {
-                    return [
-                        ...createSchemaErrorNodes('direct-connection', () => actions.refreshDatabaseSchema()),
-                        ...additionalItems,
-                    ]
+                    return createSchemaErrorNodes('direct-connection', () => actions.refreshDatabaseSchema())
                 }
                 if (!databaseLoading && !hasLoadedTables) {
-                    return [...createDirectConnectionEmptyNodes(connectionId), ...additionalItems]
+                    return createDirectConnectionEmptyNodes(connectionId)
                 }
 
                 return [
@@ -3654,7 +3610,6 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                               },
                           ]
                         : []),
-                    ...additionalItems,
                 ]
             },
         ],

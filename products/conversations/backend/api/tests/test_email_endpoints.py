@@ -1860,14 +1860,14 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         return comment, outbox
 
     def _run_reply(self, ticket: Ticket, content: str = "Reply from agent") -> tuple[Comment, EmailOutboxMessage]:
-        from products.conversations.backend.tasks import send_email_reply
+        from products.conversations.backend.tasks.email import send_email_reply
 
         comment, outbox = self._create_outbox(ticket, content=content)
         send_email_reply(str(outbox.id))
         outbox.refresh_from_db()
         return comment, outbox
 
-    @patch("products.conversations.backend.tasks.send_mime")
+    @patch("products.conversations.backend.tasks.email.send_mime")
     def test_send_email_reply_uses_ticket_config(self, mock_send_mime: MagicMock):
         config1 = self._create_config("support@example.com", "aaa111")
         self._create_config("billing@example.com", "bbb222")
@@ -1908,9 +1908,9 @@ class TestSendEmailReplyMultiConfig(BaseTest):
             ("no_customer_email", "no customer email"),
         ]
     )
-    @patch("products.conversations.backend.tasks.send_mime")
+    @patch("products.conversations.backend.tasks.email.send_mime")
     def test_undeliverable_reply_fails_visibly(self, name: str, expected_error: str, mock_send_mime: MagicMock):
-        from products.conversations.backend.tasks import send_email_reply
+        from products.conversations.backend.tasks.email import send_email_reply
 
         config = self._create_config("support@example.com", "aaa111")
         if name == "email_disabled":
@@ -1954,7 +1954,7 @@ class TestSendEmailReplyMultiConfig(BaseTest):
             ("domain_not_registered", MailgunDomainNotRegistered("gone from mailgun"), True),
         ]
     )
-    @patch("products.conversations.backend.tasks.send_mime")
+    @patch("products.conversations.backend.tasks.email.send_mime")
     def test_send_email_reply_terminal_errors_mark_failed(
         self, _name: str, error: Exception, flips_domain_verified: bool, mock_send_mime: MagicMock
     ):
@@ -1972,7 +1972,7 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         config.refresh_from_db()
         assert config.domain_verified is (not flips_domain_verified)
 
-    @patch("products.conversations.backend.tasks.send_mime")
+    @patch("products.conversations.backend.tasks.email.send_mime")
     def test_send_email_reply_delivers_to_team_member_ticket(self, mock_send_mime: MagicMock):
         """An in-app agent reply on a ticket opened by a team member (e.g. dogfooding
         the support inbox) must still be delivered to them."""
@@ -1987,11 +1987,11 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         assert mock_send_mime.call_args[1]["recipients"] == [self.user.email]
         assert outbox.status == EmailOutboxMessage.Status.SENT
 
-    @patch("products.conversations.backend.tasks.send_mime")
+    @patch("products.conversations.backend.tasks.email.send_mime")
     def test_send_email_reply_skips_comment_from_inbound_email(self, mock_send_mime: MagicMock):
         """Last-mile echo guard: an outbox row pointing at a comment that itself arrived
         via inbound email must never be sent, even if a regression enqueues one."""
-        from products.conversations.backend.tasks import send_email_reply
+        from products.conversations.backend.tasks.email import send_email_reply
 
         config = self._create_config("support@example.com", "aaa111")
         ticket = self._create_ticket(config)
@@ -2019,7 +2019,7 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         assert outbox.status == EmailOutboxMessage.Status.FAILED_PERMANENT
         assert outbox.last_error == "comment originated from inbound email"
 
-    @patch("products.conversations.backend.tasks.send_mime")
+    @patch("products.conversations.backend.tasks.email.send_mime")
     def test_send_email_reply_transient_error_schedules_retry(self, mock_send_mime: MagicMock):
         """Transient errors must NOT be dropped or raised — the row stays pending with a
         backed-off next_attempt_at so the sweeper re-drives it. This is what survives a
@@ -2038,7 +2038,7 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         assert outbox.next_attempt_at > before
         assert outbox.locked_until is None
 
-    @patch("products.conversations.backend.tasks.send_mime")
+    @patch("products.conversations.backend.tasks.email.send_mime")
     def test_send_email_reply_reuses_message_id_across_attempts(self, mock_send_mime: MagicMock):
         """A retried send must reuse the same Message-ID so threading/dedup stay stable."""
         config = self._create_config("support@example.com", "aaa111")
@@ -2050,7 +2050,7 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         original_message_id = outbox.message_id
 
         # Make it due again and let the next attempt succeed.
-        from products.conversations.backend.tasks import send_email_reply
+        from products.conversations.backend.tasks.email import send_email_reply
 
         EmailOutboxMessage.objects.filter(id=outbox.id).update(next_attempt_at=timezone.now(), locked_until=None)
         mock_send_mime.side_effect = None
@@ -2065,9 +2065,9 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         assert original_message_id.encode() in first_mime
         assert original_message_id.encode() in second_mime
 
-    @patch("products.conversations.backend.tasks.send_mime")
+    @patch("products.conversations.backend.tasks.email.send_mime")
     def test_send_email_reply_idempotent_when_already_sent(self, mock_send_mime: MagicMock):
-        from products.conversations.backend.tasks import send_email_reply
+        from products.conversations.backend.tasks.email import send_email_reply
 
         config = self._create_config("support@example.com", "aaa111")
         ticket = self._create_ticket(config)
@@ -2078,7 +2078,7 @@ class TestSendEmailReplyMultiConfig(BaseTest):
 
         mock_send_mime.assert_not_called()
 
-    @patch("products.conversations.backend.tasks.send_mime")
+    @patch("products.conversations.backend.tasks.email.send_mime")
     def test_send_email_reply_marks_failed_when_no_config(self, mock_send_mime: MagicMock):
         ticket = self._create_ticket(None)
 
@@ -2115,11 +2115,11 @@ class TestSendEmailReplyMultiConfig(BaseTest):
             ("expired_row_is_given_up", "expired", False, EmailOutboxMessage.Status.FAILED_PERMANENT),
         ]
     )
-    @patch("products.conversations.backend.tasks.send_mime")
+    @patch("products.conversations.backend.tasks.email.send_mime")
     def test_flush_pending_email_replies(
         self, _name: str, scenario: str, expect_send: bool, expected_status: str, mock_send_mime: MagicMock
     ):
-        from products.conversations.backend.tasks import EMAIL_OUTBOX_MAX_AGE, flush_pending_email_replies
+        from products.conversations.backend.tasks.email import EMAIL_OUTBOX_MAX_AGE, flush_pending_email_replies
 
         config = self._create_config("support@example.com", "aaa111")
         ticket = self._create_ticket(config)
@@ -2265,6 +2265,97 @@ class TestEmailInboundDmarcRewrite(BaseTest):
         assert comment.item_context is not None
         assert comment.item_context["email_from"] == "alex@strictdmarc.com"
         assert comment.item_context["email_from_name"] == "Alex Smith"
+
+
+class TestEmailInboundSelfAddressedAutoreply(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.client = Client()
+        self.team.conversations_settings = {"email_enabled": True}
+        self.team.save()
+        self.config = EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="ab11cd22ef33ab44",
+            from_email="security@posthog.com",
+            from_name="Security",
+            domain="posthog.com",
+            domain_verified=True,
+        )
+
+    def _post(self, msg_id: str, extra: dict[str, str]) -> None:
+        data = {
+            "recipient": "team-ab11cd22ef33ab44@mg.posthog.com",
+            "Message-Id": msg_id,
+            "subject": "We've got your email",
+            "stripped-text": "Our team is looking into your email.",
+            "To": "security@posthog.com",
+            **extra,
+        }
+        self.client.post("/api/conversations/v1/email/inbound", data)
+
+    @parameterized.expand(
+        [
+            ("auto_submitted", {"Auto-Submitted": "auto-replied"}),
+            ("auto_submitted_with_parameters", {"Auto-Submitted": "auto-generated; owner-token=abc"}),
+            ("precedence_auto_reply", {"Precedence": "auto_reply"}),
+            ("x_autoreply", {"X-Autoreply": "yes"}),
+        ]
+    )
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_autoreply_from_the_inbox_itself_is_dropped(self, name, headers, _mock_sig):
+        self._post(f"<loop-{name}@posthog.com>", {"from": "PostHog Security <security@posthog.com>", **headers})
+
+        assert Ticket.objects.filter(team=self.team).count() == 0
+
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_autoreply_from_the_inbound_address_is_dropped(self, _mock_sig: MagicMock):
+        self._post(
+            "<loop-inbound-address@posthog.com>",
+            {"from": "team-ab11cd22ef33ab44@mg.posthog.com", "Auto-Submitted": "auto-replied"},
+        )
+
+        assert Ticket.objects.filter(team=self.team).count() == 0
+
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_auto_submitted_header_is_read_from_the_message_headers_blob(self, _mock_sig: MagicMock):
+        self._post(
+            "<loop-headers-blob@posthog.com>",
+            {
+                "from": "PostHog Security <security@posthog.com>",
+                "message-headers": '[["Auto-Submitted", "auto-replied"]]',
+            },
+        )
+
+        assert Ticket.objects.filter(team=self.team).count() == 0
+
+    @parameterized.expand(
+        [
+            # A person's mail relayed by a list arrives From the list address, and the list marks it
+            # with a Precedence that only asks receivers not to auto-reply. Reading any of those as
+            # "a machine wrote this" would drop the customer's email.
+            ("relayed_person_precedence_list", {"from": "Alex Smith <security@posthog.com>", "Precedence": "list"}),
+            ("relayed_person_precedence_bulk", {"from": "Alex Smith <security@posthog.com>", "Precedence": "bulk"}),
+            ("relayed_person_no_markers", {"from": "Alex Smith <security@posthog.com>"}),
+            ("auto_submitted_no", {"from": "Alex Smith <security@posthog.com>", "Auto-Submitted": "no"}),
+        ]
+    )
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_self_addressed_human_mail_still_opens_a_ticket(self, name, headers, _mock_sig):
+        self._post(f"<human-{name}@posthog.com>", headers)
+
+        assert Ticket.objects.filter(team=self.team).count() == 1
+
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_external_automated_mail_still_opens_a_ticket(self, _mock_sig: MagicMock):
+        # Teams route infrastructure alerts to support on purpose, so being machine-generated is
+        # only half the test: the message also has to claim to come from the inbox itself.
+        self._post(
+            "<external-auto-submitted@example.com>",
+            {"from": "Alerts <no-reply@example.com>", "Auto-Submitted": "auto-replied"},
+        )
+
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.email_from == "no-reply@example.com"
 
 
 class TestEmailInboundTeamMemberDetection(BaseTest):

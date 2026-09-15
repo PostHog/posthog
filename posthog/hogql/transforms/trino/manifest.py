@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import field
+from types import MappingProxyType
 from typing import Any
 
 from posthog.schema import HogQLFilters, HogQLQueryModifiers, HogQLVariable
@@ -67,6 +69,46 @@ class TrinoManifestTranspilerResult:
     values: dict[str, Any]
     hogql: str | None = None
     print_columns: tuple[str, ...] = ()
+
+
+@frozen
+class PreparedTrinoCatalog:
+    """A reusable catalog snapshot that creates fresh query state for every transpilation."""
+
+    manifest: TrinoCatalogManifest
+    _database: Database = field(repr=False, compare=False)
+    _table_locators: Mapping[str, TrinoTableLocator] = field(repr=False, compare=False)
+
+    def transpile(
+        self,
+        query: str | ast.SelectQuery | ast.SelectSetQuery,
+        *,
+        values: Mapping[str, object] | None = None,
+        filters: HogQLFilters | None = None,
+        variables: Mapping[str, HogQLVariable] | None = None,
+        modifiers: HogQLQueryModifiers | None = None,
+        convert_to_project_timezone: bool | None = None,
+        limit_top_select: bool = True,
+        limit_context: LimitContext | None = None,
+        default_limit: int | None = None,
+        pretty: bool = False,
+        include_hogql: bool = False,
+    ) -> TrinoManifestTranspilerResult:
+        return transpile_hogql_to_trino_with_database(
+            query,
+            database=self._database,
+            locators=self._table_locators,
+            values=values,
+            filters=filters,
+            variables=variables,
+            modifiers=modifiers,
+            convert_to_project_timezone=convert_to_project_timezone,
+            limit_top_select=limit_top_select,
+            limit_context=limit_context,
+            default_limit=default_limit,
+            pretty=pretty,
+            include_hogql=include_hogql,
+        )
 
 
 _CORE_TABLES = frozenset({"events", "persons"})
@@ -260,6 +302,15 @@ def _validate_pure_inputs(
         )
 
 
+def prepare_trino_catalog(manifest: TrinoCatalogManifest) -> PreparedTrinoCatalog:
+    database, table_locators = build_trino_manifest_database(manifest)
+    return PreparedTrinoCatalog(
+        manifest=manifest,
+        _database=database,
+        _table_locators=MappingProxyType(table_locators),
+    )
+
+
 def transpile_hogql_to_trino(
     query: str | ast.SelectQuery | ast.SelectSetQuery,
     *,
@@ -275,11 +326,8 @@ def transpile_hogql_to_trino(
     pretty: bool = False,
     include_hogql: bool = False,
 ) -> TrinoManifestTranspilerResult:
-    database, locators = build_trino_manifest_database(manifest)
-    return transpile_hogql_to_trino_with_database(
+    return prepare_trino_catalog(manifest).transpile(
         query,
-        database=database,
-        locators=locators,
         values=values,
         filters=filters,
         variables=variables,
@@ -337,7 +385,7 @@ def transpile_hogql_to_trino_with_database(
         )
     _UnsupportedSemanticFeatureFinder().visit(node)
 
-    table_locators = dict(locators) if locators else {}
+    table_locators = locators if locators is not None else {}
 
     def create_context() -> HogQLContext:
         return HogQLContext(

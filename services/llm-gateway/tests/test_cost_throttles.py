@@ -36,6 +36,12 @@ def make_signals_user(interactive: bool, user_id: int = 1) -> AuthenticatedUser:
     return user
 
 
+def make_slack_user(user_id: int = 1) -> AuthenticatedUser:
+    user = make_user(user_id=user_id)
+    user.scopes = ["llm_gateway:read", "internal_run:read", "slack_run:read"]
+    return user
+
+
 def make_context(
     user: AuthenticatedUser | None = None,
     product: str = "posthog_code",
@@ -1246,7 +1252,7 @@ class TestCostAccumulatorTTL:
         assert accumulator.get_current("user2") == 3.0
 
 
-class TestSignalsInteractiveCostKey:
+class TestProvenanceCostKey:
     @pytest.mark.parametrize(
         ("product", "scopes", "expected"),
         [
@@ -1254,6 +1260,8 @@ class TestSignalsInteractiveCostKey:
             ("signals", ["llm_gateway:read"], "signals"),
             ("posthog_code", ["llm_gateway:read"], "posthog_code"),
             ("background_agents", ["llm_gateway:read"], "background_agents"),
+            ("slack_app", ["llm_gateway:read", "slack_run:read"], "slack_app"),
+            ("background_agents", ["llm_gateway:read", "slack_run:read"], "slack_app"),
             # The marker alone decides. A run still holding an Array-app token can declare either
             # of these routes, and honouring the declaration would drop it off the interactive
             # budget and out of the per-run ceiling, which only `signals_interactive` configures.
@@ -1314,14 +1322,35 @@ class TestSandboxTaskCostThrottle:
         assert (await throttle.allow_request(context)).allowed is True
 
     @pytest.mark.asyncio
-    async def test_denies_the_run_that_exhausts_its_ceiling_and_leaves_its_siblings_alone(self) -> None:
+    @pytest.mark.parametrize(
+        ("product", "user"),
+        [
+            ("signals", make_signals_user(interactive=True)),
+            ("slack_app", make_slack_user()),
+        ],
+    )
+    async def test_denies_the_run_that_exhausts_its_ceiling_and_leaves_its_siblings_alone(
+        self, product: str, user: AuthenticatedUser
+    ) -> None:
         throttle = SandboxTaskCostThrottle(redis=None)
-        user = make_signals_user(interactive=True)
-        spent = make_context(product="signals", user=user, sandbox_task_id="task-1")
-        sibling = make_context(product="signals", user=user, sandbox_task_id="task-2")
+        spent = make_context(product=product, user=user, sandbox_task_id="task-1")
+        sibling = make_context(product=product, user=user, sandbox_task_id="task-2")
         limit, _ = throttle._get_limit_and_window(spent)
 
         await throttle.record_cost(spent, limit)
 
         assert (await throttle.allow_request(spent)).allowed is False
         assert (await throttle.allow_request(sibling)).allowed is True
+
+    @pytest.mark.asyncio
+    async def test_slack_token_cannot_leave_its_task_ceiling_by_declaring_another_product(self) -> None:
+        throttle = SandboxTaskCostThrottle(redis=None)
+        slack = make_context(product="slack_app", user=make_slack_user(), sandbox_task_id="task-1")
+        alternate = make_context(product="background_agents", user=slack.user, sandbox_task_id="task-1")
+        limit, _ = throttle._get_limit_and_window(slack)
+
+        await throttle.record_cost(slack, limit)
+
+        result = await throttle.allow_request(alternate)
+        assert result.allowed is False
+        assert result.retry_after == 86400

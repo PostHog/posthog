@@ -23,6 +23,7 @@ export interface SessionReplayHeaders {
     token: string
     session_id: string
     distinct_id: string
+    now?: Date
 }
 
 /** Tags an element with whether its session is being seen for the first time in this batch. */

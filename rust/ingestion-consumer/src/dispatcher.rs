@@ -12,7 +12,7 @@ use crate::debug_recorder::{
 use crate::order_sentinel::KeyOrderSentinel;
 use crate::routing::{Router, RoutingStrategy, WorkerLoad};
 use crate::scheduler::{
-    Dispatch, KeyRun, PinStashScheduler, Scheduler, SchedulerEffects, Settlement,
+    Deadline, Dispatch, KeyRun, PinStashScheduler, Scheduler, SchedulerEffects, Settlement,
     SettlementOutcome, WorkerHealth, WorkerSnapshot,
 };
 use crate::types::{Accumulator, Group, SerializedKafkaMessage};
@@ -547,7 +547,9 @@ impl Dispatcher {
 
     fn flush_groups(&self, inner: &mut DispatcherInner, batch_id: &str) -> Vec<SubBatch> {
         let snapshot = self.worker_snapshot(&inner.in_flight);
-        let SchedulerEffects { dispatches, .. } = inner.scheduler.on_deadline(&snapshot, batch_id);
+        let SchedulerEffects { dispatches, .. } = inner
+            .scheduler
+            .on_deadline(&snapshot, Deadline::Batch(batch_id));
         if dispatches.is_empty() {
             return Vec::new();
         }

@@ -24,10 +24,9 @@ export function SidebarQuestionInputWithSuggestions({
     hideSuggestions?: boolean
 }): JSX.Element {
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason, activeSuggestionGroup } = useValues(maxLogic)
-    const { setActiveGroup, setQuestion, focusInput, setFillInHint } = useActions(maxLogic)
+    const { setActiveGroup, setFillInHint, runSuggestion } = useActions(maxLogic)
     const { agentMode } = useValues(maxThreadLogic)
-    const { askMax } = useActions(maxThreadLogic)
-    const { coreMemory, coreMemoryLoading } = useValues(maxSettingsLogic)
+    const { coreMemory, coreMemoryLoading, coreMemoryLoadError } = useValues(maxSettingsLogic)
 
     const [settingsModalOpen, setSettingsModalOpen] = useState(false)
     const [selectedTopic, setSelectedTopic] = useState<string | null>(null)
@@ -40,12 +39,13 @@ export function SidebarQuestionInputWithSuggestions({
     const showBadges = agentMode !== AgentMode.Research
     const selectedTopicData = HOMEPAGE_SUGGESTION_TOPICS.find((topic) => topic.key === selectedTopic) ?? null
 
-    const tip =
-        !coreMemoryLoading && !coreMemory?.text
-            ? 'Tip: Run /init to initialize PostHog AI in this project'
-            : agentMode === AgentMode.Research
-              ? 'Try PostHog AI Research Mode for…'
-              : 'Try PostHog AI for…'
+    const tip = coreMemoryLoadError
+        ? "Could not load PostHog AI's memory. Retry in project settings."
+        : !coreMemoryLoading && !coreMemory?.text
+          ? 'Tip: Run /init to initialize PostHog AI in this project'
+          : agentMode === AgentMode.Research
+            ? 'Try PostHog AI Research Mode for…'
+            : 'Try PostHog AI for…'
 
     return (
         <DismissableLayer
@@ -78,15 +78,7 @@ export function SidebarQuestionInputWithSuggestions({
                         />
                         {selectedTopicData && (
                             <div className="w-full overflow-hidden" style={{ height: SUGGESTION_CARDS_HEIGHT_PX }}>
-                                <TopicSuggestions
-                                    topic={selectedTopicData}
-                                    onType={setQuestion}
-                                    onSubmit={(text) => askMax(text)}
-                                    onFillIn={(hint) => {
-                                        setFillInHint(hint)
-                                        focusInput()
-                                    }}
-                                />
+                                <TopicSuggestions topic={selectedTopicData} onRun={runSuggestion} />
                             </div>
                         )}
                     </div>

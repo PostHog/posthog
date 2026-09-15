@@ -6,7 +6,6 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("customer_analytics", "0005_account"),
         ("posthog", "1171_backfill_credentials_reviewed_at"),
     ]
 

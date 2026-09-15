@@ -247,6 +247,7 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                     classify_posthog_code_task_needs_repo_activity,
                     event.get("text", ""),
                     thread_messages,
+                    inputs,
                 )
                 if not needs_repo:
                     repository = None

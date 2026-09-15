@@ -1,6 +1,6 @@
 import { Counter, Gauge, Histogram } from 'prom-client'
 
-import type { RepublishReason, UrlDropReason } from './collected-urls-record'
+import type { RepublishReason, UrlDropReason, UrlSkipReason } from './collected-urls-record'
 import type { AttemptOutcome } from './fetch-runner'
 import type { FrontierDeadLetterReason } from './frontier-dead-letter-sink'
 import type { FetchRefusalReason, RequestScheduleBlockReason, TransientFetchOutcome } from './image-fetcher'
@@ -49,6 +49,15 @@ export class ImageFetchConsumerMetrics {
     private static readonly dropped = new Counter({
         name: 'ml_image_fetch_consumer_dropped_total',
         help: 'URLs refused before dedup because the versioned record, URL, ref, or registrable-domain key was invalid. When a dead-letter topic is configured, its Kafka acknowledgement precedes this increment and the source commit',
+        labelNames: ['reason'],
+    })
+    /**
+     * A sustained rate here is expected after a beacon-list change, while the fetcher drains the
+     * queued beacons at parse speed. It is not the invalid-input signal that `dropped` carries.
+     */
+    private static readonly skipped = new Counter({
+        name: 'ml_image_fetch_consumer_skipped_total',
+        help: 'Frontier jobs the parser dropped on their own because the URL policy refuses the URL as unwanted, by decline reason. The record and its other jobs proceed and no dead-letter record is written. The count lands after the batch finishes its durable work, so a failed batch is not counted twice; a crash before the offset store can count it once more, like every counter in this consumer',
         labelNames: ['reason'],
     })
     private static readonly deadLettered = new Counter({
@@ -167,6 +176,9 @@ export class ImageFetchConsumerMetrics {
     }
     public static incDropped(reason: UrlDropReason, count: number): void {
         this.dropped.labels(reason).inc(count)
+    }
+    public static incSkipped(reason: UrlSkipReason, count: number): void {
+        this.skipped.labels(reason).inc(count)
     }
     public static incDeadLettered(reason: FrontierDeadLetterReason): void {
         this.deadLettered.labels(reason).inc()

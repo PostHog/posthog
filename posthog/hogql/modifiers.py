@@ -1,7 +1,5 @@
 from typing import TYPE_CHECKING, Optional, overload
 
-import posthoganalytics
-
 from posthog.cloud_utils import is_cloud
 from posthog.schema_enums import (
     BounceRatePageViewMode,
@@ -45,16 +43,6 @@ def create_default_modifiers_for_user(
     else:
         modifiers = modifiers.model_copy()
 
-    modifiers.useMaterializedViews = posthoganalytics.feature_enabled(
-        "data-modeling",
-        str(user.distinct_id),
-        person_properties={
-            "email": user.email,
-        },
-        only_evaluate_locally=True,
-        send_feature_flag_events=False,
-    )
-
     return create_default_modifiers_for_team(team, modifiers)
 
 
@@ -63,7 +51,7 @@ def create_default_modifiers_for_team(
 ) -> "HogQLQueryModifiers":
     from pydantic import ValidationError  # noqa: PLC0415
 
-    from posthog.schema import CustomBotDefinition, CustomChannelRule, HogQLQueryModifiers  # noqa: PLC0415
+    from posthog.schema import CustomChannelRule, HogQLQueryModifiers  # noqa: PLC0415
 
     if modifiers is None:
         modifiers = HogQLQueryModifiers()
@@ -85,20 +73,15 @@ def create_default_modifiers_for_team(
                     except ValidationError:
                         pass
                 elif key == "customBotDefinitions":
-                    # drop the definitions that don't parse, keep the rest — one bad entry should
-                    # not take a project's whole bot list out of every query. A non-dict entry
-                    # (from a hand-edited modifiers JSON) is unparseable, so drop it too rather than
-                    # let it reach compile_definitions and crash every classification query.
+                    # parse_rules drops the entries that don't parse — one bad entry should not
+                    # take a project's whole bot list out of every query. warn_on_drop=False
+                    # because this runs per query; the API list and save paths report drops.
+                    from products.web_analytics.backend.hogql_queries.custom_bot_definitions import (  # noqa: PLC0415
+                        parse_rules,
+                    )
+
                     if isinstance(value, list):
-                        definitions = []
-                        for definition in value:
-                            if not isinstance(definition, dict):
-                                continue
-                            try:
-                                definitions.append(CustomBotDefinition(**definition))
-                            except ValidationError:
-                                pass
-                        setattr(modifiers, key, definitions)
+                        setattr(modifiers, key, parse_rules(value, warn_on_drop=False))
                 else:
                     setattr(modifiers, key, value)
 
