@@ -50,13 +50,32 @@ Its materialized view reads only samples where `has_labels` is true, including s
 It retains the maximum `original_expiry_timestamp` within each group. This aggregate controls TTL and remains separate from both bucket columns.
 The table records activity from labelled samples, not every sample.
 Time filters use the hourly buckets, so discovery can include activity outside the requested range within its boundary hours.
-Later readers must use `DISTINCT metric_name` because merges are asynchronous and names repeat across activity and expiry buckets.
+Readers must group by metric name because merges are asynchronous and names repeat across activity and expiry buckets.
 Queries with other label filters still need series data.
 
 Four new materialized views read `metrics2_input` and write to the new tables.
 The existing views continue to write to `metric_series2` and `metric_attributes2`.
-The distributed tables and HogQL schemas still read the existing tables.
-This phase adds storage and insert work; it does not improve query speed until reads move to the new tables.
+HogQL `posthog.metric_series` reads `metric_series3`, and `posthog.metric_attributes` reads `metric_attributes3`.
+HogQL `posthog.metric_names` reads `metric_names3`.
+These replicated tables use the logs workload and its database connection.
+Raw samples still use `posthog.metrics`, which reads `metrics2` through its distributed table.
+
+The unscoped picker selects a bounded name list from hourly activity before it reads series types.
+Exact search matches come first, followed by the latest activity hour and metric name.
+The final metadata read excludes series outside the exact lookback.
+If the name limit falls in the boundary hour, this check can return fewer names than the limit.
+Service-scoped lists and catalog requests use series metadata because the names table has no service column.
+
+The overview keeps distinct series counts across expiry days and reports the latest labelled sample.
+Attribute key queries sum precomputed counts from `metric_attributes3` within hourly activity buckets.
+The API returns `attribute_count`, and the group-by menu labels it "Attribute occurrences".
+These counts include metric and resource attributes from labelled samples. They do not count distinct series.
+The first and last buckets can include samples outside the exact requested times.
+The first-class `service_name` choice comes first when it matches the search, with a null count and no count badge.
+Other keys follow by occurrence count, then name. The response limit includes the service choice.
+Opening the group-by menu sends its request immediately. Typed searches use a short delay.
+Attribute value queries accept an optional `metricName` and use the metric prefix of the attribute sort key.
+Each viewer clause supplies its own metric name to both attribute endpoints.
 
 ### Backfill and read cutover
 
@@ -84,5 +103,20 @@ The latest series rows alone cannot restore earlier hourly activity.
 
 Before a read cutover, compare metric names, label pairs, series presence per expiry day, and retention for the same source range.
 Check insert latency, materialized view errors, part counts, and storage growth during this phase.
-A later migration can move the distributed readers after the backfill is complete.
-Keep the old tables until that read cutover is stable.
+Deploy the reader change only after the backfill and comparisons pass in each environment.
+The old distributed readers remain available for query comparisons and rollback.
+Keep the old tables and their materialized views until the reader change is stable.
+
+### Performance checks
+
+Compare the old and new generated SQL on the same project and fixed time range in dev.
+Use both empty searches and typed searches, with and without a service or metric filter.
+Run each query five times with the uncompressed cache disabled.
+Compare median ClickHouse duration, bytes read, and memory in `system.query_log`.
+Check returned names, types, counts, and attribute values as well as query time.
+Account for hourly picker ordering and the limit at the boundary hour when comparing name lists.
+
+The targets are below one second for the overview, 100 ms for the metric picker, and 500 ms for attribute filters.
+Measure the full request and browser load as well as ClickHouse time.
+Existing overview spans separate query time from ClickHouse time.
+Query timings alone do not prove that the page meets its target.

@@ -349,9 +349,9 @@ export interface metricsViewerLogicValues {
     anomalyTopMovers: MetricTopMoverRow[]
     attributeEndpointFilters: Record<string, string>
     attributeKeyOptions: {
+        attributeCount: number | null
         key: string
         label: string
-        seriesCount: number
     }[]
     attributeKeyOptionsLoading: boolean
     chartSeries: MetricsChartSeries[]
@@ -489,7 +489,9 @@ export interface metricsViewerLogicActions {
         queryResults: _MetricSeriesApi[]
         payload?: any
     }
-    loadAttributeKeyOptions: (_: any) => any
+    loadAttributeKeyOptions: ({ debounce }: { debounce?: boolean }) => {
+        debounce?: boolean
+    }
     loadAttributeKeyOptionsFailure: (
         error: string,
         errorObject?: any
@@ -499,18 +501,22 @@ export interface metricsViewerLogicActions {
     }
     loadAttributeKeyOptionsSuccess: (
         attributeKeyOptions: {
+            attributeCount: number | null
             key: string
             label: string
-            seriesCount: number
         }[],
-        payload?: any
+        payload?: {
+            debounce?: boolean
+        }
     ) => {
         attributeKeyOptions: {
+            attributeCount: number | null
             key: string
             label: string
-            seriesCount: number
         }[]
-        payload?: any
+        payload?: {
+            debounce?: boolean
+        }
     }
     openAddToDashboardModal: () => {
         value: true
@@ -1066,7 +1072,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 actions.saveAsInsight()
             },
             setGroupBySearch: () => {
-                actions.loadAttributeKeyOptions({})
+                actions.loadAttributeKeyOptions({ debounce: true })
             },
             cancelInProgressQuery: ({ controller }) => {
                 abortPrevious(values.queryAbortController)
@@ -1094,16 +1100,17 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
     }),
     loaders(({ values, actions }) => ({
         // Backs the group-by attribute-key autocomplete. Scope it to the active metric and
-        // viewer window so choices match the data the clause can actually group; debounce to
-        // match the chart fetch cadence.
+        // viewer window so choices match its data. Delay typed searches only.
         attributeKeyOptions: [
-            [] as { key: string; label: string; seriesCount: number }[],
+            [] as { key: string; label: string; attributeCount: number | null }[],
             {
-                loadAttributeKeyOptions: async (_, breakpoint) => {
+                loadAttributeKeyOptions: async ({ debounce }: { debounce?: boolean }, breakpoint) => {
                     if (!canViewMetrics()) {
                         return []
                     }
-                    await breakpoint(300)
+                    if (debounce) {
+                        await breakpoint(300)
+                    }
                     const dateFrom = resolveDate(values.dateFrom) ?? undefined
                     const dateTo = resolveDate(values.dateTo) ?? undefined
                     const response = await metricsAttributesRetrieve(String(values.currentTeamId), {
@@ -1117,7 +1124,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                     return response.results.map((result) => ({
                         key: result.name,
                         label: result.name,
-                        seriesCount: result.series_count,
+                        attributeCount: result.attribute_count,
                     }))
                 },
             },

@@ -545,6 +545,13 @@ class _MetricAttributeKeysParamsSerializer(serializers.Serializer):
 
 
 class _MetricAttributeValuesParamsSerializer(serializers.Serializer):
+    metricName = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=255,
+        help_text="Exact metric name to limit attribute values to. Omit to list values across all metrics.",
+    )
     key = serializers.CharField(
         max_length=255,
         help_text="Attribute key to list values for (e.g. 'env'). 'service_name'/'service.name' list service names.",
@@ -581,15 +588,16 @@ class _MetricAttributeKeySerializer(serializers.Serializer):
     name = serializers.CharField(
         help_text="Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name')."
     )
-    series_count = serializers.IntegerField(
-        help_text="Number of distinct recent series with this attribute, based on series metadata."
+    attribute_count = serializers.IntegerField(
+        allow_null=True,
+        help_text="Attribute occurrences in the hourly window. Null for the first-class service_name column.",
     )
 
 
 class _MetricAttributeKeysResponseSerializer(serializers.Serializer):
     results = _MetricAttributeKeySerializer(
         many=True,
-        help_text="Distinct attribute keys (datapoint and resource attributes merged), ordered by series count descending.",
+        help_text="Attribute keys with service_name first, then datapoint and resource keys by occurrence count descending.",
     )
     count = serializers.IntegerField(help_text="Number of keys returned.")
 
@@ -993,8 +1001,8 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
     )
     def attributes(self, request: Request, *args, **kwargs) -> Response:
-        """Attribute keys ordered by distinct series count, from highest to
-        lowest. `metricName` limits choices to one metric."""
+        """Attribute keys with service_name first, then keys by occurrence count.
+        `metricName` limits choices to one metric."""
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
 
         params = _MetricAttributeKeysParamsSerializer(data=request.query_params)
@@ -1036,6 +1044,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             results = list_metric_attribute_values(
                 team=self.team,
                 key=params.validated_data["key"],
+                metric_name=params.validated_data["metricName"],
                 search=params.validated_data["value"],
                 date_from=params.validated_data["dateFrom"],
                 date_to=params.validated_data["dateTo"],

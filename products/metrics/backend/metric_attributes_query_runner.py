@@ -1,7 +1,6 @@
 """Attribute key/value autocomplete for the metrics filter bar.
 
-Keys count distinct series from recent metadata, without reading raw samples.
-Values use the `metric_attributes` aggregate table.
+Keys and values use precomputed counts from `metric_attributes`.
 Both queries merge metric attributes and resource attributes.
 """
 
@@ -24,11 +23,6 @@ from products.metrics.backend.search import ilike_pattern
 # `metric_query_runner.attribute_field`.
 _SERVICE_NAME_KEYS: frozenset[str] = frozenset({"service_name", "service.name"})
 
-# `time_bucket` floors timestamps to hourly buckets (see `_attributes_mv` in
-# posthog/clickhouse/metrics/metrics2.py); widen the lower bound so points near
-# the window start aren't dropped with their bucket.
-_TIME_BUCKET_INTERVAL = dt.timedelta(hours=1)
-
 # Without an explicit window, suggest from recent data only — same lookback the
 # metric names picker uses.
 _DEFAULT_LOOKBACK = dt.timedelta(days=7)
@@ -46,7 +40,8 @@ def _resolve_window(date_from: dt.datetime | None, date_to: dt.datetime | None) 
     resolved_from = date_from or (resolved_to - _DEFAULT_LOOKBACK)
     if resolved_to <= resolved_from:
         raise ValueError("date_to must be after date_from")
-    return resolved_from - _TIME_BUCKET_INTERVAL, resolved_to
+    # Include the hour that contains the start of the requested window.
+    return resolved_from.astimezone(dt.UTC).replace(minute=0, second=0, microsecond=0), resolved_to
 
 
 def _validate_limit(limit: int) -> int:
@@ -56,7 +51,7 @@ def _validate_limit(limit: int) -> int:
 
 
 class MetricAttributeKeysQueryRunner:
-    """Attribute keys ordered by distinct recent series count."""
+    """Attribute keys ordered by occurrence count, with service_name first."""
 
     def __init__(
         self,
@@ -72,28 +67,26 @@ class MetricAttributeKeysQueryRunner:
         self.metric_name = metric_name.strip()
         self.search = search.strip()
         self.date_from, self.date_to = _resolve_window(date_from, date_to)
-        self.date_from += _TIME_BUCKET_INTERVAL
         self.limit = _validate_limit(limit)
 
     def run(self) -> list[dict[str, Any]]:
         query = parse_select(
             """
                 SELECT
-                    arrayJoin(arrayDistinct(arrayConcat(
-                        mapKeys(attributes), mapKeys(resource_attributes), ['service_name']
-                    ))) AS attribute_key,
-                    uniqExact(series_fingerprint) AS series_count
-                FROM posthog.metric_series
-                WHERE last_seen >= {date_from}
+                    attribute_key,
+                    sum(attribute_count) AS occurrences
+                FROM posthog.metric_attributes
+                WHERE time_bucket >= {date_from}
+                  AND time_bucket < {date_to}
                   AND {metric_name_filter}
-                  AND (attribute_key ILIKE {search_pattern}
-                       OR (attribute_key = 'service_name' AND 'service.name' ILIKE {search_pattern}))
+                  AND {search_filter}
                 GROUP BY attribute_key
-                ORDER BY series_count DESC, attribute_key ASC
+                ORDER BY occurrences DESC, attribute_key ASC
                 LIMIT {limit}
             """,
             placeholders={
                 "date_from": ast.Constant(value=self.date_from),
+                "date_to": ast.Constant(value=self.date_to),
                 "metric_name_filter": (
                     ast.Constant(value=True)
                     if not self.metric_name
@@ -103,8 +96,16 @@ class MetricAttributeKeysQueryRunner:
                         right=ast.Constant(value=self.metric_name),
                     )
                 ),
-                "search_pattern": ast.Constant(value=ilike_pattern(self.search)),
-                "limit": ast.Constant(value=self.limit),
+                "search_filter": (
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.ILike,
+                        left=ast.Field(chain=["attribute_key"]),
+                        right=ast.Constant(value=ilike_pattern(self.search)),
+                    )
+                    if self.search
+                    else ast.Constant(value=True)
+                ),
+                "limit": ast.Constant(value=self.limit + len(_SERVICE_NAME_KEYS)),
             },
         )
         assert isinstance(query, ast.SelectQuery)
@@ -117,11 +118,17 @@ class MetricAttributeKeysQueryRunner:
             settings=_QUERY_SETTINGS,
         )
 
-        results = [{"name": row[0], "series_count": int(row[1])} for row in response.results]
+        # Remove service aliases after aggregation to avoid filtering each attribute row.
+        results = [
+            {"name": row[0], "attribute_count": int(row[1])}
+            for row in response.results
+            if row[0] not in _SERVICE_NAME_KEYS
+        ]
         search_lower = self.search.lower()
-        if not results and (search_lower in "service_name" or search_lower in "service.name"):
-            results.append({"name": "service_name", "series_count": 0})
-        return results
+        if search_lower in "service_name" or search_lower in "service.name":
+            # The first-class service column has no attribute occurrence count.
+            results.insert(0, {"name": "service_name", "attribute_count": None})
+        return results[: self.limit]
 
 
 class MetricAttributeValuesQueryRunner:
@@ -134,6 +141,7 @@ class MetricAttributeValuesQueryRunner:
         team: Team,
         *,
         key: str,
+        metric_name: str = "",
         search: str = "",
         date_from: dt.datetime | None = None,
         date_to: dt.datetime | None = None,
@@ -143,6 +151,7 @@ class MetricAttributeValuesQueryRunner:
             raise ValueError("key is required")
         self.team = team
         self.key = key
+        self.metric_name = metric_name.strip()
         self.search = search.strip()
         self.date_from, self.date_to = _resolve_window(date_from, date_to)
         self.limit = _validate_limit(limit)
@@ -157,6 +166,7 @@ class MetricAttributeValuesQueryRunner:
                     FROM posthog.metric_attributes
                     WHERE time_bucket >= {date_from}
                       AND time_bucket < {date_to}
+                      AND {metric_name_filter}
                       AND service_name ILIKE {search_pattern}
                     GROUP BY service_name
                     ORDER BY
@@ -176,6 +186,7 @@ class MetricAttributeValuesQueryRunner:
                     FROM posthog.metric_attributes
                     WHERE time_bucket >= {date_from}
                       AND time_bucket < {date_to}
+                      AND {metric_name_filter}
                       AND attribute_key = {key}
                       AND attribute_value ILIKE {search_pattern}
                     GROUP BY attribute_value
@@ -204,6 +215,15 @@ class MetricAttributeValuesQueryRunner:
             "date_from": ast.Constant(value=self.date_from),
             "date_to": ast.Constant(value=self.date_to),
             "key": ast.Constant(value=self.key),
+            "metric_name_filter": (
+                ast.Constant(value=True)
+                if not self.metric_name
+                else ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["metric_name"]),
+                    right=ast.Constant(value=self.metric_name),
+                )
+            ),
             "search_pattern": ast.Constant(value=ilike_pattern(self.search)),
             "exact": ast.Constant(value=self.search),
             "limit": ast.Constant(value=self.limit),

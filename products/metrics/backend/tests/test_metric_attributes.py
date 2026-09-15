@@ -26,7 +26,7 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
             metric_name="http_requests",
             service_name="checkout",
             points=recent,
-            labels={"env": "prod", "region": "us"},
+            labels={"env": "prod", "region": "us", "service_name": "ignored", "service.name": "ignored"},
             resource_labels={"k8s.pod.name": "pod-1", "region": "us"},
         )
         seed_metric(
@@ -53,11 +53,11 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         body = response.json()
         assert body["results"] == [
-            {"name": "service_name", "series_count": 3},
-            {"name": "env", "series_count": 2},
-            {"name": "k8s.pod.name", "series_count": 1},
-            {"name": "region", "series_count": 1},
-            {"name": "stale_key", "series_count": 1},
+            {"name": "service_name", "attribute_count": None},
+            {"name": "region", "attribute_count": 6},
+            {"name": "env", "attribute_count": 4},
+            {"name": "k8s.pod.name", "attribute_count": 3},
+            {"name": "stale_key", "attribute_count": 1},
         ]
         assert body["count"] == 5
 
@@ -66,7 +66,7 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
             ("substring_of_attribute_key", "env", ["env"]),
             ("substring_of_synthetic_service_name", "serv", ["service_name"]),
             ("dotted_service_name", "service.name", ["service_name"]),
-            ("series_count_order", "e", ["service_name", "env", "k8s.pod.name", "region", "stale_key"]),
+            ("attribute_count_order", "e", ["service_name", "region", "env", "k8s.pod.name", "stale_key"]),
         ]
     )
     def test_attributes_search_filters_keys(self, _name: str, search: str, expected: list[str]) -> None:
@@ -74,40 +74,65 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert [r["name"] for r in response.json()["results"]] == expected
 
-    @parameterized.expand([("recent", 0), ("historical", 10)])
-    def test_attributes_use_recent_metadata_without_enforcing_end_time(self, _name: str, end_minutes_ago: int):
+    @parameterized.expand([("utc", 0), ("half_hour_offset", 330)])
+    def test_attributes_use_hourly_window(self, _name: str, offset_minutes: int):
+        tz = dt.timezone(dt.timedelta(minutes=offset_minutes))
         response = self._get(
             "attributes",
             {
-                "dateFrom": (self.now - dt.timedelta(hours=1)).isoformat(),
-                "dateTo": (self.now - dt.timedelta(minutes=end_minutes_ago)).isoformat(),
+                "dateFrom": (self.now - dt.timedelta(hours=1)).astimezone(tz).isoformat(),
+                "dateTo": self.now.isoformat(),
             },
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"] == [
-            {"name": "env", "series_count": 2},
-            {"name": "service_name", "series_count": 2},
-            {"name": "k8s.pod.name", "series_count": 1},
-            {"name": "region", "series_count": 1},
+            {"name": "service_name", "attribute_count": None},
+            {"name": "region", "attribute_count": 6},
+            {"name": "env", "attribute_count": 4},
+            {"name": "k8s.pod.name", "attribute_count": 3},
         ]
+
+    def test_attributes_exclude_buckets_after_the_window(self):
+        response = self._get(
+            "attributes",
+            {
+                "dateFrom": (self.now - dt.timedelta(hours=4)).isoformat(),
+                "dateTo": (self.now - dt.timedelta(hours=2)).isoformat(),
+            },
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"] == [
+            {"name": "service_name", "attribute_count": None},
+            {"name": "stale_key", "attribute_count": 1},
+        ]
+
+    @parameterized.expand([("limit", {"limit": 1}), ("no_metadata", {"metricName": "unknown"})])
+    def test_service_key_has_no_occurrence_count(self, _name: str, params: dict):
+        response = self._get("attributes", params)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"] == [{"name": "service_name", "attribute_count": None}]
 
     def test_attributes_metric_name_limits_keys_to_that_metric(self):
         response = self._get("attributes", {"metricName": "http_requests"})
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["results"] == [
-            {"name": "env", "series_count": 2},
-            {"name": "service_name", "series_count": 2},
-            {"name": "k8s.pod.name", "series_count": 1},
-            {"name": "region", "series_count": 1},
+            {"name": "service_name", "attribute_count": None},
+            {"name": "region", "attribute_count": 6},
+            {"name": "env", "attribute_count": 4},
+            {"name": "k8s.pod.name", "attribute_count": 3},
         ]
 
-    def test_attribute_values_returns_values_with_aggregated_counts(self):
-        response = self._get("attribute_values", {"key": "env"})
+    @parameterized.expand([("all_metrics", "", ["prod", "dev"]), ("other_metric", "queue_depth", [])])
+    def test_attribute_values_returns_values_with_aggregated_counts(
+        self, _name: str, metric_name: str, expected: list[str]
+    ):
+        response = self._get("attribute_values", {"key": "env", "metricName": metric_name})
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["results"] == [
+        values = [
             {"id": "prod", "name": "prod", "count": 3},
             {"id": "dev", "name": "dev", "count": 1},
         ]
+        assert response.json()["results"] == [value for value in values if value["name"] in expected]
 
     def test_attribute_values_search_filters_values(self):
         # The property-values autocomplete sends the typed input as `value`.
@@ -120,6 +145,9 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
         response = self._get("attribute_values", {"key": key})
         assert response.status_code == status.HTTP_200_OK
         assert [r["name"] for r in response.json()["results"]] == ["checkout", "billing"]
+        scoped_response = self._get("attribute_values", {"key": key, "metricName": "queue_depth"})
+        assert scoped_response.status_code == status.HTTP_200_OK
+        assert [r["name"] for r in scoped_response.json()["results"]] == ["checkout"]
 
     @parameterized.expand(
         [
