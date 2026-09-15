@@ -1924,9 +1924,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 if (values.metadataIsStale) {
                     return
                 }
+                // Embedded mode has no tabs, so the model is reached by the path QueryWindow binds
+                // the editor to, which is the same path createTab uses.
+                const uri = values.activeTab?.uri ?? props.monaco?.Uri.parse(tabModelPath(props.tabId))
                 applyUndoableRangedEdits(
                     props.monaco,
-                    values.activeTab?.uri,
+                    uri,
                     edits,
                     values.activeQueryOffset,
                     values.activeQueryText ?? values.queryInput ?? ''

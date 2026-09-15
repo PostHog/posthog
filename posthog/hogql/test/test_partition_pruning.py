@@ -42,6 +42,7 @@ class TestFindUnprunedEventsScans(SimpleTestCase):
                 0,
             ),
             ("group by reads every row", "SELECT event, count() FROM events GROUP BY event", 1),
+            ("group by all reads every row", "SELECT event FROM events GROUP BY ALL LIMIT 1", 1),
             ("implicit top level limit", "SELECT * FROM events", 0),
             ("ordering cannot stop at the limit", "SELECT * FROM events ORDER BY timestamp DESC", 1),
             ("a filter defeats early termination", "SELECT * FROM events WHERE event = 'never_matches' LIMIT 1", 1),

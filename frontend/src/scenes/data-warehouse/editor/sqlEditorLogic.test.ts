@@ -730,6 +730,24 @@ describe('sqlEditorLogic', () => {
 
             expect(model.pushEditOperations).toHaveBeenCalledTimes(expectEdit ? 1 : 0)
         })
+
+        it('applies the fix to the embedded editor model, which has no tab', async () => {
+            const model = createUndoTrackingModel(STATEMENT)
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                mode: SQLEditorMode.Embedded,
+                monaco: createMonacoWithModel(model),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            logic.actions.setMetadata({ isValid: true } as HogQLMetadataResponse, STATEMENT)
+            logic.actions.setActiveQueryText(STATEMENT, 0)
+
+            logic.actions.applyQueryFix([{ start: 0, end: 6, text: 'SELECT 1 --' }])
+
+            expect(logic.values.activeTab).toBeNull()
+            expect(model.pushEditOperations).toHaveBeenCalledTimes(1)
+        })
     })
 
     describe('getDisplayTypeToSaveInsight', () => {

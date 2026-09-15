@@ -386,7 +386,8 @@ def _terminates_early(query: ast.SelectQuery) -> bool:
     `(team_id, toDate(timestamp), event, timestamp, ...)` and the distributed table has no raw timestamp
     in its key at all, so `event` intervenes and the sort sees full history before the limit applies.
     """
-    if query.distinct or query.group_by or query.having or query.array_join_list:
+    # GROUP BY ALL sets group_by_mode and leaves group_by empty, so both have to be checked.
+    if query.distinct or query.group_by or query.group_by_mode or query.having or query.array_join_list:
         return False
     if query.qualify or query.window_exprs or query.limit_by:
         return False
