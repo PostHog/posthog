@@ -5,6 +5,7 @@ import {
   reportNavigationState,
   settingsSourceHref,
   sourceHrefFromSearch,
+  validSourceHref,
 } from "./reportNavigation";
 import { getRouterOrNull } from "./routerRef";
 
@@ -155,7 +156,11 @@ export function navigateToInboxReports(): void {
 
 export function navigateToReport(
   reportId: string,
-  options?: { preserveSource?: boolean; returnToTriage?: boolean },
+  options?: {
+    preserveSource?: boolean;
+    returnToTriage?: boolean;
+    sourceHref?: string;
+  },
 ): void {
   const router = getRouterOrNull();
   if (!router) return;
@@ -167,7 +172,11 @@ export function navigateToReport(
     });
   }
   const from =
-    options?.preserveSource === false ? undefined : navigationSourceHref();
+    options?.sourceHref !== undefined
+      ? validSourceHref(options.sourceHref)
+      : options?.preserveSource === false
+        ? undefined
+        : navigationSourceHref();
   void router.navigate({
     to: "/reports/$reportId",
     params: { reportId },
