@@ -1,7 +1,7 @@
 import re
 import dataclasses
 from datetime import datetime
-from typing import Any, Optional, TypeVar, cast
+from typing import Any, Literal, Optional, TypeVar, cast
 
 from dateutil.parser import isoparse
 
@@ -27,7 +27,11 @@ from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1
 from posthog.hogql.database.schema.sessions_v2 import SessionsTableV2
 from posthog.hogql.database.schema.sessions_v3 import SessionsTableV3
 from posthog.hogql.database.schema.spans import TraceSpansTable
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import (
+    ExposedHogQLError,
+    QueryError,
+    SyntaxError as HogQLSyntaxError,
+)
 from posthog.hogql.property import bound_property_to_expr, property_to_expr
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 
@@ -320,14 +324,12 @@ class ReplaceFilters(CloningVisitor):
             exprs.extend(self._date_range_exprs(timestamp_field))
 
             if self.filters.filterTestAccounts:
+                test_account_scope: Literal["person", "event"] = "person" if persons_only else "event"
                 for prop in self.team.test_account_filters or []:
-                    if persons_only:
-                        try:
-                            exprs.append(property_to_expr(prop, self.team, scope="person"))
-                        except (QueryError, NotImplementedError) as error:
-                            raise self._persons_test_account_filter_error(prop) from error
-                    else:
-                        exprs.append(property_to_expr(prop, self.team, scope="event"))
+                    try:
+                        exprs.append(property_to_expr(prop, self.team, scope=test_account_scope))
+                    except (ExposedHogQLError, NotImplementedError) as error:
+                        raise self._test_account_filter_error(prop, error, persons_only=persons_only) from error
 
             if len(exprs) == 0:
                 return ast.Constant(value=True)
@@ -598,14 +600,24 @@ class ReplaceFilters(CloningVisitor):
             "Numeric binning isn't supported by {filters.breakdown(...)}. Remove the bin count from the breakdown."
         )
 
-    def _persons_test_account_filter_error(self, prop: Any) -> QueryError:
-        # The filter comes from project settings rather than the query, so the bare scope error from
+    def _test_account_filter_error(self, prop: Any, error: Exception, *, persons_only: bool) -> QueryError:
+        # The filter comes from project settings rather than the query, so the bare error from
         # property_to_expr names something the reader never wrote and can't act on.
-        prop_type = prop.get("type") if isinstance(prop, dict) else getattr(prop, "type", None)
         key = prop.get("key") if isinstance(prop, dict) else getattr(prop, "key", None)
+        if isinstance(error, HogQLSyntaxError):
+            return QueryError(
+                f"A test account filter in your project settings is not valid SQL ({error}). "
+                f"Correct this filter in project settings: {key}"
+            )
+        prop_type = prop.get("type") if isinstance(prop, dict) else getattr(prop, "type", None)
         described = f"the {prop_type or 'unknown'} property filter" + (f" on '{key}'" if key else "")
+        if persons_only:
+            return QueryError(
+                f"A test account filter in your project settings ({described}) can't apply to a query that "
+                "selects only from persons. Change it to a person property filter in project settings, or "
+                "bind it yourself with {filters(expr AS key, ...)}."
+            )
         return QueryError(
-            f"A test account filter in your project settings ({described}) can't apply to a query that "
-            "selects only from persons. Change it to a person property filter in project settings, or "
-            "bind it yourself with {filters(expr AS key, ...)}."
+            f"A test account filter in your project settings ({described}) can't apply to this query ({error}). "
+            "Change the filter in project settings."
         )
