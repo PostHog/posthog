@@ -176,7 +176,7 @@ pub fn upload_pairs(
         }
     }
     if empty_skipped_suspect > 0 {
-        warn!(
+        info!(
             "Skipped {} empty sourcemaps whose sibling JS file is at least {} bytes. If those files must symbolicate, check your bundler's source-map setting (e.g. webpack `devtool`, Next.js `productionBrowserSourceMaps`, server compiler config). Set RUST_LOG=debug to list them.",
             empty_skipped_suspect, WRAPPER_JS_SIZE_THRESHOLD_BYTES
         );
