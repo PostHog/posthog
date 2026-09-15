@@ -34,6 +34,7 @@ import {
   useState,
 } from "react";
 import { GithubConnectionRequiredDialog } from "./GithubConnectionRequiredDialog";
+import { GithubInstallRequestsBanner } from "./GithubInstallRequestsBanner";
 
 interface GithubConnectionRequiredRecoveryProps {
   task: Task;
@@ -173,6 +174,12 @@ export function GithubConnectionRequiredRecovery({
   // Connecting and restarting both drive the dialog's primary button.
   const primaryActionBusy = isConnecting || isRestarting;
 
+  const startConnect = useCallback(() => {
+    if (projectId == null || cloudRegion == null) return;
+    connectStartedRef.current = true;
+    void connect();
+  }, [cloudRegion, connect, projectId]);
+
   return (
     <GithubConnectionRequiredDialog
       open={open}
@@ -185,13 +192,15 @@ export function GithubConnectionRequiredRecovery({
       }
       approvalPending={isPending}
       canConnect={!isLoadingIntegrations}
+      installRequests={
+        <GithubInstallRequestsBanner
+          onFinishConnecting={startConnect}
+          isConnecting={primaryActionBusy}
+        />
+      }
       canRunLocally={localWorkspaces && !!localFolder}
       onOpenChange={onOpenChange}
-      onConnect={() => {
-        if (projectId == null || cloudRegion == null) return;
-        connectStartedRef.current = true;
-        void connect();
-      }}
+      onConnect={startConnect}
       onRetryTask={restartError ? () => void retryInvestigation() : undefined}
       onRunLocally={runLocally}
     />

@@ -14,7 +14,12 @@ import {
   DialogTitle,
 } from "@posthog/quill";
 import { toast } from "@posthog/ui/primitives/toast";
-import { type ReactElement, useCallback, useState } from "react";
+import {
+  type ReactElement,
+  type ReactNode,
+  useCallback,
+  useState,
+} from "react";
 
 interface GithubConnectionRequiredDialogProps {
   open: boolean;
@@ -24,6 +29,8 @@ interface GithubConnectionRequiredDialogProps {
   approvalPending?: boolean;
   /** False until the caller knows which connection flow this project needs. */
   canConnect?: boolean;
+  /** The organization-approval state, which outlives this dialog. */
+  installRequests?: ReactNode;
   canRunLocally: boolean;
   onOpenChange: (open: boolean) => void;
   onConnect: () => void;
@@ -40,6 +47,7 @@ export function GithubConnectionRequiredDialog({
   requirementMessage = GITHUB_CLOUD_TASK_CONNECTION_REQUIRED_MESSAGE,
   approvalPending = false,
   canConnect = true,
+  installRequests,
   canRunLocally,
   onOpenChange,
   onConnect,
@@ -88,6 +96,8 @@ export function GithubConnectionRequiredDialog({
             {connectionMessage}
           </p>
         ) : null}
+
+        {installRequests}
 
         {showWhy || approvalPending ? (
           <div className="flex flex-col gap-2 rounded-(--radius-2) border border-(--gray-6) bg-(--gray-2) p-3">

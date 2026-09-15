@@ -20,6 +20,11 @@ const integrationState = vi.hoisted(() => ({
   isLoadingIntegrations: false,
 }));
 
+const installRequestState = vi.hoisted(() => ({
+  results: [] as Array<Record<string, unknown>>,
+  install_url: "https://github.com/apps/posthog/installations/new",
+}));
+
 vi.mock("@posthog/core/sessions/sessionService", () => ({
   SESSION_SERVICE: Symbol.for("test.session-service"),
 }));
@@ -35,7 +40,20 @@ vi.mock("@posthog/ui/features/integrations/useIntegrations", () => ({
   useIntegrations: () => ({
     isPending: integrationState.isLoadingIntegrations,
   }),
+  useUserGithubIntegrations: () => ({ data: [], isSuccess: true }),
 }));
+vi.mock("@posthog/ui/features/integrations/useGithubInstallRequests", () => ({
+  useGithubInstallRequests: () => ({ data: installRequestState }),
+}));
+vi.mock(
+  "@posthog/ui/features/integrations/useDismissGithubInstallRequest",
+  () => ({
+    useDismissGithubInstallRequest: () => ({
+      mutate: vi.fn(),
+      isPending: false,
+    }),
+  }),
+);
 vi.mock("@posthog/ui/features/integrations/store", () => ({
   useIntegrationSelectors: () => ({
     hasGithubIntegration: integrationState.hasGithubIntegration,
@@ -93,6 +111,48 @@ describe("GithubConnectionRequiredRecovery", () => {
     connectState.projectHasTeamIntegration = undefined;
     integrationState.hasGithubIntegration = false;
     integrationState.isLoadingIntegrations = false;
+    installRequestState.results = [];
+  });
+
+  it("shows the owner message with the install link while approval is pending", () => {
+    installRequestState.results = [
+      { id: "req-1", status: "pending", github_login: "octocat" },
+    ];
+
+    render(
+      <GithubConnectionRequiredRecovery
+        task={makeTask("task-1")}
+        open
+        onOpenChange={() => undefined}
+      />,
+    );
+
+    expect(
+      screen.getByText(/Open https:\/\/github\.com\/apps\/posthog/),
+    ).toBeInTheDocument();
+  });
+
+  it("finishes the connection once an owner approves", () => {
+    installRequestState.results = [
+      {
+        id: "req-1",
+        status: "approved",
+        installation_id: "42",
+        account_login: "acme",
+      },
+    ];
+
+    render(
+      <GithubConnectionRequiredRecovery
+        task={makeTask("task-1")}
+        open
+        onOpenChange={() => undefined}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Finish connecting"));
+
+    expect(connectState.connect).toHaveBeenCalledOnce();
   });
 
   it.each([
