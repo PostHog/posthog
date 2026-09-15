@@ -1,3 +1,4 @@
+import { hasActiveReportPullRequest } from "@posthog/core/inbox/reportPullRequests";
 import { buildDiscussReportPrompt as buildSharedDiscussReportPrompt } from "@posthog/shared";
 import { buildInboxDeeplink } from "@posthog/shared/deeplink";
 import type { SignalReport } from "@posthog/shared/types";
@@ -22,7 +23,7 @@ export function canCreateImplementationPr(
   }
   // A merged PR doesn't block: a report that outlived its fix (evidence kept
   // arriving) legitimately gets another attempt.
-  if (report.implementation_pr_url && !report.implementation_pr_merged) {
+  if (hasActiveReportPullRequest(report)) {
     return false;
   }
   if (report.already_addressed === true) return false;
@@ -62,7 +63,7 @@ export function buildCreatePrReportPrompt({
   const reportRef = reportUrl
     ? `${reportId} ([inbox item](${reportUrl}))`
     : reportId;
-  const base = `Act on PostHog inbox report ${reportRef}. Use the inbox MCP tools to fetch the report, its contributing findings, any suggested reviewers, and any implementation PR already linked to it; investigate the root cause; and implement the fix.\n\nIf the report already has a linked implementation PR (check the report's \`implementation_pr_url\`) and it is still open, you are iterating on existing work: check that PR out with \`gh pr checkout <url>\`, continue on its branch, and commit your changes to that same PR. Do NOT open a second PR for the same fix. Otherwise, open a PR. Only open a separate PR alongside an existing one when the user's feedback clearly asks for a distinct change.\n\nIf you can't fetch the report, stop and report that instead of guessing what it contains.`;
+  const base = `Act on PostHog inbox report ${reportRef}. Use the inbox MCP tools to fetch the report, its contributing findings, any suggested reviewers, and any implementation PR already linked to it; investigate the root cause; and implement the fix.\n\nInspect every entry in the report's \`pull_requests\` collection and its state. If a relevant PR is open or draft, you are iterating on existing work: check that PR out with \`gh pr checkout <url>\`, continue on its branch, and commit your changes to that same PR. Do NOT open a second PR for the same fix. Otherwise, open a PR. Related changes may use a stack of PRs. Claim the report with the inbox claim tool, retain its claim_id, and attach all known PR URLs together through that same tool. Use takeover only when the user asks to take over another claim.\n\nIf you can't fetch the report, stop and report that instead of guessing what it contains.`;
   const trimmedFeedback = feedback?.trim();
   if (!trimmedFeedback) return base;
   return `${base}\n\nAdditional feedback from the user (take this into account, including any questions raised in the report thread):\n${trimmedFeedback}`;

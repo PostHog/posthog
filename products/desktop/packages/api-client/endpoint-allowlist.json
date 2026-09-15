@@ -68,7 +68,7 @@
     "MCPToolApprovalStateEnum",
     "OAuthRedirectResponse",
     "PaginatedHogFlowMinimalList",
-    "PaginatedTaskDetailDTOList",
+    "PaginatedTaskListItemList",
     "PaginatedTaskRunDetailDTOList",
     "PaginatedTaskSummaryDTOList",
     "PatchedExternalDataSourceBulkUpdateSchemas",

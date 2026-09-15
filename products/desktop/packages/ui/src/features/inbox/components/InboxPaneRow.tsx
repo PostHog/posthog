@@ -3,6 +3,7 @@ import {
   humanizeReportTitle,
   parsePrUrl,
 } from "@posthog/core/inbox/reportPresentation";
+import { primaryReportPullRequest } from "@posthog/core/inbox/reportPullRequests";
 import { AutocompleteItem, Button, cn } from "@posthog/quill";
 import { formatRelativeAge } from "@posthog/shared";
 import type { SignalReport } from "@posthog/shared/types";
@@ -33,9 +34,7 @@ export function InboxPaneRow({
   // row is a button, whose wrapper truncates on one line, so the preview has to
   // opt back into wrapping.
   const headline = deriveHeadline(report.summary);
-  const pr = report.implementation_pr_url
-    ? parsePrUrl(report.implementation_pr_url)
-    : null;
+  const pr = parsePrUrl(primaryReportPullRequest(report).url);
 
   return (
     <InboxReportContextMenu report={report}>

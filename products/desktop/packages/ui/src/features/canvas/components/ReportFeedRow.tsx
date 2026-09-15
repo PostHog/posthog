@@ -4,6 +4,7 @@ import {
   deriveHeadline,
   humanizeReportTitle,
 } from "@posthog/core/inbox/reportPresentation";
+import { primaryReportPullRequest } from "@posthog/core/inbox/reportPullRequests";
 import { Button, Card, CardContent } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import type { SignalReport } from "@posthog/shared/types";
@@ -54,7 +55,7 @@ export function ReportFeedRow({
                 <span className="min-w-0 truncate font-semibold text-sm leading-snug">
                   {title}
                 </span>
-                {report.implementation_pr_url && (
+                {primaryReportPullRequest(report).url && (
                   <GitPullRequestIcon
                     size={13}
                     className="shrink-0 text-(--gray-9)"
@@ -76,7 +77,7 @@ export function ReportFeedRow({
               onClick={(event) => event.stopPropagation()}
               onKeyDown={(event) => event.stopPropagation()}
             >
-              {report.implementation_pr_url && !archived && (
+              {primaryReportPullRequest(report).url && !archived && (
                 <Button
                   type="button"
                   variant="outline"

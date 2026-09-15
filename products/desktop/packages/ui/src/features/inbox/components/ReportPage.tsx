@@ -1,4 +1,5 @@
 import { isDismissedReport } from "@posthog/core/inbox/reportMembership";
+import { reportPullRequests } from "@posthog/core/inbox/reportPullRequests";
 import type { SignalReport } from "@posthog/shared/types";
 import { useTriageFocusEnabled } from "@posthog/ui/features/feature-flags/useTriageFocusEnabled";
 import { DismissedReportDetailContent } from "@posthog/ui/features/inbox/components/DismissedReportDetail";
@@ -71,7 +72,7 @@ function ReportPageContent({ report }: { report: SignalReport }) {
   const triageEnabled = useTriageFocusEnabled();
   useCloseReportWhenTerminal(report);
   useInboxTriageHotkey({ enabled: triageEnabled });
-  const hasPr = Boolean(report.implementation_pr_url);
+  const hasPr = reportPullRequests(report).length > 0;
   return (
     <ReportPageContext value={report}>
       {!archived && (

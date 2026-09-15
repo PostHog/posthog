@@ -1,5 +1,6 @@
 import { GitPullRequestIcon } from "@phosphor-icons/react";
 import { isPullRequestReport } from "@posthog/core/inbox/reportMembership";
+import { reportPullRequests } from "@posthog/core/inbox/reportPullRequests";
 import type { SignalReport } from "@posthog/shared/types";
 import { InboxReportListTab } from "@posthog/ui/features/inbox/components/InboxReportListTab";
 import { PullRequestCard } from "@posthog/ui/features/inbox/components/PullRequestCard";
@@ -47,7 +48,7 @@ function PullRequestsBatchProvider({
   const prUrls = useMemo(
     () =>
       reports
-        .map((report) => report.implementation_pr_url)
+        .flatMap((report) => reportPullRequests(report).map((pr) => pr.url))
         .filter((url): url is string => !!url),
     [reports],
   );

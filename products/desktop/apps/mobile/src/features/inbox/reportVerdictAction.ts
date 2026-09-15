@@ -1,5 +1,9 @@
 import { canCreateImplementationPr } from "@posthog/core/inbox/reportActions";
 import { parsePrUrl } from "@posthog/core/inbox/reportPresentation";
+import {
+  hasActiveReportPullRequest,
+  primaryReportPullRequest,
+} from "@posthog/core/inbox/reportPullRequests";
 import type { SignalReport } from "@posthog/shared/domain-types";
 
 export type ReportVerdictAction =
@@ -17,22 +21,18 @@ export function isReportAwaitingInput(report: SignalReport): boolean {
 }
 
 /**
- * The implementation PR to link to, or null. A merged PR is history, not live
- * work. `implementation_pr_url` flows in from task-run output, so it is only
- * trusted as a canonical GitHub PR URL — anything else is not presented as
- * "View PR".
+ * Only active, valid GitHub links can offer the review action.
  */
 function liveImplementationPrUrl(report: SignalReport): string | null {
-  if (report.implementation_pr_merged) return null;
-  const url = report.implementation_pr_url;
+  if (!hasActiveReportPullRequest(report)) return null;
+  const url = primaryReportPullRequest(report).url;
   if (!url || !parsePrUrl(url)) return null;
   return url;
 }
 
 /**
  * The one action the verdict banner offers: open the live PR, start the fix, or
- * nothing. Mobile has no continuable-task lookup, so an existing PR is read from
- * `implementation_pr_url` alone.
+ * nothing.
  */
 export function resolveReportVerdictAction(
   report: SignalReport,

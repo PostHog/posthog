@@ -1,3 +1,4 @@
+import { hasActiveReportPullRequest } from "@posthog/core/inbox/reportPullRequests";
 import {
   Button,
   Dialog,
@@ -48,9 +49,7 @@ export function ResolveReportDialog({
   const [note, setNote] = useState(initialNote);
   const fieldId = useId();
   const title = report.title?.trim() ? report.title : "Untitled report";
-  const hasOpenPr =
-    Boolean(report.implementation_pr_url) &&
-    report.implementation_pr_merged !== true;
+  const hasOpenPr = hasActiveReportPullRequest(report);
 
   return (
     <Dialog

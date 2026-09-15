@@ -2,6 +2,7 @@ import { requestErrorStatus } from "@posthog/api-client/fetcher";
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import { humanizeIdentifier } from "@posthog/core/inbox/activityLog";
 import type {
+  SignalReport,
   SignalReportStatus,
   Task,
   TaskRunArtefactContent,
@@ -175,13 +176,24 @@ function isTaskPrMerged(task: Task): boolean {
  */
 export function findContinuableImplementationTask(
   reportTasks: ReportTaskData[] | undefined,
+  report?: Pick<SignalReport, "pull_requests"> | null,
 ): Task | null {
   if (!reportTasks) return null;
   const implementation = reportTasks.filter(
     (t) => t.purpose === "implementation",
   );
-  const withPr = implementation.find(
-    (t) => getTaskPrUrl(t.task) && !isTaskPrMerged(t.task),
+  const withPr = reportTasks.find((t) =>
+    report?.pull_requests !== undefined
+      ? report.pull_requests.some(
+          (pr) =>
+            pr.attached_by?.task_id === t.task.id &&
+            !pr.merged &&
+            pr.state !== "closed" &&
+            pr.state !== "merged",
+        )
+      : t.purpose === "implementation" &&
+        getTaskPrUrl(t.task) &&
+        !isTaskPrMerged(t.task),
   );
   if (withPr) return withPr.task;
   const running = implementation.find((t) => {
