@@ -1,5 +1,6 @@
-import { TransactWriteItem } from '@aws-sdk/client-dynamodb'
+import { TransactWriteItem, TransactionCanceledException } from '@aws-sdk/client-dynamodb'
 
+import { logger } from '~/common/utils/logger'
 import { sessionStartMonth } from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format'
 
 import { MlDataKey, MlKeyEncryption } from './crypto'
@@ -16,6 +17,24 @@ import {
     tableKeyString,
     teamBlockId,
 } from './schema'
+
+// The month and team block markers are single items that every commit in the fleet checks, so DynamoDB cancels concurrent commits as TransactionConflict under normal load; the budget stays under the consumer's 60 s loop stall threshold.
+const COMMIT_ATTEMPTS = 10
+const COMMIT_BACKOFF_BASE_MS = 100
+const COMMIT_BACKOFF_CAP_MS = 3_000
+
+function commitRetryDelayMs(attempt: number): number {
+    return Math.random() * Math.min(COMMIT_BACKOFF_CAP_MS, COMMIT_BACKOFF_BASE_MS * 2 ** attempt)
+}
+
+function cancellationCodes(error: unknown): string[] {
+    if (!(error instanceof TransactionCanceledException)) {
+        return []
+    }
+    return (error.CancellationReasons ?? []).flatMap((reason) =>
+        reason.Code && reason.Code !== 'None' ? [reason.Code] : []
+    )
+}
 
 export interface MlSessionKeys {
     session: MlDataKey
@@ -229,7 +248,7 @@ export class MlKeyBatch {
         if (this.committed) {
             throw new Error('ML batch already committed')
         }
-        for (let attempt = 0; attempt < 5; attempt++) {
+        for (let attempt = 0; attempt < COMMIT_ATTEMPTS; attempt++) {
             try {
                 await this.persist()
                 for (const key of this.keys.values()) {
@@ -238,10 +257,15 @@ export class MlKeyBatch {
                 this.committed = true
                 return
             } catch (error) {
-                if (attempt === 4) {
+                if (attempt === COMMIT_ATTEMPTS - 1) {
                     throw error
                 }
-                await this.db.backoff(attempt)
+                logger.warn('🔑', 'ml_key_commit_retry', {
+                    attempt,
+                    codes: cancellationCodes(error),
+                    error: String(error),
+                })
+                await new Promise((resolve) => setTimeout(resolve, commitRetryDelayMs(attempt)))
                 await this.read()
             }
         }
