@@ -48,14 +48,20 @@ def _unwrap_declarations(tool: dict[str, Any]) -> list[Any]:
     return [tool]
 
 
+def _read_description(source: dict[str, Any]) -> str:
+    """SDKs record non-string descriptions, which crash `.split()` in `_format_description`."""
+    description = source.get("description", "N/A")
+    return description if isinstance(description, str) else "N/A"
+
+
 def _read_tool(tool: dict[str, Any]) -> _ToolDefinition:
     """Read name, description and parameter schema out of any supported provider format."""
     if "function" in tool and isinstance(tool["function"], dict):
         # OpenAI format: {type: 'function', function: {name, description, parameters}}
         function = tool["function"]
         return _ToolDefinition(
-            name=function.get("name", "unknown"),
-            description=function.get("description", "N/A"),
+            name=str(function.get("name", "unknown")),
+            description=_read_description(function),
             parameter_schema=function.get("parameters"),
         )
 
@@ -65,13 +71,15 @@ def _read_tool(tool: dict[str, Any]) -> _ToolDefinition:
         # - OpenAI: {name, description, inputSchema} (camelCase)
         # - Google/Gemini unwrapped: {name, description, parameters}
         return _ToolDefinition(
-            name=tool["name"],
-            description=tool.get("description", "N/A"),
+            name=str(tool["name"]),
+            description=_read_description(tool),
             parameter_schema=tool.get("input_schema") or tool.get("inputSchema") or tool.get("parameters"),
         )
 
     # Unknown format
-    return _ToolDefinition(name=tool.get("type", "UNKNOWN"), description=json.dumps(tool)[:100], parameter_schema=None)
+    return _ToolDefinition(
+        name=str(tool.get("type", "UNKNOWN")), description=json.dumps(tool)[:100], parameter_schema=None
+    )
 
 
 def _format_signature(name: str, schema: Any) -> str:

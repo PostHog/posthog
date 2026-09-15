@@ -147,14 +147,21 @@ class TestFormatTools:
         result = "\n".join(lines)
         assert "create_user(username: string, email: string)" in result
 
-    def test_tool_with_no_description(self):
-        """Should handle tool with no description."""
-        tools = [{"name": "mystery_tool", "input_schema": {"type": "object", "properties": {}}}]
+    @parameterized.expand(
+        [
+            ("missing", {}),
+            ("a list", {"description": ["first", "second"]}),
+            ("an object", {"description": {"text": "Does things."}}),
+            ("a number", {"description": 42}),
+        ]
+    )
+    def test_tool_with_unusable_description(self, _name, description_field):
+        """Should render the signature alone when the description is not usable text."""
+        tools = [{"name": "mystery_tool", "input_schema": {"type": "object", "properties": {}}, **description_field}]
+
         lines = format_tools(tools)
-        result = "\n".join(lines)
-        assert "mystery_tool()" in result
-        # Should not have description line
-        assert "N/A" not in result
+
+        assert "\n".join(lines).split("\n") == ["", "AVAILABLE TOOLS: 1", "", "  mystery_tool()"]
 
     def test_tool_with_multiline_description(self):
         """Should show only first line of multiline description."""
