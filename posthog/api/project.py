@@ -1685,63 +1685,6 @@ class ProjectViewSet(
         project.save(update_fields=["is_pending_deletion", "deletion_scheduled_at"])
         return response.Response(ProjectSerializer(project, context=self.get_serializer_context()).data)
 
-    @extend_schema(
-        description="Delete a project that is pending deletion immediately instead of at the scheduled time.",
-        request=None,
-        responses={200: ProjectSerializer},
-    )
-    @action(
-        methods=["POST"],
-        detail=True,
-        url_path="delete-now",
-        permission_classes=[TeamMemberStrictManagementPermission],
-    )
-    def delete_now(self, request: request.Request, id: str, **kwargs) -> response.Response:
-        project = cast(Project, self.get_object())
-        if not project.is_pending_deletion:
-            raise exceptions.ValidationError("This project is not pending deletion.")
-        if not project.deletion_scheduled_at or project.deletion_scheduled_at <= timezone.now():
-            raise exceptions.ValidationError("This project deletion has already started.")
-
-        from posthog.temporal.delete_teams.dispatch import (
-            cancel_delete_project_data_workflow,
-            start_delete_project_data_workflow,
-        )
-
-        user = cast(User, request.user)
-        project_name = project.name
-        team_ids = list(project.teams.values_list("id", flat=True))
-        # Read the remaining delay before cancelling, so the fallback restart keeps the
-        # original schedule instead of pushing the deletion back a fresh 48 hours.
-        remaining_delay = project.deletion_scheduled_at - timezone.now()
-
-        # The scheduled run has not started yet (its date is still in the future), so cancel it
-        # and start a replacement that runs immediately.
-        cancel_delete_project_data_workflow(project_id=project.pk)
-        try:
-            start_delete_project_data_workflow(
-                team_ids=team_ids,
-                project_id=project.pk,
-                user_id=user.id,
-                project_name=project_name,
-                start_delay=None,
-            )
-        except Exception:
-            # The delayed run is gone, so restart it on the original schedule to keep the
-            # deletion on track before surfacing the failure.
-            start_delete_project_data_workflow(
-                team_ids=team_ids,
-                project_id=project.pk,
-                user_id=user.id,
-                project_name=project_name,
-                start_delay=remaining_delay,
-            )
-            raise
-
-        project.deletion_scheduled_at = timezone.now()
-        project.save(update_fields=["deletion_scheduled_at"])
-        return response.Response(ProjectSerializer(project, context=self.get_serializer_context()).data)
-
     @action(
         methods=["PATCH"],
         detail=True,

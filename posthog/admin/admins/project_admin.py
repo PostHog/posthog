@@ -5,6 +5,7 @@ from django.contrib import admin, messages
 from django.shortcuts import redirect
 from django.template.loader import render_to_string
 from django.urls import path, reverse
+from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
@@ -31,7 +32,13 @@ class ProjectAdmin(admin.ModelAdmin):
         "organization__name",
     )
     autocomplete_fields = ["organization"]
-    readonly_fields = ["id", "created_at", "updated_at", "trigger_deletion_display"]
+    readonly_fields = [
+        "id",
+        "created_at",
+        "updated_at",
+        "trigger_deletion_display",
+        "delete_now_display",
+    ]
     fieldsets = (
         (
             None,
@@ -42,12 +49,13 @@ class ProjectAdmin(admin.ModelAdmin):
                     "organization",
                     "product_description",
                     "is_pending_deletion",
+                    "deletion_scheduled_at",
                     "created_at",
                     "updated_at",
                 )
             },
         ),
-        ("Danger zone", {"fields": ("trigger_deletion_display",)}),
+        ("Danger zone", {"fields": ("trigger_deletion_display", "delete_now_display")}),
     )
     inlines = [OrganizationMemberForRelatedInline, TeamInline]
 
@@ -87,6 +95,39 @@ class ProjectAdmin(admin.ModelAdmin):
             )
         )
 
+    @admin.display(description="Delete now")
+    def delete_now_display(self, project: Project):
+        # Only offered while the scheduled run is still waiting: once the date has passed,
+        # the workflow is already deleting and there is nothing to accelerate.
+        if (
+            not project.pk
+            or not project.is_pending_deletion
+            or not project.deletion_scheduled_at
+            or project.deletion_scheduled_at <= timezone.now()
+        ):
+            return "-"
+        request = getattr(self, "_current_request", None)
+        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
+        return mark_safe(
+            render_to_string(
+                "admin/deletion_button.html",
+                {
+                    "action_url": reverse("admin:project_delete_now", args=[project.pk]),
+                    "button_label": "Delete now",
+                    "confirm_message": (
+                        f'Delete project "{project.name}" ({project.pk}) now instead of at its scheduled time? '
+                        "This starts an irreversible Temporal workflow that deletes the project and all its data."
+                    ),
+                    "notice": (
+                        "This cancels the scheduled run and starts deletion immediately. The scheduled deletion "
+                        "date must still be in the future. If starting the immediate run fails, the original "
+                        "schedule is restored and the deletion stays on track."
+                    ),
+                },
+                request=request,
+            )
+        )
+
     def change_view(self, request, object_id, form_url="", extra_context=None):
         # Store request for access in display methods (needed for the CSP nonce in templates).
         self._current_request = request
@@ -99,6 +140,11 @@ class ProjectAdmin(admin.ModelAdmin):
                 "<path:project_id>/trigger-deletion/",
                 self.admin_site.admin_view(self.trigger_deletion_view),
                 name="project_trigger_deletion",
+            ),
+            path(
+                "<path:project_id>/delete-now/",
+                self.admin_site.admin_view(self.delete_now_view),
+                name="project_delete_now",
             ),
         ]
         return custom_urls + urls
@@ -195,4 +241,68 @@ class ProjectAdmin(admin.ModelAdmin):
             )
 
         messages.success(request, f"Started deletion workflow for project {project.name} ({project.pk}).")
+        return redirect(change_url)
+
+    def delete_now_view(self, request, project_id):
+        from posthog.temporal.delete_teams.dispatch import (
+            cancel_delete_project_data_workflow,
+            start_delete_project_data_workflow,
+        )
+
+        change_url = reverse("admin:posthog_project_change", args=[project_id])
+
+        try:
+            project = Project.objects.get(id=project_id)
+        except Project.DoesNotExist:
+            messages.error(request, f"Project with id {project_id} not found.")
+            return redirect(reverse("admin:posthog_project_changelist"))
+
+        if request.method != "POST":
+            return redirect(change_url)
+
+        if not project.is_pending_deletion:
+            messages.error(request, f"Project {project.name} ({project.pk}) is not pending deletion.")
+            return redirect(change_url)
+        if not project.deletion_scheduled_at or project.deletion_scheduled_at <= timezone.now():
+            messages.error(
+                request,
+                f"The scheduled deletion for project {project.name} ({project.pk}) has already started.",
+            )
+            return redirect(change_url)
+
+        team_ids = list(project.teams.values_list("id", flat=True))
+        # Read the remaining delay before cancelling, so the fallback restart keeps the
+        # original schedule instead of pushing the deletion back a fresh 48 hours.
+        remaining_delay = project.deletion_scheduled_at - timezone.now()
+
+        # The scheduled run has not started yet (its date is still in the future), so cancel it
+        # and start a replacement that runs immediately.
+        cancel_delete_project_data_workflow(project_id=project.pk)
+        try:
+            start_delete_project_data_workflow(
+                team_ids=team_ids,
+                project_id=project.pk,
+                user_id=request.user.id,
+                project_name=project.name,
+                start_delay=None,
+            )
+        except Exception as e:
+            # The delayed run is gone, so restart it on the original schedule to keep the
+            # deletion on track before surfacing the failure.
+            start_delete_project_data_workflow(
+                team_ids=team_ids,
+                project_id=project.pk,
+                user_id=request.user.id,
+                project_name=project.name,
+                start_delay=remaining_delay,
+            )
+            messages.error(
+                request,
+                f"Failed to start deletion immediately: {e}. The deletion stays on its original schedule.",
+            )
+            return redirect(change_url)
+
+        project.deletion_scheduled_at = timezone.now()
+        project.save(update_fields=["deletion_scheduled_at"])
+        messages.success(request, f"Started deletion immediately for project {project.name} ({project.pk}).")
         return redirect(change_url)

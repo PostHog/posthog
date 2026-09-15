@@ -53,7 +53,6 @@ actions_that_require_current_team = [
     "evaluation_context_suggestions",
     "logs_config",
     "tracing_config",
-    "delete_now",
 ]
 
 

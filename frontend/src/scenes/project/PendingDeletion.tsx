@@ -1,14 +1,12 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 
 import { newAccountMenuLogic } from 'lib/components/Account/newAccountMenuLogic'
 import { OrgSwitcher } from 'lib/components/Account/OrgSwitcher'
 import { ProjectSwitcher } from 'lib/components/Account/ProjectSwitcher'
 import { HogWelder } from 'lib/components/hedgehogs'
-import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { SupportModalButton } from 'scenes/authentication/shared/SupportModalButton'
@@ -23,18 +21,12 @@ export const scene: SceneExport = {
 
 export function ProjectPendingDeletion(): JSX.Element {
     const { currentProject, currentProjectLoading } = useValues(projectLogic)
-    const { cancelProjectDeletion, deleteProjectNow } = useActions(projectLogic)
-    const { user, otherOrganizations } = useValues(userLogic)
+    const { cancelProjectDeletion } = useActions(projectLogic)
+    const { otherOrganizations } = useValues(userLogic)
     const { isProjectSwitcherOpen, isOrgSwitcherOpen } = useValues(newAccountMenuLogic)
     const { openProjectSwitcher, closeProjectSwitcher, openOrgSwitcher, closeOrgSwitcher } =
         useActions(newAccountMenuLogic)
     const hasOtherOrgs = otherOrganizations.length > 0
-    const isProjectAdmin =
-        (user?.organization?.membership_level ?? OrganizationMembershipLevel.Member) >=
-        OrganizationMembershipLevel.Admin
-    const deletionIsInTheFuture =
-        !!currentProject?.deletion_scheduled_at && dayjs(currentProject.deletion_scheduled_at).isAfter(dayjs())
-    const [deleteNowModalVisible, setDeleteNowModalVisible] = useState(false)
 
     return (
         <div className="max-w-[600px] mx-auto px-2 py-8">
@@ -54,7 +46,7 @@ export function ProjectPendingDeletion(): JSX.Element {
                         </strong>
                         . If you've changed you mind, you can cancel project deletion before then.
                     </p>
-                    <div className="flex items-center gap-2 flex-wrap justify-center">
+                    <div className="flex items-center gap-2">
                         <LemonButton
                             type="secondary"
                             onClick={() => cancelProjectDeletion()}
@@ -63,16 +55,6 @@ export function ProjectPendingDeletion(): JSX.Element {
                         >
                             Cancel project deletion
                         </LemonButton>
-                        {isProjectAdmin && deletionIsInTheFuture && (
-                            <LemonButton
-                                type="primary"
-                                status="danger"
-                                onClick={() => setDeleteNowModalVisible(true)}
-                                data-attr="delete-project-now"
-                            >
-                                Delete now
-                            </LemonButton>
-                        )}
                         <Popover
                             visible={isProjectSwitcherOpen}
                             onClickOutside={closeProjectSwitcher}
@@ -115,34 +97,6 @@ export function ProjectPendingDeletion(): JSX.Element {
                     <SupportModalButton kind="support" label="Contact support" />
                 </div>
             </LemonCard>
-            <LemonModal
-                isOpen={deleteNowModalVisible}
-                title="Delete this project now?"
-                onClose={currentProjectLoading ? undefined : () => setDeleteNowModalVisible(false)}
-                footer={
-                    <>
-                        <LemonButton
-                            type="secondary"
-                            onClick={() => setDeleteNowModalVisible(false)}
-                            disabled={currentProjectLoading}
-                        >
-                            Cancel
-                        </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            status="danger"
-                            onClick={() => deleteProjectNow()}
-                            loading={currentProjectLoading}
-                            disabled={currentProjectLoading}
-                            data-attr="delete-project-now-confirm"
-                        >
-                            Delete now
-                        </LemonButton>
-                    </>
-                }
-            >
-                <p>Deletion will start immediately instead of waiting for the scheduled time. This cannot be undone.</p>
-            </LemonModal>
         </div>
     )
 }

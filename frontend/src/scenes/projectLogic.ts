@@ -9,7 +9,7 @@ import { isUserLoggedIn } from 'lib/utils/getAppContext'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { identifierToHuman } from 'lib/utils/strings'
 
-import { organizationsProjectsCancelDeletionCreate, organizationsProjectsDeleteNowCreate } from '~/generated/core/api'
+import { organizationsProjectsCancelDeletionCreate } from '~/generated/core/api'
 import { ProjectType } from '~/types'
 
 import type { OrganizationBasicType } from '../types'
@@ -90,21 +90,6 @@ export interface projectLogicActions {
     }
     deleteProjectFailure: () => {
         value: true
-    }
-    deleteProjectNow: () => any
-    deleteProjectNowFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    deleteProjectNowSuccess: (
-        currentProject: ProjectType,
-        payload?: any
-    ) => {
-        currentProject: ProjectType
-        payload?: any
     }
     deleteProjectSuccess: () => {
         value: true
@@ -283,15 +268,6 @@ export const projectLogic = kea<projectLogicType>([
                         values.currentProject.id
                     )) as unknown as ProjectType
                 },
-                deleteProjectNow: async () => {
-                    if (!values.currentProject) {
-                        throw new Error('Current project has not been loaded yet, so it cannot be deleted!')
-                    }
-                    return (await organizationsProjectsDeleteNowCreate(
-                        values.currentProject.organization_id,
-                        values.currentProject.id
-                    )) as unknown as ProjectType
-                },
             },
         ],
 
@@ -366,14 +342,6 @@ export const projectLogic = kea<projectLogicType>([
         cancelProjectDeletionFailure: ({ errorObject }) => {
             const apiError = errorObject as Record<string, any>
             lemonToast.error(apiError?.detail || 'Failed to cancel project deletion. Please try again.')
-        },
-        deleteProjectNowSuccess: () => {
-            lemonToast.success('Project deletion started')
-            actions.loadCurrentProject()
-        },
-        deleteProjectNowFailure: ({ errorObject }) => {
-            const apiError = errorObject as Record<string, any>
-            lemonToast.error(apiError?.detail || 'Failed to start project deletion. Please try again.')
         },
         createProjectSuccess: ({ currentProject }) => {
             if (currentProject) {
