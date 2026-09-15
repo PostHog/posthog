@@ -33,20 +33,20 @@ Snapshot subscriptions attempt each scheduled occurrence even when the saved res
 
 ## Tools
 
-| Tool | Purpose |
-| --- | --- |
-| `posthog:subscriptions-list` | Find subscriptions |
-| `posthog:subscriptions-retrieve` | Read one subscription |
-| `posthog:subscriptions-create` | Create a subscription |
-| `posthog:subscriptions-partial-update` | Change, pause, or resume a subscription |
-| `posthog:subscriptions-test-delivery-create` | Send a test delivery |
-| `posthog:subscriptions-deliveries-list` | List delivery attempts |
-| `posthog:subscriptions-deliveries-retrieve` | Read one delivery |
-| `posthog:subscriptions-delete` | Stop all future deliveries |
-| `posthog:integrations-list` | Find a Slack integration |
-| `posthog:integrations-channels-retrieve` | Find Slack channels |
-| `posthog:dashboard-get` | Read dashboard tiles |
-| `posthog:insight-get` | Resolve an insight ID |
+| Tool                                         | Purpose                                 |
+| -------------------------------------------- | --------------------------------------- |
+| `posthog:subscriptions-list`                 | Find subscriptions                      |
+| `posthog:subscriptions-retrieve`             | Read one subscription                   |
+| `posthog:subscriptions-create`               | Create a subscription                   |
+| `posthog:subscriptions-partial-update`       | Change, pause, or resume a subscription |
+| `posthog:subscriptions-test-delivery-create` | Send a test delivery                    |
+| `posthog:subscriptions-deliveries-list`      | List delivery attempts                  |
+| `posthog:subscriptions-deliveries-retrieve`  | Read one delivery                       |
+| `posthog:subscriptions-delete`               | Stop all future deliveries              |
+| `posthog:integrations-list`                  | Find a Slack integration                |
+| `posthog:integrations-channels-retrieve`     | Find Slack channels                     |
+| `posthog:dashboard-get`                      | Read dashboard tiles                    |
+| `posthog:insight-get`                        | Resolve an insight ID                   |
 
 ## Create a subscription
 

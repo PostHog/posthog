@@ -4,11 +4,11 @@ Select exactly one resource type at creation.
 The API derives `resource_type` from the populated field.
 It rejects a subscription that combines resource fields.
 
-| Resource type | Source | Destinations | AI behavior | Type-specific options |
-| --- | --- | --- | --- | --- |
-| `insight` | One saved insight | Email, Slack, Teams | Optional AI summary | No dashboard tile selection |
-| `dashboard` | 1 through 10 selected tiles | Email, Slack, Teams | Optional AI summary | Tile selection and Slack image layout |
-| `ai_prompt` | One free-text prompt | Email, Slack, Teams | AI report uses billable model calls | Analysis window and report display options |
+| Resource type | Source                      | Destinations        | AI behavior                         | Type-specific options                      |
+| ------------- | --------------------------- | ------------------- | ----------------------------------- | ------------------------------------------ |
+| `insight`     | One saved insight           | Email, Slack, Teams | Optional AI summary                 | No dashboard tile selection                |
+| `dashboard`   | 1 through 10 selected tiles | Email, Slack, Teams | Optional AI summary                 | Tile selection and Slack image layout      |
+| `ai_prompt`   | One free-text prompt        | Email, Slack, Teams | AI report uses billable model calls | Analysis window and report display options |
 
 ## Insight snapshot
 
@@ -55,11 +55,11 @@ Enabling chart images also clears a plan that was frozen without images.
 
 Set `ai_prompt_config.window.mode` to one of these values:
 
-| Mode | Result |
-| --- | --- |
+| Mode              | Result                                                    |
+| ----------------- | --------------------------------------------------------- |
 | `since_last_sent` | Analyze data since the last successful scheduled delivery |
-| `last_n_days` | Analyze a trailing period from 1 through 365 days |
-| `days_ago_range` | Analyze an explicit range within the last 365 days |
+| `last_n_days`     | Analyze a trailing period from 1 through 365 days         |
+| `days_ago_range`  | Analyze an explicit range within the last 365 days        |
 
 Manual and test deliveries do not move the `since_last_sent` anchor.
 

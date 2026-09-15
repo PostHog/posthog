@@ -17,14 +17,14 @@ Use `adding-product-alerting` when delivery depends on a threshold, anomaly, bre
 
 ## 1. Route the request
 
-| Request | Primary path |
-| --- | --- |
-| Resource type, destination, schedule, delivery, lifecycle, or limits | This skill |
-| Subscription API, permissions, MCP tools, or delivery history | This skill |
-| Subscription creation or management UI | This skill |
-| AI prompt report planning or output | This skill and `integrating-with-posthog-ai` |
-| Threshold, anomaly, breach, recovery, or quiet hours | `adding-product-alerting` |
-| Configure an existing subscription through MCP | Published `managing-subscriptions` |
+| Request                                                              | Primary path                                 |
+| -------------------------------------------------------------------- | -------------------------------------------- |
+| Resource type, destination, schedule, delivery, lifecycle, or limits | This skill                                   |
+| Subscription API, permissions, MCP tools, or delivery history        | This skill                                   |
+| Subscription creation or management UI                               | This skill                                   |
+| AI prompt report planning or output                                  | This skill and `integrating-with-posthog-ai` |
+| Threshold, anomaly, breach, recovery, or quiet hours                 | `adding-product-alerting`                    |
+| Configure an existing subscription through MCP                       | Published `managing-subscriptions`           |
 
 Before implementation, name each affected boundary:
 
@@ -107,28 +107,28 @@ Use a mock destination or test transport for external delivery checks.
 
 ## 6. Code map
 
-| Concern | Start here |
-| --- | --- |
-| API, serializers, validation, delivery history | `ee/api/subscription.py` |
-| Subscription and delivery models | `products/exports/backend/models/subscription.py` |
-| Delivery workflows and activities | `products/exports/backend/temporal/subscriptions/` |
-| Destination delivery and automatic disable behavior | `ee/tasks/subscriptions/` |
-| Management UI and frontend logic | `products/subscriptions/frontend/` |
-| MCP tool definitions | `products/subscriptions/mcp/tools.yaml` |
-| API behavior tests | `ee/api/test/test_subscription.py` |
-| Destination delivery tests | `ee/tasks/test/subscriptions/` |
-| Workflow tests | `posthog/temporal/tests/test_subscriptions_workflows.py` |
-| Published operational guidance | `products/subscriptions/skills/managing-subscriptions/` |
+| Concern                                             | Start here                                               |
+| --------------------------------------------------- | -------------------------------------------------------- |
+| API, serializers, validation, delivery history      | `ee/api/subscription.py`                                 |
+| Subscription and delivery models                    | `products/exports/backend/models/subscription.py`        |
+| Delivery workflows and activities                   | `products/exports/backend/temporal/subscriptions/`       |
+| Destination delivery and automatic disable behavior | `ee/tasks/subscriptions/`                                |
+| Management UI and frontend logic                    | `products/subscriptions/frontend/`                       |
+| MCP tool definitions                                | `products/subscriptions/mcp/tools.yaml`                  |
+| API behavior tests                                  | `ee/api/test/test_subscription.py`                       |
+| Destination delivery tests                          | `ee/tasks/test/subscriptions/`                           |
+| Workflow tests                                      | `posthog/temporal/tests/test_subscriptions_workflows.py` |
+| Published operational guidance                      | `products/subscriptions/skills/managing-subscriptions/`  |
 
 ## Companion skills
 
-| Skill | Use when |
-| --- | --- |
-| `improving-drf-endpoints` | Change the subscription viewset, serializer, or OpenAPI contract |
-| `django-migrations` | Change subscription or delivery persistence |
-| `adopting-generated-api-types` | Consume changed generated API types |
-| `writing-kea-logics` | Change subscription Kea logic |
-| `integrating-with-posthog-ai` | Change AI prompt planning or report generation |
-| `adding-product-alerting` | Add condition-based delivery or shared alert infrastructure |
-| `writing-tests` | Select the lowest-cost regression test |
-| `writing-user-facing-copy` | Change UI, error, notification, or documentation text |
+| Skill                          | Use when                                                         |
+| ------------------------------ | ---------------------------------------------------------------- |
+| `improving-drf-endpoints`      | Change the subscription viewset, serializer, or OpenAPI contract |
+| `django-migrations`            | Change subscription or delivery persistence                      |
+| `adopting-generated-api-types` | Consume changed generated API types                              |
+| `writing-kea-logics`           | Change subscription Kea logic                                    |
+| `integrating-with-posthog-ai`  | Change AI prompt planning or report generation                   |
+| `adding-product-alerting`      | Add condition-based delivery or shared alert infrastructure      |
+| `writing-tests`                | Select the lowest-cost regression test                           |
+| `writing-user-facing-copy`     | Change UI, error, notification, or documentation text            |
