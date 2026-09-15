@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { getFilterLabel } from '~/taxonomy/helpers'
 import { AnyPropertyFilter, FeatureFlagGroupType, PropertyFilterType } from '~/types'
 
+import { ConditionSetSummary } from './ConditionSetSummary'
 import { rolloutOf } from './releaseConditionsDiff'
 
 export interface FeatureFlagConditionSetCardProps {
@@ -120,26 +121,13 @@ export function FeatureFlagConditionSetCard({
     const rollout = rolloutOf(group)
     const rolloutChanged = previousRolloutPercentage !== undefined && previousRolloutPercentage !== rollout
 
-    const getSummary = (): JSX.Element => {
-        if (properties.length === 0) {
-            return (
-                <>
-                    Condition set will match <b>all {aggregationTargetName}</b>
-                </>
-            )
-        }
-        return (
-            <>
-                Match <b>{aggregationTargetName}</b> against <b>all</b> criteria
-            </>
-        )
-    }
-
     return (
         <div className="border rounded p-4 bg-surface-primary">
             <div className="flex items-center gap-2 flex-wrap">
                 <LemonSnack>{label ?? `Set ${index + 1}`}</LemonSnack>
-                <span className="text-sm">{getSummary()}</span>
+                <span className="text-sm">
+                    <ConditionSetSummary group={group} aggregationTargetName={aggregationTargetName} />
+                </span>
                 {tag}
             </div>
 
