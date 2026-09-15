@@ -69,10 +69,20 @@ class ExecuteSQLToolArgs(BaseModel):
     )
 
 
+EXECUTE_SQL_TOOL_DESCRIPTION = format_prompt_string(
+    EXECUTE_SQL_SYSTEM_PROMPT,
+    sql_expressions_docs=SQL_EXPRESSIONS_DOCS,
+    sql_supported_functions_docs=SQL_SUPPORTED_FUNCTIONS_DOCS,
+    sql_supported_aggregations_docs=SQL_SUPPORTED_AGGREGATIONS_DOCS,
+)
+
+
 class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
     name: str = "execute_sql"
     args_schema: type[BaseModel] = ExecuteSQLToolArgs
     context_prompt_template: str = EXECUTE_SQL_CONTEXT_PROMPT
+    # Fail closed: a caller that skips `create_tool_class` gets a usable tool, not a validation error.
+    description: str = EXECUTE_SQL_TOOL_DESCRIPTION
 
     @classmethod
     async def create_tool_class(
@@ -85,13 +95,7 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
         config: RunnableConfig | None = None,
         context_manager: AssistantContextManager | None = None,
     ) -> Self:
-        prompt = format_prompt_string(
-            EXECUTE_SQL_SYSTEM_PROMPT,
-            sql_expressions_docs=SQL_EXPRESSIONS_DOCS,
-            sql_supported_functions_docs=SQL_SUPPORTED_FUNCTIONS_DOCS,
-            sql_supported_aggregations_docs=SQL_SUPPORTED_AGGREGATIONS_DOCS,
-        )
-        return cls(team=team, user=user, state=state, node_path=node_path, config=config, description=prompt)
+        return cls(team=team, user=user, state=state, node_path=node_path, config=config)
 
     async def _arun_impl(
         self,
