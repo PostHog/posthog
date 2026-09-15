@@ -15,6 +15,7 @@ import { ServerCommands } from '~/common/utils/commands'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { GeoIPService } from '~/common/utils/geoip'
+import { DEFAULT_LOADER_RETRY } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
 import { TeamManager } from '~/common/utils/team-manager'
@@ -466,7 +467,9 @@ export class PluginServer implements NodeServer {
         this.pubsub = new PubSub(this.redisPool)
         await this.pubsub.start()
 
-        const teamManager = new TeamManager(this.postgres)
+        // The CDP consumers fail the batch on a retriable lookup error, so an un-absorbed blip
+        // restarts the pod. The hog function and hog flow managers already retry in place.
+        const teamManager = new TeamManager(this.postgres, { loaderRetry: DEFAULT_LOADER_RETRY })
 
         return { teamManager }
     }
