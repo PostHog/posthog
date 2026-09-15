@@ -13,7 +13,8 @@ Do not copy the old images or full tool output into the new task.
 
 Resuming an idle sandbox does not trigger a completion sound or notification.
 For Pi sessions, completion notifications require an active turn and stay silent during restart setup.
-After a cloud restart, the resent message must appear in the conversation before a completion can notify.
+After a cloud restart, the server must confirm the resent message before a completion can notify.
+Returning to the task while the message is pending does not trigger a completion notification.
 Delayed completion events from restart setup stay silent while the message is pending.
 If you stop a pending message, a successful cancellation clears the running state even if the message never appears in the conversation.
 A completed reply or a request for input still follows your notification settings.

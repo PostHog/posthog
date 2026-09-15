@@ -1640,9 +1640,21 @@ describe("PiSessionController", () => {
     ["the prior run is terminal", "", true],
     ["the prior sandbox is gone", "No active sandbox for this task run", false],
     ["the prior workflow has ended", "Task run workflow has ended", false],
+    [
+      "a pending prompt reconnects",
+      "",
+      true,
+      { isStreaming: false, confirmFromHistory: false },
+    ],
+    [
+      "a pending steer reconnects",
+      "",
+      true,
+      { isStreaming: true, confirmFromHistory: true },
+    ],
   ])(
     "resumes and sends a message when %s",
-    async (_condition, errorMessage, resumeRequired) => {
+    async (_condition, errorMessage, resumeRequired, reconnect = undefined) => {
       const staleSession = {
         ...createSession(),
         taskRunId: "run-1",
@@ -1700,11 +1712,16 @@ describe("PiSessionController", () => {
       });
 
       await controller.connect("task-1");
-      await controller.submit("task-1", "continue", false, "steer");
+      await controller.submit(
+        "task-1",
+        "continue",
+        reconnect?.isStreaming ?? false,
+        "steer",
+      );
 
       expect(resumeCloudPiRun).toHaveBeenCalledWith("task-1", "run-1");
       expect(resumedSession.sendUserMessage).toHaveBeenCalledWith(
-        "prompt",
+        reconnect?.isStreaming ? "steer" : "prompt",
         "continue",
         [],
         expect.any(String),
@@ -1721,12 +1738,32 @@ describe("PiSessionController", () => {
       expect(
         controller.store.getState().sessions["task-1"].status?.isStreaming,
       ).toBe(true);
-      onEvent({
+      if (reconnect) {
+        const status = await resumedSession.client.getState();
+        vi.mocked(resumedSession.client.getState).mockResolvedValue({
+          ...status,
+          isStreaming: reconnect.isStreaming,
+        });
+        controller.release("task-1");
+        await controller.ensureConnected("task-1", "run-2");
+        onEvent({ type: "turn_completed", timestamp: 5, stopReason: "stop" });
+        expect(notifier.notify).not.toHaveBeenCalled();
+      }
+      const confirmedMessage: AgentConversationEvent = {
         type: "user_message",
         id: resentMessageId,
-        timestamp: 5,
+        sourceId: `server:${resentMessageId}`,
+        timestamp: 6,
         content: [{ type: "text", text: "continue" }],
-      });
+      };
+      if (reconnect?.confirmFromHistory) {
+        vi.mocked(resumedSession.getConversation).mockResolvedValue([
+          confirmedMessage,
+        ]);
+        await controller.ensureConnected("task-1", "run-2");
+      } else {
+        onEvent(confirmedMessage);
+      }
       onEvent({
         type: "turn_completed",
         timestamp: Date.now(),

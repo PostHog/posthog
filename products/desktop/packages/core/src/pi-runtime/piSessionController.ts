@@ -1174,11 +1174,14 @@ export class PiSessionController {
     events: AgentConversationEvent[],
     isStreaming: boolean,
   ): void {
-    this.turnStates.delete(taskId);
+    if (this.turnStates.get(taskId)?.phase !== "pending") {
+      this.turnStates.delete(taskId);
+    }
     for (const event of events) {
       this.applyTurnEvent(taskId, event, false);
     }
-    if (isStreaming && this.turnStates.get(taskId)?.phase !== "active") {
+    const phase = this.turnStates.get(taskId)?.phase;
+    if (isStreaming && phase !== "active" && phase !== "pending") {
       this.turnStates.set(taskId, { phase: "active" });
     }
   }
@@ -1190,7 +1193,11 @@ export class PiSessionController {
   ): void {
     const current = this.turnStates.get(taskId);
     if (current?.phase === "pending") {
-      if (event.type === "user_message" && event.id === current.messageId) {
+      if (
+        event.type === "user_message" &&
+        event.id === current.messageId &&
+        !event.sourceId?.startsWith("optimistic:")
+      ) {
         this.turnStates.set(taskId, {
           phase: "active",
           startedAt: current.startedAt,
