@@ -17,20 +17,11 @@ from products.engineering_analytics.backend.facade.contracts import WorkflowHeal
 # bounded by the repo's shape (workflows, job names, a PR's runs) rather than by a page size take it whole.
 UNPAGED_SCAN_LIMIT = MAX_SELECT_RETURNED_ROWS
 
-# Trunk's merge-queue batch branches. Trunk-specific and hardcoded like KNOWN_BOT_HANDLES;
-# defined once here so every surface breaks queue spend out with the same key.
-MERGE_QUEUE_BRANCH_PREFIX = "trunk-merge/"
-
-
-def merge_queue_branch_predicate(branch_sql: str) -> str:
-    """True when the branch expression names a merge-queue batch branch."""
-    return f"startsWith({branch_sql}, '{MERGE_QUEUE_BRANCH_PREFIX}')"
-
-
 # Mirrors DECISIVE_FAILURE_CONCLUSIONS in frontend/lib/lifecycle.ts (keep the two in sync).
 DECISIVE_FAILURE_CONCLUSIONS = ("failure", "timed_out", "startup_failure", "stale")
 DECISIVE_FAILURE_CONCLUSIONS_SQL = ", ".join(f"'{conclusion}'" for conclusion in DECISIVE_FAILURE_CONCLUSIONS)
 SUCCESSFUL_RUN_CONDITION = "status = 'completed' AND conclusion = 'success'"
+FAILED_RUN_CONDITION = f"status = 'completed' AND conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})"
 CONCLUSIVE_RUN_CONDITION = f"status = 'completed' AND conclusion IN ('success', {DECISIVE_FAILURE_CONCLUSIONS_SQL})"
 
 # Duration percentiles use successful instances because cancelled, skipped, and failed instances
@@ -45,6 +36,12 @@ def success_rate_expr(scope: str | None = None) -> str:
     never a false 0%. ``scope`` ANDs an extra predicate into both counts (e.g. a window split)."""
     guard = f" AND {scope}" if scope else ""
     return f"countIf({SUCCESSFUL_RUN_CONDITION}{guard}) / nullIf(countIf({CONCLUSIVE_RUN_CONDITION}{guard}), 0)"
+
+
+def failure_rate_expr(scope: str | None = None) -> str:
+    """The complement of ``success_rate_expr`` over the same denominator."""
+    guard = f" AND {scope}" if scope else ""
+    return f"countIf({FAILED_RUN_CONDITION}{guard}) / nullIf(countIf({CONCLUSIVE_RUN_CONDITION}{guard}), 0)"
 
 
 # A run that settled in under this many seconds with a benign conclusion did no real CI work — the
