@@ -21,8 +21,14 @@ export function NewWorkflowAgent(): JSX.Element {
     useMountedLogic(newWorkflowAgentLogic)
     const { openEditorFromAiComposer } = useActions(newWorkflowLogic)
     const { activeCreation } = useValues(runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }))
-    // The runner's composer consumes the seed as soon as it is set, so a card submits in one click.
+    // A card only fills the composer (no auto-submit) so the prompt can be tweaked before the agent starts.
     const { setSeed } = useActions(composerSeedLogic({ panelId: MAX_SIDE_PANEL_ID }))
+    const fillComposer = (prompt: string): void => {
+        setSeed({ prompt, autoSubmit: false })
+        const textarea = document.querySelector<HTMLTextAreaElement>('[data-attr="task-composer-input"]')
+        textarea?.focus()
+        textarea?.setSelectionRange(prompt.length, prompt.length)
+    }
 
     return (
         // While drafting, the runner takes its natural height so the cards sit right under the composer;
@@ -43,7 +49,7 @@ export function NewWorkflowAgent(): JSX.Element {
                                 title={suggestion.title}
                                 description={suggestion.description}
                                 icon={iconForType('workflows')}
-                                onClick={() => setSeed({ prompt: suggestion.prompt, autoSubmit: true })}
+                                onClick={() => fillComposer(suggestion.prompt)}
                                 data-attr="new-workflow-agent-suggestion"
                             />
                         ))}
