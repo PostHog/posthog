@@ -86,22 +86,28 @@ class TestCalendlySource:
             assert by_name[name].incremental_fields == []
 
     @pytest.mark.parametrize(
-        "mock_return, expected_valid, expected_message",
+        "mock_return, expected_valid, expected_message_fragment",
         [
-            (True, True, None),
-            (False, False, "Invalid Calendly personal access token"),
+            ((True, 200), True, None),
+            ((False, 401), False, "Create a new token"),
+            ((False, 403), False, "required permissions"),
+            ((False, None), False, "couldn't reach Calendly"),
         ],
     )
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.calendly.source.validate_calendly_credentials"
     )
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
+    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message_fragment):
         mock_validate.return_value = mock_return
 
         is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is expected_valid
-        assert error_message == expected_message
+        if expected_message_fragment is None:
+            assert error_message is None
+        else:
+            assert error_message is not None
+            assert expected_message_fragment in error_message
         mock_validate.assert_called_once_with(self.config.personal_access_token)
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.calendly.source.calendly_source")

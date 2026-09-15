@@ -214,6 +214,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/mcp-servers': ['McpGateway', 'mcpGateway'],
     '/mcp-servers/:tab': ['McpGateway', 'mcpGatewayTab'],
     '/metrics': ['Metrics', 'metrics'],
+    '/notebooks/widgets/:widgetId': ['ReusableWidget', 'reusableWidget'],
     '/person/*': ['Person', 'personByDistinctId'],
     '/persons/*': ['Person', 'personByUUID'],
     '/persons': ['Persons', 'persons'],
@@ -440,6 +441,7 @@ export const productRedirects: Record<
     '/mcp-analytics': (_params, searchParams, hashParams) =>
         combineUrl(urls.mcpAnalyticsDashboard(), { ...searchParams, landing: 'auto' }, hashParams).url,
     '/replay-vision/templates': '/replay-vision/new/template',
+    '/replay/vision': '/replay-vision',
     '/community-skills': (_params, searchParams, hashParams) =>
         combineUrl(urls.communitySkills(), searchParams, hashParams).url,
     '/prompt-management/skills': (_params, searchParams, hashParams) =>
@@ -879,6 +881,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'metrics',
         docsHref: 'https://posthog.com/docs/metrics',
     },
+    ReusableWidget: { name: 'Reusable widget', projectBased: true, activityScope: 'Notebook', iconType: 'notebook' },
     Person: { projectBased: true, name: 'People', activityScope: ActivityScope.PERSON, iconType: 'user' },
     Persons: {
         projectBased: true,
@@ -1419,6 +1422,7 @@ export const productUrls = {
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
     canvas: (): string => `/canvas`,
+    reusableWidget: (widgetId: string): string => `/notebooks/widgets/${widgetId}`,
     personByDistinctId: (id: string, encode: boolean = true): string =>
         encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
     personByUUID: (uuid: string, encode: boolean = true): string =>

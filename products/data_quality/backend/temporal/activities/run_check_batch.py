@@ -2,10 +2,10 @@ from collections import Counter
 
 from django.db.models import QuerySet
 
-from asgiref.sync import sync_to_async
 from temporalio import activity
 
 from posthog.models.team import Team
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
@@ -21,7 +21,7 @@ LOGGER = get_logger(__name__)
 @activity.defn
 async def run_check_batch_activity(inputs: RunCheckBatchInputs) -> BatchOutcome:
     async with Heartbeater():
-        return await sync_to_async(_run_batch)(inputs)
+        return await database_sync_to_async_pool(_run_batch)(inputs)
 
 
 def _record_unaudited_batch(
