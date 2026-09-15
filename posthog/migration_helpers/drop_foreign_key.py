@@ -44,17 +44,16 @@ parent, and the wait for that lock is the hazard: it queues behind any in-flight
 the parent, and every query that arrives after it queues behind the wait. On a hot parent
 such as posthog_team or posthog_user that stalls the site for as long as the wait lasts.
 
-The budget is half the server's own deadlock_timeout, the way `SafeDropTable` derives its
-lock phase, and never more than a second. Two waits are in play. A single ALTER holds its
-ACCESS EXCLUSIVE to COMMIT, so a child with keys into two hot parents holds one parent while
-it requests the next, and that lock order crosses the order of any live query reading both.
-A cycle is resolved by the deadlock detector rather than by lock_timeout, and the backend
-that runs the detector is the one that aborts. A budget under deadlock_timeout biases the
-cycle toward the migration, because the op abandons its own wait before its own detector
-runs. It does not settle the cycle. Each backend arms its detector when its own wait starts.
-An application query that began its wait more than the budget earlier reaches its detector
-first, and that backend aborts itself. bin/migrate retries the migration either way. Never
-widen or disable the timeout here.
+The budget is half the server's own deadlock_timeout, and never more than a second. Two
+waits are in play. A single ALTER holds its ACCESS EXCLUSIVE to COMMIT, so a child with keys
+into two hot parents holds one parent while it requests the next, and that lock order
+crosses the order of any live query reading both. A cycle is resolved by the deadlock
+detector rather than by lock_timeout, and the backend that runs the detector is the one that
+aborts. A budget under deadlock_timeout biases the cycle toward the migration, because the
+op abandons its own wait before its own detector runs. It does not settle the cycle. Each
+backend arms its detector when its own wait starts. An application query that began its wait
+more than the budget earlier reaches its detector first, and that backend aborts itself.
+bin/migrate retries the migration either way. Never widen or disable the timeout here.
 
 The one second is a ceiling on that half, not the budget itself, because deadlock_timeout is
 a server setting this repository does not own. An operator can raise it on a loaded server,
