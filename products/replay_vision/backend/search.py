@@ -64,6 +64,9 @@ _MATCHED_CONTENT_MAX_CHARS = 1500
 # worker round trip.
 _QUERY_VECTOR_CACHE_TTL_S = 3600
 # Bound the synchronous embedding call: it pins a request thread, and a searcher will not wait longer.
+# requests applies this to the connect and to each read, not to the whole response, so a worker that sends
+# its body slowly can still outlast it. The budget is a bound on when a retry may start, not a hard wall
+# clock on the transfer.
 _EMBEDDING_TIMEOUT_S = 10.0
 # A transient failure gets one retry, because the worker's blips are usually shorter than a search. The
 # budget above covers both attempts and the pause between them, so a searcher never waits longer than
