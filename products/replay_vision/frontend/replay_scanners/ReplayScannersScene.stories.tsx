@@ -502,6 +502,7 @@ const meta: Meta = {
                                     provider: 'google',
                                     emits_signals: true,
                                     scanner_config: { prompt: 'Did the user hesitate at checkout?' },
+                                    verify_positives: 'off',
                                 },
                                 scanner_result: {
                                     model_output: {
@@ -516,6 +517,7 @@ const meta: Meta = {
                                         ],
                                     },
                                     signals_count: 2,
+                                    verification: null,
                                 },
                                 viewed: false,
                             }),
@@ -533,6 +535,7 @@ const meta: Meta = {
                                     provider: 'google',
                                     emits_signals: false,
                                     scanner_config: { prompt: 'Score this session.', scale: { min: 0, max: 10 } },
+                                    verify_positives: 'off',
                                 },
                                 scanner_result: {
                                     model_output: {
@@ -547,6 +550,7 @@ const meta: Meta = {
                                         ],
                                     },
                                     signals_count: 0,
+                                    verification: null,
                                 },
                                 viewed: false,
                             }),
@@ -571,6 +575,7 @@ const meta: Meta = {
                                         summary: 'Hit an error dialog and filed feedback from the toast.',
                                     },
                                     signals_count: 0,
+                                    verification: null,
                                 },
                                 viewed: true,
                             }),
