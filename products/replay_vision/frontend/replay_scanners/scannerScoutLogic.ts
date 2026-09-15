@@ -413,7 +413,30 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                         return null
                     }
                     const skill = await llmSkillsNameRetrieve(String(projectId), skillName)
-                    return { skillName, body: skill.body ?? '', latestVersion: skill.latest_version }
+                    // A fetch that sends no paging params caps the body at one page and reports the
+                    // rest through body_next_offset. The form seeds from this value and a save
+                    // replaces the whole body, so seeding a capped read would publish over every
+                    // instruction past the first page. Read the rest in one request, pinned to the
+                    // version the first response came from so a publish landing in between cannot
+                    // splice two bodies together.
+                    const full =
+                        skill.body_next_offset === null
+                            ? skill
+                            : await llmSkillsNameRetrieve(String(projectId), skillName, {
+                                  body_offset: 0,
+                                  body_length: skill.body_total_length,
+                                  version: skill.version,
+                              })
+                    const body = full.body ?? ''
+                    if (body.length < full.body_total_length) {
+                        // Fail the load instead of handing the form a short body. The modal blocks
+                        // saving on a failed load, so this costs the user an edit; seeding what
+                        // arrived would delete the instructions that did not.
+                        throw new Error('The scout instructions did not load in full.')
+                    }
+                    // latest_version comes from the first response, so it is the version this body
+                    // was read at even if another publish landed while the rest was in flight.
+                    return { skillName, body, latestVersion: skill.latest_version }
                 },
             },
         ],

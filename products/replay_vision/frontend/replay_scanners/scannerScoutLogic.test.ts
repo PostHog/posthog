@@ -7,7 +7,7 @@ import { signalsScoutConfigDestroy, signalsScoutConfigUpdate } from 'products/si
 import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
 import { scoutFleetLogic } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
 import { scoutDisplayName } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
-import { llmSkillsNamePartialUpdate } from 'products/skills/frontend/generated/api'
+import { llmSkillsNamePartialUpdate, llmSkillsNameRetrieve } from 'products/skills/frontend/generated/api'
 
 import {
     visionScannersScoutReportsList,
@@ -31,6 +31,7 @@ const mockScoutConfigDestroy = signalsScoutConfigDestroy as jest.MockedFunction<
 const mockScoutsCreate = visionScannersScoutsCreate as jest.MockedFunction<typeof visionScannersScoutsCreate>
 const mockHogFunctionsRetrieve = hogFunctionsRetrieve as jest.MockedFunction<typeof hogFunctionsRetrieve>
 const mockHogFunctionsPartialUpdate = hogFunctionsPartialUpdate as jest.MockedFunction<typeof hogFunctionsPartialUpdate>
+const mockSkillRetrieve = llmSkillsNameRetrieve as jest.MockedFunction<typeof llmSkillsNameRetrieve>
 
 const SCANNER_ID = '01a014ea-854f-72b5-8192-bb6ac9f212a5'
 const SKILL_NAME = 'signals-scout-daily-digest'
@@ -170,6 +171,71 @@ describe('scannerScoutLogic', () => {
             display_name: 'Checkout / daily digest',
         })
         expect(logic.values.settingsSkillName).toBe(SKILL_NAME)
+    })
+
+    it('publishes the whole body when the instructions arrive over more than one page', async () => {
+        await mountWithReports([])
+        const config = makeConfig({ output_destinations: {} })
+        scoutFleetLogic.findMounted()!.actions.loadScoutConfigsSuccess([config])
+        const head = 'x'.repeat(8000)
+        const tail = '\n\nFile the digest as one report.'
+        mockSkillRetrieve
+            .mockResolvedValueOnce({
+                body: head,
+                body_total_length: head.length + tail.length,
+                body_next_offset: head.length,
+                version: 3,
+                latest_version: 3,
+            } as any)
+            .mockResolvedValueOnce({
+                body: head + tail,
+                body_total_length: head.length + tail.length,
+                body_next_offset: null,
+                version: 3,
+                latest_version: 3,
+            } as any)
+        logic.actions.openScoutSettings(SKILL_NAME)
+        await expectLogic(logic).toFinishAllListeners()
+        const edited = `${head}${tail} Watch checkout.`
+        jest.mocked(llmSkillsNamePartialUpdate).mockResolvedValue({ body: edited, version: 4 } as any)
+
+        expect(mockSkillRetrieve).toHaveBeenLastCalledWith(expect.any(String), SKILL_NAME, {
+            body_offset: 0,
+            body_length: head.length + tail.length,
+            version: 3,
+        })
+        expect(logic.values.skillPrompt).toEqual({ skillName: SKILL_NAME, body: head + tail, latestVersion: 3 })
+
+        logic.actions.saveScoutSettings({
+            name: scoutDisplayName(config),
+            body: edited,
+            cron: config.run_cron_schedule!,
+            outputDestinations: {},
+            webhookUrl: '',
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(llmSkillsNamePartialUpdate).toHaveBeenCalledWith(expect.any(String), SKILL_NAME, {
+            body: edited,
+            base_version: 3,
+        })
+    })
+
+    it('loads nothing when the instructions come back short', async () => {
+        await mountWithReports([])
+        scoutFleetLogic.findMounted()!.actions.loadScoutConfigsSuccess([makeConfig({ output_destinations: {} })])
+        mockSkillRetrieve.mockResolvedValue({
+            body: 'Watch this scanner.',
+            body_total_length: 900,
+            body_next_offset: null,
+            version: 3,
+            latest_version: 3,
+        } as any)
+
+        logic.actions.openScoutSettings(SKILL_NAME)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.skillPrompt).toBeNull()
     })
 
     it('resolves the latest report without waiting for the scout roster', async () => {
