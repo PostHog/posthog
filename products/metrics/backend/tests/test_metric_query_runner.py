@@ -1,3 +1,4 @@
+import re
 import datetime as dt
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -27,6 +28,7 @@ from products.metrics.backend.metric_query_runner import (
     MetricQueryRunner,
     _active_since_expr,
     _align_to_interval,
+    _bounds_mismatch_message,
     _histogram_quantile,
     _pick_interval,
     attribute_field,
@@ -1131,6 +1133,31 @@ class TestHistogramQuantileInterpolation:
         assert abs(_histogram_quantile(q, bounds, counts) - expected) < 1e-9
 
 
+class TestBoundsMismatchMessage:
+    PROMETHEUS_DEFAULT = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
+
+    @parameterized.expand(
+        [
+            # Retuning the tail of a default layout leaves the first bounds shared.
+            ("differ_past_the_shown_window", PROMETHEUS_DEFAULT, (*PROMETHEUS_DEFAULT[:-1], 30.0)),
+            # Six significant digits are not enough to tell these apart.
+            ("differ_in_the_seventh_digit", (1.0000001, 2.0), (1.0000002, 2.0)),
+            ("one_layout_extends_the_other", PROMETHEUS_DEFAULT, (*PROMETHEUS_DEFAULT, 30.0)),
+        ]
+    )
+    def test_names_each_layout_distinctly(self, _name, first, second):
+        message = _bounds_mismatch_message("2026-01-01T00:00:00+00:00", {}, {first, second})
+        rendered = re.findall(r"\[[^\]]*\] \([^)]*\)", message)
+        assert len(rendered) == 2
+        assert rendered[0] != rendered[1]
+
+    def test_counts_boundaries_not_buckets(self):
+        # The bounds alone do not say how many buckets a layout has.
+        message = _bounds_mismatch_message("2026-01-01T00:00:00+00:00", {}, {(0.1, 0.5), (1.0, 5.0)})
+        assert "(2 boundaries)" in message
+        assert "buckets)" not in message
+
+
 class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = True
 
@@ -1148,7 +1175,7 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
                 metric_name="latency",
                 metric_type="histogram",
                 aggregation_temporality=temporality,
-                histogram_bounds=bounds or self.BOUNDS,
+                histogram_bounds=self.BOUNDS if bounds is None else bounds,
                 histogram_counts=counts,
                 points=[(timestamp, 0.0)],
                 **kwargs,
@@ -1249,7 +1276,7 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
         self.assertEqual(earliest, self.anchor)
 
-    def test_mismatched_bounds_raise(self):
+    def test_mismatched_bounds_in_one_point_raise(self):
         self._seed_histogram([(self.anchor + dt.timedelta(seconds=0), [1, 1, 1, 0])], temporality="delta")
         self._seed_histogram(
             [(self.anchor + dt.timedelta(seconds=10), [1, 1, 1, 0])],
@@ -1257,8 +1284,115 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
             bounds=[0.2, 0.6, 2.0],
             resource_labels={"k8s.pod.name": "other"},
         )
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValueError) as caught:
             self._run(0.5)
+        message = str(caught.exception)
+        self.assertIn("0.1, 0.5, 1", message)
+        self.assertIn("0.2, 0.6, 2", message)
+        self.assertIn("Group by", message)
+
+    def test_mismatched_bounds_split_by_group_by(self):
+        # Grouping puts each layout in its own point, so both quantiles resolve.
+        self._seed_histogram(
+            [(self.anchor, [10, 0, 0, 0])],
+            temporality="delta",
+            service_name="svc-a",
+        )
+        self._seed_histogram(
+            [(self.anchor, [10, 0, 0, 0])],
+            temporality="delta",
+            bounds=[1.0, 5.0, 10.0],
+            service_name="svc-b",
+        )
+        rows = self._run(0.5, group_by=(MetricGroupBy(key="service_name"),))
+        values = {row["labels"]["service_name"]: row["value"] for row in rows}
+        self.assertAlmostEqual(values["svc-a"], 0.05)
+        self.assertAlmostEqual(values["svc-b"], 0.5)
+
+    def test_bounds_may_change_between_points(self):
+        # A layout change between buckets leaves every point self-consistent.
+        self._seed_histogram([(self.anchor, [10, 0, 0, 0])], temporality="delta")
+        self._seed_histogram(
+            [(self.anchor + dt.timedelta(minutes=1), [10, 0, 0, 0])],
+            temporality="delta",
+            bounds=[1.0, 5.0, 10.0],
+            resource_labels={"k8s.pod.name": "relaunched"},
+        )
+        rows = self._run(0.5)
+        self.assertEqual(len(rows), 2)
+        self.assertAlmostEqual(rows[0]["value"], 0.05)
+        self.assertAlmostEqual(rows[1]["value"], 0.5)
+
+    def test_idle_series_with_another_layout_does_not_block(self):
+        # A flat cumulative series adds no counts, so its layout cannot matter.
+        self._seed_histogram(
+            [
+                (self.anchor + dt.timedelta(seconds=0), [100, 100, 100, 0]),
+                (self.anchor + dt.timedelta(seconds=30), [110, 110, 110, 0]),
+            ],
+            temporality="cumulative",
+        )
+        self._seed_histogram(
+            [
+                (self.anchor + dt.timedelta(seconds=0), [7, 7, 7, 0]),
+                (self.anchor + dt.timedelta(seconds=30), [7, 7, 7, 0]),
+            ],
+            temporality="cumulative",
+            bounds=[0.2, 0.6, 2.0],
+            resource_labels={"k8s.pod.name": "idle"},
+        )
+        rows = self._run(0.5)
+        self.assertEqual(len(rows), 1)
+        self.assertAlmostEqual(rows[0]["value"], 0.3)
+
+    @parameterized.expand(
+        [
+            ("same_bucket_count", [1.0, 5.0, 10.0], [110, 110, 110, 0]),
+            ("different_bucket_count", [1.0, 5.0], [110, 110, 0]),
+        ]
+    )
+    def test_cumulative_layout_change_emits_no_point(self, _name, new_bounds, new_counts):
+        # One series changes layout. Counts on either side of the change cannot be subtracted.
+        self._seed_histogram([(self.anchor, [100, 100, 100, 0])], temporality="cumulative")
+        self._seed_histogram(
+            [(self.anchor + dt.timedelta(seconds=30), new_counts)],
+            temporality="cumulative",
+            bounds=new_bounds,
+        )
+        rows = self._run(0.5)
+        self.assertEqual(rows, [])
+
+    def test_cumulative_layout_change_resumes_on_the_new_layout(self):
+        # The first sample of the new layout has no baseline. The next one does.
+        self._seed_histogram([(self.anchor, [100, 100, 100, 0])], temporality="cumulative")
+        self._seed_histogram(
+            [
+                (self.anchor + dt.timedelta(seconds=30), [10, 10, 10, 0]),
+                (self.anchor + dt.timedelta(minutes=1), [20, 20, 20, 0]),
+            ],
+            temporality="cumulative",
+            bounds=[1.0, 5.0, 10.0],
+        )
+        rows = self._run(0.5)
+        self.assertEqual(len(rows), 1)
+        self.assertAlmostEqual(rows[0]["value"], 3.0)
+        point = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
+        self.assertEqual(point, self.anchor + dt.timedelta(minutes=1))
+
+    def test_series_without_bounds_cannot_join_a_bucketed_layout(self):
+        # A histogram with no bounds reports one overflow count, which no bucket holds.
+        self._seed_histogram([(self.anchor, [0, 0, 10, 0])], temporality="delta")
+        self._seed_histogram(
+            [(self.anchor + dt.timedelta(seconds=10), [5])],
+            temporality="delta",
+            bounds=[],
+            resource_labels={"k8s.pod.name": "unbucketed"},
+        )
+        with self.assertRaises(ValueError) as caught:
+            self._run(0.5)
+        message = str(caught.exception)
+        self.assertIn("0.1, 0.5, 1", message)
+        self.assertIn("0 boundaries", message)
 
     def test_histogram_quantile_via_api(self):
         self._seed_histogram(
