@@ -12,6 +12,9 @@ import type { HogFlow } from './hogflows/types'
 // the chip actually detaches the payload instead of only hiding the chip.
 const SKILL_DISMISS_GROUP = 'workflow-scene-skill'
 const EDITOR_STATE_DISMISS_GROUP = 'workflow-scene-state'
+// The AI-first composer keeps its own group. A dismissal is global and never resets, so a skill chip closed
+// on a workflow would otherwise take this page's instructions with it, on this visit and every later one.
+const NEW_WORKFLOW_DISMISS_GROUP = 'new-workflow-composer'
 
 const BUILDING_WORKFLOWS_SKILL = 'building-workflows'
 const DESIGNING_EMAIL_TEMPLATES_SKILL = 'designing-email-templates'
@@ -123,7 +126,7 @@ export const NEW_WORKFLOW_SUGGESTIONS: NewWorkflowSuggestion[] = [
 const DRAFT_FIRST_CONTEXT_ITEM: AttachedContextItem = {
     type: 'instructions',
     hidden: true,
-    dismissGroup: SKILL_DISMISS_GROUP,
+    dismissGroup: NEW_WORKFLOW_DISMISS_GROUP,
     value:
         'The user is starting a new workflow from a description. Make workflows-create your first tool call and ' +
         'keep it minimal: the trigger plus the steps as placeholders, with placeholder email subjects and bodies. ' +
@@ -132,9 +135,17 @@ const DRAFT_FIRST_CONTEXT_ITEM: AttachedContextItem = {
         'Never enable it.',
 }
 
-/** Agent context for the AI-first new-workflow composer: skill pointer plus the draft-first instruction, no editor state. */
+/**
+ * Agent context for the AI-first new-workflow composer: skill pointer plus the draft-first instruction, no
+ * editor state. The chip cannot be closed here, unlike on a workflow, because the page advances only when
+ * the agent creates the draft and closing a chip detaches the hidden items it stands for.
+ */
 export function buildNewWorkflowComposerContext(): AttachedContextItem[] {
-    return [PREAMBLE_CONTEXT_ITEM, SKILL_CHIP_CONTEXT_ITEM, DRAFT_FIRST_CONTEXT_ITEM]
+    return [
+        { ...PREAMBLE_CONTEXT_ITEM, dismissGroup: NEW_WORKFLOW_DISMISS_GROUP },
+        { ...SKILL_CHIP_CONTEXT_ITEM, dismissGroup: NEW_WORKFLOW_DISMISS_GROUP, dismissible: false },
+        DRAFT_FIRST_CONTEXT_ITEM,
+    ]
 }
 
 const EMAIL_EDITING_DISMISS_GROUP = 'workflow-scene-email-editing'
