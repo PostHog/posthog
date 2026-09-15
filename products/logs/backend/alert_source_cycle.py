@@ -10,8 +10,10 @@ preview says what production would have sent. The configuration read stands in f
 alert configuration that the alerts platform does not own yet.
 """
 
-from datetime import UTC, datetime, timedelta
+from collections.abc import Mapping
+from datetime import datetime, timedelta
 from itertools import batched
+from typing import Any
 
 import structlog
 
@@ -27,7 +29,7 @@ from products.logs.backend.alert_check_query import (
     resolve_alert_date_to,
     rolling_check_lookback_minutes,
 )
-from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG
+from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG, EventKind
 from products.logs.backend.alert_state_machine import CheckResult, NotificationAction, evaluate_alert_check
 from products.logs.backend.alert_utils import due_alerts_q
 from products.logs.backend.models import LogsAlertConfiguration
@@ -43,7 +45,7 @@ logger = structlog.get_logger(__name__)
 # limit, which fails the whole cycle rather than truncating it.
 MAX_PREVIEWS_PER_CYCLE = 500
 
-_NOTIFICATION_EVENT_KINDS = {
+_NOTIFICATION_EVENT_KINDS: dict[NotificationAction, EventKind] = {
     NotificationAction.FIRE: "firing",
     NotificationAction.RESOLVE: "resolved",
     NotificationAction.ERROR: "errored",
@@ -51,7 +53,7 @@ _NOTIFICATION_EVENT_KINDS = {
 }
 
 
-def _cohort_key(row: dict, checkpoint: datetime | None, now: datetime) -> tuple:
+def _cohort_key(row: Mapping[str, Any], checkpoint: datetime | None, now: datetime) -> tuple:
     return (
         row["team_id"],
         row["window_minutes"],
@@ -96,8 +98,9 @@ def _preview_for_alert(
     )
 
 
-def evaluate_due_logs_alerts() -> tuple[AlertDeliveryPreview, ...]:
-    now = datetime.now(UTC)
+def evaluate_due_logs_alerts(now: datetime) -> tuple[AlertDeliveryPreview, ...]:
+    """`now` is the tick occasion, not the clock, so a retried attempt evaluates the same
+    alerts against the same windows and derives the same evaluation keys."""
     rows = list(
         LogsAlertConfiguration.objects.filter(
             due_alerts_q(

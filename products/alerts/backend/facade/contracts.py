@@ -152,6 +152,9 @@ class SourceCycleInputs:
     """What the orchestrator hands one source's cycle."""
 
     source_kind: SourceKind
+    # ISO-8601. The cycle evaluates against this instant rather than the clock, so a retried
+    # attempt selects the same alerts and derives the same evaluation keys as the first.
+    tick_started_at: str
 
 
 @frozen

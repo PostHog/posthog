@@ -33,7 +33,7 @@ class TestLogsAlertSourceCycle(APIBaseTest):
         defaults.update(kwargs)
         return LogsAlertConfiguration.objects.create(**defaults)
 
-    def _run(self, alert: LogsAlertConfiguration):
+    def _run(self, alert: LogsAlertConfiguration, now: datetime | None = None):
         with (
             patch(f"{_MODULE}.fetch_live_logs_checkpoint", return_value=None),
             patch(f"{_MODULE}.BatchedAlertCheckQuery") as query,
@@ -42,7 +42,7 @@ class TestLogsAlertSourceCycle(APIBaseTest):
                 per_alert={str(alert.id): [BucketedCount(timestamp=datetime.now(UTC), count=500)]},
                 query_duration_ms=1,
             )
-            return evaluate_due_logs_alerts(), query
+            return evaluate_due_logs_alerts(now or datetime.now(UTC)), query
 
     def test_a_breaching_alert_previews_a_notification_and_stays_untouched(self) -> None:
         alert = self._breaching_alert()
@@ -66,3 +66,13 @@ class TestLogsAlertSourceCycle(APIBaseTest):
 
         kwargs = query.call_args.kwargs
         assert kwargs["date_to"] - kwargs["date_from"] == timedelta(minutes=expected_lookback_minutes)
+
+    def test_the_evaluation_key_comes_from_the_tick_occasion_not_the_clock(self) -> None:
+        # A retried attempt must select the same windows and keys as the first, so the
+        # occasion is passed in rather than read from the clock.
+        occasion = datetime(2026, 9, 15, 18, 31, tzinfo=UTC)
+        alert = self._breaching_alert(next_check_at=None)
+
+        previews, _ = self._run(alert, now=occasion)
+
+        assert [preview.evaluation_key for preview in previews] == [f"window:{occasion.isoformat()}"]

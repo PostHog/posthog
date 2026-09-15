@@ -24,12 +24,14 @@ WORKFLOW_NAME = "logs-alert-source-cycle"
 
 
 @activity.defn
-async def evaluate_due_logs_alerts_activity() -> tuple[AlertDeliveryPreview, ...]:
+async def evaluate_due_logs_alerts_activity(inputs: SourceCycleInputs) -> tuple[AlertDeliveryPreview, ...]:
     # Imported in the activity body, not at module scope. The workflow class below forces
     # this module to evaluate inside Temporal's sandbox, which a Django model import trips.
     from products.logs.backend.alert_source_cycle import evaluate_due_logs_alerts
 
-    return await database_sync_to_async_pool(evaluate_due_logs_alerts)()
+    return await database_sync_to_async_pool(evaluate_due_logs_alerts)(
+        dt.datetime.fromisoformat(inputs.tick_started_at)
+    )
 
 
 @workflow.defn(name=WORKFLOW_NAME)
@@ -42,6 +44,7 @@ class LogsAlertSourceCycleWorkflow(PostHogWorkflow):
     async def run(self, inputs: SourceCycleInputs) -> SourceCycleResult:
         previews = await workflow.execute_activity(
             evaluate_due_logs_alerts_activity,
+            inputs,
             start_to_close_timeout=dt.timedelta(minutes=2),
             schedule_to_close_timeout=dt.timedelta(minutes=4),
             retry_policy=RetryPolicy(maximum_attempts=2),

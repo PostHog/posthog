@@ -1,4 +1,6 @@
 import datetime as dt
+from collections.abc import Callable
+from typing import Any
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -118,7 +120,7 @@ class AlertsProductSourceTickWorkflow(PostHogWorkflow):
             try:
                 await workflow.start_child_workflow(
                     binding.workflow_name,
-                    SourceCycleInputs(source_kind=binding.source_kind),
+                    SourceCycleInputs(source_kind=binding.source_kind, tick_started_at=tick_started_at),
                     id=f"alerts-cycle-{binding.source_kind}-{tick_started_at}",
                     task_queue=binding.task_queue,
                     parent_close_policy=workflow.ParentClosePolicy.ABANDON,
@@ -167,6 +169,9 @@ class AlertsProductDeliverPreviewWorkflow(PostHogWorkflow):
 # The tick belongs on the orchestration queue. It registers here until that queue reaches
 # master, so the evaluation fleet runs it in the meantime.
 EVALUATION_WORKFLOWS = [AlertsProductCheckDueWorkflow, AlertsProductSourceTickWorkflow]
-EVALUATION_ACTIVITIES = [alerts_product_check_due_activity]
+EVALUATION_ACTIVITIES: list[Callable[..., Any]] = [alerts_product_check_due_activity]
 DELIVERY_WORKFLOWS = [AlertsProductDeliverWorkflow, AlertsProductDeliverPreviewWorkflow]
-DELIVERY_ACTIVITIES = [alerts_product_deliver_activity, alerts_product_deliver_preview_activity]
+DELIVERY_ACTIVITIES: list[Callable[..., Any]] = [
+    alerts_product_deliver_activity,
+    alerts_product_deliver_preview_activity,
+]
