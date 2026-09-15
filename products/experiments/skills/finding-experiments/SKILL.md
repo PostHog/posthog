@@ -27,6 +27,9 @@ A project can hold hundreds of experiments, and one response holds one page of 1
   Narrow the pages first with `status` or `archived` where the reference allows it.
 - **By status**: `experiment-list {status: "<status>"}`.
   Values are `draft`, `running`, `paused`, `exposure_frozen`, `stopped`, `complete` (an alias for `stopped`), and `all`.
+  Filter on status only when the reference states one.
+  Never derive it from the action the user asked for — "pause my signup experiment" names an experiment, not a lifecycle, and `status: "running"` would hide that experiment while it is paused, frozen, draft, or stopped.
+  The lifecycle tools check their own preconditions, so resolve the name first and let the action reject a target it cannot act on.
 - **By archived state**: `archived` is a separate boolean, not a status.
   The default is non-archived only, so pass `archived: true` to reach archived experiments.
 - **By recency**: results are newest first unless you pass `order`, so the first result answers "latest" or "most recent".
@@ -41,8 +44,8 @@ A project can hold hundreds of experiments, and one response holds one page of 1
 - **By flag**: `experiment-list {feature_flag_id: <id>}` when you already have the flag ID.
   Otherwise match the `feature_flag_key` field of the results.
 
-Combine the filters.
-`{search: "checkout", status: "running"}` is one call, not two.
+Combine the filters when the reference states more than one thing.
+"The running checkout test" is `{search: "checkout", status: "running"}`, one call, not two.
 
 ### Paginate before you say "no matches"
 
@@ -57,7 +60,7 @@ A first page with no obvious match is not an answer.
 
 - **Exactly one match**: Use it. Confirm with the user by name before destructive actions (delete, ship, end).
 - **Multiple matches**: List them with name, status, and creation date. Ask the user to pick.
-- **No matches**: Retry with shorter or different search terms, then with `archived: true`.
+- **No matches**: First drop any filter you inferred rather than took from the user, then retry with shorter or different search terms, then with `archived: true`.
   If the reference described the experiment rather than naming it, scan descriptions across every page before you give up.
   Tell the user only after those come back empty too.
 
@@ -71,7 +74,7 @@ After resolving to an ID, call `experiment-get` for the full object (metrics, fl
 User: "pause my signup experiment"
 
 Agent:
-1. Calls experiment-list {search: "signup", status: "running"}
+1. Calls experiment-list {search: "signup"} — no status filter, because the user named an experiment, not a lifecycle
 2. One result: "New signup process" (ID: 1371, status: running)
 3. Proceeds to pause experiment 1371
 ```
