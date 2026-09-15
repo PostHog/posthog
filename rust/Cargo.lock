@@ -9367,9 +9367,9 @@ dependencies = [
 
 [[package]]
 name = "posthog-rs"
-version = "0.25.4"
+version = "0.25.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da98c41706b1666fe28e5d8bd783ac50d4fd67e576f96d34cdb10872b45e7165"
+checksum = "0804bdcffb6f2a51f889ddc035505c1a4334da3eb65a2ccbae561a320166d7f2"
 dependencies = [
  "backtrace",
  "brotli",
