@@ -60,6 +60,54 @@ function DnsRecordsTable({ records }: { records: DnsRecord[] }): JSX.Element | n
     )
 }
 
+function RelaySenderField({ config }: { config: EmailConfigStatus }): JSX.Element {
+    const { updatingRelaySenderConfigIds } = useValues(supportSettingsLogic)
+    const { setEmailRelaySender } = useActions(supportSettingsLogic)
+    const adminRestrictionReason = useRestrictedArea({
+        scope: RestrictionScope.Organization,
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+    })
+    const [value, setValue] = useState(config.trusted_relay_sender)
+
+    const isSaving = updatingRelaySenderConfigIds.includes(config.id)
+    const isUnchanged = value.trim().toLowerCase() === config.trusted_relay_sender
+
+    return (
+        <div>
+            <label className="font-medium text-sm" htmlFor={`relay-sender-${config.id}`}>
+                Relayed emails
+            </label>
+            <p className="text-xs text-muted-alt mb-1">
+                If a service emails this channel on behalf of your users, enter the exact address it sends from. Tickets
+                from that address are attributed to the person named in its X-PostHog-Requester or Reply-To header, so
+                your replies reach them. Mail from any other sender is unaffected. The service also has to pass sender
+                authentication checks. Leave this blank to turn it off.
+            </p>
+            <div className="flex items-center gap-2">
+                <LemonInput
+                    id={`relay-sender-${config.id}`}
+                    value={value}
+                    onChange={setValue}
+                    placeholder="no-reply@relay.example.com"
+                    disabled={!!adminRestrictionReason || isSaving}
+                    className="max-w-[320px]"
+                />
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    loading={isSaving}
+                    disabledReason={
+                        adminRestrictionReason ?? (isSaving ? 'Saving' : isUnchanged ? 'No changes to save' : undefined)
+                    }
+                    onClick={() => setEmailRelaySender(config.id, value.trim().toLowerCase())}
+                >
+                    Save
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+
 function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Element {
     const { emailVerifyingConfigId, emailTestingConfigId, settingDefaultEmailConfigId } =
         useValues(supportSettingsLogic)
@@ -119,6 +167,8 @@ function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Elem
                     )}
                 </div>
             </div>
+
+            <RelaySenderField key={config.trusted_relay_sender} config={config} />
 
             {/* Default + disconnect */}
             <div className="flex justify-between items-center border-t pt-2">
