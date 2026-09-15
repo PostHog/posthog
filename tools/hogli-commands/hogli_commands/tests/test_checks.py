@@ -500,6 +500,31 @@ class TestIsolationChainWebhookConsumers:
                 True,
                 id="negation_glob_cancels_the_consumer_input",
             ),
+            # a negation whose shape the matcher can't evaluate is read as reaching the module
+            pytest.param(
+                _narrowed_turbo(
+                    [
+                        "backend/facade/**",
+                        "backend/webhook_consumers.py",
+                        "backend/migrations/**",
+                        "!backend/**/webhook_consumers.py",
+                    ]
+                ),
+                True,
+                id="deep_negation_glob_cancels_the_consumer_input",
+            ),
+            pytest.param(
+                _narrowed_turbo(
+                    [
+                        "backend/facade/**",
+                        "backend/webhook_consumers.py",
+                        "backend/migrations/**",
+                        "!backend/webhook_*.py",
+                    ]
+                ),
+                True,
+                id="stem_negation_glob_cancels_the_consumer_input",
+            ),
             pytest.param(
                 _narrowed_turbo(
                     [
@@ -2045,6 +2070,9 @@ class TestNarrowedTurboWiringSurface:
             # listed and then negated: turbo drops the file from the task hash, so it is unwatched
             (["backend/facade/**", "backend/webhook_consumers.py", "!backend/webhook_consumers.py"], False),
             (["backend/facade/**", "backend/webhook_consumers.py", "!backend/**"], False),
+            # a negation shape the matcher can't evaluate is read as reaching the module
+            (["backend/facade/**", "backend/webhook_consumers.py", "!backend/**/webhook_consumers.py"], False),
+            (["backend/facade/**", "backend/webhook_consumers.py", "!backend/webhook_*.py"], False),
             # a negation of an unrelated path cannot reach the module, so it stays watched
             (["backend/facade/**", "backend/webhook_consumers.py", "!backend/models/**"], True),
         ],
