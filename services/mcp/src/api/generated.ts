@@ -11202,8 +11202,8 @@ export namespace Schemas {
       target_definition: AutoresearchPipelineTargetDefinition;
       /**
          * Prediction horizon in days. The model predicts whether the target event occurs within this window.
-         * @minimum -2147483648
-         * @maximum 2147483647
+         * @minimum 1
+         * @maximum 365
          */
       horizon_days?: number;
       /**
