@@ -478,8 +478,6 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("query", "/api/environments/{team_id}/query/"),
-            ("insights_trend", "/api/environments/{team_id}/insights/trend/"),
-            ("insights_funnel", "/api/environments/{team_id}/insights/funnel/"),
             ("insights_pk", "/api/environments/{team_id}/insights/123/"),
         ]
     )

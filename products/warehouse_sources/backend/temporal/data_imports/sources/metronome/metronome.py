@@ -1,7 +1,7 @@
 import dataclasses
 from collections.abc import Callable, Iterable, Iterator
-from datetime import UTC, datetime
-from typing import Any, Literal, Optional, cast
+from datetime import UTC, datetime, timedelta
+from typing import Any, Optional, cast
 
 from requests import Request, Response
 
@@ -52,6 +52,15 @@ RFC_3339_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 # Lower bound for a first incremental run — earlier than any Metronome account.
 EPOCH_RFC_3339 = "1970-01-01T00:00:00Z"
+
+# `POST /v1/usage` documents `ending_before` as at least one day after `starting_on`.
+MIN_USAGE_WINDOW = timedelta(days=1)
+
+# How much of a bucketed usage walk goes into one yielded batch, which is one Delta merge. Two caps,
+# because only one of them is ours to predict: the page cap bounds the requests a resumed attempt
+# repeats, and the row cap bounds the merge if Metronome ever returns larger pages than it does now.
+USAGE_COALESCE_PAGES = 100
+USAGE_COALESCE_ROWS = 20_000
 
 
 @frozen
@@ -133,17 +142,48 @@ def _incremental_window(config: MetronomeEndpointConfig, cursor_path: str) -> In
     }
 
 
-def _align_to_window(value: datetime, window_size: Literal["hour", "day"]) -> datetime:
-    """Floor a window bound to the boundary Metronome aggregates on.
+def _align_to_utc_midnight(value: datetime) -> datetime:
+    """Floor a usage window bound to the boundary Metronome requires.
 
-    A period's `start_timestamp` is part of the table's primary key, and the bound this run asks
-    from is the watermark shifted back by a lookback the user sets in seconds, so it usually lands
-    mid-period. Asking from mid-period risks a partial aggregate for a period the table already
-    holds in full, which then upserts as a second row instead of replacing the first.
+    `POST /v1/usage` documents both bounds as aligned to UTC midnight and answers a 400 when either
+    is not, whatever the `window_size`, so an hourly table also asks for whole days.
+
+    Flooring also keeps a bucketed table's rows stable. A period's `start_timestamp` is part of the
+    table's primary key, and the bound this run asks from is the watermark shifted back by a
+    lookback the user sets in seconds, so it usually lands mid-period. Asking from mid-period
+    returns a partial aggregate for a period the table already holds in full, which then upserts as
+    a second row instead of replacing the first.
     """
-    if window_size == "day":
-        return value.replace(hour=0, minute=0, second=0, microsecond=0)
-    return value.replace(minute=0, second=0, microsecond=0)
+    return value.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _usage_window_end(value: datetime) -> datetime:
+    """The end bound a usage request asks for.
+
+    Metronome takes a UTC-midnight bound only, so the nearest aligned end that still covers the
+    period in progress is the next midnight rather than the last one. Ending at the last one would
+    hold every table a full period behind, which is the period a usage table is most asked about.
+
+    Rows for a period still in progress come back partial. The merge key carries the period start,
+    so each later run upserts a fresher value over them, and the row settles once the period
+    closes. This is the same path a period already takes when Metronome accepts a backdated event
+    for it.
+    """
+    return _align_to_utc_midnight(value) + timedelta(days=1)
+
+
+def _clamp_window_start(starting_on: str, ending_before: str) -> str:
+    """Hold the requested window to the one-day minimum Metronome documents.
+
+    Both bounds floor to UTC midnight, so a table whose watermark already reached the newest
+    complete period resolves a start equal to the end. Metronome rejects that window, so ask for
+    the last whole day instead. Those rows upsert over ones the table already holds.
+    """
+    start = parse_datetime_value(starting_on)
+    end = parse_datetime_value(ending_before)
+    if start is None or end is None or end - start >= MIN_USAGE_WINDOW:
+        return starting_on
+    return _format_rfc3339(end - MIN_USAGE_WINDOW)
 
 
 def _resolve_window_start(
@@ -167,7 +207,7 @@ def _resolve_window_start(
         or coerce_datetime_to_utc(history_start)
         or datetime.now(UTC) - USAGE_HISTORY[config.name]
     )
-    return _format_rfc3339(_align_to_window(start, window_size))
+    return _format_rfc3339(_align_to_utc_midnight(start))
 
 
 @frozen
@@ -215,9 +255,13 @@ def _walk_start(
 
     if config.window_size is not None:
         if ending_before is None:
-            ending_before = _format_rfc3339(datetime.now(UTC))
+            ending_before = _format_rfc3339(_usage_window_end(datetime.now(UTC)))
         if starting_on is None:
-            starting_on = _resolve_window_start(config, db_incremental_field_last_value, history_start)
+            # Only a freshly resolved start is clamped. A resumed walk replays the exact window its
+            # checkpoint stored, and both bounds come back together or neither does.
+            starting_on = _clamp_window_start(
+                _resolve_window_start(config, db_incremental_field_last_value, history_start), ending_before
+            )
 
     return MetronomeWalkStart(starting_on=starting_on, ending_before=ending_before, paginator_state=paginator_state)
 
@@ -255,9 +299,55 @@ def _rest_client(api_key: str) -> RESTClient:
 
 
 def _list_params(config: MetronomeEndpointConfig) -> dict[str, Any]:
-    params: dict[str, Any] = {} if not config.paginated else {"limit": config.page_size}
+    params: dict[str, Any] = {}
+    if config.paginated and config.accepts_page_size:
+        params["limit"] = config.page_size
     params.update(config.extra_params)
     return params
+
+
+def _coalesced_pages(pages: Iterable[Any], commit_checkpoint: Callable[[], None]) -> Iterator[list[Any]]:
+    """Gather several API pages into one yielded batch, and checkpoint once that batch has landed.
+
+    `commit_checkpoint` runs after the `yield` returns, which is after the consumer flushed the
+    batch, so the cursor only ever moves over rows that reached Delta. A batch closes on the page
+    that would overflow it rather than on the page that already did, which holds it inside the caps
+    and also makes the cursor exact: `rest_client` offers a page's cursor when the page after it is
+    pulled, so by then it names the first page this batch does not carry.
+
+    A single page wider than the row cap is still yielded whole, because a batch may only end where
+    a cursor does. The batcher splits an oversized table on its own byte cap downstream.
+    """
+    batch: list[Any] = []
+    page_count = 0
+
+    for page in pages:
+        if batch and (page_count >= USAGE_COALESCE_PAGES or len(batch) + len(page) > USAGE_COALESCE_ROWS):
+            yield batch
+            commit_checkpoint()
+            batch = []
+            page_count = 0
+        batch.extend(page)
+        page_count += 1
+
+    if batch:
+        yield batch
+        commit_checkpoint()
+
+
+def _float_usage_value(row: dict[str, Any]) -> dict[str, Any]:
+    """Give the usage amount a floating point type before the column is inferred from it.
+
+    Metronome returns `value` as a bare JSON number, so an account whose first batch holds whole
+    numbers infers an integer column, and the first fractional amount after that no longer fits
+    the stored type. That failure is not retryable and turns the schema off.
+
+    A null means no usage matched the period, which is not the same as zero, so it stays null.
+    """
+    value = row.get("value")
+    if isinstance(value, int) and not isinstance(value, bool):
+        row["value"] = float(value)
+    return row
 
 
 def get_resource(
@@ -290,13 +380,16 @@ def get_resource(
     if config.method == "post":
         json_body = dict(config.json_body)
         if config.window_size is not None:
-            # `starting_on` at the epoch means "all usage the account has". `ending_before` is the
-            # sync time; the caller pins both for the whole walk so a resumed attempt replays the
-            # same window, and these fall back only for a one-shot build with no pinned window.
-            json_body["window_size"] = config.window_size
+            # `starting_on` at the epoch means "all usage the account has". The caller pins both
+            # bounds for the whole walk so a resumed attempt replays the same window, and these
+            # fall back only for a one-shot build with no pinned window.
+            # The spec's enum accepts three casings, but both vendor SDKs emit upper case only.
+            json_body["window_size"] = config.window_size.upper()
             json_body["starting_on"] = window_starting_on if window_starting_on is not None else EPOCH_RFC_3339
             json_body["ending_before"] = (
-                window_ending_before if window_ending_before is not None else _format_rfc3339(datetime.now(UTC))
+                window_ending_before
+                if window_ending_before is not None
+                else _format_rfc3339(_usage_window_end(datetime.now(UTC)))
             )
         endpoint_config["json"] = json_body
 
@@ -309,13 +402,16 @@ def get_resource(
     # follows the endpoint declaring a cursor field rather than the injected param.
     syncs_incrementally = should_use_incremental_field and bool(config.incremental_fields)
 
-    return {
+    resource: EndpointResource = {
         "name": config.name,
         "table_name": config.name,
         "write_disposition": {"disposition": "merge", "strategy": "upsert"} if syncs_incrementally else "replace",
         "endpoint": endpoint_config,
         "table_format": "delta",
     }
+    if config.window_size is not None:
+        resource["data_map"] = _float_usage_value
+    return resource
 
 
 def _body_fanout_pages(client: RESTClient, config: MetronomeEndpointConfig) -> Iterator[list[dict[str, Any]]]:
@@ -438,25 +534,41 @@ def metronome_source(
         ],
     }
 
+    # Only a bucketed usage walk coalesces. `audit_logs` is incremental as well, but it sets its own
+    # page size, so it never reaches the page counts these caps are sized for.
+    coalesces_pages = (
+        should_use_incremental_field
+        and endpoint_config.window_size is not None
+        and bool(endpoint_config.incremental_fields)
+    )
+
+    pending_state: Optional[dict[str, Any]] = None
+
+    def persist(state: Optional[dict[str, Any]]) -> None:
+        # Persist only while there is another page to resume to; the Redis TTL cleans up on
+        # completion. The pinned window rides along so a resumed attempt replays it.
+        if resumable_source_manager is None or not state:
+            return
+        cursor = state.get("cursor")
+        if cursor:
+            resumable_source_manager.save_state(
+                MetronomeResumeConfig(
+                    next_page=str(cursor),
+                    ending_before=walk.ending_before,
+                    starting_on=walk.starting_on,
+                )
+            )
+
+    def hold(state: Optional[dict[str, Any]]) -> None:
+        nonlocal pending_state
+        pending_state = state
+
+    def commit_checkpoint() -> None:
+        persist(pending_state)
+
     resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = None
     if resumable_source_manager is not None:
-
-        def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-            # Persist only while there is another page to resume to; the Redis TTL cleans up on
-            # completion. The pinned window rides along so a resumed attempt replays it.
-            if resumable_source_manager is None or not state:
-                return
-            cursor = state.get("cursor")
-            if cursor:
-                resumable_source_manager.save_state(
-                    MetronomeResumeConfig(
-                        next_page=str(cursor),
-                        ending_before=walk.ending_before,
-                        starting_on=walk.starting_on,
-                    )
-                )
-
-        resume_hook = save_checkpoint
+        resume_hook = hold if coalesces_pages else persist
 
     resource = rest_api_resource(
         config,
@@ -466,12 +578,16 @@ def metronome_source(
         resume_hook=resume_hook,
         initial_paginator_state=walk.paginator_state,
     )
-    # The resume checkpoint advances after every yielded page — rest_client fires the resume hook
-    # right after each yield — so each page has to reach Delta before the bookmark moves past it.
-    # Each yielded item is already a whole API page, so chunk_size=1 flushes it on its own rather
-    # than letting several pages sit in the batcher's buffer; a mid-sync worker shutdown would
-    # otherwise resume past the buffered pages and finish the full-refresh table with silent gaps.
-    # The fan-out tables above don't resume, so they keep the default and avoid a commit per page.
+    # `rest_client` fires the resume hook after the `yield` it belongs to, so the consumer has
+    # already taken a yielded item by the time the cursor past it is offered. chunk_size=1 turns
+    # that into a durability rule: one yielded item is one flush, so a page reaches Delta before
+    # its cursor is checkpointed, and a mid-sync worker shutdown resumes at the page it stopped on
+    # rather than past it. Buffering pages in the batcher instead would move the cursor over rows
+    # that never landed. The fan-out tables above don't resume, so they keep the default.
+    if coalesces_pages:
+        return _make_source_response(
+            endpoint_config, lambda: _coalesced_pages(resource, commit_checkpoint), chunk_size=1
+        )
     return _make_source_response(endpoint_config, lambda: resource, chunk_size=1)
 
 

@@ -2,7 +2,8 @@ import { useValues } from 'kea'
 
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { playerMetaLogic } from '../player-meta/playerMetaLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'

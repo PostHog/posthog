@@ -394,22 +394,18 @@ describe('mcpDashboardOverviewLogic', () => {
             jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] } as any)
         })
 
-        it('shows model data only when at least one identified model has calls', async () => {
+        it.each([
+            { rows: [], visible: false },
+            { rows: [{ model: 'Unknown', total_calls: 12 }], visible: true },
+            { rows: [{ model: 'gpt-5.6-sol', total_calls: 1 }], visible: true },
+            { rows: [{ model: 'claude-sonnet-5', total_calls: 0 }], visible: false },
+        ])('shows model coverage when calls exist: $rows', async ({ rows, visible }) => {
             const logic = mcpDashboardOverviewLogic()
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
 
-            logic.actions.loadModelRowsSuccess([{ model: 'Unknown', total_calls: 12 }])
-            expect(logic.values.hasKnownModelData).toBe(false)
-
-            logic.actions.loadModelRowsSuccess([{ model: 'gpt-5.6-sol', total_calls: 1 }])
-            expect(logic.values.hasKnownModelData).toBe(true)
-
-            logic.actions.loadModelRowsSuccess([
-                { model: 'Unknown', total_calls: 12 },
-                { model: 'claude-sonnet-5', total_calls: 0 },
-            ])
-            expect(logic.values.hasKnownModelData).toBe(false)
+            logic.actions.loadModelRowsSuccess(rows)
+            expect(logic.values.hasModelData).toBe(visible)
         })
     })
 

@@ -77,6 +77,7 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
             properties: z.array(z.any()),
             filter_test_accounts: z.boolean().optional(),
             tag_names: z.array(z.string()).optional(),
+            assignment_status: z.enum(['all', 'assigned', 'unassigned']).optional(),
             assigned_to_user_ids: z.array(z.number()).optional(),
             all_roles_unassigned: z.boolean().optional(),
         }),
@@ -293,6 +294,14 @@ const HogFlowEdgeSchema = z.object({
     index: z.number().optional(),
 })
 
+// Optional masking config for the trigger, allows HogFlows to be rate limited per distinct ID or other property
+const HogFlowTriggerMaskingSchema = z.object({
+    ttl: z.number().nullable(),
+    hash: z.string(),
+    bytecode: z.array(z.union([z.string(), z.number()])),
+    threshold: z.number().nullable(),
+})
+
 export const HogFlowSchema = z.object({
     id: z.string(),
     team_id: z.number(),
@@ -300,19 +309,15 @@ export const HogFlowSchema = z.object({
     name: z.string(),
     status: z.enum(['active', 'draft', 'archived']),
     trigger: HogFlowTriggerSchema,
-    // Optional masking config for the trigger, allows HogFlows to be rate limited per distinct ID or other property
-    trigger_masking: z
-        .object({
-            ttl: z.number().nullable(),
-            hash: z.string(),
-            bytecode: z.array(z.union([z.string(), z.number()])),
-            threshold: z.number().nullable(),
-        })
-        .optional()
-        .nullable(),
+    trigger_masking: HogFlowTriggerMaskingSchema.optional().nullable(),
     conversion: z
         .object({
-            window_minutes: z.number().nullable(),
+            // Preferred form, matching how delay steps express a duration: `7d`, `12h`, `90d`.
+            window: z.string().nullable().optional(),
+            // Deprecated: a bare integer whose unit lives only in the field name. Optional because a
+            // row migrated onto `window` carries no `window_minutes` key at all, and a required one
+            // would fail the whole flow to parse and stop it running.
+            window_minutes: z.number().nullable().optional(),
             filters: z.any(),
             bytecode: z.array(z.union([z.string(), z.number()])),
             events: z

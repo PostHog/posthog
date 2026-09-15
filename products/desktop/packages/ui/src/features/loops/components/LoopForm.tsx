@@ -153,11 +153,6 @@ export function LoopForm({
   const [prefill] = useState(() =>
     loop ? null : useLoopDraftStore.getState().prefill,
   );
-  // A workflow has nowhere to keep a space attachment, so a loop started from
-  // a space opens detached and the form says so instead of dropping it quietly.
-  const detachedSpace = workflowBacked
-    ? (prefill?.contextTarget ?? null)
-    : null;
   const [values, setValues] = useState<LoopFormValues>(() => {
     if (loop) {
       return normalizeLoopFormValues({
@@ -168,7 +163,6 @@ export function LoopForm({
     return normalizeLoopFormValues({
       ...emptyLoopFormValues(),
       ...(prefill ?? {}),
-      ...(workflowBacked ? { contextTarget: null } : {}),
     });
   });
   const [step, setStep] = useState(0);
@@ -238,8 +232,7 @@ export function LoopForm({
   const bluebirdEnabled = useBluebirdFlag();
   const channelsEnabled =
     useSidebarStore((s) => s.channelsEnabled) && bluebirdEnabled;
-  const showContextField =
-    !workflowBacked && (channelsEnabled || !!values.contextTarget);
+  const showContextField = channelsEnabled || !!values.contextTarget;
   const { environments, isLoading: environmentsLoading } =
     useSandboxEnvironments();
   const sandboxEnvironmentOptions = useMemo(() => {
@@ -296,7 +289,7 @@ export function LoopForm({
   // without one the header still names the scene, it just has no parent to
   // offer.
   const spacesLayout = useChannelsLayout();
-  const contextTarget = values.contextTarget ?? detachedSpace;
+  const contextTarget = values.contextTarget;
   const headerLeaf = isEdit ? loop.name : "New loop";
   useSetHeaderContent(
     useMemo(
@@ -520,10 +513,6 @@ export function LoopForm({
         gap="4"
         className="rounded-(--radius-2) border border-border bg-(--gray-1) p-4"
       >
-        {detachedSpace ? (
-          <DetachedSpaceNotice spaceName={detachedSpace.name} />
-        ) : null}
-
         <Step
           title="Prompt"
           description="Name it and write the prompt the agent runs each time."
@@ -664,6 +653,7 @@ export function LoopForm({
               <LoopContextFields
                 value={values.contextTarget}
                 disabled={isSubmitting}
+                showOutputs={!workflowBacked}
                 onChange={(contextTarget) =>
                   patch(
                     contextTarget
@@ -775,12 +765,6 @@ export function LoopForm({
         </Box>
 
         <Box className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
-          {detachedSpace ? (
-            <div className="mb-4">
-              <DetachedSpaceNotice spaceName={detachedSpace.name} />
-            </div>
-          ) : null}
-
           {step === 0 ? (
             <Step
               title="What should this loop do?"
@@ -882,11 +866,16 @@ export function LoopForm({
                 <>
                   <Field
                     label="Context"
-                    hint="A context is one of the channels in your sidebar. Attach this loop to a channel and its runs show up in that channel's feed; it can also keep the channel's context.md or a canvas up to date."
+                    hint={
+                      workflowBacked
+                        ? "A context is one of the channels in your sidebar. Attach this loop to a channel and its runs show up in that channel's feed."
+                        : "A context is one of the channels in your sidebar. Attach this loop to a channel and its runs show up in that channel's feed; it can also keep the channel's context.md or a canvas up to date."
+                    }
                   >
                     <LoopContextFields
                       value={values.contextTarget}
                       disabled={isSubmitting}
+                      showOutputs={!workflowBacked}
                       onChange={(contextTarget) =>
                         patch(
                           contextTarget
@@ -1150,20 +1139,6 @@ function Step({
 
 function Divider() {
   return <Box className="h-px bg-(--gray-4)" />;
-}
-
-function DetachedSpaceNotice({ spaceName }: { spaceName: string }) {
-  return (
-    <div className="flex flex-col gap-1 rounded-(--radius-2) border border-(--amber-6) bg-(--amber-2) px-3 py-2">
-      <span className="font-medium text-(--amber-12) text-[12.5px]">
-        This loop won't be attached to {channelDisplayLabel(spaceName)}
-      </span>
-      <span className="text-(--amber-11) text-[12px] leading-snug">
-        Attaching loops to a space isn't available yet. You'll find it in the
-        Loops list instead.
-      </span>
-    </div>
-  );
 }
 
 function ReviewList({
