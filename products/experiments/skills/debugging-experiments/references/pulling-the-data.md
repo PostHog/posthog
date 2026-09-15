@@ -10,16 +10,16 @@ subset plus the numbers each cause needs.
 
 Pull these fields; they are inputs to almost every cause:
 
-- `parameters.feature_flag_variants[].rollout_percentage` — the configured **split**.
-- `parameters.rollout_percentage` — the overall **rollout** (% of users entering the test).
 - `exposure_criteria.multiple_variant_handling` — `"exclude"` (default) or `"first_seen"`.
 - `exposure_criteria.exposure_config.event` — set means a **custom exposure event** (changes
   the query below); absent means the default `$feature_flag_called`.
 - `exposure_criteria.filterTestAccounts` — defaults to true.
 - `feature_flag.filters.groups[]` — per group read `variant`, `properties`,
-  `rollout_percentage`. Any non-null `variant` is a forced assignment (not randomized).
-- `feature_flag.filters.multivariate.variants[]` — the variant keys **and their stored order**;
-  the offline hash-recomputation test walks them in this order, so read it from the _live_ flag.
+  `rollout_percentage` (the overall **rollout**, % of users entering the test). Any non-null
+  `variant` is a forced assignment (not randomized).
+- `feature_flag.filters.multivariate.variants[]` — the variant keys, their `rollout_percentage`
+  (the configured **split**), **and their stored order**; the offline hash-recomputation test walks
+  them in this order, so read it from the _live_ flag.
 - `feature_flag.ensure_experience_continuity` — if `true`, assignment hashes a stored override key,
   so the offline hash test is unreliable (see the decisive test below).
 - `feature_flag.filters.aggregation_group_type_index` — if set, the experiment is

@@ -246,7 +246,6 @@ tools:
             - description
             - feature_flag_key
             - feature_flag
-            - parameters
             - stats_config
             - holdout_id
             - allow_unknown_events
@@ -283,7 +282,6 @@ tools:
                 - start_date
                 - end_date
                 - created_at
-                - parameters
                 - metrics
                 - metrics_secondary
                 - conclusion
@@ -321,7 +319,6 @@ tools:
                 - start_date
                 - end_date
                 - created_at
-                - parameters
                 - metrics
                 - metrics_secondary
                 - conclusion
@@ -503,10 +500,10 @@ tools:
             deactivated, "exposure_frozen" when its flag's release groups are narrowed to the already-exposed cohort so
             enrollment is closed while metrics keep flowing), start_date and end_date, linked feature_flag (with
             variants, filters, active state), metrics and metrics_secondary arrays, conclusion and conclusion_comment if
-            ended, parameters (including feature_flag_variants and recommended_running_time), stats_config, type
-            (web/product), and resolved_exposure_event (the event exposures are counted on when no custom exposure event
-            is configured — resolved server-side to $feature_flag_called or $experiment_exposure; use it in SQL instead
-            of hardcoding either name).
+            ended, running_time_calculation (minimum detectable effect, recommended running time and sample size),
+            stats_config, type (web/product), and resolved_exposure_event (the event exposures are counted on when no
+            custom exposure event is configured — resolved server-side to $feature_flag_called or $experiment_exposure;
+            use it in SQL instead of hardcoding either name).
         param_overrides:
             id:
                 cast: string-int
@@ -1347,7 +1344,6 @@ tools:
             - name
             - description
             - feature_flag
-            - parameters
             - running_time_calculation
             - excluded_variants
             - metrics
@@ -1395,7 +1391,6 @@ tools:
                 - start_date
                 - end_date
                 - created_at
-                - parameters
                 - running_time_calculation
                 - metrics
                 - metrics_secondary

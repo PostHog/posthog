@@ -22,8 +22,7 @@ resolve it to a concrete ID.
 
 Call `experiment-get` and pull these fields. They are inputs for almost every diagnostic:
 
-- `parameters.feature_flag_variants[].rollout_percentage` — the variant split
-- `parameters.rollout_percentage` — the overall rollout (% of users entering the experiment)
+- `feature_flag.filters.multivariate.variants[].rollout_percentage` — the variant split
 - `exposure_criteria.multiple_variant_handling` — defaults to `"exclude"` if absent
 - `exposure_criteria.exposure_config.event` — unset means the default exposure event; read which one
   from `resolved_exposure_event` (`$feature_flag_called` or `$experiment_exposure` — resolved
@@ -31,7 +30,8 @@ Call `experiment-get` and pull these fields. They are inputs for almost every di
 - `exposure_criteria.filterTestAccounts` — defaults to `true`
 - `feature_flag.active`, status (`draft` / `running` / `paused` / `exposure_frozen` / `stopped`), `start_date`, `end_date`
 - `feature_flag.filters.groups[]` — for each group read `variant`, `properties`, and
-  `rollout_percentage`. Any non-null `variant` is a forced-variant override on the matched cohort
+  `rollout_percentage` (the overall rollout, % of users entering the experiment). Any non-null
+  `variant` is a forced-variant override on the matched cohort
   (release-condition assignment, not randomized) — surfaces A7. Watch for the severe shape (A7b): a
   variant-pinned group with broad/empty `properties` at high rollout, or no group left randomized
   (`variant: null`) / no release path to one arm — that starves the other variant (one arm gets ~0

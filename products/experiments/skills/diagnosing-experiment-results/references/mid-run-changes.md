@@ -59,7 +59,7 @@ view.
 edit history with diffs. Scan `results[].detail.changes[]` for `field == "filters"` entries and
 read the last `multivariate.variants[]` `before`/`after` pair _before_ the entry where
 `field == "active"` flips `false → true` (the activation event). That value is the split the
-experiment actually launched with. If it doesn't match `parameters.feature_flag_variants` as the
+experiment actually launched with. If it doesn't match `feature_flag.filters.multivariate.variants` as the
 user described setting it, the launch state itself is the cause — no mid-run change is needed to
 explain the missing-variant data.
 

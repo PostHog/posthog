@@ -53,6 +53,7 @@ import {
     percentageDistribution,
     toConcurrencyPayload,
     toExperimentWritePayload,
+    withoutProjectedFlagConfig,
 } from './utils'
 
 describe('utils', () => {
@@ -2125,5 +2126,24 @@ describe('toConcurrencyPayload', () => {
         expect(payload.original_experiment?.start_date).toBeNull()
         expect(payload.original_experiment?.holdout_id).toBeNull()
         expect(payload.original_experiment?.exposure_criteria).toBeNull()
+    })
+})
+
+describe('withoutProjectedFlagConfig', () => {
+    it('drops the flag config the read projection adds and keeps the experiment-owned keys', () => {
+        const parameters = {
+            variant_notes: { control: 'baseline copy' },
+            custom_exposure_filter: { events: [] },
+            feature_flag_variants: [{ key: 'control', rollout_percentage: 50 }],
+            rollout_percentage: 100,
+            aggregation_group_type_index: 0,
+            feature_flag_payloads: { control: '{}' },
+            ensure_experience_continuity: true,
+        } as unknown as Experiment['parameters']
+
+        expect(withoutProjectedFlagConfig(parameters)).toEqual({
+            variant_notes: { control: 'baseline copy' },
+            custom_exposure_filter: { events: [] },
+        })
     })
 })
