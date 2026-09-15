@@ -491,7 +491,6 @@ class TestWidgetGeneration(SimpleTestCase):
         assert infer_widget_inputs(notebook, "globe") == [
             "locations_df",
             "summary_df",
-            "saved_df",
             "insight_df",
             "future_df",
         ]
