@@ -106,6 +106,46 @@ class LLMPromptLabel(ModelActivityMixin, UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
 
 
+class LLMPromptDependency(UUIDModel):
+    """One `@@@prompt:...@@@` reference found in a prompt version's content.
+
+    Rows are written when a version is created and are immutable like the
+    version row they belong to. The fetch path does not read this table; it
+    re-parses the content. The table exists for validation (reference and
+    nesting checks at publish), archive protection, and "used by" lookups,
+    all of which need the reverse direction: who references prompt X?
+
+    Like LLMPromptLabel, `child_name` keys the referenced prompt family by
+    name rather than FK, because prompts have no parent entity and the
+    referenced family's version rows keep changing.
+    """
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(child_version__isnull=False, child_label__isnull=True)
+                | models.Q(child_version__isnull=True, child_label__isnull=False),
+                name="llm_prompt_dependency_version_xor_label",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["team", "child_name"], name="llm_prompt_dep_team_child"),
+        ]
+        db_table = "posthog_llmpromptdependency"
+
+    prompt = models.ForeignKey(LLMPrompt, on_delete=models.CASCADE, related_name="references")
+    parent_name = models.CharField(max_length=255)
+    child_name = models.CharField(max_length=255)
+    child_version = models.PositiveIntegerField(null=True, blank=True)
+    child_label = models.CharField(max_length=128, null=True, blank=True)
+
+    # db_constraint=False for the same reason as LLMPromptLabel: a real FK to the
+    # hot posthog_team table locks the parent during migration.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+
+    created_at = models.DateTimeField(default=timezone.now)
+
+
 def annotate_llm_prompt_version_history_metadata(queryset: QuerySet[LLMPrompt]) -> QuerySet[LLMPrompt]:
     active_versions = LLMPrompt.objects.filter(team_id=OuterRef("team_id"), name=OuterRef("name"), deleted=False)
 
