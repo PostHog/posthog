@@ -116,6 +116,10 @@ SandboxOAuthApplication = Literal["array", "posthog_ai", "signals"]
 # posthog/scopes.py). Kept out of `INTERNAL_SCOPES` so a scheduled run never carries it.
 INTERACTIVE_RUN_SCOPE = "interactive_run:read"
 
+# Granted only to the report pipeline's implementation runs (see `implementation_run` in
+# posthog/scopes.py). Kept out of `INTERNAL_SCOPES` so no other stage carries it.
+IMPLEMENTATION_RUN_SCOPE = "implementation_run:read"
+
 
 INTERNAL_SCOPES: list[str] = [
     "task:write",
@@ -577,6 +581,7 @@ def create_oauth_access_token_for_user(
     include_internal_scopes: bool = True,
     include_mcp_builtin_agent_scope: bool = False,
     include_interactive_run_scope: bool = False,
+    include_implementation_run_scope: bool = False,
     include_slack_run_scope: bool = False,
     application: SandboxOAuthApplication = "array",
     sandbox_task_id: UUID | None = None,
@@ -591,6 +596,10 @@ def create_oauth_access_token_for_user(
         # Provenance marker only — it grants no access. The LLM gateway meters a run
         # carrying it against the interactive budget instead of the pipeline's.
         resolved.append(INTERACTIVE_RUN_SCOPE)
+    if include_implementation_run_scope:
+        # Provenance marker only — it grants no access. The LLM gateway meters a run carrying
+        # it against the implementation pool instead of the shared pipeline one.
+        resolved.append(IMPLEMENTATION_RUN_SCOPE)
     if include_slack_run_scope:
         resolved.append(SLACK_RUN_SCOPE)
     app = get_sandbox_oauth_app(application)

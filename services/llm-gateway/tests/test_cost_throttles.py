@@ -5,6 +5,7 @@ from llm_gateway.config import get_settings
 from llm_gateway.products.config import resolve_cost_key
 from llm_gateway.rate_limiting.cost_throttles import (
     CostThrottle,
+    ProductCostThrottle,
     SandboxTaskCostThrottle,
     UserCostBurstThrottle,
     UserCostSustainedThrottle,
@@ -33,6 +34,13 @@ def make_signals_user(interactive: bool, user_id: int = 1) -> AuthenticatedUser:
     if interactive:
         scopes.append("interactive_run:read")
     user.scopes = scopes
+    return user
+
+
+def make_signals_implementation_user(user_id: int = 1) -> AuthenticatedUser:
+    """A Signals sandbox token for the pipeline's implementation stage."""
+    user = make_user(user_id=user_id)
+    user.scopes = ["llm_gateway:read", "internal_run:read", "implementation_run:read"]
     return user
 
 
@@ -1267,6 +1275,16 @@ class TestProvenanceCostKey:
             # budget and out of the per-run ceiling, which only `signals_interactive` configures.
             ("posthog_code", ["llm_gateway:read", "interactive_run:read"], "signals_interactive"),
             ("background_agents", ["llm_gateway:read", "interactive_run:read"], "signals_interactive"),
+            # Same rule for the implementation stage: its marker alone moves it off the pool the
+            # other scheduled stages share, whatever route it declares.
+            ("signals", ["llm_gateway:read", "implementation_run:read"], "signals_implementation"),
+            ("posthog_code", ["llm_gateway:read", "implementation_run:read"], "signals_implementation"),
+            # A token cannot carry both markers, and the interactive budget is the smaller one.
+            (
+                "signals",
+                ["llm_gateway:read", "interactive_run:read", "implementation_run:read"],
+                "signals_interactive",
+            ),
         ],
     )
     def test_only_a_marked_token_meters_against_the_interactive_budget(
@@ -1284,6 +1302,31 @@ class TestProvenanceCostKey:
 
         assert await recorded_cost(throttle, pipeline) == 5.0
         assert await recorded_cost(throttle, interactive) == 0.0
+
+    @pytest.mark.asyncio
+    async def test_a_bound_implementation_pool_still_serves_the_other_pipeline_stages(self) -> None:
+        # The stall this split exists to prevent: while every scheduled stage shared one pool,
+        # implementation filling it refused scout scanning and research for every customer.
+        throttle = ProductCostThrottle(redis=None)
+        implementation = make_context(product="signals", user=make_signals_implementation_user())
+        pipeline = make_context(product="signals", user=make_signals_user(interactive=False))
+        limit, _ = throttle._get_limit_and_window(implementation)
+
+        await throttle.record_cost(implementation, limit)
+
+        assert (await throttle.allow_request(implementation)).allowed is False
+        assert (await throttle.allow_request(pipeline)).allowed is True
+
+    def test_implementation_runs_keep_the_pipeline_per_user_limits(self) -> None:
+        # A cost key missing from user_cost_limits silently falls back to $100/day, which would
+        # refuse the stage outright — the split must not change per-user enforcement.
+        burst = UserCostBurstThrottle(redis=None)
+        sustained = UserCostSustainedThrottle(redis=None)
+        implementation = make_context(product="signals", user=make_signals_implementation_user())
+        pipeline = make_context(product="signals", user=make_signals_user(interactive=False))
+
+        assert burst._get_limit_and_window(implementation) == burst._get_limit_and_window(pipeline)
+        assert sustained._get_limit_and_window(implementation) == sustained._get_limit_and_window(pipeline)
 
     @pytest.mark.asyncio
     async def test_marked_run_declaring_posthog_code_keeps_its_user_budget(self) -> None:

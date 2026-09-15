@@ -5,9 +5,11 @@ from posthog.models import Organization, Team
 from posthog.models.user import User
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.signals.backend.pipeline_identity import AI_STAGE_IMPLEMENTATION
 from products.tasks.backend.exceptions import TaskInvalidStateError
 from products.tasks.backend.models import (
     INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN,
+    SIGNALS_IMPLEMENTATION_AI_STAGE,
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     MCPBuiltInAgentKey,
     Task,
@@ -138,28 +140,38 @@ def test_every_stamped_origin_is_an_interactive_signals_origin() -> None:
     assert set(INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN) <= set(INTERACTIVE_SIGNALS_ORIGIN_PRODUCTS)
 
 
+# The pipeline writes this stage and the mint reads it back, from two products. A rename on
+# either side would silently drop implementation runs back onto the shared pipeline pool.
+def test_implementation_stage_matches_the_stage_the_pipeline_stamps() -> None:
+    assert SIGNALS_IMPLEMENTATION_AI_STAGE == AI_STAGE_IMPLEMENTATION
+
+
 @pytest.mark.parametrize(
-    ("origin_product", "internal", "run_state", "application", "interactive"),
+    ("origin_product", "internal", "run_state", "application", "interactive", "implementation"),
     [
         # Inbox CTA: a person creates the task; create_run stamps the interactive `inbox` stage.
-        (Task.OriginProduct.SIGNAL_REPORT, False, {"ai_stage": "inbox"}, "signals", True),
+        (Task.OriginProduct.SIGNAL_REPORT, False, {"ai_stage": "inbox"}, "signals", True, False),
         # A bare signal_report task (no report link) gets no stamp and stays interactive.
-        (Task.OriginProduct.SIGNAL_REPORT, False, None, "signals", True),
-        # Auto-started implementation: the pipeline stamps the run it started.
-        (Task.OriginProduct.SIGNAL_REPORT, True, {"ai_stage": "implementation"}, "signals", False),
+        (Task.OriginProduct.SIGNAL_REPORT, False, None, "signals", True, False),
+        # Auto-started implementation: the pipeline stamps the run it started, and that stamp is
+        # what moves the run onto the implementation pool.
+        (Task.OriginProduct.SIGNAL_REPORT, True, {"ai_stage": "implementation"}, "signals", False, True),
         # A person starting a second run on that same auto-started task. `internal` still says
         # True because it answers for the task, but this run carries no stage of its own.
-        (Task.OriginProduct.SIGNAL_REPORT, True, {"mode": "interactive"}, "signals", True),
+        (Task.OriginProduct.SIGNAL_REPORT, True, {"mode": "interactive"}, "signals", True, False),
         # A forged stage is impossible through the API, but an empty string must not read as one.
-        (Task.OriginProduct.SIGNAL_REPORT, True, {"ai_stage": ""}, "signals", True),
-        (Task.OriginProduct.SIGNAL_REPORT, True, {"ai_stage": "research"}, "signals", False),
-        (Task.OriginProduct.SIGNAL_REPORT, True, {"ai_stage": "custom_agent"}, "signals", False),
-        (Task.OriginProduct.SIGNALS_CHAT, False, {"ai_stage": "chat"}, "signals", True),
-        (Task.OriginProduct.SIGNALS_CHAT, False, None, "signals", True),
-        (Task.OriginProduct.SIGNALS_SCOUT, True, {"ai_stage": "scout"}, "signals", False),
+        (Task.OriginProduct.SIGNAL_REPORT, True, {"ai_stage": ""}, "signals", True, False),
+        (Task.OriginProduct.SIGNAL_REPORT, True, {"ai_stage": "research"}, "signals", False, False),
+        (Task.OriginProduct.SIGNAL_REPORT, True, {"ai_stage": "custom_agent"}, "signals", False, False),
+        (Task.OriginProduct.SIGNALS_CHAT, False, {"ai_stage": "chat"}, "signals", True, False),
+        (Task.OriginProduct.SIGNALS_CHAT, False, None, "signals", True, False),
+        (Task.OriginProduct.SIGNALS_SCOUT, True, {"ai_stage": "scout"}, "signals", False, False),
         # The interactive stamp never reaches a scheduled origin, and would not make it interactive.
-        (Task.OriginProduct.SIGNALS_SCOUT, True, {"ai_stage": "inbox"}, "signals", False),
-        (Task.OriginProduct.USER_CREATED, False, None, "array", False),
+        (Task.OriginProduct.SIGNALS_SCOUT, True, {"ai_stage": "inbox"}, "signals", False, False),
+        # A scout carrying the implementation stage keeps its own budget: the marker follows the
+        # report pipeline's origin, not the stage string alone.
+        (Task.OriginProduct.SIGNALS_SCOUT, True, {"ai_stage": "implementation"}, "signals", False, False),
+        (Task.OriginProduct.USER_CREATED, False, None, "array", False, False),
     ],
 )
 @patch("products.tasks.backend.temporal.oauth.is_builtin_agent_enforcement_enabled", return_value=False)
@@ -172,6 +184,7 @@ def test_signals_origins_mint_under_the_signals_app_and_mark_only_user_started_r
     run_state: dict | None,
     application: str,
     interactive: bool,
+    implementation: bool,
 ) -> None:
     task = MagicMock(
         id="task-id",
@@ -190,6 +203,8 @@ def test_signals_origins_mint_under_the_signals_app_and_mark_only_user_started_r
     }
     if interactive:
         expected["include_interactive_run_scope"] = True
+    if implementation:
+        expected["include_implementation_run_scope"] = True
     mock_create.assert_called_once_with(task.created_by, 123, **expected)
 
 
@@ -213,9 +228,11 @@ def test_two_runs_on_one_auto_started_task_get_different_signals_budgets(
 
     create_oauth_access_token_for_run(task, {"ai_stage": "implementation", "mode": "background"})
     assert "include_interactive_run_scope" not in mock_create.call_args.kwargs
+    assert mock_create.call_args.kwargs["include_implementation_run_scope"] is True
 
     create_oauth_access_token_for_run(task, {"mode": "interactive"})
     assert mock_create.call_args.kwargs["include_interactive_run_scope"] is True
+    assert "include_implementation_run_scope" not in mock_create.call_args.kwargs
 
 
 def test_oauth_token_can_disable_task_creator_fallback() -> None:
