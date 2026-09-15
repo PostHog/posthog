@@ -208,6 +208,7 @@ describe('ApiClient', () => {
         ],
         ['caps an overlong intent', 'i'.repeat(900), 'i'.repeat(500)],
         ['strips characters a header cannot carry', 'Fixing the 📈 tile\nfor the user', 'Fixing the  tilefor the user'],
+        ['omits an intent that is not a string', 42 as unknown as string, undefined],
         ['omits the header when the agent stated none', undefined, undefined],
     ] as const)('%s', async (_label, intent, expected) => {
         const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))

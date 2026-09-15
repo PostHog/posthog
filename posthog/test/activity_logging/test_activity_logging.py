@@ -192,6 +192,26 @@ class TestActivityLogModel(BaseTest):
         assert log.detail is not None
         self.assertIsNone(log.detail["trigger"])
 
+    def test_a_failing_agent_trigger_still_writes_the_row(self) -> None:
+        with patch(
+            "posthog.models.activity_logging.activity_log.agent_trigger", side_effect=RuntimeError("storage is broken")
+        ):
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=self.user,
+                was_impersonated=False,
+                item_id=24,
+                scope="Dashboard",
+                activity="created",
+                detail=Detail(),
+            )
+
+        log: ActivityLog = ActivityLog.objects.latest("id")
+        self.assertEqual(log.item_id, "24")
+        assert log.detail is not None
+        self.assertIsNone(log.detail["trigger"])
+
     def test_trigger_stays_unset_without_agent_context(self) -> None:
         log_activity(
             organization_id=self.organization.id,
@@ -582,3 +602,19 @@ class TestAgentAttributionOnApiWrites(APIBaseTest):
         log = ActivityLog.objects.filter(scope="Dashboard").latest("id")
         assert log.detail is not None
         self.assertEqual(log.detail["trigger"], expected_trigger)
+
+    def test_a_failing_attribution_loses_the_intent_and_nothing_else(self) -> None:
+        task_id = UUID("019f4c2a-0000-7000-8000-0000000000aa")
+        self._authenticate_as_sandbox_agent(task_id)
+
+        with patch("posthog.auth.activity_storage.set_agent_intent", side_effect=RuntimeError("storage is broken")):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/dashboards/",
+                {"name": "Weekly signups"},
+                HTTP_X_POSTHOG_INTENT="Repairing a tile that hit the query row limit",
+            )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        log = ActivityLog.objects.filter(scope="Dashboard").latest("id")
+        assert log.detail is not None
+        self.assertEqual(log.detail["trigger"], {"job_type": "agent", "job_id": str(task_id), "payload": {}})

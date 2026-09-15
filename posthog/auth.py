@@ -30,6 +30,7 @@ from zxcvbn import zxcvbn
 
 from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication
 from posthog.constants import AvailableFeature
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.helpers.verified_domain_enforcement import enforce_verified_domain
 from posthog.internal_api_secret import usable_internal_api_secrets
@@ -906,13 +907,19 @@ def _record_agent_attribution(request: Union[HttpRequest, Request], access_token
     only read behind that binding. Any caller can put a header on a request, so honouring one
     without the binding would let a person dress a write of their own up as automation in the
     audit trail. A token minted for a person carries no task and leaves the audit trail unchanged.
+
+    Attribution is extra detail on an audit row, so a failure here loses that detail and nothing
+    else. It must never fail the authentication, and with it the request, that it decorates.
     """
-    if access_token.sandbox_task_id is None:
-        return
-    activity_storage.set_agent_task_id(str(access_token.sandbox_task_id))
-    intent = request.headers.get(ACTIVITY_LOG_INTENT_HEADER, "").strip()[:ACTIVITY_LOG_INTENT_MAX_LENGTH]
-    if intent:
-        activity_storage.set_agent_intent(intent)
+    try:
+        if access_token.sandbox_task_id is None:
+            return
+        activity_storage.set_agent_task_id(str(access_token.sandbox_task_id))
+        intent = request.headers.get(ACTIVITY_LOG_INTENT_HEADER, "").strip()[:ACTIVITY_LOG_INTENT_MAX_LENGTH]
+        if intent:
+            activity_storage.set_agent_intent(intent)
+    except Exception as e:
+        capture_exception(e)
 
 
 class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):

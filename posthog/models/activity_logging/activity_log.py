@@ -1151,6 +1151,20 @@ def agent_trigger() -> Optional[Trigger]:
     )
 
 
+def _with_agent_trigger(detail: Detail) -> Detail:
+    """The detail with the agent trigger filled in, or unchanged when there is none or filling fails.
+
+    The row is written from inside the save that triggered it, so an error here would fail the
+    user's write. Losing the attribution is the cheaper outcome.
+    """
+    try:
+        trigger = agent_trigger()
+        return dataclasses.replace(detail, trigger=trigger) if trigger is not None else detail
+    except Exception as e:
+        capture_exception(e)
+        return detail
+
+
 def log_activity(
     *,
     organization_id: Optional[UUID],
@@ -1176,9 +1190,7 @@ def log_activity(
     if detail.trigger is None:
         # Products that set their own trigger (canvas, feature flags, conversations) already say
         # what drove the write, so agent attribution only fills the gap they leave.
-        trigger = agent_trigger()
-        if trigger is not None:
-            detail = dataclasses.replace(detail, trigger=trigger)
+        detail = _with_agent_trigger(detail)
     if was_impersonated and user is None:
         logger.warn(
             "activity_log.failed_to_write_to_activity_log",

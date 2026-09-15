@@ -109,12 +109,19 @@ function shouldSuppressStructuredContent(args: {
  *
  * The state itself is shared by every call in a JSON-RPC batch, so the client is copied rather
  * than written to. See `ApiClient.withIntent`.
+ *
+ * The intent is extra detail on an audit row. If the copy fails, the call runs without it rather
+ * than failing.
  */
 function stateCarryingIntent(state: ResolvedState, intent: string | undefined): ResolvedState {
     if (!intent) {
         return state
     }
-    return { ...state, context: { ...state.context, api: state.context.api.withIntent(intent) } }
+    try {
+        return { ...state, context: { ...state.context, api: state.context.api.withIntent(intent) } }
+    } catch {
+        return state
+    }
 }
 
 export class ToolExecutor {

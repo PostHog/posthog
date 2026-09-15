@@ -165,6 +165,14 @@ export interface ApiConfig {
 // truncates to the same length. Capping here keeps bytes the API would discard off the wire.
 const MAX_INTENT_HEADER_LENGTH = 500
 
+// The intent rides along on every API call, so a bad value must cost the header, never the call.
+function intentHeaderValue(intent: unknown): string | undefined {
+    if (typeof intent !== 'string') {
+        return undefined
+    }
+    return sanitizeHeaderValue(intent)?.slice(0, MAX_INTENT_HEADER_LENGTH)
+}
+
 type Endpoint = Record<string, any>
 
 export class ApiClient {
@@ -243,7 +251,7 @@ export class ApiClient {
                 // Forward the sandbox task id so API writes are attributed to the agent's task.
                 'X-PostHog-Task-Id': this.config.taskId,
                 // Forward the agent's stated intent so the activity log records why, not just who.
-                'x-posthog-intent': sanitizeHeaderValue(this.config.intent)?.slice(0, MAX_INTENT_HEADER_LENGTH),
+                'x-posthog-intent': intentHeaderValue(this.config.intent),
             }),
             'X-PostHog-Client': 'mcp',
         }

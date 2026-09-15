@@ -35,6 +35,7 @@ import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
 import { getPostHogClient } from '@/lib/posthog'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH } from '@/tools/toolDefinitions'
+
 import { mockApi } from '../shared/test-utils'
 
 function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> = {}): ResolvedState {
@@ -224,6 +225,23 @@ describe('ToolExecutor analytics capture', () => {
             expect(state.context.api.config.intent).toBeUndefined()
         }
     )
+
+    it('runs the call without an intent when the API client cannot carry one', async () => {
+        vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+        const state = makeState([], { useSingleExec: true })
+        state.context.api = mockApi({
+            withIntent: () => {
+                throw new Error('cannot copy this client')
+            },
+        }) as any
+
+        const result = (await executor.handleToolCall(
+            { name: 'exec', arguments: { command: 'tools', context: 'auditing the dashboard tiles' } },
+            state
+        )) as { isError?: boolean }
+
+        expect(result.isError).toBeFalsy()
+    })
 
     it.each(['not_captured', 'capture_error'] as const)(
         'records %s when analytics preparation cannot capture a supplied model',
