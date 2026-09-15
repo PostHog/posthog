@@ -1,4 +1,4 @@
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from uuid import UUID
 
 from django.db import IntegrityError, OperationalError, connection, transaction
@@ -13,6 +13,7 @@ from temporalio.exceptions import ApplicationError
 from posthog import redis
 from posthog.event_usage import groups
 from posthog.models.organization import OrganizationMembership
+from posthog.ph_client import get_feature_flag_or_none
 
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.enqueue_claims import release_enqueue_claim
@@ -21,7 +22,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ObservationTrigger,
     ReplayObservation,
 )
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.replay_scanner_backfill import BackfillStatus, ReplayScannerBackfill
 from products.replay_vision.backend.quota import (
     BillingPeriod,
@@ -50,6 +51,21 @@ _SCAN_BLOCKED_DEDUP_TTL_SECONDS = 60 * 60
 
 def _build_scanner_snapshot(scanner: ReplayScanner) -> dict[str, Any]:
     return ScannerSnapshot.from_scanner(scanner).model_dump(mode="json")
+
+
+# Multivariate so the rollout can run as an experiment without a rename; resolved per organization.
+VERIFY_POSITIVES_FLAG = "replay-vision-verify-positives"
+
+
+def _monitor_verify_mode(scanner: ReplayScanner) -> str:
+    """Flag-driven `verify_positives` value for monitors; any failure or unknown variant maps to `off`."""
+    variant = get_feature_flag_or_none(
+        VERIFY_POSITIVES_FLAG,
+        replay_vision_distinct_id(scanner.team_id),
+        groups={"organization": str(scanner.team.organization_id)},
+        send_feature_flag_events=False,
+    )
+    return cast(str, variant) if variant in ("shadow", "enforce") else "off"
 
 
 def _capture_scan_blocked(
@@ -267,7 +283,10 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
         snapshot_dict = frozen.to_observation_snapshot().model_dump(mode="json")
         priced_model = frozen.model
     else:
-        snapshot_dict = _build_scanner_snapshot(scanner)
+        snapshot = ScannerSnapshot.from_scanner(scanner)
+        if snapshot.scanner_type == ScannerType.MONITOR:
+            snapshot = snapshot.model_copy(update={"verify_positives": _monitor_verify_mode(scanner)})
+        snapshot_dict = snapshot.model_dump(mode="json")
         priced_model = scanner.model
 
     # Deliberately check-then-act: the snapshot doesn't count enqueue claims, so a concurrent burst can
