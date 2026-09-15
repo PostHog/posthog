@@ -9952,6 +9952,8 @@ export namespace Schemas {
     } as const;
 
     export interface ZScoreDetectorConfig {
+      /** Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5) */
+      min_baseline?: number | null;
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9) */
@@ -9969,6 +9971,8 @@ export namespace Schemas {
     } as const;
 
     export interface MADDetectorConfig {
+      /** Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5) */
+      min_baseline?: number | null;
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9) */
@@ -9986,6 +9990,8 @@ export namespace Schemas {
     } as const;
 
     export interface IQRDetectorConfig {
+      /** Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5) */
+      min_baseline?: number | null;
       /** IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers) */
       multiplier?: number | null;
       /** Preprocessing transforms applied before detection */
@@ -10020,6 +10026,8 @@ export namespace Schemas {
     } as const;
 
     export interface ECODDetectorConfig {
+      /** Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5) */
+      min_baseline?: number | null;
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold (default: 0.9) */
@@ -10037,6 +10045,8 @@ export namespace Schemas {
     } as const;
 
     export interface COPODDetectorConfig {
+      /** Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5) */
+      min_baseline?: number | null;
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold (default: 0.9) */
@@ -10054,6 +10064,8 @@ export namespace Schemas {
     } as const;
 
     export interface IsolationForestDetectorConfig {
+      /** Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5) */
+      min_baseline?: number | null;
       /** Number of trees in the forest (default: 100) */
       n_estimators?: number | null;
       /** Preprocessing transforms applied before detection */
@@ -10084,6 +10096,8 @@ export namespace Schemas {
     export interface KNNDetectorConfig {
       /** Distance method: 'largest', 'mean', 'median' (default: 'largest') */
       method?: Method | null;
+      /** Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5) */
+      min_baseline?: number | null;
       /** Number of neighbors to consider (default: 5) */
       n_neighbors?: number | null;
       /** Preprocessing transforms applied before detection */
@@ -10103,6 +10117,8 @@ export namespace Schemas {
     } as const;
 
     export interface HBOSDetectorConfig {
+      /** Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5) */
+      min_baseline?: number | null;
       /** Number of histogram bins (default: 10) */
       n_bins?: number | null;
       /** Preprocessing transforms applied before detection */
@@ -10122,6 +10138,8 @@ export namespace Schemas {
     } as const;
 
     export interface LOFDetectorConfig {
+      /** Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5) */
+      min_baseline?: number | null;
       /** Number of neighbors for LOF (default: 20) */
       n_neighbors?: number | null;
       /** Preprocessing transforms applied before detection */
@@ -10143,6 +10161,8 @@ export namespace Schemas {
     export interface OCSVMDetectorConfig {
       /** SVM kernel type (default: "rbf") */
       kernel?: string | null;
+      /** Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5) */
+      min_baseline?: number | null;
       /** Upper bound on training errors fraction (default: 0.1) */
       nu?: number | null;
       /** Preprocessing transforms applied before detection */
@@ -10162,6 +10182,8 @@ export namespace Schemas {
     } as const;
 
     export interface PCADetectorConfig {
+      /** Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5) */
+      min_baseline?: number | null;
       /** Preprocessing transforms applied before detection */
       preprocessing?: PreprocessingConfig | null;
       /** Anomaly probability threshold (default: 0.9) */

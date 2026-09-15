@@ -316,6 +316,8 @@ export const ZScoreDetectorConfigApiType = {
 } as const
 
 export interface ZScoreDetectorConfigApi {
+    /** Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5) */
+    min_baseline?: number | null
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfigApi | null
     /** Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9) */
@@ -332,6 +334,8 @@ export const MADDetectorConfigApiType = {
 } as const
 
 export interface MADDetectorConfigApi {
+    /** Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5) */
+    min_baseline?: number | null
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfigApi | null
     /** Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9) */
@@ -348,6 +352,8 @@ export const IQRDetectorConfigApiType = {
 } as const
 
 export interface IQRDetectorConfigApi {
+    /** Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5) */
+    min_baseline?: number | null
     /** IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers) */
     multiplier?: number | null
     /** Preprocessing transforms applied before detection */
@@ -381,6 +387,8 @@ export const ECODDetectorConfigApiType = {
 } as const
 
 export interface ECODDetectorConfigApi {
+    /** Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5) */
+    min_baseline?: number | null
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfigApi | null
     /** Anomaly probability threshold (default: 0.9) */
@@ -397,6 +405,8 @@ export const COPODDetectorConfigApiType = {
 } as const
 
 export interface COPODDetectorConfigApi {
+    /** Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5) */
+    min_baseline?: number | null
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfigApi | null
     /** Anomaly probability threshold (default: 0.9) */
@@ -414,6 +424,8 @@ export const IsolationForestDetectorConfigApiType = {
 } as const
 
 export interface IsolationForestDetectorConfigApi {
+    /** Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5) */
+    min_baseline?: number | null
     /** Number of trees in the forest (default: 100) */
     n_estimators?: number | null
     /** Preprocessing transforms applied before detection */
@@ -442,6 +454,8 @@ export const KNNDetectorConfigApiType = {
 export interface KNNDetectorConfigApi {
     /** Distance method: 'largest', 'mean', 'median' (default: 'largest') */
     method?: MethodApi | null
+    /** Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5) */
+    min_baseline?: number | null
     /** Number of neighbors to consider (default: 5) */
     n_neighbors?: number | null
     /** Preprocessing transforms applied before detection */
@@ -460,6 +474,8 @@ export const HBOSDetectorConfigApiType = {
 } as const
 
 export interface HBOSDetectorConfigApi {
+    /** Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5) */
+    min_baseline?: number | null
     /** Number of histogram bins (default: 10) */
     n_bins?: number | null
     /** Preprocessing transforms applied before detection */
@@ -478,6 +494,8 @@ export const LOFDetectorConfigApiType = {
 } as const
 
 export interface LOFDetectorConfigApi {
+    /** Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5) */
+    min_baseline?: number | null
     /** Number of neighbors for LOF (default: 20) */
     n_neighbors?: number | null
     /** Preprocessing transforms applied before detection */
@@ -498,6 +516,8 @@ export const OCSVMDetectorConfigApiType = {
 export interface OCSVMDetectorConfigApi {
     /** SVM kernel type (default: "rbf") */
     kernel?: string | null
+    /** Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5) */
+    min_baseline?: number | null
     /** Upper bound on training errors fraction (default: 0.1) */
     nu?: number | null
     /** Preprocessing transforms applied before detection */
@@ -516,6 +536,8 @@ export const PCADetectorConfigApiType = {
 } as const
 
 export interface PCADetectorConfigApi {
+    /** Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5) */
+    min_baseline?: number | null
     /** Preprocessing transforms applied before detection */
     preprocessing?: PreprocessingConfigApi | null
     /** Anomaly probability threshold (default: 0.9) */

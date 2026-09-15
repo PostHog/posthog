@@ -7,9 +7,11 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest import mock
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import AlertCalculationInterval, AlertConditionType, AlertState, InsightThresholdType
 
@@ -28,6 +30,7 @@ from products.alerts.backend.facade.contracts import AlertDelivery
 from products.alerts.backend.facade.destinations import MAX_DESTINATIONS_PER_ALERT, count_active_alert_destinations
 from products.alerts.backend.logic.insight_alert_destinations import SLACK_TEMPLATE_ID
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
+from products.alerts.backend.presentation.views.alert import AlertSerializer
 from products.cdp.backend.facade.models import HogFunction
 from products.product_analytics.backend.facade.models import Insight
 
@@ -1668,6 +1671,29 @@ class TestInvestigationAgentValidation(APIBaseTest):
         assert "investigation_gates_notifications" in response.json().get("attr", "")
 
 
+class TestDetectorParamRangeValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("numeric_string_in_range", {"type": "zscore", "min_baseline": "10"}, 10.0),
+            ("number_in_range", {"type": "zscore", "min_baseline": 10}, 10.0),
+        ]
+    )
+    def test_accepts_and_coerces(self, _name: str, detector_config: dict[str, Any], expected: float) -> None:
+        assert AlertSerializer().validate_detector_config(detector_config)["min_baseline"] == expected
+
+    @parameterized.expand(
+        [
+            ("numeric_string_above_max", {"type": "zscore", "min_baseline": "2000000"}, "Minimum volume"),
+            ("number_above_max", {"type": "zscore", "min_baseline": 2000000}, "Minimum volume"),
+            ("numeric_string_threshold_above_max", {"type": "zscore", "threshold": "5"}, "Sensitivity threshold"),
+        ]
+    )
+    def test_rejects_out_of_range(self, _name: str, detector_config: dict[str, Any], label: str) -> None:
+        with self.assertRaises(ValidationError) as ctx:
+            AlertSerializer().validate_detector_config(detector_config)
+        assert label in str(ctx.exception)
+
+
 class TestAlertSimulate(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -1805,12 +1831,18 @@ class TestAlertSimulate(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         assert mock_simulate.call_args.kwargs["insight"].id == self.insight["id"]
 
-    def test_simulate_invalid_detector_config_returns_400(self) -> None:
+    @parameterized.expand(
+        [
+            ("unknown_type", {"type": "nonexistent_detector"}),
+            ("numeric_string_out_of_range", {"type": "zscore", "min_baseline": "2000000"}),
+        ]
+    )
+    def test_simulate_invalid_detector_config_returns_400(self, _name: str, detector_config: dict[str, Any]) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/alerts/simulate",
             {
                 "insight": self.insight["id"],
-                "detector_config": {"type": "nonexistent_detector"},
+                "detector_config": detector_config,
                 "series_index": 0,
             },
         )

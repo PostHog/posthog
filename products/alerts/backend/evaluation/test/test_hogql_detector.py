@@ -151,3 +151,25 @@ def test_extract_hogql_detector_series_is_alert_less():
         )
     assert len(result.series[0].points) == _compute_min_samples_for_detector(ZSCORE)  # bounded to the minimum
     assert evaluate_with_detector(result, ZSCORE).value == 100.0
+
+
+# Counts whose median is 3, ending on a new maximum of 13: a real new maximum, and a completely
+# unremarkable move for a series this small.
+LOW_VOLUME_COUNTS = [float(v) for v in [2, 3, 4, 3, 2, 3, 5, 3, 2, 4] * 4]
+
+
+@pytest.mark.parametrize(
+    "min_baseline,expect_anomaly",
+    [
+        (None, False),  # a config saved before the floor existed still gets it
+        (0, True),  # and an explicit 0 opts out
+    ],
+)
+def test_alerts_apply_the_volume_floor_to_a_stored_config(min_baseline, expect_anomaly):
+    config = {"type": "zscore", "threshold": 0.95, "window": 10}
+    if min_baseline is not None:
+        config["min_baseline"] = min_baseline
+
+    evaluation = evaluate_with_detector(_extract([*LOW_VOLUME_COUNTS, 13.0], detector_config=config), config)
+
+    assert bool(evaluation.breaches) is expect_anomaly

@@ -218,6 +218,12 @@ export const AlertsCreateBody = () => zod.object({
                             .array(
                                 zod.union([
                                     zod.object({
+                                        min_baseline: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                            ),
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
@@ -259,6 +265,12 @@ export const AlertsCreateBody = () => zod.object({
                                             .describe('Rolling window size for calculating mean\/std (default: 30)'),
                                     }),
                                     zod.object({
+                                        min_baseline: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                            ),
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
@@ -300,6 +312,12 @@ export const AlertsCreateBody = () => zod.object({
                                             .describe('Rolling window size for calculating median\/MAD (default: 30)'),
                                     }),
                                     zod.object({
+                                        min_baseline: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                            ),
                                         multiplier: zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
@@ -380,6 +398,12 @@ export const AlertsCreateBody = () => zod.object({
                                             .describe('Upper bound - values above this are anomalies'),
                                     }),
                                     zod.object({
+                                        min_baseline: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                            ),
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
@@ -421,6 +445,12 @@ export const AlertsCreateBody = () => zod.object({
                                             ),
                                     }),
                                     zod.object({
+                                        min_baseline: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                            ),
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
@@ -462,6 +492,12 @@ export const AlertsCreateBody = () => zod.object({
                                             ),
                                     }),
                                     zod.object({
+                                        min_baseline: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                            ),
                                         n_estimators: zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
@@ -513,6 +549,12 @@ export const AlertsCreateBody = () => zod.object({
                                             .describe(
                                                 "Distance method: 'largest', 'mean', 'median' (default: 'largest')"
                                             ),
+                                        min_baseline: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                            ),
                                         n_neighbors: zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
@@ -558,6 +600,12 @@ export const AlertsCreateBody = () => zod.object({
                                             ),
                                     }),
                                     zod.object({
+                                        min_baseline: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                            ),
                                         n_bins: zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
@@ -603,6 +651,12 @@ export const AlertsCreateBody = () => zod.object({
                                             ),
                                     }),
                                     zod.object({
+                                        min_baseline: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                            ),
                                         n_neighbors: zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
@@ -654,6 +708,12 @@ export const AlertsCreateBody = () => zod.object({
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe('SVM kernel type (default: \"rbf\")'),
+                                        min_baseline: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                            ),
                                         nu: zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
@@ -701,6 +761,12 @@ export const AlertsCreateBody = () => zod.object({
                                             ),
                                     }),
                                     zod.object({
+                                        min_baseline: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                            ),
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
@@ -750,6 +816,12 @@ export const AlertsCreateBody = () => zod.object({
                         type: zod.enum(['ensemble']).default(alertsCreateBodyDetectorConfigOneOneTypeDefault),
                     }),
                     zod.object({
+                        min_baseline: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                            ),
                         preprocessing: zod
                             .union([
                                 zod.object({
@@ -789,6 +861,12 @@ export const AlertsCreateBody = () => zod.object({
                             .describe('Rolling window size for calculating mean\/std (default: 30)'),
                     }),
                     zod.object({
+                        min_baseline: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                            ),
                         preprocessing: zod
                             .union([
                                 zod.object({
@@ -828,6 +906,12 @@ export const AlertsCreateBody = () => zod.object({
                             .describe('Rolling window size for calculating median\/MAD (default: 30)'),
                     }),
                     zod.object({
+                        min_baseline: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                            ),
                         multiplier: zod
                             .union([zod.number(), zod.null()])
                             .optional()
@@ -902,6 +986,12 @@ export const AlertsCreateBody = () => zod.object({
                             .describe('Upper bound - values above this are anomalies'),
                     }),
                     zod.object({
+                        min_baseline: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                            ),
                         preprocessing: zod
                             .union([
                                 zod.object({
@@ -941,6 +1031,12 @@ export const AlertsCreateBody = () => zod.object({
                             ),
                     }),
                     zod.object({
+                        min_baseline: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                            ),
                         preprocessing: zod
                             .union([
                                 zod.object({
@@ -980,6 +1076,12 @@ export const AlertsCreateBody = () => zod.object({
                             ),
                     }),
                     zod.object({
+                        min_baseline: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                            ),
                         n_estimators: zod
                             .union([zod.number(), zod.null()])
                             .optional()
@@ -1027,6 +1129,12 @@ export const AlertsCreateBody = () => zod.object({
                             .union([zod.enum(['largest', 'mean', 'median']), zod.null()])
                             .optional()
                             .describe("Distance method: 'largest', 'mean', 'median' (default: 'largest')"),
+                        min_baseline: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                            ),
                         n_neighbors: zod
                             .union([zod.number(), zod.null()])
                             .optional()
@@ -1070,6 +1178,12 @@ export const AlertsCreateBody = () => zod.object({
                             ),
                     }),
                     zod.object({
+                        min_baseline: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                            ),
                         n_bins: zod
                             .union([zod.number(), zod.null()])
                             .optional()
@@ -1113,6 +1227,12 @@ export const AlertsCreateBody = () => zod.object({
                             ),
                     }),
                     zod.object({
+                        min_baseline: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                            ),
                         n_neighbors: zod
                             .union([zod.number(), zod.null()])
                             .optional()
@@ -1160,6 +1280,12 @@ export const AlertsCreateBody = () => zod.object({
                             .union([zod.string(), zod.null()])
                             .optional()
                             .describe('SVM kernel type (default: \"rbf\")'),
+                        min_baseline: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                            ),
                         nu: zod
                             .union([zod.number(), zod.null()])
                             .optional()
@@ -1203,6 +1329,12 @@ export const AlertsCreateBody = () => zod.object({
                             ),
                     }),
                     zod.object({
+                        min_baseline: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                            ),
                         preprocessing: zod
                             .union([
                                 zod.object({
@@ -1533,6 +1665,12 @@ export const AlertsPartialUpdateBody = () => zod.object({
                             .array(
                                 zod.union([
                                     zod.object({
+                                        min_baseline: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                            ),
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
@@ -1576,6 +1714,12 @@ export const AlertsPartialUpdateBody = () => zod.object({
                                             .describe('Rolling window size for calculating mean\/std (default: 30)'),
                                     }),
                                     zod.object({
+                                        min_baseline: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                            ),
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
@@ -1619,6 +1763,12 @@ export const AlertsPartialUpdateBody = () => zod.object({
                                             .describe('Rolling window size for calculating median\/MAD (default: 30)'),
                                     }),
                                     zod.object({
+                                        min_baseline: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                            ),
                                         multiplier: zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
@@ -1703,6 +1853,12 @@ export const AlertsPartialUpdateBody = () => zod.object({
                                             .describe('Upper bound - values above this are anomalies'),
                                     }),
                                     zod.object({
+                                        min_baseline: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                            ),
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
@@ -1746,6 +1902,12 @@ export const AlertsPartialUpdateBody = () => zod.object({
                                             ),
                                     }),
                                     zod.object({
+                                        min_baseline: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                            ),
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
@@ -1789,6 +1951,12 @@ export const AlertsPartialUpdateBody = () => zod.object({
                                             ),
                                     }),
                                     zod.object({
+                                        min_baseline: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                            ),
                                         n_estimators: zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
@@ -1842,6 +2010,12 @@ export const AlertsPartialUpdateBody = () => zod.object({
                                             .describe(
                                                 "Distance method: 'largest', 'mean', 'median' (default: 'largest')"
                                             ),
+                                        min_baseline: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                            ),
                                         n_neighbors: zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
@@ -1889,6 +2063,12 @@ export const AlertsPartialUpdateBody = () => zod.object({
                                             ),
                                     }),
                                     zod.object({
+                                        min_baseline: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                            ),
                                         n_bins: zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
@@ -1936,6 +2116,12 @@ export const AlertsPartialUpdateBody = () => zod.object({
                                             ),
                                     }),
                                     zod.object({
+                                        min_baseline: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                            ),
                                         n_neighbors: zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
@@ -1987,6 +2173,12 @@ export const AlertsPartialUpdateBody = () => zod.object({
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe('SVM kernel type (default: \"rbf\")'),
+                                        min_baseline: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                            ),
                                         nu: zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
@@ -2034,6 +2226,12 @@ export const AlertsPartialUpdateBody = () => zod.object({
                                             ),
                                     }),
                                     zod.object({
+                                        min_baseline: zod
+                                            .union([zod.number(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                            ),
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
@@ -2083,6 +2281,12 @@ export const AlertsPartialUpdateBody = () => zod.object({
                         type: zod.enum(['ensemble']).default(alertsPartialUpdateBodyDetectorConfigOneOneTypeDefault),
                     }),
                     zod.object({
+                        min_baseline: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                            ),
                         preprocessing: zod
                             .union([
                                 zod.object({
@@ -2122,6 +2326,12 @@ export const AlertsPartialUpdateBody = () => zod.object({
                             .describe('Rolling window size for calculating mean\/std (default: 30)'),
                     }),
                     zod.object({
+                        min_baseline: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                            ),
                         preprocessing: zod
                             .union([
                                 zod.object({
@@ -2161,6 +2371,12 @@ export const AlertsPartialUpdateBody = () => zod.object({
                             .describe('Rolling window size for calculating median\/MAD (default: 30)'),
                     }),
                     zod.object({
+                        min_baseline: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                            ),
                         multiplier: zod
                             .union([zod.number(), zod.null()])
                             .optional()
@@ -2235,6 +2451,12 @@ export const AlertsPartialUpdateBody = () => zod.object({
                             .describe('Upper bound - values above this are anomalies'),
                     }),
                     zod.object({
+                        min_baseline: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                            ),
                         preprocessing: zod
                             .union([
                                 zod.object({
@@ -2274,6 +2496,12 @@ export const AlertsPartialUpdateBody = () => zod.object({
                             ),
                     }),
                     zod.object({
+                        min_baseline: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                            ),
                         preprocessing: zod
                             .union([
                                 zod.object({
@@ -2313,6 +2541,12 @@ export const AlertsPartialUpdateBody = () => zod.object({
                             ),
                     }),
                     zod.object({
+                        min_baseline: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                            ),
                         n_estimators: zod
                             .union([zod.number(), zod.null()])
                             .optional()
@@ -2362,6 +2596,12 @@ export const AlertsPartialUpdateBody = () => zod.object({
                             .union([zod.enum(['largest', 'mean', 'median']), zod.null()])
                             .optional()
                             .describe("Distance method: 'largest', 'mean', 'median' (default: 'largest')"),
+                        min_baseline: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                            ),
                         n_neighbors: zod
                             .union([zod.number(), zod.null()])
                             .optional()
@@ -2405,6 +2645,12 @@ export const AlertsPartialUpdateBody = () => zod.object({
                             ),
                     }),
                     zod.object({
+                        min_baseline: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                            ),
                         n_bins: zod
                             .union([zod.number(), zod.null()])
                             .optional()
@@ -2448,6 +2694,12 @@ export const AlertsPartialUpdateBody = () => zod.object({
                             ),
                     }),
                     zod.object({
+                        min_baseline: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                            ),
                         n_neighbors: zod
                             .union([zod.number(), zod.null()])
                             .optional()
@@ -2495,6 +2747,12 @@ export const AlertsPartialUpdateBody = () => zod.object({
                             .union([zod.string(), zod.null()])
                             .optional()
                             .describe('SVM kernel type (default: \"rbf\")'),
+                        min_baseline: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                            ),
                         nu: zod
                             .union([zod.number(), zod.null()])
                             .optional()
@@ -2538,6 +2796,12 @@ export const AlertsPartialUpdateBody = () => zod.object({
                             ),
                     }),
                     zod.object({
+                        min_baseline: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                            ),
                         preprocessing: zod
                             .union([
                                 zod.object({
@@ -2763,6 +3027,12 @@ export const AlertsSimulateCreateBody = () => zod.object({
                     .array(
                         zod.union([
                             zod.object({
+                                min_baseline: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                    ),
                                 preprocessing: zod
                                     .union([
                                         zod.object({
@@ -2804,6 +3074,12 @@ export const AlertsSimulateCreateBody = () => zod.object({
                                     .describe('Rolling window size for calculating mean\/std (default: 30)'),
                             }),
                             zod.object({
+                                min_baseline: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                    ),
                                 preprocessing: zod
                                     .union([
                                         zod.object({
@@ -2845,6 +3121,12 @@ export const AlertsSimulateCreateBody = () => zod.object({
                                     .describe('Rolling window size for calculating median\/MAD (default: 30)'),
                             }),
                             zod.object({
+                                min_baseline: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                    ),
                                 multiplier: zod
                                     .union([zod.number(), zod.null()])
                                     .optional()
@@ -2925,6 +3207,12 @@ export const AlertsSimulateCreateBody = () => zod.object({
                                     .describe('Upper bound - values above this are anomalies'),
                             }),
                             zod.object({
+                                min_baseline: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                    ),
                                 preprocessing: zod
                                     .union([
                                         zod.object({
@@ -2966,6 +3254,12 @@ export const AlertsSimulateCreateBody = () => zod.object({
                                     ),
                             }),
                             zod.object({
+                                min_baseline: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                    ),
                                 preprocessing: zod
                                     .union([
                                         zod.object({
@@ -3007,6 +3301,12 @@ export const AlertsSimulateCreateBody = () => zod.object({
                                     ),
                             }),
                             zod.object({
+                                min_baseline: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                    ),
                                 n_estimators: zod
                                     .union([zod.number(), zod.null()])
                                     .optional()
@@ -3056,6 +3356,12 @@ export const AlertsSimulateCreateBody = () => zod.object({
                                     .union([zod.enum(['largest', 'mean', 'median']), zod.null()])
                                     .optional()
                                     .describe("Distance method: 'largest', 'mean', 'median' (default: 'largest')"),
+                                min_baseline: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                    ),
                                 n_neighbors: zod
                                     .union([zod.number(), zod.null()])
                                     .optional()
@@ -3101,6 +3407,12 @@ export const AlertsSimulateCreateBody = () => zod.object({
                                     ),
                             }),
                             zod.object({
+                                min_baseline: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                    ),
                                 n_bins: zod
                                     .union([zod.number(), zod.null()])
                                     .optional()
@@ -3146,6 +3458,12 @@ export const AlertsSimulateCreateBody = () => zod.object({
                                     ),
                             }),
                             zod.object({
+                                min_baseline: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                    ),
                                 n_neighbors: zod
                                     .union([zod.number(), zod.null()])
                                     .optional()
@@ -3197,6 +3515,12 @@ export const AlertsSimulateCreateBody = () => zod.object({
                                     .union([zod.string(), zod.null()])
                                     .optional()
                                     .describe('SVM kernel type (default: \"rbf\")'),
+                                min_baseline: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                    ),
                                 nu: zod
                                     .union([zod.number(), zod.null()])
                                     .optional()
@@ -3244,6 +3568,12 @@ export const AlertsSimulateCreateBody = () => zod.object({
                                     ),
                             }),
                             zod.object({
+                                min_baseline: zod
+                                    .union([zod.number(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                                    ),
                                 preprocessing: zod
                                     .union([
                                         zod.object({
@@ -3293,6 +3623,12 @@ export const AlertsSimulateCreateBody = () => zod.object({
                 type: zod.enum(['ensemble']).default(alertsSimulateCreateBodyDetectorConfigOneOneTypeDefault),
             }),
             zod.object({
+                min_baseline: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                    ),
                 preprocessing: zod
                     .union([
                         zod.object({
@@ -3330,6 +3666,12 @@ export const AlertsSimulateCreateBody = () => zod.object({
                     .describe('Rolling window size for calculating mean\/std (default: 30)'),
             }),
             zod.object({
+                min_baseline: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                    ),
                 preprocessing: zod
                     .union([
                         zod.object({
@@ -3367,6 +3709,12 @@ export const AlertsSimulateCreateBody = () => zod.object({
                     .describe('Rolling window size for calculating median\/MAD (default: 30)'),
             }),
             zod.object({
+                min_baseline: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                    ),
                 multiplier: zod
                     .union([zod.number(), zod.null()])
                     .optional()
@@ -3437,6 +3785,12 @@ export const AlertsSimulateCreateBody = () => zod.object({
                     .describe('Upper bound - values above this are anomalies'),
             }),
             zod.object({
+                min_baseline: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                    ),
                 preprocessing: zod
                     .union([
                         zod.object({
@@ -3474,6 +3828,12 @@ export const AlertsSimulateCreateBody = () => zod.object({
                     ),
             }),
             zod.object({
+                min_baseline: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                    ),
                 preprocessing: zod
                     .union([
                         zod.object({
@@ -3511,6 +3871,12 @@ export const AlertsSimulateCreateBody = () => zod.object({
                     ),
             }),
             zod.object({
+                min_baseline: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                    ),
                 n_estimators: zod
                     .union([zod.number(), zod.null()])
                     .optional()
@@ -3556,6 +3922,12 @@ export const AlertsSimulateCreateBody = () => zod.object({
                     .union([zod.enum(['largest', 'mean', 'median']), zod.null()])
                     .optional()
                     .describe("Distance method: 'largest', 'mean', 'median' (default: 'largest')"),
+                min_baseline: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                    ),
                 n_neighbors: zod
                     .union([zod.number(), zod.null()])
                     .optional()
@@ -3597,6 +3969,12 @@ export const AlertsSimulateCreateBody = () => zod.object({
                     ),
             }),
             zod.object({
+                min_baseline: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                    ),
                 n_bins: zod
                     .union([zod.number(), zod.null()])
                     .optional()
@@ -3638,6 +4016,12 @@ export const AlertsSimulateCreateBody = () => zod.object({
                     ),
             }),
             zod.object({
+                min_baseline: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                    ),
                 n_neighbors: zod
                     .union([zod.number(), zod.null()])
                     .optional()
@@ -3680,6 +4064,12 @@ export const AlertsSimulateCreateBody = () => zod.object({
             }),
             zod.object({
                 kernel: zod.union([zod.string(), zod.null()]).optional().describe('SVM kernel type (default: \"rbf\")'),
+                min_baseline: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                    ),
                 nu: zod
                     .union([zod.number(), zod.null()])
                     .optional()
@@ -3721,6 +4111,12 @@ export const AlertsSimulateCreateBody = () => zod.object({
                     ),
             }),
             zod.object({
+                min_baseline: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Typical count the series must reach before a relative-deviation flag counts. 0 turns the floor off (default: 5)'
+                    ),
                 preprocessing: zod
                     .union([
                         zod.object({
