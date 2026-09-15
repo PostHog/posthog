@@ -8,7 +8,9 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 
+import httpx
 import numpy as np
+import anthropic
 from parameterized import parameterized
 
 from posthog.tasks.alerts.detectors.base import DetectionContext, DetectionResult
@@ -170,10 +172,14 @@ class TestLLMDetectorVerdictMapping:
 
         assert result.triggered_indices == expected
 
-    def test_batch_scores_only_the_flagged_points(self) -> None:
-        result = _detect(LLMDetector({"type": "llm"}), _verdict(triggered_indices=[6]), batch=True)
+    @parameterized.expand([("above_threshold", 0.9, [6]), ("below_threshold", 0.6, [])])
+    def test_batch_scores_only_the_flagged_points(self, _name: str, confidence: float, triggered: list[int]) -> None:
+        result = _detect(
+            LLMDetector({"type": "llm"}), _verdict(triggered_indices=[6], confidence=confidence), batch=True
+        )
 
-        assert result.all_scores == [None] * 6 + [0.9]
+        assert result.all_scores == [None] * 6 + [confidence]
+        assert result.triggered_indices == triggered
 
     def test_batch_offsets_indices_from_the_truncated_prompt(self) -> None:
         data = np.arange(10, dtype=float)
@@ -408,3 +414,24 @@ class TestLLMDetectorVerdictMemo:
                 detector.detect_in_context(SERIES, _context(evaluation_id=_SLOT))
 
         assert invoke.call_count == 2
+
+
+@pytest.mark.parametrize(
+    "error_type,status_code",
+    [(anthropic.AuthenticationError, 401), (anthropic.PermissionDeniedError, 403), (anthropic.BadRequestError, 400)],
+)
+def test_provider_rejections_do_not_disable_an_alert(
+    error_type: type[anthropic.APIStatusError], status_code: int
+) -> None:
+    response = httpx.Response(status_code, request=httpx.Request("POST", "https://example.com/messages"))
+    with _mocked_model(_verdict()) as invoke:
+        invoke.side_effect = error_type("Provider unavailable", response=response, body={})
+        with pytest.raises(LLMDetectorUnavailableError):
+            LLMDetector({"type": "llm"}).detect_in_context(SERIES, _context())
+
+
+@pytest.mark.parametrize("is_agent_billable", [True, False])
+def test_model_call_preserves_the_billing_decision(is_agent_billable: bool) -> None:
+    with _mocked_model(_verdict()) as invoke:
+        LLMDetector({"type": "llm"}).detect_batch_in_context(SERIES, _context(is_agent_billable=is_agent_billable))
+    assert invoke.call_args.kwargs["config"]["configurable"]["is_agent_billable"] is is_agent_billable

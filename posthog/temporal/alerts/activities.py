@@ -1,7 +1,10 @@
+import json
+import hashlib
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
 from django.db.models import Case, Count, F, IntegerField, Min, Q, Value, When, Window
 from django.db.models.functions import Coalesce, RowNumber
@@ -241,6 +244,9 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
             state_fields = apply_unsnooze(alert)
             alert.save(update_fields=["snoozed_until", *state_fields])
 
+        # Query upgrades mutate the in-memory insight. Track the saved inputs before
+        # validation so a schema upgrade is not mistaken for a concurrent edit.
+        evaluation_fingerprint = _evaluation_fingerprint(alert)
         try:
             insight = alert.insight
             with upgrade_insight(insight):
@@ -260,7 +266,9 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
             return PrepareAlertResult(action=PrepareAction.AUTO_DISABLE, reason=str(e))
 
         return PrepareAlertResult(
-            action=PrepareAction.EVALUATE, uses_llm_detector=is_llm_detector_config(alert.detector_config)
+            action=PrepareAction.EVALUATE,
+            uses_llm_detector=is_llm_detector_config(alert.detector_config),
+            evaluation_fingerprint=evaluation_fingerprint,
         )
 
     async with Heartbeater():
@@ -284,6 +292,9 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
 
     def _evaluate(alert: AlertConfiguration) -> EvaluateAlertResult:
         evaluated_alert = alert
+        evaluated_fingerprint = _evaluation_fingerprint(alert)
+        if inputs.evaluation_fingerprint is not None and inputs.evaluation_fingerprint != evaluated_fingerprint:
+            return EvaluateAlertResult(alert_check_id=None, should_notify=False, new_state=AlertState(alert.state))
         # CH workload management keys off these tags to isolate alert queries from other tenants.
         # calculation_interval / config_type also let query_log cost be grouped by alert cadence
         # (real_time vs every_15_minutes vs ...) and query shape (trends vs HogQL) without a join.
@@ -356,27 +367,10 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         should_gate_notification = False
         should_run_metrics_investigation = False
         with transaction.atomic():
-            # Insight deletion locks the insight before deleting its alerts. Use the same order.
-            insight_exists = lock_insight_for_evaluation(
-                insight_id=evaluated_alert.insight_id, team_id=evaluated_alert.team_id
+            current_alert = _lock_evaluation_alert(
+                alert_id=inputs.alert_id, team_id=evaluated_alert.team_id, insight_id=evaluated_alert.insight_id
             )
-            current_alert = (
-                AlertConfiguration.objects.select_for_update(of=("self",), no_key=True)
-                .select_related("insight", "team", "threshold")
-                .filter(id=inputs.alert_id, team_id=evaluated_alert.team_id)
-                .first()
-            )
-            # Threshold is nullable, so PostgreSQL cannot lock it through the outer join.
-            if current_alert is not None and current_alert.threshold_id is not None:
-                current_alert.threshold = Threshold.objects.select_for_update(no_key=True).get(
-                    id=current_alert.threshold_id, team_id=current_alert.team_id
-                )
-            if (
-                current_alert is None
-                or not insight_exists
-                or current_alert.insight_id != evaluated_alert.insight_id
-                or not _evaluation_inputs_match(evaluated_alert, current_alert)
-            ):
+            if current_alert is None or not _evaluation_inputs_match(evaluated_fingerprint, current_alert):
                 # Leave the current state and due time intact. The next scheduler tick can
                 # evaluate the edited alert; a disabled or deleted alert needs no further work.
                 return EvaluateAlertResult(
@@ -444,7 +438,29 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         return await database_sync_to_async(_evaluate, thread_sensitive=False, executor=executor)(alert)
 
 
-def _evaluation_inputs_match(evaluated: AlertConfiguration, current: AlertConfiguration) -> bool:
+def _lock_evaluation_alert(*, alert_id: str, team_id: int, insight_id: int) -> AlertConfiguration | None:
+    # Call inside transaction.atomic(). Insight deletion takes the same lock order.
+    if not lock_insight_for_evaluation(insight_id=insight_id, team_id=team_id):
+        return None
+    alert = (
+        AlertConfiguration.objects.select_for_update(of=("self",), no_key=True)
+        .select_related("insight", "team", "threshold")
+        .filter(id=alert_id, team_id=team_id)
+        .first()
+    )
+    if alert is None or alert.insight_id != insight_id:
+        return None
+    # Threshold is nullable, so PostgreSQL cannot lock it through the outer join.
+    if alert.threshold_id is not None:
+        alert.threshold = Threshold.objects.select_for_update(no_key=True).get(id=alert.threshold_id, team_id=team_id)
+    return alert
+
+
+def _evaluation_inputs_match(evaluated_fingerprint: str, current: AlertConfiguration) -> bool:
+    return evaluated_fingerprint == _evaluation_fingerprint(current)
+
+
+def _evaluation_fingerprint(alert: AlertConfiguration) -> str:
     fields = (
         "enabled",
         "insight_id",
@@ -460,14 +476,14 @@ def _evaluation_inputs_match(evaluated: AlertConfiguration, current: AlertConfig
         "schedule_restriction",
         "snoozed_until",
     )
-    return (
-        all(getattr(evaluated, field) == getattr(current, field) for field in fields)
-        and evaluated.insight.name == current.insight.name
-        and evaluated.insight.query == current.insight.query
-        and evaluated.insight.deleted == current.insight.deleted
-        and (evaluated.threshold.configuration if evaluated.threshold else None)
-        == (current.threshold.configuration if current.threshold else None)
-    )
+    values = [
+        *(getattr(alert, field) for field in fields),
+        alert.insight.name,
+        alert.insight.query,
+        alert.insight.deleted,
+        alert.threshold.configuration if alert.threshold else None,
+    ]
+    return hashlib.sha256(json.dumps(values, cls=DjangoJSONEncoder, sort_keys=True).encode()).hexdigest()
 
 
 @database_sync_to_async(thread_sensitive=False)
@@ -505,12 +521,21 @@ async def record_failed_evaluation(inputs: RecordFailedEvaluationActivityInputs)
     @database_sync_to_async(thread_sensitive=False)
     def _record() -> RecordFailedEvaluationResult:
         try:
+            queryset = AlertConfiguration.objects.all()
+            if inputs.team_id is not None:
+                queryset = queryset.filter(team_id=inputs.team_id)
+            snapshot = queryset.only("team_id", "insight_id").get(id=inputs.alert_id)
             with transaction.atomic():
-                alert = (
-                    AlertConfiguration.objects.select_for_update(of=("self",))
-                    .select_related("insight", "team", "threshold")
-                    .get(id=inputs.alert_id)
+                alert = _lock_evaluation_alert(
+                    alert_id=inputs.alert_id,
+                    team_id=snapshot.team_id,
+                    insight_id=snapshot.insight_id,
                 )
+                if alert is None or (
+                    inputs.evaluation_fingerprint is not None
+                    and inputs.evaluation_fingerprint != _evaluation_fingerprint(alert)
+                ):
+                    return RecordFailedEvaluationResult()
                 # Disabling an alert mid-check makes evaluate_alert raise a non-retryable "disabled
                 # between prepare and evaluate" error into this path. That is a normal user action,
                 # not an alert failure, so it must not gain an errored check or email subscribers.

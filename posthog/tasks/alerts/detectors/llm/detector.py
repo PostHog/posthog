@@ -212,7 +212,7 @@ class LLMDetector(BaseDetector):
         from posthoganalytics.ai.langchain.callbacks import CallbackHandler  # noqa: PLC0415
 
         from ee.hogai.llm import MaxChatAnthropic  # noqa: PLC0415
-        from ee.hogai.utils.exceptions import LLM_API_EXCEPTIONS, LLM_TRANSIENT_EXCEPTIONS  # noqa: PLC0415
+        from ee.hogai.utils.exceptions import LLM_API_EXCEPTIONS  # noqa: PLC0415
         from ee.hogai.utils.feature_flags import is_privacy_mode_enabled  # noqa: PLC0415
 
         instructions_present = bool(context.instructions)
@@ -263,13 +263,16 @@ class LLMDetector(BaseDetector):
                 f"The AI detector is already running {MAX_CONCURRENT_MODEL_CALLS} model calls on this worker."
             )
         try:
-            verdict = model.invoke(messages, config=RunnableConfig(callbacks=callbacks))
-        except LLM_TRANSIENT_EXCEPTIONS as error:
-            raise LLMDetectorUnavailableError(f"The AI detector could not reach the model: {error}") from error
+            verdict = model.invoke(
+                messages,
+                config=RunnableConfig(
+                    callbacks=callbacks, configurable={"is_agent_billable": context.is_agent_billable}
+                ),
+            )
         except LLM_API_EXCEPTIONS as error:
-            raise LLMDetectorMisconfiguredError(
-                f"The AI detector request was rejected by the model: {error}"
-            ) from error
+            # Provider credentials, permissions, and model availability are shared across
+            # alerts. Disabling an individual alert cannot fix a provider failure.
+            raise LLMDetectorUnavailableError(f"The AI detector could not reach the model: {error}") from error
         except Exception as error:
             raise LLMDetectorUnavailableError(f"The AI detector could not read the model response: {error}") from error
         finally:
@@ -302,7 +305,8 @@ class LLMDetector(BaseDetector):
 
         index_offset = max(0, len(data) - window)
         reported_indices = [index + index_offset for index in verdict.triggered_indices]
-        indices = self._clamp_indices(reported_indices, length=len(data))
+        score_indices = self._clamp_indices(reported_indices, length=len(data))
+        indices = score_indices
         latest_point_flagged = (len(data) - 1) in indices
         if not judge_every_point:
             # A live check judges one point. The prompt asks the model to list the final index
@@ -334,7 +338,7 @@ class LLMDetector(BaseDetector):
             is_anomaly=is_anomaly,
             score=anomaly_score,
             triggered_indices=indices,
-            all_scores=self._scores(anomaly_score, indices=indices, length=len(data))
+            all_scores=self._scores(anomaly_score, indices=score_indices, length=len(data))
             if judge_every_point
             else [anomaly_score],
             metadata=metadata,

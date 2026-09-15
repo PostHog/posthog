@@ -445,6 +445,31 @@ class TestUpsertAlertTool(BaseTest):
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    async def test_update_rejects_enabling_an_ai_alert_after_insight_gains_a_breakdown(self, _flag):
+        insight = await self._create_insight()
+        alert = await self._create_alert(insight, enabled=False)
+        await AlertConfiguration.objects.filter(team=self.team, id=alert.id).aupdate(
+            detector_config={"type": "llm", "threshold": 0.7, "window": 90}
+        )
+        tool = self._setup_tool()
+        check_access = tool.check_object_access
+
+        async def edit_after_read(_tool, *args, **kwargs):
+            await check_access(*args, **kwargs)
+            assert insight.query is not None
+            insight.query["source"]["breakdownFilter"] = {"breakdown": "$browser", "breakdown_type": "event"}
+            await insight.asave(update_fields=["query"])
+
+        with mock.patch.object(UpsertAlertTool, "check_object_access", new=edit_after_read):
+            content, artifact = await tool._arun_impl(action=UpdateAlertAction(alert_id=str(alert.id), enabled=True))
+        assert artifact["error"] == "validation_failed"
+        assert "breakdown" in content
+        await alert.arefresh_from_db()
+        assert alert.enabled is False
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
     @mock.patch("posthoganalytics.feature_enabled", return_value=False)
     async def test_update_rejects_enabling_an_ai_alert_outside_the_rollout(self, _flag):
         insight = await self._create_insight()

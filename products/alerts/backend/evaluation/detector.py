@@ -151,6 +151,7 @@ def _detection_context(
     interval: str | None,
     metric_description: str,
     evaluation_id: str | None = None,
+    is_agent_billable: bool = True,
 ) -> DetectionContext:
     """Everything about the series a detector cannot read off the values array.
 
@@ -170,6 +171,7 @@ def _detection_context(
         team=insight.team if insight is not None else None,
         user=user,
         evaluation_id=evaluation_id,
+        is_agent_billable=is_agent_billable,
     )
 
 
@@ -362,6 +364,7 @@ def simulate_detector_on_insight(
     config: dict[str, Any] | None = None,
     *,
     score: bool = True,
+    is_agent_billable: bool = True,
 ) -> dict[str, Any]:
     """Run a detector over historical insight data for chart visualization. Read-only (no AlertCheck).
 
@@ -422,9 +425,10 @@ def simulate_detector_on_insight(
     sim_context = _SimulationSeriesContext(
         insight=insight,
         interval=interval_value,
-        metric_description=_metric_description(insight, series_index),
+        metric_description=_metric_description(insight, series_index, _effective_date_range(result)),
         user=user,
         score=score,
+        is_agent_billable=is_agent_billable,
     )
 
     if result.is_breakdown:
@@ -463,6 +467,7 @@ class _SimulationSeriesContext:
     metric_description: str
     user: User | None
     score: bool = True
+    is_agent_billable: bool = True
 
 
 def _sim_from_series(
@@ -480,6 +485,7 @@ def _sim_from_series(
             user=sim_context.user,
             interval=sim_context.interval,
             metric_description=sim_context.metric_description,
+            is_agent_billable=sim_context.is_agent_billable,
         )
         detection = get_detector(detector_config).detect_batch_in_context(
             np.array([p.value for p in series.points]), context

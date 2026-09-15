@@ -49,6 +49,7 @@ class DetectionContext:
     # Names the scheduled check, and stays the same across retries of it, so a detector that
     # pays for an external call can reuse a verdict it already bought. None for a simulation.
     evaluation_id: str | None = None
+    is_agent_billable: bool = True
 
 
 class BaseDetector(ABC):

@@ -24,6 +24,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.tasks.alerts.detectors.llm.errors import LLMDetectorUnavailableError
+from posthog.tasks.alerts.detectors.llm.verdict import LLMDetectionVerdict
 
 from products.alerts.backend.facade.api import INSIGHT_ALERT_EVENT_IDS
 from products.alerts.backend.facade.contracts import AlertDelivery
@@ -2484,13 +2485,16 @@ class TestAlertAPIKeyAccess(TrendsInsightAPITest):
 
     @parameterized.expand(
         [
-            (["alert:read", "insight:read"], status.HTTP_403_FORBIDDEN),
-            (["alert:write", "insight:read"], status.HTTP_200_OK),
+            (["alert:read", "insight:read"], status.HTTP_403_FORBIDDEN, "json"),
+            (["alert:read", "insight:read"], status.HTTP_403_FORBIDDEN, "multipart"),
+            (["alert:write", "insight:read"], status.HTTP_200_OK, "json"),
         ]
     )
     @mock.patch("products.alerts.backend.presentation.views.alert.simulate_detector_on_insight")
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_an_ai_simulation_needs_a_write_scope(self, scopes, expected_status, _flag, mock_simulate) -> None:
+    def test_an_ai_simulation_needs_a_write_scope(
+        self, scopes, expected_status, request_format, _flag, mock_simulate
+    ) -> None:
         # Every other mode of this endpoint only reads. The AI one spends the organization's
         # model budget, which a token scoped to read alerts and insights was never granted.
         self.organization.is_ai_data_processing_approved = True
@@ -2508,19 +2512,31 @@ class TestAlertAPIKeyAccess(TrendsInsightAPITest):
         api_key = self._create_api_key(scopes)
         self.client.logout()
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/alerts/simulate/",
-            data={
-                "insight": self.insight["id"],
-                "detector_config": {"type": "llm", "threshold": 0.7, "window": 90},
-            },
-            HTTP_AUTHORIZATION=f"Bearer {api_key}",
-        )
-
-        assert response.status_code == expected_status, response.content
-        if expected_status == status.HTTP_403_FORBIDDEN:
-            assert "alert:write" in response.json()["detail"]
-        assert mock_simulate.called is (expected_status == status.HTTP_200_OK)
+        cache.clear()
+        endpoint = f"/api/projects/{self.team.id}/alerts/simulate/"
+        detector_config = {"type": "llm", "threshold": 0.7, "window": 90}
+        payload = {
+            "insight": self.insight["id"],
+            "detector_config": json.dumps(detector_config) if request_format == "multipart" else detector_config,
+        }
+        with (
+            mock.patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
+            mock.patch("posthog.rate_limit.AlertLLMSimulationBurstThrottle.rate", new="1/minute"),
+        ):
+            for _ in range(2 if expected_status == status.HTTP_403_FORBIDDEN else 1):
+                response = self.client.post(
+                    endpoint, payload, format=request_format, HTTP_AUTHORIZATION=f"Bearer {api_key}"
+                )
+                assert response.status_code == expected_status, response.content
+            if expected_status == status.HTTP_403_FORBIDDEN:
+                assert "alert:write" in response.json()["detail"]
+                mock_simulate.assert_not_called()
+                writer_key = self._create_api_key(["alert:write", "insight:read"])
+                response = self.client.post(
+                    endpoint, payload, format=request_format, HTTP_AUTHORIZATION=f"Bearer {writer_key}"
+                )
+                assert response.status_code == status.HTTP_200_OK, response.content
+        cache.clear()
 
 
 class TestAlertRealTimeInterval(TrendsInsightAPITest):
@@ -3081,6 +3097,45 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.content
         assert response.json()["code"] == "llm_detector_unavailable"
+
+    @parameterized.expand([("normal", False), ("impersonated", True)])
+    @mock.patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
+    @mock.patch("posthog.tasks.alerts.detectors.llm.detector.LLMDetector._ask_model")
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_preview_preserves_dates_and_impersonation_billing(
+        self, _name, impersonated, _flag, ask, calculate
+    ) -> None:
+        Insight.objects.filter(id=self.insight["id"]).update(
+            query=self.trends_insight_query(interval="day", dateRange={"date_from": "-1d"})
+        )
+        dates = [f"2026-01-0{i + 1}" for i in range(7)]
+        calculate.return_value = mock.MagicMock(
+            result=[
+                {
+                    "data": [100, 98, 101, 99, 12, 15, 16],
+                    "days": dates,
+                    "labels": dates,
+                    "label": "pageview",
+                    "action": {"name": "pageview"},
+                    "actions": [],
+                    "count": 7,
+                }
+            ]
+        )
+        ask.return_value = LLMDetectionVerdict(
+            is_anomaly=False, confidence=0.9, kind="none", rationale="Expected range."
+        )
+        with mock.patch("products.alerts.backend.presentation.views.alert.is_impersonated", return_value=impersonated):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate",
+                {"insight": self.insight["id"], "detector_config": {"type": "llm", "window": 5}},
+            )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        context = ask.call_args.kwargs["context"]
+        assert context.is_agent_billable is (not impersonated)
+        assert "2026-01-01" in context.metric_description
+        assert "2026-01-06" in context.metric_description
+        assert "-1d" not in context.metric_description
 
     @parameterized.expand(
         [

@@ -34,7 +34,7 @@ from posthog.exceptions import (
 )
 from posthog.models import Team, User
 from posthog.slo.types import SloOperation, SloOutcome
-from posthog.tasks.alerts.detectors.llm.errors import LLMDetectorMisconfiguredError
+from posthog.tasks.alerts.detectors.llm.errors import LLMDetectorMisconfiguredError, LLMDetectorUnavailableError
 from posthog.tasks.alerts.utils import (
     AlertEvaluationResult,
     get_alert_error_notification_recipients,
@@ -706,7 +706,13 @@ class TestEvaluateAlert:
     # an error instead sends the alert silent until its next cadence slot, an hour for hourly ones.
     @pytest.mark.parametrize(
         "error_class",
-        [ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded, SocketTimeoutError, NetworkError],
+        [
+            ClickHouseAtCapacity,
+            ClickHouseClusterMemoryLimitExceeded,
+            SocketTimeoutError,
+            NetworkError,
+            LLMDetectorUnavailableError,
+        ],
     )
     async def test_evaluate_reraises_ch_transient_error(self, alert, error_class) -> None:
         with patch(
@@ -754,6 +760,52 @@ class TestEvaluateAlert:
 @pytest.mark.asyncio
 @pytest.mark.django_db
 class TestRecordFailedEvaluation:
+    @pytest.mark.parametrize("change", [None, "detector", "insight", "threshold"])
+    async def test_failure_only_records_against_the_prepared_inputs(self, alert, change) -> None:
+        env = ActivityEnvironment()
+        prepared = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(alert.id)))
+        assert prepared.action == PrepareAction.EVALUATE
+        assert prepared.evaluation_fingerprint
+        if change == "detector":
+            await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(
+                detector_config={"type": "zscore", "threshold": 0.95, "window": 30}, next_check_at=datetime.now(UTC)
+            )
+        elif change == "insight":
+            await sync_to_async(Insight.objects.filter(id=alert.insight_id).update)(name="Changed metric")
+        elif change == "threshold":
+            await sync_to_async(Threshold.objects.filter(id=alert.threshold_id).update)(
+                configuration={"type": "absolute", "bounds": {"upper": 200.0}}
+            )
+        before = await sync_to_async(AlertConfiguration.objects.get)(id=alert.id)
+        due_before = before.next_check_at
+        result = await env.run(
+            record_failed_evaluation,
+            RecordFailedEvaluationActivityInputs(
+                alert_id=str(alert.id),
+                error_message="Model timed out",
+                evaluation_fingerprint=prepared.evaluation_fingerprint,
+                team_id=alert.team_id,
+            ),
+        )
+        if change is None:
+            assert result.alert_check_id is not None
+        else:
+            assert result.alert_check_id is None
+            assert not result.should_notify
+            await before.arefresh_from_db()
+            assert before.state == alert.state
+            assert before.next_check_at == due_before
+            assert not await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert).exists)()
+            with patch("posthog.temporal.alerts.activities.check_alert_for_insight") as check:
+                retry = await env.run(
+                    evaluate_alert,
+                    EvaluateAlertActivityInputs(
+                        alert_id=str(alert.id), evaluation_fingerprint=prepared.evaluation_fingerprint
+                    ),
+                )
+            assert retry.alert_check_id is None
+            check.assert_not_called()
+
     async def test_skips_disabled_alert_without_recording_or_notifying(self, alert_with_user) -> None:
         # Disabling an alert mid-check makes evaluate_alert raise into this activity. A normal
         # disable must not become an errored check or a "could not evaluate" email to subscribers.

@@ -62,6 +62,7 @@ class PrepareAlertResult:
     # True when the check will make a model call, so the workflow can route it to the
     # evaluate activity's dedicated executor.
     uses_llm_detector: bool = False
+    evaluation_fingerprint: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -70,12 +71,15 @@ class EvaluateAlertActivityInputs:
     uses_llm_detector: bool = False
     # Scopes the evaluation lookup. None on a workflow that started before this field existed.
     team_id: int | None = None
+    evaluation_fingerprint: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
 class RecordFailedEvaluationActivityInputs:
     alert_id: str
     error_message: str
+    evaluation_fingerprint: str | None = None
+    team_id: int | None = None
 
 
 @dataclasses.dataclass(frozen=True)

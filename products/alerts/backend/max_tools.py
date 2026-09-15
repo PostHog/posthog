@@ -22,10 +22,11 @@ from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.scopes import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
-from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
+from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE, validate_alert_config
 from products.alerts.backend.insight_alert_state_machine import apply_disable, apply_enable, apply_threshold_change
 from products.alerts.backend.llm_detector_limits import (
     is_llm_detector_config,
@@ -367,6 +368,20 @@ class UpsertAlertTool(MaxTool):
             if is_llm_alert and (error := llm_detector_interval_error(new_interval)):
                 return _SaveRefusal(message=error, error_code="validation_failed")
             if is_llm_alert and new_enabled and not alert.enabled:
+                try:
+                    with upgrade_insight(alert.insight):
+                        validate_alert_config(
+                            alert.insight.query or {},
+                            {"type": action.condition_type} if action.condition_type is not None else alert.condition,
+                            {**(alert.config or {}), "series_index": action.series_index}
+                            if action.series_index is not None
+                            else alert.config,
+                            alert.threshold.configuration if alert.threshold else None,
+                            new_interval,
+                            detector_config=alert.detector_config,
+                        )
+                except ValueError as validation_error:
+                    return _SaveRefusal(message=str(validation_error), error_code="validation_failed")
                 if error := self._llm_detector_access_error(principal=alert.created_by):
                     return _SaveRefusal(message=error, error_code="validation_failed")
                 lock_llm_alert_limit(team_id=alert.team_id)

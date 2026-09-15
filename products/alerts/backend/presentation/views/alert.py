@@ -1,3 +1,4 @@
+import json
 import uuid
 from typing import Annotated, Any, cast
 from zoneinfo import ZoneInfo
@@ -40,6 +41,7 @@ from posthog.email import is_email_available
 from posthog.event_usage import get_request_analytics_properties
 from posthog.exceptions import as_drf_validation_error
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
     MAX_SEARCH_LENGTH,
     NAME_FIELD,
@@ -384,6 +386,11 @@ def _require_write_scope_for_charged_simulation(request, detector_config: Any) -
     query. This one spends the organization's model budget, which is a side effect a token
     scoped to read alerts and insights was never granted.
     """
+    if isinstance(detector_config, str):
+        try:
+            detector_config = json.loads(detector_config)
+        except ValueError:
+            return
     if not is_llm_detector_config(detector_config):
         return
     key_scopes = get_authenticator_scopes(request.successful_authenticator)
@@ -1394,6 +1401,13 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     serializer_class = AlertSerializer
 
+    def check_throttles(self, request) -> None:
+        # DRF checks permissions first. Reject an unscoped charged request before it
+        # consumes the team's shared AI preview quota.
+        if self.action == "simulate" and isinstance(request.data, dict):
+            _require_write_scope_for_charged_simulation(request, request.data.get("detector_config"))
+        super().check_throttles(request)
+
     def safely_get_queryset(self, queryset) -> QuerySet:
         filters = self.request.query_params
         list_filters = AlertListFiltersSerializer(data=filters)
@@ -1753,7 +1767,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     # Returns an insight's computed result series, so it requires insight read in addition to
     # alert read — an alert-scoped token must not read insight/query data it isn't scoped for.
     # (Object-level insight viewer access is enforced separately in AlertSimulateSerializer.)
-    # An llm detector_config needs alert:write on top of these; see the guard in the handler.
+    # An llm detector_config needs alert:write on top of these; see check_throttles.
     @action(
         detail=False,
         methods=["POST"],
@@ -1775,7 +1789,6 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         insight = serializer.validated_data["insight"]
         detector_config = serializer.validated_data["detector_config"]
-        _require_write_scope_for_charged_simulation(request, detector_config)
         series_index = serializer.validated_data["series_index"]
         date_from = serializer.validated_data.get("date_from")
         config = serializer.validated_data.get("config")
@@ -1789,6 +1802,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 date_from=date_from,
                 user=cast(User, request.user),
                 config=config,
+                is_agent_billable=not is_impersonated(request),
             )
         except (ValueError, IndexError, AlertExtractionError) as e:
             raise ValidationError(str(e))

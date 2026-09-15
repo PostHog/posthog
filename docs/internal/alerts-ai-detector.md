@@ -74,6 +74,9 @@ AI evaluations use a dedicated thread pool. The routing decision and evaluation 
 alert configuration snapshot.
 Before saving, evaluation locks the current alert, insight, and threshold rows and compares the snapshot.
 If the alert changed or was deleted, it discards the result without sending a notification.
+The workflow carries the prepared input fingerprint into evaluation and failure recording.
+Retries stop if those inputs changed. Exhausted failures and timeouts also check the fingerprint
+under the same locks before writing, so they cannot delay an edited alert's first check.
 The next scheduler tick handles an edited alert at its current due time.
 
 ## Gating
@@ -97,7 +100,7 @@ A check that cannot reach a verdict records an error.
 It never returns "no anomaly", because an alert that silently stops firing looks healthier than one
 that reports a problem.
 
-- A transient failure raises a retryable error, and the retry policy decides.
+- A provider failure raises a retryable error, and the retry policy decides. Provider authentication, permission, and model errors do not disable alerts.
 - A permanent one, such as withdrawn consent or a missing creator, is not retried.
 - The simulate endpoint maps both to HTTP 503.
 
@@ -106,9 +109,14 @@ that reports a problem.
 Simulate runs the detector against an insight without creating an alert or a check.
 For the AI type it is a charged call, so it is throttled per project at 10 a minute, 60 an hour and
 200 a day, and it refuses breakdown insights before making any call.
+The write-scope check runs before these shared limits. A read-only token cannot consume them.
+Staff impersonation previews are not billed. Scheduled checks remain billable.
+Max validates the current insight configuration before it re-enables a disabled AI alert.
 
 The preview judges the whole window in one call, which is not the same shape as a live check.
 A live check judges only whether the latest point is anomalous.
+The preview describes the date range of the extracted points, including any added history.
+Below-threshold anomaly verdicts retain their scores but do not count as triggered anomalies.
 
 ## Where the code lives
 
