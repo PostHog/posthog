@@ -584,9 +584,15 @@ Notes:
 - User is not scoped to a team — the autostart logic resolves team membership at runtime
 - Managed via `PUT /api/users/@me/signal_autonomy/` (opt in / update) and `DELETE` (opt out)
 
-### `SignalReportTask` (legacy — implementation gate only)
+### `SignalReportTask` (legacy — implementation gate and replacement discovery)
 
-The legacy report↔task link table. General task↔report association has moved to `task_run` artefacts (a `task_run` artefact's `task` FK is the association; purpose comes from its `(product, type)`). This table survives for **one** job: it's the auto-start idempotency gate. `record_implementation_task` dual-writes a `relationship="implementation"` row here **and** the `task_run` artefact; auto-start checks this table (alongside protected task-run artefacts) when deciding whether an implementation has already started. Once `backfill_task_run_artefacts` has converted every legacy row into a `task_run` artefact, the gate can move to the artefact log and this table can be dropped.
+The legacy report↔task link table.
+General task↔report association has moved to `task_run` artefacts (a `task_run` artefact's `task` FK is the association; purpose comes from its `(product, type)`).
+Two readers keep this table alive.
+The first is the auto-start idempotency gate: `record_implementation_task` dual-writes a `relationship="implementation"` row here **and** the `task_run` artefact, and auto-start checks this table (alongside protected task-run artefacts) when deciding whether an implementation has already started.
+The second is replacement discovery: `automated_targets` reads the same rows to list a report's implementation tasks before it decides which automated PRs a new research pass may replace.
+`backfill_task_run_artefacts` converting every legacy row into a `task_run` artefact is a precondition for dropping this table, not the whole job: both readers must move to the artefact log first.
+A drop that leaves replacement discovery pointed at this table finds no candidates, so the feature reports "nothing to replace" instead of failing.
 
 ### `SignalSourceConfig`
 

@@ -1455,10 +1455,12 @@ class SignalReportTask(UUIDModel):
     Auto-start and the manual start-task API write *both* a `relationship="implementation"` row
     here and a `task_run` artefact (`record_implementation_task`). The gate reads this table — see
     `auto_start.py` — because the artefact log is freeform and API-mutable and so can't be trusted
-    for a spend-controlling decision. Once `backfill_task_run_artefacts` has converted every legacy
-    row to a `task_run` artefact, the gate can switch to the artefact log and this table can be
-    dropped. General task↔report association already lives only in artefacts; this table is kept
-    solely for the implementation gate during that transition.
+    for a spend-controlling decision. Replacement discovery reads the same rows (`automated_targets`
+    in `supersession.py`) to list a report's implementation tasks before it decides which automated
+    PRs a new research pass may replace. General task↔report association already lives only in
+    artefacts; this table is kept for those two readers during that transition. Once
+    `backfill_task_run_artefacts` has converted every legacy row to a `task_run` artefact, both
+    readers can switch to the artefact log and this table can be dropped.
     """
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
