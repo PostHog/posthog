@@ -121,6 +121,13 @@ describe('sceneLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dataWarehouseSourceNew())
     })
 
+    it('sends a guessed /replay/vision to replay vision, not the recording-not-found scene', async () => {
+        // `/replay/:id` would otherwise match and read `vision` as a recording id.
+        router.actions.push('/replay/vision')
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.replayVision())
+    })
+
     it('redirects the old /code_review path to /code-review, preserving the ?review= deep link and hash', async () => {
         router.actions.push('/code_review', { review: 'r-9' }, { panel: 'max:inspect' })
         await expectLogic(logic).delay(1)

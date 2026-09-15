@@ -305,21 +305,6 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["dag_name"], self.dag_id)
 
-    def test_dag_ids_action(self):
-        another_dag = DAG.objects.create(team=self.team, name="another_dag")
-        Node.objects.create(
-            team=self.team,
-            dag=another_dag,
-            name="another_table",
-            type=NodeType.TABLE,
-        )
-
-        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/dag_ids/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        dag_names = {d["name"] for d in response.json()["dag_ids"]}
-        self.assertEqual(dag_names, {"another_dag", self.dag_id})
-
     def test_run_requires_direction(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/run/",

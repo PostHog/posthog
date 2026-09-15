@@ -53,7 +53,7 @@ class TestProductPullRequestAttribution(SimpleTestCase):
             patch(
                 "posthog.api.github_webhooks.attribution.resolve_github_login_distinct_id", return_value="reviewer-id"
             ),
-            patch("posthog.api.github_webhooks.attribution._bounded_attribution_lookup"),
+            patch("posthog.api.github_webhooks.attribution.bounded_statement_timeout"),
             patch(
                 "posthog.api.github_webhooks.pull_requests._resolve_github_login_distinct_id",
                 return_value="reviewer-id",

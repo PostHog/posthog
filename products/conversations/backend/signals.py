@@ -16,6 +16,7 @@ from posthog.models.comment import Comment
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.signals import secret_api_token_rotated
 
+from .ai.human_outcome import maybe_record_human_outcome
 from .cache import invalidate_identity_tickets_cache, invalidate_messages_cache, invalidate_tickets_cache
 from .events import capture_message_received, capture_message_sent, capture_private_message_sent, capture_ticket_created
 from .models import EmailOutboxMessage, SigningSecret, Ticket
@@ -169,6 +170,17 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
             if ticket.widget_session_id:
                 invalidate_tickets_cache(team_id, ticket.widget_session_id)
             invalidate_messages_cache(team_id, item_id)
+
+            if is_team_message and created_by_id:
+                try:
+                    maybe_record_human_outcome(
+                        team_id=team_id,
+                        ticket_id=item_id,
+                        comment_id=comment_id,
+                        human_content=content or "",
+                    )
+                except Exception as e:
+                    capture_exception(e, {"ticket_id": item_id})
 
             # Customer-facing analytics (to customer's project)
             if is_team_message:

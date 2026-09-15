@@ -17,6 +17,24 @@ reviews:
     commit_status: false
     poem: false
 
+    # CodeRabbit writes this summary into the pull request description by
+    # default, so it would edit the body the author wrote.
+    high_level_summary: false
+
+    # Each section below renders in the walkthrough comment, the second comment
+    # CodeRabbit posts on a pull request. CodeRabbit has no setting that
+    # suppresses that comment, so the sections are off to keep it short. The
+    # walkthrough prose and the merge risk line have no toggle and stay.
+    changed_files_summary: false
+    sequence_diagrams: false
+    estimate_code_review_effort: false
+    assess_linked_issues: false
+    related_issues: false
+    related_prs: false
+    suggested_labels: false
+    suggested_reviewers: false
+    in_progress_fortune: false
+
     auto_review:
         enabled: true
 

@@ -205,7 +205,7 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         )
 
     def _entry(self, identifier: str):
-        result = vr_api.get_flakiness_overview(self.repo.id)
+        result = vr_api.get_flakiness_overview(self.repo.id, self.team.id)
         return next((e for e in result.entries if e.identifier == identifier), None)
 
     def test_a_quarantine_over_a_snapshot_still_failing_does_not_ask_to_be_lifted(self):
@@ -481,7 +481,7 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         _mk_snapshot(self.master_run, identifier="shared")
         self._render("shared", outcome=HARD, count=3)
 
-        result = vr_api.get_flakiness_overview(self.repo.id)
+        result = vr_api.get_flakiness_overview(self.repo.id, self.team.id)
         by_type = {e.run_type: e for e in result.entries if e.identifier == "shared"}
 
         assert by_type[RunType.STORYBOOK].hard_count == 3
@@ -497,7 +497,7 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
         entry = next(
             e
-            for e in vr_api.get_flakiness_overview(self.repo.id).entries
+            for e in vr_api.get_flakiness_overview(self.repo.id, self.team.id).entries
             if e.identifier == "shared" and e.run_type == RunType.PLAYWRIGHT
         )
 
@@ -557,7 +557,7 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         self._mk_variant(identifier="flaky", alternate_hash="a")
 
         with CaptureQueriesContext(connections[WRITER_DB]) as captured:
-            vr_api.get_flakiness_overview(self.repo.id)
+            vr_api.get_flakiness_overview(self.repo.id, self.team.id)
 
         soft_queries = [q["sql"] for q in captured.captured_queries if ClassificationReason.TOLERATED_HASH in q["sql"]]
         assert soft_queries
@@ -571,7 +571,7 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         _mk_snapshot(self.master_run, identifier="brand-new", baseline_hash="")
         self._mk_quarantine("brand-new")
 
-        result = vr_api.get_flakiness_overview(self.repo.id)
+        result = vr_api.get_flakiness_overview(self.repo.id, self.team.id)
 
         assert [e.identifier for e in result.entries] == ["brand-new"]
         assert result.totals.quarantined == 1
@@ -582,7 +582,7 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         Run.objects.filter(repo=self.repo).update(status=RunStatus.PENDING)
         self._mk_quarantine("muted-early")
 
-        result = vr_api.get_flakiness_overview(self.repo.id)
+        result = vr_api.get_flakiness_overview(self.repo.id, self.team.id)
 
         assert [e.identifier for e in result.entries] == ["muted-early"]
         assert result.totals.tracked == 0
@@ -635,7 +635,7 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         variant = self._mk_variant(identifier="noisy", alternate_hash="a")
         self._render("noisy", outcome=SOFT_MATCH, count=5, diff_percentage=0.01, tolerated_hash_match=variant)
 
-        result = vr_api.get_flakiness_overview(self.repo.id)
+        result = vr_api.get_flakiness_overview(self.repo.id, self.team.id)
 
         assert [e.identifier for e in result.entries] == ["muted", "noisy"]
 
@@ -644,7 +644,7 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         _mk_snapshot(self.master_run, identifier="flaky")
         self._mk_variant(identifier="flaky", alternate_hash="a")
 
-        result = vr_api.get_flakiness_overview(self.repo.id)
+        result = vr_api.get_flakiness_overview(self.repo.id, self.team.id)
 
         assert [e.identifier for e in result.entries] == ["flaky"]
         assert result.totals.listed == 1
@@ -654,7 +654,7 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         _mk_snapshot(self.master_run, identifier="compared")
         _mk_snapshot(self.master_run, identifier="brand-new", baseline_hash="")
 
-        result = vr_api.get_flakiness_overview(self.repo.id)
+        result = vr_api.get_flakiness_overview(self.repo.id, self.team.id)
 
         assert result.totals.tracked == 1
 
@@ -702,7 +702,7 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         _mk_snapshot(self.master_run, identifier="stable")
         self._mk_quarantine("wrecked")
 
-        totals = vr_api.get_flakiness_overview(self.repo.id).totals
+        totals = vr_api.get_flakiness_overview(self.repo.id, self.team.id).totals
 
         assert totals.tracked == 3
         assert totals.listed == 2
