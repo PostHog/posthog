@@ -2214,6 +2214,11 @@ class Database(BaseModel):
         self_managed_warehouse_tables: TableNode = TableNode()
         views: TableNode = TableNode()
         warehouse_tables_to_process: list[tuple[Table, DataWarehouseTable]] = []
+        saved_query_ids_by_table = {
+            saved_query.table_id: str(saved_query.pk)
+            for saved_query in sources.saved_queries
+            if saved_query.table_id is not None
+        }
 
         with timings.measure("data_warehouse_saved_query", emit_span=True):
             for saved_query in sources.saved_queries:
@@ -2320,6 +2325,8 @@ class Database(BaseModel):
 
                     with timings.measure(f"table_{table.name}"):
                         s3_table = table.hogql_definition(modifiers)
+                        if isinstance(s3_table, S3Table):
+                            s3_table.saved_query_id = saved_query_ids_by_table.get(table.pk)
 
                         sync_warnings = get_warehouse_sync_warnings(table, now=sync_warnings_now)
                         if sync_warnings:
