@@ -1,0 +1,128 @@
+"""Hold a detector re-fire while the episode it belongs to is still decaying.
+
+A detector scores the newest bucket against a long baseline, so the tail of a burst it
+already fired on can score anomalous again hours later, even when that bucket is ordinary
+next to the buckets around it. Every firing transition mints its own notification and its
+own investigation, so one incident reaches the user more than once.
+
+The hold is deliberately narrow. It applies only to a detector that scores against a
+baseline, over one series, for an alert that is not firing now and that fired inside the
+decay window, and it releases as soon as the newest bucket leaves the range of the buckets
+just before it. A larger excursion, an excursion in the other direction, and an excursion
+after the window all still fire. An alert that stays firing is untouched, so a sustained
+incident keeps its current behavior.
+"""
+
+from __future__ import annotations
+
+from dataclasses import replace
+from datetime import datetime
+from typing import Any
+
+from django.db import DatabaseError, InterfaceError
+from django.db.models import Q
+
+import structlog
+
+from posthog.schema import AlertState, DetectorType, IntervalType
+
+from posthog.interval_specs import interval_spec
+from posthog.tasks.alerts.utils import AlertEvaluationResult
+
+from products.alerts.backend.evaluation.contract import ComparableSeries, ExtractionResult
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+
+logger = structlog.get_logger(__name__)
+
+# The buckets before the newest one whose range it must leave to count as a new excursion
+# rather than the tail of the last one.
+EPISODE_DECAY_BUCKETS = 3
+
+
+def hold_refire_within_episode_decay(
+    alert: AlertConfiguration,
+    extraction: ExtractionResult,
+    evaluation: AlertEvaluationResult,
+    now: datetime,
+) -> AlertEvaluationResult:
+    """Drop the breaches of a fire that only repeats an episode the alert already reported.
+
+    The evaluation is returned unchanged in every other case, so the check still records the
+    value, the scores and the triggered points of the bucket it scored.
+    """
+    if not evaluation.breaches:
+        return evaluation
+    if alert.state == AlertState.FIRING:
+        return evaluation
+    if _fires_on_a_fixed_bound(alert.detector_config or {}):
+        return evaluation
+    if extraction.is_breakdown:
+        # An earlier check records no breakdown value, so the recent-fire query cannot tell which
+        # breakdown fired. A fire in one breakdown would hold a breach in another. Breakdown alerts
+        # keep their current behavior until a check names the series it fired on.
+        return evaluation
+
+    # The range test is arithmetic over values already in memory, so it runs before the
+    # query that reads the alert's earlier checks.
+    if not extraction.series or _leaves_recent_range(extraction.series[0]):
+        return evaluation
+    if not _fired_within_decay_window(alert, extraction.interval_type, now):
+        return evaluation
+
+    logger.info(
+        "alerts.detector_refire_held_within_episode_decay",
+        alert_id=str(alert.id),
+        value=evaluation.value,
+    )
+    return replace(evaluation, breaches=[])
+
+
+def _fires_on_a_fixed_bound(detector_config: dict[str, Any]) -> bool:
+    """True when the fire can come from a bound the user set rather than from a baseline.
+
+    A threshold detector reads only ``lower_bound`` and ``upper_bound``, so a breach of it is a
+    real bound crossing however ordinary the buckets around it look. An ensemble that holds a
+    threshold member can fire on that member alone, and the evaluation does not record which
+    member fired, so the hold releases for the whole ensemble.
+    """
+    if detector_config.get("type") == DetectorType.THRESHOLD.value:
+        return True
+    return any(_fires_on_a_fixed_bound(member) for member in detector_config.get("detectors") or [])
+
+
+def _fired_within_decay_window(alert: AlertConfiguration, interval: IntervalType | None, now: datetime) -> bool:
+    if interval is None:
+        # A non-time-series result has no bucket to measure decay in.
+        return False
+    # One bucket of slack past the decay buckets, because the earlier fire can land anywhere
+    # inside its own bucket and a scheduled check can run late.
+    window = interval_spec(interval).period * (EPISODE_DECAY_BUCKETS + 1)
+    # Only a fire the alert acted on can be repeated. A failed delivery leaves ``targets_notified``
+    # empty, the same sentinel the notify activity and the investigation safety net read, so that
+    # fire reached nobody and must not hold the next one. A fire the investigation agent swallowed
+    # counts, because staying quiet about the episode was a deliberate decision.
+    acted_on = ~Q(targets_notified={}) | Q(notification_suppressed_by_agent=True)
+    try:
+        return AlertCheck.objects.filter(
+            acted_on,
+            alert_configuration=alert,
+            state=AlertState.FIRING,
+            created_at__gte=now - window,
+        ).exists()
+    except (DatabaseError, InterfaceError):
+        # This read only decides whether to suppress a duplicate, and it runs after the scoring
+        # query already produced a valid breach. If it raised, the evaluate activity would treat the
+        # whole check as a failed evaluation, record an ERRORED check, and count one more
+        # consecutive failure toward BROKEN. Answer no instead, so the breach reaches the user.
+        logger.exception("alerts.detector_refire_hold_history_unavailable", alert_id=str(alert.id))
+        return False
+
+
+def _leaves_recent_range(series: ComparableSeries) -> bool:
+    # The detector scores the last point of the series, so the hold reads the same one.
+    values = [point.value for point in series.points if point.value is not None]
+    if len(values) < 2:
+        # Nothing to compare the newest bucket against, so leave the detector's call alone.
+        return True
+    current, recent = values[-1], values[-1 - EPISODE_DECAY_BUCKETS : -1]
+    return not min(recent) <= current <= max(recent)
