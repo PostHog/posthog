@@ -37,15 +37,13 @@ from posthog.models.team import Team
 from posthog.rate_limit import IPThrottle
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
-from ..facade.api import (
+from ..facade.api import is_shared_interviewee_context, valid_distinct_id, valid_session_id
+from ..logic import (
     RESPONDENT_KEY_MAX_CHARS,
     RESPONDENT_NAME_MAX_CHARS,
     clean_field,
-    is_shared_interviewee_context,
     resolve_share,
     shared_interviewee_identifier,
-    valid_distinct_id,
-    valid_session_id,
 )
 
 logger = structlog.get_logger(__name__)
