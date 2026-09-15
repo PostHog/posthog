@@ -1,13 +1,10 @@
 import json
 import hashlib
-import contextvars
 import dataclasses
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any
 
 from django.core.cache import cache
-from django.db import connections
 from django.db.models import QuerySet
 from django.utils import timezone
 
@@ -18,13 +15,13 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.hogql_queries.utils.caller_context import map_in_caller_context
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.person import Person
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.personhog_client.caller_tag import personhog_caller_tag
-from posthog.settings import TEST
 from posthog.utils import generate_cache_key
 
 from products.mcp_analytics.backend import intent_generation, mcp_harness
@@ -558,32 +555,6 @@ def _run_activity_query(team: Team, sql: str, name: str, placeholders: dict[str,
     return response.results or []
 
 
-def _run_activity_queries(team: Team, specs: list[tuple[str, str, dict[str, ast.Constant]]]) -> list[list[Any]]:
-    """Run the overview's independent queries at once, returning results in spec order.
-
-    `ThreadPoolExecutor` workers don't inherit the submitting thread's contextvars, so the query
-    tags set on the read path (team_id, feature, trigger) would be lost inside the pool, silently
-    un-tagging every ClickHouse query the overview emits. A Context can't be entered concurrently,
-    so each worker copies its own. Workers also release their Postgres connection on the way out:
-    HogQL resolution reads team and property-definition rows, and pool threads end with the request.
-    """
-    # Skip the pool in TEST: Django's per-thread DB connections don't see the test
-    # transaction's uncommitted rows, so a worker would resolve against an empty team.
-    if TEST:
-        return [_run_activity_query(team, sql, name, placeholders) for name, sql, placeholders in specs]
-
-    def run(spec: tuple[str, str, dict[str, ast.Constant]]) -> list[Any]:
-        name, sql, placeholders = spec
-        try:
-            return _run_activity_query(team, sql, name, placeholders)
-        finally:
-            connections.close_all()
-
-    contexts = [contextvars.copy_context() for _ in specs]
-    with ThreadPoolExecutor(max_workers=len(specs), thread_name_prefix="mcp_activity") as pool:
-        return list(pool.map(lambda ctx, spec: ctx.run(run, spec), contexts, specs))
-
-
 def get_activity_overview(team: Team) -> contracts.ActivityOverview:
     """Compute everything the activity view renders, bounded to ``ACTIVITY_WINDOW``.
 
@@ -598,12 +569,12 @@ def get_activity_overview(team: Team) -> contracts.ActivityOverview:
     date_from = ast.Constant(value=timezone.now() - ACTIVITY_WINDOW)
     tool_call_event = ast.Constant(value=MCP_TOOL_CALL_EVENT)
 
-    stats_rows, top_tools_rows, clients_rows, recent_calls_rows = _run_activity_queries(
-        team,
+    stats_rows, top_tools_rows, clients_rows, recent_calls_rows = map_in_caller_context(
+        lambda spec: _run_activity_query(team, *spec),
         [
             (
-                "mcp_analytics_activity_stats",
                 _ACTIVITY_STATS_SQL,
+                "mcp_analytics_activity_stats",
                 {
                     "tool_call_event": tool_call_event,
                     "missing_capability_event": ast.Constant(value=MCP_MISSING_CAPABILITY_EVENT),
@@ -611,8 +582,8 @@ def get_activity_overview(team: Team) -> contracts.ActivityOverview:
                 },
             ),
             (
-                "mcp_analytics_activity_top_tools",
                 _ACTIVITY_TOP_TOOLS_SQL,
+                "mcp_analytics_activity_top_tools",
                 {
                     "tool_call_event": tool_call_event,
                     "date_from": date_from,
@@ -620,8 +591,8 @@ def get_activity_overview(team: Team) -> contracts.ActivityOverview:
                 },
             ),
             (
-                "mcp_analytics_activity_clients",
                 _ACTIVITY_CLIENTS_SQL,
+                "mcp_analytics_activity_clients",
                 {
                     "tool_call_event": tool_call_event,
                     "date_from": date_from,
@@ -629,8 +600,8 @@ def get_activity_overview(team: Team) -> contracts.ActivityOverview:
                 },
             ),
             (
-                "mcp_analytics_activity_recent_calls",
                 _ACTIVITY_RECENT_CALLS_SQL,
+                "mcp_analytics_activity_recent_calls",
                 {
                     "tool_call_event": tool_call_event,
                     "date_from": date_from,
@@ -638,6 +609,7 @@ def get_activity_overview(team: Team) -> contracts.ActivityOverview:
                 },
             ),
         ],
+        thread_name_prefix="mcp_activity",
     )
 
     stats_row = stats_rows[0] if stats_rows else [0] * 7
