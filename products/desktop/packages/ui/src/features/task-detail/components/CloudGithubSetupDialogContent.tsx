@@ -49,7 +49,10 @@ export function CloudGithubSetupDialogContent({
     <Dialog
       open
       onOpenChange={(nextOpen) => {
-        if (!nextOpen) onClose();
+        // A backdrop press or Escape while the browser authorization is in
+        // flight discards the run location the user picked, even though GitHub
+        // still connects. Only the buttons end that wait.
+        if (!nextOpen && !loading) onClose();
       }}
     >
       <DialogContent className="max-w-sm" showCloseButton={false}>

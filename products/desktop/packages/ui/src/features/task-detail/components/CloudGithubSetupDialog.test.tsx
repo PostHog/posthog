@@ -108,6 +108,28 @@ describe("CloudGithubSetupDialog", () => {
     expect(connectState.reset).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    {
+      name: "keeps the pending location when Escape arrives mid-connection",
+      isConnecting: true,
+      closeCount: 0,
+    },
+    {
+      name: "closes on Escape before the connection starts",
+      isConnecting: false,
+      closeCount: 1,
+    },
+  ])("$name", async ({ isConnecting, closeCount }) => {
+    const user = userEvent.setup();
+    connectState.isConnecting = isConnecting;
+    const onClose = vi.fn();
+    render(<CloudGithubSetupDialog onConnected={vi.fn()} onClose={onClose} />);
+
+    await user.keyboard("{Escape}");
+
+    expect(onClose).toHaveBeenCalledTimes(closeCount);
+  });
+
   it("waits for window focus after the integration appears", () => {
     vi.useFakeTimers();
     const onConnected = vi.fn();
