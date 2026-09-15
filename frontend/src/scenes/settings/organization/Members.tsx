@@ -199,12 +199,11 @@ function ProjectAccessCell({ member }: { member: OrganizationMemberType }): JSX.
     const { projectAccess, projectAccessLoading } = useValues(memberProjectAccessLogic)
     const { openProjectAccessModal } = useActions(memberProjectAccessLogic)
 
-    const entries = projectAccess?.[member.id]
-    if (!entries) {
-        return projectAccessLoading ? <LemonSkeleton className="h-5 w-32" /> : <span className="text-muted">–</span>
+    if (projectAccessLoading) {
+        return <LemonSkeleton className="h-5 w-32" />
     }
 
-    const projects = accessibleProjects(entries)
+    const projects = accessibleProjects(projectAccess?.[member.id] ?? [])
     if (projects.length === 0) {
         return <span className="text-muted">No projects</span>
     }
