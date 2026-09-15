@@ -268,7 +268,7 @@ class TestQueryVectorCache(APIBaseTest):
     @patch("products.replay_vision.backend.search.time.sleep")
     @patch("products.replay_vision.backend.search.generate_embedding")
     def test_a_rejected_request_is_not_retried(self, mock_embed: MagicMock, _mock_sleep: MagicMock) -> None:
-        mock_embed.side_effect = requests.HTTPError("rejected")
+        mock_embed.side_effect = requests.HTTPError("rejected", response=MagicMock(status_code=400))
         with self.assertRaises(requests.HTTPError):
             query_vector_for(self.team, "confused users")
         self.assertEqual(mock_embed.call_count, 1)
