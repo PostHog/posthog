@@ -2337,6 +2337,14 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "rtk_effective",
         "benjamin_effective",
         "usage_metrics_recorded",
+        # Slack provenance, server-stamped. get_task_run_actor_user mints the sandbox OAuth token for
+        # slack_actor_user_id when interaction_origin is "slack", so a PATCHable pair would mint a
+        # teammate's, and removing the actor would fall back to the task creator's.
+        "interaction_origin",
+        "slack_actor_user_id",
+        # get_pr_authorship_mode reads run_source="signal_report" as bot authorship ahead of the protected
+        # pr_authorship_mode, so a PATCHable value would move a user run onto the bot's GitHub identity.
+        "run_source",
     }
 )
 

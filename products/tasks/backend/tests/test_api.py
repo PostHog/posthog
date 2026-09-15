@@ -5687,6 +5687,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "analysis_target_repository": "posthog/posthog",
                 "analysis_target_custom_image_id": "img-real",
                 "analysis_target_custom_image_name": "real-image",
+                "interaction_origin": "slack",
+                "slack_actor_user_id": self.user.id,
+                "run_source": "manual",
             },
         )
 
@@ -5699,7 +5702,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         # scopes) via pending_dispatch, or repoint the run at a costlier model (which for a run
         # routed to an unbilled gateway product is free spend). Nor can a caller stamp a
         # workflow-owned terminal reason marker, which would make a genuine FAILED run read as a
-        # timeout and skip its Slack error card. Non-protected keys still merge.
+        # timeout and skip its Slack error card, or forge the Slack actor or run source that decide
+        # whose credentials the sandbox gets. Non-protected keys still merge.
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
             {
@@ -5762,6 +5766,11 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "analysis_target_repository": "attacker/attacker",
                     "analysis_target_custom_image_id": "img-attacker",
                     "analysis_target_custom_image_name": "attacker-image",
+                    # the Slack actor is whose OAuth token the sandbox gets
+                    "interaction_origin": "desktop",
+                    "slack_actor_user_id": credential_target.id,
+                    # signal_report forces bot authorship past the protected pr_authorship_mode
+                    "run_source": "signal_report",
                     "dev_stack_preview": {"port": 8080, "sandbox_id": "sb-real"},
                     "scratch": "ok",
                 }
@@ -5816,6 +5825,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["analysis_target_repository"] == "posthog/posthog"  # cannot forge attribution
         assert run.state["analysis_target_custom_image_id"] == "img-real"
         assert run.state["analysis_target_custom_image_name"] == "real-image"
+        assert run.state["interaction_origin"] == "slack"
+        assert run.state["slack_actor_user_id"] == self.user.id  # cannot mint a teammate's credential
+        assert run.state["run_source"] == "manual"  # cannot force bot authorship
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
         assert run.state["systemPrompt"] == system_prompt
 
@@ -5859,6 +5871,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "analysis_target_repository",
                     "analysis_target_custom_image_id",
                     "analysis_target_custom_image_name",
+                    "interaction_origin",
+                    "slack_actor_user_id",
+                    "run_source",
                     "scratch",
                 ],
             },
@@ -5901,6 +5916,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["analysis_target_repository"] == "posthog/posthog"  # protected key survives removal
         assert run.state["analysis_target_custom_image_id"] == "img-real"
         assert run.state["analysis_target_custom_image_name"] == "real-image"
+        assert run.state["interaction_origin"] == "slack"  # protected key survives removal
+        # Dropping the Slack actor would fall back to the task creator's credentials.
+        assert run.state["slack_actor_user_id"] == self.user.id
+        assert run.state["run_source"] == "manual"  # protected key survives removal
         assert "scratch" not in run.state  # non-protected key removed
         assert run.state["systemPrompt"] == system_prompt
 
