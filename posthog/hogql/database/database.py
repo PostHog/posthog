@@ -662,6 +662,13 @@ def _compute_system_table_access_decision(
     return user_access_control, denied
 
 
+def system_table_denials(
+    team: Team, user: User, user_access_control: Optional[UserAccessControl] = None
+) -> frozenset[str]:
+    """The scoped system tables this caller cannot read, without building a database for them."""
+    return frozenset(_compute_system_table_access_decision(team, user, user_access_control)[1])
+
+
 class Database(BaseModel):
     model_config = ConfigDict(extra="allow")
 

@@ -10,6 +10,8 @@ from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
+from posthog.hogql.database.database import Database
+
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
 
@@ -331,20 +333,11 @@ class TestDataQualityNotifications(BaseTest):
         assert self.user.id in resolved
         assert blocked.id not in resolved
 
-    def _deny_view_for_member(self, view, member: User) -> None:
-        # Deny one member object-level access to a view the way the HogQL database sees it, so
-        # denied_subject_names() picks it up -- the same setup the REST run-history tests use.
+    def _enable_access_controls(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save(update_fields=["available_product_features"])
-        AccessControl.objects.create(
-            team=self.team,
-            resource="warehouse_view",
-            resource_id=str(view.id),
-            organization_member=OrganizationMembership.objects.get(organization=self.organization, user=member),
-            access_level="none",
-        )
         flag = patch(
             "posthog.hogql.database.database.feature_enabled_or_false",
             side_effect=lambda name, *a, **k: name == "hogql-warehouse-access-control",
@@ -352,6 +345,18 @@ class TestDataQualityNotifications(BaseTest):
         flag.start()
         self.addCleanup(flag.stop)
         cache.clear()
+
+    def _deny_view_for_member(self, view, member: User) -> None:
+        # Deny one member object-level access to a view the way the HogQL database sees it, so
+        # denied_subject_names() picks it up -- the same setup the REST run-history tests use.
+        self._enable_access_controls()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_view",
+            resource_id=str(view.id),
+            organization_member=OrganizationMembership.objects.get(organization=self.organization, user=member),
+            access_level="none",
+        )
 
     @parameterized.expand(
         [
@@ -393,6 +398,50 @@ class TestDataQualityNotifications(BaseTest):
 
         assert self.user.id in resolved
         assert blocked.id not in resolved
+
+    def _custom_sql_check_reading_orders(self) -> DataQualityCheck:
+        customers = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="customers", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+        )
+        return self._check(
+            saved_query_id=customers.id,
+            subject_name="customers",
+            check_type=CheckType.CUSTOM_SQL,
+            column_name="",
+            config={"query": "SELECT 1 FROM orders"},
+        )
+
+    def test_the_reference_gate_builds_one_warehouse_database_per_access_posture(self) -> None:
+        denied_first = User.objects.create_and_join(self.organization, "denied-first@test.com", "password")
+        denied_second = User.objects.create_and_join(self.organization, "denied-second@test.com", "password")
+        allowed_first = User.objects.create_and_join(self.organization, "allowed-first@test.com", "password")
+        allowed_second = User.objects.create_and_join(self.organization, "allowed-second@test.com", "password")
+        self._deny_view_for_member(self.view, denied_first)
+        self._deny_view_for_member(self.view, denied_second)
+        check = self._custom_sql_check_reading_orders()
+
+        with patch.object(Database, "create_for", side_effect=Database.create_for) as build:
+            resolved = self._resolver_for(check).resolve(TargetType.TEAM, str(self.team.id), self.team.id)
+
+        assert build.call_count == 2
+        assert {allowed_first.id, allowed_second.id, self.user.id} <= set(resolved)
+        assert denied_first.id not in resolved
+        assert denied_second.id not in resolved
+
+    def test_the_reference_gate_builds_no_warehouse_database_for_members_nothing_can_deny(self) -> None:
+        admin = User.objects.create_and_join(
+            self.organization, "admin-ref@test.com", "password", level=OrganizationMembership.Level.ADMIN
+        )
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save(update_fields=["level"])
+        self._enable_access_controls()
+        check = self._custom_sql_check_reading_orders()
+
+        with patch.object(Database, "create_for", side_effect=Database.create_for) as build:
+            resolved = self._resolver_for(check).resolve(TargetType.TEAM, str(self.team.id), self.team.id)
+
+        assert build.call_count == 0
+        assert {admin.id, self.user.id} <= set(resolved)
 
     def test_a_relationship_target_keeps_its_name_for_notification_filtering(self) -> None:
         check = self._check(

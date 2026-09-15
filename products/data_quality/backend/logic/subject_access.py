@@ -20,7 +20,7 @@ from uuid import UUID
 
 from django.db.models import Exists, OuterRef, Q, QuerySet
 
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.database import Database, system_table_denials
 from posthog.hogql.database.schema.information_schema import DeniedTableMatcher
 
 from posthog.dataclasses import frozen
@@ -113,6 +113,52 @@ class DenialContext:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "matcher", DeniedTableMatcher(self.denied))
+
+
+@frozen
+class ReferenceGate:
+    """Whether a caller may read a count taken over the subjects a check reads besides its own.
+
+    The half of a :class:`DenialContext` that follows from the caller's :class:`AccessPosture` and
+    nothing else, so one gate serves every member who shares that posture. The context itself must
+    not be shared that way, because it also carries the HogQL database built for one member.
+    """
+
+    readable: ReadableSubjects
+    matcher: DeniedTableMatcher = field(compare=False)
+
+    def admits(self, executed_references: Sequence[dict[str, str]], names: Sequence[str]) -> bool:
+        readable_references = all(
+            self.readable.contains(ref[_SUBJECT_TYPE_KEY], ref[_SUBJECT_UUID_KEY]) for ref in executed_references
+        )
+        if not readable_references:
+            return False
+        return not self.matcher.matches(names)
+
+
+@frozen
+class AccessPosture:
+    """The caller-dependent inputs :func:`denial_context` resolves a caller's denial set from.
+
+    Two callers with the same posture over the same team resolve to the same denial set, so a
+    surface that gates many members can build one HogQL database per posture rather than one per
+    member.
+    """
+
+    allowed_table_ids: frozenset[UUID]
+    allowed_view_ids: frozenset[UUID]
+    can_read_catalog: bool
+    denied_system_tables: frozenset[str]
+
+
+def access_posture(team: "Team", user: "User", user_access_control: "UserAccessControl") -> AccessPosture:
+    """One caller's :class:`AccessPosture`. Reads Postgres only and builds no HogQL database."""
+    return AccessPosture(
+        allowed_table_ids=warehouse_facade.allowed_table_ids(team.id, user_access_control),
+        allowed_view_ids=data_modeling_facade.allowed_saved_query_ids(team.id, user_access_control),
+        can_read_catalog=user_access_control.check_access_level_for_resource("data_catalog", "viewer"),
+        denied_system_tables=system_table_denials(team, user, user_access_control),
+    )
 
 
 @frozen

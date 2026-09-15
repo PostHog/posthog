@@ -29,8 +29,10 @@ from ..models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from .checks import checks_for_subject
 from .flags import is_data_quality_checks_enabled_for_team_id
 from .subject_access import (
-    DenialContext,
+    AccessPosture,
+    ReferenceGate,
     SubjectMetadata,
+    access_posture,
     caller_denial_context,
     can_be_object_denied,
     referenced_subject_names,
@@ -80,6 +82,7 @@ class _WarehouseSubjectResolver(RecipientsResolver):
         # database build the referenced-subject gate runs) so a single failing check doesn't rebuild
         # it -- and its membership, role, and access-control lookups -- once per pass.
         self._access: dict[int, UserAccessControl] = {}
+        self._gates: dict[AccessPosture, ReferenceGate] = {}
         self._subject_metadata: SubjectMetadata | None = None
 
     def _access_of(self, user: User) -> UserAccessControl:
@@ -128,14 +131,11 @@ class _WarehouseSubjectResolver(RecipientsResolver):
             return False
         if not self._reference_gate_applies():
             return True
-        if self._references_unknown and can_be_object_denied(access):
+        if not can_be_object_denied(access):
+            return True
+        if self._references_unknown:
             return False
-        context = self._denial_context_of(user)
-        if self._executed_references and not all(
-            context.readable.contains(ref["subject_type"], ref["subject_uuid"]) for ref in self._executed_references
-        ):
-            return False
-        return not context.matcher.matches(self._referenced_names)
+        return self._gate_of(user).admits(self._executed_references, self._referenced_names)
 
     def _has_object_access(self, access: UserAccessControl) -> bool:
         object_id = UUID(self._subject_uuid)
@@ -146,10 +146,17 @@ class _WarehouseSubjectResolver(RecipientsResolver):
         )
         return object_id in allowed_ids
 
-    def _denial_context_of(self, user: User) -> DenialContext:
-        if self._subject_metadata is None:
-            self._subject_metadata = subject_metadata(self._team.id)
-        return caller_denial_context(self._team, user, self._access_of(user), metadata=self._subject_metadata)
+    def _gate_of(self, user: User) -> ReferenceGate:
+        access = self._access_of(user)
+        posture = access_posture(self._team, user, access)
+        gate = self._gates.get(posture)
+        if gate is None:
+            if self._subject_metadata is None:
+                self._subject_metadata = subject_metadata(self._team.id)
+            context = caller_denial_context(self._team, user, access, metadata=self._subject_metadata)
+            gate = ReferenceGate(readable=context.readable, matcher=context.matcher)
+            self._gates[posture] = gate
+        return gate
 
 
 def notify_check_started_failing(
