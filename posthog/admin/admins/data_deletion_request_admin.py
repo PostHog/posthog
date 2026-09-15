@@ -361,6 +361,8 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             criteria = {field: getattr(original, field) for field in CRITERIA_FIELDS}
             # Shallow-copy mutable list fields so the duplicate never aliases the original's lists.
             criteria = {k: list(v) if isinstance(v, list) else v for k, v in criteria.items()}
+            if original.request_type == RequestType.HOGQL_EVENT_REMOVAL:
+                criteria["execution_mode"] = ExecutionMode.DEFERRED
             DataDeletionRequest.objects.create(
                 **criteria,
                 team_id=original.team_id,
@@ -868,10 +870,10 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             messages.error(request, "Only ClickHouse Team members can verify deletion requests.")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
-        if obj.request_type == RequestType.PERSON_REMOVAL:
+        if obj.request_type in (RequestType.PERSON_REMOVAL, RequestType.HOGQL_EVENT_REMOVAL):
+            request_type = obj.get_request_type_display().lower()
             messages.warning(
-                request,
-                "Automated verification isn't available for person removal requests — verify manually.",
+                request, f"Automated verification is not available for {request_type} requests. Verify manually."
             )
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 

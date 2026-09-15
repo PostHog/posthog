@@ -885,9 +885,15 @@ class TestDataDeletionRequestAdminVerify(BaseTest):
         request.refresh_from_db()
         self.assertEqual(request.status, RequestStatus.COMPLETED)
 
-    def test_verify_view_reports_person_removal_unsupported(self):
+    @parameterized.expand(
+        [
+            ("person_removal", RequestType.PERSON_REMOVAL),
+            ("query_backed_event_removal", RequestType.HOGQL_EVENT_REMOVAL),
+        ]
+    )
+    def test_verify_view_reports_unsupported_request_type(self, _name, request_type):
         request = self._queued_request()
-        request.request_type = RequestType.PERSON_REMOVAL
+        request.request_type = request_type
         request.status = RequestStatus.FAILED
         request.save(update_fields=["request_type", "status"])
         with patch("posthog.admin.admins.data_deletion_request_admin.count_remaining_for_request") as counted:
@@ -974,6 +980,7 @@ class TestDataDeletionRequestAdminDuplicate(BaseTest):
         copy = DataDeletionRequest.objects.exclude(pk=original.pk).get()
         self.assertEqual(copy.hogql_query, original.hogql_query)
         self.assertEqual(copy.hogql_variables, original.hogql_variables)
+        self.assertEqual(copy.execution_mode, ExecutionMode.DEFERRED)
 
 
 class TestDagsterRunLink(SimpleTestCase):
