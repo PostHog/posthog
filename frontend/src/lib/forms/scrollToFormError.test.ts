@@ -77,7 +77,7 @@ describe('scrollToFormError', () => {
 
         expect(mockQuerySelector).toHaveBeenCalledWith('.Field--error')
         expect(mockScrollIntoView).not.toHaveBeenCalled()
-        expect(lemonToast.error).toHaveBeenCalledWith(fallbackMessage)
+        expect(lemonToast.error).toHaveBeenCalledWith(fallbackMessage, { toastId: undefined })
     })
 
     it('does not show toast when no error element is found and no fallback message provided', () => {
@@ -98,12 +98,13 @@ describe('scrollToFormError', () => {
         scrollToFormError({
             extraErrorSelectors: ['.custom-error', '.another-error'],
             fallbackErrorMessage: fallbackMessage,
+            fallbackToastId: 'form-error',
         })
 
         expect(mockQuerySelector).toHaveBeenCalledWith('.Field--error')
         expect(mockQuerySelector).toHaveBeenCalledWith('.custom-error')
         expect(mockQuerySelector).toHaveBeenCalledWith('.another-error')
         expect(mockScrollIntoView).not.toHaveBeenCalled()
-        expect(lemonToast.error).toHaveBeenCalledWith(fallbackMessage)
+        expect(lemonToast.error).toHaveBeenCalledWith(fallbackMessage, { toastId: 'form-error' })
     })
 })

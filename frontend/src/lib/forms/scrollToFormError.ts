@@ -17,6 +17,12 @@ interface ScrollToFormErrorOptions {
      * Fallback error message to show if no error field is found
      */
     fallbackErrorMessage?: string
+
+    /**
+     * Toast id for the fallback message. Repeated submits replace the toast instead of stacking
+     * copies, even when the message text changes between attempts.
+     */
+    fallbackToastId?: string
 }
 
 /**
@@ -27,7 +33,7 @@ interface ScrollToFormErrorOptions {
  * @param options Configuration options for the scroll behavior
  */
 export function scrollToFormError(options: ScrollToFormErrorOptions = {}): void {
-    const { extraErrorSelectors = [], fallbackErrorMessage } = options
+    const { extraErrorSelectors = [], fallbackErrorMessage, fallbackToastId } = options
 
     requestAnimationFrame(() => {
         const selectors = ['.Field--error', ...extraErrorSelectors]
@@ -43,7 +49,7 @@ export function scrollToFormError(options: ScrollToFormErrorOptions = {}): void 
         if (errorElement) {
             errorElement.scrollIntoView({ block: 'center', behavior: 'smooth' })
         } else if (fallbackErrorMessage) {
-            lemonToast.error(fallbackErrorMessage)
+            lemonToast.error(fallbackErrorMessage, { toastId: fallbackToastId })
         }
     })
 }

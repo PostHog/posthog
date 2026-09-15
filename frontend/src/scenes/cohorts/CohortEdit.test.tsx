@@ -4,6 +4,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expectLogic, partial } from 'kea-test-utils'
 
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { NEW_COHORT } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
@@ -12,7 +13,7 @@ import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockCohort } from '~/test/mocks'
-import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator } from '~/types'
+import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator, TimeUnitType } from '~/types'
 
 import { CohortEdit } from './CohortEdit'
 
@@ -72,6 +73,22 @@ describe('cohortEditLogic', () => {
                         },
                     }),
                 })
+        })
+
+        it('returns to the Overview tab so a hidden criteria error can be seen', async () => {
+            logic = cohortEditLogic({ id: 1 })
+            logic.mount()
+            // mockCohort's only criterion is an unbounded negated event, which fails validation.
+            // On the History tab that failing row is mounted but hidden, so the scroll target and
+            // fallback toast both go missing unless the tab switches back to Overview first.
+            logic.actions.setActiveTab('history')
+
+            await expectLogic(logic, () => {
+                logic.actions.setCohort({ ...mockCohort, id: 1 })
+                logic.actions.submitCohort()
+            }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure', 'setActiveTab'])
+
+            expect(logic.values.activeTab).toBe('overview')
         })
 
         it('allows submission when name is provided with static cohort and CSV', async () => {
@@ -185,6 +202,58 @@ describe('cohortEditLogic', () => {
             await new Promise((resolve) => setTimeout(resolve, 10))
 
             expect(scrollIntoViewSpy).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('negation error scroll target', () => {
+        let scrollIntoViewSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            scrollIntoViewSpy = jest.spyOn(Element.prototype, 'scrollIntoView')
+        })
+
+        afterEach(() => {
+            scrollIntoViewSpy.mockRestore()
+            cleanup()
+        })
+
+        it('scrolls to the unbounded negated criterion', async () => {
+            logic = cohortEditLogic({ id: 1 })
+            logic.mount()
+            render(<CohortEdit id={1} />)
+
+            await expectLogic(logic, () => {
+                logic.actions.setCohort({
+                    ...mockCohort,
+                    filters: {
+                        properties: {
+                            id: '39777',
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    id: '70427',
+                                    type: FilterLogicalOperator.And,
+                                    values: [
+                                        {
+                                            type: BehavioralFilterKey.Behavioral,
+                                            value: BehavioralEventType.PerformEvent,
+                                            event_type: TaxonomicFilterGroupType.Events,
+                                            time_value: 30,
+                                            time_interval: TimeUnitType.Day,
+                                            key: '$rageclick',
+                                            negation: true,
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    },
+                })
+                logic.actions.submitCohort()
+            }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
+
+            await waitFor(() => expect(scrollIntoViewSpy).toHaveBeenCalled())
+            expect(scrollIntoViewSpy.mock.contexts[0]).toHaveClass('CohortCriteriaRow__Criteria__Field--error')
         })
     })
 
