@@ -1,7 +1,9 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
 import type { ErrorEventType } from 'lib/components/Errors/types'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import type { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
@@ -107,6 +109,25 @@ describe('errorTrackingIssueSceneLogic', () => {
         })
             .toDispatchActions(['loadInitialEventSuccess'])
             .toMatchValues({ initialEvent: null })
+    })
+
+    // The issue query returns a space-separated timestamp, the events query an ISO one. Writing the
+    // raw value back made the two encodings alternate in the URL, remounting the scene on every
+    // timestamp deep link.
+    it('writes the selected event timestamp back in ISO form', () => {
+        router.actions.push(urls.errorTrackingIssue(VALID_ISSUE_ID))
+
+        logic.actions.selectEvent({ uuid: 'event-1', timestamp: '2026-01-02 03:04:05.678000+00:00' } as ErrorEventType)
+
+        expect(router.values.searchParams.timestamp).toBe('2026-01-02T03:04:05.678Z')
+    })
+
+    it('leaves the URL untouched when it already points at the selected event', () => {
+        router.actions.push(urls.errorTrackingIssue(VALID_ISSUE_ID), { timestamp: '2026-01-02 03:04:05.678000+00:00' })
+
+        logic.actions.selectEvent({ uuid: 'event-1', timestamp: '2026-01-02T03:04:05.678Z' } as ErrorEventType)
+
+        expect(router.values.searchParams.timestamp).toBe('2026-01-02 03:04:05.678000+00:00')
     })
 
     it('allows the event selection to close', () => {

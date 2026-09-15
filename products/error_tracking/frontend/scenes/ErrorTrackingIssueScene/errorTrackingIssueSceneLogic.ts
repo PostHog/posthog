@@ -64,7 +64,7 @@ import { errorTrackingExternalReferencesLinkIssueCreate } from '../../generated/
 import { ErrorTrackingExternalReferenceLinkApiExternalContext } from '../../generated/api.schemas'
 import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from '../../queries'
 import { syncSearchParams } from '../../utils'
-import { ERROR_TRACKING_DETAILS_RESOLUTION, dateRangeToIsoBounds } from '../../utils'
+import { ERROR_TRACKING_DETAILS_RESOLUTION, dateRangeToIsoBounds, toIssueTimestampParam } from '../../utils'
 import { linkedReportsLogic } from './linkedReportsLogic'
 
 export interface ErrorTrackingIssueSceneLogicProps {
@@ -716,6 +716,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         mobileDetailOpen: false as boolean,
         initialEventTimestamp: null as string | null,
         initialEventLoading: true as boolean,
+        // The scene branches on this before the mount dispatches loadIssue, so a false default
+        // would flash the load-error state on every issue page.
+        issueLoading: true as boolean,
         listDateRange: null as DateRange | null,
     }),
 
@@ -1042,7 +1045,11 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             loadIssueFailure: ({ errorObject: { status, data } }) => {
                 if (status == 308 && 'issue_id' in data) {
                     router.actions.replace(urls.errorTrackingIssue(data.issue_id))
+                    return
                 }
+                // pinned: analytics event name - it is the only measure of how often the scene
+                // falls back to its error state instead of rendering the issue.
+                posthog.capture('error_tracking_issue_load_failed', { issue_id: props.id, status })
             },
             updateName: ({ name }) => actions.updateIssueName(props.id, name),
             updateDescription: ({ description }) => actions.updateIssueDescription(props.id, description),
@@ -1055,16 +1062,23 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 }
             },
             selectEvent: ({ event }) => {
-                if (event) {
-                    router.actions.replace(
-                        router.values.currentLocation.pathname,
-                        {
-                            ...router.values.searchParams,
-                            timestamp: event.timestamp,
-                        },
-                        router.values.hashParams
-                    )
+                if (!event) {
+                    return
                 }
+                // The events table hands back a fresh object for the already selected event on every
+                // page load, so replacing unconditionally churns the URL and fires a pageview each time.
+                const timestamp = toIssueTimestampParam(event.timestamp)
+                if (!timestamp || timestamp === toIssueTimestampParam(router.values.searchParams.timestamp)) {
+                    return
+                }
+                router.actions.replace(
+                    router.values.currentLocation.pathname,
+                    {
+                        ...router.values.searchParams,
+                        timestamp,
+                    },
+                    router.values.hashParams
+                )
             },
             [issueActionsLogic.actionTypes.mutationSuccess]: ({ mutationName }) => {
                 if (mutationName === 'mergeIssues') {
