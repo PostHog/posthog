@@ -3,7 +3,7 @@ import uuid
 import asyncio
 from collections.abc import Collection, Sequence
 from copy import deepcopy
-from dataclasses import replace
+from dataclasses import field, replace
 from datetime import datetime, timedelta
 from typing import Literal, cast
 
@@ -54,6 +54,7 @@ CONTEXT_QUERY_CANCELLATION_TIMEOUT_SECONDS = 5
 CONTEXT_CLEANUP_TIMEOUT_SECONDS = 6
 CONTEXT_NAME_MAX_LENGTH = 120
 CONTEXT_DESCRIPTION_MAX_LENGTH = 300
+REPORT_CONTEXT_SCHEMA_CHAR_BUDGET = 12_000
 
 ReportContextStatus = Literal["success", "failed", "truncated"]
 type JsonValue = None | bool | int | float | str | list[JsonValue] | dict[str, JsonValue]
@@ -114,11 +115,21 @@ class DashboardReportEvidence:
 
 
 @frozen
+class ReportContextSchema:
+    content: str = ""
+
+    def __post_init__(self) -> None:
+        if len(self.content) > REPORT_CONTEXT_SCHEMA_CHAR_BUDGET:
+            raise ValueError("Report context schema exceeds its character budget")
+
+
+@frozen
 class ReportContextEvidence:
     dashboards: tuple[DashboardReportEvidence, ...]
     insights: tuple[InsightReportEvidence, ...]
     authorized_context_refs: tuple[str, ...] = ()
     relevant_events: tuple[str, ...] = ()
+    schema: ReportContextSchema = field(default_factory=ReportContextSchema)
 
     def __post_init__(self) -> None:
         if len(self.dashboards) + len(self.insights) > MAX_REPORT_CONTEXTS:
@@ -715,6 +726,24 @@ def _bound_evidence(
     return tuple(bounded_dashboards), tuple(bounded_insights)
 
 
+async def _format_report_context_schema(contexts: Sequence[DashboardContext | InsightContext]) -> ReportContextSchema:
+    if not contexts:
+        return ReportContextSchema()
+    per_context_budget = (REPORT_CONTEXT_SCHEMA_CHAR_BUDGET - 2 * (len(contexts) - 1)) // len(contexts)
+    results = await asyncio.gather(*(context.format_schema() for context in contexts), return_exceptions=True)
+    contents: list[str] = []
+    for result in results:
+        if isinstance(result, asyncio.CancelledError):
+            raise result
+        if isinstance(result, BaseException):
+            capture_exception(result)
+            continue
+        cleaned = strip_llm_framing_markers(result, max_len=len(result))
+        content, _ = _truncate_content(cleaned, per_context_budget)
+        contents.append(content)
+    return ReportContextSchema(content="\n\n".join(contents))
+
+
 async def resolve_report_context(
     subscription: Subscription, selection: ReportContextSelection | None = None
 ) -> ReportContextEvidence:
@@ -812,11 +841,19 @@ async def resolve_report_context(
         standalone_pending.append(standalone_item)
         all_pending.append(standalone_item)
 
+    schema_contexts: list[DashboardContext | InsightContext] = [
+        context for context in dashboard_contexts if context is not None
+    ]
+    schema_contexts.extend(pending.context for pending in standalone_pending if pending.context is not None)
+    schema_task = asyncio.create_task(_format_report_context_schema(schema_contexts))
     tasks = [asyncio.create_task(_execute_insight(item, semaphore)) for item in all_pending]
     executed: list[_ExecutedInsight] = []
+    schema = ReportContextSchema()
     try:
+        done, _ = await asyncio.wait([*tasks, schema_task], timeout=CONTEXT_RESOLUTION_TIMEOUT_SECONDS)
+        if schema_task in done and not schema_task.cancelled() and schema_task.exception() is None:
+            schema = schema_task.result()
         if tasks:
-            done, _ = await asyncio.wait(tasks, timeout=CONTEXT_RESOLUTION_TIMEOUT_SECONDS)
             executed = [
                 task.result()
                 if task in done and not task.cancelled() and task.exception() is None
@@ -824,7 +861,7 @@ async def resolve_report_context(
                 for pending, task in zip(all_pending, tasks, strict=True)
             ]
     finally:
-        unfinished = [task for task in tasks if not task.done()]
+        unfinished = [task for task in [*tasks, schema_task] if not task.done()]
         for task in unfinished:
             task.cancel()
         if unfinished:
@@ -893,4 +930,5 @@ async def resolve_report_context(
         insights=bounded_insights,
         authorized_context_refs=authorized_context_refs,
         relevant_events=relevant_events,
+        schema=schema,
     )
