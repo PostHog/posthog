@@ -48,15 +48,18 @@ export function MetricsGroupByButton({
                             labelComponent: (
                                 <span className="flex items-center justify-between gap-2">
                                     <span className="truncate">{option.label}</span>
-                                    <Tooltip title="Number of series with this attribute">
-                                        <span className="text-muted tabular-nums shrink-0">{option.seriesCount}</span>
-                                    </Tooltip>
+                                    {option.attributeCount !== null && (
+                                        <Tooltip title="Attribute occurrences">
+                                            <span className="text-muted tabular-nums shrink-0">
+                                                {option.attributeCount}
+                                            </span>
+                                        </Tooltip>
+                                    )}
                                 </span>
                             ),
                         }))}
                         loading={attributeKeyOptionsLoading}
                         onInputChange={setGroupBySearch}
-                        onFocus={() => loadAttributeKeyOptions({})}
                         placeholder="Group by attribute…"
                         data-attr="metrics-viewer-group-by"
                         disabledReason={disabledReason}

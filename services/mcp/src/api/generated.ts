@@ -94054,12 +94054,15 @@ export namespace Schemas {
     export interface _MetricAttributeKey {
       /** Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name'). */
       name: string;
-      /** Number of distinct recent series with this attribute, based on series metadata. */
-      series_count: number;
+      /**
+         * Attribute occurrences in the hourly window. Null for the first-class service_name column.
+         * @nullable
+         */
+      attribute_count: number | null;
     }
 
     export interface _MetricAttributeKeysResponse {
-      /** Distinct attribute keys (datapoint and resource attributes merged), ordered by series count descending. */
+      /** Attribute keys with service_name first, then datapoint and resource keys by occurrence count descending. */
       results: _MetricAttributeKey[];
       /** Number of keys returned. */
       count: number;

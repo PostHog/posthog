@@ -67,7 +67,13 @@ If the name limit falls in the boundary hour, this check can return fewer names 
 Service-scoped lists and catalog requests use series metadata because the names table has no service column.
 
 The overview keeps distinct series counts across expiry days and reports the latest labelled sample.
-Attribute key queries combine duplicate series before they expand label maps.
+Attribute key queries sum precomputed counts from `metric_attributes3` within hourly activity buckets.
+The API returns `attribute_count`, and the group-by menu labels it "Attribute occurrences".
+These counts include metric and resource attributes from labelled samples. They do not count distinct series.
+The first and last buckets can include samples outside the exact requested times.
+The first-class `service_name` choice comes first when it matches the search, with a null count and no count badge.
+Other keys follow by occurrence count, then name. The response limit includes the service choice.
+Opening the group-by menu sends its request immediately. Typed searches use a short delay.
 Attribute value queries accept an optional `metricName` and use the metric prefix of the attribute sort key.
 Each viewer clause supplies its own metric name to both attribute endpoints.
 
