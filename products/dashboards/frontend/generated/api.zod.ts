@@ -359,6 +359,19 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
             .boolean()
             .default(dashboardsCreateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
+        creation_context: zod
+            .union([
+                zod
+                    .enum(['dashboards', 'feature_flags', 'metrics', 'onboarding', 'posthog_ai'])
+                    .describe(
+                        '\* `dashboards` - dashboards\n\* `feature_flags` - feature_flags\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Surface the dashboard was created from. Reported on the `dashboard created` event.\n\n\* `dashboards` - dashboards\n\* `feature_flags` - feature_flags\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+            ),
         _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
@@ -462,6 +475,19 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
             .boolean()
             .default(dashboardsUpdateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
+        creation_context: zod
+            .union([
+                zod
+                    .enum(['dashboards', 'feature_flags', 'metrics', 'onboarding', 'posthog_ai'])
+                    .describe(
+                        '\* `dashboards` - dashboards\n\* `feature_flags` - feature_flags\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Surface the dashboard was created from. Reported on the `dashboard created` event.\n\n\* `dashboards` - dashboards\n\* `feature_flags` - feature_flags\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+            ),
         _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
@@ -3687,6 +3713,19 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
             .boolean()
             .default(dashboardsCreateFromTemplateJsonCreateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
+        creation_context: zod
+            .union([
+                zod
+                    .enum(['dashboards', 'feature_flags', 'metrics', 'onboarding', 'posthog_ai'])
+                    .describe(
+                        '\* `dashboards` - dashboards\n\* `feature_flags` - feature_flags\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Surface the dashboard was created from. Reported on the `dashboard created` event.\n\n\* `dashboards` - dashboards\n\* `feature_flags` - feature_flags\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+            ),
         _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
@@ -3788,6 +3827,19 @@ export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
             .boolean()
             .default(dashboardsCreateUnlistedDashboardCreateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
+        creation_context: zod
+            .union([
+                zod
+                    .enum(['dashboards', 'feature_flags', 'metrics', 'onboarding', 'posthog_ai'])
+                    .describe(
+                        '\* `dashboards` - dashboards\n\* `feature_flags` - feature_flags\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Surface the dashboard was created from. Reported on the `dashboard created` event.\n\n\* `dashboards` - dashboards\n\* `feature_flags` - feature_flags\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+            ),
         _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')

@@ -508,6 +508,24 @@ export interface DashboardCustomizationApi {
 }
 
 /**
+ * * `dashboards` - dashboards
+ * * `feature_flags` - feature_flags
+ * * `metrics` - metrics
+ * * `onboarding` - onboarding
+ * * `posthog_ai` - posthog_ai
+ */
+export type DashboardCreationContextEnumApi =
+    (typeof DashboardCreationContextEnumApi)[keyof typeof DashboardCreationContextEnumApi]
+
+export const DashboardCreationContextEnumApi = {
+    Dashboards: 'dashboards',
+    FeatureFlags: 'feature_flags',
+    Metrics: 'metrics',
+    Onboarding: 'onboarding',
+    PosthogAi: 'posthog_ai',
+} as const
+
+/**
  * Serializer mixin that handles tags for objects.
  */
 export interface DashboardApi {
@@ -605,6 +623,14 @@ export interface DashboardApi {
     use_dashboard?: number | null
     /** When deleting, also delete insights that are only on this dashboard. */
     delete_insights?: boolean
+    /** Surface the dashboard was created from. Reported on the `dashboard created` event.
+     *
+     * * `dashboards` - dashboards
+     * * `feature_flags` - feature_flags
+     * * `metrics` - metrics
+     * * `onboarding` - onboarding
+     * * `posthog_ai` - posthog_ai */
+    creation_context?: DashboardCreationContextEnumApi | null
     _create_in_folder?: string
 }
 

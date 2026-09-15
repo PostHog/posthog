@@ -185,6 +185,19 @@ export const DashboardsCreateBody = () => zod
             .boolean()
             .default(dashboardsCreateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
+        creation_context: zod
+            .union([
+                zod
+                    .enum(['dashboards', 'feature_flags', 'metrics', 'onboarding', 'posthog_ai'])
+                    .describe(
+                        '\* `dashboards` - dashboards\n\* `feature_flags` - feature_flags\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Surface the dashboard was created from. Reported on the `dashboard created` event.\n\n\* `dashboards` - dashboards\n\* `feature_flags` - feature_flags\n\* `metrics` - metrics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai'
+            ),
     })
     .describe('Serializer mixin that handles tags for objects.')
 

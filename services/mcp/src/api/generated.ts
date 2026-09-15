@@ -21852,6 +21852,24 @@ export namespace Schemas {
     }
 
     /**
+     * * `dashboards` - dashboards
+     * * `feature_flags` - feature_flags
+     * * `metrics` - metrics
+     * * `onboarding` - onboarding
+     * * `posthog_ai` - posthog_ai
+     */
+    export type DashboardCreationContextEnum = typeof DashboardCreationContextEnum[keyof typeof DashboardCreationContextEnum];
+
+
+    export const DashboardCreationContextEnum = {
+      Dashboards: 'dashboards',
+      FeatureFlags: 'feature_flags',
+      Metrics: 'metrics',
+      Onboarding: 'onboarding',
+      PosthogAi: 'posthog_ai',
+    } as const;
+
+    /**
      * Serializer mixin that handles tags for objects.
      */
     export interface Dashboard {
@@ -21949,6 +21967,14 @@ export namespace Schemas {
       use_dashboard?: number | null;
       /** When deleting, also delete insights that are only on this dashboard. */
       delete_insights?: boolean;
+      /** Surface the dashboard was created from. Reported on the `dashboard created` event.
+       *
+       * * `dashboards` - dashboards
+       * * `feature_flags` - feature_flags
+       * * `metrics` - metrics
+       * * `onboarding` - onboarding
+       * * `posthog_ai` - posthog_ai */
+      creation_context?: DashboardCreationContextEnum | null;
       _create_in_folder?: string;
     }
 
