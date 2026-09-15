@@ -49,11 +49,6 @@ class TestWrapClickhouseQueryError:
                 "CANNOT_CONVERT_TYPE",
                 "Cannot convert one type to another in the query. Check the types in your comparisons and IN clauses.",
             ),
-            (
-                130,
-                "CANNOT_READ_ARRAY_FROM_TEXT",
-                "Cannot read an array from a text value. Check any filter that compares an array column with text.",
-            ),
             (407, "DECIMAL_OVERFLOW", "Decimal overflow while executing query."),
         ]
     )
@@ -76,6 +71,7 @@ class TestWrapClickhouseQueryError:
             # internal to avoid leaking source values on public shared insights.
             (6, "CANNOT_PARSE_TEXT"),
             (72, "CANNOT_PARSE_NUMBER"),
+            (130, "CANNOT_READ_ARRAY_FROM_TEXT"),
             (675, "CANNOT_PARSE_IPV4"),
             (676, "CANNOT_PARSE_IPV6"),
             (691, "UNKNOWN_ELEMENT_OF_ENUM"),

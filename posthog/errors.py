@@ -486,11 +486,9 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     127: ErrorCodeMeta("ILLEGAL_INDEX"),
     128: ErrorCodeMeta("TOO_LARGE_ARRAY_SIZE"),
     129: ErrorCodeMeta("FUNCTION_IS_SPECIAL"),
-    130: ErrorCodeMeta(
-        "CANNOT_READ_ARRAY_FROM_TEXT",
-        # The ClickHouse message quotes the text it failed to parse, which can be a user-supplied filter value.
-        user_safe="Cannot read an array from a text value. Check any filter that compares an array column with text.",
-    ),
+    # 130 stays internal: a text-format source with an Array column raises it while deserializing a
+    # cell, with no filter involved, so the CH message embeds the failing data value (see code 6 note).
+    130: ErrorCodeMeta("CANNOT_READ_ARRAY_FROM_TEXT", category=QueryErrorCategory.USER_ERROR),
     131: ErrorCodeMeta("TOO_LARGE_STRING_SIZE"),
     133: ErrorCodeMeta("AGGREGATE_FUNCTION_DOESNT_ALLOW_PARAMETERS"),
     134: ErrorCodeMeta("PARAMETERS_TO_AGGREGATE_FUNCTIONS_MUST_BE_LITERALS"),
