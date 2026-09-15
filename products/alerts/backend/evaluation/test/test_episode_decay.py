@@ -36,8 +36,12 @@ def _extraction(values: list[float], interval: IntervalType | None = IntervalTyp
     return ExtractionResult(series=[_series(values)], interval_type=interval)
 
 
-def _anomaly(value: float) -> AlertEvaluationResult:
-    return AlertEvaluationResult(value=value, breaches=[f"Anomaly detected in runs: value {value}"])
+def _anomaly(value: float, series_index: int | None = None) -> AlertEvaluationResult:
+    return AlertEvaluationResult(
+        value=value,
+        breaches=[f"Anomaly detected in runs: value {value}"],
+        triggered_metadata={"series_index": series_index} if series_index is not None else None,
+    )
 
 
 class TestEpisodeDecayHold(APIBaseTest):
@@ -118,6 +122,18 @@ class TestEpisodeDecayHold(APIBaseTest):
         self._record_fire(EPISODE_DECAY_BUCKETS)
 
         result = hold_refire_within_episode_decay(self.alert, _extraction(BOUND_FLAP), _anomaly(BOUND_FLAP[-1]), NOW)
+
+        assert result.breaches != []
+
+    def test_breakdown_fire_is_not_held_by_another_breakdown(self) -> None:
+        self._record_fire(EPISODE_DECAY_BUCKETS)
+        breakdowns = ExtractionResult(
+            series=[_series(DECAY_TAIL), _series(DECAY_TAIL)],
+            is_breakdown=True,
+            interval_type=IntervalType.HOUR,
+        )
+
+        result = hold_refire_within_episode_decay(self.alert, breakdowns, _anomaly(DECAY_TAIL[-1], series_index=1), NOW)
 
         assert result.breaches != []
 

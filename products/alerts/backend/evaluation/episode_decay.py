@@ -6,11 +6,11 @@ next to the buckets around it. Every firing transition mints its own notificatio
 own investigation, so one incident reaches the user more than once.
 
 The hold is deliberately narrow. It applies only to a detector that scores against a
-baseline, for an alert that is not firing now and that fired inside the decay window, and
-it releases as soon as the newest bucket leaves the range of the buckets just before it. A
-larger excursion, an excursion in the other direction, and an excursion after the window
-all still fire. An alert that stays firing is untouched, so a sustained incident keeps its
-current behavior.
+baseline, over one series, for an alert that is not firing now and that fired inside the
+decay window, and it releases as soon as the newest bucket leaves the range of the buckets
+just before it. A larger excursion, an excursion in the other direction, and an excursion
+after the window all still fire. An alert that stays firing is untouched, so a sustained
+incident keeps its current behavior.
 """
 
 from __future__ import annotations
@@ -53,11 +53,15 @@ def hold_refire_within_episode_decay(
         return evaluation
     if _fires_on_a_fixed_bound(alert.detector_config or {}):
         return evaluation
+    if extraction.is_breakdown:
+        # An earlier check records no breakdown value, so the recent-fire query cannot tell which
+        # breakdown fired. A fire in one breakdown would hold a breach in another. Breakdown alerts
+        # keep their current behavior until a check names the series it fired on.
+        return evaluation
 
     # The range test is arithmetic over values already in memory, so it runs before the
     # query that reads the alert's earlier checks.
-    series = _scored_series(extraction, evaluation)
-    if series is None or _leaves_recent_range(series):
+    if not extraction.series or _leaves_recent_range(extraction.series[0]):
         return evaluation
     if not _fired_within_decay_window(alert, extraction.interval_type, now):
         return evaluation
@@ -95,12 +99,6 @@ def _fired_within_decay_window(alert: AlertConfiguration, interval: IntervalType
         state=AlertState.FIRING,
         created_at__gte=now - window,
     ).exists()
-
-
-def _scored_series(extraction: ExtractionResult, evaluation: AlertEvaluationResult) -> ComparableSeries | None:
-    """The series the breach was raised on. Breakdown evaluations name it by index."""
-    index = (evaluation.triggered_metadata or {}).get("series_index", 0)
-    return extraction.series[index] if index < len(extraction.series) else None
 
 
 def _leaves_recent_range(series: ComparableSeries) -> bool:
