@@ -3,12 +3,19 @@ import { BehavioralFilterKey, CohortClientErrors } from 'scenes/cohorts/CohortFi
 import {
     cleanBehavioralTypeCriteria,
     cleanCriteria,
+    createCohortFormData,
     criteriaToHumanSentence,
     determineFilterType,
     validateGroup,
 } from 'scenes/cohorts/cohortUtils'
 
-import { AnyCohortCriteriaType, BehavioralEventType, CohortCriteriaGroupFilter, FilterLogicalOperator } from '~/types'
+import {
+    AnyCohortCriteriaType,
+    BehavioralEventType,
+    CohortCriteriaGroupFilter,
+    CohortType,
+    FilterLogicalOperator,
+} from '~/types'
 
 describe('validateGroup', () => {
     function groupWithNegatedCriteria(criteria: AnyCohortCriteriaType[]): CohortCriteriaGroupFilter {
@@ -228,4 +235,44 @@ describe('criteria whose value collides with an Object.prototype key', () => {
             expect(criteriaToHumanSentence(criteria(value), {}, {})).toEqual(<></>)
         }
     )
+})
+
+describe('createCohortFormData', () => {
+    const cohort = (filterTestAccounts?: boolean): CohortType =>
+        ({
+            id: 1,
+            name: 'Test cohort',
+            is_static: false,
+            filters: {
+                filterTestAccounts,
+                properties: {
+                    type: FilterLogicalOperator.Or,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: BehavioralFilterKey.Behavioral,
+                                    value: BehavioralEventType.PerformEvent,
+                                    key: '$pageview',
+                                },
+                            ],
+                        },
+                    ],
+                },
+            },
+        }) as unknown as CohortType
+
+    // The switch only lives in `filters` alongside `properties`, so a payload built from
+    // `properties` alone silently discards it and the saved cohort comes back with the
+    // switch off, however many times the user toggles it.
+    it.each([[true], [false]])('sends filterTestAccounts=%s to the API', (filterTestAccounts) => {
+        const filters = JSON.parse(createCohortFormData(cohort(filterTestAccounts)).get('filters') as string)
+        expect(filters.filterTestAccounts).toBe(filterTestAccounts)
+    })
+
+    it('sends filterTestAccounts=false when the cohort has never had it set', () => {
+        const filters = JSON.parse(createCohortFormData(cohort(undefined)).get('filters') as string)
+        expect(filters.filterTestAccounts).toBe(false)
+    })
 })
