@@ -195,6 +195,7 @@ export function AgentPromptButton({
     const [open, setOpen] = useState(defaultOpen)
     const { askSidePanelMax } = useActions(maxGlobalLogic)
     const availableAgents = agentKeys ? AGENTS.filter((agent) => agentKeys.includes(agent.key)) : AGENTS
+    const buttonClassName = variant === 'outline' || variant === 'destructive-outline' ? undefined : 'border-0'
 
     if (actions.length === 0 || availableAgents.length === 0) {
         return null
@@ -248,7 +249,7 @@ export function AgentPromptButton({
                 <QuillButton
                     variant={variant}
                     size={size}
-                    className="border-0"
+                    className={buttonClassName}
                     onClick={handleMainClick}
                     data-attr={dataAttr}
                     title={`Run: ${buttonLabel}`}
@@ -261,7 +262,7 @@ export function AgentPromptButton({
                     <QuillButton
                         variant={variant}
                         size={size === 'default' ? 'icon' : `icon-${size}`}
-                        className="border-0"
+                        className={buttonClassName}
                         aria-label={
                             agentSelectionMode === 'run' ? 'Open prompt in an agent' : 'Choose prompt and destination'
                         }
