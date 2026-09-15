@@ -1,10 +1,11 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { Provider } from 'kea'
 
 import api from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { userLogic } from 'scenes/userLogic'
 
 import type { HogQLQueryResponse } from '~/queries/schema/schema-general'
@@ -16,19 +17,16 @@ import { AccountRelatedUsersExpansion } from './AccountRelatedUsersExpansion'
 jest.mock('lib/components/TZLabel', () => ({
     TZLabel: ({ time }: { time: string }) => <span>{time}</span>,
 }))
+jest.mock('lib/utils/copyToClipboard', () => ({
+    copyToClipboard: jest.fn().mockResolvedValue(true),
+}))
 
 describe('AccountRelatedUsersExpansion', () => {
     beforeEach(() => {
         initKeaTests()
         jest.restoreAllMocks()
+        jest.mocked(copyToClipboard).mockClear()
         userLogic.actions.loadUserSuccess({ is_staff: true } as UserType)
-    })
-
-    afterEach(() => {
-        cleanup()
-    })
-
-    it('shows the EU member access level and opens them in the current admin', async () => {
         jest.spyOn(api.organizationMembers, 'listForOrg').mockResolvedValue({
             count: 0,
             next: null,
@@ -59,7 +57,13 @@ describe('AccountRelatedUsersExpansion', () => {
                 ],
             ],
         } as HogQLQueryResponse)
+    })
 
+    afterEach(() => {
+        cleanup()
+    })
+
+    it('shows the EU member access level and opens them in the current admin', async () => {
         render(
             <Provider>
                 <AccountRelatedUsersExpansion externalId="organization-1" />
@@ -78,5 +82,20 @@ describe('AccountRelatedUsersExpansion', () => {
         ).not.toBeNull()
         const [impersonateButton] = await screen.findAllByText('Impersonate')
         expect(impersonateButton.closest('a')).toHaveAttribute('href', 'http://localhost/admin/posthog/user/42/change/')
+    })
+
+    it('copies the selected user email addresses', async () => {
+        render(
+            <Provider>
+                <AccountRelatedUsersExpansion externalId="organization-1" />
+            </Provider>
+        )
+
+        expect(await screen.findByText('Owner')).toBeInTheDocument()
+        fireEvent.click(screen.getByLabelText('Select user Alex Mercer'))
+        fireEvent.click(screen.getByLabelText('Select user Jordan Bell'))
+        fireEvent.click(screen.getByText('Copy email addresses'))
+
+        expect(copyToClipboard).toHaveBeenCalledWith('alex+eu@example.com\njordan+eu@example.com', 'email addresses')
     })
 })
