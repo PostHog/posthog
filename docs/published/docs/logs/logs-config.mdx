@@ -82,6 +82,14 @@ PostHog parses the selected attribute's JSON object or array and adds up to 50 f
 
 Use `attributes.sessionId` in **Link to session** and `attributes.personId` in **Link to person**, provided their values are the PostHog session ID and one of the person's PostHog distinct IDs. These settings match the flattened keys literally. The fields can also be used in log filters.
 
-The original attribute is preserved, and existing attributes take precedence over extracted fields. Missing keys, invalid JSON, and scalar values are left unchanged. Strings nested inside the parsed object are not parsed again. Resource attributes are not parsed.
+The original attribute is preserved. If fields share the same key, PostHog uses this order:
+
+1. Attributes supplied directly with the log.
+2. Fields extracted from the selected JSON attribute.
+3. Fields extracted from the JSON body.
+
+This keeps body parsing from overriding the selected attribute's fields. Body parsing can also create the selected attribute if the log did not supply it directly.
+
+Missing keys, invalid JSON, and scalar values are left unchanged. Strings nested inside the parsed object are not parsed again. Resource attributes are not parsed.
 
 PII scrubbing, when enabled, runs before extraction. Changes apply only to newly ingested logs after the configuration reaches ingestion; existing records are not backfilled.

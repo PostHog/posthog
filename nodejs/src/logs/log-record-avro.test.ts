@@ -472,11 +472,42 @@ describe('log-record-avro', () => {
             expect(records[0].attributes).toEqual(attributes)
         })
 
-        it('extracts after body parsing and scrubbing, preserving existing fields and literal keys', async () => {
+        it.each([false, true])('preserves collision precedence with body parsing %s', async (jsonParse) => {
+            const context = JSON.stringify({ sessionId: 'attribute-session', attributeOnly: true })
+            const records = [undefined, '"sender-session"'].map((sessionId) => ({
+                body: JSON.stringify({ context: { sessionId: 'body-session', bodyOnly: true } }),
+                attributes: {
+                    context,
+                    unrelated: '"keep"',
+                    ...(sessionId === undefined ? {} : { 'context.sessionId': sessionId }),
+                },
+            })) as unknown as LogRecord[]
+
+            await transformDecodedLogRecordsInPlace(records, {
+                json_parse_logs: jsonParse,
+                json_parse_logs_attribute_key: 'context',
+            })
+
+            for (const [index, record] of records.entries()) {
+                expect(record.attributes).toEqual({
+                    context,
+                    unrelated: '"keep"',
+                    'context.sessionId': index === 0 ? '"attribute-session"' : '"sender-session"',
+                    'context.attributeOnly': 'true',
+                    ...(jsonParse ? { 'context.bodyOnly': 'true' } : {}),
+                })
+            }
+        })
+
+        it.each([false, true])('extracts scrubbed literal keys, originally present: %s', async (present) => {
+            const context = JSON.stringify({ email: 'sample@example.com', count: 2 })
             const records = [
                 {
-                    body: JSON.stringify({ 'app.context': JSON.stringify({ email: 'sample@example.com', count: 2 }) }),
-                    attributes: { 'app.context.count': '3' },
+                    body: JSON.stringify({ 'app.context': context, 'app.context.email': 'body-value' }),
+                    attributes: {
+                        'app.context.count': '3',
+                        ...(present ? { 'app.context': JSON.stringify(context) } : {}),
+                    },
                 } as unknown as LogRecord,
             ]
             await transformDecodedLogRecordsInPlace(records, {

@@ -309,8 +309,8 @@ const enrichBatchJsonAttributes = instrumented({
 const enrichBatchAttributeJsonAttributes = instrumented({
     key: SPAN_LOGS_ENRICH_ATTRIBUTE_JSON,
     ...logRecordProcessInstrumentOpts,
-})((records: LogRecord[], attributeKey: string): Promise<void> => {
-    for (const record of records) {
+})((records: LogRecord[], attributeKey: string, originalAttributes?: LogRecord['attributes'][]): Promise<void> => {
+    for (const [index, record] of records.entries()) {
         const attribute = record.attributes?.[attributeKey]
         if (typeof attribute !== 'string') {
             continue
@@ -320,7 +320,14 @@ const enrichBatchAttributeJsonAttributes = instrumented({
             // SDKs commonly stringify the attribute value, so the first parse yields the JSON document as a string.
             parsed = parseLogBodyForIngestion(parsed.value)
         }
-        addJsonAttributes(record, jsonAttributesFromBodyParse(parsed, attributeKey, MAX_JSON_ATTRIBUTES))
+        const jsonAttributes = jsonAttributesFromBodyParse(parsed, attributeKey, MAX_JSON_ATTRIBUTES)
+        if (Object.keys(jsonAttributes).length > 0) {
+            record.attributes = {
+                ...record.attributes,
+                ...jsonAttributes,
+                ...(originalAttributes ? originalAttributes[index] : record.attributes),
+            }
+        }
     }
     return Promise.resolve()
 })
@@ -349,13 +356,15 @@ export async function transformDecodedLogRecordsInPlace(
     if (piiScrub) {
         pii = await scrubBatch(records)
     }
+    const attributeKey = settings.json_parse_logs_attribute_key
+    // Body enrichment replaces the attribute map, so retain its scrubbed source to distinguish sender-supplied fields.
+    const originalAttributes = jsonParse && attributeKey ? records.map((record) => record.attributes) : undefined
     if (jsonParse) {
         const bodyParses = await parseLogBodiesForIngestion(records)
         await enrichBatchJsonAttributes(records, bodyParses)
     }
-    const attributeKey = settings.json_parse_logs_attribute_key
     if (attributeKey) {
-        await enrichBatchAttributeJsonAttributes(records, attributeKey)
+        await enrichBatchAttributeJsonAttributes(records, attributeKey, originalAttributes)
     }
     return pii
 }
