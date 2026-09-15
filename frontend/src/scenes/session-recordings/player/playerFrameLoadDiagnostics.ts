@@ -27,8 +27,9 @@ export function getPlayerFrameLoadDiagnostics(iframe: HTMLIFrameElement | null):
     const frameDocument = iframe?.contentDocument ?? null
     return {
         frameDocumentReadable: frameDocument !== null,
-        // The path alone, because a query string can carry a token.
-        frameUrlPath: frameDocument?.location.pathname ?? null,
+        // The path alone, because a query string can carry a token. A document that lost its browsing
+        // context, which a detached frame has, keeps a null location, so the read must not assume one.
+        frameUrlPath: frameDocument?.location?.pathname ?? null,
         frameDocumentTitle: frameDocument ? frameDocument.title.slice(0, MAX_TITLE_LENGTH) : null,
         frameContentType: frameDocument?.contentType ?? null,
         frameReadyState: frameDocument?.readyState ?? null,

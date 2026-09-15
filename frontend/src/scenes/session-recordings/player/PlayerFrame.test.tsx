@@ -109,6 +109,38 @@ describe('PlayerFrame', () => {
         }
     })
 
+    // A frame that lost its browsing context still answers contentDocument with a document, but that
+    // document reports no location. Reading the path through it used to throw inside the failure
+    // listener, above the retry, so the viewer kept a dead player instead of a reloaded frame.
+    it('retries the frame when the timed-out frame has no browsing context', () => {
+        jest.useFakeTimers()
+        try {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const { container, iframe } = renderPlayerFrame()
+            // jsdom gives a document made this way no browsing context, the same as a browser does.
+            Object.defineProperty(iframe, 'contentDocument', {
+                value: document.implementation.createHTMLDocument(),
+                configurable: true,
+            })
+
+            act(() => {
+                jest.advanceTimersByTime(10000)
+            })
+
+            expect(captureSpy).toHaveBeenCalledWith(
+                'replay player frame load retried',
+                expect.objectContaining({ attempt: 1, frameUrlPath: null })
+            )
+            act(() => {
+                jest.advanceTimersByTime(1000)
+            })
+            expect(container.querySelector('iframe')).toBe(iframe)
+            expect(iframe).toHaveAttribute('src', '/replay_player_frame/index.html?retry=1')
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     // Firefox fires load for the frame's initial about:blank document, which has no mount node.
     // The shell document is still on its way, so the frame must keep its chance to load.
     it('keeps the frame and reports nothing when the blank first document loads', () => {
