@@ -311,6 +311,9 @@ def validate_update_request(
 ) -> None:
     """Validate an update payload against the endpoint's resulting state."""
     validate_data_freshness(data.data_freshness_seconds)
+    # The service re-checks this later against the overrides the target version inherits,
+    # but by then a query change has already committed a new version.
+    validate_bucket_overrides(data.bucket_overrides)
 
     # Determine final states after this request (for validation)
     will_be_active = data.is_active if data.is_active is not None else (endpoint.is_active if endpoint else True)

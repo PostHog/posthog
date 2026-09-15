@@ -1432,6 +1432,33 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_invalid_bucket_override_on_update_does_not_create_a_version(self):
+        from products.endpoints.backend.models import Endpoint, EndpointVersion
+
+        self._create_endpoint_with_variables("reject-bucket")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/reject-bucket/",
+            {"is_materialized": True, "bucket_overrides": {"timestamp": "hour"}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        new_query = {
+            **self.variable_query,
+            "query": "SELECT event, count() FROM events WHERE timestamp >= {variables.start_ts} AND timestamp < {variables.end_ts} GROUP BY event",
+        }
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/reject-bucket/",
+            {"query": new_query, "bucket_overrides": {"timestamp": "invalid_fn"}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        endpoint = Endpoint.objects.get(name="reject-bucket", team=self.team)
+        assert endpoint.current_version == 1
+        assert EndpointVersion.objects.filter(endpoint=endpoint).count() == 1
+
     def test_reenable_materialization_without_bucket_overrides_clears_old_value(self):
         from products.endpoints.backend.models import EndpointVersion
 
