@@ -1,14 +1,28 @@
 from typing import Literal
 from uuid import UUID
 
-MAX_ATTEMPTS = 5
+MAX_ATTEMPTS = 2
+# Pre-patch histories recorded five refine/draft/validate iterations. Replay must loop that many
+# times or Temporal raises a non-determinism error.
+LEGACY_MAX_ATTEMPTS = 5
 
 # Histories without this marker must retain the legacy persistence command during replay.
 DEFER_KNOWLEDGE_GAPS_UNTIL_RESOLUTION_PATCH = "defer-knowledge-gaps-until-resolution-2026-09"
+# Histories without this marker must retain the 5-attempt SCORE_THRESHOLD loop during replay.
+BLOCKER_AWARE_LOOP_PATCH = "blocker-aware-loop-2026-09"
 
 # Stable namespace for deterministic per-ticket trace ids (uuid5).
 AI_REPLY_TRACE_NAMESPACE = UUID("a1b2c3d4-5678-4e9f-ab12-cd34ef567890")
+# Pre-patch auto-send / suggest bar. Kept so replay of unpatched histories still gates the same way.
 SCORE_THRESHOLD = 0.5
+# Validator and draft are uncalibrated judges, so auto-send requires both plus coverage and grounding.
+AUTO_SEND_THRESHOLD = 0.85
+AUTO_SEND_MIN_COVERAGE = 0.8
+DRAFT_SELF_CONFIDENCE_FLOOR = 0.7
+SUGGEST_THRESHOLD = 0.5
+
+DRAFT_VERDICTS = ("answerable", "blocked_on_customer", "blocked_on_knowledge", "out_of_scope")
+VALIDATE_BLOCKERS = ("none", "customer_info", "knowledge", "contradiction")
 RERANK_TOP_K = 5
 # Ticket types whose replies may ever be published to the (untrusted) ticket author.
 # diagnostic/account_billing draw on project data and must stay private regardless of settings.
@@ -28,6 +42,10 @@ MAX_CHUNKS = 25
 # they flow into validate's input and the workflow's best-so-far tracking.
 MAX_SOURCES = 25
 MAX_EXCERPT_CHARS = 1000
+MAX_INVESTIGATION_SUMMARY_CHARS = 4000
+MAX_UNKNOWNS = 10
+MAX_UNKNOWN_CHARS = 300
+MAX_CLARIFYING_QUESTIONS = 2
 # The safety filter and draft prompt must review/consume the exact same ticket text. This
 # constant is the single source of truth for that window; the workflow slices once and passes
 # the result to both activities so there's no mismatch.

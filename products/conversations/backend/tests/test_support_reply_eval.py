@@ -27,6 +27,13 @@ class TestEvalOutcomeFromTriage(SimpleTestCase):
         [
             ("persisted_is_answerable", {"status": "done", "result": "persisted"}, "answerable"),
             ("escalated_with_best", {"status": "done", "result": "escalated_with_best"}, "escalate"),
+            ("suggested_is_escalate", {"status": "done", "result": "suggested"}, "escalate"),
+            ("findings_is_escalate", {"status": "done", "result": "escalated_with_findings"}, "escalate"),
+            (
+                "customer_info_blocker_is_clarification",
+                {"status": "done", "result": "escalated_with_findings", "blocker": "customer_info"},
+                "needs_clarification",
+            ),
             ("skipped_unactionable", {"status": "done", "result": "skipped_unactionable"}, "escalate"),
             ("unknown_result_is_unscored", {"status": "done", "result": "mystery"}, None),
             (

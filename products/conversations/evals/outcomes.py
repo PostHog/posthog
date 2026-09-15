@@ -16,6 +16,8 @@ def eval_outcome_from_triage(ai_triage: dict[str, Any] | None) -> EvalOutcome | 
     triage = ai_triage or {}
     if triage.get("status") == CLARIFICATION_TRIAGE_STATUS:
         return "needs_clarification"
+    if triage.get("blocker") == "customer_info" or triage.get("verdict") == "blocked_on_customer":
+        return "needs_clarification"
     result = triage.get("result")
     if not isinstance(result, str) or not result:
         return None

@@ -8,9 +8,11 @@ structured LLM response schemas used by the draft sandbox step.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from products.conversations.backend.temporal.ai_reply.constants import DRAFT_VERDICTS, MAX_CLARIFYING_QUESTIONS
 
 
 @dataclass
@@ -117,6 +119,11 @@ class DraftOutput:
     # Wall time of the sandbox session, recorded for ai_triage.cost. Defaults so
     # histories from before this field still deserialize.
     sandbox_seconds: float = 0.0
+    # Old draft activities omit this field. Fail closed so a rolling deploy cannot auto-send.
+    verdict: str = "blocked_on_knowledge"
+    clarifying_questions: list[str] = field(default_factory=list)
+    investigation_summary: str = ""
+    unknowns: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -139,6 +146,8 @@ class ValidateOutput:
     confidence: float
     missing: list[str]
     llm_attempts: int = 1
+    # Old validate activities omit this field. Fail closed so a rolling deploy cannot auto-send.
+    blocker: str = "knowledge"
 
 
 @dataclass
@@ -150,6 +159,11 @@ class PersistReplyInput:
     confidence: float
     ticket_type: str = "how_to"
     allow_bot_reply: bool = False
+    persist_as: Literal["reply", "findings"] = "reply"
+    investigation_summary: str = ""
+    unknowns: list[str] = field(default_factory=list)
+    clarifying_questions: list[str] = field(default_factory=list)
+    findings_reason: str = ""
 
 
 @dataclass
@@ -215,3 +229,33 @@ class SupportReplyDraft(BaseModel):
         default_factory=list,
         description="Every source used, each with the exact supporting excerpt, so the reply can be validated",
     )
+    verdict: Literal["answerable", "blocked_on_customer", "blocked_on_knowledge", "out_of_scope"] = Field(
+        default="blocked_on_knowledge",
+        description="Whether the ticket can be answered now, or what blocks an answer",
+    )
+    clarifying_questions: list[str] = Field(
+        default_factory=list,
+        description="At most two questions that would unblock a blocked_on_customer verdict",
+    )
+    investigation_summary: str = Field(
+        default="",
+        description="What was checked and found, for a human reading a private note",
+    )
+    unknowns: list[str] = Field(
+        default_factory=list,
+        description="Facts that remain unknown after the investigation",
+    )
+
+    @field_validator("verdict", mode="before")
+    @classmethod
+    def _coerce_verdict(cls, value: object) -> str:
+        if isinstance(value, str) and value in DRAFT_VERDICTS:
+            return value
+        return "blocked_on_knowledge"
+
+    @field_validator("clarifying_questions", mode="before")
+    @classmethod
+    def _cap_clarifying_questions(cls, value: object) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        return [str(item) for item in value if item][:MAX_CLARIFYING_QUESTIONS]
