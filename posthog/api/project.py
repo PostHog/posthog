@@ -1627,6 +1627,7 @@ class ProjectViewSet(
                 project_id=project_id,
                 user_id=user.id,
                 project_name=project_name,
+                start_delay=PROJECT_DELETION_DELAY,
             )
         except Exception:
             Project.objects.filter(pk=project.pk, deletion_scheduled_at=deletion_scheduled_at).update(

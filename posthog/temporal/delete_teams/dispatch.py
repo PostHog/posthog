@@ -17,7 +17,7 @@ def start_delete_project_data_workflow(
     project_id: int | None,
     user_id: int,
     project_name: str,
-    start_delay: timedelta | None = PROJECT_DELETION_DELAY,
+    start_delay: timedelta | None = None,
     id_conflict_policy: WorkflowIDConflictPolicy = WorkflowIDConflictPolicy.UNSPECIFIED,
 ) -> None:
     inputs = DeleteProjectDataWorkflowInputs(

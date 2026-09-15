@@ -580,6 +580,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             delta=5,
         )
         mock_delete_task.assert_called_once()
+        self.assertEqual(mock_delete_task.call_args.kwargs["start_delay"], timedelta(hours=48))
 
     @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")

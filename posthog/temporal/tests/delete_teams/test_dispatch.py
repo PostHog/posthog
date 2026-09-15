@@ -18,11 +18,11 @@ def test_start_project_deletion_forwards_workflow_conflict_policy() -> None:
             project_id=2,
             user_id=3,
             project_name="Test project",
-            start_delay=None,
             id_conflict_policy=WorkflowIDConflictPolicy.TERMINATE_EXISTING,
         )
 
     client.start_workflow.assert_awaited_once()
     start_call = client.start_workflow.await_args
     assert start_call is not None
+    assert start_call.kwargs["start_delay"] is None
     assert start_call.kwargs["id_conflict_policy"] == WorkflowIDConflictPolicy.TERMINATE_EXISTING
