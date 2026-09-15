@@ -4208,7 +4208,8 @@ export class SessionService {
    * agent keeps its old credentials until the next send respawns it (see
    * localBillingRespawnNeeded), and the session's own fields still hold the live
    * value. A per-run choice, so it never changes another conversation or the
-   * default for new tasks.
+   * default for new tasks. Queued messages survive the switch: the respawn
+   * preserves the queue and re-sends it under the new billing.
    */
   setSessionModelAccess(
     taskId: string,
@@ -4222,6 +4223,7 @@ export class SessionService {
       codex: session.codexModelAccess,
       claude: session.claudeModelAccess,
     };
+    if (current[adapter] === access) return;
     this.d.billingStore.setBilling(taskRunId, {
       ...current,
       [adapter]: access,
@@ -4352,55 +4354,65 @@ export class SessionService {
     this.applyOptimisticPrompt(session.taskRunId, blocks, promptText);
 
     // Additional-directory access and billing are both fixed at agent spawn, so
-    // applying either mid-conversation needs a respawn. One covers both, since
-    // reconnectInPlace re-reads the folders and this run's billing when it
-    // respawns.
+    // applying either mid-conversation needs a respawn. reconnectInPlace
+    // re-reads the folders and this run's billing when it respawns.
     const respawnReason = promptReferencesAbsoluteFolder(prompt)
       ? "folder"
       : this.localBillingRespawnNeeded(session)
         ? "billing"
         : null;
     if (respawnReason) {
-      const repoPath = this.localRepoPaths.get(taskId);
-      if (repoPath) {
-        try {
-          await this.reconnectInPlace(taskId, repoPath);
-        } catch (err) {
-          this.d.log.error("Respawn failed; aborting prompt send", {
-            taskId,
-            respawnReason,
-            err,
+      try {
+        session = await this.respawnInPlaceOrThrow(taskId, session);
+      } catch (err) {
+        this.d.log.error("Respawn failed; aborting prompt send", {
+          taskId,
+          respawnReason,
+          err,
+        });
+        this.d.store.clearOptimisticItems(session.taskRunId);
+        this.d.store.updateSession(session.taskRunId, {
+          isPromptPending: false,
+          promptStartedAt: null,
+        });
+        if (respawnReason === "folder") {
+          this.d.toast.error("Couldn't grant the new folder access", {
+            description:
+              "The session needs to restart to pick up the added folder. Try sending again, or remove the folder reference.",
           });
-          this.d.store.clearOptimisticItems(session.taskRunId);
-          this.d.store.updateSession(session.taskRunId, {
-            isPromptPending: false,
-            promptStartedAt: null,
+        } else {
+          this.d.toast.error("Couldn't switch billing", {
+            description:
+              "The session needs to restart to apply it. Try sending again.",
           });
-          if (respawnReason === "folder") {
-            this.d.toast.error("Couldn't grant the new folder access", {
-              description:
-                "The session needs to restart to pick up the added folder. Try sending again, or remove the folder reference.",
-            });
-          } else {
-            this.d.toast.error("Couldn't switch billing", {
-              description:
-                "The session needs to restart to apply it. Try sending again.",
-            });
-          }
-          throw err instanceof Error
-            ? err
-            : new Error("Failed to restart the session");
         }
-        const refreshed = this.d.store.getSessionByTaskId(taskId);
-        if (refreshed) {
-          session = refreshed;
-        }
+        throw err instanceof Error
+          ? err
+          : new Error("Failed to restart the session");
       }
     }
 
     return this.sendLocalPrompt(session, blocks, promptText, {
       optimisticApplied: true,
     });
+  }
+
+  /**
+   * Respawn the local agent in place to apply a spawn-time change (an added
+   * folder or switched billing), then return the refreshed session. A missing
+   * repo path leaves the session untouched. Throws when the reconnect fails,
+   * which already left the session in an error state.
+   */
+  private async respawnInPlaceOrThrow(
+    taskId: string,
+    session: AgentSession,
+  ): Promise<AgentSession> {
+    const repoPath = this.localRepoPaths.get(taskId);
+    if (!repoPath) return session;
+    if (!(await this.reconnectInPlace(taskId, repoPath))) {
+      throw new Error("Failed to restart the session");
+    }
+    return this.d.store.getSessionByTaskId(taskId) ?? session;
   }
 
   /**
@@ -4586,7 +4598,18 @@ export class SessionService {
     });
 
     try {
-      const result = await this.sendLocalPrompt(session, blocks, promptText);
+      // Billing is fixed at agent spawn, so a message queued after a billing
+      // switch must respawn to run under the new billing rather than the old
+      // credentials. reconnectInPlace preserves the rest of the queue. On
+      // failure the catch below re-enqueues this message.
+      const activeSession = this.localBillingRespawnNeeded(session)
+        ? await this.respawnInPlaceOrThrow(taskId, session)
+        : session;
+      const result = await this.sendLocalPrompt(
+        activeSession,
+        blocks,
+        promptText,
+      );
       if (result.stopReason === "rate_limited") {
         this.d.store.prependQueuedMessages(taskId, drained);
         this.d.log.warn("Queued message hit a gateway limit; re-enqueued", {

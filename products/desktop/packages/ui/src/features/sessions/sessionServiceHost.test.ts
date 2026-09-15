@@ -7601,6 +7601,24 @@ describe("SessionService", () => {
       expect(mockTrpcAgent.reconnect.mutate).toHaveBeenCalledTimes(1);
     });
 
+    it("records the run's billing on a real change and ignores a no-op selection", () => {
+      const service = getSessionService();
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
+        createMockSession({ claudeModelAccess: "own-subscription" }),
+      );
+
+      // Re-selecting the current billing writes nothing.
+      service.setSessionModelAccess("task-123", "claude", "own-subscription");
+      expect(mockBillingFns.setBilling).not.toHaveBeenCalled();
+
+      // A real change records the run's new billing.
+      service.setSessionModelAccess("task-123", "claude", "posthog-gateway");
+      expect(mockBillingFns.setBilling).toHaveBeenCalledWith(
+        "run-123",
+        expect.objectContaining({ claude: "posthog-gateway" }),
+      );
+    });
+
     it("reuses attachments uploaded before sending cloud follow-ups", async () => {
       const service = getSessionService();
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
