@@ -170,8 +170,8 @@ def main() -> int:
     # The aliases must be defined BEFORE the classes whose annotations reference them,
     # like every other name in the generated file. A class created while its annotations
     # are unresolvable is left fields-incomplete, and subclasses defined in other modules
-    # (e.g. TrendsQueryWithTemplateVariables in filter_to_query.py) then fail to resolve
-    # the alias from their own namespace. The main alias goes after the last member class;
+    # (see TrendsQuerySubclassedElsewhere in posthog/test/test_property_filter_discriminator.py)
+    # then fail to resolve the alias from their own namespace. The main alias goes after the last member class;
     # the group variant goes after PropertyGroupFilterValue, whose own recursive `values`
     # annotation resolves via the trailing PropertyGroupFilterValue.model_rebuild().
     member_def_re = re.compile(r"^class (?:" + "|".join(re.escape(m) for m in MEMBER_TAGS) + r")\(", re.MULTILINE)

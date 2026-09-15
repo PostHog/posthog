@@ -40,9 +40,9 @@ from posthog.schema import (
 )
 
 
-# Mirrors TrendsQueryWithTemplateVariables in filter_to_query.py: subclassing a schema
-# model from another module only works if the parent's annotations resolved at class
-# creation, i.e. the discriminated aliases were emitted before their usage sites.
+# Subclassing a schema model from another module only works if the parent's annotations
+# resolved at class creation, i.e. the discriminated aliases were emitted before their
+# usage sites.
 class TrendsQuerySubclassedElsewhere(TrendsQuery):
     pass
 

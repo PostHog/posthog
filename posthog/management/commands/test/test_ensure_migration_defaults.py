@@ -53,7 +53,7 @@ class TestSeededDashboardTemplates(SimpleTestCase):
     @parameterized.expand([(label, template, tile) for label, template, tile in _insight_tiles()])
     def test_insight_tile_carries_a_query(self, _label: str, _template: dict[str, Any], tile: dict[str, Any]) -> None:
         assert tile.get("query"), "create_from_template builds insights from `query`, so a tile without one is blank"
-        assert "filters" not in tile, "legacy `filters` is never read; convert with filter_to_query instead"
+        assert "filters" not in tile, "legacy `filters` is never read; author the tile in `query` shape instead"
 
     @parameterized.expand([(label, template, tile) for label, template, tile in _insight_tiles()])
     def test_insight_tile_query_matches_the_schema(
