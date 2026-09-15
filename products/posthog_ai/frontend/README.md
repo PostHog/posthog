@@ -34,12 +34,12 @@ re-introduce the exact bundling problem the split solves. Always import an `api/
 
 Pick the **lowest tier** that does the job.
 
-| Tier                           | Module                                              | What's in it                                                                                                                                                                                                                                                                                                                                                  | Use when                                                                                                                                                                |
-| ------------------------------ | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **1 — Prepackaged surfaces**   | `api/readableRun` + `api/runSurface` + `api/runner` | `ReadonlyRunSurface` (lazy, code-split read-only embed); the `RunSurface` compound (`Root` + slots, eager) for custom layouts; `EmbeddedRunner` (lazy TaskTracker workspace for inline hosts)                                                                                                                                                                 | "Just show a run" → `ReadonlyRunSurface` (inbox embeds). "Drive a run / custom layout" → `RunSurface` (tasks). "Embed the `/tasks` workspace" → `EmbeddedRunner` (Max). |
-| **2 — Compound primitives**    | `api/primitives`                                    | `Thread` + atoms (`.Message/.Markdown/.Reasoning/.Failure/.Activity/.ToolCall`), `ThreadView`, `Composer.*`, `AttachedContextBar`, task navigation items and filters, `QueuedMessageList`, `RunLogSkeleton`, activity primitives + `RunActivity`, message presenters, permission/question/resource surfaces                                                   | Custom layout, shared navigation, or a bespoke/compact thread.                                                                                                          |
-| **3 — Headless logic + types** | `api/logics` + `api/types`                          | `runStreamLogic`, `runInteractionLogic`, `tasksLogic`, status helpers (`isTerminalRunStatus`, `INITIAL_PERMISSION_MODE`), thinking-message helpers, context injection (`attachedContextLogic`, `useAttachedContext`, `contextPickerLogic`), tool-stream subscriptions (`toolStreamEventsLogic`, `useToolStreamListener`); folded-thread, task, and tool types | Status badge, automation, context injection, task navigation, tool-event listeners — no presenters or registry.                                                         |
-| **4 — Extension seam**         | `api/tools`                                         | `toolRegistry`, `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, diff helpers                                                                                                                                                                                                                                       | Your product renders tool cards (insights, dashboards…). Declare them in your product list and include it in the central manifest.                                      |
+| Tier                           | Module                                              | What's in it                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Use when                                                                                                                                                                |
+| ------------------------------ | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1 — Prepackaged surfaces**   | `api/readableRun` + `api/runSurface` + `api/runner` | `ReadonlyRunSurface` (lazy, code-split read-only embed); the `RunSurface` compound (`Root` + slots, eager) for custom layouts; `EmbeddedRunner` (lazy TaskTracker workspace for inline hosts)                                                                                                                                                                                                                                                                       | "Just show a run" → `ReadonlyRunSurface` (inbox embeds). "Drive a run / custom layout" → `RunSurface` (tasks). "Embed the `/tasks` workspace" → `EmbeddedRunner` (Max). |
+| **2 — Compound primitives**    | `api/primitives`                                    | `Thread` + atoms (`.Message/.Markdown/.Reasoning/.Failure/.Activity/.ToolCall`), `ThreadView`, `Composer.*`, `AttachedContextBar`, task navigation items and filters, `QueuedMessageList`, `RunLogSkeleton`, activity primitives + `RunActivity`, message presenters, permission/question/resource surfaces                                                                                                                                                         | Custom layout, shared navigation, or a bespoke/compact thread.                                                                                                          |
+| **3 — Headless logic + types** | `api/logics` + `api/types`                          | `runStreamLogic`, `runInteractionLogic`, `tasksLogic`, status helpers (`isTerminalRunStatus`, `INITIAL_PERMISSION_MODE`), thinking-message helpers, context injection (`attachedContextLogic`, `useAttachedContext`, `contextPickerLogic`), artifact actions (`artifactActionsLogic`), composer focus (`composerFocusLogic`, `useComposerFocus`), tool-stream subscriptions (`toolStreamEventsLogic`, `useToolStreamListener`); folded-thread, task, and tool types | Status badge, automation, context injection, artifact actions, task navigation, tool-event listeners — no presenters or registry.                                       |
+| **4 — Extension seam**         | `api/tools`                                         | `toolRegistry`, `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, diff helpers                                                                                                                                                                                                                                                                                                                                             | Your product renders tool cards (insights, dashboards…). Declare them in your product list and include it in the central manifest.                                      |
 
 The Tier 1 surfaces are built on `api/primitives` (Tier 2), which consumes the headless
 `api/logics`/`api/types` (Tier 3). Going down a tier trades convenience for control and a smaller chunk.
@@ -314,6 +314,66 @@ while the tab is hidden and missed live events are not redelivered).
 
 Note: for exec-wrapped PostHog tools the resolved name can be unknown at `phase: 'started'` (the command
 streams in later) — match on `completed` when you need certainty.
+
+### Offer an action on the thread's charts
+
+The way back out of a run, without an MCP write: register an action, and every visualization card in the
+thread grows a button for it. The click runs in the browser, so there is no round trip and no approval
+prompt, and the user decides per result.
+
+```tsx
+afterMount(({ actions, cache }) => {
+  cache.disposables.add(
+    () => {
+      actions.registerArtifactAction('my-scene', {
+        id: 'add-to-notebook',
+        label: 'Add to notebook',
+        icon: <IconNotebook />,
+        onSelect: actions.addResult, // gets { query, content, insightShortId?, toolName, toolCallId }
+      })
+      return () => actions.deregisterArtifactAction('my-scene')
+    },
+    'artifactAction',
+    { pauseOnPageHidden: false }
+  )
+})
+```
+
+Connect to `artifactActionsLogic` (`api/logics`) for those actions, and take the payload type
+(`VisualizationArtifactActionPayload`) from `api/types`. A component host calls `useArtifactAction(action)`
+instead, which registers for the lifetime of the mount and reads `onSelect` at click time. Re-registering the same provider id is an upsert,
+so a host that switches what it is offering replaces its button instead of adding a second one. `query` is
+the renderable query behind the card, so a host does not repeat the artifact-to-query mapping.
+
+### Pin what the user is asking about above the composer
+
+When the user opens the panel from a specific thing (a chart, a notebook cell), register it as the composer
+focus. The composer renders it in place of the welcome state, hides the default suggestion buttons, and the
+side panel keeps a compact copy above the thread once a run starts. The host registers data, not a React node:
+a `query` renders as a read-only chart, otherwise `code` renders as a read-only code block.
+
+```tsx
+cache.disposables.add(
+  () => {
+    actions.registerFocus('my-scene', {
+      id: cellId,
+      title: 'Weekly signups by plan',
+      caption: 'PostHog AI can see this notebook and this cell.',
+      query, // or code + codeLanguage: 'sql' | 'python'
+      dismissGroup: 'my-scene-context', // the attached context group the card closes with
+    })
+    return () => actions.deregisterFocus('my-scene')
+  },
+  'composerFocus',
+  { pauseOnPageHidden: false }
+)
+```
+
+Connect to `composerFocusLogic` (`api/logics`), and take `ComposerFocus` from `api/types`. A component host
+calls `useComposerFocus(focus)` instead. Only one focus renders, and the last registration wins. Closing the
+card dispatches `closeFocus(providerId)`, which deregisters the focus and dismisses its `dismissGroup`, so the
+card and its chips leave together. Listen to `dismissContext` for your group if a closed chip should also clear
+the focus.
 
 Editor mutations use `useMcpToolApplyBack` with a stable `targetKey` for the resource being edited. The
 send paths snapshot the active targets for that stream before making a request. A response is applied only

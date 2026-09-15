@@ -4,8 +4,10 @@ import { ReactNode, useRef } from 'react'
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
+import { ComposerFocusCard } from '../../../components/composer/ComposerFocusCard'
 import { useAttachedContext } from '../../../hooks/useAttachedContext'
 import { useForegroundStream } from '../../../hooks/useForegroundStream'
+import { composerFocusLogic } from '../../../logics/composerFocusLogic'
 import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM } from '../../../utils/posthogContextBlock'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { StartupRunChat } from './StartupRunChat'
@@ -37,6 +39,7 @@ export function SidePanelRunnerImpl({ panelId, composer }: SidePanelRunnerImplPr
 function SidePanelRunnerContent({ composer }: { composer?: ReactNode }): JSX.Element {
     const { activeCreation, historyExpanded } = useValues(taskTrackerSceneLogic)
     const { toggleHistory, updateActiveCreationRun, setStartupDraft } = useActions(taskTrackerSceneLogic)
+    const { focus } = useValues(composerFocusLogic)
     const startupFocusedRef = useRef(false)
 
     // This compact surface renders only in Max's side panel, so the run it shows is a foreground
@@ -89,6 +92,13 @@ function SidePanelRunnerContent({ composer }: { composer?: ReactNode }): JSX.Ele
     return (
         <div className="flex flex-col h-full min-h-0">
             <LemonDivider className="my-0" />
+            {focus && (
+                // The composer's full card is gone once a run starts, so a compact copy keeps the thing
+                // the user asked about in view while they read the answer.
+                <div className="shrink-0 px-4 pt-2">
+                    <ComposerFocusCard focus={focus} compact />
+                </div>
+            )}
             {activeCreation.taskId && activeCreation.runId ? (
                 // `TaskRunChat`'s inner container compensates for the `/tasks` scene's own horizontal margin
                 // with `-mx-4`; a `px-4` wrapper here neutralizes that bleed instead of editing the shared

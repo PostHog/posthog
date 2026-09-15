@@ -42,6 +42,22 @@ export type { UseWelcomeOverrideOptions } from '../hooks/useWelcomeOverride'
 // run — the prompt-side half of `useMcpToolApplyBack` (hidden from chips, deduped once per task).
 export { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM, wrapWithPosthogContext } from '../utils/posthogContextBlock'
 
+// --- Visualization artifact actions (headless) ---
+// The way out of a run: a host registers an action (e.g. "Add to notebook") that every visualization
+// card in the thread renders, and the action runs in the browser rather than through an MCP write.
+// `useArtifactAction` registers one for a mount's life; a kea host connects to the logic instead.
+export { artifactActionsLogic } from '../logics/artifactActionsLogic'
+export { useArtifactAction } from '../hooks/useArtifactAction'
+export type { UseArtifactActionOptions } from '../hooks/useArtifactAction'
+
+// --- Composer focus (headless) ---
+// The thing the user is asking about, pinned above the composer: a host registers a data descriptor
+// (a query to chart or code to show) and the surface renders it in place of the welcome state, with a
+// compact copy above the thread once a run starts. `useComposerFocus` registers one for a mount's life.
+export { composerFocusLogic } from '../logics/composerFocusLogic'
+export { useComposerFocus } from '../hooks/useComposerFocus'
+export type { UseComposerFocusOptions } from '../hooks/useComposerFocus'
+
 // --- User-picked context (the composer's @-affordance, headless half) ---
 // `contextPickerLogic` owns explicit user picks and registers them as the `user-picker` provider;
 // the `AttachedContextBar` component (Tier 2 `api/primitives`) is its prepackaged UI.

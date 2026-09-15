@@ -8,6 +8,8 @@ export type {
 } from '../types/streamTypes'
 export type { ToolCallMessage } from '../types/toolTypes'
 export type { AttachedContextItem } from '../types/contextTypes'
+export type { VisualizationArtifactAction, VisualizationArtifactActionPayload } from '../types/artifactActionTypes'
+export type { ComposerFocus, RegisteredComposerFocus } from '../types/composerFocusTypes'
 export type { Task, TaskAssigneeFilter, TaskListParams } from '../types/taskTypes'
 export type {
     ToolStreamEvent,
