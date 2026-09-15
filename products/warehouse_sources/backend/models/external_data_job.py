@@ -46,7 +46,7 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     schema_snapshot = models.JSONField(
         null=True,
         blank=True,
-        help_text="The schema state this job needs later: `last_synced_at` when the job was created, plus `cdc_write_mode` on CDC runs.",
+        help_text="Snapshot of the ExternalDataSchema at the time this job was created.",
     )
 
     __repr__ = sane_repr("id")

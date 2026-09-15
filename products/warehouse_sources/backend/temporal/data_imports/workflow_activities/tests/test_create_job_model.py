@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     CreateExternalDataJobModelActivityInputs,
+    _build_schema_snapshot,
     _create_job,
     _enrichment_pending,
     _statistics_stale,
@@ -177,6 +178,28 @@ class TestEnrichmentPending:
         self._annotate(team, table, "amount")
         self._annotate(team, table, "")
         assert _enrichment_pending(team.id, table, _schema(team, table, description=None)) is False
+
+
+class TestBuildSchemaSnapshot:
+    def test_copies_the_config_without_the_per_run_state_blobs(self) -> None:
+        config = {
+            "incremental_field": "updated_at",
+            "incremental_field_last_value": "2026-09-01T00:00:00+00:00",
+            "reset_pipeline": True,
+            "schema_metadata": {"columns": [{"name": "id", "type": "int"}]},
+            "cdc_deferred_runs": [{"run_id": "r1"}],
+        }
+        schema = ExternalDataSchema(name="Charge", sync_type="incremental", sync_type_config=dict(config))
+
+        snapshot = _build_schema_snapshot(schema)
+
+        assert snapshot["sync_type_config"] == {
+            "incremental_field": "updated_at",
+            "incremental_field_last_value": "2026-09-01T00:00:00+00:00",
+            "reset_pipeline": True,
+        }
+        assert snapshot["sync_type"] == "incremental"
+        assert schema.sync_type_config == config
 
 
 @pytest.mark.django_db
