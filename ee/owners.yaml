@@ -16,4 +16,4 @@ rules:
     - match: '/surveys/'
       owners: conversations
     - match: '/tasks/subscriptions/'
-      owners: team-analytics-platform
+      owners: team-product-analytics
