@@ -31,6 +31,7 @@ from posthog.exceptions import (
 )
 from posthog.models import Team, User
 from posthog.slo.types import SloOperation, SloOutcome
+from posthog.tasks.alerts.detectors.llm.errors import LLMDetectorMisconfiguredError
 from posthog.tasks.alerts.utils import (
     AlertEvaluationResult,
     get_alert_error_notification_recipients,
@@ -556,7 +557,10 @@ class TestEvaluateAlert:
         refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert.pk)
         assert refreshed.enabled is True
 
-    async def test_evaluate_auto_disables_and_skips_error_tracking_on_extraction_error(self, alert_with_user) -> None:
+    @pytest.mark.parametrize("error_type", [AlertExtractionError, LLMDetectorMisconfiguredError])
+    async def test_evaluate_auto_disables_and_skips_error_tracking_on_configuration_error(
+        self, alert_with_user, error_type
+    ) -> None:
         # A misconfigured query (wrong shape / bad config) fails loud with AlertExtractionError. That's
         # a config problem, not a bug: it must auto-disable + email the owner, not hit error tracking.
         # alert_with_user has a subscriber, so this also exercises the send_notifications_for_disabled
@@ -564,7 +568,7 @@ class TestEvaluateAlert:
         with (
             patch(
                 "posthog.temporal.alerts.activities.check_alert_for_insight",
-                side_effect=AlertExtractionError("query returns 2 numeric columns — pick one"),
+                side_effect=error_type("Alert configuration is invalid"),
             ),
             patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
             patch("posthog.tasks.alerts.utils.send_notifications_for_disabled", return_value=[]) as mock_notify,
@@ -579,7 +583,7 @@ class TestEvaluateAlert:
         check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
         assert check.state == AlertState.ERRORED
         assert check.error is not None
-        assert "2 numeric columns" in check.error["message"]
+        assert "Alert configuration is invalid" in check.error["message"]
 
         refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
         assert refreshed.enabled is False
@@ -587,7 +591,7 @@ class TestEvaluateAlert:
         mock_notify.assert_called_once()
         notified_alert, reason, targets = mock_notify.call_args.args
         assert notified_alert.id == alert_with_user.id
-        assert "2 numeric columns" in reason
+        assert "Alert configuration is invalid" in reason
         assert targets  # the subscribed owner's email
 
     # Transient CH errors bubble up so Temporal's retry policy handles them.

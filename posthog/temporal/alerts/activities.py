@@ -22,7 +22,7 @@ from posthog.query_creator_access import creator_access_revoked, report_creator_
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.sync import database_sync_to_async
 from posthog.tasks.alerts.detectors.llm.detector import MAX_CONCURRENT_MODEL_CALLS
-from posthog.tasks.alerts.detectors.llm.errors import LLMDetectorUnavailableError
+from posthog.tasks.alerts.detectors.llm.errors import LLMDetectorMisconfiguredError, LLMDetectorUnavailableError
 from posthog.tasks.alerts.investigation_notifications import run_investigation_notification_safety_net
 from posthog.tasks.alerts.metrics_investigation import run_metrics_alert_investigation, should_investigate_metrics_alert
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked, next_unblocked_utc
@@ -322,7 +322,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             # retry-exhausted path records an errored check, the same outcome as any other
             # evaluation that never produced a value.
             raise
-        except AlertExtractionError as err:
+        except (AlertExtractionError, LLMDetectorMisconfiguredError) as err:
             # The alert can't be evaluated as configured (wrong query shape / bad config) — a
             # deliberate fail-loud outcome, not a bug. Auto-disable and email the owner via the
             # existing path instead of capturing it as an exception, which would pollute error

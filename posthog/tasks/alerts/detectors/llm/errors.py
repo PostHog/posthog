@@ -14,6 +14,5 @@ class LLMDetectorUnavailableError(LLMDetectorError):
 class LLMDetectorMisconfiguredError(LLMDetectorError):
     """The detector cannot run as configured, so retrying cannot help.
 
-    Today the only case is an alert with no user to attribute the model call to,
-    which happens when the alert's creator is deleted.
+    The creator is missing, AI data processing consent is withdrawn, or the rollout is disabled.
     """

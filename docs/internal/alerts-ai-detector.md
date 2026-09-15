@@ -71,8 +71,9 @@ It runs in the API and the Max writer when either adds an enabled AI alert, in t
 endpoint, and inside the detector on every scheduled check.
 
 The last of those is what makes the flag a real stop on spend.
-Turning it off leaves the alerts enabled, and each check then records an error naming the cause
-rather than making a call.
+When access is removed, the next check records the cause, disables the alert, and notifies its subscribers.
+This expected condition does not send an exception to Error tracking.
+Restore access and enable the alert to resume checks.
 
 The rollout is checked for the principal the check runs as, which is the alert's creator, not
 whoever last edited it.

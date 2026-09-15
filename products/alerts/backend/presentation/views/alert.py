@@ -79,7 +79,15 @@ from products.alerts.backend.evaluation.validation import (
     should_default_check_ongoing_interval,
     validate_alert_config,
 )
-from products.alerts.backend.facade.api import INSIGHT_ALERT_DESTINATION_TYPES, INSIGHT_ALERT_EVENT_IDS
+from products.alerts.backend.facade.api import (
+    INSIGHT_ALERT_DESTINATION_TYPES,
+    INSIGHT_ALERT_EVENT_IDS,
+    is_llm_detector_config,
+    llm_alert_limit_error,
+    llm_detector_access_error,
+    llm_detector_interval_error,
+    lock_llm_alert_limit,
+)
 from products.alerts.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
@@ -91,11 +99,6 @@ from products.alerts.backend.facade.destinations import (
     build_insight_alert_slack_config,
     count_active_alert_destinations,
     create_alert_destination_hog_functions,
-    is_llm_detector_config,
-    llm_alert_limit_error,
-    llm_detector_access_error,
-    llm_detector_interval_error,
-    lock_llm_alert_limit,
     soft_delete_alert_destinations,
     validate_destination_data,
 )
@@ -857,6 +860,12 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         enabled_changed = "enabled" in validated_data and validated_data["enabled"] != instance.enabled
         resulting_enabled = validated_data.get("enabled", instance.enabled) is True
         resulting_detector_config = validated_data.get("detector_config", instance.detector_config)
+        if is_llm_detector_config(resulting_detector_config):
+            resulting_interval = validated_data.get("calculation_interval", instance.calculation_interval)
+            if interval_error := llm_detector_interval_error(resulting_interval):
+                raise ValidationError({"calculation_interval": [interval_error]})
+            if not is_llm_detector_config(instance.detector_config) or (resulting_enabled and not instance.enabled):
+                _enforce_llm_feature_access(self.context, resulting_detector_config, principal=instance.created_by)
         # The cap lock serializes every writer of the team's AI alerts, so an edit that cannot
         # add one must not queue behind it.
         if _adds_enabled_llm_alert(

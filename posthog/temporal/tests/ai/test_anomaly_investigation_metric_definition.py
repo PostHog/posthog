@@ -1,6 +1,6 @@
 from parameterized import parameterized
 
-from posthog.tasks.alerts.metric_definition import UNAVAILABLE, describe_metric_definition
+from posthog.tasks.alerts.metric_definition import UNAVAILABLE, MetricDateRange, describe_metric_definition
 from posthog.temporal.ai.anomaly_investigation.prompts import build_anomaly_context
 
 # A $pageview DAU series filtered to the app's error tracking pages — an insight whose
@@ -118,7 +118,9 @@ def test_the_effective_range_replaces_the_insights_saved_range() -> None:
     }
 
     saved = describe_metric_definition(query)
-    effective = describe_metric_definition(query, effective_date_range=("2026-01-01", "2026-03-31"))
+    effective = describe_metric_definition(
+        query, effective_date_range=MetricDateRange(start="2026-01-01", end="2026-03-31")
+    )
 
     assert "Insight date range: -7d to now" in saved
     assert "Insight date range" not in effective

@@ -19,6 +19,15 @@ from typing import Any
 
 import structlog
 
+from posthog.dataclasses import frozen
+
+
+@frozen
+class MetricDateRange:
+    start: str
+    end: str
+
+
 logger = structlog.get_logger(__name__)
 
 # The block is prompt context, so it is capped rather than trusting query size —
@@ -89,7 +98,7 @@ _VALUELESS_OPERATORS = frozenset({"is_set", "is_not_set"})
 
 
 def describe_metric_definition(
-    query: Any, *, series_index: int = 0, effective_date_range: tuple[str, str] | None = None
+    query: Any, *, series_index: int = 0, effective_date_range: MetricDateRange | None = None
 ) -> str:
     """A plain-text block naming what the alerted series measures.
 
@@ -110,7 +119,7 @@ def describe_metric_definition(
     return described[:MAX_DEFINITION_CHARS]
 
 
-def _describe(query: Any, series_index: int, effective_date_range: tuple[str, str] | None = None) -> str:
+def _describe(query: Any, series_index: int, effective_date_range: MetricDateRange | None = None) -> str:
     source = unwrap_query_source(query)
     if not source:
         return UNAVAILABLE
@@ -253,7 +262,7 @@ def _describe_clauses(clauses: list[Any]) -> list[str]:
     return lines
 
 
-def _describe_query_scope(source: dict[str, Any], effective_date_range: tuple[str, str] | None = None) -> list[str]:
+def _describe_query_scope(source: dict[str, Any], effective_date_range: MetricDateRange | None = None) -> list[str]:
     lines: list[str] = []
 
     global_filters = _describe_filters(source.get("properties"))
@@ -265,7 +274,7 @@ def _describe_query_scope(source: dict[str, Any], effective_date_range: tuple[st
         lines.append(f"- Breakdown: {breakdown}")
 
     if effective_date_range:
-        lines.append(f"- The points below cover: {effective_date_range[0]} to {effective_date_range[1]}")
+        lines.append(f"- The points below cover: {effective_date_range.start} to {effective_date_range.end}")
     else:
         date_range = source.get("dateRange")
         if isinstance(date_range, dict) and (date_range.get("date_from") or date_range.get("date_to")):

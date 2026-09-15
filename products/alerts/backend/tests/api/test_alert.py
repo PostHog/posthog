@@ -30,6 +30,7 @@ from products.alerts.backend.facade.contracts import AlertDelivery
 from products.alerts.backend.facade.destinations import MAX_DESTINATIONS_PER_ALERT, count_active_alert_destinations
 from products.alerts.backend.logic.insight_alert_destinations import SLACK_TEMPLATE_ID
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
+from products.alerts.backend.presentation.views.alert import AlertSerializer
 from products.cdp.backend.facade.models import HogFunction
 from products.product_analytics.backend.facade.models import Insight
 
@@ -2891,9 +2892,29 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "AI data processing is turned off" in response.json()["detail"]
 
+    @parameterized.expand([("create", False), ("concurrent_interval_change", True)])
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_rejected_on_the_real_time_cadence(self, _flag) -> None:
-        response = self._create({"type": "llm", "threshold": 0.7, "window": 90}, calculation_interval="real_time")
+    def test_rejected_on_the_real_time_cadence(self, _name, concurrent_change, _flag) -> None:
+        config = {"type": "llm", "threshold": 0.7, "window": 90}
+        if concurrent_change:
+            created = self._create({"type": "zscore", "threshold": 0.9, "window": 30})
+            assert created.status_code == status.HTTP_201_CREATED, created.content
+            update = AlertSerializer.update
+
+            def change_interval_before_lock(serializer, instance, validated_data):
+                AlertConfiguration.objects.filter(pk=instance.pk).update(calculation_interval="real_time")
+                return update(serializer, instance, validated_data)
+
+            with mock.patch.object(AlertSerializer, "update", new=change_interval_before_lock):
+                response = self.client.patch(
+                    f"/api/projects/{self.team.id}/alerts/{created.json()['id']}",
+                    {"detector_config": config},
+                )
+            saved_config = AlertConfiguration.objects.get(pk=created.json()["id"]).detector_config
+            assert saved_config is not None
+            assert saved_config["type"] == "zscore"
+        else:
+            response = self._create(config, calculation_interval="real_time")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert response.json()["attr"] == "calculation_interval"

@@ -406,21 +406,30 @@ class TestUpsertAlertTool(BaseTest):
         assert "limit of 1 real-time alerts" in content.lower()
         assert artifact["error"] == "plan_limit_reached"
 
+    @parameterized.expand([("disabled", False), ("concurrently_disabled", True)])
     @pytest.mark.django_db
     @pytest.mark.asyncio
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
-    async def test_update_rejects_enabling_an_ai_alert_over_the_team_cap(self, _flag):
+    async def test_update_rejects_enabling_an_ai_alert_over_the_team_cap(self, _name, stale_enabled, _flag):
         # Max is a second writer of alerts, so it must apply the same AI-alert cap as the API.
         insight = await self._create_insight()
         llm_config = {"type": "llm", "threshold": 0.7, "window": 90}
         active = await self._create_alert(insight, name="Active")
-        disabled = await self._create_alert(insight, name="Disabled", enabled=False, lower_threshold=100.0)
+        disabled = await self._create_alert(insight, name="Disabled", enabled=stale_enabled, lower_threshold=100.0)
         await sync_to_async(AlertConfiguration.objects.filter(team=self.team, id__in=[active.id, disabled.id]).update)(
             detector_config=llm_config
         )
         tool = self._setup_tool()
+        check_access = tool.check_object_access
 
-        with mock.patch("products.alerts.backend.llm_detector_limits.max_llm_alerts_per_team", return_value=1):
+        async def disable_after_read(_tool, *args, **kwargs):
+            await check_access(*args, **kwargs)
+            await AlertConfiguration.objects.filter(team=self.team, id=disabled.id).aupdate(enabled=False)
+
+        with (
+            mock.patch.object(UpsertAlertTool, "check_object_access", new=disable_after_read),
+            mock.patch("products.alerts.backend.llm_detector_limits.max_llm_alerts_per_team", return_value=1),
+        ):
             content, artifact = await tool._arun_impl(
                 action=UpdateAlertAction(alert_id=str(disabled.id), enabled=True, lower_threshold=5.0)
             )
@@ -618,6 +627,7 @@ class TestUpsertAlertTool(BaseTest):
         threshold = await sync_to_async(lambda: alert.threshold)()
         assert check(alert, threshold), f"Check failed for {_name}"
         assert alert.next_check_at is not None
+        assert (alert.next_check_at != datetime(2027, 1, 1, tzinfo=UTC)) is reschedules
 
     @pytest.mark.django_db
     @pytest.mark.asyncio

@@ -222,6 +222,7 @@ class LLMDetector(BaseDetector):
             # the Temporal evaluate retry is the outer net.
             max_retries=1,
             max_tokens=MAX_OUTPUT_TOKENS,
+            thinking={"type": "disabled"},
             default_request_timeout=REQUEST_TIMEOUT_SECONDS,
             posthog_properties={"ai_product": LLM_DETECTOR_AI_PRODUCT},
         ).with_structured_output(LLMDetectionVerdict, include_raw=False)

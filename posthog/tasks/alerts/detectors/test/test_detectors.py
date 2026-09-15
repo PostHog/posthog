@@ -692,7 +692,7 @@ class TestComputeMinSamplesForDetector:
             ("llm_no_window", {"type": "llm"}, 90),
             ("llm_null_window", {"type": "llm", "window": None}, 90),
             ("llm_custom_window", {"type": "llm", "window": 60}, 60),
-            ("llm_tiny_window_floors_at_guard", {"type": "llm", "window": 5}, 10),
+            ("llm_minimum_window", {"type": "llm", "window": 5}, 5),
         ]
     )
     def test_compute_min_samples(self, _name: str, config: dict[str, Any], expected: int) -> None:

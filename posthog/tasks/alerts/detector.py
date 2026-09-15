@@ -6,7 +6,10 @@ import numpy as np
 from posthog.schema import DetectorType, IntervalType, TrendsQuery
 
 from posthog.tasks.alerts.detectors.base import DetectionResult
-from posthog.tasks.alerts.detectors.llm.detector import DEFAULT_WINDOW as LLM_DEFAULT_WINDOW
+from posthog.tasks.alerts.detectors.llm.detector import (
+    DEFAULT_WINDOW as LLM_DEFAULT_WINDOW,
+    MIN_POINTS_TO_JUDGE,
+)
 from posthog.tasks.alerts.trends import TrendResult, _drop_incomplete_current_interval
 
 # Minimum samples required for each detector type
@@ -23,9 +26,7 @@ DETECTOR_MIN_SAMPLES: dict[DetectorType, int] = {
     DetectorType.LOF: 20,  # needs n_neighbors samples
     DetectorType.OCSVM: 10,
     DetectorType.PCA: 10,
-    # The model reads the series rather than training on it, but it needs enough history
-    # to tell a weekly shape from a change.
-    DetectorType.LLM: 10,
+    DetectorType.LLM: MIN_POINTS_TO_JUDGE,
 }
 
 # Fallback window size used when no explicit window is set in the detector config

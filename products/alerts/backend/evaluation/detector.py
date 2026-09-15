@@ -22,7 +22,7 @@ from posthog.tasks.alerts.detector import (
     _prepare_series,
 )
 from posthog.tasks.alerts.detectors import DetectionContext, DetectionResult, get_detector
-from posthog.tasks.alerts.metric_definition import describe_metric_definition
+from posthog.tasks.alerts.metric_definition import MetricDateRange, describe_metric_definition
 from posthog.tasks.alerts.trends import (
     TrendResult,
     _has_breakdown,
@@ -120,7 +120,7 @@ def _triggered_dates(series: ComparableSeries, triggered_indices: list[int]) -> 
 
 
 def _metric_description(
-    insight: Insight | None, series_index: int, effective_date_range: tuple[str, str] | None = None
+    insight: Insight | None, series_index: int, effective_date_range: MetricDateRange | None = None
 ) -> str:
     """Render the insight's query definition once per check, not once per breakdown value."""
     query = insight.query if insight is not None else None
@@ -129,7 +129,7 @@ def _metric_description(
     return describe_metric_definition(query, series_index=series_index, effective_date_range=effective_date_range)
 
 
-def _effective_date_range(result: ExtractionResult) -> tuple[str, str] | None:
+def _effective_date_range(result: ExtractionResult) -> MetricDateRange | None:
     """First and last date of the points the detector scores.
 
     Extraction widens the insight's saved range when the detector needs more buckets than it
@@ -138,7 +138,7 @@ def _effective_date_range(result: ExtractionResult) -> tuple[str, str] | None:
     for series in result.series:
         dates = [point.date for point in series.points if point.date]
         if dates:
-            return dates[0], dates[-1]
+            return MetricDateRange(start=dates[0], end=dates[-1])
     return None
 
 

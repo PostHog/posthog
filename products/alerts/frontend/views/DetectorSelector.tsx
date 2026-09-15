@@ -548,6 +548,7 @@ function LLMConfig({
                     tooltip="Optional. Anything the model should know about this metric, in your own words. It sees the recent values and a chart of them either way."
                 />
                 <LemonTextArea
+                    aria-label="What counts as unusual?"
                     data-attr="alertForm-detector-llm-instructions"
                     value={config.instructions ?? ''}
                     onChange={(instructions) => onChange({ ...config, instructions: instructions || undefined })}
@@ -562,6 +563,7 @@ function LLMConfig({
                     tooltip="How sure the model has to be before you get an alert (0-1). Higher values mean fewer alerts."
                 />
                 <LemonInput
+                    aria-label="Confidence to alert"
                     type="number"
                     min={0}
                     max={1}
