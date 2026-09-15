@@ -25,6 +25,13 @@ from posthog.utils import relative_date_parse
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.facade.contracts import DestinationType
 from products.alerts.backend.insight_alert_state_machine import apply_snooze
+from products.alerts.backend.llm_detector_limits import (
+    is_llm_detector_config,
+    llm_alert_limit_error,
+    llm_detector_access_error,
+    llm_detector_interval_error,
+    lock_llm_alert_limit,
+)
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 
 logger = structlog.get_logger(__name__)
@@ -170,3 +177,12 @@ def snooze_alert_from_slack(
             )
 
     return "snoozed"
+
+
+__all__ = [
+    "is_llm_detector_config",
+    "llm_alert_limit_error",
+    "llm_detector_access_error",
+    "llm_detector_interval_error",
+    "lock_llm_alert_limit",
+]
