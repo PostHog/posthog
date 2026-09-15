@@ -7,6 +7,7 @@ from rest_framework.pagination import PageNumberPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.data_modeling.backend.facade.models import Edge
+from products.data_modeling.backend.presentation.views.metric_visibility import MetricNodeVisibilityMixin
 
 
 class EdgeSerializer(serializers.ModelSerializer):
@@ -52,7 +53,7 @@ class EdgePagination(PageNumberPagination):
     page_size = 5000
 
 
-class EdgeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class EdgeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = Edge.objects.select_related("dag").all()
     serializer_class = EdgeSerializer
@@ -70,7 +71,7 @@ class EdgeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance.delete()
 
     def safely_get_queryset(self, queryset):
-        qs = queryset.filter(team_id=self.team_id)
+        qs = self._visible_edges(queryset.filter(team_id=self.team_id))
         dag_id = self.request.query_params.get("dag")
         if dag_id:
             try:

@@ -493,7 +493,7 @@ class TestNodeViewSet(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @parameterized.expand(["node_id", "saved_query_id"])
+    @parameterized.expand(["node_id", "saved_query_id", "metric_id"])
     def test_lineage_invalid_uuid_returns_400(self, lookup_param):
         response = self.client.get(
             f"/api/environments/{self.team.id}/data_modeling_nodes/lineage/?{lookup_param}=not-a-uuid"
@@ -501,7 +501,7 @@ class TestNodeViewSet(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @parameterized.expand(["node_id", "saved_query_id"])
+    @parameterized.expand(["node_id", "saved_query_id", "metric_id"])
     def test_lineage_does_not_leak_other_teams_nodes(self, lookup_param):
         other_team = Team.objects.create(organization=self.organization)
         other_dag = DAG.objects.create(team=other_team, name=f"posthog_{other_team.id}")
@@ -511,8 +511,19 @@ class TestNodeViewSet(APIBaseTest):
         other_node = Node.objects.create(
             team=other_team, dag=other_dag, saved_query=other_saved_query, type=NodeType.VIEW
         )
+        other_metric_node = Node.objects.create(
+            team=other_team,
+            dag=other_dag,
+            name="other_metric",
+            type=NodeType.METRIC,
+            metric_id=uuid4(),
+        )
 
-        lookup_value = other_node.id if lookup_param == "node_id" else other_saved_query.id
+        lookup_value = {
+            "node_id": other_node.id,
+            "saved_query_id": other_saved_query.id,
+            "metric_id": other_metric_node.metric_id,
+        }[lookup_param]
         response = self.client.get(
             f"/api/environments/{self.team.id}/data_modeling_nodes/lineage/?{lookup_param}={lookup_value}"
         )
@@ -719,6 +730,185 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.view_node.refresh_from_db()
         self.assertEqual(self.view_node.dag_id, self.dag.id)
+
+
+class TestMetricNodeAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.dag = DAG.objects.create(team=self.team, name=f"posthog_{self.team.id}")
+        self.table_node = Node.objects.create(team=self.team, dag=self.dag, name="events", type=NodeType.TABLE)
+        self.saved_query = DataWarehouseSavedQuery.objects.create(
+            name="accounts", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+        self.view_node = Node.objects.create(
+            team=self.team, dag=self.dag, saved_query=self.saved_query, type=NodeType.VIEW
+        )
+        self.metric_node = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            name="weekly_active_accounts",
+            type=NodeType.METRIC,
+            metric_id=uuid4(),
+        )
+        Edge.objects.create(team=self.team, dag=self.dag, source=self.table_node, target=self.view_node)
+        Edge.objects.create(team=self.team, dag=self.dag, source=self.view_node, target=self.metric_node)
+        self.url = f"/api/environments/{self.team.id}/data_modeling_nodes/"
+
+    def test_list_serializes_the_metric_reference(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        serialized = next(node for node in response.json()["results"] if node["id"] == str(self.metric_node.id))
+        self.assertEqual(serialized["type"], NodeType.METRIC)
+        self.assertEqual(serialized["metric_id"], str(self.metric_node.metric_id))
+        self.assertIsNone(serialized["lineage_issue"])
+
+    @parameterized.expand(
+        [
+            ("sync_failed", {"degraded_sync": {"error": "boom", "at": "2026-09-15T00:00:00Z"}}, "boom"),
+            ("unresolved", {"unresolved": {"names": ["gone", "also_gone"], "at": None}}, "gone, also_gone"),
+        ]
+    )
+    def test_list_reports_a_lineage_issue(self, kind, system, expected_detail):
+        self.metric_node.properties = {"system": system}
+        self.metric_node.save()
+
+        response = self.client.get(self.url)
+
+        serialized = next(node for node in response.json()["results"] if node["id"] == str(self.metric_node.id))
+        self.assertEqual(serialized["lineage_issue"]["kind"], kind)
+        self.assertEqual(serialized["lineage_issue"]["detail"], expected_detail)
+
+    def test_lineage_by_metric_id_returns_the_upstream_view_and_table(self):
+        response = self.client.get(f"{self.url}lineage/?metric_id={self.metric_node.metric_id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        node_ids = {node["id"] for node in response.json()["nodes"]}
+        self.assertEqual(node_ids, {str(self.metric_node.id), str(self.view_node.id), str(self.table_node.id)})
+
+    @parameterized.expand(["run", "materialize"])
+    def test_a_metric_node_cannot_be_executed(self, action):
+        response = self.client.post(f"{self.url}{self.metric_node.id}/{action}/", {"direction": "upstream"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("metric", response.json()["error"].lower())
+
+    def test_a_metric_node_cannot_be_deleted_through_the_api(self):
+        response = self.client.delete(f"{self.url}{self.metric_node.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(Node.objects.filter(id=self.metric_node.id).exists())
+
+    @parameterized.expand(["post", "patch"])
+    def test_only_table_nodes_can_be_written_through_the_api(self, method):
+        if method == "post":
+            response = self.client.post(
+                self.url,
+                data={"name": "sneaky", "type": NodeType.METRIC, "dag": str(self.dag.id)},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertFalse(Node.objects.filter(name="sneaky").exists())
+            return
+
+        response = self.client.patch(f"{self.url}{self.table_node.id}/", data={"type": NodeType.VIEW}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.table_node.refresh_from_db()
+        self.assertEqual(self.table_node.type, NodeType.TABLE)
+
+
+@pytest.mark.ee
+class TestMetricNodeVisibility(WarehouseAccessControlTestMixin):
+    resource = "warehouse_objects"
+
+    def setUp(self):
+        super().setUp()
+        self.dag = DAG.objects.create(team=self.team, name=f"posthog_{self.team.id}")
+        self.view_node = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            saved_query=DataWarehouseSavedQuery.objects.create(
+                name="accounts", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+            ),
+            type=NodeType.VIEW,
+        )
+        self.metric_node = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            name="weekly_active_accounts",
+            type=NodeType.METRIC,
+            metric_id=uuid4(),
+        )
+        self.edge = Edge.objects.create(team=self.team, dag=self.dag, source=self.view_node, target=self.metric_node)
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+    def _catalog_access(self, access_level: str) -> None:
+        if access_level == "none":
+            self._create_project_default(resource="data_catalog", access_level="none")
+        else:
+            self._create_access_control(self.viewer_user, resource="data_catalog", access_level=access_level)
+
+    @parameterized.expand(
+        [
+            ("nodes_hidden", "none", False),
+            ("nodes_visible", "viewer", True),
+        ]
+    )
+    def test_nodes_are_visible_only_with_catalog_access(self, _name, catalog_access, expected_visible):
+        self._catalog_access(catalog_access)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/")
+
+        node_ids = {node["id"] for node in response.json()["results"]}
+        self.assertEqual(str(self.metric_node.id) in node_ids, expected_visible)
+        self.assertIn(str(self.view_node.id), node_ids)
+
+    @parameterized.expand(
+        [
+            ("edges_hidden", "none", False),
+            ("edges_visible", "viewer", True),
+        ]
+    )
+    def test_edges_are_visible_only_with_catalog_access(self, _name, catalog_access, expected_visible):
+        self._catalog_access(catalog_access)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_edges/")
+
+        edge_ids = {edge["id"] for edge in response.json()["results"]}
+        self.assertEqual(str(self.edge.id) in edge_ids, expected_visible)
+
+    @parameterized.expand(
+        [
+            ("counts_hidden", "none", 0),
+            ("counts_visible", "viewer", 1),
+        ]
+    )
+    def test_downstream_count_never_reports_a_metric_the_reader_cannot_see(self, _name, catalog_access, expected):
+        self._catalog_access(catalog_access)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/")
+
+        view = next(node for node in response.json()["results"] if node["id"] == str(self.view_node.id))
+        self.assertEqual(view["downstream_count"], expected)
+
+    @parameterized.expand(
+        [
+            ("lineage_hidden", "none", False),
+            ("lineage_visible", "viewer", True),
+        ]
+    )
+    def test_lineage_shows_metric_nodes_only_with_catalog_access(self, _name, catalog_access, expected_visible):
+        self._catalog_access(catalog_access)
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/lineage/?node_id={self.view_node.id}"
+        )
+
+        payload = response.json()
+        node_ids = {node["id"] for node in payload["nodes"]}
+        self.assertEqual(str(self.metric_node.id) in node_ids, expected_visible)
+        self.assertEqual(len(payload["edges"]) == 1, expected_visible)
 
 
 @pytest.mark.ee
