@@ -1525,7 +1525,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 }
             new_layouts = {"sm": new_sm}
             layouts_payload.append({"id": tile["id"], "layouts": new_layouts})
-            expected_layouts_by_tile_id[tile["id"]] = new_layouts
+            expected_layouts_by_tile_id[tile["id"]] = {
+                "sm": {key: new_sm[key] for key in ("x", "y", "w", "h")}
+            }
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
