@@ -291,6 +291,7 @@ async def test_pending_input_is_idempotent_when_already_pending_input(ateam):
                 reason="Retry reason",
                 signal_count=3,
                 source_products=["zendesk"],
+                pending_reason="repo_selection_required",
             )
         )
 
@@ -300,6 +301,11 @@ async def test_pending_input_is_idempotent_when_already_pending_input(ateam):
     assert refreshed.title == "existing title"
     assert refreshed.summary == "existing summary"
     assert refreshed.error == "Original reason"
+    # A retry of an attempt that committed the transition and then died lands here. Without the
+    # stamp the team is never recorded as asked, and the repo-selection ask returns on every
+    # later report — the per-report flood the gate exists to stop.
+    config = await database_sync_to_async(SignalTeamConfig.objects.get)(team=ateam)
+    assert config.repo_selection_ask_raised_at is not None
 
 
 @pytest.mark.asyncio

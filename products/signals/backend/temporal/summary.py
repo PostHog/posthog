@@ -1099,6 +1099,14 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
         )
         raise
 
+    # Stamped after the transition, so the team is only recorded as asked once a report is actually
+    # showing the ask. The promotion gate reads the stamp and holds the team's later reports. Before
+    # the duplicate return, because a retry of an attempt that committed the transition and then
+    # died takes that branch, and a team left unstamped there is asked again on every later report.
+    await database_sync_to_async(note_repo_selection_ask_raised, thread_sensitive=False)(
+        input.team_id, pending_reason=input.pending_reason
+    )
+
     if transition.was_duplicate:
         logger.info(
             f"Report {input.report_id} already in pending_input status, skipping duplicate transition",
@@ -1106,11 +1114,6 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
         )
         return
 
-    # Stamped after the transition, so the team is only recorded as asked once a report is actually
-    # showing the ask. The promotion gate reads the stamp and holds the team's later reports.
-    await database_sync_to_async(note_repo_selection_ask_raised, thread_sensitive=False)(
-        input.team_id, pending_reason=input.pending_reason
-    )
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
     _capture_report_event(
         event="signal_report_completed",
