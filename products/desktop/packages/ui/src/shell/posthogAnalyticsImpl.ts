@@ -45,10 +45,8 @@ let registeredAppVersion: string | null = null;
 let registeredHostInfo: HostInfoProperties | null = null;
 const registeredSubscriptions = new Map<Adapter, AdapterSubscriptionState>();
 
-// Set after authentication because the cloud region is only known at runtime.
 let registeredApiBaseHost: string | null = null;
 
-/** Record the backend host used for the current authenticated session. */
 export function registerApiBaseHost(host: string | null): void {
   registeredApiBaseHost = host;
 }
