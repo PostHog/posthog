@@ -565,6 +565,24 @@ tools:
     tasks-presence-destroy:
         operation: tasks_presence_destroy
         enabled: false
+    tasks-repo-routing-rules-create:
+        operation: tasks_repo_routing_rules_create
+        enabled: false
+    tasks-repo-routing-rules-destroy:
+        operation: tasks_repo_routing_rules_destroy
+        enabled: false
+    tasks-repo-routing-rules-list:
+        operation: tasks_repo_routing_rules_list
+        enabled: false
+    tasks-repo-routing-rules-partial-update:
+        operation: tasks_repo_routing_rules_partial_update
+        enabled: false
+    tasks-repo-routing-rules-retrieve:
+        operation: tasks_repo_routing_rules_retrieve
+        enabled: false
+    tasks-repo-routing-rules-update:
+        operation: tasks_repo_routing_rules_update
+        enabled: false
     tasks-repositories-retrieve:
         operation: tasks_repositories_retrieve
         enabled: false

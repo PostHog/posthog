@@ -4,8 +4,10 @@ import { type ChartTheme } from '@posthog/quill-charts'
 import { formatPercentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
+import { IntervalType } from '~/types'
+
 import { type KPIData, KPIMetric } from '../mcpDashboardOverviewLogic'
-import { formatBucketLabel, formatMs, formatNumber } from './formatters'
+import { formatMs, formatNumber } from './formatters'
 import { MetricTile } from './MetricTile'
 
 interface TileSpec {
@@ -24,10 +26,12 @@ interface TileSpec {
 function KPITile({
     tile,
     theme,
+    interval,
     incompleteTail,
 }: {
     tile: TileSpec
     theme: ChartTheme
+    interval: IntervalType
     incompleteTail: boolean
 }): JSX.Element {
     const { metric } = tile
@@ -42,7 +46,8 @@ function KPITile({
                 loading={tile.loading}
                 value={metric.value}
                 data={metric.sparkline}
-                labels={metric.sparklineLabels.map(formatBucketLabel)}
+                labels={metric.sparklineLabels}
+                interval={interval}
                 theme={theme}
                 color={tile.color}
                 goodDirection={metric.goodDirection}
@@ -70,6 +75,7 @@ export function KpiTiles({
     usersLoading,
     showIntentClusters,
     theme,
+    interval,
     incompleteTail,
 }: {
     kpis: KPIData
@@ -79,6 +85,7 @@ export function KpiTiles({
     usersLoading: boolean
     showIntentClusters: boolean
     theme: ChartTheme
+    interval: IntervalType
     // When true, the sparklines' final point is the current in-progress interval — dash it so a
     // partial period doesn't read as a decline. Required rather than optional: an omitted prop
     // silently renders the partial bucket as settled data.
@@ -160,7 +167,13 @@ export function KpiTiles({
                 }`}
             >
                 {tiles.map((tile) => (
-                    <KPITile key={tile.label} tile={tile} theme={theme} incompleteTail={incompleteTail} />
+                    <KPITile
+                        key={tile.label}
+                        tile={tile}
+                        theme={theme}
+                        interval={interval}
+                        incompleteTail={incompleteTail}
+                    />
                 ))}
             </div>
         </div>

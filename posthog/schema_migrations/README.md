@@ -19,7 +19,7 @@ Read/execute-time (always-on):
 - Insight serializers upgrade on read; caching, alerts, exports, and subscriptions go through `upgrade_insight`.
 - Endpoints upgrade their immutable `EndpointVersion.query` snapshots at execution/materialization time; cohorts upgrade their saved `query` when compiling.
 
-Write-time (backfill): a Temporal schedule (`upgrade-queries-schedule`, every 6 hours, see `posthog/temporal/product_analytics/`) rewrites stored **insights** whose queries are below the latest versions. Other stores (endpoint snapshots, notebook content, dashboard templates, cohort queries) are _not_ rewritten and rely on read-time upgrades forever.
+Write-time (backfill): a Temporal schedule (`upgrade-queries-schedule`, every 6 hours, see `products/product_analytics/backend/temporal/`) rewrites stored **insights** whose queries are below the latest versions. Other stores (endpoint snapshots, notebook content, dashboard templates, cohort queries) are _not_ rewritten and rely on read-time upgrades forever.
 
 ## Adding a migration
 

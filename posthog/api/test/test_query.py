@@ -1,6 +1,6 @@
 import json
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -96,7 +96,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_select_hogql_expressions(self):
-        with freeze_time("2020-01-10 12:00:00"):
+        with time_machine.travel("2020-01-10 12:00:00", tick=False):
             _create_person(
                 properties={"email": "tom@posthog.com"},
                 distinct_ids=["2", "some-random-uid"],
@@ -109,21 +109,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 distinct_id="2",
                 properties={"key": "test_val1"},
             )
-        with freeze_time("2020-01-10 12:11:00"):
+        with time_machine.travel("2020-01-10 12:11:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="2",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2020-01-10 12:12:00"):
+        with time_machine.travel("2020-01-10 12:12:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="2",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2020-01-10 12:13:00"):
+        with time_machine.travel("2020-01-10 12:13:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
@@ -132,7 +132,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-10 12:14:00"):
+        with time_machine.travel("2020-01-10 12:14:00", tick=False):
             query = EventsQuery(
                 select=[
                     "properties.key",
@@ -218,7 +218,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(["key"])
     @snapshot_clickhouse_queries
     def test_hogql_property_filter(self):
-        with freeze_time("2020-01-10 12:00:00"):
+        with time_machine.travel("2020-01-10 12:00:00", tick=False):
             _create_person(
                 properties={"email": "tom@posthog.com"},
                 distinct_ids=["2", "some-random-uid"],
@@ -231,21 +231,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 distinct_id="2",
                 properties={"key": "test_val1"},
             )
-        with freeze_time("2020-01-10 12:11:00"):
+        with time_machine.travel("2020-01-10 12:11:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="2",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2020-01-10 12:12:00"):
+        with time_machine.travel("2020-01-10 12:12:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="3",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2020-01-10 12:13:00"):
+        with time_machine.travel("2020-01-10 12:13:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
@@ -254,7 +254,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-10 12:14:00"):
+        with time_machine.travel("2020-01-10 12:14:00", tick=False):
             query = EventsQuery(
                 select=[
                     "event",
@@ -283,7 +283,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(event_properties=["key", "path"])
     @snapshot_clickhouse_queries
     def test_event_property_filter(self):
-        with freeze_time("2020-01-10 12:00:00"):
+        with time_machine.travel("2020-01-10 12:00:00", tick=False):
             _create_person(
                 properties={"email": "tom@posthog.com"},
                 distinct_ids=["2", "some-random-uid"],
@@ -296,21 +296,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 distinct_id="2",
                 properties={"key": "test_val1"},
             )
-        with freeze_time("2020-01-10 12:11:00"):
+        with time_machine.travel("2020-01-10 12:11:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="2",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2020-01-10 12:12:00"):
+        with time_machine.travel("2020-01-10 12:12:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="3",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2020-01-10 12:13:00"):
+        with time_machine.travel("2020-01-10 12:13:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
@@ -319,7 +319,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-10 12:14:00"):
+        with time_machine.travel("2020-01-10 12:14:00", tick=False):
             query = EventsQuery(
                 select=[
                     "event",
@@ -357,7 +357,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(event_properties=["key"], person_properties=["email"])
     @snapshot_clickhouse_queries
     def test_person_property_filter(self):
-        with freeze_time("2020-01-10 12:00:00"):
+        with time_machine.travel("2020-01-10 12:00:00", tick=False):
             _create_person(
                 properties={"email": "tom@posthog.com"},
                 distinct_ids=["2", "some-random-uid"],
@@ -370,21 +370,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 distinct_id="2",
                 properties={"key": "test_val1"},
             )
-        with freeze_time("2020-01-10 12:11:00"):
+        with time_machine.travel("2020-01-10 12:11:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="2",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2020-01-10 12:12:00"):
+        with time_machine.travel("2020-01-10 12:12:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="3",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2020-01-10 12:13:00"):
+        with time_machine.travel("2020-01-10 12:13:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
@@ -393,7 +393,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-10 12:14:00"):
+        with time_machine.travel("2020-01-10 12:14:00", tick=False):
             query = EventsQuery(
                 select=[
                     "event",
@@ -417,7 +417,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     def test_safe_clickhouse_error_passed_through(self):
         query = {"kind": "EventsQuery", "select": ["timestamp + 'string'"]}
 
-        with freeze_time("2024-10-16 22:10:29.691212"):
+        with time_machine.travel("2024-10-16 22:10:29.691212", tick=False):
             response_post = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query})
             self.assertEqual(response_post.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -465,7 +465,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(event_properties=["key", "path"])
     @snapshot_clickhouse_queries
     def test_property_filter_aggregations(self):
-        with freeze_time("2020-01-10 12:00:00"):
+        with time_machine.travel("2020-01-10 12:00:00", tick=False):
             _create_person(
                 properties={"email": "tom@posthog.com"},
                 distinct_ids=["2", "some-random-uid"],
@@ -478,21 +478,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 distinct_id="2",
                 properties={"key": "test_val1"},
             )
-        with freeze_time("2020-01-10 12:11:00"):
+        with time_machine.travel("2020-01-10 12:11:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="2",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2020-01-10 12:12:00"):
+        with time_machine.travel("2020-01-10 12:12:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="3",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2020-01-10 12:13:00"):
+        with time_machine.travel("2020-01-10 12:13:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
@@ -501,7 +501,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-10 12:14:00"):
+        with time_machine.travel("2020-01-10 12:14:00", tick=False):
             query = EventsQuery(select=["properties.key", "count()"])
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 3)
@@ -512,7 +512,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_select_event_person(self):
-        with freeze_time("2020-01-10 12:00:00"):
+        with time_machine.travel("2020-01-10 12:00:00", tick=False):
             person = _create_person(
                 properties={"name": "Tom", "email": "tom@posthog.com"},
                 distinct_ids=["2", "some-random-uid"],
@@ -525,21 +525,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 distinct_id="2",
                 properties={"key": "test_val1"},
             )
-        with freeze_time("2020-01-10 12:11:00"):
+        with time_machine.travel("2020-01-10 12:11:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="2",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2020-01-10 12:12:00"):
+        with time_machine.travel("2020-01-10 12:12:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="3",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2020-01-10 12:13:00"):
+        with time_machine.travel("2020-01-10 12:13:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
@@ -548,7 +548,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-10 12:14:00"):
+        with time_machine.travel("2020-01-10 12:14:00", tick=False):
             query = EventsQuery(
                 select=["event", "person", "person -- P"],
                 orderBy=["timestamp DESC"] if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else None,
@@ -570,7 +570,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_events_query_all_time_date(self):
-        with freeze_time("2020-01-10 12:00:00"):
+        with time_machine.travel("2020-01-10 12:00:00", tick=False):
             _create_person(
                 properties={"name": "Tom", "email": "tom@posthog.com"},
                 distinct_ids=["2", "some-random-uid"],
@@ -583,21 +583,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 distinct_id="2",
                 properties={"key": "test_val1"},
             )
-        with freeze_time("2021-01-10 12:11:00"):
+        with time_machine.travel("2021-01-10 12:11:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="2",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2022-01-10 12:12:00"):
+        with time_machine.travel("2022-01-10 12:12:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="3",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2023-01-10 12:13:00"):
+        with time_machine.travel("2023-01-10 12:13:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
@@ -606,7 +606,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        with freeze_time("2023-01-12 12:14:00"):
+        with time_machine.travel("2023-01-12 12:14:00", tick=False):
             query = EventsQuery(select=["event"], after="all")
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 4)
@@ -622,7 +622,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(event_properties=["key"])
     @snapshot_clickhouse_queries
     def test_full_hogql_query(self):
-        with freeze_time("2020-01-10 12:00:00"):
+        with time_machine.travel("2020-01-10 12:00:00", tick=False):
             _create_person(
                 properties={"email": "tom@posthog.com"},
                 distinct_ids=["2", "some-random-uid"],
@@ -635,21 +635,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 distinct_id="2",
                 properties={"key": "test_val1"},
             )
-        with freeze_time("2020-01-10 12:11:00"):
+        with time_machine.travel("2020-01-10 12:11:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="2",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2020-01-10 12:12:00"):
+        with time_machine.travel("2020-01-10 12:12:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="3",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2020-01-10 12:13:00"):
+        with time_machine.travel("2020-01-10 12:13:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
@@ -658,7 +658,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-10 12:14:00"):
+        with time_machine.travel("2020-01-10 12:14:00", tick=False):
             query = HogQLQuery(query="select event, distinct_id, properties.key from events order by timestamp")
             api_response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
             response = CachedHogQLQueryResponse.model_validate(api_response)
@@ -713,7 +713,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
     def test_full_hogql_query_limit(self, MAX_SELECT_RETURNED_ROWS=15, DEFAULT_RETURNED_ROWS=10):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
-        with freeze_time("2020-01-10 12:00:00"):
+        with time_machine.travel("2020-01-10 12:00:00", tick=False):
             for _ in range(20):
                 _create_event(
                     team=self.team,
@@ -723,7 +723,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-10 12:14:00"):
+        with time_machine.travel("2020-01-10 12:14:00", tick=False):
             response = process_query_dict(
                 team=self.team,
                 query_json={
@@ -738,7 +738,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 15)
     def test_full_hogql_query_limit_exported(self, CSV_EXPORT_LIMIT=15, DEFAULT_RETURNED_ROWS=10):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
-        with freeze_time("2020-01-10 12:00:00"):
+        with time_machine.travel("2020-01-10 12:00:00", tick=False):
             for _ in range(20):
                 _create_event(
                     team=self.team,
@@ -748,7 +748,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-10 12:14:00"):
+        with time_machine.travel("2020-01-10 12:14:00", tick=False):
             response = process_query_dict(
                 team=self.team,
                 query_json={
@@ -803,7 +803,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
     def test_full_events_query_limit(self, MAX_SELECT_RETURNED_ROWS=15, DEFAULT_RETURNED_ROWS=10):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
-        with freeze_time("2020-01-10 12:00:00"):
+        with time_machine.travel("2020-01-10 12:00:00", tick=False):
             for _ in range(20):
                 _create_event(
                     team=self.team,
@@ -813,7 +813,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-10 12:14:00"):
+        with time_machine.travel("2020-01-10 12:14:00", tick=False):
             response = process_query_dict(
                 team=self.team,
                 query_json={
@@ -830,7 +830,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 15)
     def test_full_events_query_limit_exported(self, CSV_EXPORT_LIMIT=15, DEFAULT_RETURNED_ROWS=10):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
-        with freeze_time("2020-01-10 12:00:00"):
+        with time_machine.travel("2020-01-10 12:00:00", tick=False):
             for _ in range(20):
                 _create_event(
                     team=self.team,
@@ -840,7 +840,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-10 12:14:00"):
+        with time_machine.travel("2020-01-10 12:14:00", tick=False):
             response = process_query_dict(
                 team=self.team,
                 query_json={
@@ -857,7 +857,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     def test_property_definition_annotation_does_not_break_things(self):
         PropertyDefinition.objects.create(team=self.team, name="$browser", property_type=PropertyType.String)
 
-        with freeze_time("2020-01-10 12:14:00"):
+        with time_machine.travel("2020-01-10 12:14:00", tick=False):
             response = process_query_dict(
                 team=self.team,
                 query_json={
@@ -899,7 +899,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_full_hogql_query_view(self):
-        with freeze_time("2020-01-10 12:00:00"):
+        with time_machine.travel("2020-01-10 12:00:00", tick=False):
             _create_person(
                 properties={"email": "tom@posthog.com"},
                 distinct_ids=["2", "some-random-uid"],
@@ -912,21 +912,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 distinct_id="2",
                 properties={"key": "test_val1"},
             )
-        with freeze_time("2020-01-10 12:11:00"):
+        with time_machine.travel("2020-01-10 12:11:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="2",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2020-01-10 12:12:00"):
+        with time_machine.travel("2020-01-10 12:12:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
                 distinct_id="3",
                 properties={"key": "test_val2"},
             )
-        with freeze_time("2020-01-10 12:13:00"):
+        with time_machine.travel("2020-01-10 12:13:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
@@ -935,7 +935,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-10 12:14:00"):
+        with time_machine.travel("2020-01-10 12:14:00", tick=False):
             self.client.post(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/",
                 {
@@ -964,7 +964,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_full_hogql_query_async(self):
-        with freeze_time("2020-01-10 12:00:00"):
+        with time_machine.travel("2020-01-10 12:00:00", tick=False):
             _create_person(
                 properties={"email": "tom@posthog.com"},
                 distinct_ids=["2", "some-random-uid"],
@@ -977,7 +977,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 distinct_id="2",
                 properties={"key": "test_val1"},
             )
-        with freeze_time("2020-01-10 12:11:00"):
+        with time_machine.travel("2020-01-10 12:11:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign out",
@@ -986,7 +986,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-10 12:14:00"):
+        with time_machine.travel("2020-01-10 12:14:00", tick=False):
             query = HogQLQuery(query="select * from events")
             api_response = self.client.post(
                 f"/api/environments/{self.team.id}/query/", {"query": query.dict(), "refresh": "force_async"}
@@ -1022,7 +1022,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_full_hogql_query_values(self):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
-        with freeze_time("2020-01-10 12:00:00"):
+        with time_machine.travel("2020-01-10 12:00:00", tick=False):
             for _ in range(20):
                 _create_event(
                     team=self.team,
@@ -1032,7 +1032,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-10 12:14:00"):
+        with time_machine.travel("2020-01-10 12:14:00", tick=False):
             response = process_query_dict(
                 team=self.team,
                 query_json={
@@ -1047,14 +1047,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_dashboard_filters_applied(self):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
-        with freeze_time("2020-01-07 12:00:00"):
+        with time_machine.travel("2020-01-07 12:00:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign up",
                 distinct_id=random_uuid,
                 properties={"key": "test_val1"},
             )
-        with freeze_time("2020-01-10 15:00:00"):
+        with time_machine.travel("2020-01-10 15:00:00", tick=False):
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -1063,7 +1063,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-10 19:00:00"):
+        with time_machine.travel("2020-01-10 19:00:00", tick=False):
             response_without_dashboard_filters = process_query_dict(
                 team=self.team,
                 query_json={
@@ -1087,14 +1087,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_dashboard_filters_applied_with_source(self):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
-        with freeze_time("2020-01-07 12:00:00"):
+        with time_machine.travel("2020-01-07 12:00:00", tick=False):
             _create_event(
                 team=self.team,
                 event="sign up",
                 distinct_id=random_uuid,
                 properties={"key": "test_val1"},
             )
-        with freeze_time("2020-01-10 15:00:00"):
+        with time_machine.travel("2020-01-10 15:00:00", tick=False):
             _create_event(
                 team=self.team,
                 event="$pageview",
@@ -1103,7 +1103,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-10 19:00:00"):
+        with time_machine.travel("2020-01-10 19:00:00", tick=False):
             response_without_dashboard_filters = process_query_dict(
                 team=self.team,
                 query_json={

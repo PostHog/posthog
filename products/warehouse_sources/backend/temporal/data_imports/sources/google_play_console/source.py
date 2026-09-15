@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_pla
     LOOKBACK_SECONDS,
     MERGE_ONLY,
     PRIMARY_KEYS,
+    SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -155,6 +156,7 @@ Leave the package names blank to sync every app the service account can see.""",
             names=names,
             merge_only=MERGE_ONLY,
             descriptions=DESCRIPTIONS,
+            should_sync_default=SHOULD_SYNC_DEFAULT,
         )
         for schema in schemas:
             schema.default_incremental_lookback_seconds = LOOKBACK_SECONDS.get(schema.name)

@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api, { ApiConfig } from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
@@ -657,6 +658,14 @@ export const teamLogic = kea<teamLogicType>([
         updateCurrentTeamSuccess: () => {
             // Reload user after team update to keep user object in sync
             actions.loadUser()
+        },
+        updateCurrentTeamFailure: ({ error, errorObject }: { error: string; errorObject?: unknown }) => {
+            const apiError = errorObject as ApiError | undefined
+            // The global loader handler drops 409s, on the assumption that each conflict flow
+            // renders its own. This one has none, so the rename would fail with nothing on screen.
+            if (apiError?.status === 409) {
+                lemonToast.error(apiError.detail || error)
+            }
         },
         createTeamSuccess: ({ currentTeam }) => {
             if (currentTeam) {

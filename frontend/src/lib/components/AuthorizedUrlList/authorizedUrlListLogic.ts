@@ -550,7 +550,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                 // default to allowing wildcards because that was the original behavior
                 url: validateProposedUrl(
                     url,
-                    values.authorizedUrls,
+                    values.authorizedUrls.filter((_, index) => index !== values.editUrlIndex),
                     values.onlyAllowDomains,
                     props.allowWildCards ?? true
                 ),

@@ -2,7 +2,7 @@ import datetime as dt
 from typing import cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
@@ -69,7 +69,7 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert request.interval == "minute"
         assert (request.date_to - request.date_from) == dt.timedelta(hours=1)
 
-    @freeze_time("2026-07-01T12:00:00Z")
+    @time_machine.travel("2026-07-01T12:00:00Z", tick=False)
     def test_default_date_range_is_last_24_hours(self) -> None:
         query = MetricsQuery(
             clauses=[MetricsQueryClause(name="a", metricName="http_requests_total", aggregation="sum")]
@@ -79,7 +79,7 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert (request.date_to - request.date_from) == dt.timedelta(hours=24)
 
-    @freeze_time("2026-07-01T12:00:00Z")
+    @time_machine.travel("2026-07-01T12:00:00Z", tick=False)
     def test_calculate_returns_one_series_per_group(self) -> None:
         base = dt.datetime(2026, 7, 1, 11, 30, tzinfo=dt.UTC)
         for container, value in (("capture", 5.0), ("ingestion", 7.0)):

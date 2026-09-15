@@ -63,11 +63,7 @@ export function LoopModelFields({
     () => [
       { value: DEFAULT_MODEL_VALUE, label: "Default (recommended)" },
       ...loopModelOptions(adapter, configOptions, {
-        glmEnabled: modelFlags.glm,
-        glm53Enabled: modelFlags.glm53,
-        glm53FlashEnabled: modelFlags.glm53Flash,
-        kimiEnabled: modelFlags.kimi,
-        deepseekEnabled: modelFlags.deepseek,
+        flags: modelFlags,
         pinnedModel: model,
       }),
     ],

@@ -17,6 +17,8 @@ capture = { path = "../capture" }
 capture-logs = { path = "../capture-logs" }
 common-compression = { path = "../common/compression" }
 common-redis = { path = "../common/redis" }
+# redis leaves the rustls provider to the binary, so `rediss://` needs one installed here.
+rustls = { workspace = true }
 tower-http = { workspace = true }
 envconfig = { workspace = true }
 bytes = { workspace = true }

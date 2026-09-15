@@ -311,3 +311,16 @@ export function isMappableValue(value: unknown): boolean {
     const utmValue = extractStringValue(value)
     return !!utmValue && utmValue.toLowerCase() !== ORGANIC_LABEL
 }
+
+/** What a campaign or source cell shows when the row carried no utm tag. */
+export const EMPTY_UTM_LABEL = '(empty)'
+
+/** Reads the sentinel as the absence it stands for, so a row does not name a campaign nobody created.
+ * A source genuinely tagged `organic` is indistinguishable here, and the backend already groups it
+ * into the same row. */
+export function withEmptyUtmLabel<T extends { key: string; value?: number | string }>(item: T): T {
+    if (!getMappableColumn(item.key) || extractStringValue(item.value).toLowerCase() !== ORGANIC_LABEL) {
+        return item
+    }
+    return { ...item, value: EMPTY_UTM_LABEL }
+}

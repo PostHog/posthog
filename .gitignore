@@ -239,3 +239,7 @@ corpora/
 .test_durations.*
 
 /context.md
+
+# Agent workspace scratch directory. Holds live browser profiles and run output
+# for local scripts, so it must never reach a commit.
+/.context/

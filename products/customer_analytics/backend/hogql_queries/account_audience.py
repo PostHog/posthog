@@ -92,6 +92,17 @@ def count_accounts_for_audience(team: Team, filters: AccountAudienceFilters) -> 
     return int(response.results[0][0]) if response.results else 0
 
 
+def _active_relationship_account_ids(user_ids: tuple[int, ...] | None = None) -> ast.SelectQuery | ast.SelectSetQuery:
+    if user_ids is not None:
+        return parse_select(
+            "SELECT account_id FROM system.account_relationships WHERE isNull(ended_at) AND user_id IN {user_ids}",
+            {"user_ids": ast.Constant(value=list(user_ids))},
+        )
+    return parse_select(
+        "SELECT account_id FROM system.account_relationships WHERE isNull(ended_at) AND isNotNull(user_id)"
+    )
+
+
 def _where_exprs(team: Team, filters: AccountAudienceFilters) -> list[ast.Expr]:
     where: list[ast.Expr] = [
         parse_expr("isNotNull(accounts.external_id) AND accounts.external_id != ''"),
@@ -110,28 +121,23 @@ def _where_exprs(team: Team, filters: AccountAudienceFilters) -> list[ast.Expr]:
         )
         where.append(parse_expr("accounts.id IN {subquery}", {"subquery": subquery}))
 
-    if filters.all_roles_unassigned:
+    if filters.assignment_status == "unassigned" or (
+        filters.assignment_status is None and filters.all_roles_unassigned
+    ):
         where.append(
             parse_expr(
                 "accounts.id NOT IN {subquery}",
-                {
-                    "subquery": parse_select(
-                        "SELECT account_id FROM system.account_relationships"
-                        " WHERE isNull(ended_at) AND isNotNull(user_id)"
-                    )
-                },
+                {"subquery": _active_relationship_account_ids()},
             )
         )
 
-    if filters.assigned_to_user_ids:
+    if filters.assignment_status == "assigned" or (filters.assignment_status is None and filters.assigned_to_user_ids):
         where.append(
             parse_expr(
                 "accounts.id IN {subquery}",
                 {
-                    "subquery": parse_select(
-                        "SELECT account_id FROM system.account_relationships"
-                        " WHERE isNull(ended_at) AND user_id IN {user_ids}",
-                        {"user_ids": ast.Constant(value=list(filters.assigned_to_user_ids))},
+                    "subquery": _active_relationship_account_ids(
+                        filters.assigned_to_user_ids if filters.assigned_to_user_ids else None
                     )
                 },
             )

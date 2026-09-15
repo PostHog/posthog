@@ -1262,9 +1262,18 @@ class EnterpriseExperimentsViewSet(
             except Exception:
                 # team-scoped filter: defense in depth so the rollback can never reach across teams even if
                 # recalculation_id were ever sourced from somewhere less trusted than the row we just created.
-                ExperimentMetricsRecalculation.objects.filter(team=self.team, id=recalculation_id).update(
-                    status=ExperimentMetricsRecalculation.Status.FAILED
-                )
+                # start_workflow can raise after the server accepted the start (e.g. RPC deadline on the
+                # response leg), so only roll back a row that is still PENDING with no query_to. A row past
+                # mark_started belongs to its running workflow and proceeds untouched. In the narrow window
+                # where only discovery ran, the rollback wins deliberately: the mark_started and
+                # mark_completed guards then terminate that orphan cleanly, and the client's retry of the
+                # failed POST starts the replacement.
+                ExperimentMetricsRecalculation.objects.filter(
+                    team=self.team,
+                    id=recalculation_id,
+                    status=ExperimentMetricsRecalculation.Status.PENDING,
+                    query_to__isnull=True,
+                ).update(status=ExperimentMetricsRecalculation.Status.FAILED)
                 raise
 
         return Response(

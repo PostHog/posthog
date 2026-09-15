@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sentry import SentrySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry import (
+    SENTRY_RATE_LIMITED_MESSAGE,
     STATS_SUMMARY_REJECTED_MESSAGE,
     SentryResumeConfig,
     _normalize_organization_slug,
@@ -138,12 +139,12 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
         # urllib3 level; once that budget is exhausted, urllib3 re-raises with the stable "Max
         # retries exceeded with url" prefix regardless of the underlying cause.
         #
-        # HTTP 429s are retried by tenacity (respecting X-Sentry-Rate-Limit-Reset); when that
-        # budget is exhausted, `raise_for_status()` raises `HTTPError: 429 Client Error: Too Many
-        # Requests`, which does NOT contain the "Max retries exceeded" phrase. Match the stable
-        # status-line prefix so persistent rate-limiting lets Temporal retry instead of being
-        # reported to error tracking as a bug.
-        return {"Max retries exceeded with url", "429 Client Error"}
+        # A 429 that outlives tenacity's budget surfaces two ways. The `issue_tag_values` fan-out
+        # raises SENTRY_RATE_LIMITED_MESSAGE, a credential-safe string that keeps the org slug out
+        # of error tracking; every other path still reaches `raise_for_status()`, which raises
+        # `HTTPError: 429 Client Error: Too Many Requests`. Match both so persistent rate-limiting
+        # lets Temporal retry instead of being reported to error tracking as a bug.
+        return {"Max retries exceeded with url", SENTRY_RATE_LIMITED_MESSAGE, "429 Client Error"}
 
     def get_required_parent_schemas(self, schema_name: str) -> list[str]:
         # issue_tag_values fans out over issues through its custom two-level iterator, so it
