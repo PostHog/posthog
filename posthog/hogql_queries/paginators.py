@@ -3,6 +3,8 @@ import base64
 from datetime import datetime
 from typing import Any, Union, cast
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.schema import HogQLQueryResponse
 
 from posthog.hogql import ast
@@ -130,16 +132,26 @@ class HogQLCursorPaginator:
             try:
                 decoded = base64.b64decode(self.after).decode("utf-8")
                 cursor_data = json.loads(decoded)
-                # Parse datetime strings back to datetime objects
-                if "order_value" in cursor_data and isinstance(cursor_data["order_value"], str):
-                    try:
-                        cursor_data["order_value"] = datetime.fromisoformat(cursor_data["order_value"])
-                    except (ValueError, TypeError):
-                        # If it's not a datetime string, keep it as is
-                        pass
-                self.cursor_data = cursor_data
             except (ValueError, json.JSONDecodeError):
-                raise ValueError("Invalid cursor format")
+                cursor_data = None
+
+            # A mangled cursor is bad input, not a server fault. A DRF error makes the API answer
+            # 400 instead of collapsing it into a 500. Non-object JSON is mangled too: it survives
+            # the decode, then breaks on the field reads below and in paginate().
+            if not isinstance(cursor_data, dict):
+                raise ValidationError(
+                    "Invalid pagination cursor. Remove the 'after' parameter to start from the first page.",
+                    code="invalid_cursor",
+                )
+
+            # Parse datetime strings back to datetime objects
+            if "order_value" in cursor_data and isinstance(cursor_data["order_value"], str):
+                try:
+                    cursor_data["order_value"] = datetime.fromisoformat(cursor_data["order_value"])
+                except (ValueError, TypeError):
+                    # If it's not a datetime string, keep it as is
+                    pass
+            self.cursor_data = cursor_data
 
     @classmethod
     def from_limit_context(
