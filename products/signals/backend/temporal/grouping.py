@@ -1616,6 +1616,9 @@ class TeamSignalGroupingWorkflow:
                 self._signals_dropped_counter.add(len(batch))
             except Exception:
                 # Parallel phase failed — all signals in batch dropped
+                # The count tracks consecutive preparation failures only, so a failure after
+                # preparation resets it rather than shortening the next batch's retries.
+                self._prep_attempt = 0
                 self._signals_dropped_counter.add(len(batch))
                 logger.exception(
                     "Failed to process signal batch",
