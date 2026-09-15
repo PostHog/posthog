@@ -12,7 +12,7 @@ from posthog.models.team.team import Team
 from products.reaperhog.backend.facade.enums import NAMED_SCOPES, SCOPE_ALL, RootKind, ScoutName
 from products.reaperhog.backend.logic.artefacts import Hit
 from products.reaperhog.backend.logic.constants import SCENE_LOOKBACK_DAYS
-from products.reaperhog.backend.logic.scouts.base import ScoutContext
+from products.reaperhog.backend.logic.scouts.base import ScoutContext, ScoutIncomplete
 
 logger = logging.getLogger(__name__)
 
@@ -144,12 +144,9 @@ class ScenesScout:
     def run(self, context: ScoutContext) -> list[Hit]:
         pageviews = self._pageviews(context.team_id)
         if pageviews.truncated:
-            logger.warning(
-                "Pageview scan for team %s returned a full page of pathnames, so a pathname that is absent "
-                "cannot be read as zero traffic; the scenes scout reports nothing for this run",
-                context.team_id,
-            )
-            return []
+            # An absent pathname cannot be read as zero traffic here, and reporting nothing would let
+            # the vanish pass close every scene cluster instead.
+            raise ScoutIncomplete(f"pageview scan for team {context.team_id} returned a full page of pathnames", [])
         routes_text = (context.repo.root / PRODUCT_ROUTES_PATH).read_text()
         scenes_text = (context.repo.root / PRODUCT_SCENES_PATH).read_text()
         scenes = parse_product_routes(routes_text, scenes_text)

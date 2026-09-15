@@ -135,7 +135,15 @@ class RepoIndex:
             args += ["--glob", f"!{glob}"]
         try:
             result = subprocess.run(
-                args, cwd=self.root, capture_output=True, text=True, check=False, timeout=RG_TIMEOUT_SECONDS
+                args,
+                cwd=self.root,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=RG_TIMEOUT_SECONDS,
+                # Without a path argument rg reads inherited stdin, so a piped caller would search the
+                # pipe instead of the checkout and report every reference as absent.
+                stdin=subprocess.DEVNULL,
             )
         finally:
             Path(pattern_file).unlink(missing_ok=True)

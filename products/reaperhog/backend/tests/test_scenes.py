@@ -5,7 +5,7 @@ import pytest
 
 from products.reaperhog.backend.facade.enums import SCOPE_ALL
 from products.reaperhog.backend.logic.repo import RepoIndex
-from products.reaperhog.backend.logic.scouts.base import ScoutContext
+from products.reaperhog.backend.logic.scouts.base import ScoutContext, ScoutIncomplete
 from products.reaperhog.backend.logic.scouts.scenes import (
     PRODUCT_ROUTES_PATH,
     PRODUCT_SCENES_PATH,
@@ -109,14 +109,21 @@ def test_classify_scene_only_flags_scenes_with_no_traffic_on_any_route(views, fi
         assert hit.evidence["routes"] == ", ".join(views)
 
 
-@pytest.mark.parametrize("truncated,expected_hits", [(False, 3), (True, 0)])
-def test_scenes_scout_reports_nothing_when_the_pageview_scan_filled_a_page(
-    tmp_path: Path, truncated: bool, expected_hits: int
-) -> None:
+def _scenes_context(tmp_path: Path) -> ScoutContext:
     (tmp_path / PRODUCT_ROUTES_PATH).parent.mkdir(parents=True)
     (tmp_path / PRODUCT_ROUTES_PATH).write_text(ROUTES)
     (tmp_path / PRODUCT_SCENES_PATH).write_text(SCENES)
-    context = ScoutContext(team_id=1, repo=RepoIndex(tmp_path), scope=SCOPE_ALL, now=datetime(2026, 8, 30, tzinfo=UTC))
-    scout = ScenesScout(pageviews=lambda team_id: PageviewScan(counts={}, truncated=truncated))
+    return ScoutContext(team_id=1, repo=RepoIndex(tmp_path), scope=SCOPE_ALL, now=datetime(2026, 8, 30, tzinfo=UTC))
 
-    assert len(scout.run(context)) == expected_hits
+
+def test_scenes_scout_reports_every_untravelled_scene(tmp_path: Path) -> None:
+    scout = ScenesScout(pageviews=lambda team_id: PageviewScan(counts={}, truncated=False))
+
+    assert len(scout.run(_scenes_context(tmp_path))) == 3
+
+
+def test_scenes_scout_reports_a_truncated_pageview_scan_as_incomplete(tmp_path: Path) -> None:
+    scout = ScenesScout(pageviews=lambda team_id: PageviewScan(counts={}, truncated=True))
+
+    with pytest.raises(ScoutIncomplete):
+        scout.run(_scenes_context(tmp_path))

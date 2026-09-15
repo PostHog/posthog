@@ -82,6 +82,8 @@ def test_classify_flag_hits(summary: FlagSummary | None, decisive: bool, fragmen
         _summary(last_called_at=_days_ago(364)),
         _summary(last_called_at=None, created_at=_days_ago(364)),
         _summary(effectively_full_rollout=True, updated_at=_days_ago(179)),
+        # A holdout or enrollment override is evaluated first, so the disabled branch is still reachable.
+        _summary(effectively_full_rollout=True, updated_at=_days_ago(181), has_enrollment_overrides=True),
     ],
 )
 def test_classify_flag_leaves_live_flags_alone(summary: FlagSummary) -> None:
