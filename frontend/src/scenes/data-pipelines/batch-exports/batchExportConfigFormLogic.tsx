@@ -113,7 +113,6 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
     }
 
     if (definition?.usesIntegration) {
-        // Only the integration-backed destinations (Databricks, AzureBlob, BigQuery) carry this field.
         config.integration_id = (batchExportConfig.destination as { integration?: number }).integration
     }
 
