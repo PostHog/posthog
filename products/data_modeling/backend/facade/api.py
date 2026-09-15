@@ -16,6 +16,7 @@ _LAZY = {
     "HasDependentsError": "logic.saved_query_dag_sync",
     "MissingDagNodeError": "logic.saved_query_dag_sync",
     "delete_node_from_dag": "logic.saved_query_dag_sync",
+    "get_dependent_saved_queries": "logic.saved_query_dag_sync",
     "promote_view_nodes_to_matview": "logic.saved_query_dag_sync",
     "sync_saved_query_to_dag": "logic.saved_query_dag_sync",
     "update_node_type": "logic.saved_query_dag_sync",

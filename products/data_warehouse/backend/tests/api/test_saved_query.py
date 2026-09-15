@@ -584,10 +584,12 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.json()[0]["name"], "Finance")
         self.assertEqual(response.json()[0]["view_count"], 1)
 
-    def test_delete_folder_deletes_views(self):
+    @parameterized.expand([("deleted_false", False), ("deleted_null", None)])
+    def test_delete_folder_deletes_views(self, _name, initial_deleted):
         folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Deprecated", created_by=self.user)
         first_view = DataWarehouseSavedQuery.objects.create(team=self.team, name="deprecated_a", folder=folder)
         second_view = DataWarehouseSavedQuery.objects.create(team=self.team, name="deprecated_b", folder=folder)
+        DataWarehouseSavedQuery.objects.filter(id__in=[first_view.id, second_view.id]).update(deleted=initial_deleted)
 
         response = self.client.delete(f"/api/environments/{self.team.id}/warehouse_saved_query_folders/{folder.id}/")
 
@@ -598,6 +600,31 @@ class TestSavedQuery(APIBaseTest):
         second_view.refresh_from_db()
         self.assertTrue(first_view.deleted)
         self.assertTrue(second_view.deleted)
+
+    def test_a_refused_folder_delete_destroys_nothing(self):
+        folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Shared", created_by=self.user)
+        view_a = DataWarehouseSavedQuery.objects.create(team=self.team, name="view_a", folder=folder)
+        view_b = DataWarehouseSavedQuery.objects.create(team=self.team, name="view_b", folder=folder)
+        outsider = DataWarehouseSavedQuery.objects.create(team=self.team, name="outsider")
+        dag = DAG.objects.create(team=self.team, name="Default")
+        node_a = Node.objects.create(team=self.team, dag=dag, name=view_a.name, saved_query=view_a, type=NodeType.VIEW)
+        node_b = Node.objects.create(team=self.team, dag=dag, name=view_b.name, saved_query=view_b, type=NodeType.VIEW)
+        node_out = Node.objects.create(
+            team=self.team, dag=dag, name=outsider.name, saved_query=outsider, type=NodeType.VIEW
+        )
+        Edge.objects.create(team=self.team, dag=dag, source=node_b, target=node_out)
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/warehouse_saved_query_folders/{folder.id}/")
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("view_b", response.json()["detail"])
+        view_a.refresh_from_db()
+        view_b.refresh_from_db()
+        self.assertFalse(view_a.deleted, "view_a was destroyed although the request was refused")
+        self.assertFalse(view_b.deleted)
+        self.assertTrue(DataWarehouseSavedQueryFolder.objects.filter(id=folder.id).exists())
+        self.assertTrue(Node.objects.filter(id=node_a.id).exists())
+        self.assertTrue(Node.objects.filter(id=node_b.id).exists())
 
     def test_delete_folder_deletes_endpoint_views(self):
         folder = DataWarehouseSavedQueryFolder.objects.create(team=self.team, name="Endpoints", created_by=self.user)

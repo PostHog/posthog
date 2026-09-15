@@ -315,6 +315,28 @@ class TestDataWarehouseSavedQueryFolderAccessControl(WarehouseAccessControlTestM
         self.client.force_login(self.viewer_user)
         self.assertEqual(self.client.get(self._detail_url()).status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_folder_delete_is_refused_when_it_holds_a_denied_view(self):
+        denied = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="denied_view",
+            query={"kind": "HogQLQuery", "query": "select 1"},
+            created_by=self.user,
+            folder=self.folder,
+        )
+        self._create_access_control(self.editor_user, resource="warehouse_objects", access_level="editor")
+        self._create_access_control(
+            self.editor_user, resource="warehouse_view", resource_id=str(denied.id), access_level="none"
+        )
+        self.client.force_login(self.editor_user)
+
+        response = self.client.delete(self._detail_url())
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        denied.refresh_from_db()
+        self.assertFalse(denied.deleted)
+        self.assertTrue(DataWarehouseSavedQueryFolder.objects.filter(id=self.folder.id).exists())
+        self.assertNotIn("denied_view", response.content.decode())
+
     def test_folder_creator_list_filters_out_blocked_other_folder(self):
         # Creator has resource access, but an object-level 'none' on another user's folder excludes it from their list.
         # Creator bypass applies at the queryset filter layer, not at has_permission — so the creator needs
