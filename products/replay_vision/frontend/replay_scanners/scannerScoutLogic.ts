@@ -962,11 +962,10 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                     }
                     // Reads the destination from the id the config records, so a retry after a
                     // partial failure patches what exists instead of provisioning a second one.
-                    if (!(await reconcileDelivery(config, form))) {
-                        // reconcileDelivery already said what failed. Leaving the form open keeps the
-                        // user's delivery edits in front of them instead of closing over the failure.
-                        return
-                    }
+                    // A failure here must not hold the instructions back: the destination lives in
+                    // Data pipelines, and a scout that already delivers pays a read and a write on
+                    // every save, so an unrelated outage there would block every instruction edit.
+                    const delivered = await reconcileDelivery(config, form)
                     // A body edit publishes a new skill version, so the API rejects it without the
                     // version the form was read at. It runs last because it is the only call here a
                     // concurrent edit can reject, and the rename, the schedule and the delivery must
@@ -987,6 +986,12 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                                 latestVersion: published.version,
                             })
                         }
+                    }
+                    if (!delivered) {
+                        // reconcileDelivery already said what failed. Leaving the form open keeps the
+                        // user's delivery edits in front of them instead of closing over the failure.
+                        // Everything else is saved by now, so a retry repeats only the delivery.
+                        return
                     }
                     lemonToast.success('Scout updated. Changes take effect on its next run.')
                     // Same reason: closing whatever is open now would discard a draft the user

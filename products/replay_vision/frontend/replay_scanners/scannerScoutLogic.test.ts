@@ -232,6 +232,49 @@ describe('scannerScoutLogic', () => {
         expect(signalsScoutConfigUpdate).not.toHaveBeenCalled()
     })
 
+    it('publishes the instructions even when the delivery cannot be reconciled', async () => {
+        // A scout that already delivers pays a destination read and write on every save, whether or
+        // not the delivery changed. Data pipelines failing there must not hold back an edit that
+        // only touched the instructions, or an outage on that destination blocks them all.
+        await mountWithReports([])
+        const config = makeConfig()
+        scoutFleetLogic.findMounted()!.actions.loadScoutConfigsSuccess([config])
+        mockHogFunctionsRetrieve.mockResolvedValue({
+            id: WEBHOOK_ID,
+            name: 'Replay Vision · Rage clicks on checkout',
+            deleted: false,
+            template: { id: 'template-webhook' },
+            filters: {
+                events: [{ id: '$scout_report_emitted' }],
+                properties: [{ key: 'skill_name', value: SKILL_NAME }],
+            },
+            inputs: { url: { value: 'https://example.com/hooks/scout' } },
+        } as any)
+        logic.actions.openScoutSettings(SKILL_NAME)
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadSkillPromptSuccess({ skillName: SKILL_NAME, body: 'Watch this scanner.', latestVersion: 3 })
+        mockHogFunctionsPartialUpdate.mockRejectedValue({ status: 503 })
+        jest.mocked(llmSkillsNamePartialUpdate).mockResolvedValue({ body: 'Watch checkout.', version: 4 } as any)
+
+        // Only the instructions changed; every other field is what the scout already holds.
+        logic.actions.saveScoutSettings({
+            name: scoutDisplayName(config),
+            body: 'Watch checkout.',
+            cron: config.run_cron_schedule!,
+            outputDestinations: config.output_destinations ?? {},
+            webhookUrl: 'https://example.com/hooks/scout',
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(llmSkillsNamePartialUpdate).toHaveBeenCalledWith(expect.any(String), SKILL_NAME, {
+            body: 'Watch checkout.',
+            base_version: 3,
+        })
+        expect(logic.values.skillPrompt).toEqual({ skillName: SKILL_NAME, body: 'Watch checkout.', latestVersion: 4 })
+        // The delivery failure is still the user's to deal with, so the form stays open.
+        expect(logic.values.settingsSkillName).toBe(SKILL_NAME)
+    })
+
     it('refuses the save when the loaded instructions belong to another scout', async () => {
         // Nothing here can tell an edited body from an unchanged one without this scout's own
         // prompt. Saving the rest anyway drops the instruction edit and still reports success.
