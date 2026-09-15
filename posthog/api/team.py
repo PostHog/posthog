@@ -1193,6 +1193,12 @@ def _get_organization_for_logs_settings_check(serializer: serializers.BaseSerial
     return None
 
 
+# Match str.strip(): JavaScript's \s includes BOM and omits some Python whitespace characters.
+_LOGS_ATTRIBUTE_KEY_WHITESPACE = (
+    r"[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]"
+)
+
+
 @extend_schema_field(
     {
         "allOf": [
@@ -1207,8 +1213,12 @@ def _get_organization_for_logs_settings_check(serializer: serializers.BaseSerial
                     "json_parse_logs": {"type": "boolean", "description": "Extract JSON fields from new log bodies."},
                     "json_parse_logs_attribute_key": {
                         "type": "string",
-                        # OpenAPI cannot trim input; allow padding outside the normalized length limit.
-                        "pattern": r"^\s*[\s\S]{0,200}\s*$",
+                        # Allow padding outside the limit and count UTF-16 surrogate pairs as one Python character.
+                        "pattern": (
+                            rf"^{_LOGS_ATTRIBUTE_KEY_WHITESPACE}*"
+                            r"(?:[\uD800-\uDBFF][\uDC00-\uDFFF]|[^\uD800-\uDFFF]){0,200}"
+                            rf"{_LOGS_ATTRIBUTE_KEY_WHITESPACE}*$"
+                        ),
                         "description": "Literal log attribute key to parse as JSON, at most 200 characters after trimming whitespace. An empty string disables parsing.",
                     },
                     "pii_scrub_logs": {

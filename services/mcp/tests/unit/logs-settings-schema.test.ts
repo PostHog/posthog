@@ -12,6 +12,14 @@ describe('project settings update logs schema', () => {
         [' \t' + 'a'.repeat(200) + '\n ', true],
         ['a'.repeat(201), false],
         [' \t' + 'a'.repeat(201) + '\n ', false],
+        [' \t' + '😀'.repeat(200) + '\n ', true],
+        [' \t' + '😀'.repeat(201) + '\n ', false],
+        ['😀'.repeat(100) + 'a'.repeat(100), true],
+        ['e\u0301'.repeat(100), true],
+        ['e\u0301'.repeat(100) + 'a', false],
+        ['\u001c\u001d\u001e\u001f\u0085' + '😀'.repeat(200) + '\u3000\u00a0', true],
+        ['\ufeff' + 'a'.repeat(199), true],
+        ['\ufeff' + 'a'.repeat(200), false],
     ])('validates attribute key case %# after excluding surrounding whitespace', (key, accepted) => {
         const result = schema.safeParse({ logs_settings: { json_parse_logs_attribute_key: key } })
         expect(result.success).toBe(accepted)

@@ -2003,7 +2003,16 @@ def team_api_test_factory():
                 )
                 assert "retention_days must be one of" in response.json()["detail"]
 
-        @parameterized.expand([(" app.context ", "app.context"), ("", ""), (" " + "a" * 200 + " ", "a" * 200)])
+        @parameterized.expand(
+            [
+                (" app.context ", "app.context"),
+                ("", ""),
+                (" " + "a" * 200 + " ", "a" * 200),
+                (" \t" + "😀" * 200 + "\n ", "😀" * 200),
+                ("\u001c\u001d\u001e\u001f\u0085" + "😀" * 200 + "\u3000\u00a0", "😀" * 200),
+                ("\ufeff" + "a" * 199, "\ufeff" + "a" * 199),
+            ]
+        )
         def test_logs_settings_json_attribute_key(self, key, expected):
             existing_settings = {
                 "retention_days": 14,
@@ -2023,10 +2032,11 @@ def team_api_test_factory():
             assert self.team.logs_settings == expected_settings
             assert response.json()["logs_settings"] == expected_settings
 
-        def test_logs_settings_invalid_json_attribute_key(self):
+        @parameterized.expand([(123,), ("😀" * 201,), ("\ufeff" + "a" * 200,)])
+        def test_logs_settings_invalid_json_attribute_key(self, key):
             response = self.client.patch(
                 "/api/environments/@current/",
-                {"logs_settings": {"json_parse_logs_attribute_key": 123}},
+                {"logs_settings": {"json_parse_logs_attribute_key": key}},
             )
             assert response.status_code == status.HTTP_400_BAD_REQUEST
             assert "json_parse_logs_attribute_key must be a string" in response.json()["detail"]
