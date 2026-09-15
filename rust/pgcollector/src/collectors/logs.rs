@@ -16,7 +16,7 @@ use crate::collector::*;
 use crate::config::{LogSource, LogsConfig};
 use crate::logs::{
     self,
-    fingerprint::{fingerprint, redact_literals},
+    fingerprint::{fingerprint, redact_literals, representative_text},
     parse::*,
 };
 use anyhow::Result;
@@ -182,10 +182,31 @@ impl Collector for Logs {
                     ("query_id", "bigint"),
                     ("fingerprint", "bigint"),
                     ("duration_ms", "double precision"),
-                    ("query", "text"),
                 ]),
                 by_statement(),
             ));
+        }
+        if !out.texts.is_empty() {
+            let rows = out
+                .texts
+                .into_iter()
+                .map(|((db, fp), q)| {
+                    let mut r = Row::new();
+                    r.insert("datname".into(), db.map(Value::Text).unwrap_or(Value::Null));
+                    r.insert("fingerprint".into(), Value::Int(fp));
+                    r.insert("query".into(), Value::Text(q));
+                    r
+                })
+                .collect();
+            let mut snap = mk(
+                "query_texts",
+                vec!["fingerprint"],
+                rows,
+                types_of(&[("fingerprint", "bigint"), ("query", "text")]),
+                vec![],
+            );
+            snap.kind = Kind::Snapshot;
+            aux.push(snap);
         }
         {
             aux.push(mk(
@@ -320,6 +341,9 @@ fn types_of(t: &[(&str, &str)]) -> BTreeMap<String, String> {
 #[derive(Default)]
 struct Outputs {
     durations: Vec<Row>,
+    /// (datname, fingerprint) → statement text, stored once per fingerprint in
+    /// `cur_query_texts` rather than on every duration row.
+    texts: BTreeMap<(Option<String>, i64), String>,
     plans: Vec<Row>,
     autovacuum: Vec<Row>,
     checkpoints: Vec<Row>,
@@ -414,14 +438,16 @@ impl Outputs {
                 let mut r = Self::base(stream, e);
                 r.insert("duration_ms".into(), Value::Float(duration_ms));
                 r.insert("kind".into(), Value::Text(kind));
+                let fp = query.as_deref().map(fingerprint);
                 r.insert(
                     "fingerprint".into(),
-                    query
-                        .as_deref()
-                        .map(|q| Value::Int(fingerprint(q)))
-                        .unwrap_or(Value::Null),
+                    fp.map(Value::Int).unwrap_or(Value::Null),
                 );
-                r.insert("query".into(), opt(&query));
+                if let (Some(fp), Some(q)) = (fp, &query) {
+                    self.texts
+                        .entry((e.db.clone(), fp))
+                        .or_insert_with(|| representative_text(q).chars().take(MAX_TEXT).collect());
+                }
                 self.durations.push(r);
             }
             Record::Plan {
@@ -538,7 +564,7 @@ mod tests {
             "2026-08-27 18:22:49 UTC:10.1.2.3(5000):app@app:[140]:LOG:  duration: 0.010 ms  parse <unnamed>: select id from t where id = $1",
             "2026-08-27 18:22:49 UTC:10.1.2.3(5000):app@app:[140]:LOG:  duration: 0.020 ms  bind <unnamed>: select id from t where id = $1",
             "2026-08-27 18:22:49 UTC:10.1.2.3(5000):app@app:[140]:LOG:  duration: 1.500 ms  execute <unnamed>: select id from t where id = $1",
-            "2026-08-27 18:22:50 UTC:10.1.2.3(5000):app@app:[141]:LOG:  duration: 2.500 ms  statement: select count(*) from t",
+            "2026-08-27 18:22:50 UTC:10.1.2.3(5000):app@app:[141]:LOG:  duration: 2.500 ms  statement: select count(*) from t /* not stored */",
         ];
         for l in lines {
             if let Some(e) = asm.push(&re, l) {
@@ -548,6 +574,15 @@ mod tests {
         if let Some(e) = asm.flush() {
             out.record("writer", &e);
         }
+        assert!(out.durations.iter().all(|r| !r.contains_key("query")));
+        assert!(out.texts.values().any(|q| q == "select count(*) from t"));
+        assert_eq!(
+            out.texts
+                .keys()
+                .map(|(db, _)| db.as_deref())
+                .collect::<Vec<_>>(),
+            [Some("app"), Some("app")]
+        );
         let kinds: Vec<&Value> = out.durations.iter().map(|r| &r["kind"]).collect();
         assert_eq!(
             kinds,
