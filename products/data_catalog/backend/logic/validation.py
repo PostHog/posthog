@@ -5,6 +5,7 @@ upgrade-canonical definition (so schema migrations never read as drift later) pl
 directly references (cached on the row for the catalog's denied-table filter).
 """
 
+from collections.abc import Iterator
 from typing import NoReturn, Optional
 
 from pydantic import BaseModel
@@ -222,19 +223,24 @@ def _ensure_valid_schema(definition: dict, model_class: type[BaseModel]) -> None
         _fail(f"Definition does not match {model_class.__name__}: {e}", "Fix the query shape.")
 
 
+def definition_nodes(definition: object, kinds: frozenset[str]) -> Iterator[dict]:
+    """Every nested query node of one of `kinds`, anywhere in a definition."""
+    if isinstance(definition, dict):
+        if definition.get("kind") in kinds:
+            yield definition
+        for child in definition.values():
+            yield from definition_nodes(child, kinds)
+    elif isinstance(definition, list):
+        for child in definition:
+            yield from definition_nodes(child, kinds)
+
+
 def _extract_warehouse_tables(definition: dict) -> list[str]:
     """Walk a node/insight query dict for DataWarehouseNode table references (direct references only)."""
-    tables: set[str] = set()
-
-    def walk(value: object) -> None:
-        if isinstance(value, dict):
-            if value.get("kind") == "DataWarehouseNode" and value.get("table_name"):
-                tables.add(str(value["table_name"]))
-            for child in value.values():
-                walk(child)
-        elif isinstance(value, list):
-            for child in value:
-                walk(child)
-
-    walk(definition)
-    return sorted(tables)
+    return sorted(
+        {
+            str(node["table_name"])
+            for node in definition_nodes(definition, frozenset({"DataWarehouseNode"}))
+            if node.get("table_name")
+        }
+    )
