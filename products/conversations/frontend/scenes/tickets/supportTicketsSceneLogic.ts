@@ -58,6 +58,9 @@ const DEFAULT_TICKET_FILTERS: TicketViewFilters = {
     search: '',
 }
 
+// Matches the support side panel's ticket list, which is the same list on a different surface.
+const TICKET_LIST_POLL_INTERVAL = 20 * 1000
+
 const DEFAULT_SORTING: Sorting = { columnKey: 'updated_at', order: -1 }
 const DEFAULT_ORDER_BY = '-updated_at'
 
@@ -263,6 +266,9 @@ export interface supportTicketsSceneLogicActions {
     loadTickets: () => {
         value: true
     }
+    pollTickets: () => {
+        value: true
+    }
     resetFilters: () => {
         value: true
     }
@@ -383,6 +389,57 @@ export type supportTicketsSceneLogicType = MakeLogicType<
     supportTicketsSceneLogicMeta
 >
 
+function buildTicketListParams(
+    values: supportTicketsSceneLogicValues,
+    props: SupportTicketsSceneLogicProps
+): Record<string, any> {
+    const params: Record<string, any> = {}
+
+    if (props.distinctIds && props.distinctIds.length > 0) {
+        params.distinct_ids = props.distinctIds.join(',')
+    }
+
+    if (values.statusFilter.length > 0) {
+        params.status = values.statusFilter.join(',')
+    }
+    if (values.priorityFilter.length > 0) {
+        params.priority = values.priorityFilter.join(',')
+    }
+    if (values.aiEnabled && values.aiTriageResultFilter.length > 0) {
+        params.ai_triage_result = values.aiTriageResultFilter.join(',')
+    }
+    if (values.channelFilter !== 'all') {
+        params.channel_source = values.channelFilter
+    }
+    if (values.slaFilter !== 'all') {
+        params.sla = values.slaFilter
+    }
+    if (values.assigneeFilterEntries.length > 0) {
+        params.assignee = values.assigneeFilterEntries.map(encodeAssigneeEntry).join(',')
+    }
+    if (values.tagsFilter.length > 0) {
+        params[values.tagsMatch === 'all' ? 'tags_all' : 'tags'] = JSON.stringify(values.tagsFilter)
+    }
+    if (values.tagsExcludeFilter.length > 0) {
+        params.tags_exclude = JSON.stringify(values.tagsExcludeFilter)
+    }
+    if (values.searchQuery) {
+        params.search = values.searchQuery
+    }
+    if (values.dateFrom) {
+        params.date_from = values.dateFrom
+    }
+    if (values.dateTo) {
+        params.date_to = values.dateTo
+    }
+    params.order_by = values.orderBy
+
+    params.limit = SUPPORT_TICKETS_PAGE_SIZE
+    params.offset = (values.currentPage - 1) * SUPPORT_TICKETS_PAGE_SIZE
+
+    return params
+}
+
 export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'tickets', 'supportTicketsSceneLogic']),
     props({} as SupportTicketsSceneLogicProps),
@@ -402,6 +459,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         setSearchQuery: (query: string) => ({ query }),
         setCurrentPage: (page: number) => ({ page }),
         loadTickets: true,
+        pollTickets: true,
         setTickets: (tickets: Ticket[]) => ({ tickets }),
         setTotalCount: (count: number) => ({ count }),
         setTicketsLoading: (loading: boolean) => ({ loading }),
@@ -715,49 +773,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
     listeners(({ actions, values, props, cache }) => ({
         loadTickets: async (_, breakpoint) => {
             await breakpoint(300)
-            const params: Record<string, any> = {}
-
-            if (props.distinctIds && props.distinctIds.length > 0) {
-                params.distinct_ids = props.distinctIds.join(',')
-            }
-
-            if (values.statusFilter.length > 0) {
-                params.status = values.statusFilter.join(',')
-            }
-            if (values.priorityFilter.length > 0) {
-                params.priority = values.priorityFilter.join(',')
-            }
-            if (values.aiEnabled && values.aiTriageResultFilter.length > 0) {
-                params.ai_triage_result = values.aiTriageResultFilter.join(',')
-            }
-            if (values.channelFilter !== 'all') {
-                params.channel_source = values.channelFilter
-            }
-            if (values.slaFilter !== 'all') {
-                params.sla = values.slaFilter
-            }
-            if (values.assigneeFilterEntries.length > 0) {
-                params.assignee = values.assigneeFilterEntries.map(encodeAssigneeEntry).join(',')
-            }
-            if (values.tagsFilter.length > 0) {
-                params[values.tagsMatch === 'all' ? 'tags_all' : 'tags'] = JSON.stringify(values.tagsFilter)
-            }
-            if (values.tagsExcludeFilter.length > 0) {
-                params.tags_exclude = JSON.stringify(values.tagsExcludeFilter)
-            }
-            if (values.searchQuery) {
-                params.search = values.searchQuery
-            }
-            if (values.dateFrom) {
-                params.date_from = values.dateFrom
-            }
-            if (values.dateTo) {
-                params.date_to = values.dateTo
-            }
-            params.order_by = values.orderBy
-            params.limit = SUPPORT_TICKETS_PAGE_SIZE
-            params.offset = (values.currentPage - 1) * SUPPORT_TICKETS_PAGE_SIZE
-
+            const params = buildTicketListParams(values, props)
             try {
                 const response = await api.conversationsTickets.list(params)
                 // Drop responses that were superseded while in flight, so a slow reply
@@ -771,6 +787,30 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 }
                 lemonToast.error('Failed to load tickets')
                 actions.setTicketsLoading(false)
+            }
+        },
+        pollTickets: async (_, breakpoint) => {
+            // A poll must never interrupt the user: a load already owns the list, and replacing
+            // the rows under a selection or a running bulk update would move the user's target.
+            if (values.ticketsLoading || values.bulkUpdating || values.selectedTicketIds.length > 0) {
+                return
+            }
+            const params = buildTicketListParams(values, props)
+            try {
+                const response = await api.conversationsTickets.list(params)
+                breakpoint()
+                // Filters, sorting or the page may have moved while the poll was in flight.
+                if (values.ticketsLoading || !objectsEqual(params, buildTicketListParams(values, props))) {
+                    return
+                }
+                actions.setTickets(response.results || [])
+                actions.setTotalCount(response.count ?? response.results?.length ?? 0)
+            } catch (error: any) {
+                if (isBreakpoint(error)) {
+                    throw error
+                }
+                // The rows on screen are still the last good ones and the next tick retries,
+                // so a failed poll stays quiet. The refresh button still reports failures.
             }
         },
         applyViewFilters: () => {
@@ -994,7 +1034,14 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             }
         },
     })),
-    afterMount(({ actions, values, props }) => {
+    afterMount(({ actions, values, props, cache }) => {
+        // Keeps the list current without the user pressing refresh. The disposables plugin
+        // pauses the timer while the tab is hidden and clears it on unmount.
+        cache.disposables.add(() => {
+            const intervalId = window.setInterval(() => actions.pollTickets(), TICKET_LIST_POLL_INTERVAL)
+            return () => clearInterval(intervalId)
+        }, 'ticketPolling')
+
         const embedded = !!props.distinctIds?.length
         const { searchParams } = router.values
         if (!embedded && searchParams.view) {

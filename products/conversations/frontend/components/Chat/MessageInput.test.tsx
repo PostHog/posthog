@@ -16,12 +16,12 @@ jest.mock('../Editor', () => {
     return {
         SupportEditor: ({
             onCreate,
-            onPressCmdEnter,
+            onSubmitShortcut,
             disabled,
             autoFocus,
         }: {
             onCreate: (editor: unknown) => void
-            onPressCmdEnter: () => void
+            onSubmitShortcut: (shortcut: 'enter' | 'mod_enter') => void
             disabled?: boolean
             autoFocus?: boolean
         }) => {
@@ -42,7 +42,11 @@ jest.mock('../Editor', () => {
             }, [])
             return React.createElement(
                 'button',
-                { 'data-attr': 'support-editor', 'data-disabled': disabled, onClick: onPressCmdEnter },
+                {
+                    'data-attr': 'support-editor',
+                    'data-disabled': disabled,
+                    onClick: () => onSubmitShortcut('mod_enter'),
+                },
                 'Editor shortcut'
             )
         },

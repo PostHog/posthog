@@ -376,4 +376,58 @@ describe('supportTicketsSceneLogic', () => {
             expect(logic.values.breadcrumbs).toEqual([{ key: Scene.SupportTickets, name: 'Ticket list' }])
         })
     })
+    describe('background polling', () => {
+        let logic: ReturnType<typeof supportTicketsSceneLogic.build>
+        let served: Ticket[]
+
+        beforeEach(() => {
+            served = [makeTicket('a')]
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/conversations/tickets/': () => [
+                        200,
+                        { count: served.length, results: served },
+                    ],
+                },
+            })
+            initKeaTests()
+            router.actions.push(urls.supportTickets())
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic?.unmount()
+        })
+
+        // The list used to update only when the user acted, so a new ticket could sit unseen
+        // indefinitely. A poll brings it in without the spinner, the refresh button's loading
+        // state, or anything else that reads as a user-triggered load.
+        it('picks up new tickets without showing a load', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            served = [makeTicket('a'), makeTicket('b')]
+            await expectLogic(logic, () => {
+                logic.actions.pollTickets()
+            }).toFinishAllListeners()
+
+            expect(logic.values.tickets.map((ticket) => ticket.id)).toEqual(['a', 'b'])
+            expect(logic.values.ticketsLoading).toBe(false)
+        })
+
+        // Bulk actions act on the selected rows, so a poll that swapped the list out from
+        // under a selection would leave the user acting on rows they can no longer see.
+        it('holds off while rows are selected', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setSelectedTicketIds(['a'])
+
+            served = [makeTicket('a'), makeTicket('b')]
+            await expectLogic(logic, () => {
+                logic.actions.pollTickets()
+            }).toFinishAllListeners()
+
+            expect(logic.values.tickets.map((ticket) => ticket.id)).toEqual(['a'])
+            expect(logic.values.selectedTicketIds).toEqual(['a'])
+        })
+    })
 })
