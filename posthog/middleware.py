@@ -47,7 +47,7 @@ from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.helpers.sso import sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
-from posthog.models import Team, User
+from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_HEADER,
     ACTIVITY_LOG_CLIENT_MAX_LENGTH,
@@ -1473,9 +1473,43 @@ class SocialAuthExceptionMiddleware:
         return error_detail
 
 
-class ActiveOrganizationMiddleware:
+# Page prefixes kept per block, keyed by the page that explains it. An invite targets the inviting
+# organization, which this check never judges. Settling the balance is how a member lifts a
+# deactivation; no payment restores a pending deletion. `organizationLogic` holds the same table.
+ALLOWED_WHILE_BLOCKED: dict[str, tuple[str, ...]] = {
+    "/organization-pending-deletion": ("/organization-pending-deletion", "/signup/"),
+    "/organization-deactivated": (
+        "/organization-deactivated",
+        "/signup/",
+        "/organization/billing",
+        "/billing/authorization_status",
+    ),
+}
+
+
+def organization_block_page(organization: Organization) -> Optional[str]:
+    """The page explaining why this organization is closed to its members, or None when it is open.
+
+    Only an explicit `False` deactivates. `is_active` is nullable, but the migration that added it
+    backfilled every row to `True` and operators write `False` explicitly, so a null means "never
+    deactivated".
     """
-    Middleware to verify that the current authenticated session is attached to an active organization (is_active = None or True)
+    if organization.is_pending_deletion:
+        return "/organization-pending-deletion"
+    if organization.is_active is False:
+        return "/organization-deactivated"
+    return None
+
+
+class ActiveOrganizationMiddleware:
+    """Keep members out of an organization that is deactivated or pending deletion.
+
+    Runs after `AutoProjectMiddleware`, which switches the user into the organization a
+    `/project/<id>` URL names, so this middleware needs no path parsing of its own.
+    `test_middleware.py` pins the order.
+
+    This is UX, not enforcement: every `/api` path is skipped, and `ActiveOrganizationPermission`
+    is what holds the API.
     """
 
     _IGNORED_PATHS = ("/logout", "/api", "/admin")
@@ -1492,26 +1526,21 @@ class ActiveOrganizationMiddleware:
             return self.get_response(request)
 
         user = cast(User, request.user)
+        organization = user.current_organization
 
-        if user.current_organization is None:
+        if organization is None:
             return self.get_response(request)
 
-        # Check pending deletion first — takes priority over is_active
-        if user.current_organization.is_pending_deletion:
-            return (
-                self.get_response(request)
-                if request.path == "/organization-pending-deletion"
-                else redirect("/organization-pending-deletion")
-            )
+        block_page = organization_block_page(organization)
 
-        if user.current_organization.is_active is not False:
-            return redirect("/") if request.path == "/organization-deactivated" else self.get_response(request)
+        if block_page is None:
+            # A member sitting on a block page has been let back in.
+            return redirect("/") if request.path in ALLOWED_WHILE_BLOCKED else self.get_response(request)
 
-        return (
-            self.get_response(request)
-            if request.path == "/organization-deactivated"
-            else redirect("/organization-deactivated")
-        )
+        if any(request.path.startswith(allowed) for allowed in ALLOWED_WHILE_BLOCKED[block_page]):
+            return self.get_response(request)
+
+        return redirect(block_page)
 
 
 # Session key used to mark an impersonation session as read-only
