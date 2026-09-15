@@ -73,7 +73,7 @@ function parseClientInfo(bodyText: string): ClientInfo {
 
 function authenticate(c: HonoCtx): Response | null {
     const token = extractBearerToken(c.req.raw)
-    const error = validateBearerToken(token, c.req.raw, getRegionFromRequest(c.req.raw))
+    const error = validateBearerToken(token, c.req.raw)
     if (error) {
         const reason = !token ? 'missing_token' : 'invalid_token'
         authFailuresTotal.inc({ reason })
@@ -111,9 +111,9 @@ export async function authenticateAndParse(
     return { props }
 }
 
-export function handleCatchError(error: unknown, props: RequestProperties): Response {
+export function handleCatchError(error: unknown, props: RequestProperties, request: Request): Response {
     console.error('[handleCatchError]', error)
-    const authResponse = mapErrorToAuthResponse(error)
+    const authResponse = mapErrorToAuthResponse(error, request)
     if (authResponse) {
         const reason = authResponse.status === 403 ? 'insufficient_scope' : 'invalid_token'
         authFailuresTotal.inc({ reason })
