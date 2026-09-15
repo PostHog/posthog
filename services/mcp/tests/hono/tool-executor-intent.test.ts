@@ -35,6 +35,7 @@ import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
 import { getPostHogClient } from '@/lib/posthog'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH } from '@/tools/toolDefinitions'
+import { mockApi } from '../shared/test-utils'
 
 function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> = {}): ResolvedState {
     return {
@@ -46,7 +47,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
             getEffectiveSessionUuid: vi.fn().mockResolvedValue(undefined),
         } as any,
         context: {
-            api: { config: {} },
+            api: mockApi(),
             cache: {},
             env: {},
             stateManager: {},
@@ -210,21 +211,17 @@ describe('ToolExecutor analytics capture', () => {
     )
 
     it.each([
-        [
-            'states an intent',
-            { command: 'tools', context: 'auditing the dashboard tiles' },
-            'auditing the dashboard tiles',
-        ],
-        ['states none', { command: 'tools' }, undefined],
+        ['states an intent', { command: 'tools', context: 'auditing the dashboard tiles' }],
+        ['states none', { command: 'tools' }],
     ] as const)(
-        'stamps the intent onto the API client so writes carry it — the agent %s',
-        async (_label, args, expected) => {
+        'leaves the shared API client alone, so a concurrent call cannot pick up this intent — the agent %s',
+        async (_label, args) => {
             vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
             const state = makeState([], { useSingleExec: true })
 
             await executor.handleToolCall({ name: 'exec', arguments: args }, state)
 
-            expect(state.context.api.config.intent).toBe(expected)
+            expect(state.context.api.config.intent).toBeUndefined()
         }
     )
 

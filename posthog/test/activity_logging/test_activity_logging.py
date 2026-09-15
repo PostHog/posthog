@@ -152,6 +152,7 @@ class TestActivityLogModel(BaseTest):
     def test_agent_intent_does_not_clobber_a_product_trigger(self) -> None:
         product_trigger = Trigger(job_type="hog_flow", job_id="4321", payload={})
         activity_storage.set_agent_intent("Renaming the tile the user pointed at")
+        activity_storage.set_agent_task_id("019f4c2a-0000-7000-8000-0000000000bb")
         try:
             log_activity(
                 organization_id=self.organization.id,
@@ -165,10 +166,31 @@ class TestActivityLogModel(BaseTest):
             )
         finally:
             activity_storage.clear_agent_intent()
+            activity_storage.clear_agent_task_id()
 
         log: ActivityLog = ActivityLog.objects.latest("id")
         assert log.detail is not None
         self.assertEqual(log.detail["trigger"]["job_type"], "hog_flow")
+
+    def test_an_intent_without_a_task_binding_writes_no_trigger(self) -> None:
+        activity_storage.set_agent_intent("Disabling the flag per an incident runbook")
+        try:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=self.user,
+                was_impersonated=False,
+                item_id=23,
+                scope="Dashboard",
+                activity="created",
+                detail=Detail(),
+            )
+        finally:
+            activity_storage.clear_agent_intent()
+
+        log: ActivityLog = ActivityLog.objects.latest("id")
+        assert log.detail is not None
+        self.assertIsNone(log.detail["trigger"])
 
     def test_trigger_stays_unset_without_agent_context(self) -> None:
         log_activity(
@@ -535,11 +557,19 @@ class TestAgentAttributionOnApiWrites(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("under a sandbox task", UUID("019f4c2a-0000-7000-8000-0000000000aa")),
-            ("outside one", None),
+            (
+                "records the intent of a token bound to a sandbox task",
+                UUID("019f4c2a-0000-7000-8000-0000000000aa"),
+                {
+                    "job_type": "agent",
+                    "job_id": "019f4c2a-0000-7000-8000-0000000000aa",
+                    "payload": {"intent": "Repairing a tile that hit the query row limit"},
+                },
+            ),
+            ("ignores the header on a token with no task", None, None),
         ]
     )
-    def test_agent_write_records_its_intent_and_task(self, _name: str, task_id: UUID | None) -> None:
+    def test_agent_write(self, _name: str, task_id: UUID | None, expected_trigger: dict | None) -> None:
         self._authenticate_as_sandbox_agent(task_id)
 
         response = self.client.post(
@@ -551,11 +581,4 @@ class TestAgentAttributionOnApiWrites(APIBaseTest):
 
         log = ActivityLog.objects.filter(scope="Dashboard").latest("id")
         assert log.detail is not None
-        self.assertEqual(
-            log.detail["trigger"],
-            {
-                "job_type": "agent",
-                "job_id": str(task_id) if task_id else "",
-                "payload": {"intent": "Repairing a tile that hit the query row limit"},
-            },
-        )
+        self.assertEqual(log.detail["trigger"], expected_trigger)

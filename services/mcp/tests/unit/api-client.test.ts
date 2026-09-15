@@ -221,6 +221,21 @@ describe('ApiClient', () => {
         vi.unstubAllGlobals()
     })
 
+    it('sends an intent only from the copy that carries it, so concurrent calls cannot cross', async () => {
+        // A fresh Response per call: a body can only be read once.
+        const mockFetch = vi.fn().mockImplementation(async () => new Response(JSON.stringify({}), { status: 200 }))
+        vi.stubGlobal('fetch', mockFetch)
+        const shared = new ApiClient({ apiToken: 'test-token-123', baseUrl: 'https://example.com' })
+
+        await shared.withIntent('auditing the dashboard tiles').request({ method: 'GET', path: '/api/projects/1/' })
+        await shared.request({ method: 'GET', path: '/api/projects/1/' })
+
+        expect(mockFetch.mock.calls[0]![1].headers['x-posthog-intent']).toBe('auditing the dashboard tiles')
+        expect(mockFetch.mock.calls[1]![1].headers).not.toHaveProperty('x-posthog-intent')
+        expect(shared.config.intent).toBeUndefined()
+        vi.unstubAllGlobals()
+    })
+
     it.each([
         [
             'both ids set',

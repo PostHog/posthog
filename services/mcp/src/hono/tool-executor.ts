@@ -104,6 +104,19 @@ function shouldSuppressStructuredContent(args: {
     return args.isCliModeEnabled && !isRenderUiHostInSingleExec
 }
 
+/**
+ * The resolved state, with an API client that stamps this one call's intent on what it sends.
+ *
+ * The state itself is shared by every call in a JSON-RPC batch, so the client is copied rather
+ * than written to. See `ApiClient.withIntent`.
+ */
+function stateCarryingIntent(state: ResolvedState, intent: string | undefined): ResolvedState {
+    if (!intent) {
+        return state
+    }
+    return { ...state, context: { ...state.context, api: state.context.api.withIntent(intent) } }
+}
+
 export class ToolExecutor {
     private readonly catalog: ToolCatalog
     private readonly instructionsBuilder: InstructionsBuilder
@@ -187,13 +200,11 @@ export class ToolExecutor {
                 ? (rawRequestMeta as Record<string, unknown>)
                 : undefined
         const { analyticsMeta, args } = this.extractAnalyticsMetadata(toolName, rawArgs, originalTool, requestMeta)
-        // Stamped onto the live client, the way StateManager stamps the OAuth client name, because
-        // the intent belongs to this call rather than to the connection the client was built for.
-        state.context.api.config.intent = analyticsMeta.intent
+        const callState = stateCarryingIntent(state, analyticsMeta.intent)
         const callParams = { ...params, arguments: args }
 
         if (toolName === 'exec') {
-            return this.callExecTool(callParams, state, analyticsMeta)
+            return this.callExecTool(callParams, callState, analyticsMeta)
         }
 
         if (toolName === 'render-ui') {
@@ -202,7 +213,7 @@ export class ToolExecutor {
                 toolCallsTotal.inc({ tool: toolName, status: 'error' })
                 return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
             }
-            return this.callRenderUiTool(callParams, state, analyticsMeta)
+            return this.callRenderUiTool(callParams, callState, analyticsMeta)
         }
 
         if (!state.allTools.some((t) => t.name === toolName)) {
@@ -225,7 +236,7 @@ export class ToolExecutor {
                 _meta: tool._meta,
             },
             callParams,
-            state,
+            callState,
             analyticsMeta
         )
     }

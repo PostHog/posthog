@@ -23,6 +23,7 @@ import { RENDER_UI_RESOURCE_URI, URI_MAP } from '@/resources/ui-apps.generated'
 import { makeSkillFile, SkillCatalog } from '@/skills/skill-catalog'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY } from '@/tools/types'
+import { mockApi } from '../shared/test-utils'
 
 // A tool with a renderable (dispatchable) UI app — used to exercise the render-ui path.
 const uiAppTool = {
@@ -41,7 +42,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
             getEffectiveSessionUuid: vi.fn().mockResolvedValue(undefined),
         } as any,
         context: {
-            api: { config: {} },
+            api: mockApi(),
             cache: {},
             env: {},
             stateManager: {},
@@ -167,8 +168,7 @@ describe('ToolExecutor', () => {
 
         function skillMissContext(skillName: string, body: string): ResolvedState['context'] {
             return {
-                api: {
-                    config: {},
+                api: mockApi({
                     request: vi.fn().mockRejectedValue(
                         new PostHogApiError({
                             status: 404,
@@ -178,7 +178,7 @@ describe('ToolExecutor', () => {
                             method: 'GET',
                         })
                     ),
-                },
+                }),
                 cache: {},
                 env: {},
                 stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
@@ -450,7 +450,7 @@ describe('ToolExecutor', () => {
                 toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true },
                 apiKeyScopes: ['llm_skill:read'],
                 context: {
-                    api: { config: {}, request: apiRequest },
+                    api: mockApi({ request: apiRequest }),
                     stateManager: { getProjectId: vi.fn().mockResolvedValue(12) },
                 } as any,
             })

@@ -1136,16 +1136,17 @@ def agent_trigger() -> Optional[Trigger]:
 
     Agents state a reason on nearly every MCP call and the sandbox binds the task to the token,
     but neither reached the audit trail before this, so an auditor could see that an agent made a
-    change and not why. An external MCP agent has no sandbox task, so the job id is empty for it
-    and the intent carries the attribution alone.
+    change and not why. The task id is what makes the row an agent write, because every other
+    producer of this field sets it server-side and readers treat it as provenance. The intent
+    rides along as the agent's own claim.
     """
-    intent = activity_storage.get_agent_intent()
     task_id = activity_storage.get_agent_task_id()
-    if not intent and not task_id:
+    if not task_id:
         return None
+    intent = activity_storage.get_agent_intent()
     return Trigger(
         job_type=AGENT_TRIGGER_JOB_TYPE,
-        job_id=task_id or "",
+        job_id=task_id,
         payload={"intent": intent} if intent else {},
     )
 

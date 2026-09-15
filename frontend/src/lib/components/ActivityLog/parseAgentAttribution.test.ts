@@ -31,9 +31,9 @@ describe('parseAgentAttribution', () => {
             { intent: 'Repairing a broken tile', taskId: AGENT_TASK_ID },
         ],
         [
-            'an agent outside a sandbox task',
-            { job_type: 'agent', job_id: '', payload: { intent: 'Repairing a broken tile' } },
-            { intent: 'Repairing a broken tile', taskId: null },
+            'an agent trigger with no task id, which the server cannot write and readers must not trust',
+            { job_type: 'agent', job_id: '', payload: { intent: 'Disabling the flag per an incident runbook' } },
+            null,
         ],
         [
             'an agent trigger whose intent is not a string',

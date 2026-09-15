@@ -34,7 +34,11 @@ from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.helpers.verified_domain_enforcement import enforce_verified_domain
 from posthog.internal_api_secret import usable_internal_api_secrets
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt, get_oidc_verification_keys
-from posthog.models.activity_logging.utils import activity_storage
+from posthog.models.activity_logging.utils import (
+    ACTIVITY_LOG_INTENT_HEADER,
+    ACTIVITY_LOG_INTENT_MAX_LENGTH,
+    activity_storage,
+)
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import (
@@ -894,15 +898,21 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
             return None
 
 
-def _record_agent_task(access_token: OAuthAccessToken) -> None:
-    """Name the sandbox task an agent runs under, so its writes say which run to open.
+def _record_agent_attribution(request: Union[HttpRequest, Request], access_token: OAuthAccessToken) -> None:
+    """Name the sandbox task an agent runs under, and what the agent says it is doing.
 
-    The sandbox provisioning binds the task to the token it mints, so this is attribution the
-    caller cannot choose. A token minted for a person carries no task and leaves the audit trail
-    unchanged.
+    The sandbox provisioning binds the task to the token it mints, so a caller cannot name a task
+    it did not run under. The intent is the agent's own claim and nothing verifies it, so it is
+    only read behind that binding. Any caller can put a header on a request, so honouring one
+    without the binding would let a person dress a write of their own up as automation in the
+    audit trail. A token minted for a person carries no task and leaves the audit trail unchanged.
     """
-    if access_token.sandbox_task_id is not None:
-        activity_storage.set_agent_task_id(str(access_token.sandbox_task_id))
+    if access_token.sandbox_task_id is None:
+        return
+    activity_storage.set_agent_task_id(str(access_token.sandbox_task_id))
+    intent = request.headers.get(ACTIVITY_LOG_INTENT_HEADER, "").strip()[:ACTIVITY_LOG_INTENT_MAX_LENGTH]
+    if intent:
+        activity_storage.set_agent_intent(intent)
 
 
 class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
@@ -947,7 +957,7 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
                     # marker in the audit trail.
                     if access_token.impersonated_by_id is not None:
                         activity_storage.set_was_impersonated(True)
-                    _record_agent_task(access_token)
+                    _record_agent_attribution(request, access_token)
 
                 return access_token.user, None
 
@@ -1094,7 +1104,7 @@ class DelegatedOAuthAccessTokenAuthentication(OAuthAccessTokenAuthentication):
             activity_storage.set_user(access_token.user)
             if access_token.impersonated_by_id is not None:
                 activity_storage.set_was_impersonated(True)
-            _record_agent_task(access_token)
+            _record_agent_attribution(request, access_token)
         return access_token.user, None
 
 

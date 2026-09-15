@@ -52,6 +52,7 @@ import {
 } from '@/lib/errors'
 
 import { toolFromPreBuilt } from '../shared/test-utils'
+import { mockApi } from '../shared/test-utils'
 
 const mockTrackToolCall = vi.mocked(trackToolCall)
 
@@ -72,7 +73,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
             getEffectiveSessionUuid: vi.fn().mockResolvedValue(undefined),
         } as any,
         context: {
-            api: { config: {} },
+            api: mockApi(),
             cache: {},
             env: {},
             stateManager: {},
@@ -617,7 +618,7 @@ describe('ToolExecutor metrics', () => {
             /** A context whose skill fetch resolves, so the success path runs. */
             function contextThatServes(): any {
                 return {
-                    api: { config: {}, request: vi.fn().mockResolvedValue({ name: 'conductor', body: 'skill body' }) },
+                    api: mockApi({ request: vi.fn().mockResolvedValue({ name: 'conductor', body: 'skill body' }) }),
                     cache: {},
                     env: {},
                     stateManager: { getProjectId: vi.fn().mockResolvedValue('2') },
@@ -631,8 +632,7 @@ describe('ToolExecutor metrics', () => {
             function contextThatRejects(): any {
                 return {
                     ...contextThatServes(),
-                    api: {
-                        config: {},
+                    api: mockApi({
                         request: vi.fn().mockRejectedValue(
                             new PostHogApiError({
                                 status: 404,
@@ -642,7 +642,7 @@ describe('ToolExecutor metrics', () => {
                                 method: 'GET',
                             })
                         ),
-                    },
+                    }),
                 }
             }
 
@@ -651,8 +651,7 @@ describe('ToolExecutor metrics', () => {
             function contextThatMisses(): any {
                 return {
                     ...contextThatServes(),
-                    api: {
-                        config: {},
+                    api: mockApi({
                         request: vi.fn().mockRejectedValue(
                             new PostHogApiError({
                                 status: 404,
@@ -662,7 +661,7 @@ describe('ToolExecutor metrics', () => {
                                 method: 'GET',
                             })
                         ),
-                    },
+                    }),
                 }
             }
 

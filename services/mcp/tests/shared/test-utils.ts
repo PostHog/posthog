@@ -644,3 +644,14 @@ export function toolFromPreBuilt(preBuilt: PreBuiltTool, entry: McpTool): Tool<Z
         scopes: [],
     }
 }
+
+/**
+ * The `api` field of a mocked tool-executor `Context`.
+ *
+ * `ToolExecutor` copies the client through `withIntent` before it runs a tool, so a mock without
+ * that method fails at the call rather than in the code under test. The real implementation is
+ * reused so a mock copies the way a client does.
+ */
+export function mockApi(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return { config: {}, withIntent: ApiClient.prototype.withIntent, ...overrides }
+}

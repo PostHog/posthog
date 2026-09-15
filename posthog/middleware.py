@@ -51,8 +51,6 @@ from posthog.models import Team, User
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_HEADER,
     ACTIVITY_LOG_CLIENT_MAX_LENGTH,
-    ACTIVITY_LOG_INTENT_HEADER,
-    ACTIVITY_LOG_INTENT_MAX_LENGTH,
     activity_storage,
 )
 from posthog.models.utils import generate_random_token
@@ -1128,10 +1126,6 @@ class ActivityLoggingMiddleware:
         client_header = request.headers.get(ACTIVITY_LOG_CLIENT_HEADER)
         if client_header:
             activity_storage.set_client(client_header[:ACTIVITY_LOG_CLIENT_MAX_LENGTH])
-
-        intent_header = request.headers.get(ACTIVITY_LOG_INTENT_HEADER)
-        if intent_header:
-            activity_storage.set_agent_intent(intent_header.strip()[:ACTIVITY_LOG_INTENT_MAX_LENGTH] or None)
 
         activity_storage.set_ip_address(get_ip_address(request) or None)
 

@@ -154,9 +154,9 @@ export interface ApiConfig {
      */
     taskId?: string | undefined
     /**
-     * The agent's stated intent for the tool call in flight, forwarded as `x-posthog-intent` so
-     * API writes record why the agent made the change. Set per call by the tool executor, which is
-     * where the intent is parsed off the tool arguments.
+     * The agent's stated intent for one tool call, forwarded as `x-posthog-intent` so API writes
+     * record why the agent made the change. Set through `withIntent` rather than written on a
+     * live client, because the intent belongs to a single call.
      */
     intent?: string | undefined
 }
@@ -178,6 +178,24 @@ export class ApiClient {
         // `||` (not `??`) so an empty string — e.g. the Workers vitest config sets
         // env vars to '' — falls back to baseUrl instead of yielding relative links.
         this.publicBaseUrl = config.publicBaseUrl || config.baseUrl
+    }
+
+    /**
+     * A copy of this client that sends one tool call's intent on every request it makes.
+     *
+     * A JSON-RPC batch resolves one state, so its calls run concurrently over the single cached
+     * client. Writing the intent onto that client lets a later call overwrite the intent an
+     * earlier one has not sent yet, which attributes a write to the wrong reason. Each call takes
+     * its own copy instead.
+     *
+     * The copy keeps this instance's prototype and fields so a `ForwardingApiClient` copy still
+     * forwards. Re-running a constructor here would need each subclass's own arguments.
+     */
+    withIntent(intent: string): this {
+        const scoped = Object.create(Object.getPrototypeOf(this) as object) as this
+        Object.assign(scoped, this)
+        scoped.config = { ...this.config, intent }
+        return scoped
     }
 
     getProjectBaseUrl(projectId: string): string {

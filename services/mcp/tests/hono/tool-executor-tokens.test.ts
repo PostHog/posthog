@@ -31,6 +31,7 @@ import { ToolExecutor } from '@/hono/tool-executor'
 import { estimateTokens } from '@/lib/estimate-tokens'
 
 import { toolFromPreBuilt } from '../shared/test-utils'
+import { mockApi } from '../shared/test-utils'
 
 function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> = {}): ResolvedState {
     return {
@@ -43,7 +44,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
             getEffectiveSessionUuid: vi.fn().mockResolvedValue(undefined),
         } as any,
         context: {
-            api: { config: {} },
+            api: mockApi(),
             cache: {},
             env: {},
             stateManager: {},

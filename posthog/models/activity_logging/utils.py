@@ -17,7 +17,8 @@ logger = structlog.get_logger(__name__)
 ACTIVITY_LOG_CLIENT_HEADER = "x-posthog-client"
 ACTIVITY_LOG_CLIENT_MAX_LENGTH = 32
 # What an agent says it is doing. The MCP server forwards the intent it already sends to analytics
-# as `$mcp_intent`. The value is the caller's own claim, so every surface that shows it says so.
+# as `$mcp_intent`. The value is the caller's own claim, so every surface that shows it says so,
+# and only a request carrying a sandbox token binding is read for it at all.
 ACTIVITY_LOG_INTENT_HEADER = "x-posthog-intent"
 ACTIVITY_LOG_INTENT_MAX_LENGTH = 500
 

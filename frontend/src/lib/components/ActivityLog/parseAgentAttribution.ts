@@ -8,18 +8,24 @@ const AGENT_TRIGGER_JOB_TYPE = 'agent'
 export interface AgentAttribution {
     /** What the agent said it was doing. Self-reported, never verified. */
     intent: string | null
-    /** The sandbox task the agent ran under, or null for an agent that runs outside one. */
-    taskId: string | null
+    /** The sandbox task the agent ran under. Bound to the agent's token, so it is not self-reported. */
+    taskId: string
 }
 
-/** The agent context behind one activity row, or null when a person or a product made the change. */
+/**
+ * The agent context behind one activity row, or null when a person or a product made the change.
+ *
+ * The task id is required, not optional: it is the part of the trigger the server sets, so a row
+ * without it is not evidence that an agent made the change and must not be presented as one.
+ */
 export function parseAgentAttribution(logItem: HumanizedActivityLogItem): AgentAttribution | null {
     const trigger = logItem.unprocessed?.detail?.trigger
-    if (trigger?.job_type !== AGENT_TRIGGER_JOB_TYPE) {
+    if (trigger?.job_type !== AGENT_TRIGGER_JOB_TYPE || !trigger.job_id) {
         return null
     }
 
-    const intent = typeof trigger.payload?.intent === 'string' ? trigger.payload.intent : null
-    const taskId = trigger.job_id || null
-    return intent || taskId ? { intent, taskId } : null
+    return {
+        intent: typeof trigger.payload?.intent === 'string' ? trigger.payload.intent : null,
+        taskId: trigger.job_id,
+    }
 }

@@ -47,12 +47,3 @@ export const TaskOnly: Story = {
         logItem: logItem({ trigger: { job_type: 'agent', job_id: AGENT_TASK_ID, payload: {} } }),
     },
 }
-
-// An agent that runs outside a sandbox task states an intent and nothing else.
-export const IntentOnly: Story = {
-    args: {
-        logItem: logItem({
-            trigger: { job_type: 'agent', job_id: '', payload: { intent: 'Renaming the tile the user pointed at' } },
-        }),
-    },
-}
