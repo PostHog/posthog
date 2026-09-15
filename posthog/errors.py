@@ -959,8 +959,12 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     678: ErrorCodeMeta("IO_URING_INIT_FAILED"),
     679: ErrorCodeMeta("IO_URING_SUBMIT_ERROR"),
     690: ErrorCodeMeta("MIXED_ACCESS_PARAMETER_TYPES"),
-    # Stays internal: the CH message embeds the offending enum value (see code 6 note).
-    691: ErrorCodeMeta("UNKNOWN_ELEMENT_OF_ENUM", category=QueryErrorCategory.USER_ERROR),
+    # Fixed message: the raw CH text embeds the offending enum value (see code 6 note), so a fixed
+    # string keeps that value out of the response while still returning a 400 for the bad query.
+    691: ErrorCodeMeta(
+        "UNKNOWN_ELEMENT_OF_ENUM",
+        user_safe="The query compares an enum column with a value that the column does not allow. Check the values in your comparisons and IN clauses.",
+    ),
     692: ErrorCodeMeta("TOO_MANY_MUTATIONS"),
     693: ErrorCodeMeta("AWS_ERROR"),
     694: ErrorCodeMeta("ASYNC_LOAD_CYCLE"),
