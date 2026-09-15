@@ -125,62 +125,72 @@ describe('mcpAnalyticsFeedbackLogic', () => {
         }
     )
 
-    it.each(['complete', 'dismiss'] as const)(
-        'captures the displayed copy and placement throughout a %s submission',
-        (ending) => {
-            unmount()
-            const prompt = {
-                entryPoint: 'tool_review_prompt',
-                tab: 'tools',
-                version: 2,
-                question: 'Did this tool breakdown help you find what you needed?',
-                followUpQuestion: 'What did you find, or what was missing?',
-            }
-            logic = mcpAnalyticsFeedbackLogic({
-                userId: 'example-user',
-                contextKey: 'example-tool',
-                isImpersonated: false,
-                prompt,
-            })
-            unmount = logic.mount()
-            loadSurvey()
-            jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)
-            expect(logic.values.prompt).toEqual(prompt)
-            const displayedQuestion = prompt.question
-            prompt.question = 'Later copy must not change an open prompt'
-            logic.actions.submitResponse('1', false)
-            if (ending === 'complete') {
-                logic.actions.setDetail('Found a slow call.')
-                logic.actions.submitResponse('1', true)
-            } else {
-                logic.actions.dismissPrompt()
-            }
-            const events = jest.mocked(posthog.capture).mock.calls
-            expect(events.map(([name]) => name)).toEqual([
-                'survey shown',
-                'survey sent',
-                ending === 'complete' ? 'survey sent' : 'survey dismissed',
-            ])
-            for (const [, properties] of events) {
-                expect(properties).toMatchObject({
-                    $survey_id: survey.id,
-                    $survey_submission_id: logic.values.submissionId,
-                    feedback_surface: 'mcp_analytics',
-                    feedback_entry_point: 'tool_review_prompt',
-                    mcp_analytics_tab: 'tools',
-                    feedback_question_version: 2,
-                    feedback_question: displayedQuestion,
-                    feedback_followup_question: prompt.followUpQuestion,
-                    $survey_questions: [
-                        { id: 'example-choice', question: displayedQuestion },
-                        { id: 'example-detail', question: prompt.followUpQuestion },
-                    ],
-                })
-            }
-            expect(logic.values.prompt.question).toBe(displayedQuestion)
-            expect(survey.questions[0].question).toBe('Was this useful?')
+    it.each([
+        { ending: 'complete', detail: '' },
+        { ending: 'complete', detail: 'Found a slow call.' },
+        { ending: 'dismiss', detail: '' },
+    ])('captures one submission with consistent context: %j', ({ ending, detail }) => {
+        unmount()
+        const prompt = {
+            entryPoint: 'tool_review_prompt',
+            tab: 'tools',
+            version: 2,
+            question: 'Did this tool breakdown help you find what you needed?',
+            followUpQuestion: 'What did you find, or what was missing?',
         }
-    )
+        logic = mcpAnalyticsFeedbackLogic({
+            userId: 'example-user',
+            contextKey: 'example-tool',
+            isImpersonated: false,
+            prompt,
+        })
+        unmount = logic.mount()
+        loadSurvey()
+        jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)
+        const displayedQuestion = prompt.question
+        prompt.question = 'Later copy must not change an open prompt'
+        logic.actions.submitResponse('2', false)
+        logic.actions.submitResponse('1', false)
+        expect(logic.values.answer).toBe('2')
+        if (ending === 'complete') {
+            logic.actions.setDetail(detail)
+            logic.actions.submitResponse('2', true)
+            logic.actions.submitResponse('2', true)
+            expect(logic.values).toMatchObject({ completed: true, submitting: false })
+        }
+        logic.actions.dismissPrompt()
+        const events = jest.mocked(posthog.capture).mock.calls
+        expect(events.map(([name]) => name)).toEqual([
+            'survey shown',
+            'survey sent',
+            ending === 'complete' ? 'survey sent' : 'survey dismissed',
+        ])
+        for (const [, properties] of events) {
+            expect(properties).toMatchObject({
+                $survey_id: survey.id,
+                $survey_submission_id: logic.values.submissionId,
+                feedback_surface: 'mcp_analytics',
+                feedback_entry_point: 'tool_review_prompt',
+                mcp_analytics_tab: 'tools',
+                feedback_question_version: 2,
+                feedback_question: displayedQuestion,
+                feedback_followup_question: prompt.followUpQuestion,
+                $survey_questions: [
+                    { id: 'example-choice', question: displayedQuestion },
+                    { id: 'example-detail', question: prompt.followUpQuestion },
+                ],
+            })
+        }
+        expect(events[1][1]).toMatchObject({ $survey_completed: false, '$survey_response_example-choice': '2' })
+        expect(events[2][1]).toMatchObject(
+            ending === 'complete'
+                ? { $survey_completed: true, '$survey_response_example-choice': '2' }
+                : { $survey_partially_completed: true }
+        )
+        expect(events[2][1]?.['$survey_response_example-detail']).toBe(detail || undefined)
+        expect(logic.values.prompt.question).toBe(displayedQuestion)
+        expect(survey.questions[0].question).toBe('Was this useful?')
+    })
 
     it('keeps the cooldown across placements after dismissal', () => {
         loadSurvey()
@@ -231,58 +241,6 @@ describe('mcpAnalyticsFeedbackLogic', () => {
         jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)
         expect(logic.values.visible).toBe(false)
     })
-    it.each(['', 'Found a failed tool call.'])(
-        'keeps the first answer and optional detail in one submission: %j',
-        (detail) => {
-            loadSurvey()
-            jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)
-            logic.actions.submitResponse('2', false)
-            logic.actions.submitResponse('1', false)
-            expect(logic.values.answer).toBe('2')
-            expect(posthog.capture).toHaveBeenCalledWith(
-                'survey sent',
-                expect.objectContaining({
-                    $survey_id: survey.id,
-                    $survey_completed: false,
-                    '$survey_response_example-choice': '2',
-                })
-            )
-            const submissionId = logic.values.submissionId
-            logic.actions.setDetail(detail)
-            logic.actions.submitResponse('2', true)
-            logic.actions.submitResponse('2', true)
-            expect(logic.values.completed).toBe(true)
-            expect(logic.values.submitting).toBe(false)
-            const sent = jest.mocked(posthog.capture).mock.calls.filter(([name]) => name === 'survey sent')
-            expect(sent).toHaveLength(2)
-            expect(sent[1][1]).toEqual(
-                expect.objectContaining({
-                    $survey_submission_id: submissionId,
-                    $survey_completed: true,
-                    '$survey_response_example-choice': '2',
-                    ...(detail ? { '$survey_response_example-detail': detail } : {}),
-                })
-            )
-            logic.actions.dismissPrompt()
-            expect(posthog.capture).not.toHaveBeenCalledWith('survey dismissed', expect.anything())
-        }
-    )
-
-    it('preserves an answered question when dismissed before the optional follow-up', () => {
-        loadSurvey()
-        jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)
-        logic.actions.submitResponse('2', false)
-        logic.actions.dismissPrompt()
-        expect(posthog.capture).toHaveBeenCalledWith(
-            'survey dismissed',
-            expect.objectContaining({
-                $survey_submission_id: logic.values.submissionId,
-                $survey_partially_completed: true,
-            })
-        )
-        expect(jest.mocked(posthog.capture).mock.calls.filter(([name]) => name === 'survey sent')).toHaveLength(1)
-    })
-
     it.each(['dropped', 'thrown'] as const)(
         'allows retry when capture is %s without losing optional text',
         (failure) => {
