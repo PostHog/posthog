@@ -5,7 +5,7 @@ one import and one entry.
 """
 
 from ..facade.contracts import CheckTypeInfo
-from ..facade.enums import CheckType
+from ..facade.enums import CheckType, SubjectType
 from .spec import CheckTypeSpec
 from .types import accepted_values, custom_sql, freshness, not_null, relationships, row_count, unique
 
@@ -34,7 +34,7 @@ def all_specs() -> list[CheckTypeSpec]:
     return [_SPECS[check_type] for check_type in CheckType]
 
 
-def list_check_types() -> list[CheckTypeInfo]:
+def list_check_types(subject_type: str | None = None) -> list[CheckTypeInfo]:
     """The catalog, as plain values. What callers outside the compiler get instead of the specs."""
     return [
         CheckTypeInfo(
@@ -44,6 +44,7 @@ def list_check_types() -> list[CheckTypeInfo]:
             config_schema=spec.json_schema,
         )
         for spec in all_specs()
+        if subject_type is None or SubjectType(subject_type) in spec.subject_types
     ]
 
 

@@ -1,3 +1,4 @@
+import time
 import asyncio
 from typing import Any, Optional
 
@@ -6,7 +7,7 @@ from django.conf import settings
 import aiohttp
 
 from posthog.dataclasses import frozen
-from posthog.egress.harmonic.limiter import pace_seconds_harmonic
+from posthog.egress.harmonic.limiter import HARMONIC_WINDOW_SECONDS, admission_interval_harmonic, pace_seconds_harmonic
 from posthog.egress.harmonic.transport import HarmonicEgressBudgetExhausted, harmonic_request
 from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
@@ -35,8 +36,8 @@ class HarmonicCompanyLookup:
 # Harmonic documents this as the per-call cap on /enrichment_status URNs.
 _ENRICHMENT_STATUS_BATCH_SIZE = 50
 
-# Sized under the BATCH lane's share of the per-second budget, so a whole wave is admitted.
-_ENRICH_WAVE_SIZE = 10
+# Caps how many slow lookups can overlap. Admission pacing controls the request rate.
+_ENRICH_MAX_CONCURRENT_LOOKUPS = 10
 _ENRICH_MAX_ATTEMPTS = 3
 
 
@@ -301,66 +302,66 @@ class AsyncHarmonicClient:
         return statuses
 
     async def enrich_companies_batch(self, domains: list[str]) -> list[dict[str, Any] | None]:
-        """Enrich multiple domains concurrently, in waves paced against the shared egress budget.
+        """Enrich multiple domains concurrently, one task per domain.
 
-        Pacing is recomputed per wave because pace_seconds reads live limiter state, so a wave that
-        finds the budget already drawn down waits for it.
-
-        A shed domain is retried in a later wave rather than recorded: callers persist these results
-        against a Salesforce account, and a shed means Harmonic was never asked.
+        An asyncio.Semaphore bounds how many lookups run at once (_ENRICH_MAX_CONCURRENT_LOOKUPS); admission
+        for each request is paced individually against the shared egress budget and held at least the
+        lane's admission interval after the previous one, serialized through a lock so only the wait
+        blocks, not the request itself. A domain shed by the egress limiter
+        waits one budget window and retries, up to _ENRICH_MAX_ATTEMPTS. A domain still shed after
+        every attempt is reported to error tracking and left None, distinctly from a genuine
+        not-found or an operational failure (also None): callers persist these results against a
+        Salesforce account, and a shed means Harmonic was never asked.
 
         Args:
             domains: List of company domains to enrich
 
         Returns:
-            List of company data dicts, same length and order as domains. A slot is None for a
-            genuine not-found or an operational failure, and also for a domain still shed after
-            every attempt: that last case is reported to error tracking first, since it must not
-            look like a genuine miss on inspection there even though the return value can't carry
-            the distinction (callers zip this list against the input domains).
+            List of company data dicts, same length and order as domains.
         """
         if not domains:
             return []
 
         results: list[dict[str, Any] | None] = [None] * len(domains)
-        pending = list(range(len(domains)))
+        semaphore = asyncio.Semaphore(_ENRICH_MAX_CONCURRENT_LOOKUPS)
+        pacing_lock = asyncio.Lock()
+        next_admission_at = 0.0
 
-        for _attempt in range(_ENRICH_MAX_ATTEMPTS):
-            if not pending:
-                break
+        async def wait_for_admission() -> None:
+            nonlocal next_admission_at
+            async with pacing_lock:
+                pace = await asyncio.to_thread(pace_seconds_harmonic, self.priority)
+                # The interval keeps admissions inside the lane even while the limiter cannot yet
+                # see the calls this batch admitted but has not consumed.
+                wait = max(pace, next_admission_at - time.monotonic())
+                if wait > 0:
+                    await asyncio.sleep(wait)
+                next_admission_at = time.monotonic() + admission_interval_harmonic(self.priority)
 
-            denied: list[int] = []
-            for wave_start in range(0, len(pending), _ENRICH_WAVE_SIZE):
-                wave = pending[wave_start : wave_start + _ENRICH_WAVE_SIZE]
+        async def enrich_one(index: int, domain: str) -> None:
+            for attempt in range(1, _ENRICH_MAX_ATTEMPTS + 1):
+                async with semaphore:
+                    if self.priority is not Priority.CRITICAL:
+                        await wait_for_admission()
 
-                # CRITICAL is never shed by the transport (_raise_if_denied never raises on it), so
-                # pacing it would only add latency to an interactive caller for no admission benefit.
-                if self.priority is not Priority.CRITICAL:
-                    pace = pace_seconds_harmonic(self.priority)
-                    if pace > 0:
-                        await asyncio.sleep(pace)
+                    try:
+                        results[index] = await self._enrich_company_by_domain_observing_denial(domain)
+                        return
+                    except HarmonicEgressBudgetExhausted:
+                        pass
+                    except Exception as e:
+                        capture_exception(e, {"domain": domain})
+                        return
 
-                wave_results: list[dict[str, Any] | BaseException | None] = await asyncio.gather(
-                    *(self._enrich_company_by_domain_observing_denial(domains[i]) for i in wave),
-                    return_exceptions=True,
-                )
+                if attempt < _ENRICH_MAX_ATTEMPTS:
+                    await asyncio.sleep(HARMONIC_WINDOW_SECONDS)
 
-                for index, result in zip(wave, wave_results):
-                    if isinstance(result, HarmonicEgressBudgetExhausted):
-                        denied.append(index)
-                    elif isinstance(result, BaseException):
-                        capture_exception(result, {"domain": domains[index]})
-                    else:
-                        results[index] = result
-
-            pending = denied
-
-        for index in pending:
             capture_exception(
                 HarmonicEgressBudgetExhausted(
                     f"Harmonic egress budget denied this domain on every attempt ({_ENRICH_MAX_ATTEMPTS})"
                 ),
-                {"domain": domains[index]},
+                {"domain": domain},
             )
 
+        await asyncio.gather(*(enrich_one(index, domain) for index, domain in enumerate(domains)))
         return results

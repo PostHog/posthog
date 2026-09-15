@@ -302,7 +302,11 @@ jobs:
             # shard.
             # module-graph.json only exists once the Vite build completes, so no
             # `if: always()`: on a failed/cancelled build it would just warn.
+            # select-stories falls back to the full matrix when the graph is
+            # missing, so a failed upload costs one narrowing opportunity rather
+            # than the build and the whole visual-regression matrix behind it.
             - name: Upload module-graph artifact
+              continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: storybook-module-graph
@@ -665,11 +669,21 @@ jobs:
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
               run: |
-                  node vr-cli/products/visual_review/cli/dist/cli/src/index.js run upload \
+                  VR_CLI=vr-cli/products/visual_review/cli/dist/cli/src/index.js
+                  # This container step runs under sh, so the optional flags go through `set --`
+                  # rather than a bash array.
+                  set -- \
                     --run-id "${{ needs.vr-setup.outputs.run_id }}" \
                     --dir frontend/__snapshots__/ \
                     --baseline frontend/snapshots.yml \
                     --token "$VR_TOKEN"
+                  # The story index lets Visual Review name each snapshot's owning team. The CLI is
+                  # built from the base ref, so a merge-queue run can pair this workflow with a CLI
+                  # that predates the flag. Pass it only when the CLI knows it.
+                  if node "$VR_CLI" run upload --help | grep -q -- '--storybook-index'; then
+                      set -- "$@" --storybook-index common/storybook/dist/index.json --storybook-root common/storybook
+                  fi
+                  node "$VR_CLI" run upload "$@"
 
             # Saves the container version of the entry from one shard, master only. Runs
             # after the upload so packing never delays a snapshot. !cancelled() because the
@@ -689,8 +703,12 @@ jobs:
                       vr-cli/products/visual_review/cli/node_modules
                   key: ${{ steps.restore-vr-cli.outputs.cache-primary-key }}
 
+            # The "Fail on test-runner failure" step below is the verdict, so a
+            # failed upload must not red a passing shard. ci-storybook-update-test-timing
+            # requires a complete set of shards, so it skips a run that loses one.
             - name: Upload test results
               if: always()
+              continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: junit-results-storybook-${{ matrix.browser }}-${{ matrix.shard }}
@@ -987,10 +1005,14 @@ jobs:
             needs.changes.outputs.frontend == 'true' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog')) }}
+        permissions:
+            contents: read
+            actions: read
         steps:
             - name: Get telemetry app token
               id: telemetry-app-token
               if: github.run_attempt == '1'
+              continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
                   client-id: ${{ vars.GH_APP_TELEMETRY_APP_ID }}
@@ -1004,7 +1026,7 @@ jobs:
                   event: 'posthog-ci-running-time'
                   capture-run-duration: true
                   capture-job-durations: true
-                  github-token: ${{ steps.telemetry-app-token.outputs.token }}
+                  github-token: ${{ steps.telemetry-app-token.outputs.token || github.token }}
                   status-job: 'Visual regression tests pass'
             - name: Capture running time to DevEx PostHog
               if: github.run_attempt == '1'
@@ -1015,7 +1037,7 @@ jobs:
                   event: 'posthog-ci-running-time'
                   capture-run-duration: true
                   capture-job-durations: true
-                  github-token: ${{ steps.telemetry-app-token.outputs.token }}
+                  github-token: ${{ steps.telemetry-app-token.outputs.token || github.token }}
                   status-job: 'Visual regression tests pass'
 
     capture-story-selection:

@@ -15,9 +15,6 @@ JSONContent = dict[str, Any]
 
 NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG: Mapping[str, str] = {
     "ph-query": "Query",
-    "ph-python": "Python",
-    "ph-duck-sql": "DuckSQL",
-    "ph-hogql-sql": "HogQLSQL",
     "ph-recording": "Recording",
     "ph-recording-playlist": "RecordingPlaylist",
     "ph-feature-flag": "FeatureFlag",
@@ -660,9 +657,17 @@ def _serialize_component_node(tag_name: str, props: Mapping[str, NotebookPropVal
     return f"<{tag_name}{_serialize_component_props(props)} />"
 
 
+# A prop name is written into the tag unquoted, so a name outside this grammar could close the tag and open another.
+_COMPONENT_PROP_NAME_REGEX = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
+
+
 def _serialize_component_props(props: Mapping[str, NotebookPropValue]) -> str:
     serializable_props = _get_serializable_component_props(props)
-    entries = _get_ordered_component_prop_entries(serializable_props)
+    entries = [
+        (key, value)
+        for key, value in _get_ordered_component_prop_entries(serializable_props)
+        if _COMPONENT_PROP_NAME_REGEX.fullmatch(key)
+    ]
     return "".join(f" {key}" if value is True else f" {key}={_serialize_prop_value(value)}" for key, value in entries)
 
 

@@ -17,12 +17,14 @@ use tonic::body::BoxBody;
 use tonic::Code;
 use tower::{Service, ServiceExt};
 
-use crate::backend::{LeaderBackend, ReplicaBackend};
+use crate::backend::{ChannelBackend, LeaderBackend};
 use crate::config::RetryConfig;
 use crate::grpc_http::{grpc_error_response, grpc_status_code, is_grpc_error_response};
 
 const SERVICE_PREFIX: &str = "/personhog.service.v1.PersonHogService/";
 const REPLICA_PREFIX: &str = "/personhog.replica.v1.PersonHogReplica/";
+const IDENTITY_PREFIX: &str = "/personhog.identity.v1.PersonHogIdentity/";
+const LIFECYCLE_PREFIX: &str = "/personhog.lifecycle.v1.PersonHogLifecycle/";
 
 pub const KNOWN_METHODS: &[&str] = &[
     "CheckCohortMembership",
@@ -70,8 +72,57 @@ pub const KNOWN_METHODS: &[&str] = &[
     "UpsertHashKeyOverrides",
 ];
 
-fn is_known_method(name: &str) -> bool {
-    KNOWN_METHODS.binary_search(&name).is_ok()
+/// Identity-server RPCs, forwarded verbatim; sorted for binary search.
+pub const IDENTITY_METHODS: &[&str] = &[
+    "GetDistinctIdsForPersons",
+    "GetOrCreatePersonByDistinctId",
+    "GetOrCreatePersonsByDistinctIds",
+    "GetPersonsByDistinctIds",
+    "MergePersons",
+];
+
+pub const LIFECYCLE_METHODS: &[&str] = &["DeletePersons"];
+
+/// Where a request path lands: the service facade, whose methods split
+/// between replica and leader, or one of the identity server's two services.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Target {
+    Service,
+    Identity,
+    Lifecycle,
+}
+
+impl Target {
+    fn methods(self) -> &'static [&'static str] {
+        match self {
+            Target::Service => KNOWN_METHODS,
+            Target::Identity => IDENTITY_METHODS,
+            Target::Lifecycle => LIFECYCLE_METHODS,
+        }
+    }
+}
+
+/// Split a path into its target and method. Paths outside the served
+/// services or their method lists are refused, which keeps the method label
+/// on every router metric bounded.
+#[allow(clippy::result_large_err)]
+fn resolve_target(path: &str) -> Result<(Target, &str), http::Response<BoxBody>> {
+    let (target, method) = if let Some(method) = path.strip_prefix(SERVICE_PREFIX) {
+        (Target::Service, method)
+    } else if let Some(method) = path.strip_prefix(IDENTITY_PREFIX) {
+        (Target::Identity, method)
+    } else if let Some(method) = path.strip_prefix(LIFECYCLE_PREFIX) {
+        (Target::Lifecycle, method)
+    } else {
+        return Err(grpc_error_response(Code::Unimplemented, "unknown service"));
+    };
+    if target.methods().binary_search(&method).is_err() {
+        return Err(grpc_error_response(
+            Code::Unimplemented,
+            &format!("unknown method: {method}"),
+        ));
+    }
+    Ok((target, method))
 }
 
 pub struct RawProxyService {
@@ -79,7 +130,8 @@ pub struct RawProxyService {
 }
 
 struct RawProxyInner {
-    replica: Arc<ReplicaBackend>,
+    replica: Arc<ChannelBackend>,
+    identity: Option<Arc<ChannelBackend>>,
     leader: Option<Arc<LeaderBackend>>,
     retry_config: RetryConfig,
     max_recv_message_size: usize,
@@ -88,7 +140,8 @@ struct RawProxyInner {
 
 impl RawProxyService {
     pub fn new(
-        replica: Arc<ReplicaBackend>,
+        replica: Arc<ChannelBackend>,
+        identity: Option<Arc<ChannelBackend>>,
         leader: Option<Arc<LeaderBackend>>,
         retry_config: RetryConfig,
         max_recv_message_size: usize,
@@ -97,6 +150,7 @@ impl RawProxyService {
         Self {
             inner: Arc::new(RawProxyInner {
                 replica,
+                identity,
                 leader,
                 retry_config,
                 max_recv_message_size,
@@ -135,29 +189,62 @@ impl Service<http::Request<BoxBody>> for RawProxyService {
     }
 }
 
+/// tonic routes each registration by its `NamedService::NAME`, so the
+/// identity server's two services need their own registered types; both
+/// delegate to the one proxy.
+macro_rules! proxy_facet {
+    ($name:ident, $service:literal) => {
+        #[derive(Clone)]
+        pub struct $name(pub RawProxyService);
+
+        impl tonic::server::NamedService for $name {
+            const NAME: &'static str = $service;
+        }
+
+        impl Service<http::Request<BoxBody>> for $name {
+            type Response = http::Response<BoxBody>;
+            type Error = Infallible;
+            type Future = <RawProxyService as Service<http::Request<BoxBody>>>::Future;
+
+            fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+                self.0.poll_ready(cx)
+            }
+
+            fn call(&mut self, req: http::Request<BoxBody>) -> Self::Future {
+                self.0.call(req)
+            }
+        }
+    };
+}
+
+proxy_facet!(
+    IdentityProxyService,
+    "personhog.identity.v1.PersonHogIdentity"
+);
+proxy_facet!(
+    LifecycleProxyService,
+    "personhog.lifecycle.v1.PersonHogLifecycle"
+);
+
 impl RawProxyInner {
     async fn handle(&self, req: http::Request<BoxBody>) -> http::Response<BoxBody> {
         let path = req.uri().path().to_string();
-
-        let method_name = match path.strip_prefix(SERVICE_PREFIX) {
-            Some(m) => m,
-            None => return grpc_error_response(Code::Unimplemented, "unknown service"),
+        let (target, method_name) = match resolve_target(&path) {
+            Ok(resolved) => resolved,
+            Err(response) => return response,
         };
-
-        if !is_known_method(method_name) {
-            return grpc_error_response(
-                Code::Unimplemented,
-                &format!("unknown method: {method_name}"),
-            );
-        }
 
         let method: Arc<str> = Arc::from(method_name);
         let client = current_client_name();
         let caller_tag = current_caller_tag();
         let start = Instant::now();
 
-        let (mut response, backend, channel_call_ms) = match method_name {
-            "UpdatePersonProperties" => {
+        let (mut response, backend, channel_call_ms) = match (target, method_name) {
+            (Target::Identity | Target::Lifecycle, _) => {
+                let (resp, call_ms) = self.raw_proxy_to_identity(req, &path, method.clone()).await;
+                (resp, "identity", call_ms)
+            }
+            (Target::Service, "UpdatePersonProperties") => {
                 let (resp, call_ms) = self
                     .raw_proxy_to_leader(req, "UpdatePersonProperties")
                     .await;
@@ -165,21 +252,21 @@ impl RawProxyInner {
             }
             // Lifecycle fence RPCs: person writes, so they route to the
             // owning leader and share the handoff stash discipline.
-            "FencePerson" => {
+            (Target::Service, "FencePerson") => {
                 let (resp, call_ms) = self.raw_proxy_to_leader(req, "FencePerson").await;
                 (resp, "leader", call_ms)
             }
-            "ReleaseFence" => {
+            (Target::Service, "ReleaseFence") => {
                 let (resp, call_ms) = self.raw_proxy_to_leader(req, "ReleaseFence").await;
                 (resp, "leader", call_ms)
             }
             // The merge saga's document write: leader-routed like every
             // person write.
-            "FoldPersonDocument" => {
+            (Target::Service, "FoldPersonDocument") => {
                 let (resp, call_ms) = self.raw_proxy_to_leader(req, "FoldPersonDocument").await;
                 (resp, "leader", call_ms)
             }
-            "GetPerson" => {
+            (Target::Service, "GetPerson") => {
                 let is_strong = req
                     .headers()
                     .get("x-read-consistency")
@@ -194,7 +281,7 @@ impl RawProxyInner {
                     (resp, "replica", call_ms)
                 }
             }
-            _ => {
+            (Target::Service, _) => {
                 let (resp, call_ms) = self.raw_proxy_to_replica(req, method.clone()).await;
                 (resp, "replica", call_ms)
             }
@@ -279,39 +366,90 @@ impl RawProxyInner {
         method: Arc<str>,
     ) -> (http::Response<BoxBody>, Option<f64>) {
         let (parts, body) = req.into_parts();
-
-        let collect_start = Instant::now();
-        let body_bytes = match collect_body_limited(body, self.max_recv_message_size).await {
+        let body_bytes = match self.collect_body_timed(body, &method).await {
             Ok(b) => b,
             Err(resp) => return (resp, None),
         };
-        let client = current_client_name();
-        histogram!(
-            "personhog_router_body_collect_ms",
-            "method" => method.clone(),
-            "client" => client.clone(),
-        )
-        .record(collect_start.elapsed().as_secs_f64() * 1000.0);
-
         let new_path = format!("{REPLICA_PREFIX}{method}");
 
         let _in_flight = ClientInFlightGuard::new("replica");
-        self.forward_with_retry(&parts, &body_bytes, &new_path, method)
+        self.forward_with_retry(&self.replica, &parts, &body_bytes, &new_path, method)
             .await
+    }
+
+    /// Forward an identity-server request (identity or lifecycle service)
+    /// verbatim: same path, same headers, no routing key. Identity pods are
+    /// interchangeable, so the balanced channel picks one.
+    async fn raw_proxy_to_identity(
+        &self,
+        req: http::Request<BoxBody>,
+        path: &str,
+        method: Arc<str>,
+    ) -> (http::Response<BoxBody>, Option<f64>) {
+        let identity = match &self.identity {
+            Some(backend) => backend,
+            None => {
+                return (
+                    grpc_error_response(
+                        Code::Unimplemented,
+                        "identity backend not configured for this router",
+                    ),
+                    None,
+                )
+            }
+        };
+        // Fail fast rather than park the request on an empty balancer until
+        // the client's deadline.
+        if !identity.has_endpoints() {
+            return (
+                grpc_error_response(Code::Unavailable, "identity backend has no endpoints"),
+                None,
+            );
+        }
+
+        let (parts, body) = req.into_parts();
+        let body_bytes = match self.collect_body_timed(body, &method).await {
+            Ok(b) => b,
+            Err(resp) => return (resp, None),
+        };
+
+        let _in_flight = ClientInFlightGuard::new("identity");
+        self.forward_with_retry(identity, &parts, &body_bytes, path, method)
+            .await
+    }
+
+    /// Buffer the request body under the receive cap, timing the wait. The
+    /// forwarders need the whole body in hand to replay it on a retry.
+    #[allow(clippy::result_large_err)]
+    async fn collect_body_timed(
+        &self,
+        body: BoxBody,
+        method: &Arc<str>,
+    ) -> Result<Bytes, http::Response<BoxBody>> {
+        let collect_start = Instant::now();
+        let body_bytes = collect_body_limited(body, self.max_recv_message_size).await?;
+        histogram!(
+            "personhog_router_body_collect_ms",
+            "method" => method.clone(),
+            "client" => current_client_name(),
+        )
+        .record(collect_start.elapsed().as_secs_f64() * 1000.0);
+        Ok(body_bytes)
     }
 
     async fn forward_with_retry(
         &self,
+        backend: &ChannelBackend,
         parts: &http::request::Parts,
         body_bytes: &Bytes,
-        new_path: &str,
+        path: &str,
         method: Arc<str>,
     ) -> (http::Response<BoxBody>, Option<f64>) {
         let mut delay_ms = self.retry_config.initial_backoff_ms;
         let client = current_client_name();
 
         for attempt in 0..=self.retry_config.max_retries {
-            let mut channel = self.replica.channel();
+            let mut channel = backend.channel();
 
             let ready_start = Instant::now();
             let ready_channel = match channel.ready().await {
@@ -330,7 +468,7 @@ impl RawProxyInner {
                         return (
                             grpc_error_response(
                                 Code::Unavailable,
-                                &format!("replica channel not ready: {e}"),
+                                &format!("{} channel not ready: {e}", backend.role()),
                             ),
                             None,
                         );
@@ -352,10 +490,7 @@ impl RawProxyInner {
 
             let mut req = http::Request::new(body);
             *req.method_mut() = parts.method.clone();
-            *req.uri_mut() = http::Uri::builder()
-                .path_and_query(new_path)
-                .build()
-                .unwrap();
+            *req.uri_mut() = http::Uri::builder().path_and_query(path).build().unwrap();
             *req.version_mut() = parts.version;
             *req.headers_mut() = parts.headers.clone();
 
@@ -386,7 +521,7 @@ impl RawProxyInner {
                         return (
                             grpc_error_response(
                                 Code::Unavailable,
-                                &format!("replica backend error: {e}"),
+                                &format!("{} backend error: {e}", backend.role()),
                             ),
                             None,
                         );
@@ -444,17 +579,10 @@ impl RawProxyInner {
         };
 
         let (parts, body) = req.into_parts();
-        let collect_start = Instant::now();
-        let body_bytes = match collect_body_limited(body, self.max_recv_message_size).await {
+        let body_bytes = match self.collect_body_timed(body, &Arc::from(method)).await {
             Ok(b) => b,
             Err(resp) => return (resp, None),
         };
-        histogram!(
-            "personhog_router_body_collect_ms",
-            "method" => method,
-            "client" => current_client_name(),
-        )
-        .record(collect_start.elapsed().as_secs_f64() * 1000.0);
 
         let partition = leader.partition_for_person(team_id, person_id);
 
@@ -684,52 +812,119 @@ mod tests {
     use futures::stream;
     use http_body_util::{Empty, StreamBody};
 
-    #[test]
-    fn known_method_lookup() {
-        assert!(is_known_method("GetPerson"));
-        assert!(is_known_method("UpdatePersonProperties"));
-        assert!(is_known_method("ListGroups"));
-        assert!(is_known_method("CheckCohortMembership"));
-        assert!(!is_known_method("FakeMethod"));
-        assert!(!is_known_method(""));
-    }
+    const METHOD_LISTS: [(&str, &[&str], &str); 3] = [
+        ("KNOWN_METHODS", KNOWN_METHODS, "service/v1/service.proto"),
+        (
+            "IDENTITY_METHODS",
+            IDENTITY_METHODS,
+            "identity/v1/identity.proto",
+        ),
+        (
+            "LIFECYCLE_METHODS",
+            LIFECYCLE_METHODS,
+            "lifecycle/v1/lifecycle.proto",
+        ),
+    ];
 
-    #[test]
-    fn known_methods_is_sorted() {
-        for window in KNOWN_METHODS.windows(2) {
-            assert!(
-                window[0] < window[1],
-                "KNOWN_METHODS is not sorted: {:?} should come after {:?}",
-                window[0],
-                window[1],
-            );
-        }
-    }
-
-    #[test]
-    fn known_methods_matches_service_proto() {
-        let proto = std::fs::read_to_string(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../proto/personhog/service/v1/service.proto"
-        ))
-        .expect("failed to read service.proto — is the proto directory present?");
-
-        let mut proto_methods: Vec<&str> = proto
+    fn proto_rpc_names(proto_path: &str) -> Vec<String> {
+        let path = format!(
+            "{}/../../proto/personhog/{proto_path}",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let proto =
+            std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("failed to read {path}: {e}"));
+        let mut names: Vec<String> = proto
             .lines()
             .filter_map(|line| {
                 line.trim()
                     .strip_prefix("rpc ")
                     .and_then(|rest| rest.split('(').next())
-                    .map(|name| name.trim())
+                    .map(|name| name.trim().to_string())
             })
             .collect();
-        proto_methods.sort();
+        names.sort();
+        names
+    }
 
-        let known: Vec<&str> = KNOWN_METHODS.to_vec();
+    #[test]
+    fn method_lists_are_sorted() {
+        for (name, list, _) in METHOD_LISTS {
+            for window in list.windows(2) {
+                assert!(
+                    window[0] < window[1],
+                    "{name} is not sorted: {:?} should come after {:?}",
+                    window[0],
+                    window[1],
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn method_lists_match_their_protos() {
+        for (name, list, proto_path) in METHOD_LISTS {
+            assert_eq!(
+                list.to_vec(),
+                proto_rpc_names(proto_path),
+                "{name} is out of sync with {proto_path}: add or remove entries to match"
+            );
+        }
+    }
+
+    #[test]
+    fn prefixes_match_registered_service_names() {
+        use tonic::server::NamedService;
+        assert_eq!(SERVICE_PREFIX, format!("/{}/", RawProxyService::NAME));
+        assert_eq!(IDENTITY_PREFIX, format!("/{}/", IdentityProxyService::NAME));
         assert_eq!(
-            known, proto_methods,
-            "KNOWN_METHODS is out of sync with service.proto — add/remove entries to match"
+            LIFECYCLE_PREFIX,
+            format!("/{}/", LifecycleProxyService::NAME)
         );
+    }
+
+    #[test]
+    fn resolve_target_accepts_listed_methods_on_each_service() {
+        let cases = [
+            (
+                "/personhog.service.v1.PersonHogService/GetPerson",
+                Target::Service,
+                "GetPerson",
+            ),
+            (
+                "/personhog.identity.v1.PersonHogIdentity/GetOrCreatePersonsByDistinctIds",
+                Target::Identity,
+                "GetOrCreatePersonsByDistinctIds",
+            ),
+            (
+                "/personhog.lifecycle.v1.PersonHogLifecycle/DeletePersons",
+                Target::Lifecycle,
+                "DeletePersons",
+            ),
+        ];
+        for (path, target, method) in cases {
+            assert_eq!(resolve_target(path).ok(), Some((target, method)), "{path}");
+        }
+    }
+
+    /// A method is only known on its own service: the facade's methods do
+    /// not leak onto the identity server and vice versa.
+    #[test]
+    fn resolve_target_refuses_unknown_services_and_methods() {
+        let paths = [
+            "/personhog.service.v1.PersonHogService/FakeMethod",
+            "/personhog.service.v1.PersonHogService/",
+            "/personhog.identity.v1.PersonHogIdentity/GetPerson",
+            "/personhog.lifecycle.v1.PersonHogLifecycle/MergePersons",
+            "/personhog.replica.v1.PersonHogReplica/GetPerson",
+        ];
+        for path in paths {
+            let resp = resolve_target(path).expect_err(path);
+            assert_eq!(
+                resp.headers().get("grpc-status").unwrap(),
+                &format!("{}", Code::Unimplemented as i32),
+                "{path}"
+            );
+        }
     }
 
     /// Well-formed routing-key headers yield the `(team_id, person_id)`

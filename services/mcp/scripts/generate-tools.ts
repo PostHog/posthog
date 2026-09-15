@@ -893,44 +893,54 @@ function buildPathExpr(
 // Response filtering templates
 // ------------------------------------------------------------------
 
+type ResponseFilterHelper = 'pickResponseFields' | 'omitResponseFields' | 'stripNullFields'
+
 function buildResponseFilter(config: ToolConfig): {
     code: string
-    helperImport: 'pickResponseFields' | 'omitResponseFields' | null
+    helperImports: ResponseFilterHelper[]
 } {
+    const helperImports: ResponseFilterHelper[] = []
+    // Builds the expression that shapes one item — the whole result for a detail tool, each
+    // `results` entry for a list tool. Starts as identity, so each configured step wraps it.
+    let shapeItem = (target: string): string => target
+
     if (config.response?.include?.length) {
-        const paths = config.response?.include.map((f) => `'${f}'`).join(', ')
+        const paths = config.response.include.map((f) => `'${f}'`).join(', ')
         // `selectable` lets the agent pass `fields` to narrow the allowlist per call; the Zod
         // `z.enum(...).min(1)` on the schema already constrains `fields` to a non-empty subset of
         // `include`, so an absent `fields` falls back to the full allowlist (an empty array is
         // rejected at validation) and no separate intersection is needed.
-        const pathsExpr = config.response?.selectable
+        const pathsExpr = config.response.selectable
             ? `params.fields?.length ? params.fields : [${paths}]`
             : `[${paths}]`
-        if (config.list) {
-            return {
-                code: `        const filtered = { ...result, results: (result.results ?? []).map((item: any) => pickResponseFields(item, ${pathsExpr})) } as typeof result\n`,
-                helperImport: 'pickResponseFields',
-            }
-        }
+        helperImports.push('pickResponseFields')
+        shapeItem = (target) => `pickResponseFields(${target}, ${pathsExpr})`
+    } else if (config.response?.exclude?.length) {
+        const paths = config.response.exclude.map((f) => `'${f}'`).join(', ')
+        helperImports.push('omitResponseFields')
+        shapeItem = (target) => `omitResponseFields(${target}, [${paths}])`
+    }
+
+    if (config.response?.strip_nulls) {
+        const inner = shapeItem
+        helperImports.push('stripNullFields')
+        shapeItem = (target) => `stripNullFields(${inner(target)})`
+    }
+
+    if (helperImports.length === 0) {
+        return { code: '', helperImports: [] }
+    }
+
+    if (config.list) {
         return {
-            code: `        const filtered = pickResponseFields(result, ${pathsExpr}) as typeof result\n`,
-            helperImport: 'pickResponseFields',
+            code: `        const filtered = { ...result, results: (result.results ?? []).map((item: any) => ${shapeItem('item')}) } as typeof result\n`,
+            helperImports,
         }
     }
-    if (config.response?.exclude?.length) {
-        const paths = config.response?.exclude.map((f) => `'${f}'`).join(', ')
-        if (config.list) {
-            return {
-                code: `        const filtered = { ...result, results: (result.results ?? []).map((item: any) => omitResponseFields(item, [${paths}])) } as typeof result\n`,
-                helperImport: 'omitResponseFields',
-            }
-        }
-        return {
-            code: `        const filtered = omitResponseFields(result, [${paths}]) as typeof result\n`,
-            helperImport: 'omitResponseFields',
-        }
+    return {
+        code: `        const filtered = ${shapeItem('result')} as typeof result\n`,
+        helperImports,
     }
-    return { code: '', helperImport: null }
 }
 
 /**
@@ -1279,7 +1289,7 @@ function generateToolCode(
             needsWithInformationalResponse,
             toolUtilsValueImports: new Set(
                 [
-                    responseFilter.helperImport,
+                    ...responseFilter.helperImports,
                     config.response?.informational_wrapper && 'withInformationalResponse',
                 ].filter((value): value is string => !!value)
             ),
@@ -1314,9 +1324,10 @@ const ${factoryName} = (): ToolBase<ReturnType<typeof ${schemaName}>, ${resultTy
         hasAgentNote,
         needsWithInformationalResponse,
         toolUtilsValueImports: new Set(
-            [responseFilter.helperImport, config.response?.informational_wrapper && 'withInformationalResponse'].filter(
-                (value): value is string => !!value
-            )
+            [
+                ...responseFilter.helperImports,
+                config.response?.informational_wrapper && 'withInformationalResponse',
+            ].filter((value): value is string => !!value)
         ),
     }
 }
@@ -1619,9 +1630,10 @@ ${handlerBody}    },
         hasAgentNote,
         needsWithInformationalResponse,
         toolUtilsValueImports: new Set(
-            [responseFilter.helperImport, config.response?.informational_wrapper && 'withInformationalResponse'].filter(
-                (value): value is string => !!value
-            )
+            [
+                ...responseFilter.helperImports,
+                config.response?.informational_wrapper && 'withInformationalResponse',
+            ].filter((value): value is string => !!value)
         ),
     }
 }

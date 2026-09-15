@@ -97,6 +97,8 @@ class HogQLContext:
     limit_context: Optional[LimitContext] = None
     # Apply a FORMAT clause to output data in given format.
     output_format: str | None = None
+    emit_top_level_settings: bool = True
+    top_level_settings: dict[str, object] = field(default_factory=dict)
     # Globals that will be resolved in the context of the query
     globals: Optional[dict] = None
     property_type_overrides: Optional[dict[str, str]] = None

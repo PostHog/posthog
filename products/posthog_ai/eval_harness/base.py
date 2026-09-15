@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import orjson
 
+from products.tasks.backend.facade.agents import EVAL_INTERACTION_ORIGIN
+
 from .acp_log import ParsedLog, parse_log
 from .config import AgentArtifacts, BaseEvalCase, SandboxedEvalCase
 from .engines.base import EvalEngine
@@ -264,17 +266,25 @@ class _BaseEvalRun:
                 except Exception:
                     logger.exception("Failed to append scores to local log summary for '%s'", case_name)
 
-        # Emit evaluation events and trace roots to PostHog (after scoring)
-        if self.posthog_client and result.results:
+        evaluation_client = self.ctx.posthog_evaluation_client
+        if not self.no_send_logs and evaluation_client is not None and result.results:
             try:
                 emit_evaluation_events(
-                    self.posthog_client,
+                    evaluation_client,
                     self.experiment_id,
                     self.experiment_name,
                     result.results,
                     namespace=self.trace_namespace,
                     scorer_traces=self.scorer_traces,
                 )
+                await asyncio.to_thread(evaluation_client.flush)
+                await self.ctx.reporter.record_posthog_evaluations_url(self.experiment_name, self.experiment_id)
+            except Exception:
+                logger.exception("Failed to emit evaluation events for '%s'", self.experiment_name)
+
+        # Emit trace roots to PostHog (after scoring)
+        if self.posthog_client and result.results:
+            try:
                 # Emit $ai_trace root events now that scores are available
                 for eval_result in result.results:
                     case_name = eval_result.input.get("name", "") if isinstance(eval_result.input, dict) else ""
@@ -296,10 +306,9 @@ class _BaseEvalRun:
                             scores=eval_result.scores,
                             token_usage=meta.get("token_usage"),
                         )
-                self.posthog_client.flush()
-                await self.ctx.reporter.record_posthog_evaluations_url(self.experiment_name, self.experiment_id)
+                await asyncio.to_thread(self.posthog_client.flush)
             except Exception:
-                logger.exception("Failed to emit evaluation events for '%s'", self.experiment_name)
+                logger.exception("Failed to emit trace roots for '%s'", self.experiment_name)
 
         # Hand the summary to the reporter: suites don't return their Braintrust
         # result up to the orchestrator, so this is the only place the final table
@@ -437,9 +446,17 @@ class _SandboxedEvalRun(_BaseEvalRun):
                 # The factory does Django ORM work. Django's async-safety
                 # guard rejects sync ORM calls from async contexts, so run it
                 # in a worker thread.
-                sandbox_context = await asyncio.to_thread(self._demo_data.make_context, eval_case.name)
+                sandbox_context = await asyncio.to_thread(
+                    self._demo_data.make_context,
+                    eval_case.name,
+                    disable_bundled_skills=(
+                        ctx.skill_delivery == "exec" or bool(original_case and original_case.disable_bundled_skills)
+                    ),
+                )
                 if original_case is not None and original_case.interaction_origin:
                     sandbox_context = replace(sandbox_context, interaction_origin=original_case.interaction_origin)
+                elif ctx.skill_delivery == "exec":
+                    sandbox_context = replace(sandbox_context, interaction_origin=EVAL_INTERACTION_ORIGIN)
                 if original_case is not None and original_case.setup is not None:
                     try:
                         seed_result = await asyncio.to_thread(original_case.setup, sandbox_context)
@@ -563,7 +580,11 @@ class _SandboxedEvalRun(_BaseEvalRun):
         return f"sandboxed-agent-{self.experiment_name}" if self.is_public else self.experiment_name
 
     def _experiment_metadata(self) -> dict[str, Any]:
-        return {"agent_model": self.ctx.agent_model, "agent_runtime": self.ctx.agent_runtime}
+        return {
+            "agent_model": self.ctx.agent_model,
+            "agent_runtime": self.ctx.agent_runtime,
+            "skill_delivery": self.ctx.skill_delivery,
+        }
 
 
 async def SandboxedEval(

@@ -13,6 +13,7 @@ import {
     Welcome,
 } from 'products/posthog_ai/frontend/api/primitives'
 import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
+import { taskRunDefaultsLogic } from 'products/posthog_ai/frontend/logics/taskRunDefaultsLogic'
 import { getRuntimeAdapterForModel, resolveEffortForModel } from 'products/posthog_ai/frontend/utils/composerModels'
 import {
     cycleMode,
@@ -39,6 +40,7 @@ export function TaskComposer(): JSX.Element {
         displayHeadline,
         consentBlocked,
         displayModel,
+        defaultModel,
         displayEffort,
         isDefaultSelection,
         // Permission modes belong to the harness, so they follow the model actually shown — the
@@ -46,6 +48,7 @@ export function TaskComposer(): JSX.Element {
         composerAdapter,
     } = useValues(taskTrackerSceneLogic)
     const { catalogue } = useValues(modelCatalogueLogic)
+    const { myConfigLoading } = useValues(taskRunDefaultsLogic)
 
     // The bound instance's key — 'scene' on `/ai` and `/tasks`, the panel key when embedded. The onboarding
     // takeover is keyed the same way, so a starter prompt chosen on replay reaches this composer.
@@ -117,6 +120,8 @@ export function TaskComposer(): JSX.Element {
                                     <ComposerModelEffortPickers
                                         models={catalogue}
                                         selectedModel={displayModel}
+                                        defaultModel={defaultModel}
+                                        isDefaultModelLoading={myConfigLoading}
                                         selectedEffort={displayEffort}
                                         isDefaultSelection={isDefaultSelection}
                                         onModelChange={(model) =>

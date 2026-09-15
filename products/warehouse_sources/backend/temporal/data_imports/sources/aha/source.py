@@ -146,4 +146,5 @@ Create an API key under **Settings → Personal → Developer → API keys** in 
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            incremental_field=inputs.incremental_field,
         )

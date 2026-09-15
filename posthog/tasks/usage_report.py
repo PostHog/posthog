@@ -49,7 +49,8 @@ from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import DayRange, get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 
-from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
+from products.batch_exports.backend.billing import exclude_non_billable_runs
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from products.cdp.backend.models.plugin import PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -388,6 +389,11 @@ class UsageReportCounters:
     apm_tracing_bytes_in_period: int
     apm_tracing_spans_in_period: int
     apm_tracing_mb_in_period: int
+
+    # Metrics (OTel). Report-only while the product is in alpha — makes per-team ingestion
+    # visible fleet-wide, the same signal logs_records_in_period provides for logs.
+    metrics_records_in_period: int
+    metrics_mb_in_period: int
 
 
 # Instance metadata to be included in overall report
@@ -1743,6 +1749,7 @@ CLOUD_REGION_TO_URL = {
 POSTHOG_AI_PRODUCTS = [
     "posthog_ai",
     "slack_app",
+    "workflows",
     "subscriptions",
     "alert_investigation_agent",
     "product_analytics",
@@ -2106,25 +2113,13 @@ def get_teams_with_free_historical_rows_synced_in_period(begin: datetime, end: d
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_rows_exported_in_period(begin: datetime, end: datetime) -> list:
+    completed_runs = BatchExportRun.objects.filter(
+        finished_at__gte=begin,
+        finished_at__lte=end,
+        status=BatchExportRun.Status.COMPLETED,
+    )
     return list(
-        BatchExportRun.objects.filter(
-            finished_at__gte=begin,
-            finished_at__lte=end,
-            status=BatchExportRun.Status.COMPLETED,
-        )
-        .filter(Q(batch_export__deleted=False) | Q(batch_export_on_demand__deleted=False))
-        .exclude(
-            batch_export__destination__type__in=[
-                BatchExportDestination.Destination.HTTP,
-                BatchExportDestination.Destination.WORKFLOWS,
-            ]
-        )
-        .exclude(
-            batch_export_on_demand__destination__type__in=[
-                BatchExportDestination.Destination.HTTP,
-                BatchExportDestination.Destination.WORKFLOWS,
-            ]
-        )
+        exclude_non_billable_runs(completed_runs)
         .values(team_id=Coalesce(F("batch_export__team_id"), F("batch_export_on_demand__team_id")))
         .annotate(total=Sum("records_completed"))
     )
@@ -2708,6 +2703,44 @@ def get_teams_with_apm_tracing_usage_in_period(
     return usage
 
 
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_metrics_usage_in_period(
+    begin: datetime,
+    end: datetime,
+    # nosemgrep: tuple-return-prefer-dataclass -- (team_id, count) rows are the shared usage-report contract consumed by convert_team_usage_rows_to_dict, like the logs and traces functions above.
+) -> dict[str, list[tuple[int, int]]]:
+    """
+    Returns Metrics (OTel) ingested bytes and record counts per team for the period,
+    keyed by `bytes` / `records`; each value is a list of `(team_id, count)` tuples ready
+    for `convert_team_usage_rows_to_dict`.
+
+    The metrics ingestion consumer emits the same pre-aggregated `app_metrics2` counters
+    as logs and traces, under `app_source='metrics'`.
+    """
+    with tags_context(product=Product.METRICS, feature=Feature.USAGE_REPORT):
+        rows = sync_execute(
+            """
+            SELECT team_id, metric_name, SUM(count) as count
+            FROM app_metrics2
+            WHERE app_source='metrics'
+              AND metric_name IN ('bytes_ingested', 'records_ingested')
+              AND timestamp >= %(begin)s AND timestamp < %(end)s
+            GROUP BY team_id, metric_name
+            """,
+            {"begin": begin, "end": end},
+            workload=Workload.OFFLINE,
+            settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
+        )
+
+    key_by_metric = {"bytes_ingested": "bytes", "records_ingested": "records"}
+    usage: dict[str, list[tuple[int, int]]] = {"bytes": [], "records": []}
+    for team_id, metric_name, count in rows:
+        usage[key_by_metric[metric_name]].append((team_id, count))
+    return usage
+
+
 def _trim_oversize_usage_report_payload(full_report_dict: dict[str, Any]) -> dict[str, Any]:
     """Drop the per-team breakdown when the serialized report would exceed Kafka's
     message size limit, so the org-level roll-up still makes it through ingestion.
@@ -2827,6 +2860,7 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.task_sandbox_seconds_in_period > 0
         or report.logs_bytes_in_period > 0
         or report.apm_tracing_bytes_in_period > 0
+        or report.metrics_records_in_period > 0
         or report.workflow_emails_sent_in_period > 0
         or report.workflow_push_sent_in_period > 0
         or report.workflow_sms_sent_in_period > 0
@@ -2865,6 +2899,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
     logs_retention_by_tier = get_teams_with_logs_retention_bytes_in_period(period_start, period_end)
     logs_retention_byte_days_rows = get_teams_with_logs_retention_byte_days_in_period(period_start, period_end)
     apm_tracing_usage = get_teams_with_apm_tracing_usage_in_period(period_start, period_end)
+    metrics_usage = get_teams_with_metrics_usage_in_period(period_start, period_end)
     exception_metrics_by_library, exception_metrics = get_teams_with_exceptions_captured_in_period(
         period_start, period_end
     )
@@ -3153,6 +3188,8 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_ruby_logs_records_in_period": sdk_logs_by_suffix["ruby"],
         "teams_with_apm_tracing_bytes_in_period": apm_tracing_usage["bytes"],
         "teams_with_apm_tracing_spans_in_period": apm_tracing_usage["spans"],
+        "teams_with_metrics_bytes_in_period": metrics_usage["bytes"],
+        "teams_with_metrics_records_in_period": metrics_usage["records"],
     }
 
 
@@ -3408,6 +3445,8 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         apm_tracing_bytes_in_period=apm_tracing_bytes_in_period,
         apm_tracing_spans_in_period=all_data["teams_with_apm_tracing_spans_in_period"].get(team.id, 0),
         apm_tracing_mb_in_period=int(apm_tracing_bytes_in_period // 1_000_000),
+        metrics_records_in_period=all_data["teams_with_metrics_records_in_period"].get(team.id, 0),
+        metrics_mb_in_period=int(all_data["teams_with_metrics_bytes_in_period"].get(team.id, 0) // 1_000_000),
     )
 
 

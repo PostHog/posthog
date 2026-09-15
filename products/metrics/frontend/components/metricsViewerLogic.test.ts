@@ -21,7 +21,7 @@ import {
     metricsAttributesRetrieve,
     metricsCharacterizeCreate,
     metricsQueryCreate,
-    metricsValuesRetrieve,
+    metricsNamesRetrieve,
 } from 'products/metrics/frontend/generated/api'
 
 import { metricNamePickerLogic } from './metricNamePickerLogic'
@@ -29,7 +29,7 @@ import { metricsViewerLogic } from './metricsViewerLogic'
 
 jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
-    metricsValuesRetrieve: jest.fn(),
+    metricsNamesRetrieve: jest.fn(),
     metricsAttributesRetrieve: jest.fn(),
     metricsQueryCreate: jest.fn(),
     metricsCharacterizeCreate: jest.fn(),
@@ -78,7 +78,7 @@ describe('metricsViewerLogic', () => {
     beforeEach(() => {
         setResourceAccess({})
         initKeaTests()
-        jest.mocked(metricsValuesRetrieve).mockResolvedValue({ results: PICKER_ITEMS })
+        jest.mocked(metricsNamesRetrieve).mockResolvedValue({ results: PICKER_ITEMS })
         jest.mocked(metricsQueryCreate).mockReset().mockResolvedValue({ results: [] })
         jest.mocked(metricsAttributesRetrieve).mockReset()
         jest.mocked(metricsCharacterizeCreate).mockReset()
@@ -643,30 +643,31 @@ describe('metricsViewerLogic', () => {
         expect(logic.values.queryFilters).toEqual([{ key: 'env', op: 'eq', value: 'prod' }])
     })
 
-    // The group-by picker shipped with `options={[]}` and never fetched, so it offered no
-    // attribute keys. Typing must query the attributes endpoint (scoped by search) and map
-    // `{ name }` rows into `{ key, label }` options.
-    it('group-by search fetches attribute keys and maps them into options', async () => {
+    it('group-by search keeps the series counts and order from the selected metric API response', async () => {
         jest.mocked(metricsAttributesRetrieve).mockResolvedValue({
-            results: [{ name: 'env' }, { name: 'service_name' }],
+            results: [
+                { name: 'service_name', series_count: 20 },
+                { name: 'env', series_count: 2 },
+            ],
             count: 2,
         })
+        logic.actions.setMetricName('requests_total')
         await expectLogic(logic, () => {
             logic.actions.setGroupBySearch('e')
         }).toDispatchActions(['loadAttributeKeyOptions', 'loadAttributeKeyOptionsSuccess'])
         expect(metricsAttributesRetrieve).toHaveBeenCalledWith(
             expect.any(String),
-            expect.objectContaining({ search: 'e' })
+            expect.objectContaining({ search: 'e', metricName: 'requests_total' })
         )
         expect(logic.values.attributeKeyOptions).toEqual([
-            { key: 'env', label: 'env' },
-            { key: 'service_name', label: 'service_name' },
+            { key: 'service_name', label: 'service_name', seriesCount: 20 },
+            { key: 'env', label: 'env', seriesCount: 2 },
         ])
     })
 
     it('does not call metrics APIs without metrics viewer access', async () => {
         setResourceAccess({ [AccessControlResourceType.Metrics]: AccessControlLevel.None })
-        jest.mocked(metricsValuesRetrieve).mockClear()
+        jest.mocked(metricsNamesRetrieve).mockClear()
 
         await expectLogic(metricNamePickerLogic, () => {
             metricNamePickerLogic.actions.loadItems({ debounce: true })
@@ -680,7 +681,7 @@ describe('metricsViewerLogic', () => {
             logic.actions.setGroupBySearch('env')
         }).toDispatchActions(['loadAttributeKeyOptionsSuccess'])
 
-        expect(metricsValuesRetrieve).not.toHaveBeenCalled()
+        expect(metricsNamesRetrieve).not.toHaveBeenCalled()
         expect(metricsQueryCreate).not.toHaveBeenCalled()
         expect(metricsAttributesRetrieve).not.toHaveBeenCalled()
     })

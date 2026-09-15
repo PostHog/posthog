@@ -1,14 +1,49 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import { Plus, X } from "@phosphor-icons/react";
 import { Button } from "@posthog/quill";
+import type { TaskChannel } from "@posthog/shared/domain-types";
+import { SpaceSelect } from "@posthog/ui/features/canvas/components/SpaceSelect";
 import { TaskRepositoryChip } from "@posthog/ui/features/canvas/components/TaskRepositoryDialog";
+import { TASK_CHANNELS_QUERY_KEY } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { PromptHistoryDialog } from "@posthog/ui/features/message-editor/components/PromptHistoryDialog";
 import { PromptInput } from "@posthog/ui/features/message-editor/components/PromptInput";
 import { ReasoningLevelSelector } from "@posthog/ui/features/sessions/components/ReasoningLevelSelector";
 import { WorkspaceModeSelect } from "@posthog/ui/features/task-detail/components/WorkspaceModeSelect";
 import { DotPatternBackground } from "@posthog/ui/primitives/DotPatternBackground";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useQueryClient } from "@tanstack/react-query";
+import { type ReactNode, useEffect, useState } from "react";
 import { CommandCenterEmptyCell } from "./CommandCenterPanel";
+
+const spaces = [
+  {
+    id: "space-me",
+    name: "me",
+    channel_type: "personal",
+    system_role: "personal",
+    starred: false,
+    created_at: "2026-08-28T00:00:00.000Z",
+  },
+  {
+    id: "space-growth",
+    name: "growth",
+    channel_type: "public",
+    starred: true,
+    created_at: "2026-08-28T00:00:00.000Z",
+  },
+] satisfies TaskChannel[];
+
+// The space chip reads the shared task-channels query, which has no backend
+// here.
+function SeededSpaces({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
+  const [seeded, setSeeded] = useState(false);
+  useEffect(() => {
+    queryClient.setQueryData(TASK_CHANNELS_QUERY_KEY, spaces);
+    setSeeded(true);
+  }, [queryClient]);
+  return seeded ? children : null;
+}
 
 const modelOption = {
   id: "model",
@@ -53,6 +88,7 @@ function CloudTaskComposer() {
       <DotPatternBackground className="h-[100.333%]" />
       <div className="-translate-1/2 absolute top-1/2 left-1/2 z-1 flex w-[calc(100%-2rem)] max-w-[600px] flex-col gap-2">
         <div className="absolute bottom-full left-0 mb-2 flex min-w-0 items-center gap-1">
+          <SpaceSelect value="space-me" onChange={() => {}} />
           <WorkspaceModeSelect
             value="cloud"
             onChange={() => {}}
@@ -134,9 +170,11 @@ const meta: Meta<typeof StartingCloudTaskComposer> = {
   },
   decorators: [
     (Story) => (
-      <div className="h-[720px] w-[1200px] overflow-hidden border border-gray-6 bg-gray-1">
-        <Story />
-      </div>
+      <SeededSpaces>
+        <div className="h-[720px] w-[1200px] overflow-hidden border border-gray-6 bg-gray-1">
+          <Story />
+        </div>
+      </SeededSpaces>
     ),
   ],
 };

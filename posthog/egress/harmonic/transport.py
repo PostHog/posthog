@@ -1,22 +1,16 @@
 """Harmonic incarnation of the egress transport — async, since the Harmonic client is aiohttp-based
 (``ee/billing/salesforce_enrichment/harmonic_client.py``). It subclasses
-:class:`posthog.egress.transport.transport.AsyncEgressClient`, the aiohttp counterpart to the
-``EgressClient`` base the sync domains (github, logo.dev, Firecrawl, Vapi) use.
+:class:`posthog.egress.transport.transport.AsyncEgressClient`.
 """
 
 from typing import Any
 
 import aiohttp
 
-from posthog.egress.harmonic.limiter import acquire_harmonic
-from posthog.egress.harmonic.observability import record_harmonic_api_exception, record_harmonic_api_response
+from posthog.egress.harmonic.limiter import ACCOUNT_SCOPE_ID, acquire_harmonic
+from posthog.egress.harmonic.observability import harmonic_egress
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import AsyncEgressClient, EgressBudgetExhausted
-
-# Harmonic bills one account-wide budget, so every call carries the same scope. AsyncEgressClient
-# skips its gate entirely on a falsy scope, and Harmonic has no per-caller identity to gate on
-# instead, so this constant is what keeps every Harmonic call gated.
-_ACCOUNT_SCOPE = "default"
 
 
 class HarmonicEgressBudgetExhausted(EgressBudgetExhausted):
@@ -37,19 +31,13 @@ class HarmonicClient(AsyncEgressClient):
     own ``aiohttp.ClientSession`` (``AsyncHarmonicClient`` already manages one via ``async with``,
     matching aiohttp's recommended session-reuse pattern rather than one session per call)."""
 
+    observability = harmonic_egress
+
     def _standard_headers(self) -> dict[str, str]:
         return {"Content-Type": "application/json"}
 
     async def _consume(self, scope: str, priority: Priority, source: str, url: str) -> bool:
         return await acquire_harmonic(priority, source)
-
-    def _record_response(
-        self, response: aiohttp.ClientResponse, *, source: str, scope: str | None, method: str, endpoint: str | None
-    ) -> None:
-        record_harmonic_api_response(response.status, response.headers, source=source, method=method, endpoint=endpoint)
-
-    def _record_exception(self, *, source: str, scope: str | None, method: str, url: str, endpoint: str | None) -> None:
-        record_harmonic_api_exception(source=source, method=method, endpoint=endpoint)
 
     def _budget_exhausted_error(self, scope: str) -> HarmonicEgressBudgetExhausted:
         return HarmonicEgressBudgetExhausted("Harmonic egress budget exhausted; degrading")
@@ -72,12 +60,15 @@ async def harmonic_request(
     """Make a gated, recorded Harmonic request on an existing session. ``source`` attributes the
     call to a subsystem; callers own auth (the ``apikey`` header, never a URL query param — a
     URL-borne key leaks into aiohttp exception telemetry)."""
+    # Harmonic bills one account-wide budget, so every call carries the same scope. AsyncEgressClient
+    # skips its gate entirely on a falsy scope, and Harmonic has no per-caller identity to gate on
+    # instead, so this constant is what keeps every Harmonic call gated.
     return await _harmonic_client.request(
         session,
         method,
         url,
         source=source,
-        scope=_ACCOUNT_SCOPE,
+        scope=ACCOUNT_SCOPE_ID,
         priority=priority,
         endpoint=endpoint,
         headers=headers,

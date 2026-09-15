@@ -258,7 +258,13 @@ async def _merge_snapshot_files(s3_client, file_keys: list[str]) -> dict[str, st
     them oldest-first). Decodes off the event loop so a large parquet can't starve the heartbeater."""
     hashes: dict[str, str] = {}
     for key in file_keys:
-        data = await s3_client._cat_file(_s3_uri(key))
+        try:
+            data = await s3_client._cat_file(_s3_uri(key))
+        except FileNotFoundError:
+            # A concurrent _write_snapshot_hashes compacted this file into a new one and deleted it
+            # after we listed the folder but before we read it. Its rows survive in that new file (or
+            # whichever one replaces it next run) — skip rather than fail the whole read.
+            continue
         for record in await asyncio.to_thread(_decode_parquet_rows, data):
             hashes[record["distinct_id"]] = record["sent_hash"]
     return hashes

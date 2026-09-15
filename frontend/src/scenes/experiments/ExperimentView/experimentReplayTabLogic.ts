@@ -183,6 +183,8 @@ export interface ExperimentRecordingsListEmptyContext {
     retentionWindowDays: number
     /** Null when the list holds every variant. */
     variantKey: string | null
+    /** End of the window the applied metric filter scanned. Null when no filter is applied. */
+    scannedWindowEnd: string | null
 }
 
 /**
@@ -320,6 +322,7 @@ export interface experimentReplayTabLogicValues {
     playlistFilters: RecordingUniversalFilters | null
     playlistHeldForChecks: boolean
     recordingsFilters: RecordingUniversalFilters
+    scannedWindowEnd: string | null
     selectedMetricUuids: string[]
     selectedVariantKey: string | null
     selectedWatchCard: ExperimentWatchCardApi | null
@@ -612,6 +615,10 @@ export interface experimentReplayTabLogicMeta {
             playlistFilters: RecordingUniversalFilters | null,
             recordingsFilters: RecordingUniversalFilters
         ) => boolean
+        scannedWindowEnd: (
+            bucketSessionIds: string[] | undefined,
+            sessionBucket: ExperimentSessionBucket | null
+        ) => string | null
         listEmptyReason: (
             currentTeam: TeamPublicType | TeamType | null,
             bucketSessionIds: string[] | undefined,
@@ -620,11 +627,13 @@ export interface experimentReplayTabLogicMeta {
             recordingsFilters: RecordingUniversalFilters,
             effectiveVariantKey: string | null,
             effectiveExposureScope: ExperimentReplayExposureScope,
+            scannedWindowEnd: string | null,
             arg: any
         ) => ExperimentReplayListEmptyReason
         listEmptyContext: (
             currentTeam: TeamPublicType | TeamType | null,
             effectiveVariantKey: string | null,
+            scannedWindowEnd: string | null,
             arg: any
         ) => ExperimentRecordingsListEmptyContext
         filterContext: (
@@ -1153,6 +1162,16 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                     !!playlistFilters.filter_test_accounts !== !!recordingsFilters.filter_test_accounts),
         ],
         /**
+         * The end of the window the applied metric filter scanned, and null when no filter narrows
+         * the list. The endpoint anchors that window on the last exposure captured in a session, so
+         * on an experiment whose exposures stopped it sits well behind the end of the run.
+         */
+        scannedWindowEnd: [
+            (s) => [s.bucketSessionIds, s.sessionBucket],
+            (bucketSessionIds: string[] | undefined, sessionBucket: ExperimentSessionBucket | null): string | null =>
+                bucketSessionIds !== undefined ? (sessionBucket?.response.date_to ?? null) : null,
+        ],
+        /**
          * The cause to name when the list comes back with nothing, first match wins. The order is
          * cheapest-and-most-certain first: a project with replay off can have no recordings at all,
          * while the window and retention reasons only say that the recordings the window would have
@@ -1170,6 +1189,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 s.recordingsFilters,
                 s.effectiveVariantKey,
                 s.effectiveExposureScope,
+                s.scannedWindowEnd,
                 (_, props) => props.experiment,
             ],
             (
@@ -1180,6 +1200,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 recordingsFilters: RecordingUniversalFilters,
                 effectiveVariantKey: string | null,
                 effectiveExposureScope: ExperimentReplayExposureScope,
+                scannedWindowEnd: string | null,
                 experiment: Experiment
             ): ExperimentReplayListEmptyReason => {
                 if (!currentTeam?.session_recording_opt_in) {
@@ -1192,16 +1213,20 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 // nothing, because it must never widen the list back out. Told apart here rather
                 // than left to a join against `experiment recordings bucket failed`, so a broken
                 // endpoint can't inflate the count of filters that legitimately match nothing.
-                if (bucketSessionIds?.length === 0) {
-                    return sessionBucketError !== null
-                        ? ExperimentReplayListEmptyReason.MetricFilterFailed
-                        : ExperimentReplayListEmptyReason.MetricFilterMatchedNothing
+                if (bucketSessionIds?.length === 0 && sessionBucketError !== null) {
+                    return ExperimentReplayListEmptyReason.MetricFilterFailed
                 }
                 const retention = retentionDays(currentTeam.session_recording_retention_period)
                 const daysSinceStart = dayjs().diff(dayjs(experiment.start_date), 'day')
-                const daysSinceEnd = daysSince(experiment.end_date)
-                if (daysSinceEnd !== null && daysSinceEnd > retention) {
+                // Read against the window the list covers rather than the run: a metric filter
+                // stops at the last in-session exposure, so on an experiment whose exposures
+                // stopped every session it finds can predate retention, which no filter can fix.
+                const daysSinceWindowEnd = daysSince(scannedWindowEnd ?? experiment.end_date)
+                if (daysSinceWindowEnd !== null && daysSinceWindowEnd > retention) {
                     return ExperimentReplayListEmptyReason.EndedPastRetention
+                }
+                if (bucketSessionIds?.length === 0) {
+                    return ExperimentReplayListEmptyReason.MetricFilterMatchedNothing
                 }
                 if (daysSinceStart < TOO_EARLY_DAYS) {
                     return ExperimentReplayListEmptyReason.TooEarly
@@ -1228,16 +1253,18 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             },
         ],
         listEmptyContext: [
-            (s) => [s.currentTeam, s.effectiveVariantKey, (_, props) => props.experiment],
+            (s) => [s.currentTeam, s.effectiveVariantKey, s.scannedWindowEnd, (_, props) => props.experiment],
             (
                 currentTeam: TeamPublicType | TeamType | null,
                 effectiveVariantKey: string | null,
+                scannedWindowEnd: string | null,
                 experiment: Experiment
             ): ExperimentRecordingsListEmptyContext => ({
                 daysSinceStart: daysSince(experiment.start_date),
                 endDate: experiment.end_date ?? null,
                 retentionWindowDays: retentionDays(currentTeam?.session_recording_retention_period),
                 variantKey: effectiveVariantKey,
+                scannedWindowEnd,
             }),
         ],
         // What the list was narrowed by, shared by the opened-recording and list-rendered reports so
@@ -1374,9 +1401,9 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             },
         ],
         /**
-         * Null whenever the client-side event filters express the question exactly, so the list
-         * keeps its uncapped path: no metric selected, and any "fired all" of several metrics
-         * (ANDing filters is the one thing a recordings query can do).
+         * Null whenever the tab has no server-side set to ask for, so the list keeps its uncapped
+         * path: no metric selected in any mode, and any "fired all" of several metrics (ANDing
+         * filters is the one thing a recordings query can do).
          *
          * One selected metric is the interesting case. "Fired all of it" and "fired any of it"
          * are the same question, so both take the same path — the client filter when the metric
@@ -1400,13 +1427,17 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 if (metricFilterMode === 'funnel_dropoff') {
                     return effectiveMetricUuids.length === 1 ? request('funnel_dropoff') : null
                 }
-                if (metricFilterMode === 'no_metric_activity') {
-                    // Absence without a selection legitimately means every matchable metric.
-                    return request('no_metric_activity')
-                }
                 if (effectiveMetricUuids.length === 0) {
-                    // "Fired any of nothing" has no answer.
+                    // No mode narrows the list on an empty selection. The endpoint does read an
+                    // empty metric list as "every matchable metric", but the checkboxes stay
+                    // unticked while it does, so the list would answer a question the menu never
+                    // shows.
                     return null
+                }
+                if (metricFilterMode === 'no_metric_activity') {
+                    // Absence is the one question a recordings query can't express at all, however
+                    // few events the selected metrics count.
+                    return request('no_metric_activity')
                 }
                 if (effectiveMetricUuids.length > 1) {
                     return metricFilterMode === 'fired_any' ? request('fired_any') : null

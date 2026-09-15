@@ -1,4 +1,11 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
+import {
+  DEEPSEEK_MODEL_FLAG,
+  GLM_MODEL_FLAG,
+  GLM53_FLASH_MODEL_FLAG,
+  GLM53_MODEL_FLAG,
+  KIMI_MODEL_FLAG,
+} from "@posthog/shared";
 import { describe, expect, it } from "vitest";
 import {
   type ModelRolloutFlags,
@@ -7,27 +14,29 @@ import {
 } from "./modelOptionFilters";
 
 describe("modelOptionFilters", () => {
-  const rolloutModels: {
-    flag: keyof ModelRolloutFlags;
-    id: string;
-    name: string;
-  }[] = [
+  // The flag beside each id is the one the catalog records for it, so a case fails if the
+  // two ever disagree about which flag gates the model.
+  const rolloutModels: { flag: string; id: string; name: string }[] = [
     {
-      flag: "deepseek",
+      flag: DEEPSEEK_MODEL_FLAG,
       id: "deepseek-ai/deepseek-v4-flash-0731",
       name: "DeepSeek V4 Flash",
     },
-    { flag: "glm", id: "@cf/zai-org/glm-5.2", name: "GLM-5.2" },
-    { flag: "glm53", id: "zai-org/glm-5.3", name: "GLM-5.3" },
-    { flag: "glm53Flash", id: "zai-org/glm-5.3-flash", name: "GLM-5.3 Flash" },
-    { flag: "kimi", id: "moonshotai/kimi-k3", name: "Kimi K3" },
+    { flag: GLM_MODEL_FLAG, id: "@cf/zai-org/glm-5.2", name: "GLM-5.2" },
+    { flag: GLM53_MODEL_FLAG, id: "zai-org/glm-5.3", name: "GLM-5.3" },
+    {
+      flag: GLM53_FLASH_MODEL_FLAG,
+      id: "zai-org/glm-5.3-flash",
+      name: "GLM-5.3 Flash",
+    },
+    { flag: KIMI_MODEL_FLAG, id: "moonshotai/kimi-k3", name: "Kimi K3" },
   ];
   const enabledFlags: ModelRolloutFlags = {
-    deepseek: true,
-    glm: true,
-    glm53: true,
-    glm53Flash: true,
-    kimi: true,
+    [DEEPSEEK_MODEL_FLAG]: true,
+    [GLM_MODEL_FLAG]: true,
+    [GLM53_MODEL_FLAG]: true,
+    [GLM53_FLASH_MODEL_FLAG]: true,
+    [KIMI_MODEL_FLAG]: true,
   };
 
   it.each(rolloutModels)(
@@ -73,7 +82,10 @@ describe("modelOptionFilters", () => {
     };
 
     expect(
-      stripDisabledModelOption(option, { ...enabledFlags, kimi: false }),
+      stripDisabledModelOption(option, {
+        ...enabledFlags,
+        [KIMI_MODEL_FLAG]: false,
+      }),
     ).toMatchObject({
       currentValue: "claude-opus-5",
       options: [{ group: "anthropic" }],

@@ -1,1 +1,1 @@
-0004_squash_2026_09_07_schema_addons
+0005_alter_teamtracingconfig_team_and_more

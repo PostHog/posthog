@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 
 from django.db import transaction
 from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
+from django.utils import timezone
 
 import posthoganalytics
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, extend_schema_view
@@ -35,6 +36,7 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.email import is_email_available
 from posthog.event_usage import get_request_analytics_properties
+from posthog.exceptions import as_drf_validation_error
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.trigram_search import (
     MAX_SEARCH_LENGTH,
@@ -43,6 +45,7 @@ from posthog.helpers.trigram_search import (
     drop_similar_when_exact_exists,
 )
 from posthog.models import User
+from posthog.models.integration import Integration
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.permissions import get_authenticator_scopes
@@ -58,8 +61,6 @@ from posthog.tasks.alerts.utils import (
 )
 from posthog.utils import relative_date_parse
 
-from products.alerts.backend.destination_configs import DestinationType
-from products.alerts.backend.destinations import count_active_alert_destinations
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
 from products.alerts.backend.evaluation.validation import (
@@ -67,6 +68,22 @@ from products.alerts.backend.evaluation.validation import (
     should_default_check_ongoing_interval,
     validate_alert_config,
 )
+from products.alerts.backend.facade.api import INSIGHT_ALERT_DESTINATION_TYPES, INSIGHT_ALERT_EVENT_IDS
+from products.alerts.backend.facade.contracts import (
+    AlertDestinationData,
+    AlertDestinationValidationError,
+    DestinationType,
+)
+from products.alerts.backend.facade.destinations import (
+    MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
+    MAX_DESTINATIONS_PER_ALERT,
+    build_insight_alert_slack_config,
+    count_active_alert_destinations,
+    create_alert_destination_hog_functions,
+    soft_delete_alert_destinations,
+    validate_destination_data,
+)
+from products.alerts.backend.facade.scheduling import validate_and_normalize_schedule_start_time
 from products.alerts.backend.insight_alert_state_machine import (
     apply_disable,
     apply_enable,
@@ -75,10 +92,8 @@ from products.alerts.backend.insight_alert_state_machine import (
     apply_unsnooze,
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
-from products.alerts.backend.presentation.views.alert_schedule_restriction import AlertScheduleRestriction
+from products.alerts.backend.presentation.views.schedule_restriction import AlertScheduleRestriction
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
-
-INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
 
 
 def _validate_interval_entitlement(
@@ -447,6 +462,11 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         required=False,
         help_text="How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.",
     )
+    schedule_start_time = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Local time that starts alert checks in HH:MM format. Updating this value recalculates the next check. Set null to remove the custom start time.",
+    )
     snoozed_until = RelativeDateTimeField(
         allow_null=True,
         required=False,
@@ -509,6 +529,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             "enabled",
             "last_notified_at",
             "last_checked_at",
+            "schedule_start_time",
             "next_check_at",
             "checks",
             "checks_total",
@@ -555,6 +576,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         )
         return threshold_instance
 
+    @transaction.atomic
     def create(self, validated_data: dict) -> AlertConfiguration:
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
@@ -574,6 +596,9 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             validated_data["threshold"] = threshold_instance
 
         instance: AlertConfiguration = super().create(validated_data)
+        if instance.schedule_start_time is not None:
+            instance.next_check_at = next_check_at_after_schedule_restriction_change(instance)
+            instance.save(update_fields=["next_check_at"])
 
         for user in subscribed_users:
             AlertSubscription.objects.create(
@@ -588,9 +613,11 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
 
     @transaction.atomic
     def update(self, instance, validated_data):
+        instance = AlertConfiguration.objects.select_for_update().get(pk=instance.pk)
         enabled_changed = "enabled" in validated_data and validated_data["enabled"] != instance.enabled
         resulting_enabled = validated_data.get("enabled", instance.enabled)
-        if enabled_changed and validated_data["enabled"]:
+        enable_now = enabled_changed and validated_data["enabled"]
+        if enable_now:
             apply_enable(instance)
 
         snoozed_until_param = validated_data.pop("snoozed_until", serializers.empty)
@@ -630,14 +657,21 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                     user=user, alert_configuration=instance, defaults={"created_by": self.context["request"].user}
                 )
 
+        evaluation_changed = conditions_or_threshold_changed or any(
+            validated_data.get(field, getattr(instance, field)) != getattr(instance, field)
+            for field in ("condition", "config", "skip_weekend")
+        )
         calculation_interval_changed = (
             "calculation_interval" in validated_data
             and validated_data["calculation_interval"] != instance.calculation_interval
         )
-        if conditions_or_threshold_changed or calculation_interval_changed:
-            if conditions_or_threshold_changed:
+        if enable_now or evaluation_changed or calculation_interval_changed:
+            if evaluation_changed:
                 apply_threshold_change(instance)
-            instance.next_check_at = None
+            # Keep the due timestamp so the scheduler metric can measure a
+            # recheck that remains unhandled. Null is reserved for a brand-new
+            # alert that has never had a scheduling timestamp.
+            instance.next_check_at = timezone.now()
 
         if snooze_changed:
             instance.snoozed_until = snoozed_until
@@ -660,13 +694,16 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             )
 
         schedule_restriction_changed = False
+        schedule_start_time_changed = False
         if "schedule_restriction" in validated_data:
             new_sr = validated_data["schedule_restriction"]
             if new_sr != instance.schedule_restriction:
                 schedule_restriction_changed = True
+        if "schedule_start_time" in validated_data:
+            schedule_start_time_changed = validated_data["schedule_start_time"] != instance.schedule_start_time
 
         instance = super().update(instance, validated_data)
-        if schedule_restriction_changed:
+        if schedule_restriction_changed or schedule_start_time_changed:
             instance.next_check_at = next_check_at_after_schedule_restriction_change(instance)
             instance.save(update_fields=["next_check_at"])
 
@@ -675,6 +712,12 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             analytics_props=get_request_analytics_properties(self.context["request"]),
         )
         return instance
+
+    def validate_schedule_start_time(self, value: str | None) -> str | None:
+        try:
+            return validate_and_normalize_schedule_start_time(value)
+        except ValueError:
+            raise serializers.ValidationError("Invalid schedule start time.")
 
     def validate_detector_config(self, value):
         if value is None:
@@ -1026,6 +1069,56 @@ class AlertTestDeliveryResponseSerializer(serializers.Serializer):
     )
 
 
+class AlertCreateDestinationSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=INSIGHT_ALERT_DESTINATION_TYPES,
+        default=DestinationType.SLACK,
+        help_text="Destination type. Slack is the only type this endpoint creates.",
+    )
+    slack_workspace_id = serializers.IntegerField(
+        help_text="Integration ID of the Slack workspace to post in. List them with the integrations endpoint."
+    )
+    slack_channel_id = serializers.CharField(help_text="Slack channel ID to post in, for example C0123456789.")
+    slack_channel_name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Channel name shown on the destination, for example product-alerts.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        data = cast(AlertDestinationData, attrs)
+        data["type"] = DestinationType(attrs["type"])
+        try:
+            validate_destination_data(data, allowed_destination_types=INSIGHT_ALERT_DESTINATION_TYPES)
+        except AlertDestinationValidationError as error:
+            if error.field:
+                raise ValidationError({error.field: error.message})
+            raise ValidationError(error.message)
+
+        # The runtime refuses another team's integration anyway, so without this the destination
+        # is created and then silently never posts.
+        team = self.context["get_team"]()
+        if not Integration.objects.filter(team=team, id=attrs["slack_workspace_id"], kind="slack").exists():
+            raise ValidationError({"slack_workspace_id": "Connect this Slack workspace to PostHog first."})
+        return attrs
+
+
+class AlertDestinationResponseSerializer(serializers.Serializer):
+    hog_function_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="IDs of the created destination. Pass them to destinations/delete to remove it.",
+    )
+
+
+class AlertDeleteDestinationSerializer(serializers.Serializer):
+    hog_function_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        min_length=1,
+        max_length=MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
+        help_text="Destination IDs to delete, as returned when the destination was created.",
+    )
+
+
 class AlertListFiltersSerializer(serializers.Serializer):
     insight_tag = serializers.CharField(required=False, max_length=255)
     has_detector = OptionalBooleanField(required=False)
@@ -1285,7 +1378,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         destination_count = count_active_alert_destinations(
             team_id=alert.team_id,
             alert_id=str(alert.id),
-            allowed_event_ids=(INSIGHT_ALERT_FIRING_EVENT,),
+            allowed_event_ids=INSIGHT_ALERT_EVENT_IDS,
         )
         email_targets = alert.get_subscribed_users_emails()
         if destination_count == 0 and not email_targets:
@@ -1350,6 +1443,87 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             },
             status=status.HTTP_202_ACCEPTED,
         )
+
+    @extend_schema(
+        request=AlertCreateDestinationSerializer,
+        responses={201: AlertDestinationResponseSerializer},
+        description=(
+            "Send this alert to a Slack channel as well as by email. The workspace must already be "
+            "connected to the project. The returned IDs identify the destination."
+        ),
+    )
+    @action(detail=True, methods=["POST"], url_path="destinations", required_scopes=["alert:write"])
+    def create_destination(self, request, *args, **kwargs):
+        alert = self.get_object()
+        serializer = AlertCreateDestinationSerializer(data=request.data, context=self.get_serializer_context())
+        serializer.is_valid(raise_exception=True)
+        data = cast(AlertDestinationData, serializer.validated_data)
+
+        existing = count_active_alert_destinations(
+            team_id=self.team_id, alert_id=str(alert.id), allowed_event_ids=INSIGHT_ALERT_EVENT_IDS
+        )
+        if existing >= MAX_DESTINATIONS_PER_ALERT:
+            raise ValidationError(
+                f"This alert already has {MAX_DESTINATIONS_PER_ALERT} destinations. Remove one to add another."
+            )
+
+        try:
+            hog_function_ids = create_alert_destination_hog_functions(
+                [build_insight_alert_slack_config(alert_id=str(alert.id), alert_name=alert.name, data=data)],
+                team_id=alert.team_id,
+                created_by_id=request.user.id,
+                alert_id=str(alert.id),
+                allowed_event_ids=INSIGHT_ALERT_EVENT_IDS,
+            )
+        except AlertDestinationValidationError as error:
+            raise as_drf_validation_error(error)
+
+        posthoganalytics.capture(
+            distinct_id=str(request.user.distinct_id),
+            event="insight alert destination created",
+            properties={
+                **get_request_analytics_properties(request),
+                "alert_id": str(alert.id),
+                "team_id": alert.team_id,
+                "type": data["type"],
+            },
+        )
+        response = AlertDestinationResponseSerializer({"hog_function_ids": list(hog_function_ids)})
+        return Response(response.data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        request=AlertDeleteDestinationSerializer,
+        responses={204: None},
+        description="Stop sending this alert to a destination. The alert keeps its email recipients.",
+    )
+    @action(detail=True, methods=["POST"], url_path="destinations/delete", required_scopes=["alert:write"])
+    def delete_destination(self, request, *args, **kwargs):
+        alert = self.get_object()
+        serializer = AlertDeleteDestinationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        hog_function_ids = serializer.validated_data["hog_function_ids"]
+
+        try:
+            soft_delete_alert_destinations(
+                team_id=self.team_id,
+                alert_id=str(alert.id),
+                allowed_event_ids=INSIGHT_ALERT_EVENT_IDS,
+                hog_function_ids=hog_function_ids,
+            )
+        except AlertDestinationValidationError as error:
+            raise as_drf_validation_error(error)
+
+        posthoganalytics.capture(
+            distinct_id=str(request.user.distinct_id),
+            event="insight alert destination deleted",
+            properties={
+                **get_request_analytics_properties(request),
+                "alert_id": str(alert.id),
+                "count": len(hog_function_ids),
+                "team_id": alert.team_id,
+            },
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
         request=AlertSimulateSerializer,

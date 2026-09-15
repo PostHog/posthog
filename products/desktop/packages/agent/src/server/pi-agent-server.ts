@@ -649,6 +649,10 @@ export class PiAgentServer {
       task_prewarmed: taskRun ? runState?.prewarmed === true : null,
       ai_stage:
         typeof runState?.ai_stage === "string" ? runState.ai_stage : null,
+      ai_agent_name:
+        typeof runState?.ai_agent_name === "string"
+          ? runState.ai_agent_name
+          : null,
       task_execution_environment: "cloud",
     });
 
@@ -667,6 +671,10 @@ export class PiAgentServer {
         apiUrl: this.config.apiUrl,
         projectId: this.config.projectId,
         apiKey: this.config.apiKey,
+        interactionOrigin:
+          process.env.POSTHOG_CODE_INTERACTION_ORIGIN ??
+          process.env.CODE_INTERACTION_ORIGIN ??
+          process.env.TWIG_INTERACTION_ORIGIN,
       },
       runtimeMcpServers,
       mcpToolPolicies: mcpConfiguration.policies,
