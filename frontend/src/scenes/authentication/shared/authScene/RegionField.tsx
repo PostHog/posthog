@@ -138,6 +138,7 @@ export function RegionField(): JSX.Element | null {
                 </LemonLabel>
                 <LemonSelect<Region>
                     id={selectId}
+                    aria-label={`Data region: ${activeRegionLabel}`}
                     value={activeRegion}
                     options={options}
                     fullWidth

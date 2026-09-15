@@ -43,6 +43,14 @@ describe('RegionField', () => {
         expect(await screen.findByText('European Union')).toBeInTheDocument()
     })
 
+    it('names the region select with the field and the selected region', () => {
+        render(<RegionField />)
+
+        const trigger = screen.getByText('United States').closest('button') as HTMLElement
+
+        expect(trigger).toHaveAccessibleName('Data region: United States')
+    })
+
     it('says so when the region already in use is picked again', async () => {
         const user = userEvent.setup()
         render(<RegionField />)
