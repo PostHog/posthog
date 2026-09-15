@@ -693,6 +693,13 @@ export const getAnnotationsFilter = (query: InsightQueryNode): AnnotationsFilter
 export const isAnnotationsFilterActive = (filter: AnnotationsFilter | null | undefined): boolean =>
     !!(filter?.hiddenEmojis?.length || filter?.hideWithoutEmoji || filter?.search)
 
+export const normalizeAnnotationsFilter = (filter: AnnotationsFilter): AnnotationsFilter | undefined => {
+    const hiddenEmojis = filter.hiddenEmojis?.length ? filter.hiddenEmojis : undefined
+    const hideWithoutEmoji = filter.hideWithoutEmoji || undefined
+    const search = filter.search?.trim() || undefined
+    return hiddenEmojis || hideWithoutEmoji || search ? { hiddenEmojis, hideWithoutEmoji, search } : undefined
+}
+
 export const getShowLabelsOnSeries = (query: InsightQueryNode): boolean | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.showLabelsOnSeries
