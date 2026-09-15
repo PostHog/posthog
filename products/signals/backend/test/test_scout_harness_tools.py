@@ -18,6 +18,7 @@ import pytest_asyncio
 from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
+from posthog.settings.signals import _parse_team_ids
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission, SignalScoutRun, SignalScratchpad
@@ -2020,3 +2021,19 @@ class TestAuditsRemainingForRun:
     )
     def test_reports_what_is_left(self, _name: str, metadata, expected: int) -> None:
         assert audits_remaining_for_run(metadata) == expected
+
+
+class TestParseTeamIds:
+    @parameterized.expand(
+        [
+            ("plain", "1,2", {1, 2}),
+            ("padded_and_trailing_comma", " 1 , 2, ", {1, 2}),
+            ("word", "all", set()),
+            # A settings-import ValueError takes down web, worker and migrations, so every
+            # malformed spelling has to lose the capability rather than the deployment.
+            ("double_sign", "--1,7", {7}),
+            ("longer_than_the_int_digit_limit", "9" * 5000, set()),
+        ]
+    )
+    def test_keeps_the_deployment_alive(self, _name: str, raw: str, expected: set[int]) -> None:
+        assert _parse_team_ids(raw) == expected
