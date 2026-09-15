@@ -537,17 +537,44 @@ class TestLLMSkillAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("read_scope_allowed", ["llm_skill:read"], status.HTTP_200_OK),
-            ("unrelated_scope_denied", ["dashboard:read"], status.HTTP_403_FORBIDDEN),
+            (f"{endpoint}_{auth_method}_{label}", path, auth_method, scopes, expected_status)
+            for endpoint, path in [
+                ("search", "search?query=scope"),
+                ("skill_md", "name/scope-search-skill/skill-md"),
+            ]
+            for auth_method in ["personal_key", "oauth"]
+            for label, scopes, expected_status in [
+                ("read_scope_allowed", ["llm_skill:read"], status.HTTP_200_OK),
+                ("unrelated_scope_denied", ["dashboard:read"], status.HTTP_403_FORBIDDEN),
+            ]
         ]
     )
-    def test_search_skills_pak_scope_end_to_end(self, _label, scopes, expected_status):
+    def test_skill_read_scope_end_to_end(self, _label, path, auth_method, scopes, expected_status):
         self.create_skill(name="scope-search-skill")
-        api_key = self.create_personal_api_key_with_scopes(scopes)
+        if auth_method == "personal_key":
+            token = self.create_personal_api_key_with_scopes(scopes)
+        else:
+            app = OAuthApplication.objects.create(
+                name="Skill read scope test",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                algorithm="RS256",
+                redirect_uris="https://example.com/callback",
+                organization=self.organization,
+                user=self.user,
+            )
+            token = OAuthAccessToken.objects.create(
+                user=self.user,
+                application=app,
+                token="pha_skill_read_scope_test",
+                scope=" ".join(scopes),
+                expires=timezone.now() + timedelta(hours=1),
+                scoped_teams=[self.team.id],
+            ).token
         self.client.logout()
-        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
-        response = self.client.get(self._url("search?query=scope"))
+        response = self.client.get(self._url(path))
 
         assert response.status_code == expected_status
 

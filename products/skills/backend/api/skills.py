@@ -63,7 +63,6 @@ from ..marketplace.packaging import (
     frontmatter_document,
     parse_skill_zip,
     render_skill_md,
-    validate_for_export,
 )
 from ..models.skills import LLMSkill, LLMSkillFile
 from .community_publish_services import (
@@ -1027,7 +1026,12 @@ class LLMSkillViewSet(
         parameters=[LLMSkillFetchQuerySerializer],
         responses={200: LLMSkillMarkdownSerializer},
     )
-    @action(methods=["GET"], detail=False, url_path=r"name/(?P<skill_name>[^/]+)/skill-md")
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path=r"name/(?P<skill_name>[^/]+)/skill-md",
+        required_scopes=["llm_skill:read"],
+    )
     @llma_track_latency("llma_skills_skill_md")
     @monitor(feature=None, endpoint="llma_skills_skill_md", method="GET")
     def skill_md(self, request: Request, skill_name: str = "", **kwargs) -> Response:
