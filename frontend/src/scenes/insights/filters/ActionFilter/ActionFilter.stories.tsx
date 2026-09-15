@@ -1,6 +1,4 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { waitFor } from '@testing-library/dom'
-import userEvent from '@testing-library/user-event'
 import { BindLogic, useMountedLogic, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
@@ -209,20 +207,8 @@ export const AutocaptureWithSaveAsAction: Story = {
     render: renderAutocaptureFilter,
     args: {},
     parameters: {
+        // The series carries property filters, so the panel and its banner render without a click
         testOptions: { waitForSelector: '[data-attr="autocapture-save-as-action"]' },
-    },
-    play: async ({ canvasElement }) => {
-        const filterToggle = await waitFor(
-            () => {
-                const button = canvasElement.querySelector<HTMLElement>('[data-attr="show-prop-filter-0"]')
-                if (!button) {
-                    throw new Error('Filters button not yet rendered')
-                }
-                return button
-            },
-            { timeout: 2000 }
-        )
-        await userEvent.click(filterToggle)
     },
 }
 

@@ -347,6 +347,7 @@ export function ActionFilterGroup({
                             nestedIndex: eventIndex,
                             typeKey,
                             groupIndex: index,
+                            initiallyVisible: !!eventFilter.properties?.length,
                         })
 
                         return (
