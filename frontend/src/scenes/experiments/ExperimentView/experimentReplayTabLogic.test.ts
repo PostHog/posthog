@@ -1433,16 +1433,19 @@ describe('experimentReplayTabLogic', () => {
             rejection: Object.assign(new Error('Request failed'), { status: 400, detail: REFUSAL_DETAIL }),
             status: 400,
             message: REFUSAL_DETAIL,
+            callsAfterReopen: 1,
         },
         {
             failure: 'a request that may pass on a second attempt',
             rejection: new Error('Failed to fetch'),
             status: null,
             message: 'Failed to fetch',
+            callsAfterReopen: 2,
         },
-    ])('keeps the status beside the message for $failure', async ({ rejection, status, message }) => {
-        // The status is what splits the two states the shelf renders. Without it a 400 keeps a
-        // Try again button that sends the same request and gets the same refusal back.
+    ])('keeps the status beside the message for $failure', async ({ rejection, status, message, callsAfterReopen }) => {
+        // The status is what splits the two states the shelf renders, and what decides whether
+        // reopening asks again. A refusal leaves no deltas behind, so without the status the
+        // reopen path sends the same request and gets the same refusal back.
         ;(experimentsSessionEventDeltasCreate as jest.Mock).mockRejectedValue(rejection)
 
         await expectLogic(logic, () => {
@@ -1451,6 +1454,13 @@ describe('experimentReplayTabLogic', () => {
 
         expect(logic.values.sessionEventDeltasError).toBe(message)
         expect(logic.values.sessionEventDeltasErrorStatus).toBe(status)
+
+        await expectLogic(logic, () => {
+            logic.actions.toggleBehaviorComparison()
+            logic.actions.toggleBehaviorComparison()
+        }).toFinishAllListeners()
+
+        expect(experimentsSessionEventDeltasCreate).toHaveBeenCalledTimes(callsAfterReopen)
     })
 
     it('reports the population the comparison covered, not just what it found', async () => {

@@ -1689,7 +1689,14 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             if (values.behaviorComparisonUnavailableReason !== null) {
                 return
             }
-            if (values.behaviorComparisonOpen && !values.sessionEventDeltas && !values.sessionEventDeltasLoading) {
+            // A 400 is a refusal for a reason the client cannot foresee, and it leaves no deltas
+            // behind, so reopening the shelf would otherwise send the same doomed request again.
+            if (
+                values.behaviorComparisonOpen &&
+                !values.sessionEventDeltas &&
+                !values.sessionEventDeltasLoading &&
+                values.sessionEventDeltasErrorStatus !== 400
+            ) {
                 actions.loadSessionEventDeltas()
             }
         },
