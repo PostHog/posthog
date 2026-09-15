@@ -3,7 +3,6 @@ import type {
   ConversationItem,
   TurnContext,
 } from "@posthog/ui/features/sessions/components/buildConversationItems";
-import { ChatThreadChromeProvider } from "@posthog/ui/features/sessions/components/chat-thread/chatThreadChrome";
 import type { ToolCall } from "@posthog/ui/features/sessions/types";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
@@ -78,19 +77,17 @@ describe("SubagentToolView", () => {
     render(
       <QueryClientProvider client={new QueryClient()}>
         <ServiceProvider container={new Container()}>
-          <ChatThreadChromeProvider value>
-            <SubagentToolView
-              toolCall={{
-                toolCallId: "agent",
-                title: "Test nested actions",
-                kind: "think",
-                status: "completed",
-              }}
-              childItems={childItems}
-              turnContext={turnContext}
-              turnComplete
-            />
-          </ChatThreadChromeProvider>
+          <SubagentToolView
+            toolCall={{
+              toolCallId: "agent",
+              title: "Test nested actions",
+              kind: "think",
+              status: "completed",
+            }}
+            childItems={childItems}
+            turnContext={turnContext}
+            turnComplete
+          />
         </ServiceProvider>
       </QueryClientProvider>,
     );

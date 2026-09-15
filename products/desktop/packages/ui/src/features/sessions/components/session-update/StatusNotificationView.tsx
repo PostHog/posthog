@@ -1,9 +1,8 @@
-import { ArrowsClockwise, ShieldWarning, XCircle } from "@phosphor-icons/react";
+import { ArrowsClockwise, ShieldWarning } from "@phosphor-icons/react";
 import { ChatMarker, ChatMarkerContent } from "@posthog/quill";
 import { Spin, Spinner } from "@posthog/ui/primitives/Spinner";
 import { Box, Callout, Flex, Text } from "@radix-ui/themes";
 import { useEffect, useState } from "react";
-import { useChatThreadChrome } from "../chat-thread/chatThreadChrome";
 import { formatDuration } from "../GeneratingIndicator";
 
 interface StatusNotificationViewProps {
@@ -68,12 +67,7 @@ export function StatusNotificationView({
   maxAttempts,
   delayMs,
 }: StatusNotificationViewProps) {
-  // New thread renders status notes as centered separator markers; the legacy thread keeps its
-  // bordered rows so ConversationView is unchanged when the chat thread is off.
-  const chatChrome = useChatThreadChrome();
-
-  // Terminal refusal: the safety classifier declined the request and no
-  // fallback model rescued it. Rendered as a callout in both chromes.
+  // Terminal refusal: the safety classifier declined the request and no fallback model rescued it.
   if (status === "refusal") {
     return (
       <Box className="my-2">
@@ -104,20 +98,10 @@ export function StatusNotificationView({
       fromModel && toModel
         ? `${fromModel} declined this request, retried with ${toModel}`
         : "Request declined, retried with the fallback model";
-    if (chatChrome) {
-      return (
-        <ChatMarker variant="separator">
-          <ChatMarkerContent>{message}</ChatMarkerContent>
-        </ChatMarker>
-      );
-    }
     return (
-      <Box className="my-1 border-orange-6 border-l-2 py-1 pl-3 dark:border-orange-8">
-        <Flex align="center" gap="2">
-          <ArrowsClockwise size={14} className="text-orange-9" />
-          <Text className="text-[13px] text-gray-11">{message}</Text>
-        </Flex>
-      </Box>
+      <ChatMarker variant="separator">
+        <ChatMarkerContent>{message}</ChatMarkerContent>
+      </ChatMarker>
     );
   }
 
@@ -125,20 +109,10 @@ export function StatusNotificationView({
   // is cleared separately; this row reports the outcome.
   if (status === "compacting_failed") {
     const failureMessage = formatCompactionFailure(error);
-    if (chatChrome) {
-      return (
-        <ChatMarker variant="separator">
-          <ChatMarkerContent>{failureMessage}</ChatMarkerContent>
-        </ChatMarker>
-      );
-    }
     return (
-      <Box className="my-1 border-gray-6 border-l-2 py-1 pl-3 dark:border-gray-8">
-        <Flex align="center" gap="2">
-          <XCircle size={14} className="text-gray-9" />
-          <Text className="text-[13px] text-gray-11">{failureMessage}</Text>
-        </Flex>
-      </Box>
+      <ChatMarker variant="separator">
+        <ChatMarkerContent>{failureMessage}</ChatMarkerContent>
+      </ChatMarker>
     );
   }
 
@@ -169,20 +143,10 @@ export function StatusNotificationView({
   // reports the outcome.
   if (status === "clearing_failed") {
     const message = error ? `Clear failed: ${error}` : "Clear failed";
-    if (chatChrome) {
-      return (
-        <ChatMarker variant="separator">
-          <ChatMarkerContent>{message}</ChatMarkerContent>
-        </ChatMarker>
-      );
-    }
     return (
-      <Box className="my-1 border-gray-6 border-l-2 py-1 pl-3 dark:border-gray-8">
-        <Flex align="center" gap="2">
-          <XCircle size={14} className="text-gray-9" aria-hidden />
-          <Text className="text-[13px] text-gray-11">{message}</Text>
-        </Flex>
-      </Box>
+      <ChatMarker variant="separator">
+        <ChatMarkerContent>{message}</ChatMarkerContent>
+      </ChatMarker>
     );
   }
 

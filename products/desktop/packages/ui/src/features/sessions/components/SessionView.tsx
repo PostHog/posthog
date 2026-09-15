@@ -32,6 +32,7 @@ import { PermissionSelector } from "@posthog/ui/features/permissions/PermissionS
 import { CloudStreamDisconnectedBanner } from "@posthog/ui/features/sessions/components/CloudSessionLifecycle";
 import { ComposerWidth } from "@posthog/ui/features/sessions/components/ComposerWidth";
 import { ContextUsageIndicator } from "@posthog/ui/features/sessions/components/ContextUsageIndicator";
+import { AcpChatThread } from "@posthog/ui/features/sessions/components/chat-thread/ChatThread";
 import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
 import {
   copyFromContextMenu,
@@ -52,7 +53,6 @@ import {
   shouldSubmitComposerOptimistically,
   submitComposerPrompt,
 } from "@posthog/ui/features/sessions/components/submitComposerPrompt";
-import { ThreadView } from "@posthog/ui/features/sessions/components/ThreadView";
 import { usePendingModelSwitch } from "@posthog/ui/features/sessions/components/usePendingModelSwitch";
 import { CHAT_CONTENT_MAX_WIDTH } from "@posthog/ui/features/sessions/constants";
 import { useAutoCompact } from "@posthog/ui/features/sessions/hooks/useAutoCompact";
@@ -121,7 +121,6 @@ interface SessionViewProps {
   onNewSession?: () => void;
   isInitializing?: boolean;
   isCloud?: boolean;
-  slackThreadUrl?: string;
   compact?: boolean;
   isActiveSession?: boolean;
   /** Hide the message input and permission UI — log-only view. */
@@ -157,7 +156,6 @@ export function SessionView({
   onNewSession,
   isInitializing = false,
   isCloud = false,
-  slackThreadUrl,
   compact = false,
   isActiveSession = true,
   hideInput = false,
@@ -611,15 +609,13 @@ export function SessionView({
             />
             {isSuspended ? (
               <>
-                <ThreadView
+                <AcpChatThread
                   events={events}
                   isPromptPending={isPromptPending}
                   promptStartedAt={promptStartedAt}
                   repoPath={repoPath}
                   taskId={taskId}
                   task={task}
-                  slackThreadUrl={slackThreadUrl}
-                  scrollX={false}
                 />
                 <Box className="border-gray-4 border-t">
                   <Box
@@ -678,16 +674,13 @@ export function SessionView({
                     onRetry={onRetry}
                   />
                 )}
-                <ThreadView
+                <AcpChatThread
                   events={events}
                   isPromptPending={isPromptPending}
                   promptStartedAt={promptStartedAt}
                   repoPath={repoPath}
                   taskId={taskId}
                   task={task}
-                  slackThreadUrl={slackThreadUrl}
-                  compact={compact}
-                  scrollX={false}
                   promptRecallRef={promptRecallRef}
                   olderHistoryCursor={olderHistoryCursor}
                   isLoadingOlderHistory={isLoadingOlderHistory}

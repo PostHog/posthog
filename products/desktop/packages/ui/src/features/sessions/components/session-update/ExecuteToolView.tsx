@@ -1,7 +1,6 @@
 import { Terminal } from "@phosphor-icons/react";
 import { compactHomePath } from "@posthog/shared";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
-import { useChatThreadChrome } from "../chat-thread/chatThreadChrome";
 import { ToolRow } from "./ToolRow";
 import {
   ContentPre,
@@ -41,11 +40,6 @@ export function ExecuteToolView({
   // tools whose rawInput carries no `command`.
   const headerText = executeInput?.description ?? (command ? undefined : title);
 
-  // The command renders in both chromes but styled differently: the new thread shows it as plain
-  // mono text carried by the ChatMarker title; the legacy thread keeps the bordered inline chip so
-  // ConversationView is unchanged when the chat thread is toggled off.
-  const chatChrome = useChatThreadChrome();
-
   const output = stripCodeFences(getContentText(content) ?? "").replace(
     ANSI_REGEX,
     "",
@@ -68,24 +62,15 @@ export function ExecuteToolView({
       content={hasOutput ? <ContentPre>{output}</ContentPre> : undefined}
     >
       {headerText && <ToolTitle>{headerText}</ToolTitle>}
-      {command &&
-        (chatChrome ? (
-          <ToolTitle className="min-w-0 shrink truncate font-mono">
-            <Tooltip content={commandTooltip}>
-              <span className="block truncate">
-                {truncateText(compactHomePath(command), MAX_COMMAND_LENGTH)}
-              </span>
-            </Tooltip>
-          </ToolTitle>
-        ) : (
-          <ToolTitle className="min-w-0 shrink truncate">
-            <Tooltip content={commandTooltip}>
-              <span className="block truncate border border-border bg-gray-5 font-mono">
-                {truncateText(compactHomePath(command), MAX_COMMAND_LENGTH)}
-              </span>
-            </Tooltip>
-          </ToolTitle>
-        ))}
+      {command && (
+        <ToolTitle className="min-w-0 shrink truncate font-mono">
+          <Tooltip content={commandTooltip}>
+            <span className="block truncate">
+              {truncateText(compactHomePath(command), MAX_COMMAND_LENGTH)}
+            </span>
+          </Tooltip>
+        </ToolTitle>
+      )}
     </ToolRow>
   );
 }

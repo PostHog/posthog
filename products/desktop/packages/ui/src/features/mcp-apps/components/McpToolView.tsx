@@ -3,7 +3,6 @@ import {
   getPostHogExecDisplay,
   isPostHogExecTool,
 } from "@posthog/core/sessions/posthogExecDisplay";
-import { useChatThreadChrome } from "../../sessions/components/chat-thread/chatThreadChrome";
 import { ToolRow } from "../../sessions/components/session-update/ToolRow";
 import {
   ContentPre,
@@ -37,10 +36,6 @@ export function McpToolView({
     turnCancelled,
     turnComplete,
   );
-  // New thread restyles the MCP header/output; the legacy thread keeps its original colours + the
-  // input/output divider so ConversationView is unchanged when the chat thread is toggled off.
-  const chatChrome = useChatThreadChrome();
-
   const { serverName: defaultServerName, toolName: defaultToolName } =
     parseMcpToolKey(mcpToolName);
   const posthogDisplay = isPostHogExecTool(mcpToolName)
@@ -68,21 +63,9 @@ export function McpToolView({
     fullInput || showOutput ? (
       <>
         {fullInput && <ContentPre>{fullInput}</ContentPre>}
-        {showOutput &&
-          (chatChrome ? (
-            <ContentPre>{output}</ContentPre>
-          ) : (
-            <div className={fullInput ? "border-gray-6 border-t" : undefined}>
-              <ContentPre>{output}</ContentPre>
-            </div>
-          ))}
+        {showOutput && <ContentPre>{output}</ContentPre>}
       </>
     ) : undefined;
-
-  const labelClass = chatChrome ? "text-muted-foreground" : "text-gray-10";
-  const previewClass = chatChrome
-    ? "text-muted-foreground/50"
-    : "text-accent-11";
 
   return (
     <ToolRow
@@ -94,14 +77,14 @@ export function McpToolView({
       content={body}
     >
       <ToolTitle>
-        <span className={labelClass}>{serverName}</span>
+        <span className="text-muted-foreground">{serverName}</span>
         {" - "}
         {toolName}
-        <span className={labelClass}>{" (MCP)"}</span>
+        <span className="text-muted-foreground">{" (MCP)"}</span>
       </ToolTitle>
       {inputPreview && (
         <ToolTitle>
-          <span className={previewClass}>{inputPreview}</span>
+          <span className="text-muted-foreground/50">{inputPreview}</span>
         </ToolTitle>
       )}
     </ToolRow>
