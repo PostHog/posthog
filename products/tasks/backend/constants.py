@@ -31,16 +31,9 @@ MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG = "tasks-modal-network-allowlist"
 HOGLAND_SANDBOX_FEATURE_FLAG = "tasks-hogland-sandbox"
 AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG = "tasks-agent-run-otel-telemetry"
 PI_CLOUD_RUNTIME_FEATURE_FLAG = "pi-harness"
-# The spellings the `reasoning_effort` field accepts. One field carries two vocabularies, so
-# there are two lists: ACP models name their depths reasoning efforts, Pi models name theirs
-# thinking levels, which add `off` and `minimal` and have no `ultracode`.
-#
-# Neither list says a depth is available. That is a property of the model, not of the harness:
-# `get_reasoning_effort_error` answers it for an ACP model from the catalog, and for a Pi model
-# the Pi SDK answers it in the agent from that model's own thinking level map. These lists only
-# reject a value spelled in the other vocabulary, which is all a field-level check can do.
+# Every tier the catalog's models declare. Not what a run may ask for: that is a per-model
+# question, and `get_reasoning_effort_error` answers it against the model's own ladder.
 REASONING_EFFORTS = model_catalog.REASONING_EFFORTS
-PI_THINKING_LEVELS = model_catalog.PI_THINKING_LEVELS
 # Gates agent-to-agent peer messaging between cloud runs. v1 additionally requires the Pi
 # runtime, so the effective audience is teams with both this flag and
 # PI_CLOUD_RUNTIME_FEATURE_FLAG enabled.

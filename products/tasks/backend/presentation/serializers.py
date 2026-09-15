@@ -50,11 +50,11 @@ from products.tasks.backend.facade.run_config import (
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
     CONTEXT_WINDOW_CHOICES,
     INITIAL_PERMISSION_MODE_CHOICES,
-    PI_THINKING_LEVELS,
     REASONING_EFFORTS,
     WARMABLE_ORIGIN_PRODUCTS,
     LLMProvider,
     PrAuthorshipMode,
+    ReasoningEffort,
     RunSource,
     RuntimeAdapter,
     TaskArtifactAdapter,
@@ -67,11 +67,10 @@ from products.tasks.backend.facade.run_config import (
 
 logger = logging.getLogger(__name__)
 
-TASK_RUN_REASONING_EFFORT_CHOICES = [
-    "off",
-    "minimal",
-    *REASONING_EFFORTS,
-]
+# Every depth value that exists, for the fields either harness can reach. A depth is the same
+# kind of thing on both, so there is one list. Which of them a run may ask for depends on the
+# model it picked, and `get_reasoning_effort_error` answers that against the model's own ladder.
+TASK_RUN_REASONING_EFFORT_CHOICES = [effort.value for effort in ReasoningEffort]
 
 
 def _is_pi_task_run_request(context: dict[str, Any]) -> bool:
@@ -3475,10 +3474,6 @@ class TaskRunBootstrapCreateRequestSerializer(
                 if attrs.get(field) is not None:
                     errors[field] = "This field cannot be used with a Pi task."
 
-            reasoning_effort = attrs.get("reasoning_effort")
-            if reasoning_effort is not None and reasoning_effort not in PI_THINKING_LEVELS:
-                errors["reasoning_effort"] = f"'{reasoning_effort}' is not a Pi thinking level."
-
             if errors:
                 raise serializers.ValidationError(errors)
             return attrs
@@ -4597,25 +4592,6 @@ class TasksAIRunPreferencesSerializer(serializers.Serializer):
             "stores a Pi thinking level here, which also allows 'off' and 'minimal'."
         ),
     )
-
-    def validate(self, attrs):
-        """Reject a depth spelled in the other harness's vocabulary.
-
-        The field lists both vocabularies, because one `ChoiceField` cannot depend on another
-        field's value. This checks the spelling only. Whether the paired model offers that
-        depth is a per-model question, answered by the run-defaults service, which every
-        write path goes through.
-        """
-        reasoning_effort = attrs.get("reasoning_effort")
-        if reasoning_effort is None:
-            return attrs
-
-        is_pi = attrs.get("runtime") == tasks_facade.TaskRuntime.PI
-        allowed = PI_THINKING_LEVELS if is_pi else REASONING_EFFORTS
-        if reasoning_effort not in allowed:
-            label = "Pi thinking level" if is_pi else "reasoning effort"
-            raise serializers.ValidationError({"reasoning_effort": f"'{reasoning_effort}' is not a {label}."})
-        return attrs
 
 
 class TasksResolvedAIRunDefaultsSerializer(serializers.Serializer):

@@ -38,7 +38,6 @@ def _resolved_catalog() -> dict[str, Any]:
     """
     return {
         "reasoning_efforts": list(model_catalog.REASONING_EFFORTS),
-        "pi_thinking_levels": list(model_catalog.PI_THINKING_LEVELS),
         "runtimes": [
             {"runtime": option.runtime, "runtime_adapter": option.runtime_adapter, "label": option.label}
             for option in model_catalog.RUNTIME_OPTIONS
@@ -99,13 +98,10 @@ def test_every_catalog_effort_is_a_known_reasoning_effort() -> None:
     assert used <= known, f"catalog names efforts the ReasoningEffort enum lacks: {sorted(used - known)}"
 
 
-def test_reasoning_effort_enum_is_exactly_both_runtimes() -> None:
-    # The enum spans both vocabularies, so a value added to one runtime and not here is a
-    # value the catalog offers and `ReasoningEffort(...)` refuses to build.
-    assert {effort.value for effort in ReasoningEffort} == {
-        *model_catalog.REASONING_EFFORTS,
-        *model_catalog.PI_THINKING_LEVELS,
-    }
+def test_reasoning_effort_enum_covers_the_catalog() -> None:
+    # The enum is every depth value that exists, and the catalog's models declare a subset of
+    # it. A tier added to the catalog and not here is one `ReasoningEffort(...)` cannot build.
+    assert set(model_catalog.REASONING_EFFORTS) <= {effort.value for effort in ReasoningEffort}
 
 
 def test_runtime_options_agree_with_the_task_runtime_column() -> None:

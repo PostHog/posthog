@@ -39,8 +39,6 @@ PROVIDER_BY_RUNTIME_ADAPTER: dict[str, str] = {
     CODEX: OPENAI,
 }
 
-OFF = "off"
-MINIMAL = "minimal"
 LOW = "low"
 MEDIUM = "medium"
 HIGH = "high"
@@ -48,14 +46,11 @@ XHIGH = "xhigh"
 MAX = "max"
 ULTRACODE = "ultracode"
 
-# The two vocabularies a depth is spelled in, shallowest first. Neither is a capability
-# list. What a run may actually ask for is a property of the model: an ACP model declares
-# its ladder in `reasoning_efforts` below, and a Pi model carries its own thinking level
-# map, which the Pi SDK reads in the agent against the live gateway list. So these say only
-# which spellings exist, which is what lets a picker render a ladder and a field reject a
-# value from the other vocabulary.
+# Every tier the models below declare, shallowest first. A consumer renders an effort
+# ladder from this, so a new tier reaches both projections by being added here and nowhere
+# else. Which tiers a run may actually ask for is a per-model question, answered by
+# `reasoning_efforts_for`.
 REASONING_EFFORTS: tuple[str, ...] = (LOW, MEDIUM, HIGH, XHIGH, MAX, ULTRACODE)
-PI_THINKING_LEVELS: tuple[str, ...] = (OFF, MINIMAL, LOW, MEDIUM, HIGH, XHIGH, MAX)
 
 _STANDARD = (LOW, MEDIUM, HIGH)
 _THROUGH_MAX = (*_STANDARD, XHIGH, MAX)

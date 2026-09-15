@@ -102,7 +102,6 @@ def render(catalog: dict[str, Any], style: Style) -> str:
     families: tuple[tuple[str, str, tuple[str, ...]], ...] = catalog["FAMILY_REASONING_EFFORTS"]
     models: tuple[Any, ...] = catalog["MODELS"]
     efforts: tuple[str, ...] = catalog["REASONING_EFFORTS"]
-    pi_efforts: tuple[str, ...] = catalog["PI_THINKING_LEVELS"]
     runtimes: tuple[str, ...] = catalog["RUNTIMES"]
     runtime_options: tuple[Any, ...] = catalog["RUNTIME_OPTIONS"]
     display_name = catalog["display_name_for_model"]
@@ -175,12 +174,6 @@ export const RUNTIME_OPTIONS: readonly RuntimeOption[] = [
 {style.union(efforts, prefix="export type ReasoningEffort = ")}
 
 {style.array(efforts, prefix="export const REASONING_EFFORTS: readonly ReasoningEffort[] = ", suffix=semi, depth=0)}
-
-// How a Pi model spells its depths, not which ones it offers. That is a
-// per-model fact, and the Pi SDK reads it from each gateway model's own
-// thinking level map at run time. Kept `as const` for the literal types the
-// zod enum and the SDK exhaustiveness check both need.
-{style.array(pi_efforts, prefix="export const PI_THINKING_LEVELS = ", suffix=f" as const{semi}", depth=0)}
 
 /** A value for each runtime adapter. */
 export type ByRuntimeAdapter<T> = Record<RuntimeAdapter, T>{semi}
