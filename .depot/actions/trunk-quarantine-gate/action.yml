@@ -1,4 +1,3 @@
-# Byte copy of .github/actions/trunk-quarantine-gate/action.yml; keep both in sync.
 name: 'Trunk quarantine gate'
 description: 'Upload a shard JUnit report to Trunk, masking known flakes, retrying once on a transient upload failure'
 
