@@ -8128,6 +8128,10 @@ snapshots:
         hash: v1.k794b7964.7b457e88868510c008646ab0ed37de232ec66ccbd001e82256e156e44a4cfa23.38qy-CrE1s8-psQTdpOZqMVW5alFzYnH7On3bETCnGU
     scenes-app-inbox-detail--report-minimal--light:
         hash: v1.k794b7964.1ec199f350734471b4a0b1463ff94a4654a30424276fc64c115c3d65db3cdb41.Tc9W_NbKBqiZUS8nJ_J48f161oSMbOpTNtd99CK-a5I
+    scenes-app-inbox-detail--report-ready-to-implement--dark:
+        hash: v1.k794b7964.0516b8985888b92018506cee3a0cf40c7f7499027455fb8f6957853a91440557.m5kKe7m4ITNuyQyusa72o9rk-dyF5d5QOps4_rNLuRM
+    scenes-app-inbox-detail--report-ready-to-implement--light:
+        hash: v1.k794b7964.f42eb359e62e037d7b75d0348f507dea76b69e442f80adc8b54736e0edcd8da5.CnKeyAMmz5IP5UQXp6G_6mWUR0C0BmaCm5qSIt7egqU
     scenes-app-inbox-detail--report-with-metrics--dark:
         hash: v1.k794b7964.90a96dde882ddfb529a258d651ce9701878bfa46ab5a7de6718aa96298ca84de.m7fGQx62WwLVg35wZgG7MsKHRzQovXeepkAqKTT4-WU
     scenes-app-inbox-detail--report-with-metrics--light:
@@ -8161,9 +8165,9 @@ snapshots:
     scenes-app-inbox-hotkeyradio--with-selection--light:
         hash: v1.k794b7964.3e50641442cc87cebfb5e0380042c05c0e5f15e238011e5aab24f8e69da5ea8e.IarzlyKga2lc-4CZ8UpBjuU1D_75I4SRnyKDESA9drk
     scenes-app-inbox-implementbutton--choices--dark:
-        hash: v1.k794b7964.f92d5686aae66110b8d50afdb16572300047046f49f2a1ecc9c44235d86218e5.nS3wP7CmKoWWDO2gXGzHUOiQMiI2VmTtPRzyJuDGrBA
+        hash: v1.k794b7964.04e3f5a9e20f0032cff25e7878e16328871b41813d2a4e3064e731f91d3b876c.hVFY_MWjWZDX4fr9y2vacAy3wHZuNHwp5cYjveu_KfE
     scenes-app-inbox-implementbutton--choices--light:
-        hash: v1.k794b7964.a5e76b4728730d9ad98eab8e787718804ff25619a38fce6acbe6354ac7f04ae8.CU7kUOfZ59HG6vxqJDQSywe8luerIxfx7w16zcz92Pc
+        hash: v1.k794b7964.a179eeb16be74806e49a273f5e2df6c06e6c729f4696b7ea08806c515c508a5d.oPurfCP4WUVbo_EKSrjGF6FooFGZbvNcJjXEp9VK-R8
     scenes-app-inbox-implementbutton--default--dark:
         hash: v1.k794b7964.f2b5351f205a0abb1531706c02950c727ede9d9f7cf220869b571442805a5a24.NvzH40X-7cVbDTiW0u9CRIwI3ENeZ37ePippBtcZg2M
     scenes-app-inbox-implementbutton--default--light:
