@@ -52,11 +52,15 @@ WINDOW=7 python3 scripts/breakdown_attribution.py < breakdown_result.json
 
 ## Step 1 — Classify the metric
 
-Read `query.kind` from the source the user pointed at:
+Classify on the **query body**: the object that holds the playbook `kind`.
 
-- Saved insight (URL, `short_id`): `posthog:insight-get` → `query.kind`. Use
-  `posthog:insight-query` if you also need the numbers.
-- A query you already ran or the user pasted: read `kind` directly.
+- Saved insight (URL, `short_id`): `posthog:insight-get`. A saved insight wraps its body,
+  so read `query.source.kind`. `query.kind` gives you the wrapper instead
+  (`InsightVizNode` for a typed insight, `DataVisualizationNode` or `DataTableNode` for a
+  SQL insight), which matches no row below. `query.source` is also the exact body the
+  typed query tools accept. Use `posthog:insight-query` if you also need the numbers.
+- A query you already ran or the user pasted: the body is the query itself. Unwrap
+  `source` first if it has one.
 - Nothing pointed at: ask for the URL or short_id. Don't guess.
 
 | kind              | Playbook                                                      |
@@ -69,7 +73,7 @@ Read `query.kind` from the source the user pointed at:
 | `PathsQuery`      | [paths-playbook.md](./references/paths-playbook.md)           |
 | `HogQLQuery`      | route by what the SQL aggregates (see below)                  |
 
-If `kind === "TrendsQuery"` and `trendsFilter.display === "BoxPlot"`, use
+If the body is a `TrendsQuery` with `trendsFilter.display` set to `BoxPlot`, use
 [box-plot-playbook.md](./references/box-plot-playbook.md) — distribution metric, no
 breakdowns.
 
