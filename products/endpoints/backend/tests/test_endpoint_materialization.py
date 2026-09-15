@@ -1792,6 +1792,46 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("materialization_error", response.json())
         self.assertIn("Failed to enable materialization", response.json()["materialization_error"])
 
+    def test_materialization_name_collision_after_query_change_is_not_captured(self):
+        initial_query = {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 10"}
+        endpoint = create_endpoint_with_version(
+            name="mat_collide_test",
+            team=self.team,
+            query=initial_query,
+            created_by=self.user,
+            is_active=True,
+        )
+        version = endpoint.versions.first()
+
+        version.saved_query = DataWarehouseSavedQuery.objects.create(
+            name=f"{endpoint.name}_v1",
+            team=self.team,
+            query=initial_query,
+            is_materialized=True,
+            origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
+        )
+        version.save()
+
+        # The customer owns a saved query whose name collides with the next version's view name.
+        DataWarehouseSavedQuery.objects.create(
+            name=f"{endpoint.name}_v2",
+            team=self.team,
+            query=initial_query,
+        )
+
+        new_query = {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 20"}
+        with mock.patch("products.endpoints.backend.logic.crud.capture_exception") as capture:
+            response = self.client.put(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                {"query": new_query},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertIn(f"{endpoint.name}_v2", response.json()["materialization_error"])
+        self.assertNotIn("ErrorDetail", response.json()["materialization_error"])
+        capture.assert_not_called()
+
     def test_materialization_failure_without_query_change_still_raises(self):
         endpoint = create_endpoint_with_version(
             name="mat_fail_no_version",
