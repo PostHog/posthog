@@ -46,6 +46,7 @@ const previewState = vi.hoisted(() => ({
 // a reset (which clears it to all-null) and re-renders.
 const defaultsState = vi.hoisted(() => ({
   myPreferences: {
+    runtime: null as string | null,
     runtime_adapter: null as string | null,
     model: null as string | null,
     reasoning_effort: null as string | null,
@@ -81,12 +82,14 @@ vi.mock("@posthog/ui/features/pi-sessions/usePiModelCatalog", () => ({
 vi.mock("@posthog/ui/features/settings/hooks/useTaskAgentDefaults", () => ({
   useTaskAgentDefaults: () => ({
     teamPreferences: {
+      runtime: "acp",
       runtime_adapter: "claude",
       model: "claude-fable-5",
       reasoning_effort: "high",
     },
     myPreferences: defaultsState.myPreferences,
     resolved: {
+      runtime: "acp",
       runtime_adapter: "claude",
       model: "claude-fable-5",
       reasoning_effort: "high",
@@ -171,6 +174,7 @@ describe("TaskAgentDefaultsSettings", () => {
     previewState.setConfigOption.mockClear();
     previewState.lastAdapter = null;
     defaultsState.myPreferences = {
+      runtime: null,
       runtime_adapter: null,
       model: null,
       reasoning_effort: null,
@@ -213,6 +217,7 @@ describe("TaskAgentDefaultsSettings", () => {
 
     expect(saveMock).toHaveBeenCalledTimes(1);
     expect(saveMock).toHaveBeenCalledWith({
+      runtime: null,
       runtime_adapter: "codex",
       model: "gpt-5.6-terra",
       reasoning_effort: null,
@@ -246,6 +251,7 @@ describe("TaskAgentDefaultsSettings", () => {
 
     expect(saveMock).toHaveBeenCalledTimes(1);
     expect(saveMock).toHaveBeenCalledWith({
+      runtime: null,
       runtime_adapter: "codex",
       model: "gpt-5.6-sol",
       reasoning_effort: "max",
@@ -258,6 +264,7 @@ describe("TaskAgentDefaultsSettings", () => {
   // snap back to the inherited project harness instead.
   it("drops a pending harness browse when the default is reset", async () => {
     defaultsState.myPreferences = {
+      runtime: "acp",
       runtime_adapter: "claude",
       model: "claude-fable-5",
       reasoning_effort: "high",
@@ -279,6 +286,7 @@ describe("TaskAgentDefaultsSettings", () => {
 
     // Reset clears the personal default: myPreferences flips to all-null.
     defaultsState.myPreferences = {
+      runtime: null,
       runtime_adapter: null,
       model: null,
       reasoning_effort: null,
@@ -295,9 +303,9 @@ describe("TaskAgentDefaultsSettings", () => {
     expect(trigger).toHaveTextContent("Default ·");
   });
 
-  it("selects Pi as a device-local runtime and model without saving a server preference", async () => {
+  it("saves a pi preference carrying the catalog's default model", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
-    const { rerender } = render(
+    render(
       <Theme>
         <TaskAgentDefaultsSettings />
       </Theme>,
@@ -309,11 +317,24 @@ describe("TaskAgentDefaultsSettings", () => {
     await openSub(user, /^Harness/);
     fireEvent.click(screen.getByRole("menuitemradio", { name: "Pi" }));
 
-    expect(saveMock).not.toHaveBeenCalled();
-    expect(settingsState.setLastUsedAgentRuntime).toHaveBeenCalledWith("pi");
-    expect(settingsState.lastUsedAgentRuntime).toBe("pi");
+    expect(saveMock).toHaveBeenCalledWith({
+      runtime: "pi",
+      runtime_adapter: null,
+      model: "gpt-5.6",
+      reasoning_effort: null,
+    });
+    expect(settingsState.setLastUsedPiModel).toHaveBeenCalledWith("gpt-5.6");
+  });
 
-    rerender(
+  it("saves a pi model pick as the preference", async () => {
+    defaultsState.myPreferences = {
+      runtime: "pi",
+      runtime_adapter: null,
+      model: "gpt-5.6",
+      reasoning_effort: null,
+    };
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
       <Theme>
         <TaskAgentDefaultsSettings />
       </Theme>,
@@ -322,14 +343,18 @@ describe("TaskAgentDefaultsSettings", () => {
     await user.click(screen.getByRole("button", { name: /Model: GPT-5.6/ }));
     await openSub(user, /^Model/);
     fireEvent.click(
-      screen.getByRole("menuitemradio", { name: "Claude Opus 4.8" }),
+      await screen.findByRole("menuitemradio", { name: "Claude Opus 4.8" }),
     );
 
-    expect(saveMock).not.toHaveBeenCalled();
+    expect(saveMock).toHaveBeenCalledWith({
+      runtime: "pi",
+      runtime_adapter: null,
+      model: "claude-opus-4-8",
+      reasoning_effort: null,
+    });
     expect(settingsState.setLastUsedPiModel).toHaveBeenCalledWith(
       "claude-opus-4-8",
     );
-    expect(settingsState.lastUsedPiModel).toBe("claude-opus-4-8");
   });
 
   it("hides Pi when the harness flag is off", async () => {
@@ -350,9 +375,14 @@ describe("TaskAgentDefaultsSettings", () => {
   });
 
   it("switches from Pi to an ACP harness before saving its model preference", async () => {
-    settingsState.lastUsedAgentRuntime = "pi";
+    defaultsState.myPreferences = {
+      runtime: "pi",
+      runtime_adapter: null,
+      model: "gpt-5.6",
+      reasoning_effort: null,
+    };
     const user = userEvent.setup({ pointerEventsCheck: 0 });
-    const { rerender } = render(
+    render(
       <Theme>
         <TaskAgentDefaultsSettings />
       </Theme>,
@@ -363,15 +393,8 @@ describe("TaskAgentDefaultsSettings", () => {
     fireEvent.click(screen.getByRole("menuitemradio", { name: "Codex" }));
 
     expect(saveMock).not.toHaveBeenCalled();
-    expect(settingsState.setLastUsedAgentRuntime).toHaveBeenCalledWith("acp");
-
-    rerender(
-      <Theme>
-        <TaskAgentDefaultsSettings />
-      </Theme>,
-    );
-
     expect(previewState.lastAdapter).toBe("codex");
+
     await user.click(
       screen.getByRole("button", { name: /Model and reasoning/ }),
     );
@@ -381,15 +404,22 @@ describe("TaskAgentDefaultsSettings", () => {
       await screen.findByRole("menuitemradio", { name: /GPT-5.6 Terra/ }),
     );
 
+    expect(saveMock).toHaveBeenCalledTimes(1);
     expect(saveMock).toHaveBeenCalledWith({
+      runtime: null,
       runtime_adapter: "codex",
       model: "gpt-5.6-terra",
       reasoning_effort: null,
     });
   });
 
-  it("resets Pi to ACP and clears the server preference", async () => {
-    settingsState.lastUsedAgentRuntime = "pi";
+  it("resets a Pi default to the project default", async () => {
+    defaultsState.myPreferences = {
+      runtime: "pi",
+      runtime_adapter: null,
+      model: "gpt-5.6",
+      reasoning_effort: null,
+    };
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     render(
       <Theme>

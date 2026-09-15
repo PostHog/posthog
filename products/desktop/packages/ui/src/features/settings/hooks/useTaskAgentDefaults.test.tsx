@@ -14,6 +14,7 @@ const settingsStore = vi.hoisted(() => ({
   setLastUsedModel: vi.fn(),
   setLastUsedReasoningEffort: vi.fn(),
   setLastUsedAdapter: vi.fn(),
+  setLastUsedAgentRuntime: vi.fn(),
 }));
 const toastMock = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
 
@@ -33,11 +34,13 @@ import { taskRunDefaultsQueryKey } from "@posthog/ui/features/task-detail/hooks/
 import { useTaskAgentDefaults } from "./useTaskAgentDefaults";
 
 const TEAM_DEFAULT = {
+  runtime: "acp",
   runtime_adapter: "claude",
   model: "claude-fable-5",
   reasoning_effort: "high",
 };
 const MY_PICK = {
+  runtime: "acp",
   runtime_adapter: "codex",
   model: "gpt-5.6-terra",
   reasoning_effort: null,
@@ -65,6 +68,7 @@ describe("useTaskAgentDefaults", () => {
     });
     mockClient.getMyTaskRunConfig.mockResolvedValue({
       preferences: {
+        runtime: null,
         runtime_adapter: null,
         model: null,
         reasoning_effort: null,
@@ -128,6 +132,7 @@ describe("useTaskAgentDefaults", () => {
   // outright — the model shown never changed.
   it("moves the harness to the one the new default runs on", async () => {
     const claudeDefault = {
+      runtime: "acp",
       runtime_adapter: "claude",
       model: "claude-opus-4-8",
       reasoning_effort: "medium",
@@ -146,6 +151,35 @@ describe("useTaskAgentDefaults", () => {
     await waitFor(() =>
       expect(settingsStore.setLastUsedAdapter).toHaveBeenCalledWith("claude"),
     );
+    await waitFor(() =>
+      expect(settingsStore.setLastUsedAgentRuntime).toHaveBeenCalledWith("acp"),
+    );
+  });
+
+  // A Pi default is unreachable from a composer left on the ACP harness, so the
+  // runtime has to follow the resolved preference the same way the adapter does.
+  it("moves the runtime to pi when the new default names pi", async () => {
+    const piDefault = {
+      runtime: "pi",
+      runtime_adapter: null,
+      model: "gpt-5.6-terra",
+      reasoning_effort: null,
+    };
+    mockClient.updateMyTaskRunPreferences.mockResolvedValue({
+      preferences: piDefault,
+      resolved: { ...piDefault, source: "user" },
+    });
+    const { result } = await mounted();
+
+    act(() => result.current.save(piDefault));
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    await waitFor(() =>
+      expect(settingsStore.setLastUsedAgentRuntime).toHaveBeenCalledWith("pi"),
+    );
+    expect(settingsStore.setLastUsedAdapter).not.toHaveBeenCalled();
   });
 
   // Picking a model and then its effort is two interactions moments apart; writing on each
@@ -184,6 +218,7 @@ describe("useTaskAgentDefaults", () => {
     await waitFor(() => expect(toastMock.error).toHaveBeenCalled());
     await waitFor(() =>
       expect(result.current.myPreferences).toEqual({
+        runtime: null,
         runtime_adapter: null,
         model: null,
         reasoning_effort: null,

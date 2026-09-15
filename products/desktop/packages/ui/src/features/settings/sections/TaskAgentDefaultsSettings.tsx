@@ -121,7 +121,12 @@ function MyDefaultPicker({
     if (modelOption) setConfigOption(modelOption.id, model);
     // The effort belongs to the model it was chosen against, so a model switch drops it
     // rather than storing one the new model may not support.
-    onSave({ runtime_adapter: adapter, model, reasoning_effort: null });
+    onSave({
+      runtime: null,
+      runtime_adapter: adapter,
+      model,
+      reasoning_effort: null,
+    });
   };
 
   const handleEffortChange = (effort: string) => {
@@ -134,6 +139,7 @@ function MyDefaultPicker({
       modelOption?.type === "select" ? modelOption.currentValue : undefined;
     if (!model) return;
     onSave({
+      runtime: null,
       runtime_adapter: adapter,
       model,
       reasoning_effort: effort || null,
@@ -162,6 +168,7 @@ function MyDefaultPicker({
           if (modelOption) setConfigOption(modelOption.id, model);
           if (thoughtOption) setConfigOption(thoughtOption.id, effort);
           onSave({
+            runtime: null,
             runtime_adapter: adapter,
             model,
             reasoning_effort: effort || null,
@@ -212,21 +219,25 @@ export function TaskAgentDefaultsSettings() {
     save,
     reset,
   } = useTaskAgentDefaults();
-  const {
-    lastUsedAgentRuntime,
-    lastUsedPiModel,
-    setLastUsedAgentRuntime,
-    setLastUsedPiModel,
-  } = useSettingsStore();
+  const { lastUsedPiModel, setLastUsedAgentRuntime, setLastUsedPiModel } =
+    useSettingsStore();
   const [pendingAdapter, setPendingAdapter] = useState<Adapter | null>(null);
   const piHarnessEnabled = useFeatureFlag(PI_HARNESS_FLAG, import.meta.env.DEV);
-  const piActive = piHarnessEnabled && lastUsedAgentRuntime === "pi";
+  // The catalog decides whether the default can even be picked: offering Pi with no
+  // model to save would write an incomplete preference.
   const { data: piModels = [], isPending: isPiModelCatalogLoading } =
-    usePiModelCatalog(piActive);
-  const currentPiModel =
+    usePiModelCatalog(piHarnessEnabled);
+  const shownPreferences = myPreferences.model
+    ? myPreferences
+    : teamPreferences;
+  const piDefaultActive = piHarnessEnabled && shownPreferences.runtime === "pi";
+  const piSeedModel =
     piModels.find((model) => model.id === lastUsedPiModel) ??
     piModels.find((model) => model.isDefault) ??
     piModels[0];
+  const currentPiModel =
+    piModels.find((model) => model.id === shownPreferences.model) ??
+    piSeedModel;
 
   // The section is per-environment, so the link must name the desktop app's own
   // project — otherwise the web app fills in the browser's active project, which
@@ -276,21 +287,28 @@ export function TaskAgentDefaultsSettings() {
 
         <SettingsCardRow
           label="My default"
-          description="Claude Code and Codex defaults apply across PostHog. Pi applies in this app on this device."
+          description="Overrides the project default for your own runs, everywhere in PostHog — not just this app."
         >
-          {piActive ? (
+          {piDefaultActive && !pendingAdapter ? (
             <div className="flex w-[280px] justify-end">
               <PiModelSelector
                 models={piModels}
                 currentModel={currentPiModel}
                 disabled={isPiModelCatalogLoading}
                 isLoading={isPiModelCatalogLoading}
-                onChange={(model) => setLastUsedPiModel(model.id)}
+                onChange={(model) => {
+                  setLastUsedPiModel(model.id);
+                  save({
+                    runtime: "pi",
+                    runtime_adapter: null,
+                    model: model.id,
+                    reasoning_effort: null,
+                  });
+                }}
                 onHarnessChange={(harness) => {
                   if (harness === "pi") {
                     return;
                   }
-                  setLastUsedAgentRuntime("acp");
                   setPendingAdapter(harness);
                 }}
               />
@@ -301,12 +319,18 @@ export function TaskAgentDefaultsSettings() {
               inherited={teamPreferences}
               disabled={isLoading}
               pendingAdapter={pendingAdapter}
-              includePiHarness={piHarnessEnabled}
+              includePiHarness={piHarnessEnabled && piModels.length > 0}
               onSave={save}
               onPendingAdapterChange={setPendingAdapter}
               onPiSelect={() => {
-                setPendingAdapter(null);
-                setLastUsedAgentRuntime("pi");
+                if (!piSeedModel) return;
+                setLastUsedPiModel(piSeedModel.id);
+                save({
+                  runtime: "pi",
+                  runtime_adapter: null,
+                  model: piSeedModel.id,
+                  reasoning_effort: null,
+                });
               }}
             />
           )}
@@ -322,9 +346,9 @@ export function TaskAgentDefaultsSettings() {
             type="button"
             variant="outline"
             size="sm"
-            disabled={(!piActive && !myPreferences.model) || isSaving}
+            disabled={!myPreferences.model || isSaving}
             onClick={() => {
-              if (piActive) {
+              if (piDefaultActive) {
                 setLastUsedAgentRuntime("acp");
                 setPendingAdapter(null);
               }
@@ -341,12 +365,16 @@ export function TaskAgentDefaultsSettings() {
           above it each time. */}
       <div className="min-h-10">
         <Text className="text-(--gray-11) text-sm">
-          {piActive
-            ? currentPiModel
-              ? `Runs you start in this app on this device use Pi with ${formatModelId(currentPiModel.id)}.`
-              : "Pi is active for runs in this app on this device."
-            : isLoading
-              ? ""
+          {isLoading
+            ? ""
+            : piDefaultActive
+              ? currentPiModel
+                ? `Runs you start without picking a model use ${
+                    currentPiModel.name ?? formatModelId(currentPiModel.id)
+                  } with Pi, from ${
+                    myPreferences.model ? "your default" : "the project default"
+                  }.`
+                : "Loading your Pi default…"
               : resolved.model
                 ? `Runs you start without picking a model use ${describe(resolved, "")}, from ${
                     resolved.source === "user"

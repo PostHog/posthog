@@ -356,6 +356,7 @@ export interface TaskSearchResult {
  * says which level supplied them, and is `"none"` when neither is set.
  */
 export interface TaskRunDefaults {
+  runtime: string | null;
   runtime_adapter: string | null;
   model: string | null;
   reasoning_effort: string | null;
@@ -363,6 +364,7 @@ export interface TaskRunDefaults {
 }
 
 export const NO_TASK_RUN_DEFAULTS: TaskRunDefaults = {
+  runtime: null,
   runtime_adapter: null,
   model: null,
   reasoning_effort: null,
@@ -370,17 +372,22 @@ export const NO_TASK_RUN_DEFAULTS: TaskRunDefaults = {
 };
 
 /**
- * A stored preference triple. All three null means the level is unset and the one
+ * A stored preference selection. All-null means the level is unset and the one
  * below it applies — a personal preference falls back to the project default, and
- * the project default to each surface's built-in model.
+ * the project default to each surface's built-in model. A pi preference pairs
+ * `runtime: "pi"` with a model and carries no adapter; an acp preference pairs
+ * `runtime_adapter` with a model. A null `runtime` means acp, matching rows
+ * written before the field existed.
  */
 export interface TaskRunPreferences {
+  runtime: string | null;
   runtime_adapter: string | null;
   model: string | null;
   reasoning_effort: string | null;
 }
 
 export const NO_TASK_RUN_PREFERENCES: TaskRunPreferences = {
+  runtime: null,
   runtime_adapter: null,
   model: null,
   reasoning_effort: null,
@@ -2364,6 +2371,7 @@ export class PostHogAPIClient {
       // The API stores a cleared preference as `{}`, so read each field rather than
       // assuming the triple is present.
       preferences: {
+        runtime: payload.ai_run_preferences?.runtime ?? null,
         runtime_adapter: payload.ai_run_preferences?.runtime_adapter ?? null,
         model: payload.ai_run_preferences?.model ?? null,
         reasoning_effort: payload.ai_run_preferences?.reasoning_effort ?? null,
