@@ -21,6 +21,7 @@ export interface ClusteringRunParams {
     clustering_method: 'hdbscan' | 'kmeans'
     // HDBSCAN params
     min_cluster_size_fraction: number
+    max_cluster_size_fraction: number
     hdbscan_min_samples: number
     // K-means params
     kmeans_min_k: number
@@ -47,6 +48,7 @@ export const DEFAULT_CLUSTERING_PARAMS: ClusteringRunParams = {
     dimensionality_reduction_ndims: 100,
     clustering_method: 'hdbscan',
     min_cluster_size_fraction: 0.02,
+    max_cluster_size_fraction: 0.5,
     hdbscan_min_samples: 5,
     kmeans_min_k: 2,
     kmeans_max_k: 10,
