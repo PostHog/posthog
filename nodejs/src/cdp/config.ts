@@ -141,7 +141,6 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_DLQ_REPLAY_SKIP_TEAM_IDS: string
     CDP_DLQ_REPLAY_HOG_FUNCTION_IDS: string
     CDP_DLQ_REPLAY_REASON_CONTAINS: string
-    CDP_DLQ_REPLAY_MAX_REPLAYS: number
     CDP_DLQ_REPLAY_MAX_AGE_HOURS: number
 
     CDP_EMAIL_TRACKING_URL: string
@@ -362,9 +361,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_DLQ_REPLAY_SKIP_TEAM_IDS: '',
         CDP_DLQ_REPLAY_HOG_FUNCTION_IDS: '',
         CDP_DLQ_REPLAY_REASON_CONTAINS: '',
-        // A record that fails to rebuild twice stays parked rather than cycling between the
-        // topics, so running a replay before the fix is deployed costs one pass, not a loop.
-        CDP_DLQ_REPLAY_MAX_REPLAYS: 2,
         CDP_DLQ_REPLAY_MAX_AGE_HOURS: 24 * 30,
 
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',

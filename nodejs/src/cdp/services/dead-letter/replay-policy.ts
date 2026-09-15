@@ -1,29 +1,20 @@
 import { Message } from 'node-rdkafka'
 
 import type { PluginsServerConfig } from '../../../types'
-import { InvocationBuildStep } from '../../types'
+import { DeadLetterStep } from '../../types'
 
 /** A dead-letter record, read from its headers alone. */
 export interface DeadLetterRecord {
-    step: InvocationBuildStep | string
+    step: DeadLetterStep | string
     reason: string
     timestamp: number
     teamId: number | null
     eventUuid: string | null
     hogFunctionIds: string[]
     hogFlowIds: string[]
-    replayCount: number
 }
 
-export type ReplaySkipReason =
-    | 'unreadable'
-    | 'step'
-    | 'window'
-    | 'max_age'
-    | 'team'
-    | 'function'
-    | 'reason'
-    | 'exhausted'
+export type ReplaySkipReason = 'unreadable' | 'step' | 'window' | 'max_age' | 'team' | 'function' | 'reason'
 
 export interface ReplayPolicy {
     steps: string[]
@@ -34,7 +25,6 @@ export interface ReplayPolicy {
     skipTeamIds: number[]
     hogFunctionIds: string[]
     reasonContains: string
-    maxReplays: number
 }
 
 function headerValues(message: Message): Record<string, string> {
@@ -80,7 +70,6 @@ export function readDeadLetterRecord(message: Message): DeadLetterRecord | null 
         eventUuid: headers.dlq_event_uuid || null,
         hogFunctionIds: idList(headers.dlq_hog_function_ids),
         hogFlowIds: idList(headers.dlq_hog_flow_ids),
-        replayCount: Number(headers.dlq_replay_count) || 0,
     }
 }
 
@@ -98,9 +87,6 @@ export function shouldReplay(
 ): { replay: true } | { replay: false; skipReason: ReplaySkipReason } {
     if (!record) {
         return { replay: false, skipReason: 'unreadable' }
-    }
-    if (record.replayCount >= policy.maxReplays) {
-        return { replay: false, skipReason: 'exhausted' }
     }
     if (policy.steps.length && !policy.steps.includes(record.step)) {
         return { replay: false, skipReason: 'step' }
@@ -178,6 +164,5 @@ export function readReplayPolicy(config: PluginsServerConfig): ReplayPolicy {
         skipTeamIds: numberList(config.CDP_DLQ_REPLAY_SKIP_TEAM_IDS),
         hogFunctionIds: stringList(config.CDP_DLQ_REPLAY_HOG_FUNCTION_IDS),
         reasonContains: config.CDP_DLQ_REPLAY_REASON_CONTAINS,
-        maxReplays: config.CDP_DLQ_REPLAY_MAX_REPLAYS,
     }
 }

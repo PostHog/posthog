@@ -24,7 +24,6 @@ describe('replay-policy', () => {
         skipTeamIds: [],
         hogFunctionIds: [],
         reasonContains: '',
-        maxReplays: 2,
         ...overrides,
     })
 
@@ -36,7 +35,6 @@ describe('replay-policy', () => {
         eventUuid: 'event-1',
         hogFunctionIds: ['fn-1'],
         hogFlowIds: [],
-        replayCount: 0,
         ...overrides,
     })
 
@@ -64,7 +62,6 @@ describe('replay-policy', () => {
                 eventUuid: 'event-1',
                 hogFunctionIds: ['fn-1', 'fn-2'],
                 hogFlowIds: [],
-                replayCount: 1,
             })
         })
 
@@ -83,7 +80,6 @@ describe('replay-policy', () => {
 
         it.each([
             ['unreadable', null, openPolicy()],
-            ['exhausted', record({ replayCount: 2 }), openPolicy()],
             ['step', record({ step: 'filter' }), openPolicy({ steps: ['inputs'] })],
             ['window', record(), openPolicy({ from: Date.parse('2026-09-02T00:00:00.000Z') })],
             ['window', record(), openPolicy({ to: Date.parse('2026-08-30T00:00:00.000Z') })],
@@ -95,14 +91,6 @@ describe('replay-policy', () => {
             ['function', record(), openPolicy({ hogFunctionIds: ['fn-9'] })],
         ])('skips with reason %s', (skipReason, rec, policy) => {
             expect(shouldReplay(rec, policy, NOW)).toEqual({ replay: false, skipReason })
-        })
-
-        it('checks the replay cap before anything else, so an exhausted record cannot loop', () => {
-            const exhausted = record({ replayCount: 5, step: 'filter' })
-            expect(shouldReplay(exhausted, openPolicy({ steps: ['inputs'] }), NOW)).toEqual({
-                replay: false,
-                skipReason: 'exhausted',
-            })
         })
     })
 
@@ -126,7 +114,6 @@ describe('replay-policy', () => {
                 skipTeamIds: [],
                 hogFunctionIds: [],
                 reasonContains: '',
-                maxReplays: defaultConfig.CDP_DLQ_REPLAY_MAX_REPLAYS,
             })
         })
 
