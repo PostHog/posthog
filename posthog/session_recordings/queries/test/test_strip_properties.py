@@ -117,10 +117,11 @@ class TestUnexpectedPropertyValidation(BaseTest):
                 "raw_session_replay_events.console_error_count > 0",
                 "raw_session_replay_events",
             ),
+            ("value that cannot match the column type", "person_id = 'abc'", "UUID"),
         ]
     )
     def test_filter_that_cannot_resolve_on_replay_is_rejected(
-        self, _name: str, expression: str, unknown_field: str
+        self, _name: str, expression: str, expected_reason: str
     ) -> None:
         query = RecordingsQuery(properties=[HogQLPropertyFilter(key=expression)])
 
@@ -129,7 +130,7 @@ class TestUnexpectedPropertyValidation(BaseTest):
 
         detail = str(e.value.detail)
         assert "properties" in detail
-        assert unknown_field in detail
+        assert expected_reason in detail
         assert e.value.get_codes() == {"properties": ["hogql_query_error"]}
 
     @parameterized.expand(

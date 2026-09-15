@@ -202,15 +202,17 @@ def validate_replay_scope_expr(
         # check rejects `s.<column>` and accepts a table-qualified field the query cannot resolve.
         resolve_types_from_table(expr, ["raw_session_replay_events"], context, "clickhouse", alias="s")
     except QueryError as e:
-        # Keep the HogQL code on the response, like the two handlers that already render a HogQL
-        # failure on this path, so a client can still tell one query error from another.
+        # The resolver also raises for reasons other than a missing field, such as a value that
+        # cannot match the column's type, so its own reason leads and the rewrite follows as an
+        # option rather than as the cause.
         raise ValidationError(
             {
                 "properties": [
-                    "Filters here run on the recording, not on events. "
-                    f"To filter on an event property, write it as properties.<name>. ({e})"
+                    f"This filter cannot run on session recordings. ({e}) "
+                    "To filter on an event property, write it as properties.<name>."
                 ]
             },
+            # Keeps the HogQL classification that the two handlers on this path already forward.
             code=e.code_name,
         )
 
