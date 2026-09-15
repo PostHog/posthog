@@ -26,11 +26,10 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from ..facade.enums import CheckRunStatus, CheckSeverity, SubjectStatus, SubjectType, SuiteRunTrigger
+from ..facade.enums import CheckRunStatus, SubjectStatus, SubjectType, SuiteRunTrigger
 from ..models import DataQualityCheck, DataQualitySuiteRun
 from .compiler import compile_check, related_subject_ref
 from .contracts import CompiledCheck, Evaluation, SubjectRef
-from .notifications import notify_check_started_failing
 from .run_records import record_check_run
 from .staged_audit import StagedSubjectOverride, build_staged_database
 from .subject_access import check_type_reads_beyond_subject, pin_referenced_subjects
@@ -57,7 +56,6 @@ class CheckOutcome:
     observed_value: float | None = None
     compiled_query: str = ""
     error: str = ""
-    became_failing: bool = False
     referenced_subjects: list[dict[str, str]] | None | _ReferenceState = _ReferenceState.NOT_SUPPLIED
 
 
@@ -86,22 +84,8 @@ def run_check(
     duration_ms = int((time.monotonic() - monotonic_start) * 1000)
     with team_scope(team.id):
         _record_run(check, suite_run, outcome, started_at, duration_ms)
-        became_failing = (
-            outcome.status is CheckRunStatus.FAILED
-            and check.severity == CheckSeverity.ERROR
-            and _claim_failing_transition(check)
-        )
         _update_check(check, outcome)
-
-    if became_failing:
-        notify_check_started_failing(
-            check,
-            outcome.failed_row_count,
-            executed_references=None
-            if outcome.referenced_subjects is _ReferenceState.NOT_SUPPLIED
-            else outcome.referenced_subjects,
-        )
-    return replace(outcome, became_failing=became_failing)
+    return outcome
 
 
 def record_unrunnable_check(
@@ -116,23 +100,6 @@ def record_unrunnable_check(
         _record_run(check, suite_run, outcome, datetime.now(UTC), duration_ms=0)
         _update_check(check, outcome)
     return outcome
-
-
-def _claim_failing_transition(check: DataQualityCheck) -> bool:
-    """Whether this run is the one that moved the check into failing.
-
-    Runs of the same check can overlap -- a manual run alongside the scheduled one -- and comparing
-    against a status read in Python lets both of them see the same passing value and notify. The
-    conditional update lets exactly one flip the row, so the pass-to-fail edge notifies once. Must
-    run before ``_update_check`` writes the new status, or there is nothing left to claim.
-    """
-    return (
-        DataQualityCheck.objects.for_team(check.team_id)
-        .filter(id=check.id)
-        .exclude(last_status=CheckRunStatus.FAILED)
-        .update(last_status=CheckRunStatus.FAILED)
-        == 1
-    )
 
 
 @dataclass(frozen=True)
