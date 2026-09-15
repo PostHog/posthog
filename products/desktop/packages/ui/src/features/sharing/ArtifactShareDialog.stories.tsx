@@ -1,6 +1,6 @@
-import { Button } from "@posthog/quill";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ArtifactShareBodyView } from "./ArtifactShareDialog";
+import { PublishChangesButton } from "./PublishChangesButton";
 import { ShareDialog } from "./ShareDialog";
 
 const on = {
@@ -41,11 +41,12 @@ const meta: Meta<typeof ArtifactShareBodyView> = {
         description="report.md"
         onClose={() => {}}
         action={
-          context.args.newerUploadExists ? (
-            <Button variant="primary" size="sm">
-              Publish changes
-            </Button>
-          ) : null
+          <PublishChangesButton
+            visible={context.args.newerUploadExists}
+            isPending={context.args.isPending}
+            onPublish={async () => true}
+            dataAttr="share-artifact-publish-changes"
+          />
         }
       >
         <Story />

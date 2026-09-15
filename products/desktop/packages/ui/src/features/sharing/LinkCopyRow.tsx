@@ -13,6 +13,7 @@ export function LinkCopyRow({
   url,
   copiedDescription,
   onCopied,
+  onOpen,
   dataAttr,
 }: {
   /** Names the field for assistive tech; shown above it unless `hideLabel`. */
@@ -22,6 +23,8 @@ export function LinkCopyRow({
   /** The toast's second line, saying what the copied link does. */
   copiedDescription: string;
   onCopied?: (success: boolean) => void;
+  /** Adds an Open button beside Copy, for links that make sense outside the app. */
+  onOpen?: () => void;
   dataAttr: string;
 }) {
   const inputId = useId();
@@ -56,6 +59,16 @@ export function LinkCopyRow({
         >
           Copy
         </Button>
+        {onOpen ? (
+          <Button
+            variant="outline"
+            onClick={onOpen}
+            data-attr={`${dataAttr}-open`}
+            aria-label={`Open ${label.toLowerCase()} in your browser`}
+          >
+            Open
+          </Button>
+        ) : null}
       </div>
     </div>
   );

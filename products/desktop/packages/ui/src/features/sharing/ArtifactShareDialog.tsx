@@ -1,5 +1,5 @@
 import type { TaskArtifactSharing } from "@posthog/api-client/posthog-client";
-import { Button, Separator, Text } from "@posthog/quill";
+import { Separator, Text } from "@posthog/quill";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import {
@@ -9,6 +9,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { LinkCopyRow } from "./LinkCopyRow";
 import { PublicShareSection } from "./PublicShareSection";
+import { PublishChangesButton } from "./PublishChangesButton";
 import { fileLinkHasUnpublishedChanges } from "./publicLink";
 import { ShareDialog } from "./ShareDialog";
 import { ShareSection } from "./ShareSection";
@@ -123,17 +124,12 @@ export function ArtifactShareDialog({
       description={name}
       onClose={onClose}
       action={
-        newerUploadExists ? (
-          <Button
-            variant="primary"
-            size="sm"
-            loading={isPending}
-            onClick={() => void updateLink()}
-            data-attr="share-artifact-publish-changes"
-          >
-            Publish changes
-          </Button>
-        ) : null
+        <PublishChangesButton
+          visible={newerUploadExists}
+          isPending={isPending}
+          onPublish={() => updateLink().then((result) => result !== null)}
+          dataAttr="share-artifact-publish-changes"
+        />
       }
     >
       <ArtifactShareBodyView
