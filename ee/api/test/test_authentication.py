@@ -452,6 +452,7 @@ class TestEELoginPrecheckAPI(APILicensedTest):
             {
                 "sso_enforcement": "google-oauth2",
                 "saml_available": False,
+                "oidc_available": False,
                 "webauthn_credentials": [],
                 "password_login_available": True,
                 "social_providers": [],
@@ -476,6 +477,7 @@ class TestEELoginPrecheckAPI(APILicensedTest):
             {
                 "sso_enforcement": None,
                 "saml_available": False,
+                "oidc_available": False,
                 "webauthn_credentials": [],
                 "password_login_available": True,
                 "social_providers": [],
@@ -499,6 +501,7 @@ class TestEELoginPrecheckAPI(APILicensedTest):
             {
                 "sso_enforcement": "github",
                 "saml_available": False,
+                "oidc_available": False,
                 "webauthn_credentials": [],
                 "password_login_available": True,
                 "social_providers": [],
@@ -523,6 +526,7 @@ class TestEELoginPrecheckAPI(APILicensedTest):
             {
                 "sso_enforcement": None,
                 "saml_available": False,
+                "oidc_available": False,
                 "webauthn_credentials": [],
                 "password_login_available": True,
                 "social_providers": [],
@@ -1037,6 +1041,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
             {
                 "sso_enforcement": None,
                 "saml_available": True,
+                "oidc_available": False,
                 "webauthn_credentials": [],
                 "password_login_available": True,
                 "social_providers": [],
@@ -1606,6 +1611,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
             {
                 "sso_enforcement": "saml",
                 "saml_available": True,
+                "oidc_available": False,
                 "webauthn_credentials": [],
                 "password_login_available": True,
                 "social_providers": [],
@@ -1623,6 +1629,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
             {
                 "sso_enforcement": None,
                 "saml_available": False,
+                "oidc_available": False,
                 "webauthn_credentials": [],
                 "password_login_available": True,
                 "social_providers": [],
@@ -1645,6 +1652,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
             {
                 "sso_enforcement": None,
                 "saml_available": False,
+                "oidc_available": False,
                 "webauthn_credentials": [],
                 "password_login_available": True,
                 "social_providers": [],
