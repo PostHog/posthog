@@ -1,4 +1,5 @@
 import tempfile
+import itertools
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,7 @@ from products.warehouse_sources.backend.models.credential import DataWarehouseCr
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import (
     DESCRIBE_MAX_EXECUTION_TIME_SECONDS,
+    DESCRIBE_RETRY_BUDGET_SECONDS,
     DataWarehouseTable,
     get_hogql_field_for_column,
     run_chdb_query,
@@ -331,6 +333,25 @@ class TestSchemaInferenceMode(BaseTest):
                     self._table(DataWarehouseTable.TableFormat.JSON).get_columns()
 
         assert mock_sync_execute.call_count == 5
+
+    def test_an_attempt_cannot_run_past_the_retry_budget(self) -> None:
+        # Checking the deadline between attempts alone lets one that starts just inside the budget
+        # add its whole limit on top of it, which is most of the hold this budget exists to stop.
+        clock = itertools.count(start=0.0, step=DESCRIBE_RETRY_BUDGET_SECONDS / 3)
+        with (
+            patch("products.warehouse_sources.backend.models.table.time.sleep"),
+            patch("products.warehouse_sources.backend.models.table.time.monotonic", side_effect=lambda: next(clock)),
+            patch(
+                "products.warehouse_sources.backend.models.table.sync_execute",
+                side_effect=ServerException("DB::Exception: Unexpected", code=1002),
+            ) as mock_sync_execute,
+        ):
+            with pytest.raises(Exception):
+                self._table(DataWarehouseTable.TableFormat.JSON).get_columns()
+
+        limits = [call.kwargs["settings"]["max_execution_time"] for call in mock_sync_execute.call_args_list]
+        assert limits[0] == DESCRIBE_MAX_EXECUTION_TIME_SECONDS
+        assert limits[-1] < DESCRIBE_MAX_EXECUTION_TIME_SECONDS
 
 
 class TestGetHogqlFieldForColumn(SimpleTestCase):

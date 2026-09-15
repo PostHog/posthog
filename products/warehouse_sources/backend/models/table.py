@@ -626,11 +626,20 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             attempts = 5
             retry_deadline = time.monotonic() + DESCRIBE_RETRY_BUDGET_SECONDS
             for i in range(attempts):
+                # An attempt gets whatever is left of the budget, so the last one cannot run past it.
+                # Checking the deadline between attempts alone would let an attempt that starts just
+                # inside the budget add its whole limit on top of it.
+                attempt_settings = {
+                    **describe_settings,
+                    "max_execution_time": max(
+                        1, min(DESCRIBE_MAX_EXECUTION_TIME_SECONDS, int(retry_deadline - time.monotonic()))
+                    ),
+                }
                 try:
                     result = sync_execute(
                         f"""DESCRIBE TABLE {s3_table_func}""",
                         args=placeholder_context.values,
-                        settings=describe_settings,
+                        settings=attempt_settings,
                     )
                     break
                 except Exception as err:
