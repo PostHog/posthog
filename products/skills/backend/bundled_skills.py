@@ -8,8 +8,11 @@ set to keep a store skill from taking a bundled one.
 
 from __future__ import annotations
 
+import re
 from functools import cache
 from pathlib import Path
+
+import yaml
 
 # Skills authored in PostHog/context-mill. Every shipping consumer unzips this
 # repo's skills first and then unzips the context-mill release on top, so a
@@ -30,8 +33,10 @@ OMNIBUS_SKILL_NAMES = frozenset(
 _PRODUCTS_DIR = Path(__file__).resolve().parents[2]
 # Markdown that sits beside skills without being a skill.
 _NON_SKILL_FILES = frozenset({"README.md", "AGENTS.md", "CLAUDE.md"})
-# Frontmatter opens the entry point, so a bounded read always holds it.
+# Frontmatter opens the entry point, so a bounded read holds all of it in every ordinary case.
 _FRONTMATTER_READ_BYTES = 4096
+# The block `parse_frontmatter` in products/posthog_ai/scripts/build_skills.py reads.
+_FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
 
 def _entry_point(path: Path) -> Path | None:
@@ -57,21 +62,30 @@ def _declared_name(entry_point: Path) -> str | None:
     `SkillBuilder.build_skill` ships a skill under its frontmatter name rather than its path name,
     and the two differ for a loose entry point: products/customer_analytics/skills/SKILL.md ships
     as `adding-warehouse-person-properties`.
+
+    The block is parsed as YAML, the way the build parses it, so a quoted name or a trailing
+    comment resolves to the string the build ships under. Reading the raw text after `name:`
+    instead would record `bundled-skill # note` and let a store skill take `bundled-skill`.
+    A `.md.j2` entry point is read unrendered, so a templated name comes back with its braces and
+    matches nothing. The templated names are the context-mill ones, which `OMNIBUS_SKILL_NAMES`
+    already holds.
     """
     try:
         with entry_point.open(encoding="utf-8", errors="replace") as handle:
             head = handle.read(_FRONTMATTER_READ_BYTES)
-    except OSError:
+            match = _FRONTMATTER_RE.match(head)
+            if match is None:
+                # Frontmatter longer than the prefix: read the rest to reach its closing delimiter.
+                match = _FRONTMATTER_RE.match(head + handle.read())
+        if match is None:
+            return None
+        frontmatter = yaml.safe_load(match.group(1))
+    except (OSError, yaml.YAMLError):
         return None
-    lines = head.splitlines()
-    if not lines or lines[0].strip() != "---":
+    if not isinstance(frontmatter, dict):
         return None
-    for line in lines[1:]:
-        if line.strip() == "---":
-            break
-        if line.startswith("name:"):
-            return line.removeprefix("name:").strip().strip("\"'") or None
-    return None
+    name = frontmatter.get("name")
+    return name if isinstance(name, str) else None
 
 
 def _path_name(path: Path) -> str:
