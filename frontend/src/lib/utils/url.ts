@@ -137,16 +137,12 @@ export function stripHTTP(url: string): string {
 export function isDomain(url: string | URL): boolean {
     try {
         const parsedUrl = typeof url === 'string' ? new URL(url) : url
-        if (parsedUrl.protocol.includes('http') && (!parsedUrl.pathname || parsedUrl.pathname === '/')) {
-            return true
-        }
-        if (!parsedUrl.pathname.replace(/^\/\//, '').includes('/')) {
-            return true
-        }
+        // Trailing slashes do not make a path, but everything else does, including the `//host`
+        // path that a doubled protocol such as `https://https://example.com` parses into.
+        return parsedUrl.pathname.replace(/\/+$/, '') === ''
     } catch {
         return false
     }
-    return false
 }
 
 export function isURL(input: any): boolean {

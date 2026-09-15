@@ -11,6 +11,7 @@ import { initKeaTests } from '~/test/init'
 
 import {
     AuthorizedUrlListType,
+    NEW_URL,
     SuggestedDomain,
     appEditorUrl,
     authorizedUrlListLogic,
@@ -116,6 +117,22 @@ describe('the authorized urls list logic', () => {
                 proposedUrlChanged: true,
                 proposedUrlHasErrors: true,
                 proposedUrlValidationErrors: { url: 'Please enter a valid URL' },
+            })
+        })
+
+        // The form opens prefilled with `https://`, so a pasted full URL doubles the protocol
+        test.each([
+            ['https://www.example.com', 'https://www.example.com'],
+            ['http://localhost:3000', 'http://localhost:3000'],
+        ])('keeps a single protocol when "%s" is pasted over the prefilled one', async (pasted, expected) => {
+            await expectLogic(logic, () => {
+                logic.actions.newUrl()
+                logic.actions.setProposedUrlValue('url', `${NEW_URL}${pasted}`)
+            }).toFinishAllListeners()
+
+            await expectLogic(logic).toMatchValues({
+                proposedUrl: { url: expected },
+                proposedUrlHasErrors: false,
             })
         })
 
@@ -287,6 +304,10 @@ describe('the authorized urls list logic', () => {
                 {
                     proposedUrl: 'capacitor://localhost',
                     validityMessage: undefined,
+                },
+                {
+                    proposedUrl: 'https://https://www.example.com',
+                    validityMessage: "Please enter a valid domain (URLs with a path aren't allowed)",
                 },
             ]
 
