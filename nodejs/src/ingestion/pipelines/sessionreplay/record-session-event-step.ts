@@ -11,6 +11,7 @@ import { ValueMatcher } from '~/types'
 
 export interface RecordSessionEventStepInput extends SessionBatchContext {
     team: TeamForReplay
+    headers: { now?: Date }
     parsedMessage: ParsedMessageData
     retentionPeriod: RetentionPeriod
     sessionKey: SessionKey
@@ -59,7 +60,13 @@ export function createRecordSessionEventStep<T extends RecordSessionEventStepInp
 
         // Record to the batch's recorder, carried on the element by the pipeline's beforeBatch.
         const messageWithTeam: MessageWithTeam = { team, message: parsedMessage }
-        await sessionBatchRecorder.record(messageWithTeam, retentionPeriod, sessionKey)
+        const captureTimestampMs = input.headers.now?.getTime()
+        await sessionBatchRecorder.record(
+            messageWithTeam,
+            retentionPeriod,
+            sessionKey,
+            Number.isFinite(captureTimestampMs) ? captureTimestampMs : undefined
+        )
 
         return ok(input)
     }

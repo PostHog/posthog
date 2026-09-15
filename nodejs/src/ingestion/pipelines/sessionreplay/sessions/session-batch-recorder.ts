@@ -29,6 +29,7 @@ interface SessionBatchEntry {
     featureRecorder: SessionFeatureRecorder
     sessionKey: SessionKey
     retentionPeriod: RetentionPeriod
+    captureTimestampMs?: number
 }
 
 /**
@@ -110,7 +111,8 @@ export class SessionBatchRecorder {
     public async record(
         message: MessageWithTeam,
         retentionPeriod: RetentionPeriod,
-        sessionKey: SessionKey
+        sessionKey: SessionKey,
+        captureTimestampMs?: number
     ): Promise<number> {
         const { partition } = message.message.metadata
         const sessionId = message.message.session_id
@@ -162,6 +164,7 @@ export class SessionBatchRecorder {
                 })
                 return 0
             }
+            existingBatchState.captureTimestampMs ??= captureTimestampMs
         } else {
             this.sessions.set(teamId, sessionId, {
                 sessionBlockRecorder: new SnappySessionRecorder(sessionId, teamId, this.batchId),
@@ -179,6 +182,7 @@ export class SessionBatchRecorder {
                 ),
                 sessionKey,
                 retentionPeriod,
+                captureTimestampMs,
             })
         }
 
@@ -261,6 +265,7 @@ export class SessionBatchRecorder {
                 featureRecorder,
                 sessionKey,
                 retentionPeriod,
+                captureTimestampMs,
             } of this.sessions.values()) {
                 const {
                     buffer,
@@ -338,6 +343,7 @@ export class SessionBatchRecorder {
                     eventCount,
                     retentionPeriodDays,
                     isDeleted: false,
+                    captureTimestampMs,
                 })
 
                 totalEvents += eventCount
