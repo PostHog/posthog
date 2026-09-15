@@ -54,6 +54,7 @@ import {
     NoteContent,
     RelatedToContent,
     RepoSelectionContent,
+    selectVisibleReportActivity,
     SignalFindingContent,
     SummaryChangeContent,
     TaskRunArtefactContent,
@@ -665,13 +666,7 @@ export function ArtefactLogList({
     if (artefacts.length === 0) {
         return null
     }
-    const ordered = artefacts
-        .filter(
-            (artefact) =>
-                artefact.type !== 'implementation_handover' ||
-                (artefact.content as ImplementationHandoverContent).status !== 'processing'
-        )
-        .sort((a, b) => b.created_at.localeCompare(a.created_at))
+    const ordered = selectVisibleReportActivity(artefacts).sort((a, b) => b.created_at.localeCompare(a.created_at))
     if (ordered.length === 0) {
         return null
     }
