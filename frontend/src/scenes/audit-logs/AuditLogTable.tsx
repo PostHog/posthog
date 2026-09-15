@@ -216,7 +216,9 @@ function ExpandedRowContent({ logItem }: { logItem: HumanizedActivityLogItem }):
                                 Agent task
                             </div>
                             <div className="text-[13px]">
-                                <Link to={urls.codeTaskLink(agent.taskId)}>{agent.taskId}</Link>
+                                <Link to={urls.codeTaskLink(agent.taskId)} target="_blank" targetBlankIcon>
+                                    {agent.taskId}
+                                </Link>
                             </div>
                         </div>
                     )}
