@@ -107,8 +107,8 @@ export function PullRequestDayView({
     const ticks = Array.from({ length: Math.ceil(days / step) }).map((_, index) => index * step)
     const alignmentNote =
         alignment === 'weeks'
-            ? `Rows start at Monday ${DAY_START_HOUR}:00 of the week each pull request went ready, so weekdays line up.`
-            : `Rows start at ${DAY_START_HOUR}:00 on the day each pull request went ready, so nights and weekends line up.`
+            ? `Rows start at Monday ${DAY_START_HOUR}:00 of the week each timeline starts, so weekdays line up.`
+            : `Rows start at ${DAY_START_HOUR}:00 on the day each timeline starts, so nights and weekends line up.`
 
     return (
         <LemonCard hoverEffect={false} className="@container p-4" data-attr="engineering-analytics-day-view">

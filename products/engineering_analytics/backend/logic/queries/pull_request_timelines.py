@@ -369,9 +369,15 @@ class PullRequestTimelinesQuery:
             run_failed = completed and conclusion in DECISIVE_FAILURE_CONCLUSIONS
             newest_attempt = int(attempt or 1)
             for job_attempt in run_attempts:
-                # The run row decides its newest attempt's verdict: the failing job's row can arrive
-                # after the rest of the attempt's jobs.
-                failed = bool(job_attempt.failed_jobs) or (job_attempt.attempt == newest_attempt and run_failed)
+                # The run row decides its newest attempt's outcome: the jobs sync can still hold a queued
+                # job row, or miss the failing job's row, after the run itself completed.
+                is_newest = job_attempt.attempt == newest_attempt
+                failed = bool(job_attempt.failed_jobs) or (is_newest and run_failed)
+                completed_at = job_attempt.completed_at
+                succeeded = job_attempt.succeeded and not failed
+                if is_newest and completed:
+                    completed_at = completed_at or updated_at
+                    succeeded = conclusion == "success" and not failed
                 attempts[int(number)].append(
                     RunAttempt(
                         run_id=int(run_id),
@@ -380,9 +386,9 @@ class PullRequestTimelinesQuery:
                         attempt=job_attempt.attempt,
                         pushed_at=pushed_at,
                         started_at=job_attempt.started_at,
-                        completed_at=job_attempt.completed_at,
+                        completed_at=completed_at,
                         failed=failed,
-                        succeeded=job_attempt.succeeded and not failed,
+                        succeeded=succeeded,
                         failed_jobs=job_attempt.failed_jobs,
                     )
                 )
