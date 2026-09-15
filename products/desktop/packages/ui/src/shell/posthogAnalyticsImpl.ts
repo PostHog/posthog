@@ -112,6 +112,32 @@ let flagsUnavailable = false;
 
 const SESSION_IDLE_TIMEOUT_SECONDS = 36_000;
 
+// Free-text path segments on this app's own backend that posthog-js's default
+// templating (all-digit or uuid-like segments only) won't catch: a team-skill
+// name, and the nested file path under it — see getLlmSkillBodyPage,
+// publishLlmSkillVersion, and getLlmSkillFile in
+// packages/api-client/src/posthog-client.ts. Extend these two patterns if a
+// future endpoint puts other free text (not just an id) in its path.
+const LLM_SKILL_FILE_PATH_RE =
+  /^(\/api\/environments\/)\d+(\/llm_skills\/name\/)[^/]+(\/files\/).+$/;
+const LLM_SKILL_NAME_PATH_RE =
+  /^(\/api\/environments\/)\d+(\/llm_skills\/name\/)[^/]+$/;
+
+// Returning a custom `path` from `metrics.network.attributes` (below) replaces
+// posthog-js's default templated path outright rather than layering on top of
+// it, so this re-templates the numeric environment id too instead of leaving
+// that to the default. Returns `undefined` for every other route on this
+// app's own backend, deferring to posthog-js's default templating for those.
+function templateOwnApiPath(pathname: string): string | undefined {
+  if (LLM_SKILL_FILE_PATH_RE.test(pathname)) {
+    return pathname.replace(LLM_SKILL_FILE_PATH_RE, "$1:id$2:id$3:id");
+  }
+  if (LLM_SKILL_NAME_PATH_RE.test(pathname)) {
+    return pathname.replace(LLM_SKILL_NAME_PATH_RE, "$1:id$2:id");
+  }
+  return undefined;
+}
+
 /**
  * Path attribute for the automatic network-duration metric. posthog-js's default
  * path templating only replaces numeric/uuid-like segments, so a presigned
@@ -137,9 +163,12 @@ export function networkMetricPath(
   }
 
   try {
-    const requestHost = new URL(request.url).host;
+    const requestUrl = new URL(request.url);
     const appHost = new URL(apiBaseHost).host;
-    return requestHost === appHost ? undefined : "external";
+    if (requestUrl.host !== appHost) {
+      return "external";
+    }
+    return templateOwnApiPath(requestUrl.pathname);
   } catch {
     return "external";
   }

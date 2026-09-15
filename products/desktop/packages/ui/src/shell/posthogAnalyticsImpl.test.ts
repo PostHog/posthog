@@ -270,6 +270,28 @@ describe("networkMetricPath", () => {
 
     expect(path).toBe("external");
   });
+
+  // Skill names and file paths are free text a team member picks, not an id
+  // posthog-js's default numeric/uuid-only templating would catch — same
+  // leak class as the presigned-URL case above, just on the app's own host.
+  it.each([
+    {
+      case: "a skill name",
+      url: "https://us.posthog.com/api/environments/1/llm_skills/name/incident-runbook",
+      expected: "/api/environments/:id/llm_skills/name/:id",
+    },
+    {
+      case: "a nested skill file path",
+      url: "https://us.posthog.com/api/environments/1/llm_skills/name/incident-runbook/files/docs/readme.md",
+      expected: "/api/environments/:id/llm_skills/name/:id/files/:id",
+    },
+  ])("templates $case on the app's own backend", async ({ url, expected }) => {
+    const { networkMetricPath } = await loadAnalytics();
+
+    const path = networkMetricPath({ url, method: "GET" }, apiBaseHost);
+
+    expect(path).toBe(expected);
+  });
 });
 
 describe("metrics.network.attributes callback", () => {
