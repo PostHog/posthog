@@ -577,7 +577,14 @@ build:
                   task_catalog_pid=$!
                   pnpm --filter=@posthog/mcp run generate-exec-docs &
                   exec_docs_pid=$!
-                  wait "$widget_types_pid" && wait "$frontend_types_pid" && wait "$mcp_types_pid" && wait "$mcp_schemas_pid" && wait "$mcp_tools_pid" && wait "$task_catalog_pid" && wait "$exec_docs_pid"
+                  pids="$widget_types_pid $frontend_types_pid $mcp_types_pid $mcp_schemas_pid $mcp_tools_pid $task_catalog_pid $exec_docs_pid"
+                  trap 'kill $pids 2>/dev/null || true' INT TERM
+                  generation_status=0
+                  for pid in $pids; do
+                      wait "$pid" || generation_status=1
+                  done
+                  trap - INT TERM
+                  exit "$generation_status"
             - build:openapi-mcp-scopes
             - build:openapi-cli-agent-scopes
         description: 'Generate OpenAPI schema and TypeScript types from the backend.
