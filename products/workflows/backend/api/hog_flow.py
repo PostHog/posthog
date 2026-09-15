@@ -5526,7 +5526,7 @@ class HogFlowViewSet(
         # Reading the queue stays open while the flag is on, so a workflow turned off keeps showing
         # the suggestions someone already has to resolve. Producing a new one is what the workflow's
         # own opt-in gates.
-        if not HogFlowOptimisation.objects.filter(team_id=self.team_id, hog_flow=instance, enabled=True).exists():
+        if not HogFlowOptimisation.objects.filter(hog_flow=instance, enabled=True).exists():
             raise WorkflowNotOptimisedError()
 
         # An agent has no business setting secret function inputs, and proposal content is stored in
@@ -5821,12 +5821,12 @@ class HogFlowViewSet(
             param_serializer = HogFlowOptimisationSerializer(data=request.data)
             param_serializer.is_valid(raise_exception=True)
             enabled = param_serializer.validated_data["enabled"]
-            row = HogFlowOptimisation.objects.filter(team_id=self.team_id, hog_flow=instance).first()
+            row = HogFlowOptimisation.objects.filter(hog_flow=instance).first()
             if row is None:
                 # Turning it off for a workflow nobody turned on is a no-op, not a row saying "no".
                 changed = enabled
                 if enabled:
-                    row = HogFlowOptimisation.objects.create(team_id=self.team_id, hog_flow=instance, enabled=True)
+                    row = HogFlowOptimisation.objects.create(hog_flow=instance, enabled=True)
             else:
                 # Turning it off keeps the row: how many people tried this and stopped is a question
                 # about the rollout, and a deleted row cannot answer it.
@@ -5848,7 +5848,7 @@ class HogFlowViewSet(
                     "hog_flow_optimisation_enabled" if enabled else "hog_flow_optimisation_disabled", instance
                 )
 
-        row = HogFlowOptimisation.objects.filter(team_id=self.team_id, hog_flow=instance).first()
+        row = HogFlowOptimisation.objects.filter(hog_flow=instance).first()
         enabled = row is not None and row.enabled
         return Response(HogFlowOptimisationSerializer({"enabled": enabled}).data)
 
