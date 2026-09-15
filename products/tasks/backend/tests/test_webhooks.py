@@ -2249,7 +2249,7 @@ class TestGitHubWebhookFanout(TestCase):
             ("unified_url", "/webhooks/github/"),
         ]
     )
-    @patch("products.conversations.backend.api.github_events.process_github_event")
+    @patch("products.conversations.backend.services.github_events.process_github_event")
     @patch("posthog.ingress.github.provider.get_instance_setting")
     def test_issues_event_dispatched_to_conversations(self, _name, url, mock_secret, mock_task):
         mock_secret.return_value = self.webhook_secret
@@ -2272,7 +2272,7 @@ class TestGitHubWebhookFanout(TestCase):
         self.assertEqual(call_kwargs["team_id"], self.team.id)
         self.assertEqual(call_kwargs["repo"], "myorg/myrepo")
 
-    @patch("products.conversations.backend.api.github_events.process_github_event")
+    @patch("products.conversations.backend.services.github_events.process_github_event")
     @patch("posthog.ingress.github.provider.get_instance_setting")
     def test_issue_comment_event_dispatched_to_conversations(self, mock_secret, mock_task):
         mock_secret.return_value = self.webhook_secret
@@ -2293,7 +2293,7 @@ class TestGitHubWebhookFanout(TestCase):
         mock_task.delay.assert_called_once()
         self.assertEqual(mock_task.delay.call_args[1]["event_type"], "issue_comment")
 
-    @patch("products.conversations.backend.api.github_events.process_github_event")
+    @patch("products.conversations.backend.services.github_events.process_github_event")
     @patch("posthog.ingress.github.provider.get_instance_setting")
     def test_issues_event_without_matching_team_is_not_dispatched(self, mock_secret, mock_task):
         mock_secret.return_value = self.webhook_secret
