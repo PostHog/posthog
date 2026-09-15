@@ -4,7 +4,7 @@ from typing import Optional
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=True)
 class BrexEndpointConfig:
     name: str
     path: str
@@ -18,6 +18,11 @@ class BrexEndpointConfig:
     # When True, the endpoint is paged once per cash account listed from /v2/accounts/cash,
     # with `{account_id}` in the path resolved per account.
     fan_out_cash_accounts: bool = False
+    # Response envelope key holding the rows. None when the endpoint returns a bare JSON array.
+    data_selector: Optional[str] = "items"
+    # False for the endpoints Brex documents no `cursor`/`limit` params on — the whole
+    # collection arrives in a single response.
+    paginated: bool = True
     # Per-version `path` overrides, keyed by the source's supported version labels. Brex
     # versions each product API independently in the URL (transactions/users on /v2,
     # expenses/vendors on /v1) with no global version header or segment, and every endpoint
@@ -32,8 +37,8 @@ class BrexEndpointConfig:
 #
 # Incremental sync is only advertised where Brex exposes a server-side timestamp filter:
 # transactions support `posted_at_start` (filters on `posted_at_date`) and expenses support
-# `updated_at_start` (filters on `updated_at`). Team/vendors/budgets endpoints have no such
-# filter, so they are full refresh only.
+# `updated_at_start` (filters on `updated_at`). The account, team, payments and budgets
+# endpoints have no such filter, so they are full refresh only.
 BREX_ENDPOINTS: dict[str, BrexEndpointConfig] = {
     "card_transactions": BrexEndpointConfig(
         name="card_transactions",
@@ -67,6 +72,19 @@ BREX_ENDPOINTS: dict[str, BrexEndpointConfig] = {
             },
         ],
     ),
+    "card_accounts": BrexEndpointConfig(
+        name="card_accounts",
+        path="/v2/accounts/card",
+        # The only Brex endpoint that answers with a bare JSON array rather than the
+        # `{items, next_cursor}` envelope, and the only one with no pagination params.
+        data_selector=None,
+        paginated=False,
+    ),
+    "cash_accounts": BrexEndpointConfig(
+        name="cash_accounts",
+        # Listed as its own table, and paged as the parent of the cash transactions fan-out.
+        path="/v2/accounts/cash",
+    ),
     "expenses": BrexEndpointConfig(
         name="expenses",
         path="/v1/expenses",
@@ -94,14 +112,30 @@ BREX_ENDPOINTS: dict[str, BrexEndpointConfig] = {
         name="locations",
         path="/v2/locations",
     ),
+    "cards": BrexEndpointConfig(
+        name="cards",
+        path="/v2/cards",
+        # `user_id` is an optional filter; omitting it lists every card on the account.
+        partition_key="created_at",
+    ),
     "vendors": BrexEndpointConfig(
         name="vendors",
         path="/v1/vendors",
+    ),
+    "transfers": BrexEndpointConfig(
+        name="transfers",
+        path="/v1/transfers",
+        # No partition key: `created_at` is nullable on the transfer object.
     ),
     "budgets": BrexEndpointConfig(
         name="budgets",
         path="/v2/budgets",
         primary_keys=["budget_id"],
+    ),
+    "spend_limits": BrexEndpointConfig(
+        name="spend_limits",
+        path="/v2/spend_limits",
+        # No partition key: every date field on a spend limit is nullable.
     ),
 }
 

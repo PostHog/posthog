@@ -10,6 +10,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from products.metrics.backend.facade.api import list_metric_picker_names
+from products.metrics.backend.facade.contracts import MAX_SPARKLINE_BATCH_SIZE
 from products.metrics.backend.metric_names_query_runner import (
     MAX_PICKER_SERVICES,
     MetricNamesQueryRunner,
@@ -239,9 +240,10 @@ class TestMetricsValuesAPI(ClickhouseTestMixin, APIBaseTest):
         truncate_metrics_tables()
         cache.clear()
 
-    def test_values_requires_authentication(self):
+    @parameterized.expand([("get",), ("post",)])
+    def test_values_requires_authentication(self, method):
         self.client.logout()
-        response = self.client.get(f"/api/projects/{self.team.id}/metrics/values")
+        response = getattr(self.client, method)(f"/api/projects/{self.team.id}/metrics/values")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_values_returns_empty_for_no_data(self):
@@ -278,6 +280,47 @@ class TestMetricsValuesAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         names = [row["name"] for row in response.json()["results"]]
         self.assertEqual(names, ["http.duration"])
+
+    def test_values_batch_matches_exact_names_and_service(self):
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
+        for metric_name, service in [
+            ("queue.depth", "web"),
+            ("queue.depth.extra", "web"),
+            ("http.duration", "web"),
+            ("worker.count", "worker"),
+        ]:
+            seed_metric(
+                team_id=self.team.id,
+                metric_name=metric_name,
+                points=[(anchor - dt.timedelta(minutes=20), 1.0), (anchor, 2.0)],
+                service_name=service,
+            )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/values/",
+            {
+                "names": ["queue.depth", "http.duration", "worker.count", "missing.metric"],
+                "service": "web",
+                "limit": 1,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        rows = response.json()["results"]
+        self.assertEqual({row["name"] for row in rows}, {"queue.depth", "http.duration"})
+        for row in rows:
+            self.assertEqual(row["sparkline"], [1.0, 2.0])
+
+    @parameterized.expand(
+        [
+            ("empty", []),
+            ("too many", [f"metric.{index}" for index in range(MAX_SPARKLINE_BATCH_SIZE + 1)]),
+            ("blank", [""]),
+            ("too long", ["a" * 256]),
+        ]
+    )
+    def test_values_rejects_invalid_names(self, _name, names):
+        response = self.client.post(f"/api/projects/{self.team.id}/metrics/values/", {"names": names}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     @parameterized.expand(
         [

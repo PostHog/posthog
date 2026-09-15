@@ -1,14 +1,14 @@
 """Gated, recorded transport for calls to a Browserless fleet."""
 
-import hashlib
 from typing import Any
 from urllib.parse import urlsplit
 
 import requests
 
 from posthog.egress.browserless.limiter import consume_browserless_sync
-from posthog.egress.browserless.observability import record_browserless_exception, record_browserless_response
+from posthog.egress.browserless.observability import browserless_egress
 from posthog.egress.limiter.policies import Priority
+from posthog.egress.observability.observability import scope_fingerprint
 from posthog.egress.transport.transport import EgressBudgetExhausted, EgressClient
 
 
@@ -30,35 +30,17 @@ def fleet_scope(url: str, token: str) -> str:
     host = urlsplit(url).hostname or ""
     if not host and not token:
         return ""
-    return hashlib.sha256(f"{host}|{token}".encode()).hexdigest()[:16]
+    return scope_fingerprint(host, token)
 
 
 class BrowserlessClient(EgressClient):
+    observability = browserless_egress
+
     def _standard_headers(self) -> dict[str, str]:
         return {"Content-Type": "application/json"}
 
     def _consume(self, scope: str, priority: Priority, source: str, url: str) -> bool:
         return consume_browserless_sync(scope, priority=priority, source=source)
-
-    def _record_response(
-        self, response: requests.Response, *, source: str, scope: str | None, method: str, endpoint: str | None
-    ) -> None:
-        record_browserless_response(
-            response,
-            source=source,
-            scope=scope or "",
-            method=method,
-            endpoint=endpoint or "unknown",
-        )
-
-    def _record_exception(self, *, source: str, scope: str | None, method: str, url: str, endpoint: str | None) -> None:
-        record_browserless_exception(
-            source=source,
-            scope=scope or "",
-            method=method,
-            endpoint=endpoint or "unknown",
-            url=url,
-        )
 
     def _budget_exhausted_error(self, scope: str) -> BrowserlessEgressBudgetExhausted:
         return BrowserlessEgressBudgetExhausted("Browserless egress budget exhausted")

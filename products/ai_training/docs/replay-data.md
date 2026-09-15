@@ -9,12 +9,12 @@ Its storage and deletion implementation is separate from production session repl
 
 ## Session versions
 
-The cutoff is **Monday, 2026-09-14 at 11:00 UTC**, which is noon in Europe/London.
+The cutoff is **Tuesday, 2026-09-15 at 10:00 UTC**, which is 11:00 in Europe/London.
 The session UUIDv7 timestamp selects the version:
 
 - Before the cutoff: v1 uses HMAC team and session IDs.
 - At or after the cutoff: v2 uses raw team and session IDs and encrypted payloads.
-- An invalid UUIDv7 timestamp selects v1.
+- An invalid UUIDv7 timestamp or a start year beyond 9999 selects v1.
 
 Event timestamps, arrival times, retries, and flushes do not change the version.
 Both versions can occur in one ingestion batch.
@@ -37,7 +37,7 @@ The independent DynamoDB table stores session keys, team image keys, deletion ma
 ML outputs omit distinct IDs, including their hashes and pseudonyms.
 The metadata consumer projects supported fields before storage, including for messages already in Kafka.
 A session has one data key.
-New sessions share one image key per team and session start month.
+A team has one image key per session start month.
 KMS wraps each data key with an encryption context that binds its owner and purpose.
 Payload encryption uses XSalsa20-Poly1305.
 The authenticated payload also binds the dataset kind and, for images, the object or reference being encrypted.
@@ -56,7 +56,6 @@ Reads use strongly consistent `BatchGetItem` requests with bounded retries for u
 
 KMS plaintext caches reduce repeated decrypt calls.
 A cache hit does not bypass live key and deletion checks.
-Ingestion also checks current consent.
 Each process limits KMS concurrency and request rate; deployment capacity must account for the sum across replicas.
 Readers check live state before each batch and permit key use for at most five minutes from the start of that read.
 An expired read must obtain permission again.
@@ -117,13 +116,18 @@ Deleting a month does not affect another month's image keys.
 
 ## Data layout and readers
 
-| Dataset              | Default path                                     | Encryption key                          |
-| -------------------- | ------------------------------------------------ | --------------------------------------- |
-| Replay blocks        | `rrweb_2/`                                       | Session                                 |
-| Metadata catalog     | `block-metadata/v2/dt=<arrival-date>/`           | Each row's payload uses its session key |
-| Inline image shards  | `scrubbed-images/v2/<YYYY-MM>/<team>/shards/`    | Team and session month                  |
-| Inline image indexes | `scrubbed-images/v2/<YYYY-MM>/<team>/index/`     | Team and session month                  |
-| URL images           | `scrubbed-images/v2/<YYYY-MM>/<team>/url/<hash>` | Team and session month                  |
+All v2 S3 datasets use a `YYYY-MM` directory derived from the session UUIDv7 start timestamp in UTC.
+A session that crosses a month boundary stays in its start month, including late blocks and image fetches.
+
+| Dataset              | Default path                                                | Encryption key                           |
+| -------------------- | ----------------------------------------------------------- | ---------------------------------------- |
+| Replay blocks        | `rrweb_2/<month>/`                                          | Session                                  |
+| Metadata catalog     | `block-metadata/v2/<month>/`                                | Each row's payload uses its session key  |
+| Evaluation index     | `block-metadata-replay-index/v2/<month>/kind=<kind>/`       | Each block and kind uses its session key |
+| Inline image shards  | `scrubbed-images/v2/<month>/<team>/shards/`                 | Team and session month                   |
+| Inline image lookups | `scrubbed-images/v2/<month>/<team>/lookup/<hash>.encrypted` | Team and session month                   |
+| Inline image indexes | `scrubbed-images/v2/<month>/<team>/index/`                  | Team and session month                   |
+| URL images           | `scrubbed-images/v2/<month>/<team>/url/<hash>`              | Team and session month                   |
 
 Metadata catalogs expose raw `team_id`, `session_id`, `format_version`, and an encrypted `payload`.
 URLs, block locations, and replay indexes are inside that payload.
@@ -132,12 +136,13 @@ V2 does not write a separate plaintext replay index.
 
 Athena can select catalog rows but cannot decrypt replay fields.
 Training readers must bulk-read live keys and deletion markers before decrypting.
+If a download exceeds the key read lifetime, readers must check live eligibility again before decryption.
 Cross-account readers use the full DynamoDB table ARN and the prod-us KMS key ARN.
 Both accounts must authorize the reader role.
 Readers have key-read and decrypt permissions; they cannot create keys or change deletion state.
 
 Use metadata block locations and byte ranges to fetch recordings, then decrypt before decompressing.
-Include all relevant metadata arrival dates when collecting a session with late blocks.
+Read metadata from the session start month, including blocks that arrive in later months.
 
 Join analytics on both raw team and session IDs.
 Remove identifiers from model inputs.
@@ -145,11 +150,18 @@ Resolve image references before training because they contain team IDs.
 
 ## Images and Kafka
 
-V2 references are `image:v2:<team>:<YYYY-MM>:<hash>` and `imageurl:v2:<team>:<YYYY-MM>:<hash>`.
-Images do not deduplicate across teams or session start months.
+V2 references are `image:v2:<team>:<month>:<hash>` and `imageurl:v2:<team>:<month>:<hash>`.
+Images do not deduplicate across teams or session months.
 Source messages use session keys; stored scrubbed images use team image keys.
+Consumers reject malformed UUIDv7 session identifiers before reading DynamoDB.
+Oversized identifiers cannot fail a whole bulk key lookup.
+Inline images have an encrypted lookup for each reference, published after the shard and its index.
+Readers fetch that lookup directly; a missing image does not require a scan of the team's image history.
 Source deduplication includes the session, so deleting one source session cannot suppress another session's copy.
 The v2 image-fetch frontier uses a separate, initially empty DynamoDB history table.
+Its URL history expires eight days after the end of the session's UTC month.
+Explicit HTTP freshness or cache restrictions can shorten this expiry; they cannot extend it.
+Robots.txt and TDM reservation caches keep their shared origin keys and existing expiry rules.
 It does not inherit v1 seen flags or successful fetch results.
 
 ML Kafka producers write `ai_research_ingestion_version: 1` or `2`.
@@ -174,6 +186,31 @@ When both aliases are set, the `AI_RESEARCH_REPLAY_*` value takes precedence, in
 The wrapped HMAC secret keeps the single name `SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY` in both the environment and secret store.
 It has no new alias.
 Renaming configuration must not rotate that key.
+
+The shared ML server configuration applies the legacy aliases before explicit server overrides.
+An image scrubber with privacy enabled must configure `SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC` before startup.
+Malformed encrypted images retain their original payload and headers in the dead-letter queue.
+The scrubber retries failed dead-letter writes and interrupts retry waits during shutdown.
+The image fetch consumer dead-letters unsupported ingestion version headers while processing other valid records in the batch.
+A v2 message without privacy configuration still fails the batch because it needs the missing encryption settings.
+
+V2 data uses `YYYY-MM` directories from the session UUIDv7 start timestamp in UTC.
+Recording blocks, metadata, image shards, image lookups and URL images retain that month across late arrivals.
+V2 image references include `<team>:<month>:<hash>`, so the image-fetch seen history is independent for each month.
+Robots.txt and TDM reservation caches remain shared by origin across months.
+
+## JSON-LD evaluation index
+
+The v2 metadata consumer writes a separate encrypted index for `json_ld`, `full_snapshot`, and `page` entries.
+The path uses the session's UTC start month, even when events or uploads fall in a later month.
+Each Parquet row exposes real `team_id` and `session_id` values and encrypts the projected entries with the session key.
+Session, person, team, and month deletion therefore remove access to the index along with its recording.
+The JSON-LD payload remains in the referenced recording block.
+
+Use the real team ID to exclude all teams present in the model's training data before selecting eval examples.
+The exclusion must cover every training month, not only the eval partition's month.
+Use the encrypted reader for index entries, then fetch selected recording blocks to inspect their JSON-LD payloads.
+Legacy v1 indexes retain their pseudonymized identifiers and daily partitions.
 
 ### Privacy worker isolation
 

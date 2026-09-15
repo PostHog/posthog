@@ -79,6 +79,11 @@ Lives on `LLMSkillViewSet` (`products/skills/backend/api/skills.py`), not the co
 because the subject is a team-owned skill.
 Rendering and the GitHub calls are in `community_publish_services.py`.
 
+Callers must first retrieve the latest skill and show its version and file manifest to the publisher.
+The publish request must include the retrieved row's `id` as `expected_skill_id` and its numeric
+`version` as `expected_version`. The API returns `409` if either value differs from the latest row.
+After a conflict, retrieve the skill again and require new consent before another publish request.
+
 - Gated by `CommunityPublishFeatureFlagPermission`, which applies the same
   `llm-analytics-community-skills` check as the browse endpoints to this action alone. Skills is GA,
   so the flag cannot sit on the viewset.
@@ -183,10 +188,10 @@ Adding an owner is the remedy. There is no exemption for project or organization
 wants to publish adds themselves as an owner first.
 
 Errors surface as `400` (invalid payload), `403` (the requester does not own the skill, or it has no
-owners), `404` (unknown skill), `502` (GitHub refused a step), or `503` when the instance has no
-publisher App configured. The 503 is the fail-safe that keeps publishing off until the GitHub App is
-installed. A private key that cannot sign is a 503 too: it is a deployment nobody can retry their way
-out of, so it must not read as GitHub being down.
+owners), `404` (unknown skill), `409` (the reviewed skill row is no longer latest), `502` (GitHub
+refused a step), or `503` when the instance has no publisher App configured. The 503 is the fail-safe
+that keeps publishing off until the GitHub App is installed. A private key that cannot sign is a 503
+too: it is a deployment nobody can retry their way out of, so it must not read as GitHub being down.
 
 The three are kept apart on purpose, because each sends the publisher somewhere different. The skill
 is rendered before GitHub is touched, so a skill that has to be edited answers `400` even while the

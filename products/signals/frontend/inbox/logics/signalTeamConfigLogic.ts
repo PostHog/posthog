@@ -35,6 +35,7 @@ export interface signalTeamConfigLogicValues {
     draftBaseBranchRepo: string
     draftIssueTrackerIntegrationId: number | null
     draftMaxReportsPerDay: number | null
+    githubIssueWritebackEnabled: boolean
     issueTrackerConfig: Record<string, string>
     issueTrackerIntegrationId: number | null
     maxReportsPerDay: number | null
@@ -135,6 +136,7 @@ export interface signalTeamConfigLogicMeta {
         baseBranchOverrides: (teamConfig: SignalTeamConfig | null) => BaseBranchOverride[]
         maxReportsPerDay: (teamConfig: SignalTeamConfig | null) => number | null
         defaultOpenPullRequestReady: (teamConfig: SignalTeamConfig | null) => boolean
+        githubIssueWritebackEnabled: (teamConfig: SignalTeamConfig | null) => boolean
         issueTrackerIntegrationId: (teamConfig: SignalTeamConfig | null) => number | null
         issueTrackerConfig: (teamConfig: SignalTeamConfig | null) => Record<string, string>
         selectedIssueTrackerIntegrationId: (
@@ -317,6 +319,10 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
         defaultOpenPullRequestReady: [
             (s) => [s.teamConfig],
             (teamConfig: SignalTeamConfig | null): boolean => teamConfig?.default_open_pull_request_ready ?? false,
+        ],
+        githubIssueWritebackEnabled: [
+            (s) => [s.teamConfig],
+            (teamConfig: SignalTeamConfig | null): boolean => teamConfig?.github_issue_writeback_enabled ?? false,
         ],
         issueTrackerIntegrationId: [
             (s) => [s.teamConfig],

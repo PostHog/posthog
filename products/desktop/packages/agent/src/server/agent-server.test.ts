@@ -11,7 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ContentBlock, RequestError } from "@agentclientprotocol/sdk";
-import type { Adapter } from "@posthog/shared";
+import { type Adapter, IDLE_RESUME_STOP_REASON } from "@posthog/shared";
 import { zipSync } from "fflate";
 import jwt from "jsonwebtoken";
 import { HttpResponse, http } from "msw";
@@ -5618,6 +5618,10 @@ describe("AgentServer HTTP Mode", () => {
     });
 
     describe("idle same-run resume", () => {
+      type TurnCompleteEvent = {
+        notification?: { method?: string; params?: { stopReason?: string } };
+      };
+
       const idlePayload: JwtPayload = {
         task_id: "test-task-id",
         run_id: "test-run-id",
@@ -5632,7 +5636,7 @@ describe("AgentServer HTTP Mode", () => {
         resumeKind: "native" | "summary" = "native",
       ): Promise<{
         prompt: ReturnType<typeof vi.fn>;
-        turnCompleteEvents: () => unknown[];
+        turnCompleteEvents: () => TurnCompleteEvent[];
         sendInitialTaskMessage: () => Promise<void>;
       }> => {
         const s = createServer();
@@ -5676,11 +5680,13 @@ describe("AgentServer HTTP Mode", () => {
         return {
           prompt,
           turnCompleteEvents: () =>
-            broadcastEvent.mock.calls.filter(
-              ([event]) =>
-                (event as { notification?: { method?: string } }).notification
-                  ?.method === POSTHOG_NOTIFICATIONS.TURN_COMPLETE,
-            ),
+            broadcastEvent.mock.calls
+              .map(([event]) => event as TurnCompleteEvent)
+              .filter(
+                (event) =>
+                  event.notification?.method ===
+                  POSTHOG_NOTIFICATIONS.TURN_COMPLETE,
+              ),
           sendInitialTaskMessage: () =>
             startInitialTaskMessage(s, idlePayload, null),
         };
@@ -5700,6 +5706,9 @@ describe("AgentServer HTTP Mode", () => {
 
           expect(prompt).not.toHaveBeenCalled();
           expect(turnCompleteEvents()).toHaveLength(1);
+          expect(
+            turnCompleteEvents()[0]?.notification?.params?.stopReason,
+          ).toBe(IDLE_RESUME_STOP_REASON);
           const response = await fetch(`http://localhost:${port}/command`, {
             method: "POST",
             headers: {
