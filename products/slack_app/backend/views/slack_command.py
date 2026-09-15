@@ -28,6 +28,7 @@ from products.slack_app.backend.api import (
     ROUTE_NO_INTEGRATION,
     ROUTE_PROXY_FAILED,
     SLACK_INTEGRATION_KIND,
+    _region_routing_context,
     _start_command_workflow,
     cross_region_routing_enabled,
     is_us_host,
@@ -113,6 +114,12 @@ def slack_app_command_handler(request: HttpRequest) -> HttpResponse:
         other_domain=other_domain,
         incoming_host=incoming_host,
         can_defer=can_defer,
+        context=_region_routing_context(
+            workspace_result.candidates,
+            slack_user_id=slack_user_id,
+            channel=channel_id or None,
+            thread_ts=thread_ts or None,
+        ),
     )
     # ``None`` means handle locally; the ROUTE_* values are terminal exits.
     if region_route == ROUTE_NO_INTEGRATION:

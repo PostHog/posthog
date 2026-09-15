@@ -61,10 +61,11 @@ from products.slack_app.backend.discussion_replies import try_ingest_discussion_
 from products.slack_app.backend.feature_flags import (
     ASSISTANT_REQUIRED_SCOPES,
     is_slack_app_assistant_enabled,
+    is_slack_app_granular_region_routing_enabled,
     is_slack_app_oauth_enabled,
 )
 from products.slack_app.backend.helpers import local_dev_slack_email
-from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping, UntaggedFollowupMode
+from products.slack_app.backend.models import SlackChannel, SlackSettings, SlackThreadTaskMapping, UntaggedFollowupMode
 from products.slack_app.backend.services import inbox_interactivity, turn_feedback
 from products.slack_app.backend.services.integration_resolver import (
     UserResolutionFailure,
@@ -532,8 +533,8 @@ def resolve_slack_user(
 
 # Slack delivers a single webhook URL per app, but the workspace's PostHog Integration may live
 # in either Cloud region. Whichever region Slack hits, we route the event to the region that
-# owns the workspace. US is the primary; when both regions hold a row for the same workspace
-# (only possible during cutover or migration), US wins. This means:
+# owns the workspace. US is the primary; when both regions hold a row for the same workspace,
+# US wins by default. This means:
 #
 #  - hit US, local match           -> handle locally
 #  - hit US, no local match        -> proxy to EU (loop header set)
@@ -542,6 +543,13 @@ def resolve_slack_user(
 #  - hit EU, probe errs / unknown  -> assume US claims and proxy (optimistic); US drops if it
 #                                     also has nothing, which is the same outcome as before
 #  - hit either with loop header   -> never proxy again; handle locally or drop
+#
+# For workspaces on the granular-region-routing rollout, the interactive surfaces refine
+# "US wins" per event before it applies: the region holding the event's thread task, else the
+# freshest user routing default, else the freshest workspace routing default, wins the event
+# (see ``compare_region_claims``). The claims probe carries the extra facts, the loop header
+# still guarantees at most one hop, and any failure along the granular path falls back to the
+# table above.
 #
 # This keeps the slack manifest endpoint swappable between us.posthog.com and eu.posthog.com
 # without any other coordination.
@@ -729,38 +737,116 @@ def _mirror_message_event_to_other_region(
         logger.exception("slack_app_mirror_dispatch_failed", slack_team_id=slack_team_id)
 
 
-def _workspace_claims_cache_key(slack_team_id: str, kinds: list[str]) -> str:
-    kinds_token = ",".join(sorted(kinds))
-    return f"slack_app:ws_claims:{slack_team_id}:{kinds_token}"
+@frozen
+class RegionClaims:
+    """What one region holds for a Slack workspace, at the granularity the routing ladder compares.
 
-
-def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], incoming_host: str) -> bool | None:
-    """Ask the other region whether it claims the given workspace for any of the kinds.
-
-    Ownership is asked at workspace granularity on purpose. Project ids are issued per region, so
-    "does the other region hold project 2 for this workspace" compares two unrelated numbering
-    spaces and answers no almost every time — which reads as "we own this" and pins the event to
-    whichever region Slack happened to deliver it to.
-
-    Returns True/False on a definitive answer, or None on transport failure or bad response.
-    Definitive answers are cached for ``WORKSPACE_CLAIMS_CACHE_TTL_SECONDS`` so a single probe
-    flake does not reroute the next event. None is never cached so the next event re-probes.
+    ``granular`` is False when the answer came from a region that only reported ``claimed``
+    (a deploy predating the granular fields, or a pre-upgrade cache entry). The ladder treats
+    such an answer as "no granular signal" rather than "holds nothing", because the region may
+    well hold a thread or a default it simply could not report yet.
     """
-    cache_key = _workspace_claims_cache_key(slack_team_id, kinds)
+
+    claimed: bool
+    granular: bool = False
+    thread_claim: bool = False
+    user_default_updated_at: datetime | None = None
+    workspace_default_updated_at: datetime | None = None
+
+
+def _workspace_claims_cache_key(
+    slack_team_id: str,
+    kinds: list[str],
+    *,
+    slack_user_id: str | None = None,
+    channel: str | None = None,
+    thread_ts: str | None = None,
+) -> str:
+    kinds_token = ",".join(sorted(kinds))
+    return f"slack_app:ws_claims:{slack_team_id}:{kinds_token}:{slack_user_id or ''}:{channel or ''}:{thread_ts or ''}"
+
+
+def _parse_claim_timestamp(value: object) -> datetime | None:
+    """Parse an ISO-8601 timestamp from a claims payload, or None when absent or malformed.
+
+    Naive datetimes are rejected: ``updated_at`` is always timezone-aware, and comparing an
+    aware local timestamp against a naive remote one raises inside the webhook request.
+    """
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else None
+
+
+def _region_claims_from_payload(payload: dict[str, Any]) -> RegionClaims | None:
+    """Turn a claims response body (or cached copy of one) into ``RegionClaims``, or None if
+    the payload lacks even the ``claimed`` bool."""
+    claimed = payload.get("claimed")
+    if not isinstance(claimed, bool):
+        return None
+    thread_claim = payload.get("thread_claim")
+    return RegionClaims(
+        claimed=claimed,
+        # The granular keys ship together, so one bool key is enough to date the responder.
+        granular=isinstance(thread_claim, bool),
+        thread_claim=thread_claim is True,
+        user_default_updated_at=_parse_claim_timestamp(payload.get("user_default_updated_at")),
+        workspace_default_updated_at=_parse_claim_timestamp(payload.get("workspace_default_updated_at")),
+    )
+
+
+def probe_other_region_claims(
+    *,
+    slack_team_id: str,
+    kinds: list[str],
+    incoming_host: str,
+    slack_user_id: str | None = None,
+    channel: str | None = None,
+    thread_ts: str | None = None,
+) -> RegionClaims | None:
+    """Ask the other region what it holds for the given workspace, and optionally for a
+    Slack user and thread within it.
+
+    Workspace ownership stays the base question on purpose. Project ids are issued per region,
+    so "does the other region hold project 2 for this workspace" compares two unrelated
+    numbering spaces and answers no almost every time — which reads as "we own this" and pins
+    the event to whichever region Slack happened to deliver it to. The granular fields refine
+    the answer with region-independent keys instead: the Slack thread and the Slack user.
+
+    Returns the parsed claims on a definitive answer, or None on transport failure or bad
+    response. Definitive answers are cached for ``WORKSPACE_CLAIMS_CACHE_TTL_SECONDS`` so a
+    single probe flake does not reroute the next event. None is never cached so the next
+    event re-probes.
+    """
+    cache_key = _workspace_claims_cache_key(
+        slack_team_id, kinds, slack_user_id=slack_user_id, channel=channel, thread_ts=thread_ts
+    )
     cached = cache.get(cache_key)
-    if isinstance(cached, bool):
-        logger.info(
-            "slack_app_workspace_claims_cache_hit",
-            slack_team_id=slack_team_id,
-            claimed=cached,
-        )
-        return cached
+    if isinstance(cached, dict):
+        claims = _region_claims_from_payload(cached)
+        if claims is not None:
+            logger.info(
+                "slack_app_workspace_claims_cache_hit",
+                slack_team_id=slack_team_id,
+                claimed=claims.claimed,
+            )
+            return claims
 
     target_domain = other_region_domain(incoming_host)
     scheme = "http" if settings.DEBUG else "https"
     target_url = f"{scheme}://{target_domain}/slack/workspace/claims/"
 
-    body = json.dumps({"slack_team_id": slack_team_id, "kinds": kinds}).encode("utf-8")
+    request_payload: dict[str, Any] = {"slack_team_id": slack_team_id, "kinds": kinds}
+    if slack_user_id:
+        request_payload["slack_user_id"] = slack_user_id
+    if channel:
+        request_payload["channel"] = channel
+    if thread_ts:
+        request_payload["thread_ts"] = thread_ts
+    body = json.dumps(request_payload).encode("utf-8")
     signing_secret = SlackIntegration.slack_config()["SLACK_APP_SIGNING_SECRET"]
     signed = sign_slack_request(body, signing_secret)
 
@@ -794,26 +880,94 @@ def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], i
         logger.warning("slack_app_workspace_claims_bad_json", target_url=target_url)
         return None
 
-    claimed = data.get("claimed")
-    if not isinstance(claimed, bool):
+    if not isinstance(data, dict):
+        logger.warning("slack_app_workspace_claims_bad_payload", target_url=target_url)
+        return None
+    claims = _region_claims_from_payload(data)
+    if claims is None:
         logger.warning("slack_app_workspace_claims_bad_payload", target_url=target_url)
         return None
 
-    cache.set(cache_key, claimed, timeout=WORKSPACE_CLAIMS_CACHE_TTL_SECONDS)
-    return claimed
+    cache.set(cache_key, data, timeout=WORKSPACE_CLAIMS_CACHE_TTL_SECONDS)
+    return claims
+
+
+def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], incoming_host: str) -> bool | None:
+    """Workspace-granularity view of ``probe_other_region_claims`` for callers that only need
+    the ownership bool (the emit-only mirror, the US-precedence fallback)."""
+    claims = probe_other_region_claims(slack_team_id=slack_team_id, kinds=kinds, incoming_host=incoming_host)
+    return None if claims is None else claims.claimed
 
 
 _VALID_WORKSPACE_CLAIM_KINDS = frozenset(SLACK_INTEGRATION_KINDS)
 
 
+def _local_region_claims(
+    *,
+    slack_team_id: str,
+    kinds: list[str],
+    slack_user_id: str | None = None,
+    channel: str | None = None,
+    thread_ts: str | None = None,
+) -> RegionClaims:
+    """What this region holds for the workspace: the routing facts behind one side of the ladder.
+
+    The claims view serializes this for the other region's probe, and the routing gate calls it
+    directly for the local side, so both regions answer the same question with the same queries.
+    Only rows with a ``default_integration`` count as defaults: a personal ``SlackSettings`` row
+    can carry AI preferences while inheriting the routing default, and such a row says nothing
+    about which region the user's project lives in.
+    """
+    claimed = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+        kind__in=kinds,
+        integration_id=slack_team_id,
+    ).exists()
+    thread_claim = False
+    if channel and thread_ts:
+        thread_claim = SlackThreadTaskMapping.objects.filter(
+            slack_workspace_id=slack_team_id, channel=channel, thread_ts=thread_ts
+        ).exists()
+    user_default_updated_at: datetime | None = None
+    if slack_user_id:
+        user_default_updated_at = (
+            SlackSettings.objects.filter(
+                slack_workspace_id=slack_team_id,
+                slack_user_id=slack_user_id,
+                default_integration__isnull=False,
+            )
+            .values_list("updated_at", flat=True)
+            .first()
+        )
+    workspace_default_updated_at = (
+        SlackSettings.objects.filter(
+            slack_workspace_id=slack_team_id,
+            slack_user_id__isnull=True,
+            default_integration__isnull=False,
+        )
+        .values_list("updated_at", flat=True)
+        .first()
+    )
+    return RegionClaims(
+        claimed=claimed,
+        granular=True,
+        thread_claim=thread_claim,
+        user_default_updated_at=user_default_updated_at,
+        workspace_default_updated_at=workspace_default_updated_at,
+    )
+
+
 @csrf_exempt
 def slack_workspace_claims_view(request: HttpRequest) -> HttpResponse:
-    """Cross-region probe: does this region hold an Integration row for the given Slack workspace?
+    """Cross-region probe: what does this region hold for the given Slack workspace?
 
     Both Cloud regions provision the PostHog Desktop Slack signing secret, so a region can HMAC-sign
     a small JSON body and the receiver can verify it with the same routine that validates real
     Slack webhooks. The signed body covers every filter, so a captured signature cannot be replayed
     against a different workspace.
+
+    Beyond the workspace-ownership bool, the response reports the granular routing facts for an
+    optional Slack user and thread, so the asking region can route a single event to the region
+    that holds its thread or the freshest routing default rather than to the workspace's primary.
     """
     if request.method != "POST":
         return HttpResponse(status=405)
@@ -840,11 +994,32 @@ def slack_workspace_claims_view(request: HttpRequest) -> HttpResponse:
     if not filtered:
         return HttpResponse("No valid kinds", status=400)
 
-    claimed = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-        kind__in=filtered,
-        integration_id=slack_team_id,
-    ).exists()
-    return JsonResponse({"claimed": claimed})
+    context: dict[str, str | None] = {}
+    for key in ("slack_user_id", "channel", "thread_ts"):
+        value = data.get(key)
+        if value is not None and not isinstance(value, str):
+            return HttpResponse(f"Invalid {key}", status=400)
+        context[key] = value or None
+
+    claims = _local_region_claims(
+        slack_team_id=slack_team_id,
+        kinds=filtered,
+        slack_user_id=context["slack_user_id"],
+        channel=context["channel"],
+        thread_ts=context["thread_ts"],
+    )
+    return JsonResponse(
+        {
+            "claimed": claims.claimed,
+            "thread_claim": claims.thread_claim,
+            "user_default_updated_at": (
+                claims.user_default_updated_at.isoformat() if claims.user_default_updated_at else None
+            ),
+            "workspace_default_updated_at": (
+                claims.workspace_default_updated_at.isoformat() if claims.workspace_default_updated_at else None
+            ),
+        }
+    )
 
 
 def _build_slack_thread_key(slack_workspace_id: str, channel: str, thread_ts: str) -> str:
@@ -1969,6 +2144,12 @@ def _route_assistant_event(
         other_domain=other_domain,
         incoming_host=incoming_host,
         can_defer=can_defer,
+        context=_region_routing_context(
+            result.candidates,
+            slack_user_id=fields.slack_user_id,
+            channel=fields.dm_channel_id,
+            thread_ts=fields.thread_ts,
+        ),
     )
     if region_route is not None:
         return region_route
@@ -2052,6 +2233,7 @@ def _route_app_home_opened(
         other_domain=other_domain,
         incoming_host=incoming_host,
         can_defer=can_defer,
+        context=_region_routing_context(result.candidates, slack_user_id=slack_user_id),
     )
     if region_route is not None:
         return region_route
@@ -2332,6 +2514,12 @@ def route_posthog_code_event_to_relevant_region(
             other_domain=other_domain,
             incoming_host=incoming_host,
             can_defer=can_defer_to_other_region,
+            context=_region_routing_context(
+                workspace_result.candidates,
+                slack_user_id=slack_user_id_str,
+                channel=channel_str,
+                thread_ts=thread_ts_str,
+            ),
         )
         if region_route is not None:
             # A mention that no region claims is the most confusing failure of all: the
@@ -2696,6 +2884,129 @@ def _route_to_other_region_or_drop(
     return _proxy_event_and_return_route(request, other_domain)
 
 
+RegionDecision = Literal["local", "other"]
+
+
+@frozen
+class RegionRoutingContext:
+    """The event facts the granular region ladder routes on.
+
+    ``integration`` is the workspace integration the rollout flag is keyed on. It must be a
+    stable pick across events (the routing decision has to be reproducible), so callers pass
+    the lowest-id candidate, mirroring ``ResolutionResult.resolved_or_first``.
+    """
+
+    slack_user_id: str | None
+    channel: str | None
+    thread_ts: str | None
+    integration: Integration
+
+
+def _region_routing_context(
+    candidates: list[Integration],
+    *,
+    slack_user_id: str | None,
+    channel: str | None = None,
+    thread_ts: str | None = None,
+) -> RegionRoutingContext | None:
+    if not candidates:
+        return None
+    return RegionRoutingContext(
+        slack_user_id=slack_user_id or None,
+        channel=channel or None,
+        thread_ts=thread_ts or None,
+        integration=min(candidates, key=lambda candidate: candidate.id),
+    )
+
+
+def compare_region_claims(local: RegionClaims, remote: RegionClaims, *, local_is_us: bool) -> RegionDecision | None:
+    """Judge which region should handle an event, one rung at a time: a thread claim beats a
+    user default, which beats a workspace default. Within a rung, one-sided possession wins;
+    two-sided possession falls to the fresher ``updated_at``, and an exact tie goes to US so
+    both regions would reach the same answer. Returns None when neither side holds any granular
+    fact, which sends the caller to the workspace-granularity rule.
+
+    A thread held by both regions also goes to US. That can only happen when both regions
+    started a task for the same Slack thread (a race across two connections), and a fixed
+    winner at least keeps every follow-up in one region.
+    """
+    us: RegionDecision = "local" if local_is_us else "other"
+    if local.thread_claim or remote.thread_claim:
+        if local.thread_claim and remote.thread_claim:
+            return us
+        return "local" if local.thread_claim else "other"
+    for local_ts, remote_ts in (
+        (local.user_default_updated_at, remote.user_default_updated_at),
+        (local.workspace_default_updated_at, remote.workspace_default_updated_at),
+    ):
+        if local_ts is None and remote_ts is None:
+            continue
+        if local_ts is not None and remote_ts is not None:
+            if local_ts == remote_ts:
+                return us
+            return "local" if local_ts > remote_ts else "other"
+        return "local" if local_ts is not None else "other"
+    return None
+
+
+def _granular_route_decision(
+    slack_team_id: str,
+    kinds: list[str],
+    context: RegionRoutingContext | None,
+    *,
+    proxied: bool,
+    incoming_host: str,
+) -> RegionDecision | None:
+    """Decide the owning region at (workspace, user, thread) granularity.
+
+    Returns None whenever the granular path cannot answer — no context, rollout flag off,
+    probe failure, or the other region running a deploy that predates the granular fields —
+    so the caller falls back to the workspace-granularity rule and behavior stays exactly
+    as before this ladder existed.
+    """
+    if context is None or proxied or not cross_region_routing_enabled():
+        return None
+    if not is_slack_app_granular_region_routing_enabled(context.integration):
+        return None
+    remote = probe_other_region_claims(
+        slack_team_id=slack_team_id,
+        kinds=kinds,
+        incoming_host=incoming_host,
+        slack_user_id=context.slack_user_id,
+        channel=context.channel,
+        thread_ts=context.thread_ts,
+    )
+    if remote is None or not remote.granular:
+        return None
+    if not remote.claimed:
+        # The caller verified local candidates exist, so an unclaimed other region makes this
+        # region the only holder. Deciding here also spares the fallback its second probe.
+        return "local"
+    local = _local_region_claims(
+        slack_team_id=slack_team_id,
+        kinds=kinds,
+        slack_user_id=context.slack_user_id,
+        channel=context.channel,
+        thread_ts=context.thread_ts,
+    )
+    local_is_us = is_us_host(incoming_host)
+    decision = compare_region_claims(local, remote, local_is_us=local_is_us)
+    # Both regions claim the workspace but neither holds a granular fact: the workspace rule
+    # (US wins) applies, and ``remote.claimed`` is already known, so no second probe is needed.
+    resolved: RegionDecision = decision if decision is not None else ("local" if local_is_us else "other")
+    logger.info(
+        "slack_app_route_granular_decision",
+        slack_team_id=slack_team_id,
+        decision=resolved,
+        from_ladder=decision is not None,
+        local_thread=local.thread_claim,
+        remote_thread=remote.thread_claim,
+        local_user_default=local.user_default_updated_at is not None,
+        remote_user_default=remote.user_default_updated_at is not None,
+    )
+    return resolved
+
+
 def resolve_region_or_terminal_route(
     request: HttpRequest,
     slack_team_id: str,
@@ -2706,15 +3017,22 @@ def resolve_region_or_terminal_route(
     other_domain: str,
     incoming_host: str,
     can_defer: bool,
+    context: RegionRoutingContext | None = None,
 ) -> str | None:
     """Shared region gate for every coding-agent surface (mentions, channel followups, DMs).
 
     Returns a terminal route when the event leaves this region — forwarded/dropped because no
-    local integration claims the workspace, or proxied to US under the US-precedence rule — else
-    ``None`` to signal the caller should keep handling the event locally.
+    local integration claims the workspace, proxied under the granular ladder, or proxied to US
+    under the US-precedence rule — else ``None`` to signal the caller should keep handling the
+    event locally.
     """
     if not candidates_present:
         return _route_to_other_region_or_drop(request, slack_team_id, proxied=proxied, other_domain=other_domain)
+    granular = _granular_route_decision(slack_team_id, kinds, context, proxied=proxied, incoming_host=incoming_host)
+    if granular == "other":
+        return _proxy_event_and_return_route(request, other_domain)
+    if granular == "local":
+        return None
     if _us_should_handle_instead(slack_team_id, kinds, can_defer, incoming_host):
         return _proxy_event_and_return_route(request, other_domain)
     return None
