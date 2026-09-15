@@ -80,7 +80,10 @@ export function NewDashboardModal(): JSX.Element {
             open={newDashboardModalVisible}
             onOpenChange={(open) => !open && hideNewDashboardModal()}
             className={cn(
-                'w-[min(100vw-3rem,1200px)] max-h-[calc(100vh-4rem)] top-8',
+                // This `max-h` replaces the primitive's, so it has to subtract both keyboard insets
+                // itself. `top` pushes the dialog down by the top one, which would otherwise leave the
+                // footer below the visible fold.
+                'w-[min(100vw-3rem,1200px)] max-h-[calc(100dvh-4rem-var(--keyboard-inset-top)-var(--keyboard-inset-bottom))] top-[calc(2rem+var(--keyboard-inset-top))]',
                 'bg-surface-primary',
                 // Variable selectors in ActionFilter portal to the popover layer; keep this modal just below
                 // that layer so dropdown options render above the dialog instead of behind it.

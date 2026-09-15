@@ -6,6 +6,12 @@
 // Set variables
 :root,
 :host {
+    // How much of the layout viewport the on-screen keyboard is covering. `dvh` handles collapsible
+    // mobile browser chrome, but the keyboard is invisible to CSS, so `useKeyboardInsets`
+    // publishes it while a modal is open. Both stay 0 unless a keyboard is genuinely up, so the
+    // expressions using them reduce to plain viewport math the rest of the time.
+    --keyboard-inset-bottom: 0px;
+    --keyboard-inset-top: 0px;
     --color-red-50: oklch(0.971 0.013 17.38deg);
     --color-red-100: oklch(0.936 0.032 17.717deg);
     --color-red-200: oklch(0.885 0.062 18.334deg);
@@ -1215,6 +1221,15 @@
         &:not([disabled]):hover {
             border-color: var(--color-border-secondary) !important;
         }
+    }
+
+    // react-modal adds this to <body> while any modal is open, but ships no styles for it — so on
+    // pages where the body is the scroller, dragging inside a modal chains through to the page
+    // behind it instead of scrolling the modal.
+    // The test runner screenshots the whole page, which needs the body to stay scrollable.
+    body.ReactModal__Body--open:not(.storybook-test-runner) {
+        overflow: hidden;
+        overscroll-behavior: contain;
     }
 
     body {
