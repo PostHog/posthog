@@ -19,9 +19,13 @@
         <p>
             Sending pauses again automatically if the problem continues, so there is no need to wait on support before resuming.
         </p>
-    {% else %}
+    {% elif staff_pause %}
         <p>
             PostHog staff paused this workflow's email sending, so only we can resume it. Contact support once you have cleaned up the audience.
+        </p>
+    {% else %}
+        <p>
+            This workflow's email was paused again soon after it was resumed, so only we can resume it now. Contact support once you have cleaned up the audience.
         </p>
     {% endif %}
     <div class="mb mt text-center">

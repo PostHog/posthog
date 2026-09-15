@@ -276,7 +276,7 @@ class InternalStageResult:
     error: BatchExportError | None = None
 
 
-@dataclass
+@frozen
 class BatchExportInsertIntoInternalStageInputs:
     """Base dataclass for batch export insert inputs containing common fields."""
 
@@ -290,6 +290,7 @@ class BatchExportInsertIntoInternalStageInputs:
     backfill_details: BackfillDetails | None = None
     batch_export_model: BatchExportModel | None = None
     is_workflows: bool = False
+    on_demand: bool = False
     # TODO: Remove after updating existing batch exports
     batch_export_schema: BatchExportSchema | None = None
     destination_default_fields: list[BatchExportField] | None = None
@@ -358,6 +359,7 @@ async def insert_into_internal_stage_activity(
             batch_export_id=inputs.batch_export_id,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
+            on_demand=inputs.on_demand,
         )
         logger.info("Computed staging partitions", num_partitions=num_partitions)
 
@@ -441,7 +443,10 @@ async def _stage_query_results(
 
 
 async def compute_num_partitions(
-    batch_export_id: str, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
+    batch_export_id: str,
+    data_interval_start: dt.datetime | None,
+    data_interval_end: dt.datetime,
+    on_demand: bool = False,
 ) -> int:
     """Choose how many staging files (partitions) to write for this run.
 
@@ -457,11 +462,14 @@ async def compute_num_partitions(
     We fall back to the static default when there is no usable estimate (first run, frequency
     change, or a run with no recorded count), if the fetch fails, or if dynamic partitioning is
     disabled entirely via BATCH_EXPORT_DYNAMIC_PARTITIONING_ENABLED.
+
+    An on-demand export skips the estimate without querying. Each request creates its own
+    `BatchExportOnDemand` and runs once, so there is never an earlier run to size from.
     """
     logger = LOGGER.bind()
     static_default = settings.BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS
 
-    if not settings.BATCH_EXPORT_DYNAMIC_PARTITIONING_ENABLED:
+    if not settings.BATCH_EXPORT_DYNAMIC_PARTITIONING_ENABLED or on_demand:
         return static_default
 
     # Without the current interval's bounds we can't match the previous run's frequency, so don't risk

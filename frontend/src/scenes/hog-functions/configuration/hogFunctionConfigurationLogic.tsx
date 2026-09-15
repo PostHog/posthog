@@ -33,7 +33,6 @@ import { dayjs } from 'lib/dayjs'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { uuid } from 'lib/utils/dom'
 import { addProductIntent } from 'lib/utils/product-intents'
-import { asDisplay } from 'scenes/persons/person-utils'
 import { projectLogic } from 'scenes/projectLogic'
 import { buildSurveyExampleInvocationGlobals } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -80,6 +79,8 @@ import {
     SurveyEventName,
     SurveyEventProperties,
 } from '~/types'
+
+import { asDisplay } from 'products/persons/frontend/person-utils'
 
 import type { GroupType, GroupTypeIndex, HogFunctionMappingTemplateType, ProjectType } from '../../../types'
 import type { TeamPublicType, TeamType } from '../../../types'

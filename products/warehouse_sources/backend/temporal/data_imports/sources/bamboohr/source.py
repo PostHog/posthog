@@ -100,7 +100,14 @@ Make sure your API key has access to the data you want to sync (employee, time o
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            # Every BambooHR stream that syncs incrementally is an employee-table history table
+            # whose rows update in place, so appending would stack a copy of each row every sync.
+            merge_only=[name for name, fields in INCREMENTAL_FIELDS.items() if fields],
+        )
 
     def validate_credentials(
         self,
@@ -133,4 +140,6 @@ Make sure your API key has access to the data you want to sync (employee, time o
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )

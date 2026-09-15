@@ -138,7 +138,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
             if (isRecentAndInvalid) {
                 posthog.capture('session loaded recent and invalid', {
                     viewedSessionRecording: sessionRecordingId,
-                    recordingStartTime: sessionPlayerData?.start,
+                    recordingStartTime: sessionPlayerData?.start?.toISOString(),
                 })
             }
         },
@@ -151,7 +151,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
             if (isOldAndInvalid) {
                 posthog.capture('session loaded old and invalid', {
                     viewedSessionRecording: sessionRecordingId,
-                    recordingStartTime: sessionPlayerData?.start,
+                    recordingStartTime: sessionPlayerData?.start?.toISOString(),
                 })
             }
         },
@@ -159,18 +159,27 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         [isOldAndInvalid]
     )
 
+    // `durationMs` only applies the metadata cap once the recording is fully loaded, so the span and
+    // the duration it is measured against are both final only then. `fullyLoaded` also drops back
+    // while the inspector fetches full event data, so remember which recording was reported to keep
+    // this one event per view.
+    const reportedLateFullSnapshotFor = useRef<string | null>(null)
+
     useEffect(
         () => {
-            if (hasLateFullSnapshot) {
-                posthog.capture('session loaded with late full snapshot', {
-                    viewedSessionRecording: sessionRecordingId,
-                    recordingStartTime: sessionPlayerData?.start,
-                    leadingUnplayableMs,
-                })
+            if (!hasLateFullSnapshot || !fullyLoaded || reportedLateFullSnapshotFor.current === sessionRecordingId) {
+                return
             }
+            reportedLateFullSnapshotFor.current = sessionRecordingId
+            posthog.capture('session loaded with late full snapshot', {
+                viewedSessionRecording: sessionRecordingId,
+                recordingStartTime: sessionPlayerData?.start?.toISOString(),
+                recordingDurationMs: sessionPlayerData?.durationMs,
+                leadingUnplayableMs,
+            })
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [hasLateFullSnapshot]
+        [hasLateFullSnapshot, fullyLoaded, sessionRecordingId]
     )
 
     // An unrenderable span keeps growing while sources arrive, so the duration is only final once
@@ -190,7 +199,8 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
             reportedUnrenderableWindowFor.current = sessionRecordingId
             posthog.capture('session loaded with unrenderable window', {
                 viewedSessionRecording: sessionRecordingId,
-                recordingStartTime: sessionPlayerData?.start,
+                recordingStartTime: sessionPlayerData?.start?.toISOString(),
+                recordingDurationMs: sessionPlayerData?.durationMs,
                 unrenderableWindowMs,
             })
         },

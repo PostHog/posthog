@@ -2,7 +2,7 @@
 
 The headless entrypoints. Four commands cover the whole product lifecycle, and together they are how autoresearch is exercised end to end locally without a browser.
 
-This package landed with `autoresearch_validate` and `autoresearch_score` only. `autoresearch_train` and `autoresearch_validate_online` arrive in later pieces of the split tracked in [#88464](https://github.com/PostHog/posthog/pull/88464), so the references to them below describe where they will sit.
+This package landed with `autoresearch_validate`, `autoresearch_score`, and `autoresearch_validate_online`. `autoresearch_train` arrives in a later piece of the split tracked in [#88464](https://github.com/PostHog/posthog/pull/88464), so the references to them below describe where they will sit.
 
 Every command calls the same functions the API and the Temporal activities call. They are thin wrappers, not a parallel implementation, and they should stay that way.
 
@@ -22,7 +22,8 @@ Every command calls the same functions the API and the Temporal activities call.
   `--team-id --target --horizon --user-id`
   `--user-id` is the person HogQL applies access control for; without it the counts run fail-closed. Note there is no `--mode` flag. Note also that `autoresearch_train` does **not** call this, so a target that fails here still trains.
 - `autoresearch_validate_online` — realized performance for predictions whose horizon has elapsed.
-  `--pipeline-id --dry-run`
+  `--pipeline-id --user-id --dry-run`
+  `--dry-run` lists the matured dates waiting for validation and what each inference run emitted. `--user-id` is the person HogQL applies access control for; without it the queries run as the pipeline's creator. The command exits non-zero when any date fails, and the failed date is retried on the next pass.
 
 ## Running them locally
 

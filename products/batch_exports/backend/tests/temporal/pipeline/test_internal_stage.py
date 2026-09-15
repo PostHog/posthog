@@ -18,7 +18,6 @@ import pytest_asyncio
 from structlog.testing import capture_logs
 from temporalio.testing import ActivityEnvironment
 
-from posthog.models.scoping import team_scope
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import (
@@ -34,12 +33,7 @@ from posthog.temporal.tests.utils.events import (
     insert_sessions_in_clickhouse,
 )
 
-from products.batch_exports.backend.models.batch_export import (
-    BatchExport,
-    BatchExportDestination,
-    BatchExportOnDemand,
-    BatchExportRun,
-)
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.batch_exports.backend.service import BackfillDetails, BatchExportModel, afetch_last_run_records_completed
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
@@ -872,29 +866,27 @@ async def test_compute_num_partitions_db_error_falls_back_to_static_default():
     assert result == 10
 
 
-async def test_compute_num_partitions_disabled_uses_static_default():
+@pytest.mark.parametrize(
+    "settings_overrides, call_overrides",
+    [
+        ({"BATCH_EXPORT_DYNAMIC_PARTITIONING_ENABLED": False}, {}),
+        ({}, {"data_interval_start": None}),
+        ({}, {"on_demand": True}),
+    ],
+    ids=["dynamic partitioning disabled", "unbounded interval", "on-demand export"],
+)
+async def test_compute_num_partitions_skips_the_estimate(settings_overrides, call_overrides):
     with (
-        override_settings(
-            BATCH_EXPORT_DYNAMIC_PARTITIONING_ENABLED=False,
-            BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS=10,
-        ),
+        override_settings(BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS=10, **settings_overrides),
         patch(_FETCHER_PATH, new=AsyncMock(return_value=5_000_000)) as mock_fetch,
     ):
         result = await compute_num_partitions(
-            batch_export_id=str(uuid.uuid4()), data_interval_start=_INTERVAL_START, data_interval_end=_INTERVAL_END
-        )
-    assert result == 10
-    mock_fetch.assert_not_called()
-
-
-async def test_compute_num_partitions_without_interval_start_falls_back_to_static_default():
-    """An unbounded interval (no start) gives no frequency to match, so we don't risk an estimate."""
-    with (
-        override_settings(BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS=10),
-        patch(_FETCHER_PATH, new=AsyncMock(return_value=5_000_000)) as mock_fetch,
-    ):
-        result = await compute_num_partitions(
-            batch_export_id=str(uuid.uuid4()), data_interval_start=None, data_interval_end=_INTERVAL_END
+            **{
+                "batch_export_id": str(uuid.uuid4()),
+                "data_interval_start": _INTERVAL_START,
+                "data_interval_end": _INTERVAL_END,
+                **call_overrides,
+            }
         )
     assert result == 10
     mock_fetch.assert_not_called()
@@ -988,26 +980,6 @@ async def test_afetch_last_run_records_completed_no_runs(ateam):
             batch_export.id, matching_interval_duration=batch_export.interval_time_delta
         )
         is None
-    )
-
-
-async def test_afetch_last_run_records_completed_for_on_demand_export(ateam):
-    destination = await BatchExportDestination.objects.acreate(
-        type="S3", config={"bucket_name": "test-bucket", "region": "us-east-1", "prefix": "test"}
-    )
-    with team_scope(team_id=ateam.pk, canonical=True):
-        on_demand = await BatchExportOnDemand.objects.acreate(team_id=ateam.pk, destination=destination, model="events")
-    base = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
-    await BatchExportRun.objects.acreate(
-        batch_export_on_demand_id=on_demand.id,
-        data_interval_start=base,
-        data_interval_end=base + dt.timedelta(hours=1),
-        status=BatchExportRun.Status.COMPLETED,
-        records_completed=321,
-    )
-
-    assert (
-        await afetch_last_run_records_completed(on_demand.id, matching_interval_duration=dt.timedelta(hours=1)) == 321
     )
 
 

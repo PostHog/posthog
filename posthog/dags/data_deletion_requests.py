@@ -623,13 +623,15 @@ def _queue_events_for_deferred_deletion(
     db = django_settings.CLICKHOUSE_DATABASE
     shards = sorted(cluster.shards)
     predicate, params = event_removal_where(deletion_request)
+    params["data_deletion_request_id"] = deletion_request.request_id
 
     def run_on_shard(client: Client) -> int:
         for source in sources:
             # nosemgrep: clickhouse-fstring-param-audit (all interpolated values are internal constants/settings)
             client.execute(
-                f"INSERT INTO {db}.{ADHOC_EVENTS_DELETION_TABLE} (team_id, uuid) "
-                f"SELECT team_id, uuid FROM {db}.{source.data_table} WHERE {predicate}",
+                f"INSERT INTO {db}.{ADHOC_EVENTS_DELETION_TABLE} (team_id, uuid, data_deletion_request_id) "
+                f"SELECT team_id, uuid, toUUID(%(data_deletion_request_id)s) "
+                f"FROM {db}.{source.data_table} WHERE {predicate}",
                 params,
                 settings={"max_execution_time": 1800},
             )

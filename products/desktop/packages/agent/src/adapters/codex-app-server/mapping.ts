@@ -4,8 +4,8 @@ import type {
   ToolCallLocation,
 } from "@agentclientprotocol/sdk";
 import {
+  boundPersistedMcpResult,
   mcpToolKey,
-  omitNullCallToolResultFields,
   posthogToolMeta,
 } from "@posthog/shared";
 import { APP_SERVER_NOTIFICATIONS } from "./protocol";
@@ -416,7 +416,9 @@ function describeTool(item: AppServerItem): ToolDescriptor | null {
         // the schema-valid result an app receives. Stripping here keeps the nulls
         // out of stored transcripts and McpAppsService events, so a delivery path
         // that skips `toCallToolResult` cannot carry them either.
-        rawOutput: omitNullCallToolResultFields(item.result),
+        ...(item.result != null
+          ? { rawOutput: boundPersistedMcpResult(item.result) }
+          : {}),
         mcp: { server: item.server ?? "mcp", tool: item.tool ?? "tool" },
       };
     case "dynamicToolCall":

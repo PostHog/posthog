@@ -1,6 +1,6 @@
 """Schedule restrictions (blocked local time windows) for insight alerts.
 
-The pure minute-math and validation live in products/alerts/backend/scheduling.py; this
+The pure minute-math and validation live in products/alerts/backend/facade/scheduling.py; this
 module keeps the AlertConfiguration-aware entry points plus the cap-exceeded
 retry/logging fallback.
 """
@@ -11,8 +11,7 @@ from datetime import UTC, datetime, timedelta
 
 import structlog
 
-from products.alerts.backend.models.alert import AlertConfiguration
-from products.alerts.backend.scheduling import (
+from products.alerts.backend.facade.scheduling import (
     MAX_BLOCKED_WINDOWS,
     MAX_UNBLOCK_STEPS,
     MIN_BLOCKED_WINDOW_MINUTES,
@@ -25,6 +24,7 @@ from products.alerts.backend.scheduling import (
     scan_next_unblocked_utc,
     validate_and_normalize_schedule_restriction,
 )
+from products.alerts.backend.models.alert import AlertConfiguration
 
 logger = structlog.get_logger(__name__)
 

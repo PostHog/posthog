@@ -213,11 +213,6 @@ devbox:
     devbox:sync:
         click: hogli_commands.devbox.sync:cmd_sync
         description: Mirror your local PostHog checkout to a devbox
-    devbox:task:
-        click: hogli_commands.devbox.cli:devbox_task
-        description: Run a background agent task on a fresh devbox
-        # exec-replaces the process (os.execvp): completed events can't fire
-        untracked: true
     devbox:secret:list:
         click: hogli_commands.devbox.cli:devbox_secret_list
         description: List your Coder user secrets
@@ -797,6 +792,9 @@ tests:
     test:e2e:
         bin_script: e2e-test-runner
         description: Set up test databases and run Playwright E2E tests
+    test:workflows:
+        cmd: pnpm --filter @posthog/workflow-plan test
+        description: Check which jobs of .github/workflows run per PR/push/schedule scenario against the pinned expectations
     test:quarantine:
         click: hogli_commands.quarantine.cli:quarantine
         description: Manage .test_quarantine.json — quarantine flaky tests so they stop blocking CI
@@ -828,7 +826,7 @@ quality:
         description: Format JavaScript/TypeScript files (frontend)
     format:nodejs:
         cmd: pnpm --dir nodejs exec eslint --fix "$@" && pnpm --dir nodejs exec oxlint -c .oxlintrc.nodejs.json
-            --fix "$@" && pnpm --dir nodejs exec prettier --write "$@"
+            --fix --no-error-on-unmatched-pattern "$@" && pnpm --dir nodejs exec prettier --write "$@"
         description: Format nodejs JavaScript files
     format:rust:
         cmd: rustfmt
@@ -861,6 +859,9 @@ quality:
     lint:feature-flags:fix:
         cmd: node bin/lint-feature-flag-sorting.mjs --fix
         description: Auto-sort FEATURE_FLAGS in constants.tsx alphabetically
+    lint:duplication:
+        cmd: python3 bin/lint_duplication.py
+        description: Gate the branch on new Python and TypeScript code duplication via jscpd (test files get a relaxed limit)
     lint:complexity:
         click: hogli_commands.complexity_lint:cmd_lint_complexity
         description: Check cyclomatic complexity of changed Python/TypeScript files (warn-only; test files get a relaxed limit)
@@ -1059,6 +1060,9 @@ tools:
     ci:preflight:
         click: hogli_commands.ci_preflight:ci_preflight
         description: Catch deterministic CI failures reachable from your diff before you push (advisory; --fix, --strict)
+    ci:plan:
+        cmd: pnpm --filter @posthog/workflow-plan --silent plan
+        description: Show which jobs (or --steps <job>) of a workflow file run on a draft, ready, or fork PR, the merge queue, a master push, schedule, and dispatch
 desktop:
     desktop:dev:
         cmd: pnpm --dir products/desktop dev
@@ -1250,4 +1254,8 @@ environment:
     profile_migrations:
         bin_script: profile_migrations
         description: 'Profile Django migrations on fresh DBs and render a per-op timing report'
+        hidden: true
+    docker:worker:ai:training:privacy:
+        bin_script: docker-worker-ai-training-privacy
+        description: 'Start the dedicated AI training privacy worker'
         hidden: true
