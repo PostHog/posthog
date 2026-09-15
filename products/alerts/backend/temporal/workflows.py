@@ -60,6 +60,7 @@ class AlertsProductCheckDueWorkflow(PostHogWorkflow):
         try:
             await workflow.execute_activity(
                 alerts_product_check_due_activity,
+                task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
                 start_to_close_timeout=dt.timedelta(seconds=10),
                 schedule_to_close_timeout=dt.timedelta(seconds=30),
                 retry_policy=RetryPolicy(maximum_attempts=1),
@@ -85,6 +86,8 @@ class AlertsProductCheckDueWorkflow(PostHogWorkflow):
         )
 
 
+SHARED_ORCHESTRATION_WORKFLOWS = [AlertsProductCheckDueWorkflow]
+# Keep the tick registered for queued/running evaluation work and routing rollback.
 EVALUATION_WORKFLOWS = [AlertsProductCheckDueWorkflow]
 EVALUATION_ACTIVITIES = [alerts_product_check_due_activity]
 DELIVERY_WORKFLOWS = [AlertsProductDeliverWorkflow]

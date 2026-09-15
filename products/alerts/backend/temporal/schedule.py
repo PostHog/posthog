@@ -23,7 +23,11 @@ async def create_alerts_product_check_due_schedule(client: "Client") -> None:
             "alerts-product-check-due",
             {},
             id=SCHEDULE_ID,
-            task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
+            task_queue=(
+                settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE
+                if settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_ENABLED
+                else settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE
+            ),
             execution_timeout=dt.timedelta(seconds=50),
             retry_policy=RetryPolicy(maximum_attempts=1),
         ),

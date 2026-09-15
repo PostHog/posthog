@@ -35,6 +35,7 @@ from products.alerts.backend.facade.temporal import (
     DELIVERY_WORKFLOWS,
     EVALUATION_ACTIVITIES,
     EVALUATION_WORKFLOWS,
+    SHARED_ORCHESTRATION_WORKFLOWS,
     AlertsProductTelemetryInterceptor,
 )
 from products.alerts.backend.temporal import postgres
@@ -78,6 +79,10 @@ def postgres_cursor() -> Iterator[MagicMock]:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("database_error", [False, True])
+@pytest.mark.parametrize(
+    "tick_queue",
+    [settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE, settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE],
+)
 async def test_each_tick_starts_independent_delivery(
     environment: WorkflowEnvironment,
     caplog: pytest.LogCaptureFixture,
@@ -86,6 +91,7 @@ async def test_each_tick_starts_independent_delivery(
     activity_logs,
     postgres_cursor: MagicMock,
     database_error: bool,
+    tick_queue: str,
 ) -> None:
     if database_error:
         postgres_cursor.execute.side_effect = OperationalError("sensitive connection details")
@@ -102,20 +108,28 @@ async def test_each_tick_starts_independent_delivery(
         if activity.info().attempt == 1:
             raise ApplicationError("sensitive retry exception")
 
-    async with Worker(
-        client,
-        task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
-        workflows=EVALUATION_WORKFLOWS,
-        activities=EVALUATION_ACTIVITIES,
-        interceptors=[AlertsProductTelemetryInterceptor()],
-        workflow_runner=UnsandboxedWorkflowRunner(),
+    async with (
+        Worker(
+            client,
+            task_queue=settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE,
+            workflows=SHARED_ORCHESTRATION_WORKFLOWS,
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ),
+        Worker(
+            client,
+            task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
+            workflows=EVALUATION_WORKFLOWS,
+            activities=EVALUATION_ACTIVITIES,
+            interceptors=[AlertsProductTelemetryInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ),
     ):
         for _ in range(2):
             parent = await client.start_workflow(
                 "alerts-product-check-due",
                 AlertsProductInputs(),
                 id=workflow_id,
-                task_queue=settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
+                task_queue=tick_queue,
                 execution_timeout=dt.timedelta(seconds=10),
             )
             assert await parent.result() is None
@@ -126,6 +140,7 @@ async def test_each_tick_starts_independent_delivery(
                 if event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
             ]
             assert len(scheduled) == 1
+            assert scheduled[0].task_queue.name == settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE
             assert scheduled[0].retry_policy.maximum_attempts == 1
             failure_count = sum(
                 event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_FAILED for event in history.events
@@ -168,6 +183,7 @@ async def test_each_tick_starts_independent_delivery(
                 if event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
             ]
             assert len(scheduled) == 1
+            assert scheduled[0].task_queue.name == settings.ALERTS_PRODUCT_DELIVERY_TASK_QUEUE
             assert scheduled[0].retry_policy.maximum_attempts == 3
 
     updates = sdk_metrics.retrieve_updates()
