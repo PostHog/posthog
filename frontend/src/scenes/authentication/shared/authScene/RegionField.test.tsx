@@ -1,0 +1,55 @@
+import '@testing-library/jest-dom'
+
+import { cleanup, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { useValues } from 'kea'
+
+import { pendingOAuthConnectionLogic } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
+import { Region } from '~/types'
+
+import { RegionField } from './RegionField'
+
+jest.mock('kea', () => ({
+    ...jest.requireActual('kea'),
+    useValues: jest.fn(),
+}))
+
+describe('RegionField', () => {
+    beforeEach(() => {
+        ;(useValues as jest.Mock).mockImplementation((logic: unknown) => {
+            if (logic === preflightLogic) {
+                return { preflight: { cloud: true, region: Region.US } }
+            }
+            if (logic === pendingOAuthConnectionLogic) {
+                return { pendingConnection: null }
+            }
+            return {}
+        })
+    })
+
+    afterEach(() => {
+        cleanup()
+        jest.clearAllMocks()
+    })
+
+    it('opens the region menu from the label text', async () => {
+        const user = userEvent.setup()
+        render(<RegionField />)
+
+        await user.click(screen.getByText('Data region'))
+
+        expect(await screen.findByText('European Union')).toBeInTheDocument()
+    })
+
+    it('says so when the region already in use is picked again', async () => {
+        const user = userEvent.setup()
+        render(<RegionField />)
+
+        await user.click(screen.getByRole('button', { name: /Data region/ }))
+        await user.click(await screen.findByRole('menuitem', { name: /United States/ }))
+
+        expect(await screen.findByText('You are already on the United States region.')).toBeInTheDocument()
+    })
+})

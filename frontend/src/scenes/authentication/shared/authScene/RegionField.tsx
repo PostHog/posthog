@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 
 import { IconCheckCircle } from '@posthog/icons'
 import { LemonLabel, LemonModal, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
@@ -88,6 +88,8 @@ export function RegionField(): JSX.Element | null {
     const { pendingConnection } = useValues(pendingOAuthConnectionLogic)
     const [devRegion, setDevRegion] = useState<Region>(Region.US)
     const [modalOpen, setModalOpen] = useState(false)
+    const [alreadyOnRegion, setAlreadyOnRegion] = useState(false)
+    const selectId = useId()
 
     if (!preflight?.cloud && !preflight?.is_debug) {
         return null
@@ -97,8 +99,10 @@ export function RegionField(): JSX.Element | null {
 
     const selectRegion = (region: Region): void => {
         if (region === activeRegion) {
+            setAlreadyOnRegion(true)
             return
         }
+        setAlreadyOnRegion(false)
         if (preflight?.cloud) {
             const { pathname, search, hash } = router.values.currentLocation
             window.location.href = `https://${CLOUD_HOSTNAMES[region]}${pathname}${search}${hash}`
@@ -107,10 +111,12 @@ export function RegionField(): JSX.Element | null {
         setDevRegion(region)
     }
 
+    const activeRegionLabel = REGIONS.find((r) => r.value === activeRegion)?.label ?? activeRegion
+
     // An OAuth client is registered in one region only, so an account created elsewhere could
     // never finish the connection that brought the person here.
     const pinnedReason = pendingConnection
-        ? `This connection started in the ${REGIONS.find((r) => r.value === activeRegion)?.label ?? activeRegion} region. To use another region, start again from ${pendingConnection.clientName}.`
+        ? `This connection started in the ${activeRegionLabel} region. To use another region, start again from ${pendingConnection.clientName}.`
         : undefined
 
     const options: LemonSelectOptions<Region> = REGIONS.map((region) => ({
@@ -127,13 +133,16 @@ export function RegionField(): JSX.Element | null {
         <>
             <RegionModal open={modalOpen} onClose={() => setModalOpen(false)} />
             <div className="flex flex-col gap-2">
-                <LemonLabel onExplanationClick={() => setModalOpen(true)}>Data region</LemonLabel>
+                <LemonLabel htmlFor={selectId} onExplanationClick={() => setModalOpen(true)}>
+                    Data region
+                </LemonLabel>
                 <LemonSelect<Region>
+                    id={selectId}
                     value={activeRegion}
                     options={options}
                     fullWidth
                     disabledReason={pinnedReason}
-                    onChange={(value) => value && selectRegion(value)}
+                    onSelect={(value) => selectRegion(value)}
                     renderButtonContent={(leaf) => {
                         const region = leaf?.value ?? activeRegion
                         return (
@@ -145,6 +154,11 @@ export function RegionField(): JSX.Element | null {
                     }}
                 />
                 {pinnedReason && <p className="m-0 text-xs text-secondary">{pinnedReason}</p>}
+                {alreadyOnRegion && (
+                    <p className="m-0 text-xs text-secondary" role="status">
+                        You are already on the {activeRegionLabel} region.
+                    </p>
+                )}
             </div>
         </>
     )
