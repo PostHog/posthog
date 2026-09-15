@@ -3,9 +3,10 @@ from datetime import timedelta
 from typing import Optional
 
 from posthog.hogql import ast
+from posthog.hogql.base import AST
 from posthog.hogql.errors import QueryError
 from posthog.hogql.utils import deserialize_hx_ast, is_simple_value
-from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from common.hogvm.python.stl import BLOCKING_FUNCTIONS
 
@@ -79,12 +80,31 @@ class ReplacePlaceholders(CloningVisitor):
 
         from common.hogvm.python.execute import execute_bytecode
 
-        if self._deadline is None:
-            self._deadline = time.monotonic() + PLACEHOLDER_EXPANSION_BUDGET.total_seconds()
-
         self._expansions += 1
         if self._expansions > MAX_PLACEHOLDER_EXPANSIONS:
-            raise QueryError("This query has too many placeholder expressions to expand. Simplify it and try again.")
+            raise QueryError(
+                "This query has too many placeholders to expand. Remove some and try again. "
+                "If PostHog built this query, contact support."
+            )
+
+        # A one-name placeholder bound to a value is a dictionary lookup. Resolve it here so that the
+        # time budget below only governs placeholders that hold an expression to evaluate.
+        if self.placeholders is not None and isinstance(node.expr, ast.Field) and len(node.expr.chain) == 1:
+            name = node.expr.chain[0]
+            if name in self.placeholders:
+                value = self.placeholders[name]
+                # _to_expr writes this occurrence's position onto the node it returns, so an AST value
+                # needs a node of its own. Clone the node structure but keep the value a constant holds
+                # by reference, because one query can reference a bound value up to
+                # MAX_PLACEHOLDER_EXPANSIONS times, and a copy of the value for each occurrence
+                # multiplies it. A non-AST value needs no clone, because _to_expr builds a new node
+                # around it.
+                if isinstance(value, AST):
+                    value = clone_expr(value, clear_types=False)
+                return self._to_expr(value, node)
+
+        if self._deadline is None:
+            self._deadline = time.monotonic() + PLACEHOLDER_EXPANSION_BUDGET.total_seconds()
 
         # This bytecode runs on the request thread before access control, so refuse blocking calls.
         # The static check gives a clear early error for the common `fn(...)` form; passing
@@ -101,7 +121,10 @@ class ReplacePlaceholders(CloningVisitor):
         # too, and the VM starts its own clock when called, so a stale value adds their cost on top.
         remaining = self._deadline - time.monotonic()
         if remaining <= 0:
-            raise QueryError("Expanding this query's placeholders took too long. Simplify it and try again.")
+            raise QueryError(
+                "Expanding this query's placeholders took too long. Simplify the placeholder expressions and try "
+                "again. If PostHog built this query, contact support."
+            )
 
         response = execute_bytecode(
             bytecode.bytecode,
@@ -110,24 +133,25 @@ class ReplacePlaceholders(CloningVisitor):
             disallowed_functions=BLOCKING_FUNCTIONS,
         )
 
-        if isinstance(response.result, dict) and ("__hx_ast" in response.result or "__hx_tag" in response.result):
-            response.result = deserialize_hx_ast(response.result)
+        return self._to_expr(response.result, node)
+
+    def _to_expr(self, result: object, node: ast.Placeholder) -> ast.Expr:
+        if isinstance(result, dict) and ("__hx_ast" in result or "__hx_tag" in result):
+            result = deserialize_hx_ast(result)
 
         if (
-            isinstance(response.result, ast.Expr)
-            or isinstance(response.result, ast.SelectQuery)
-            or isinstance(response.result, ast.SelectSetQuery)
-            or isinstance(response.result, ast.HogQLXTag)
+            isinstance(result, ast.Expr)
+            or isinstance(result, ast.SelectQuery)
+            or isinstance(result, ast.SelectSetQuery)
+            or isinstance(result, ast.HogQLXTag)
         ):
-            expr = response.result
-            expr.start = node.start
-            expr.end = node.end
-            return expr
-        elif is_simple_value(response.result):
-            return ast.Constant(value=response.result, start=node.start, end=node.end)
+            result.start = node.start
+            result.end = node.end
+            return result
+        elif is_simple_value(result):
+            return ast.Constant(value=result, start=node.start, end=node.end)
         raise QueryError(
-            f"Placeholder returned an unexpected type: {type(response.result).__name__}. "
-            "Expected an AST node or a simple value."
+            f"Placeholder returned an unexpected type: {type(result).__name__}. Expected an AST node or a simple value."
         )
 
 
