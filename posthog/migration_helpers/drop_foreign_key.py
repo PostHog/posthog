@@ -38,21 +38,24 @@ a bin/migrate retry.
 The op is irreversible. Add the constraint back with `AddForeignKeyNotValid` in a new
 migration rather than by unapplying this one.
 
-Each drop runs under its own short lock_timeout. The statement is a metadata-only change
-held for microseconds, but it takes ACCESS EXCLUSIVE on the referenced parent, and the wait
-for that lock is the hazard: it queues behind any in-flight read of the parent, and every
-query that arrives after it queues behind the wait. On a hot parent such as posthog_team or
-posthog_user that stalls the site for as long as the wait lasts, so the op bounds it well
-below the deploy-wide lock_timeout and lets a bin/migrate retry re-attempt once the lock is
-free. Never widen or disable the timeout here.
+Each drop runs under a short lock_timeout the op sets itself. The statement is a
+metadata-only change held for microseconds, but it takes ACCESS EXCLUSIVE on the referenced
+parent, and the wait for that lock is the hazard: it queues behind any in-flight read of
+the parent, and every query that arrives after it queues behind the wait. On a hot parent
+such as posthog_team or posthog_user that stalls the site for as long as the wait lasts.
+
+The budget comes from the server's own deadlock_timeout, the way `SafeDropTable` derives
+its lock phase. Two waits are in play. A single ALTER holds its ACCESS EXCLUSIVE to COMMIT,
+so a child with keys into two hot parents holds one parent while it requests the next, and
+that lock order crosses the order of any live query reading both. A cycle is resolved by
+the deadlock detector rather than by lock_timeout, and the backend that runs the detector
+is the one that aborts. Keeping the budget under deadlock_timeout means the op abandons its
+wait before any detector runs, so the migration loses the race and no application query is
+ever the victim. bin/migrate retries it. Never widen or disable the timeout here.
 """
 
 from django.db import router
 from django.db.migrations.operations.base import Operation
-
-# Long enough to win the lock in the gap between two queries on a busy parent, short enough
-# that little queues behind the attempt. bin/migrate retries the migration ten times.
-_LOCK_TIMEOUT = "1s"
 
 _CONSTRAINT_NAMES_SQL = """
     SELECT con.conname
@@ -118,7 +121,7 @@ class DropForeignKey(Operation):
         # session one this op puts back itself.
         transaction_local = schema_editor.connection.in_atomic_block
         previous = self._lock_timeout(schema_editor)
-        self._set_lock_timeout(schema_editor, _LOCK_TIMEOUT, transaction_local)
+        self._set_lock_timeout(schema_editor, f"{self._lock_budget_ms(schema_editor)}ms", transaction_local)
         for name in names:
             schema_editor.execute(
                 f"ALTER TABLE {schema_editor.quote_name(self.table)} DROP CONSTRAINT {schema_editor.quote_name(name)}"
@@ -133,6 +136,11 @@ class DropForeignKey(Operation):
     def describe(self) -> str:
         target = self.column or f"-> {self.to_table}"
         return f"Drop foreign key on {self.table} ({target})"
+
+    def _lock_budget_ms(self, schema_editor) -> int:
+        with schema_editor.connection.cursor() as cursor:
+            cursor.execute("SELECT setting::int FROM pg_settings WHERE name = 'deadlock_timeout'")
+            return max(1, cursor.fetchone()[0] // 2)
 
     def _lock_timeout(self, schema_editor) -> str:
         with schema_editor.connection.cursor() as cursor:

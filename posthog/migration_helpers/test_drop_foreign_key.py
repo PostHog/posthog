@@ -118,6 +118,8 @@ def test_a_contended_parent_fails_fast(temp_tables):
     blocker = connections.create_connection("default")
     blocker.set_autocommit(False)
     with connection.cursor() as cursor:
+        cursor.execute("SELECT setting::int FROM pg_settings WHERE name = 'deadlock_timeout'")
+        deadlock_seconds = cursor.fetchone()[0] / 1000
         # Far longer than the op allows itself, so an unbounded drop stalls this test the way
         # it stalls a deploy instead of failing it.
         cursor.execute("SET lock_timeout = '10s'")
@@ -137,5 +139,7 @@ def test_a_contended_parent_fails_fast(temp_tables):
         with connection.cursor() as cursor:
             cursor.execute("RESET lock_timeout")
 
-    assert waited < 5
+    # Under deadlock_timeout, so the op abandons the wait before any deadlock detector runs
+    # and an application query is never the victim.
+    assert waited < deadlock_seconds
     assert _fk_columns(child) == {"owner_id", "other_id"}
