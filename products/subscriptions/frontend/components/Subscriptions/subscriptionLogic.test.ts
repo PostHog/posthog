@@ -779,12 +779,12 @@ describe('subscriptionLogic', () => {
     })
 
     it.each<[string, boolean, string | undefined]>([
-        ['while the dashboard offers insights to pick', true, 'Select at least one insight'],
-        ['unless the dashboard has no insights to pick', false, undefined],
-    ])('requires an insight selection %s', async (_label, dashboardHasSelectableInsights, expectedError) => {
-        // The insight selector is the only way to answer this error, and the form only renders it
-        // for a dashboard that has insight tiles. Blocking the submit without it hides the reason.
-        const dashboardForm = subscriptionLogic({ id: 'new', dashboardId: 9, dashboardHasSelectableInsights })
+        ['while the form shows the insight selector', true, 'Select at least one insight'],
+        ['unless the form has no selector to show', false, undefined],
+    ])('requires an insight selection %s', async (_label, dashboardShowsInsightSelector, expectedError) => {
+        // The selector is the only way to answer this error, and the form renders it only when it
+        // holds the dashboard's tiles. Blocking the submit without it hides the reason.
+        const dashboardForm = subscriptionLogic({ id: 'new', dashboardId: 9, dashboardShowsInsightSelector })
         dashboardForm.mount()
         await expectLogic(dashboardForm).toFinishListeners()
 
@@ -811,7 +811,7 @@ describe('subscriptionLogic', () => {
                 },
             },
         })
-        const dashboardForm = subscriptionLogic({ id: 1, dashboardId: 9, dashboardHasSelectableInsights: false })
+        const dashboardForm = subscriptionLogic({ id: 1, dashboardId: 9, dashboardShowsInsightSelector: false })
         dashboardForm.mount()
         router.actions.push('/dashboard/9/subscriptions/1')
         await expectLogic(dashboardForm).toFinishListeners().toDispatchActions(['loadSubscriptionSuccess'])

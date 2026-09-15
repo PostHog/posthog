@@ -35,7 +35,6 @@ import { DashboardType, InsightShortId, SubscriptionResourceTypes, SubscriptionT
 
 import { AiPromptFields, AiPromptSubscriptionIntroduction } from './AiPromptFields'
 import { InsightSelector } from './InsightSelector'
-import { subscribableInsightTiles } from './insightSelectorLogic'
 import { SubscriptionDayPicker } from './SubscriptionDayPicker'
 import { subscriptionLogic } from './subscriptionLogic'
 import type { SubscriptionLogicProps } from './subscriptionLogic'
@@ -99,13 +98,12 @@ export function SubscriptionWizard({
     dashboard,
     onCancel,
 }: SubscriptionWizardProps): JSX.Element {
-    const dashboardInsightTiles = subscribableInsightTiles(dashboard?.tiles)
     const logicProps = {
         id: 'new' as const,
         insightShortId,
         dashboardId: dashboard?.id,
         dashboardName: dashboard?.name,
-        dashboardHasSelectableInsights: dashboardInsightTiles.length > 0,
+        dashboardShowsInsightSelector: !!dashboard?.tiles,
         insightName,
         creationSource: 'wizard' as const,
     }
@@ -140,8 +138,7 @@ export function SubscriptionWizard({
         isDebug: Boolean(preflight?.is_debug),
         aiFlagEnabled: Boolean(aiSubscriptionsEnabled),
     })
-    const selectedInsightsReady =
-        dashboardInsightTiles.length === 0 || Boolean(subscription.dashboard_export_insights?.length)
+    const selectedInsightsReady = !dashboard?.tiles || Boolean(subscription.dashboard_export_insights?.length)
     const contentDetailReady = isAiPrompt ? Boolean(subscription.prompt?.trim()) : selectedInsightsReady
     const contentReady = Boolean(subscription.title?.trim()) && contentDetailReady
     let contentDisabledReason: string | undefined

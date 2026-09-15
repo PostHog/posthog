@@ -161,9 +161,9 @@ function validateDashboardExportInsights(subscription: Partial<SubscriptionType>
     if (subscription.resource_type === SubscriptionResourceTypes.AiPrompt || !props.dashboardId) {
         return undefined
     }
-    // The insight selector is the only way to answer this error. When the form has no selector to
-    // show, blocking the submit leaves a Save button that does nothing.
-    if (!props.dashboardHasSelectableInsights) {
+    // The insight selector is the only way to answer this error, and the form renders it only for a
+    // dashboard whose tiles it holds. Blocking the submit without it leaves a Save that does nothing.
+    if (!props.dashboardShowsInsightSelector) {
         return undefined
     }
     return subscription.dashboard_export_insights?.length ? undefined : 'Select at least one insight'
@@ -234,8 +234,11 @@ export interface SubscriptionLogicProps extends SubscriptionBaseProps {
     id: number | 'new'
     /** Used to build the prefilled title when the form is opened via the subscribe-nudge notification. */
     dashboardName?: string | null
-    /** Whether the dashboard has insight tiles the form can offer. Set by whichever view renders the selector. */
-    dashboardHasSelectableInsights?: boolean
+    /**
+     * Whether the form renders the insight selector, which needs the dashboard's tiles. Absent means
+     * no selector, so the form does not require a selection it has no way to collect.
+     */
+    dashboardShowsInsightSelector?: boolean
     insightName?: string
     creationSource?: 'editor' | 'wizard'
 }
