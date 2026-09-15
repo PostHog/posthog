@@ -564,6 +564,89 @@ describe("PiSessionController", () => {
     );
   });
 
+  it("keeps rejected provider credentials non-retryable after a cloud failure", async () => {
+    let onEvent: (event: AgentConversationEvent) => void = () => {};
+    let onError: (error: unknown) => void = () => {};
+    const session = Object.assign(createSession(), {
+      cloudStatus: "failed" as const,
+      retry: vi.fn(async () => {}),
+    });
+    vi.mocked(session.onConversationEvent).mockImplementation(
+      (eventHandler, errorHandler) => {
+        onEvent = eventHandler;
+        onError = errorHandler;
+        return () => {};
+      },
+    );
+    const controller = createController(session);
+
+    await controller.connect("task-1", "run-1");
+    const message =
+      "PostHog's anthropic credentials were rejected. This is a problem with the PostHog gateway.";
+    onEvent({
+      type: "runtime_error",
+      timestamp: 1,
+      errorType: "provider_credentials_rejected",
+      message,
+    });
+    onError(
+      Object.assign(new Error(message), {
+        title: "Cloud run failed",
+        retryable: true,
+      }),
+    );
+
+    expect(controller.store.getState().sessions["task-1"]).toMatchObject({
+      connectionState: "error",
+      error: {
+        scope: "connection",
+        kind: "provider_credentials",
+        title: "AI provider credentials rejected",
+        retryable: false,
+      },
+    });
+    controller.retryUnhealthyCloudSessions();
+    expect(session.retry).not.toHaveBeenCalled();
+  });
+
+  it("classifies rejected provider credentials from cloud failure details", async () => {
+    let onError: (error: unknown) => void = () => {};
+    const session = Object.assign(createSession(), {
+      cloudStatus: "failed" as const,
+      retry: vi.fn(async () => {}),
+    });
+    vi.mocked(session.onConversationEvent).mockImplementation(
+      (_eventHandler, errorHandler) => {
+        onError = errorHandler;
+        return () => {};
+      },
+    );
+    const controller = createController(session);
+
+    await controller.connect("task-1", "run-1");
+    onError(
+      Object.assign(new Error("Cloud run failed"), {
+        data: {
+          details:
+            'API Error: 400 {"error":{"type":"provider_credentials_rejected"}}',
+        },
+        retryable: true,
+      }),
+    );
+
+    expect(controller.store.getState().sessions["task-1"]).toMatchObject({
+      connectionState: "error",
+      error: {
+        scope: "connection",
+        kind: "provider_credentials",
+        title: "AI provider credentials rejected",
+        retryable: false,
+      },
+    });
+    controller.retryUnhealthyCloudSessions();
+    expect(session.retry).not.toHaveBeenCalled();
+  });
+
   it("keeps fatal runtime errors in a retryable disconnected state", async () => {
     let onEvent: (event: AgentConversationEvent) => void = () => {};
     const session = createSession();
