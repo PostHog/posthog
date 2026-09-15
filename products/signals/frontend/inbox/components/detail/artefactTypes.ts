@@ -81,6 +81,17 @@ export interface CodeReviewContent {
     }
 }
 
+export interface CheckResultContent {
+    check_id?: string
+    kind?: string
+    title?: string
+    outcome?: 'passed' | 'failed' | 'errored'
+    explanation?: string
+    observed_value?: number | null
+    baseline_value?: number | null
+    threshold?: string | null
+}
+
 export interface TitleChangeContent {
     old_title?: string | null
     new_title: string
@@ -112,6 +123,7 @@ export const ARTEFACT_TYPE_LABELS: Record<string, string> = {
     summary_change: 'Summary edited',
     related_to: 'Related report',
     code_review: 'Code review',
+    check_result: 'Follow-up check',
 }
 
 export function artefactTypeLabel(type: string): string {
