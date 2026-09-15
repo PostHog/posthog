@@ -62,6 +62,7 @@ import {
     getMarkdownNotebookMarkdown,
     notebookArtifactContentToMarkdown,
 } from './markdownNotebookV2'
+import { notebookAnalyzeLogic } from './notebookAnalyzeLogic'
 import { notebookLogic } from './notebookLogic'
 import {
     NOTEBOOK_AI_PRESENCE_COLOR,
@@ -93,6 +94,11 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
     } = useValues(notebookLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { user } = useValues(userLogic)
+    // Mounted here rather than by the cells, so an analysis keeps its context and its "Add to
+    // notebook" button while the cell it started from is scrolled out of view.
+    useMountedLogic(
+        notebookAnalyzeLogic(useMemo(() => ({ notebookLogic: mountedNotebookLogic }), [mountedNotebookLogic]))
+    )
     const markdownRegistry = useMemo(() => getMarkdownRegistryForFeatureFlags(featureFlags), [featureFlags])
     const hiddenInsertCommandKeys = useMemo(
         () => getHiddenInsertCommandKeysForFeatureFlags(featureFlags),
