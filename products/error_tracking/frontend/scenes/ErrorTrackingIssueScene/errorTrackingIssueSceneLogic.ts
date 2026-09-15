@@ -4,6 +4,7 @@ import {
     connect,
     defaults,
     events,
+    isBreakpoint,
     kea,
     key,
     listeners,
@@ -18,6 +19,7 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { shouldReportApiFailure } from 'lib/api-error'
 import {
     ErrorEventProperties,
     ErrorEventType,
@@ -326,7 +328,7 @@ export interface errorTrackingIssueSceneLogicActions {
             value: true
         }
     }
-    loadSpikeEvents: () => any
+    loadSpikeEvents: (_: void) => void
     loadSpikeEventsFailure: (
         error: string,
         errorObject?: any
@@ -336,10 +338,10 @@ export interface errorTrackingIssueSceneLogicActions {
     }
     loadSpikeEventsSuccess: (
         spikeEvents: ErrorTrackingSpikeEvent[],
-        payload?: any
+        payload?: void
     ) => {
         spikeEvents: ErrorTrackingSpikeEvent[]
-        payload?: any
+        payload?: void
     }
     loadSummary: () => {
         value: true
@@ -893,14 +895,36 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         spikeEvents: [
             [] as ErrorTrackingSpikeEvent[],
             {
-                loadSpikeEvents: async () => {
+                loadSpikeEvents: async (_: void, breakpoint) => {
                     const { dateFrom, dateTo } = dateRangeToIsoBounds(values.dateRange)
-                    const response = await api.errorTracking.getSpikeEvents({
-                        issueIds: [props.id],
-                        dateFrom,
-                        dateTo,
-                    })
-                    return response.results
+                    try {
+                        const response = await api.errorTracking.getSpikeEvents({
+                            issueIds: [props.id],
+                            dateFrom,
+                            dateTo,
+                        })
+                        // Discard this response if a newer load superseded it while it was in flight,
+                        // the same way `loadSummary` above does.
+                        breakpoint()
+                        return response.results
+                    } catch (e: any) {
+                        if (isBreakpoint(e)) {
+                            throw e
+                        }
+                        // Bail if a newer load has superseded this one, so a late failure cannot
+                        // clear the newer markers.
+                        breakpoint()
+                        // Spike markers are supplementary, so the issue page renders fine without
+                        // them. Degrade to no markers instead of failing the loader. Catching here
+                        // skips the gate `initKea` applies to loader failures, so reapply it: a
+                        // transient gateway failure is expected, but a backend fault must still
+                        // reach error tracking.
+                        console.warn('Failed to load spike events for issue', e)
+                        if (shouldReportApiFailure(e)) {
+                            posthog.captureException(e)
+                        }
+                        return []
+                    }
                 },
             },
         ],

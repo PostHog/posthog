@@ -6,8 +6,31 @@ import {
     INT32_MIN,
     preprocessSchema,
     schemaAllowsNull,
+    stripCollidingInlineEnums,
     stripNullDefaults,
 } from '../src/preprocess.mjs'
+
+describe('stripCollidingInlineEnums', () => {
+    it('strips enum values that produce colliding generated names', () => {
+        const schema = { type: 'string', enum: ['detected_at', '-detected_at'] }
+
+        stripCollidingInlineEnums(schema)
+
+        expect(schema.enum).toBeUndefined()
+    })
+
+    it('preserves colliding enum values with unique explicit names', () => {
+        const schema = {
+            type: 'string',
+            enum: ['detected_at', '-detected_at'],
+            'x-enum-varnames': ['DETECTED_AT', 'DETECTED_AT_DESC'],
+        }
+
+        stripCollidingInlineEnums(schema)
+
+        expect(schema.enum).toEqual(['detected_at', '-detected_at'])
+    })
+})
 
 describe('clampIntegerBounds', () => {
     it('clamps i64 bounds to int32 range on a type: integer schema', () => {

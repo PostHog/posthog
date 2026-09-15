@@ -98400,6 +98400,18 @@ export namespace Schemas {
 
     export type ErrorTrackingSpikeEventsListParams = {
     /**
+     * Only return spike events detected at or after this ISO 8601 timestamp.
+     */
+    date_from?: string;
+    /**
+     * Only return spike events detected at or before this ISO 8601 timestamp.
+     */
+    date_to?: string;
+    /**
+     * Comma-separated list of issue UUIDs to filter spike events by. Omit for all issues.
+     */
+    issue_ids?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -98407,7 +98419,24 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Field to order results by. Defaults to newest first (-detected_at).
+     * @minLength 1
+     */
+    order_by?: ErrorTrackingSpikeEventsListOrderBy;
     };
+
+    export type ErrorTrackingSpikeEventsListOrderBy = typeof ErrorTrackingSpikeEventsListOrderBy[keyof typeof ErrorTrackingSpikeEventsListOrderBy];
+
+
+    export const ErrorTrackingSpikeEventsListOrderBy = {
+      DETECTED_AT: 'detected_at',
+      DETECTED_AT_DESC: '-detected_at',
+      COMPUTED_BASELINE: 'computed_baseline',
+      COMPUTED_BASELINE_DESC: '-computed_baseline',
+      CURRENT_BUCKET_VALUE: 'current_bucket_value',
+      CURRENT_BUCKET_VALUE_DESC: '-current_bucket_value',
+    } as const;
 
     export type ErrorTrackingStackFramesListParams = {
     /**

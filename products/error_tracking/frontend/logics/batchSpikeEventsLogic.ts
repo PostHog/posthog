@@ -1,7 +1,9 @@
-import { MakeLogicType, actions, kea, path, reducers } from 'kea'
+import { MakeLogicType, actions, isBreakpoint, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { shouldReportApiFailure } from 'lib/api-error'
 import { ErrorTrackingSpikeEvent } from 'lib/components/Errors/types'
 
 import { DateRange } from '~/queries/schema/schema-general'
@@ -65,8 +67,27 @@ export const batchSpikeEventsLogic = kea<batchSpikeEventsLogicType>([
                     }
                     await breakpoint(100)
                     const { dateFrom, dateTo } = dateRangeToIsoBounds(dateRange)
-                    const response = await api.errorTracking.getSpikeEvents({ issueIds, dateFrom, dateTo })
-                    return response.results
+                    try {
+                        const response = await api.errorTracking.getSpikeEvents({ issueIds, dateFrom, dateTo })
+                        return response.results
+                    } catch (e: any) {
+                        if (isBreakpoint(e)) {
+                            throw e
+                        }
+                        // Bail if a newer load has superseded this one, so a late failure cannot
+                        // clear the newer markers.
+                        breakpoint()
+                        // Spike markers are supplementary, so the issue page renders fine without
+                        // them. Degrade to no markers instead of failing the loader. Catching here
+                        // skips the gate `initKea` applies to loader failures, so reapply it: a
+                        // transient gateway failure is expected, but a backend fault must still
+                        // reach error tracking.
+                        console.warn('Failed to load spike events for issues', e)
+                        if (shouldReportApiFailure(e)) {
+                            posthog.captureException(e)
+                        }
+                        return []
+                    }
                 },
             },
         ],
