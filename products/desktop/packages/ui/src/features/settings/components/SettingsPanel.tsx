@@ -126,12 +126,14 @@ export interface SettingsPanelProps {
   onClose?: () => void;
   /** Override the category-change handler. Defaults to router navigation. */
   onCategoryChange?: (category: SettingsCategory) => void;
+  children?: ReactNode;
 }
 
 export function SettingsPanel({
   activeCategory: activeCategoryProp,
   onClose,
   onCategoryChange,
+  children,
 }: SettingsPanelProps = {}) {
   const formMode = useSettingsPageStore((s) => s.formMode);
   const activeCategory = activeCategoryProp ?? "general";
@@ -202,7 +204,7 @@ export function SettingsPanel({
           onClick={close}
         >
           <ArrowLeft size={14} />
-          <span>Back to app</span>
+          <span>{children ? "Back" : "Back to app"}</span>
         </button>
 
         <SettingsSearchInput
@@ -289,11 +291,13 @@ export function SettingsPanel({
               fill="url(#settings-dot-pattern)"
             />
           </svg>
-          <SettingsPageContent
-            category={resolvedCategory}
-            formMode={formMode}
-            icon={activeCategoryIcon}
-          />
+          {children ?? (
+            <SettingsPageContent
+              category={resolvedCategory}
+              formMode={formMode}
+              icon={activeCategoryIcon}
+            />
+          )}
         </div>
       </div>
     </div>

@@ -158,7 +158,8 @@ class CreateSkillArgs(BaseModel):
     )
     allowed_tools: list[str] | None = Field(
         default=None,
-        description="Optional list of tool names the skill is permitted to invoke.",
+        description="Optional list of tool names the skill asks to use. A harness that loads the skill over MCP "
+        "ignores the list until the user approves that grant.",
     )
     metadata: dict[str, Any] | None = Field(
         default=None,
@@ -193,7 +194,11 @@ class UpdateSkillArgs(BaseModel):
     )
     license: str | None = Field(default=None, description="Optional new license.")
     compatibility: str | None = Field(default=None, description="Optional new compatibility string.")
-    allowed_tools: list[str] | None = Field(default=None, description="Optional replacement for allowed_tools.")
+    allowed_tools: list[str] | None = Field(
+        default=None,
+        description="Optional replacement for allowed_tools. The list is a request, not a grant, for a harness that "
+        "loads the skill over MCP.",
+    )
     metadata: dict[str, Any] | None = Field(default=None, description="Optional replacement for metadata.")
     file_edits: list[dict[str, Any]] | None = Field(
         default=None,

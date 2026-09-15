@@ -175,6 +175,32 @@ class TestRecalculationAdminPanel(BaseTest):
         assert str(new_run.pk) in response.url
         mock_start.assert_called_once()
 
+    @patch("products.experiments.backend.admin.recalculation_admin.cancel_recalculation_workflow")
+    def test_mark_completed_rejected_for_run_that_never_started(self, mock_cancel: MagicMock) -> None:
+        # A run with no query_to never started; completing it would make /latest serve a completed run
+        # with zero results and stop the timeseries fallback.
+        exp = self._launched_experiment()
+        recalc = ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status=ExperimentMetricsRecalculation.Status.PENDING,
+            total_metrics=2,
+            metric_uuids=["m-named", "m-discovery"],
+        )
+
+        admin = ExperimentMetricsRecalculationAdmin(ExperimentMetricsRecalculation, AdminSite())
+        request = RequestFactory().post("/")
+        request.user = self.user
+        request.session = SessionStore()
+        request._messages = FallbackStorage(request)  # type: ignore[attr-defined]
+        with patch.object(admin, "has_change_permission", return_value=True):
+            admin.mark_completed_view(request, str(recalc.pk))
+
+        recalc.refresh_from_db()
+        assert recalc.status == ExperimentMetricsRecalculation.Status.PENDING
+        assert recalc.completed_at is None
+        mock_cancel.assert_not_called()
+
     @patch("products.experiments.backend.admin.recalculation_panel.start_metrics_recalculation_workflow")
     def test_retry_failures_denied_without_change_permission(self, mock_start: MagicMock) -> None:
         exp = self._launched_experiment()

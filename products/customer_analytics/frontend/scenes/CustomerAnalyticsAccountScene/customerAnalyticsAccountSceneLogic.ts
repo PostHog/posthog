@@ -31,8 +31,14 @@ import {
     getVisibleAccountExpansionTab,
 } from 'products/customer_analytics/frontend/components/Accounts/accountsExpansionLogic'
 import { AccountsEvents } from 'products/customer_analytics/frontend/components/Accounts/constants'
-import { accountsPartialUpdate, accountsRetrieve } from 'products/customer_analytics/frontend/generated/api'
-import type { AccountApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+import {
+    accountsPartialUpdate,
+    accountsPresenceCreate,
+    accountsRetrieve,
+} from 'products/customer_analytics/frontend/generated/api'
+import type { AccountApi, AccountPresenceViewerApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+
+const ACCOUNT_PRESENCE_POLL_INTERVAL_MS = 30_000
 
 export interface CustomerAnalyticsAccountSceneLogicProps {
     accountId: string
@@ -49,6 +55,8 @@ export interface customerAnalyticsAccountSceneLogicValues {
     account: AccountApi | null
     accountLoadError: unknown
     accountLoading: boolean
+    accountPresenceError: unknown
+    accountPresenceViewers: AccountPresenceViewerApi[]
     activeTab: AccountExpansionTab
     breadcrumbs: Breadcrumb[]
     isAccountMissing: boolean
@@ -63,6 +71,15 @@ export interface customerAnalyticsAccountSceneLogicActions {
     }
     loadAccountFailure: (error: unknown) => {
         error: unknown
+    }
+    loadAccountPresence: () => {
+        value: true
+    }
+    loadAccountPresenceFailure: (error: unknown) => {
+        error: unknown
+    }
+    loadAccountPresenceSuccess: (viewers: AccountPresenceViewerApi[]) => {
+        viewers: AccountPresenceViewerApi[]
     }
     loadAccountSuccess: (account: AccountApi) => {
         account: AccountApi
@@ -117,6 +134,9 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
         loadAccount: true,
         loadAccountSuccess: (account: AccountApi) => ({ account }),
         loadAccountFailure: (error: unknown) => ({ error }),
+        loadAccountPresence: true,
+        loadAccountPresenceSuccess: (viewers: AccountPresenceViewerApi[]) => ({ viewers }),
+        loadAccountPresenceFailure: (error: unknown) => ({ error }),
         setActiveTab: (tab: AccountExpansionTab) => ({ tab }),
         restoreActiveTab: (tab: string | undefined) => ({ tab: tab ?? DEFAULT_ACCOUNT_TAB }),
         updateTags: (tags: string[]) => ({ tags }),
@@ -145,6 +165,21 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
                 loadAccount: () => null,
                 loadAccountSuccess: () => null,
                 loadAccountFailure: (_, { error }) => error,
+            },
+        ],
+        accountPresenceViewers: [
+            [] as AccountPresenceViewerApi[],
+            {
+                loadAccountPresenceSuccess: (_, { viewers }) => viewers,
+                loadAccountPresenceFailure: () => [],
+            },
+        ],
+        accountPresenceError: [
+            null as unknown,
+            {
+                loadAccountPresence: () => null,
+                loadAccountPresenceSuccess: () => null,
+                loadAccountPresenceFailure: (_, { error }) => error,
             },
         ],
         requestedTab: [
@@ -190,7 +225,7 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
             ],
         ],
     }),
-    listeners(({ actions, props, values }) => ({
+    listeners(({ actions, cache, props, values }) => ({
         loadAccount: async () => {
             try {
                 actions.loadAccountSuccess(await accountsRetrieve(String(values.currentTeamId), props.accountId))
@@ -205,6 +240,20 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
             posthog.captureException(error instanceof Error ? error : new Error('Could not load account'), {
                 scope: 'customerAnalyticsAccountSceneLogic.loadAccount',
             })
+        },
+        loadAccountPresence: async () => {
+            cache.accountPresenceRequestSequence = (cache.accountPresenceRequestSequence ?? 0) + 1
+            const requestSequence = cache.accountPresenceRequestSequence
+            try {
+                const viewers = await accountsPresenceCreate(String(values.currentTeamId), props.accountId)
+                if (requestSequence === cache.accountPresenceRequestSequence) {
+                    actions.loadAccountPresenceSuccess(viewers)
+                }
+            } catch (error) {
+                if (requestSequence === cache.accountPresenceRequestSequence) {
+                    actions.loadAccountPresenceFailure(error)
+                }
+            }
         },
         setActiveTab: ({ tab }) => {
             posthog.capture(AccountsEvents.TabViewed, { tab })
@@ -246,7 +295,15 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
             actions.restoreActiveTab(DEFAULT_ACCOUNT_TAB)
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, cache }) => {
         actions.loadAccount()
+        cache.disposables.add(() => {
+            actions.loadAccountPresence()
+            const intervalId = window.setInterval(
+                () => actions.loadAccountPresence(),
+                ACCOUNT_PRESENCE_POLL_INTERVAL_MS
+            )
+            return () => window.clearInterval(intervalId)
+        }, 'accountPresencePolling')
     }),
 ])

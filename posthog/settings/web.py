@@ -41,6 +41,7 @@ AXES_HTTP_RESPONSE_CODE = 403
 # TODO: Automatically generate these like we do for the frontend
 # NOTE: Add these definitions here and on `tach.toml`
 PRODUCTS_APPS = [
+    "products.ai_training.backend.apps.AiTrainingConfig",
     "products.analytics_platform.backend.apps.AnalyticsPlatformConfig",
     "products.early_access_features.backend.apps.EarlyAccessFeaturesConfig",
     "products.tasks.backend.apps.TasksConfig",
@@ -587,6 +588,7 @@ SPECTACULAR_SETTINGS = {
             "ScannerProviderEnum": "products.replay_vision.backend.models.replay_scanner.ScannerProvider",
             # Matches replay_vision's VisionAlertState.
             "LogsAlertConfigurationStateEnum": "products.logs.backend.models.LogsAlertConfiguration.State",
+            "LogsPatternsSourceEnum": ["stored_patterns", "body_mining"],
             #
             # The published name is already derived by a different choice set, so the
             # entry holds this one apart.
@@ -595,6 +597,10 @@ SPECTACULAR_SETTINGS = {
             "ShiftBandKindEnum": ["inserted", "deleted"],
             "ExperimentStatusEnum": ["draft", "running", "paused", "exposure_frozen", "stopped"],
             "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
+            # ResolvedAccess types source and source_subject as literals on a dataclass, so no Choices
+            # class carries them. The lists are derived from those literals.
+            "ResolvedAccessSourceEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_CHOICES",
+            "ResolvedAccessSourceSubjectEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES",
             "TaskArtifactStatusEnum": ["active", "failed"],
             #
             # The same choice set is declared in more than one product. A shared Choices
@@ -656,6 +662,17 @@ SPECTACULAR_SETTINGS = {
                 "workflow_variable",
             ],
             "PropertyGroupTypeEnum": ["cohort", "person", "group"],
+            # ReportMetric and its snapshot-only list projection share this inline set.
+            "ReportMetricKindEnum": [
+                "affected_users",
+                "affected_sessions",
+                "occurrences",
+                "conversion_rate",
+                "error_rate",
+                "duration",
+                "revenue",
+                "custom",
+            ],
             "TaskRunBootstrapCreateRequestInitialPermissionModeEnum": [
                 "default",
                 "acceptEdits",
@@ -691,6 +708,7 @@ SPECTACULAR_SETTINGS = {
             ],
             "TileSpacingEnum": ["tight", "condensed", "standard", "relaxed", "wide"],
             "DataQualityCheckSeverityEnum": ["error", "warn"],
+            "DataQualityScheduleIntervalEnum": "products.data_quality.backend.facade.enums.schedule_interval_choices",
             "CanvasStateScopeEnum": ["user", "shared"],
             "CanvasKindEnum": ["freeform", "grid", "component"],
             "CanvasPlacementStatusEnum": ["pending", "generating", "live", "failed"],
@@ -1238,6 +1256,32 @@ WIZARD_GATEWAY_TOKEN_CAP_USD = get_from_env("WIZARD_GATEWAY_TOKEN_CAP_USD", "20"
 # is required rather than optional. Mirrors the CLI's PROGRAM_REGISTRY.
 WIZARD_GATEWAY_PROGRAM_IDS = get_list(get_from_env("WIZARD_GATEWAY_PROGRAM_IDS", ""))
 WIZARD_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("WIZARD_GATEWAY_TOKEN_TTL_SECONDS", 86400, type_cast=int)
+# Per-posture limits, JSON {"new"|"active"|"paid": {"cap_usd", "max_cap_usd",
+# "mints_per_week", "ttl_seconds"}}, each field optional and falling back to that
+# posture's floor in wizard_gateway_token, not to the flat settings above, whose
+# cap is wider than every tier. Per-program caps, JSON {program id: cap}, replace a
+# posture's cap_usd for that program up to its max_cap_usd. Both parsed
+# defensively like AI_GATEWAY_TEAM_TIER_OVERRIDES: a malformed value must not
+# take boot down.
+# The _INVALID flags separate "operator configured nothing" from "operator
+# configured something unreadable", which the empty dict cannot express. Each
+# mint counts the second case so a malformed value is alertable, not just logged.
+WIZARD_GATEWAY_TIERS_INVALID = False
+WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM_INVALID = False
+try:
+    WIZARD_GATEWAY_TIERS = json.loads(get_from_env("WIZARD_GATEWAY_TIERS", "{}"))
+except ValueError:
+    # Empty means every posture keeps its in-code floor, which is the tighter
+    # reading. Logged because the operator meant to configure something.
+    logger.warning("WIZARD_GATEWAY_TIERS is not JSON, falling back to the in-code tier floors")
+    WIZARD_GATEWAY_TIERS = {}
+    WIZARD_GATEWAY_TIERS_INVALID = True
+try:
+    WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM = json.loads(get_from_env("WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM", "{}"))
+except ValueError:
+    logger.warning("WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM is not JSON, falling back to no per-program caps")
+    WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM = {}
+    WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM_INVALID = True
 
 # Exact MCP endpoints that operators explicitly allow the MCP Store to reach even
 # when normal SSRF validation rejects their private/internal address. This is an
@@ -1288,6 +1332,10 @@ WEB_ANALYTICS_TRENDS_PRECOMPUTE_TEAM_IDS: list[int] = [
 # Sized well above any realistic team; 0 disables the cap.
 WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM: int = get_from_env(
     "WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM", 1000, type_cast=int
+)
+
+WEB_ANALYTICS_ACHIEVEMENT_QUERY_MAX_CONCURRENCY: int = get_from_env(
+    "WEB_ANALYTICS_ACHIEVEMENT_QUERY_MAX_CONCURRENCY", 4, type_cast=int
 )
 
 # Cohort the weekly AI path-cleaning-suggestion job runs for. Defaults to the precompute enrollment

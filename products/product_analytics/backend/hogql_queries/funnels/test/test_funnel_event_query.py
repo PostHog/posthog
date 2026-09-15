@@ -1,6 +1,6 @@
 from textwrap import dedent
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 import regex
@@ -113,7 +113,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
             columns=columns,
         )
 
-    @freeze_time("2025-11-12")
+    @time_machine.travel("2025-11-12", tick=False)
     def test_single_events_table(self):
         query = FunnelsQuery(series=[EventsNode(), EventsNode()])
         context = FunnelQueryContext(query=query, team=self.team)
@@ -131,7 +131,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         """).strip()
         self.assertEqual(select, expected)
 
-    @freeze_time("2025-11-12")
+    @time_machine.travel("2025-11-12", tick=False)
     def test_single_dwh_table(self):
         dwh_node = FunnelsDataWarehouseNode(
             aggregation_target_field="user_id",
@@ -156,7 +156,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         """).strip()
         self.assertEqual(select, expected)
 
-    @freeze_time("2025-11-12")
+    @time_machine.travel("2025-11-12", tick=False)
     def test_single_dwh_table_string_timestamp(self):
         dwh_node = FunnelsDataWarehouseNode(
             aggregation_target_field="user_id",
@@ -181,7 +181,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         """).strip()
         self.assertEqual(select, expected)
 
-    @freeze_time("2025-11-12")
+    @time_machine.travel("2025-11-12", tick=False)
     def test_multiple_tables(self):
         query = FunnelsQuery(
             kind="FunnelsQuery",
@@ -277,7 +277,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         """).strip()
         self.assertEqual(select_3, expected_3)
 
-    @freeze_time("2025-11-12")
+    @time_machine.travel("2025-11-12", tick=False)
     def test_dwh_first_time_for_user(self):
         dwh_node = FunnelsDataWarehouseNode(
             aggregation_target_field="user_id",
@@ -303,7 +303,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("FROM events", sql)
         self.assertNotIn("person_id", sql)
 
-    @freeze_time("2025-11-12")
+    @time_machine.travel("2025-11-12", tick=False)
     def test_dwh_first_time_for_user_string_timestamp(self):
         dwh_node = FunnelsDataWarehouseNode(
             aggregation_target_field="user_id",
@@ -324,7 +324,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("min(toDateTime(e.created_at_str)) AS min_timestamp", sql)
         self.assertIn("globalIn(e.id,", sql)
 
-    @freeze_time("2025-11-12")
+    @time_machine.travel("2025-11-12", tick=False)
     def test_dwh_first_time_for_user_with_filters(self):
         dwh_node = FunnelsDataWarehouseNode(
             id="table_one",
@@ -345,7 +345,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         # the step's property filter resolves against the data warehouse table inside the subquery
         self.assertIn("equals(some_prop, 'some_value')", sql)
 
-    @freeze_time("2025-11-12")
+    @time_machine.travel("2025-11-12", tick=False)
     def test_dwh_first_time_for_user_non_uuid_id_field(self):
         dwh_node = FunnelsDataWarehouseNode(
             id="table_two",
@@ -398,7 +398,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertIn("e.uuid_id AS uuid", sql)
             self.assertNotIn("throwIf", sql)
 
-    @freeze_time("2025-11-12")
+    @time_machine.travel("2025-11-12", tick=False)
     def test_dwh_first_time_for_user_two_different_tables(self):
         query = FunnelsQuery(
             kind="FunnelsQuery",
@@ -434,7 +434,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("GROUP BY user_id", sql)
         self.assertIn("GROUP BY some_user_id", sql)
 
-    @freeze_time("2025-11-12")
+    @time_machine.travel("2025-11-12", tick=False)
     def test_mixed_events_and_dwh_first_time_for_user(self):
         query = FunnelsQuery(
             kind="FunnelsQuery",
@@ -463,7 +463,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("argMin(id, e.created_at) AS uuid", sql)
         self.assertIn("GROUP BY user_id", sql)
 
-    @freeze_time("2025-11-12")
+    @time_machine.travel("2025-11-12", tick=False)
     def test_group_node_two_events(self):
         group = GroupNode(
             operator=FilterLogicalOperator.OR_,
@@ -485,7 +485,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         """).strip()
         self.assertEqual(select, expected)
 
-    @freeze_time("2025-11-12")
+    @time_machine.travel("2025-11-12", tick=False)
     def test_group_node_between_event_and_action(self):
         checkout_action = Action.objects.create(
             team=self.team,
@@ -519,7 +519,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         """).strip()
         self.assertEqual(select, expected)
 
-    @freeze_time("2025-11-12")
+    @time_machine.travel("2025-11-12", tick=False)
     def test_group_node_with_property_filters(self):
         group = GroupNode(
             operator=FilterLogicalOperator.OR_,
@@ -550,7 +550,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         """).strip()
         self.assertEqual(select, expected)
 
-    @freeze_time("2025-11-12")
+    @time_machine.travel("2025-11-12", tick=False)
     def test_group_node_event_or_action(self):
         action = Action.objects.create(
             team=self.team,
@@ -577,7 +577,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         """).strip()
         self.assertEqual(select, expected)
 
-    @freeze_time("2025-11-12")
+    @time_machine.travel("2025-11-12", tick=False)
     def test_group_node_entity_prefilter(self):
         group = GroupNode(
             operator=FilterLogicalOperator.OR_,
@@ -591,7 +591,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         select = format_query(funnel_event_query)
         self.assertIn("IN(event, tuple('$pageleave', '$pageview'))", select)
 
-    @freeze_time("2025-11-12")
+    @time_machine.travel("2025-11-12", tick=False)
     def test_group_node_and_operator_is_rejected(self):
         # AND groups aren't supported yet — must fail validation, not raise UnboundLocalError (500).
         group = GroupNode(
@@ -610,7 +610,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
             ("$channel_type",),
         ]
     )
-    @freeze_time("2025-11-12")
+    @time_machine.travel("2025-11-12", tick=False)
     def test_session_breakdown(self, breakdown_property: str):
         query = FunnelsQuery(
             series=[EventsNode(event="$pageview"), EventsNode(event="$autocapture")],

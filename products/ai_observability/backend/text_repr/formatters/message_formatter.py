@@ -9,6 +9,7 @@ with truncation and interactive markers for frontend display.
 import re
 import json
 import base64
+from collections.abc import Iterable
 from typing import Any, TypedDict
 
 from .constants import (
@@ -43,6 +44,7 @@ class FormatterOptions(TypedDict, total=False):
     collapsed: bool  # Show full hierarchy vs summary (default: False)
     include_line_numbers: bool  # Prefix each line with line number (default: False)
     max_length: int | None  # Max output length; randomly drop lines if exceeded (default: None)
+    max_render_length: int  # Abort oversized renders before sampling or assembling the full transcript
 
 
 class ToolCall(TypedDict, total=False):
@@ -180,6 +182,35 @@ def sanitize_surrogates(text: str) -> str:
     if not SURROGATE_REGEX.search(text):
         return text
     return text.encode("utf-16", "surrogatepass").decode("utf-16", "replace")
+
+
+class RenderBudgetExceeded(Exception):
+    """The complete representation cannot fit; the caller must retry with truncation."""
+
+
+class FormatterLines(list[str]):
+    def __init__(self, options: FormatterOptions | None = None) -> None:
+        super().__init__()
+        self._max_length = options.get("max_render_length") if options else None
+        self._length = 0
+
+    def check_length(self, length: int) -> None:
+        if self._max_length is not None and length > self._max_length:
+            raise RenderBudgetExceeded
+
+    def append(self, line: str) -> None:
+        if self._max_length is not None:
+            line = sanitize_surrogates(line)
+            self._length += len(line) + bool(self)
+            self.check_length(self._length)
+        super().append(line)
+
+    def extend(self, lines: Iterable[str]) -> None:
+        if self._max_length is None:
+            super().extend(lines)
+            return
+        for line in lines:
+            self.append(line)
 
 
 def truncate_content(content: str, options: FormatterOptions | None = None) -> tuple[list[str], bool]:
@@ -598,7 +629,7 @@ def format_messages_array(messages: list[Any], options: FormatterOptions | None 
     Returns:
         List of formatted lines (no header, starts directly with messages)
     """
-    lines: list[str] = []
+    lines = FormatterLines(options)
 
     for i, msg in enumerate(messages):
         if not isinstance(msg, dict):

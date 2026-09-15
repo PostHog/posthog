@@ -6,8 +6,13 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
-from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
+from products.signals.backend.implementation_pr import (
+    PrCloseReason,
+    close_implementation_pr_for_report,
+    fetch_implementation_pr_state_for_reports,
+)
 from products.signals.backend.models import SignalActorKind, SignalReport, SignalReportAssignment, SignalReportTask
 from products.signals.backend.report_assignments import update_assignments_for_pull_request
 from products.signals.backend.tasks import close_dismissed_report_pr
@@ -36,32 +41,46 @@ class TestClosePrWhenReportDismissed(BaseTest):
 
     @parameterized.expand(
         [
-            ("suppressed", SignalReport.Status.READY, SignalReport.Status.SUPPRESSED, {}, "suppressed"),
+            ("suppressed", SignalReport.Status.READY, SignalReport.Status.SUPPRESSED, {}, "suppressed", False),
             (
                 "snooze_from_ready",
                 SignalReport.Status.READY,
                 SignalReport.Status.POTENTIAL,
                 {"snooze_for": 5},
                 "snoozed",
+                False,
             ),
-            ("snooze_from_resolved", SignalReport.Status.RESOLVED, SignalReport.Status.POTENTIAL, {}, "snoozed"),
+            ("snooze_from_resolved", SignalReport.Status.RESOLVED, SignalReport.Status.POTENTIAL, {}, "snoozed", False),
+            # A caller that named itself must reach the task, or the comment on the PR can only
+            # say the report was dismissed, never by whom.
+            (
+                "suppressed_by_a_caller",
+                SignalReport.Status.READY,
+                SignalReport.Status.SUPPRESSED,
+                {},
+                "suppressed",
+                True,
+            ),
         ]
     )
     def test_archive_transition_enqueues_close_task(
-        self, _name, source_status, new_status, transition_kwargs, expected_reason
+        self, _name, source_status, new_status, transition_kwargs, expected_reason, with_actor
     ):
         report = self._create_report(report_status=source_status)
-        with patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_task:
+        if with_actor:
+            report._transition_actor_user_id = self.user.id  # type: ignore[attr-defined]
+        with patch("products.signals.backend.tasks.close_dismissed_report_pr") as mock_task:
             self._save_transition(report, new_status, **transition_kwargs)
         mock_task.delay.assert_called_once_with(
             report_id=str(report.id),
             team_id=self.team.id,
             reason=expected_reason,
+            actor_user_id=self.user.id if with_actor else None,
         )
 
     def test_full_save_on_dismiss_enqueues_close_task(self):
         report = self._create_report()
-        with patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_task:
+        with patch("products.signals.backend.tasks.close_dismissed_report_pr") as mock_task:
             with self.captureOnCommitCallbacks(execute=True):
                 report.transition_to(SignalReport.Status.SUPPRESSED)
                 report.save()
@@ -69,31 +88,32 @@ class TestClosePrWhenReportDismissed(BaseTest):
             report_id=str(report.id),
             team_id=self.team.id,
             reason="suppressed",
+            actor_user_id=None,
         )
 
     def test_full_save_without_status_change_does_not_enqueue(self):
         report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
-        with patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_task:
+        with patch("products.signals.backend.tasks.close_dismissed_report_pr") as mock_task:
             with self.captureOnCommitCallbacks(execute=True):
                 report.title = "edited"
                 report.save()
         mock_task.delay.assert_not_called()
 
     def test_born_suppressed_report_does_not_enqueue(self):
-        with patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_task:
+        with patch("products.signals.backend.tasks.close_dismissed_report_pr") as mock_task:
             with self.captureOnCommitCallbacks(execute=True):
                 self._create_report(report_status=SignalReport.Status.SUPPRESSED)
         mock_task.delay.assert_not_called()
 
     def test_restore_from_suppressed_does_not_enqueue(self):
         report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
-        with patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_task:
+        with patch("products.signals.backend.tasks.close_dismissed_report_pr") as mock_task:
             self._save_transition(report, SignalReport.Status.POTENTIAL)
         mock_task.delay.assert_not_called()
 
     def test_pipeline_reset_to_potential_does_not_enqueue(self):
         report = self._create_report(report_status=SignalReport.Status.IN_PROGRESS)
-        with patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_task:
+        with patch("products.signals.backend.tasks.close_dismissed_report_pr") as mock_task:
             self._save_transition(report, SignalReport.Status.POTENTIAL, error="not actionable")
         mock_task.delay.assert_not_called()
 
@@ -101,9 +121,45 @@ class TestClosePrWhenReportDismissed(BaseTest):
         # The PR-merge webhook resolves through transition_to directly. Its PR is merged, so the
         # receiver must not try to close it.
         report = self._create_report()
-        with patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_task:
+        with patch("products.signals.backend.tasks.close_dismissed_report_pr") as mock_task:
             self._save_transition(report, SignalReport.Status.RESOLVED)
         mock_task.delay.assert_not_called()
+
+    def test_pr_merge_enqueues_completed_tracker_close(self):
+        report = self._create_report()
+        SignalReportAssignment.all_teams.create(
+            team=self.team,
+            report=report,
+            pr_url=_PR_URL,
+            repository="posthog/posthog",
+            pr_number=123,
+            pr_state=SignalReportAssignment.PrState.OPEN,
+        )
+
+        with patch("products.signals.backend.tasks.close_report_tracker_issue") as mock_task:
+            with self.captureOnCommitCallbacks(execute=True):
+                update_assignments_for_pull_request(
+                    team_ids=[self.team.id],
+                    repository="posthog/posthog",
+                    pr_number=123,
+                    pr_state=SignalReportAssignment.PrState.MERGED,
+                )
+
+        mock_task.delay.assert_called_once_with(
+            report_id=str(report.id), team_id=self.team.id, completed=True, actor_user_id=None
+        )
+
+    def test_deleting_a_report_enqueues_a_tracker_close(self):
+        # A deleted report never returns to the inbox, so its tracker issue would otherwise stay
+        # open with nothing left to answer it.
+        report = self._create_report()
+
+        with patch("products.signals.backend.tasks.close_report_tracker_issue") as mock_task:
+            self._save_transition(report, SignalReport.Status.DELETED)
+
+        mock_task.delay.assert_called_once_with(
+            report_id=str(report.id), team_id=self.team.id, completed=False, actor_user_id=None
+        )
 
     def test_pr_closed_webhook_does_not_enqueue_for_any_linked_report(self):
         reports = [self._create_report(), self._create_report()]
@@ -117,7 +173,7 @@ class TestClosePrWhenReportDismissed(BaseTest):
                 pr_state=SignalReportAssignment.PrState.OPEN,
             )
 
-        with patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_task:
+        with patch("products.signals.backend.tasks.close_dismissed_report_pr") as mock_task:
             with self.captureOnCommitCallbacks(execute=True):
                 update_assignments_for_pull_request(
                     team_ids=[self.team.id],
@@ -133,7 +189,7 @@ class TestClosePrWhenReportDismissed(BaseTest):
 
     def test_unrelated_save_of_suppressed_report_does_not_enqueue(self):
         report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
-        with patch("products.signals.backend.receivers.close_dismissed_report_pr") as mock_task:
+        with patch("products.signals.backend.tasks.close_dismissed_report_pr") as mock_task:
             with self.captureOnCommitCallbacks(execute=True):
                 report.title = "edited"
                 report.save(update_fields=["title"])
@@ -144,7 +200,7 @@ class TestCloseDismissedReportPrTask(BaseTest):
     def test_task_invokes_close_helper_with_team_report_and_reason(self):
         with patch("products.signals.backend.tasks.close_implementation_pr_for_report") as mock_close:
             close_dismissed_report_pr(report_id="report-1", team_id=self.team.id, reason="snoozed")
-        mock_close.assert_called_once_with(self.team.id, "report-1", reason="snoozed")
+        mock_close.assert_called_once_with(self.team.id, "report-1", reason="snoozed", actor_user_id=None)
 
 
 class TestCloseImplementationPrForReport(BaseTest):
@@ -183,12 +239,16 @@ class TestCloseImplementationPrForReport(BaseTest):
         self.assignment.actor_kind = actor_kind
         self.assignment.save(update_fields=["actor_kind", "updated_at"])
 
+        github = MagicMock()
+        github.get_pull_request.return_value = {"success": True, "state": "open", "merged": False}
+        github.close_pull_request.return_value = {"success": True}
         with patch(
-            "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository"
-        ) as mock_resolve:
-            assert close_implementation_pr_for_report(self.team.id, str(self.report.id)) is False
-
-        mock_resolve.assert_not_called()
+            "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
+            return_value=github,
+        ):
+            assert close_implementation_pr_for_report(self.team.id, str(self.report.id)) is True
+        github.get_pull_request.assert_called_once_with("PostHog/posthog", 456)
+        github.close_pull_request.assert_called_once_with("PostHog/posthog", 456)
 
     def test_task_claim_actor_can_close_pr(self):
         self.assignment.actor_kind = SignalActorKind.TASK
@@ -240,8 +300,44 @@ class TestCloseImplementationPrForReport(BaseTest):
         github.close_pull_request.assert_called_once_with("PostHog/posthog", 123)
         if source == "assignment":
             self.assignment.refresh_from_db()
-            assert self.assignment.pr_state == SignalReportAssignment.PrState.CLOSED
-            assert self.assignment.pr_merged is False
+            pr = fetch_implementation_pr_state_for_reports([str(self.report.id)], team_id=self.team.id)[
+                str(self.report.id)
+            ]
+            assert pr.state == "closed"
+            assert pr.merged is False
+
+    @parameterized.expand(
+        [
+            ("connected_github_identity", "octocat", "@octocat suppressed"),
+            ("no_github_identity", None, ") was suppressed"),
+            # A login reaches us from stored integration config, so a value that is not a handle
+            # must not be interpolated into a comment on somebody's repository.
+            ("login_that_is_not_a_handle", "not a login!", ") was suppressed"),
+        ]
+    )
+    def test_comment_names_the_actor_and_links_the_report(self, _name: str, login: str | None, expected: str):
+        github = MagicMock()
+        github.get_pull_request.return_value = {"success": True, "state": "open", "merged": False}
+        github.comment_on_pull_request.return_value = {"success": True}
+        github.close_pull_request.return_value = {"success": True, "number": 123, "state": "closed"}
+        with (
+            patch(
+                "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
+                return_value=github,
+            ),
+            patch.object(User, "get_github_login", return_value=login),
+        ):
+            assert (
+                close_implementation_pr_for_report(self.team.id, str(self.report.id), actor_user_id=self.user.id)
+                is True
+            )
+
+        comment_body = github.comment_on_pull_request.call_args.args[2]
+        assert expected in comment_body
+        if login != "octocat":
+            assert "@" not in comment_body
+        # The report link carries the attribution GitHub cannot: it names everyone who acted.
+        assert f"/project/{self.team.id}/inbox/reports/{self.report.id})" in comment_body
 
     def test_returns_false_and_skips_github_without_linked_pr(self):
         self.assignment.pr_url = None
@@ -418,8 +514,9 @@ class TestCloseImplementationPrForReport(BaseTest):
         github.comment_on_pull_request.assert_not_called()
         github.close_pull_request.assert_not_called()
         self.assignment.refresh_from_db()
-        assert self.assignment.pr_state == expected_state
-        assert self.assignment.pr_merged is expected_merged
+        pr = fetch_implementation_pr_state_for_reports([str(self.report.id)], team_id=self.team.id)[str(self.report.id)]
+        assert pr.state == expected_state
+        assert pr.merged is expected_merged
 
     def test_skips_comment_and_close_when_status_unavailable(self):
         github = MagicMock()

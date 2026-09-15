@@ -54,6 +54,10 @@ const config: StorybookConfig = {
         // story whose play function is still running when it fires.
         { from: '../.workers', to: '/static' },
         { from: '../../../frontend/node_modules/@posthog/hedgehog-mode/assets', to: '/static/hedgehog-mode' },
+        // The replay player mounts rrweb into this document rather than the app's, so a recorded
+        // page is judged against its policy instead of ours. Django renders the same file; serving
+        // it here keeps stories on the real path rather than a Storybook-only stand-in.
+        { from: '../../../posthog/templates/replay_player_frame', to: '/replay_player_frame' },
     ],
 
     framework: {

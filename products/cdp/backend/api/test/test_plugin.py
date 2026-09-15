@@ -1,13 +1,17 @@
+import os
 import json
+import tempfile
 from datetime import datetime
 from typing import Any, Optional, cast
 from zoneinfo import ZoneInfo
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
 from unittest.mock import patch
+
+from django.test import override_settings
 
 from rest_framework import status
 
@@ -82,7 +86,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         assert response.status_code == expected_status, response.json()
         return response.json()
 
-    @freeze_time("2021-08-25T22:09:14.252Z")
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
     def test_create_plugin_auth(self, mock_get, mock_reload):
         repo_url = "https://github.com/PostHog/helloworldplugin"
 
@@ -364,7 +368,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         fake_date = datetime(2022, 1, 1, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
         self.assertNotEqual(plugin.updated_at, fake_date)
 
-        with freeze_time(fake_date.isoformat()):
+        with time_machine.travel(fake_date.isoformat(), tick=False):
             api_url = f"/api/organizations/@current/plugins/{response.json()['id']}/upgrade"
             response = self.client.post(api_url, {"url": repo_url})
             self.assertEqual(response.status_code, 200)
@@ -383,12 +387,12 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             self.assertEqual(mock_sync_from_plugin_archive.call_count, 2)  # Not extracted on auth failure
 
     def test_delete_plugin_auth(self, mock_get, mock_reload):
-        with freeze_time("2021-08-25T22:09:14.252Z"):
+        with time_machine.travel("2021-08-25T22:09:14.252Z", tick=False):
             repo_url = "https://github.com/PostHog/helloworldplugin"
             response = self.client.post("/api/organizations/@current/plugins/", {"url": repo_url})
             self.assertEqual(response.status_code, 201)
 
-        with freeze_time("2021-08-25T22:09:14.253Z"):
+        with time_machine.travel("2021-08-25T22:09:14.253Z", tick=False):
             plugin_id = response.json()["id"]
 
             api_url = "/api/organizations/@current/plugins/{}".format(response.json()["id"])
@@ -605,6 +609,18 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(Plugin.objects.count(), 1)
         self.assertEqual(mock_reload.call_count, 1)
+
+    @override_settings(DEBUG=False)
+    def test_create_plugin_rejects_local_file_url(self, mock_get, mock_reload):
+        with tempfile.TemporaryDirectory() as plugin_dir:
+            with open(os.path.join(plugin_dir, "plugin.json"), "w") as plugin_json:
+                json.dump({"name": "on-disk", "description": "contents of a file on the server"}, plugin_json)
+
+            response = self.client.post("/api/organizations/@current/plugins/", {"url": f"file:{plugin_dir}"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(Plugin.objects.count(), 0)
+        self.assertEqual(PluginSourceFile.objects.count(), 0)
 
     def test_create_plugin_version_range_eq_current(self, mock_get, mock_reload):
         with self.is_cloud(False):
@@ -897,7 +913,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         )
 
         fake_date = datetime(2022, 1, 1, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
-        with freeze_time(fake_date.isoformat()):
+        with time_machine.travel(fake_date.isoformat(), tick=False):
             response = self.client.post(
                 f"/api/organizations/{my_org.id}/plugins/",
                 {"url": "https://github.com/PostHog/helloworldplugin"},
@@ -1040,7 +1056,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"count": 0, "next": None, "previous": None, "results": []})
 
-    @freeze_time("2021-12-05T13:23:00Z")
+    @time_machine.travel("2021-12-05T13:23:00Z", tick=False)
     def test_plugin_config_list(self, mock_get, mock_reload):
         plugin = Plugin.objects.create(organization=self.organization)
         plugin_config1 = PluginConfig.objects.create(plugin=plugin, team=self.team, enabled=True, order=1)
@@ -1179,7 +1195,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         fake_date = datetime(2022, 1, 1, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
         self.assertNotEqual(plugin.latest_tag_checked_at, fake_date)
 
-        with freeze_time(fake_date.isoformat()):
+        with time_machine.travel(fake_date.isoformat(), tick=False):
             response = self.client.get(f"/api/organizations/@current/plugins/{plugin_id}/check_for_updates")
             plugin.refresh_from_db()
 

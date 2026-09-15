@@ -2,8 +2,6 @@ import re
 import runpy
 from pathlib import Path
 
-from posthog.test.base import BaseTest
-
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -33,7 +31,7 @@ from posthog.scopes import (
 )
 
 
-class TestDowngradeScopesToReadOnly(BaseTest):
+class TestDowngradeScopesToReadOnly(SimpleTestCase):
     @parameterized.expand(
         [
             ("empty_string", "", ""),
@@ -85,7 +83,7 @@ INTERNAL_SCOPE_CASES = [
 ]
 
 
-class TestScopeSets(BaseTest):
+class TestScopeSets(SimpleTestCase):
     def test_all_scopes_matches_scope_descriptions_keys(self) -> None:
         self.assertEqual(ALL_SCOPES, frozenset(get_scope_descriptions().keys()))
 

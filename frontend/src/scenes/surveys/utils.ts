@@ -13,6 +13,7 @@ import {
     SURVEY_RATING_SCALE,
 } from 'scenes/surveys/constants'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
+import { urls } from 'scenes/urls'
 
 import type { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import {
@@ -1350,6 +1351,7 @@ export type SurveyConditionType =
     | 'events'
     | 'actions'
     | 'flag'
+    | 'flag_variant'
     | 'targeting'
     | 'wait_period'
 
@@ -1357,6 +1359,7 @@ export interface SurveyConditionSummary {
     type: SurveyConditionType
     label: string
     value: string
+    href?: string
 }
 
 export interface SurveyCollectionLimitSummary {
@@ -1494,9 +1497,17 @@ export function getSurveyDisplayConditionsSummary(survey: Survey | NewSurvey): S
         })
     }
     if (survey.linked_flag?.key) {
-        parts.push({ type: 'flag', label: 'Feature flag', value: survey.linked_flag.key })
+        parts.push({
+            type: 'flag',
+            label: 'Feature flag',
+            value: survey.linked_flag.key,
+            href: urls.featureFlag(survey.linked_flag.id),
+        })
     } else if (survey.linked_flag_id) {
         parts.push({ type: 'flag', label: 'Feature flag', value: 'Linked' })
+    }
+    if ((survey.linked_flag || survey.linked_flag_id) && conditions?.linkedFlagVariant) {
+        parts.push({ type: 'flag_variant', label: 'Variant', value: conditions.linkedFlagVariant })
     }
     const audienceSummary = getSurveyAudienceSummaryValue(survey)
     if (audienceSummary) {

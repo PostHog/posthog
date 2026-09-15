@@ -394,7 +394,7 @@ describeAddon('native image collection', () => {
         rustAddon!.initAnonymizer({ text: [], url: [] })
         await expect(
             rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, undefined, CONTENT_KEY)
-        ).rejects.toThrow('contentKey requires pseudoTeam')
+        ).rejects.toThrow('contentKey requires teamId')
         await expect(
             rustAddon!.anonymizeKafkaPayload(imagePayload(), undefined, undefined, undefined, CONTENT_KEY)
         ).resolves.toMatchObject({ failed: false })

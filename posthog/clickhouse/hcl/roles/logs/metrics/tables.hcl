@@ -1,10 +1,8 @@
-# LOGS role, all envs — the Kafka metrics ingest chain: kafka_metrics_avro + the MVs
-# into metrics1 (raw), metric_samples1/metric_series1, metric_attributes, and the
-# metrics_kafka_metrics lag bookkeeping. Declared in the local single-shard shape
-# migration 0309 creates; the cloud envs restore their /clickhouse/tables/logs/{shard}
-# ZK paths via patches in roles/logs/shared, and the prod codec deltas sit in
-# roles/logs/prod. The local codec deltas (value/count, matching prod) sit in
-# roles/logs/local.
+# This layer defines LOGS role metric storage and the metrics2 ingest chain.
+# The legacy Kafka table remains for lag bookkeeping.
+# Patches in roles/logs/shared restore the cloud ZK paths.
+# The prod codec deltas sit in roles/logs/prod.
+# The local codec deltas for value and count sit in roles/logs/local.
 database "posthog" {
   table "metric_attributes" {
     order_by     = ["team_id", "attribute_type", "time_bucket", "resource_fingerprint", "attribute_key", "attribute_value"]
@@ -61,62 +59,6 @@ database "posthog" {
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.metric_attributes"
       replica_name = "{replica}"
-    }
-  }
-  materialized_view "metrics1_to_metric_attributes" {
-    to_table = "posthog.metric_attributes"
-    query = file("sql/metrics1_to_metric_attributes.sql")
-    column "team_id" {
-      type = "Int32"
-    }
-    column "time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "resource_fingerprint" {
-      type = "UInt64"
-    }
-    column "attribute_key" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_value" {
-      type = "String"
-    }
-    column "attribute_type" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_count" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
-    }
-  }
-  materialized_view "metrics1_to_resource_attributes" {
-    to_table = "posthog.metric_attributes"
-    query = file("sql/metrics1_to_resource_attributes.sql")
-    column "team_id" {
-      type = "Int32"
-    }
-    column "time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "resource_fingerprint" {
-      type = "UInt64"
-    }
-    column "attribute_key" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_value" {
-      type = "String"
-    }
-    column "attribute_type" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_count" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
     }
   }
   table "metrics_kafka_metrics" {
@@ -647,9 +589,6 @@ SQL
       index_granularity_bytes = "104857600"
       ttl_only_drop_parts     = "1"
     }
-    column "uuid" {
-      type = "String"
-    }
     column "team_id" {
       type = "Int32"
     }
@@ -763,27 +702,6 @@ SQL
       type        = "minmax"
       granularity = 1
     }
-    projection "projection_series_minute" {
-      query = <<SQL
-SELECT
-  team_id,
-  metric_name,
-  service_name,
-  metric_type,
-  resource_fingerprint,
-  series_fingerprint,
-  toStartOfMinute(timestamp) AS minute,
-  count() AS sample_count,
-  sum(value) AS total_value,
-  min(value) AS min_value,
-  max(value) AS max_value,
-  argMin(value, timestamp) AS first_value,
-  argMax(value, timestamp) AS last_value
-GROUP BY
-  team_id, metric_name, service_name, metric_type, resource_fingerprint, series_fingerprint, minute
-SQL
-
-    }
     projection "projection_series_activity" {
       query = <<SQL
 SELECT
@@ -877,6 +795,11 @@ SQL
       type        = "bloom_filter(0.01)"
       granularity = 1
     }
+    index "idx_last_seen_minmax" {
+      expr        = "last_seen"
+      type        = "minmax"
+      granularity = 1
+    }
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/noshard/posthog.metric_series2"
       replica_name   = "{replica}-{shard}"
@@ -941,9 +864,6 @@ SQL
     }
   }
   table "metrics_distributed" {
-    column "uuid" {
-      type = "String"
-    }
     column "team_id" {
       type = "Int32"
     }
@@ -1124,9 +1044,6 @@ SQL
   materialized_view "metrics2_input_to_metrics" {
     to_table = "posthog.metrics2"
     query    = file("sql/metrics2_input_to_metrics.sql")
-    column "uuid" {
-      type = "String"
-    }
     column "team_id" {
       type = "Int32"
     }

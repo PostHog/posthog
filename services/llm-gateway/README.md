@@ -216,7 +216,6 @@ The gateway exposes models consistently across Anthropic Messages, chat/completi
 
 - **GLM 5.2** (`@cf/zai-org/glm-5.2`) can run on Cloudflare Workers AI, Modal, or Baseten.
 - **GLM 5.3** (`zai-org/glm-5.3`) runs only on Baseten and is available to ReviewHog and PostHog Desktop behind its own `posthog-code-glm-53-model` flag.
-  Deliberately not `tasks-glm-baseten-inference`: that one only moves GLM 5.2 traffic onto Baseten, so sharing it would grant 5.3 by proxy the moment 5.2 routing changed.
   GLM 5.3 has no open weights released yet, so the flag is not created: the access gate fails closed, keeping the model blocked server-side and hidden in every picker.
   Do not create the flag until Baseten lists the model and the deployment slug, context window, and contract rate in `model_cost_overrides.py` / `model_registry.py` are confirmed against `inference.baseten.co/v1/models`: the rate is pinned, so a wrong placeholder bills at the wrong price with no automatic correction.
 - **GLM 5.3 Flash** (`zai-org/glm-5.3-flash`) runs only on Baseten and is available to ReviewHog and PostHog Desktop behind its own `posthog-code-glm-53-flash-model` flag.
@@ -229,7 +228,7 @@ Provider configuration:
 - **Modal** (an OpenAI-compatible vLLM endpoint) — configure `LLM_GATEWAY_MODAL_API_BASE`, `LLM_GATEWAY_MODAL_KEY`, and `LLM_GATEWAY_MODAL_SECRET` (a [Modal proxy-token](https://modal.com/docs/guide/endpoints) pair, sent as `Modal-Key`/`Modal-Secret` headers).
 - **Baseten** (an OpenAI-compatible endpoint) - configure `LLM_GATEWAY_BASETEN_API_BASE` and `LLM_GATEWAY_BASETEN_API_KEY`.
 
-The `tasks-glm-baseten-inference` feature flag routes matching users' GLM 5.2 traffic to Baseten when its API key is configured. The flag is evaluated server-side, and caller-forwarded flag headers cannot select Baseten. Cloudflare or Modal must remain configured as the fallback for users who do not match the flag or when evaluation is unavailable.
+GLM 5.2 traffic goes to Baseten whenever its API key is configured. No feature flag gates this, and caller-forwarded flag headers cannot select Baseten. Cloudflare or Modal serves GLM 5.2 only while the Baseten key is absent, so removing that key is the rollback.
 
 Two knobs opt traffic into Modal (OR semantics, both default off):
 
@@ -329,13 +328,14 @@ User-level limits only apply when an `end_user_id` is present (OAuth token holde
 ### Per-run limits
 
 A sandbox agent run can spend a whole window's budget in one conversation, because the person driving it decides when it ends.
-`DEFAULT_SANDBOX_TASK_COST_LIMITS` caps the total spend of a single run, keyed on the task the token was minted for (`posthog_oauthaccesstoken.sandbox_task_id`), not on anything the caller sends:
+`DEFAULT_SANDBOX_TASK_COST_LIMITS` limits the recorded spend of a single run, keyed on the task the token was minted for (`posthog_oauthaccesstoken.sandbox_task_id`), not on anything the caller sends:
 
 ```python
 "my_budget": ProductCostLimit(limit_usd=50.0, window_seconds=604800)  # $50 per run
 ```
 
 Opt-in — a budget with no entry has no per-run ceiling, and a token with no task binding is never metered here.
+The Python gateway records cost after each request completes, so concurrent requests can overshoot a limit by their combined in-flight spend.
 
 ### Budget keys
 
@@ -344,6 +344,7 @@ The three limits above are usually keyed by product, but a product that serves b
 
 Today that splits `signals`: a run started from the Inbox carries `interactive_run:read` and meters against `signals_interactive`, while the scheduled pipeline keeps `signals`.
 `signals_interactive` is a budget name only — it is not in `PRODUCTS`, so no caller can request it.
+Slack task tokens carry `slack_run:read`, which keeps them on the `slack_app` budget even if the sandbox calls another product route that accepts the same OAuth application.
 
 ## Error handling
 

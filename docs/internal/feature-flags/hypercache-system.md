@@ -309,7 +309,7 @@ Operational controls:
 
 Result labels: `hit_redis`, `hit_s3`, `hit_db`, `missing`, `batch_miss`
 
-ETag result labels: `hit` (client ETag matched, 304), `miss` (client sent a stale ETag), `none` (client sent none), `redis_missing` (the endpoint that answered held no ETag key), `redis_error` (the read itself failed)
+ETag result labels: `hit` (client ETag matched, 304), `miss` (client sent a stale ETag), `none` (client sent none), `redis_missing` (the endpoint that answered held no ETag key), `redis_error` (the read failed, or the stored value did not decode)
 
 `redis_missing` and `redis_error` are the pair that separates a cache-tier problem from an unreachable cluster. Keep them apart on dashboards and alerts. `redis_missing` reports the read, not the cause: reads go to the replica, so a key Django wrote to the primary counts here until it replicates. A sustained rise is a tier that holds nothing, and a short burst that clears on its own is lag.
 
@@ -344,36 +344,73 @@ cache tier both produce that symptom, so establish which one first.
 
 **1. Separate a cluster fault from an empty tier.** Split `flags_flag_definitions_etag_total`
 by `result`. A rise in `redis_error` points at the cluster; check managed-cache CPU,
-evictions, command latency, and memory before going further. A rise in `redis_missing`
+evictions, command latency, and memory before going further. `redis_error` also covers a
+stored ETag that did not decode, so a flat count of one or two teams is corrupt data rather
+than a cluster fault. A rise in `redis_missing`
 means Redis answered and the endpoint that served the read held no ETag key. That points at
 the tier rather than at the cluster, but the label does not prove the entry is gone: reads
 go to the replica, so replication lag reads as absence too. Confirm it in step 2 before you
 rebuild anything.
 
-**2. Compare the endpoints for one affected team.** Django writes the dedicated instance
-and mirrors to the shared one, and the reader serves from the shared copy, so the two can
-disagree. Take a team id from a reader `Cache hit for flag definitions` record with
-`source="s3"`. It logs at info, carries `team_id`, and names a team the alert is counting.
-The absent-ETag record carries the key but logs at debug, so production does not keep it.
+**2. Compare the endpoints for one affected team.** Django writes the dedicated instance and
+mirrors to the shared one, so the two can disagree. Which copy the reader served depends on
+`FLAG_DEFINITIONS_DEDICATED_REDIS_ENABLED`, so read
+`flags_flag_definitions_reads_dedicated_redis` first and start from the cluster it names.
+Reading the wrong endpoint makes a healthy mirror look broken.
 
-Query the shared replica first.
-That endpoint answered the read the metric counted, and the shared primary can hold a key the replica does not.
-`REDIS_READER_URL` can be unset, in which case reads go to `REDIS_URL` and the first two commands return the same answer.
+Take a team id from a reader `Cache hit for flag definitions` record with `source="s3"`. It
+logs at info, carries `team_id`, and names a team the alert is counting. An absent ETag
+writes no log record at all, so the `redis_missing` counter is the only signal that it
+happened.
+
+Query the replica of the cluster the gauge named.
+That endpoint answered the read the metric counted, and that cluster's primary can hold a key the replica does not.
+Either reader URL can be unset, in which case reads go to the matching writer URL.
+The replica commands fall back the same way, so that cluster's two commands then return the same answer.
+
+Check the payload key and its ETag key on each endpoint.
+Redis evicts per key, so the pair can diverge although the writer sets both with one TTL.
+The payload is the key the alert counts, and the ETag key explains the counters from step 1.
 
 ```bash
-# Shared replica, the endpoint the reader served from
-redis-cli -u "$REDIS_READER_URL" exists "posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json:etag"
+KEY="posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json"
+
+# Shared replica, served to pods reporting reason="disabled" or reason="no_dedicated_client"
+redis-cli -u "${REDIS_READER_URL:-$REDIS_URL}" exists "$KEY"
+redis-cli -u "${REDIS_READER_URL:-$REDIS_URL}" exists "$KEY:etag"
 
 # Shared primary, which the mirror writes
-redis-cli -u "$REDIS_URL" exists "posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json:etag"
+redis-cli -u "$REDIS_URL" exists "$KEY"
+redis-cli -u "$REDIS_URL" exists "$KEY:etag"
 
-# Dedicated cluster, which Django writes first
-redis-cli -u "$FLAGS_REDIS_URL" exists "posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json:etag"
+# Dedicated replica, served to pods reporting reason="dedicated"
+redis-cli -u "${FLAGS_REDIS_READER_URL:-$FLAGS_REDIS_URL}" exists "$KEY"
+redis-cli -u "${FLAGS_REDIS_READER_URL:-$FLAGS_REDIS_URL}" exists "$KEY:etag"
+
+# Dedicated primary, which Django writes first
+redis-cli -u "$FLAGS_REDIS_URL" exists "$KEY"
+redis-cli -u "$FLAGS_REDIS_URL" exists "$KEY:etag"
 ```
 
-Absent on the shared replica and present on the shared primary is replication lag, not a lost entry.
+Read the branches below per key.
+
+An absent payload beside a present ETag on the endpoint the reader served is the reading that
+every ETag-only check calls healthy. The handler reads the ETag key on every request and answers
+304 before it fetches the payload, so a team whose SDKs poll with a matching `If-None-Match`
+keeps the ETag key recent while the payload ages toward eviction. Read repair is disabled for
+this namespace, so the S3 hit does not rewarm the payload. Rebuild it with `update_flag_caches`.
+
+An absent ETag beside a present payload serves a 200 with the full payload on every poll, so
+it writes no `source="s3"` record and raises no alert. `redis_missing` climbing with no matching
+rise in S3 reads is that state. It does not repair itself: `verify_team_flag_definitions`
+compares the payload only, so the hourly verifier reads the team as clean and the ETag stays
+missing until the team's next flag change or its TTL refresh. The counter carries no `team_id`,
+so set `TEAM_IDS_TO_TRACK` to name a suspected team, or rebuild with `update_flag_caches`.
+
+Absent on the replica of the cluster the reader served, and present on that cluster's primary,
+is replication lag rather than a lost entry.
 Rebuilding fixes nothing.
-Check replication lag on the shared cluster instead, and expect the alert to clear on its own.
+Check replication lag on that cluster instead, and expect the alert to clear on its own.
 
 Present on the dedicated cluster and absent on both shared endpoints isolates the fault to the
 mirror rather than to the writer. Absent everywhere means the entry was never built or has
@@ -424,13 +461,26 @@ The feature-flags Rust service can use a separate Redis instance for caching, is
 ### Enabling dedicated Redis
 
 ```bash
-FLAGS_REDIS_URL=redis://flags-redis:6379  # Separate instance for flags
+FLAGS_REDIS_URL=redis://flags-redis:6379            # Separate instance for flags
+FLAG_DEFINITIONS_DEDICATED_REDIS_ENABLED=false      # Cluster the /flags/definitions reader uses
 ```
 
 When `FLAGS_REDIS_URL` is set, Django registers it as the `flags_dedicated` cache alias (`FLAGS_DEDICATED_CACHE_ALIAS` in `posthog/caching/flags_redis_cache.py`, wired up in `posthog/settings/data_stores.py`).
 Four HyperCache instances bind that alias. For flags (`products/feature_flags/backend/flags_cache.py`), remote config, and team metadata, Django writes to the dedicated instance and the Rust service reads them from it.
 
-The SDK-facing flag-definitions cache (`local_evaluation.py`) is part-way through the same move, so its write side and read side currently point at different clusters. Django writes it to the dedicated instance and mirrors each write to the shared default cache, covering the payload, the ETag, and the cache-miss sentinel. Deletes mirror as well. The Rust `/flags/definitions` reader still reads the shared cache, so the shared copy is the one serving SDK traffic. A later change moves that reader to the dedicated instance, and the mirror is removed after it.
+The SDK-facing flag-definitions cache (`local_evaluation.py`) is part-way through the same move, and its read side is switchable. Django writes it to the dedicated instance and mirrors each write to the shared default cache, covering the payload, the ETag, and the cache-miss sentinel. Deletes mirror as well.
+
+`FLAG_DEFINITIONS_DEDICATED_REDIS_ENABLED` decides which cluster the Rust `/flags/definitions` reader uses. It defaults to false, which keeps the reader on the shared cache. Set it per fleet to move the reader to the dedicated instance.
+
+Remove the mirror only after that move has baked. The mirror is what makes the switch reversible. With the mirror gone, a reader sent back to the shared cache reads a cluster nothing writes to. This endpoint has no database fallback on a miss.
+
+The payload and the ETag always share one client. They therefore cannot disagree about which cluster holds the current definitions. `HyperCacheReader::get_etag` reads the same `redis_client` as the payload and derives its key from the same config. Both are set once in the constructor, from the client `server.rs` resolves.
+
+Do not give the ETag a gate of its own. A stale ETag on one cluster can match a client `If-None-Match` while the other cluster holds a newer payload. The endpoint then answers 304 and pins the SDK to stale definitions. No metric records an error.
+
+`flags_flag_definitions_reads_dedicated_redis` reports which cluster each pod resolved. Its `reason` label separates two cases. `disabled` is a pod nobody has switched. `no_dedicated_client` is a pod that was switched but could not build a dedicated client, so it reads the shared cache for the life of the process.
+
+Reads on the dedicated instance go to its `-ro` reader endpoint. `NotFound` is unrecoverable, so `ReadWriteClient` does not consult the primary. A key the writer just wrote reads as absent until it replicates. That window serves a 200 with the full payload instead of a 304.
 
 The flag-definitions self-heal queue follows the write side, not the read side. The Rust endpoint enqueues a rebuild request on the dedicated instance (`State::flags_namespace_redis_client`), and the Celery drain reads the queue from `flag_definitions_hypercache.redis_url` (`products/feature_flags/backend/rebuild_queue.py`). Both resolve from `FLAGS_REDIS_URL`, so the producer and the consumer move together on configuration. They can still split on connection state: a Rust process that cannot reach the dedicated cluster at startup falls back to the shared one and enqueues there for its whole life, while Celery keeps draining the dedicated one. Those teams wait for the hourly verifier. `server.rs` logs that startup failure at error level, and the same failure already sends the flags.json, team-metadata, and remote-config readers to the shared cluster, where Django writes nothing. Django and the Rust fleet deploy independently, so a deploy of one before the other leaves requests on the cluster the other side is not reading. Clean up on the **shared** cluster only, and never on the dedicated one, which holds the live queue once both sides are up. A Rust-first rollout puts the window's requests on the dedicated cluster, where the drain collects them as soon as Django deploys, so they need no cleanup. A Django-first rollout puts them on the shared cluster, where nothing reads them again. Either order also leaves the pre-move queue members and the open circuits on the shared cluster. Run `DEL flag_definitions:rebuild_requests flag_definitions:rebuild_circuit` there after both sides are deployed. The circuit-breaker set is included because only the drain prunes it and the key carries no TTL. The cooldown and failure-streak keys expire on their own.
 

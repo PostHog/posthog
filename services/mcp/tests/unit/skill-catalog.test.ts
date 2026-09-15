@@ -380,6 +380,20 @@ describe('SkillCatalog and exec learn', () => {
             expect(output).toContain('learn skills')
         }
     })
+
+    it('does not report zero project skills when the project source is unavailable', async () => {
+        const learn = new ExecLearnCatalog([], {
+            posthog: makeCatalog(),
+            projectUnavailableReason: 'This connection is missing the llm_skill:read scope.',
+        })
+
+        const output = await learn.execute('-s zzzznomatch')
+
+        expect(output).toContain('project skills were not searched')
+        expect(output).not.toContain('0 project skills')
+        expect(output).toContain('posthog: funnels, retention-analysis')
+        expect(output).toContain('[Project skills unavailable: This connection is missing the llm_skill:read scope.]')
+    })
     describe('skill invocation reporting', () => {
         it('reports successful loads with source, path, and read kind — never searches or describes', async () => {
             const invocations: unknown[] = []

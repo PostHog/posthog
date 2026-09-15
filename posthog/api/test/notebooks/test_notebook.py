@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
 
@@ -167,7 +167,7 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         assert "short_id" in response_json
         short_id = response_json["short_id"]
 
-        with freeze_time("2022-01-02"):
+        with time_machine.travel("2022-01-02", tick=False):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/notebooks/{short_id}",
                 {

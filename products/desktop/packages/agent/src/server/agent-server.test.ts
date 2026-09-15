@@ -11,7 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ContentBlock, RequestError } from "@agentclientprotocol/sdk";
-import type { Adapter } from "@posthog/shared";
+import { type Adapter, IDLE_RESUME_STOP_REASON } from "@posthog/shared";
 import { zipSync } from "fflate";
 import jwt from "jsonwebtoken";
 import { HttpResponse, http } from "msw";
@@ -443,7 +443,7 @@ describe("AgentServer HTTP Mode", () => {
     appendLogCalls = [];
     // Use a unique high port per test to avoid reuse and browser-blocked ports.
     port = getNextTestPort();
-  });
+  }, 30_000);
 
   afterEach(async () => {
     const runningServer = server;
@@ -452,7 +452,7 @@ describe("AgentServer HTTP Mode", () => {
       await runningServer?.stop();
     } finally {
       mswServer.resetHandlers();
-      await repo.cleanup();
+      await repo?.cleanup();
     }
   });
 
@@ -2578,6 +2578,39 @@ describe("AgentServer HTTP Mode", () => {
       expect(() => testServer.broadcastEvent(event)).not.toThrow();
 
       expect(testServer.pendingEvents).toEqual([event]);
+    });
+
+    it("redacts authorization headers before an event leaves the sandbox", () => {
+      const testServer = exposeBroadcastEvent(createServer());
+      testServer.eventStreamSender = {
+        enqueue: vi.fn(),
+        stop: vi.fn(async () => {}),
+      };
+      testServer.session = null;
+
+      testServer.broadcastEvent({
+        type: "notification",
+        notification: {
+          method: "session/new",
+          params: {
+            mcpServers: [
+              {
+                name: "posthog",
+                headers: [
+                  { name: "Authorization", value: "Bearer mcp-secret" },
+                  { name: "x-posthog-mcp-consumer", value: "cloud" },
+                ],
+              },
+            ],
+          },
+        },
+      });
+
+      const [broadcast] = testServer.eventStreamSender.enqueue.mock.calls[0];
+      const serialized = JSON.stringify(broadcast);
+      expect(serialized).not.toContain("mcp-secret");
+      expect(serialized).toContain("x-posthog-mcp-consumer");
+      expect(testServer.pendingEvents).toEqual([broadcast]);
     });
   });
 
@@ -5585,6 +5618,10 @@ describe("AgentServer HTTP Mode", () => {
     });
 
     describe("idle same-run resume", () => {
+      type TurnCompleteEvent = {
+        notification?: { method?: string; params?: { stopReason?: string } };
+      };
+
       const idlePayload: JwtPayload = {
         task_id: "test-task-id",
         run_id: "test-run-id",
@@ -5599,7 +5636,7 @@ describe("AgentServer HTTP Mode", () => {
         resumeKind: "native" | "summary" = "native",
       ): Promise<{
         prompt: ReturnType<typeof vi.fn>;
-        turnCompleteEvents: () => unknown[];
+        turnCompleteEvents: () => TurnCompleteEvent[];
         sendInitialTaskMessage: () => Promise<void>;
       }> => {
         const s = createServer();
@@ -5643,11 +5680,13 @@ describe("AgentServer HTTP Mode", () => {
         return {
           prompt,
           turnCompleteEvents: () =>
-            broadcastEvent.mock.calls.filter(
-              ([event]) =>
-                (event as { notification?: { method?: string } }).notification
-                  ?.method === POSTHOG_NOTIFICATIONS.TURN_COMPLETE,
-            ),
+            broadcastEvent.mock.calls
+              .map(([event]) => event as TurnCompleteEvent)
+              .filter(
+                (event) =>
+                  event.notification?.method ===
+                  POSTHOG_NOTIFICATIONS.TURN_COMPLETE,
+              ),
           sendInitialTaskMessage: () =>
             startInitialTaskMessage(s, idlePayload, null),
         };
@@ -5667,6 +5706,9 @@ describe("AgentServer HTTP Mode", () => {
 
           expect(prompt).not.toHaveBeenCalled();
           expect(turnCompleteEvents()).toHaveLength(1);
+          expect(
+            turnCompleteEvents()[0]?.notification?.params?.stopReason,
+          ).toBe(IDLE_RESUME_STOP_REASON);
           const response = await fetch(`http://localhost:${port}/command`, {
             method: "POST",
             headers: {
