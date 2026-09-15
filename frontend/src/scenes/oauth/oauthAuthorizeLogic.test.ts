@@ -1,11 +1,12 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
-import { decodeParams } from 'kea-router'
+import { decodeParams, router } from 'kea-router'
 
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { AppContext } from '~/types'
 
 import { describeOAuthError, oauthAuthorizeLogic } from './oauthAuthorizeLogic'
 
@@ -26,6 +27,7 @@ describe('oauthAuthorizeLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+        delete (window as any).POSTHOG_APP_CONTEXT
     })
 
     const effectiveScopesCases: { name: string; scopes: string[]; apply?: () => void; expected: string[] }[] = [
@@ -132,6 +134,55 @@ describe('oauthAuthorizeLogic', () => {
         expect(logic.values.effectiveScopes).toEqual(['openid', 'insight:read'])
         logic.actions.setScopeAccess('feature_flag', 'write')
         expect(logic.values.effectiveScopes).toEqual(['openid', 'feature_flag:write', 'insight:read'])
+    })
+
+    const scopeSourceCases: {
+        name: string
+        urlScope?: string
+        resolution?: { scopes: string[]; was_defaulted: boolean }
+        mcpConsent?: { is_mcp_resource: boolean; scopes: string[] }
+        expected: string[]
+    }[] = [
+        {
+            name: 'prefers the resolved set over the URL',
+            urlScope: 'insight:read',
+            resolution: { scopes: ['openid', 'insight:read', 'dashboard:write'], was_defaulted: false },
+            expected: ['openid', 'insight:read', 'dashboard:write'],
+        },
+        {
+            name: 'uses the resolved set when the client sent no scope',
+            resolution: { scopes: ['openid', 'insight:write', 'query:read'], was_defaulted: true },
+            expected: ['openid', 'insight:write', 'query:read'],
+        },
+        {
+            name: 'narrows a defaulted request to the MCP set on an MCP resource',
+            resolution: { scopes: ['openid', 'insight:write', 'query:read'], was_defaulted: true },
+            mcpConsent: { is_mcp_resource: true, scopes: ['openid', 'query:read'] },
+            expected: ['openid', 'query:read'],
+        },
+        {
+            name: 'falls back to the URL when the server sent no resolution',
+            urlScope: 'insight:read',
+            expected: ['insight:read'],
+        },
+    ]
+
+    it.each(scopeSourceCases)('scope source $name', ({ urlScope, resolution, mcpConsent, expected }) => {
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            oauth_scope_resolution: resolution,
+            oauth_mcp_consent: mcpConsent,
+        } as AppContext
+        const params = new URLSearchParams({
+            client_id: 'test-client',
+            redirect_uri: 'https://example.com/callback',
+            response_type: 'code',
+            ...(urlScope ? { scope: urlScope } : {}),
+        })
+
+        router.actions.push(`/oauth/authorize?${params.toString()}`)
+
+        expect(logic.values.scopes).toEqual(expected)
     })
 
     const withRequiredScopes = (required_scopes: string[]): void => {

@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import Literal, get_args
 
 ## API Scopes
@@ -520,6 +520,31 @@ def clamp_scopes_to_ceiling(
         granted = resource_requested & allowed
 
     return sorted(granted | always_allowed)
+
+
+def is_truncated_scope_request(requested: Sequence[str]) -> bool:
+    """Whether a `scope` list looks cut off mid-token rather than merely stale.
+
+    A client pinning a retired or renamed scope is routine, and `clamp_scopes_to_ceiling`
+    drops those one at a time. A cut-off request is a different failure: something in the
+    path truncated the authorization URL, so the last token is a fragment and every scope
+    after it is gone, with no way to tell how many. Dropping the fragment the same way
+    hands the user a short consent list and a half-working client, with no error anywhere.
+
+    The signal is a final token that is a strict prefix of a real scope, with every token
+    before it a real scope. A fragment can only ever be last, because the cut takes the
+    rest of the string with it, and requiring a clean head keeps a client with one stale
+    scope from reading as truncated. `requested` must preserve request order.
+    """
+    if len(requested) < 2:
+        return False
+
+    *head, tail = requested
+    known = ALL_SCOPES | ALWAYS_ALLOWED_SCOPES | {"*"}
+    if not tail or tail in known or not all(scope in known for scope in head):
+        return False
+
+    return any(scope.startswith(tail) for scope in known)
 
 
 def narrow_scopes_to_ceiling(original: Iterable[str], app_scopes: Iterable[str]) -> list[str] | None:
