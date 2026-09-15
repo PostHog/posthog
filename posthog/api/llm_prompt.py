@@ -114,7 +114,9 @@ class LLMPromptViewSet(
         return None
 
     def _is_browser_session(self, request: Request) -> bool:
-        return isinstance(request.successful_authenticator, SessionAuthentication | JwtAuthentication)
+        # Only the session cookie means a browser. A JWT means a background job
+        # impersonating a user, which serves prompts like any other API caller.
+        return isinstance(request.successful_authenticator, SessionAuthentication)
 
     def _ensure_web_authenticated(self, request: Request) -> Response | None:
         if not isinstance(

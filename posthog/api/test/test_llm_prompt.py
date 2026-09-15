@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest
@@ -21,6 +22,7 @@ from posthog.api.llm_prompt_serializers import (
     validate_prompt_label_name_value,
 )
 from posthog.api.services.llm_prompt import MAX_PROMPT_VERSION
+from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import PersonalAPIKey
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -1502,6 +1504,18 @@ class TestLLMPromptLabelsAPI(APIBaseTest):
             ("prompt-a", 2, None, True, "list"),
             ("prompt-b", 1, None, True, "list"),
         ]
+
+        # A JWT means a background job impersonating a user, which is still an API caller.
+        impersonation_token = encode_jwt(
+            {"id": self.user.id}, timedelta(minutes=15), PosthogJwtAudience.IMPERSONATED_USER
+        )
+        mock_report.reset_mock()
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            headers={"authorization": f"Bearer {impersonation_token}"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert [entry[0] for entry in fetched_prompts()] == ["prompt-a", "prompt-b"]
 
         # The same list backs the prompts UI page, where reading it is not a fetch.
         mock_report.reset_mock()
