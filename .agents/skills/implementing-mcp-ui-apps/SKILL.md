@@ -7,7 +7,7 @@ description: 'Guide for adding MCP UI apps — interactive visualizations that r
 
 MCP UI apps are interactive React visualizations that render alongside tool results
 in MCP clients (e.g. Claude Desktop). They're built with the Mosaic component library
-and served via Cloudflare Workers Static Assets.
+and served by the regional MCP runtime at `/ui-apps/*`.
 
 Full reference: [services/mcp/CONTRIBUTING.md](../../../services/mcp/CONTRIBUTING.md).
 

@@ -418,7 +418,8 @@ Each also logs a warning prefixed `[McpSessionRedisStore]`, so a Redis failure o
 
 ### Edge-proxy worker (Cloudflare)
 
-In production, a thin Cloudflare Worker sits in front of the Hono deployments as a stateless edge router: it serves the OAuth metadata endpoints, validates tokens, resolves the caller's cloud region, and proxies `/mcp` traffic to `mcp.us.posthog.com` / `mcp.eu.posthog.com`.
+In production, a thin Cloudflare Worker sits in front of the Hono deployments as a stateless edge router: it serves the OAuth metadata endpoints, validates tokens, resolves the caller's cloud region, and proxies `/mcp` and `/ui-apps/*` traffic to `mcp.us.posthog.com` / `mcp.eu.posthog.com`.
+The bundles do not come from the Worker's own asset upload, so they always match the regional image that built the stub URLs that name them.
 It does not serve the MCP protocol itself - see [ARCHITECTURE.md](ARCHITECTURE.md).
 To run just the worker locally:
 

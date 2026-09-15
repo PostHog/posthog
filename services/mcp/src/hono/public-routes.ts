@@ -98,10 +98,10 @@ export function registerPublicRoutes(app: Hono, redis: RedisWithPing, lifecycle:
         }
     })
 
-    // MCP UI app static assets. The CF runtime serves these via the Workers
-    // Static Assets binding (`wrangler.jsonc`'s `assets.directory: ./public/`);
-    // here we serve them from disk so the same `${MCP_APPS_BASE_URL}/ui-apps/...`
-    // URL pattern works on both runtimes.
+    // MCP UI app static assets, served from disk. The Worker proxies `/ui-apps/*`
+    // here instead of answering from its own asset upload (`wrangler.jsonc`'s
+    // `assets.run_worker_first`), so the bundles come from the same image that built
+    // the manifest and the stub that name them.
     app.use('/ui-apps/*', serveStatic({ root: './public' }))
 
     app.get('/', (c) => c.redirect(MCP_DOCS_URL, 302) as unknown as Response)
