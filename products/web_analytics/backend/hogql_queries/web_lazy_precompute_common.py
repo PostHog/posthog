@@ -429,7 +429,9 @@ def handle_stale_served(*, runner: Any, family: str) -> None:
     enqueue_stale_revalidation(team=runner.team, query=runner.query, family=family)
 
 
-def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResult:
+def web_ensure_precomputed(
+    *, team: Team, shape_key_extra: Optional[str] = None, **kwargs: Any
+) -> LazyComputationResult:
     """`ensure_precomputed` for web analytics, with reactive per-team OOM capping and
     the web-wide stale-while-revalidate policy.
 
@@ -476,6 +478,8 @@ def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResul
     # so a shape counts the same however it reaches this build path.
     if kwargs.get("run_inserts") and runner is not None:
         shape_hash = compute_shape_cap_key(runner.query, team.timezone, getattr(runner, "_test_account_filters", None))
+        if shape_key_extra is not None:
+            shape_hash = hashlib.sha256(f"{shape_hash}:{shape_key_extra}".encode()).hexdigest()
         if not try_reserve_precompute_shape(team.id, shape_hash):
             kwargs["run_inserts"] = False
             WEB_ANALYTICS_LAZY_PRECOMPUTE_SHAPE_CAPPED.labels(family=family or "unknown").inc()

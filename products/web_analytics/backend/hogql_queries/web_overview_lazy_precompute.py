@@ -1,5 +1,6 @@
+import json
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Optional
 
 import structlog
@@ -8,7 +9,11 @@ from prometheus_client import Counter
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.property import get_property_key, get_property_type
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.web_overview_preaggregated_sql import (
@@ -22,6 +27,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 )
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import (
     LAZY_TTL_SECONDS,
+    MAX_PRECOMPUTE_DAYS,
     SESSION_FORWARD_PAD_MINUTES,
     WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK,
     WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS,
@@ -41,6 +47,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
 )
 
 _FAMILY = "web_overview"
+CHANNEL_MAX_PRECOMPUTE_DAYS = 366
 
 if TYPE_CHECKING:
     from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
@@ -55,15 +62,28 @@ WEB_OVERVIEW_LAZY_FAILED = Counter(
 )
 
 
+def has_channel_type_filter(runner: "WebOverviewQueryRunner") -> bool:
+    return any(
+        get_property_type(prop) == "session" and get_property_key(prop) == "$channel_type"
+        for prop in runner.query.properties or []
+    )
+
+
 def can_use_lazy_precompute(runner: "WebOverviewQueryRunner") -> bool:
-    """Return True iff the lazy precompute path is eligible for this web
-    overview query. Web overview has no checks beyond the shared gate."""
-    return _can_use_lazy_precompute_shared(runner, log_prefix="web_overview")
+    return _can_use_lazy_precompute_shared(
+        runner,
+        log_prefix="web_overview",
+        allow_channel_type_filter=has_channel_type_filter(runner),
+        max_days=CHANNEL_MAX_PRECOMPUTE_DAYS if has_channel_type_filter(runner) else MAX_PRECOMPUTE_DAYS,
+    )
 
 
-# Re-exported so callers (and tests) can still reach the eligibility checker
-# through this module.
-_check_lazy_precompute_eligible = check_common_eligible
+def _check_lazy_precompute_eligible(runner: "WebOverviewQueryRunner") -> None:
+    check_common_eligible(
+        runner,
+        allow_channel_type_filter=has_channel_type_filter(runner),
+        max_days=CHANNEL_MAX_PRECOMPUTE_DAYS if has_channel_type_filter(runner) else MAX_PRECOMPUTE_DAYS,
+    )
 
 
 # HogQL template for the precompute INSERT. The lazy_computation framework
@@ -173,6 +193,30 @@ LEFT JOIN (
 SESSION_ID_SET_INSERT_QUERY_TEMPLATE = with_insert_session_id_set_filter(NO_JOIN_INSERT_QUERY_TEMPLATE)
 
 
+CHANNEL_INSERT_QUERY_TEMPLATE = (
+    JOIN_INSERT_QUERY_TEMPLATE.replace(
+        "{user_filter},", "{user_filter}, {channel_rules_key} = {channel_rules_key}, {event_period_filter},"
+    )
+    .replace("toStartOfHour(min(session.$start_timestamp))", "min(session.$start_timestamp)")
+    .replace("uniqState(session_id)", "uniqState(assumeNotNull(session_id))")
+)
+
+
+def channel_insert_placeholders(runner: "WebOverviewQueryRunner") -> dict[str, ast.Expr]:
+    return {
+        "events_session_id": ast.Call(name="toString", args=[events_session_id_expr(runner)]),
+        "event_type_filter": runner.event_type_expr,
+        "user_filter": user_filter_expr(runner),
+        "test_account_filter": test_account_filter_expr(runner),
+        "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
+        "event_period_filter": ast.Constant(value=True),
+        # Modifiers are absent from the lazy job hash, but channel rules change its population.
+        "channel_rules_key": ast.Constant(
+            value=json.dumps(runner.modifiers.model_dump(mode="json")["customChannelTypeRules"], sort_keys=True)
+        ),
+    }
+
+
 def ensure_web_overview_precomputed(
     runner: "WebOverviewQueryRunner",
     time_range_start: datetime,
@@ -192,7 +236,11 @@ def ensure_web_overview_precomputed(
     # property user filters, event/person test filters) take the two-scan shape
     # with a session-id-set link; anything else keeps the join template.
     modifiers: Optional[HogQLQueryModifiers] = None
-    if is_unfiltered:
+    if has_channel_type_filter(runner):
+        insert_query = CHANNEL_INSERT_QUERY_TEMPLATE
+        placeholders = channel_insert_placeholders(runner)
+        modifiers = runner.modifiers
+    elif is_unfiltered:
         insert_query = NO_JOIN_INSERT_QUERY_TEMPLATE
     elif runner._session_id_set_common_eligibility():
         insert_query = SESSION_ID_SET_INSERT_QUERY_TEMPLATE
@@ -213,6 +261,9 @@ def ensure_web_overview_precomputed(
         placeholders=placeholders,
         query_type="web_overview_lazy_insert",
         modifiers=modifiers,
+        shape_key_extra=json.dumps(runner.modifiers.model_dump(mode="json")["customChannelTypeRules"], sort_keys=True)
+        if has_channel_type_filter(runner)
+        else None,
     )
 
 
@@ -306,6 +357,9 @@ def execute_lazy_precomputed_read(
     team_id = runner.team.pk
     overall_started = time.perf_counter()
     try:
+        if has_channel_type_filter(runner):
+            return execute_channel_precomputed_read(runner)
+
         date_from = runner.query_date_range.date_from()
         date_to = runner.query_date_range.date_to()
         assert date_from is not None and date_to is not None
@@ -446,3 +500,95 @@ def execute_lazy_precomputed_read(
             total_duration_ms=int((time.perf_counter() - overall_started) * 1000),
         )
         return None
+
+
+_CHANNEL_STATE_COLUMNS = (
+    "uniq_users_state, uniq_sessions_state, sum_pageviews_state, avg_duration_state, avg_bounce_state"
+)
+
+
+def channel_precompute_windows(
+    start: datetime, end: datetime
+) -> tuple[datetime, datetime, list[tuple[datetime, datetime]]]:
+    interior_start = ceil_utc_day(start)
+    interior_end = floor_utc_day(end - timedelta(minutes=SESSION_FORWARD_PAD_MINUTES))
+    exclusive_end = end + timedelta(microseconds=1)
+    if interior_start >= interior_end:
+        return interior_start, interior_start, [(start, exclusive_end)]
+    boundaries = [(interior_end, exclusive_end)]
+    if start < interior_start:
+        boundaries.insert(0, (start, interior_start))
+    return interior_start, interior_end, boundaries
+
+
+def execute_channel_period_read(runner: "WebOverviewQueryRunner", start: datetime, end: datetime) -> Optional[list]:
+    interior_start, interior_end, boundaries = channel_precompute_windows(start, end)
+    sources: list[str] = []
+    params: dict[str, object] = {}
+    if interior_start < interior_end:
+        result = ensure_web_overview_precomputed(runner, interior_start, interior_end)
+        if not result.ready or not result.job_ids:
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="current_not_ready").inc()
+            return None
+        if result.stale:
+            handle_stale_served(runner=runner, family=_FAMILY)
+        sources.append(
+            f"SELECT {_CHANNEL_STATE_COLUMNS} FROM {DISTRIBUTED_WEB_OVERVIEW_PREAGGREGATED_TABLE()} "
+            "WHERE team_id = %(team_id)s AND job_id IN %(job_ids)s "
+            "AND time_window_start >= %(interior_start)s AND time_window_start < %(interior_end)s"
+        )
+        params.update(
+            team_id=runner.team.pk,
+            job_ids=tuple(str(job_id) for job_id in result.job_ids),
+            interior_start=interior_start,
+            interior_end=interior_end,
+        )
+
+    context = HogQLContext(
+        team=runner.team, team_id=runner.team.pk, modifiers=runner.modifiers, enable_select_queries=True
+    )
+    for boundary_start, boundary_end in boundaries:
+        placeholders = channel_insert_placeholders(runner)
+        placeholders.update(
+            time_window_min=ast.Constant(value=boundary_start),
+            time_window_max=ast.Constant(value=boundary_end),
+            # The live comparison scans events from both periods before assigning sessions to a period.
+            event_period_filter=runner._periods_expression("timestamp"),
+        )
+        query = parse_select(CHANNEL_INSERT_QUERY_TEMPLATE, placeholders=placeholders)
+        sql, _ = prepare_and_print_ast(query, context=context, dialect="clickhouse")
+        sources.append(f"SELECT {_CHANNEL_STATE_COLUMNS} FROM ({sql})")
+
+    params.update(context.values or {})
+    # Merge states together so a visitor present in a cached day and a live boundary counts once.
+    sql = (
+        """
+SELECT uniqMerge(uniq_users_state), sumMerge(sum_pageviews_state), uniqMerge(uniq_sessions_state),
+       avgMerge(avg_duration_state), if(uniqMerge(uniq_sessions_state) = 0, NULL, avgMerge(avg_bounce_state))
+FROM (
+"""
+        + " UNION ALL ".join(sources)
+        + ")"
+    )
+    tag_queries(product=Product.WEB_ANALYTICS, feature=Feature.QUERY, query_type="web_overview_lazy_query")
+    rows = sync_execute(sql, params, settings=_READ_SETTINGS, team_id=runner.team.pk)
+    return list(rows[0]) if rows else [0, 0, 0, 0, 0]
+
+
+def execute_channel_precomputed_read(runner: "WebOverviewQueryRunner") -> Optional[list]:
+    periods = [runner.query_date_range]
+    if runner.query_compare_to_date_range is not None:
+        periods.append(runner.query_compare_to_date_range)
+    metrics: list[list] = []
+    for period in periods:
+        start, end = period.date_from(), period.date_to()
+        if start is None or end is None or start > end:
+            return None
+        row = execute_channel_period_read(runner, start.astimezone(UTC), end.astimezone(UTC))
+        if row is None:
+            return None
+        metrics.append(row)
+    if len(metrics) == 1:
+        metrics.append([None] * 5)
+    WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS.labels(family=_FAMILY).inc()
+    return [value for pair in zip(metrics[0], metrics[1]) for value in pair]

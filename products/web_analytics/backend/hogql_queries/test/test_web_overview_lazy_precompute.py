@@ -1,3 +1,4 @@
+import math
 import uuid
 from datetime import UTC, datetime
 
@@ -23,12 +24,15 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.utils import uuid7
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
+from products.web_analytics.backend.hogql_queries import web_overview_lazy_precompute as overview_precompute
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 
 
@@ -190,18 +194,142 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
     @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_session_property_falls_through(self):
-        # Session and cohort filters fall through — precompute only serves event/person
-        # filters, since the live path applies session/cohort filters differently.
         with self._enable_lazy():
             self._run(
                 self._build_query(
                     properties=[
-                        SessionPropertyFilter(key="$channel_type", value="Direct", operator=PropertyOperator.EXACT),
+                        SessionPropertyFilter(key="$entry_pathname", value="/", operator=PropertyOperator.EXACT),
                     ]
                 )
             )
 
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
+
+    @parameterized.expand(
+        [
+            ("string", "2024-01-02T00:00:00", "2024-01-04T23:59:59", False, "Paid Search", 7),
+            ("uuid", "2024-01-02T00:00:00", "2024-01-04T23:59:59", False, "Paid Search", 7),
+            ("string", "2023-01-05T00:00:00", "2024-01-04T23:59:59", False, "Paid Search", 7),
+            ("string", "2024-01-02T00:00:00", "2024-01-03T23:59:59", False, "Paid Search", 6),
+            ("string", "2024-01-02T10:02:00", "2024-01-06T00:00:00", False, "Paid Search", 5),
+            ("string", "2024-01-03T00:00:00", "2024-01-04T23:59:59", True, "Paid Search", 3),
+            ("string", "2024-01-02T00:00:00", "2024-01-04T23:59:59", False, "Synthetic channel", 1),
+            ("string", "2024-01-04T00:05:00", "2024-01-04T00:05:00", False, "Paid Search", 0),
+            ("string", "2024-01-02T00:00:00", "2024-01-03T11:00:00", False, "Paid Search", 5),
+            ("string", "2024-01-03T11:00:00", "2024-01-03T11:00:00", False, "Paid Search", 1),
+        ]
+    )
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
+    def test_channel_precompute_matches_live(
+        self, mode: str, start: str, end: str, compare: bool, channel: str, expected_views: int
+    ) -> None:
+        fixtures = [
+            ("a", ["2024-01-02T10:00:00", "2024-01-02T10:05:00"], "cpc"),
+            ("a", ["2024-01-03T11:00:00"], "cpc"),
+            ("b", ["2024-01-02T23:55:00", "2024-01-03T00:05:00"], "cpc"),
+            ("c", ["2024-01-03T12:00:00"], "synthetic"),
+            ("d", ["2024-01-02T12:00:00"], ""),
+            ("e", ["2024-01-03T23:55:00", "2024-01-04T00:05:00"], "cpc"),
+        ]
+        for person in {person for person, _, _ in fixtures}:
+            _create_person(team_id=self.team.pk, distinct_ids=[person])
+        for person, timestamps, medium in fixtures:
+            session_id = str(uuid7(timestamps[0]))
+            for timestamp in timestamps:
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=person,
+                    timestamp=timestamp,
+                    properties={
+                        "$session_id": session_id,
+                        "$current_url": "https://example.com/page",
+                        "utm_source": "google",
+                        "utm_medium": medium,
+                        "$referring_domain": "$direct",
+                    },
+                )
+        query = self._build_query(
+            date_from=start,
+            date_to=end,
+            compare=compare,
+            properties=[SessionPropertyFilter(key="$channel_type", value=channel, operator=PropertyOperator.EXACT)],
+        )
+        query.filterTestAccounts = False
+        assert query.dateRange is not None
+        query.dateRange.explicitDate = True
+        query.modifiers = HogQLQueryModifiers(
+            sessionsV2JoinMode=SessionsV2JoinMode(mode),
+            customChannelTypeRules=[
+                {
+                    "channel_type": "Synthetic channel",
+                    "combiner": "OR",
+                    "id": "synthetic-rule",
+                    "items": [
+                        {"id": "synthetic-condition", "key": "utm_medium", "op": "exact", "value": ["synthetic"]}
+                    ],
+                }
+            ],
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+        context = HogQLContext(
+            team=self.team, team_id=self.team.pk, modifiers=runner.modifiers, enable_select_queries=True
+        )
+        sql, _ = prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
+        expected = list(sync_execute(sql, context.values)[0])
+        self.assertEqual(expected[2], expected_views)
+        ensure = overview_precompute.web_ensure_precomputed
+        with (
+            self._enable_lazy(),
+            patch.object(
+                overview_precompute,
+                "web_ensure_precomputed",
+                side_effect=lambda **kwargs: ensure(**kwargs, run_inserts=True),
+            ),
+        ):
+            self.assertTrue(overview_precompute.can_use_lazy_precompute(runner))
+            actual = overview_precompute.execute_lazy_precomputed_read(runner)
+        self.assertIsNotNone(actual)
+        assert actual is not None
+        cached = overview_precompute.execute_lazy_precomputed_read(WebOverviewQueryRunner(team=self.team, query=query))
+        self.assertIsNotNone(cached)
+        assert cached is not None
+        for row in (actual, cached):
+            for expected_value, actual_value in zip(expected, row):
+                if isinstance(expected_value, float) and math.isnan(expected_value):
+                    self.assertTrue(math.isnan(actual_value))
+                else:
+                    self.assertAlmostEqual(expected_value, actual_value)
+        if channel == "Synthetic channel":
+            assert query.modifiers.customChannelTypeRules is not None
+            query.modifiers.customChannelTypeRules[0].items[0].value = ["unused-medium"]
+            changed_runner = WebOverviewQueryRunner(team=self.team, query=query)
+            self.assertIsNone(overview_precompute.execute_lazy_precomputed_read(changed_runner))
+            with patch.object(
+                overview_precompute,
+                "web_ensure_precomputed",
+                side_effect=lambda **kwargs: ensure(**kwargs, run_inserts=True),
+            ):
+                changed = overview_precompute.execute_lazy_precomputed_read(changed_runner)
+            self.assertIsNotNone(changed)
+            assert changed is not None
+            self.assertEqual(changed[2], 0)
+
+    @parameterized.expand([("2023-01-15", True), ("2023-01-01", False)])
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
+    def test_channel_precompute_year_limit(self, start: str, eligible: bool) -> None:
+        query = self._build_query(
+            date_from=start,
+            date_to="2024-01-15",
+            properties=[
+                SessionPropertyFilter(key="$channel_type", value="Paid Search", operator=PropertyOperator.EXACT)
+            ],
+        )
+        with self._enable_lazy():
+            self.assertEqual(
+                overview_precompute.can_use_lazy_precompute(WebOverviewQueryRunner(team=self.team, query=query)),
+                eligible,
+            )
 
     @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_sampling_falls_through(self):
