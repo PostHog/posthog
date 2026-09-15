@@ -185,6 +185,30 @@ export class FsService {
     }
   }
 
+  async readWorkspaceFileAsBase64(
+    workspaceRoot: string,
+    filePath: string,
+  ): Promise<string | null> {
+    try {
+      const [canonicalRoot, canonicalFile] = await Promise.all([
+        fs.realpath(workspaceRoot),
+        fs.realpath(filePath),
+      ]);
+      const relativePath = path.relative(canonicalRoot, canonicalFile);
+      if (
+        relativePath === ".." ||
+        relativePath.startsWith(`..${path.sep}`) ||
+        path.isAbsolute(relativePath)
+      ) {
+        return null;
+      }
+      const buffer = await fs.readFile(canonicalFile);
+      return buffer.toString("base64");
+    } catch {
+      return null;
+    }
+  }
+
   async writeRepoFile(
     repoPath: string,
     filePath: string,
