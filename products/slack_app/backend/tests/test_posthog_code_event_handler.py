@@ -592,6 +592,50 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         assert captured[SLACK_MENTION_DROPPED_EVENT]["drop_reason"] == "user_unresolved:user_not_found"
         assert captured[SLACK_MENTION_DROPPED_EVENT]["replied"] is True
 
+    @patch("products.slack_app.backend.api._post_slack_user_feedback")
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_app_mention_explains_a_pinned_project_that_lost_its_slack_connection(
+        self, mock_sync_connect, mock_asyncio_run, mock_post_feedback
+    ):
+        # The user pinned the second project, then that project's Slack connection went
+        # away. The resolver drops the pin and answers from the project that is still
+        # connected, which used to happen with no word to the user: the bot looked like
+        # it had stopped working, or had quietly changed project.
+        pinned_team = Team.objects.create(organization=self.organization, name="Pinned Team")
+        pinned_integration = Integration.objects.create(
+            team=pinned_team,
+            kind="slack",
+            integration_id="T12345",
+            sensitive_config={"access_token": "xoxb-pinned"},
+        )
+        SlackSettings.objects.create(
+            default_integration=pinned_integration,
+            slack_workspace_id="T12345",
+            slack_user_id="U123",
+        )
+        pinned_integration.kind = "github"
+        pinned_integration.save(update_fields=["kind"])
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+        result = route_posthog_code_event_to_relevant_region(request, self.event, "T12345")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        # The mention is still answered, from the project that is still connected.
+        mock_sync_connect.assert_called_once()
+
+        mock_post_feedback.assert_called_once()
+        notice = mock_post_feedback.call_args.args[4]
+        assert f"`{pinned_team.id}`" in notice
+        assert f"`{self.team.id}`" in notice
+
+        # A pin nobody fixes must not add this line to every later mention.
+        route_posthog_code_event_to_relevant_region(request, self.event, "T12345")
+        mock_post_feedback.assert_called_once()
+
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")

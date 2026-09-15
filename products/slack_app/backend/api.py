@@ -67,11 +67,13 @@ from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping, UntaggedFollowupMode
 from products.slack_app.backend.services import inbox_interactivity, turn_feedback
 from products.slack_app.backend.services.integration_resolver import (
+    StaleDefault,
     UserResolutionFailure,
     format_project_candidate_list,
     load_integrations,
     resolve_from_candidates,
     resolve_user_for_workspace,
+    stale_default_notice,
     user_resolution_failure_reply,
 )
 from products.slack_app.backend.services.slack_app_home import (
@@ -155,6 +157,11 @@ ROUTE_NO_INTEGRATION = "no_integration"
 # "the app didn't respond" is unattributable: the mention-received funnel only
 # covers mentions that got far enough to resolve an integration.
 SLACK_MENTION_DROPPED_EVENT = "posthog code slack mention dropped"
+
+# A pinned project that left the workspace stays pinned until someone repins, so the
+# notice repeats forever without a cooldown. A day is long enough to stay out of the
+# way and short enough that the next person to hit it still learns why.
+STALE_DEFAULT_NOTICE_TTL_SECONDS = 60 * 60 * 24
 
 PICKER_TOKEN_SALT = "posthog_code_repo_picker"
 PICKER_TOKEN_MAX_AGE_SECONDS = 900
@@ -1638,17 +1645,26 @@ def resolve_posthog_user_from_event(
     return membership.user if membership else None
 
 
+def _project_pick_command(event: dict[str, Any]) -> str:
+    """The command that picks a project on this surface. In a channel the user mentions
+    the app (`@PostHog project <id>`), but in a DM there is no app to mention, so they
+    just reply with `project <id>`."""
+    return "`project <id>`" if event.get("channel_type") == "im" else "`@PostHog project <id>`"
+
+
 def _post_pick_a_project_hint(
     probe: SlackIntegration,
     candidates: list[Integration],
     event: dict[str, Any],
+    *,
+    stale_default: StaleDefault | None = None,
 ) -> bool:
     """Tell the user that this workspace is connected to multiple PostHog
     projects, and that they should pick one.
 
-    The selection command differs by surface: in a channel the user mentions the app
-    (`@PostHog project <id>`), but in a DM there is no app to mention, so they just reply
-    with `project <id>`.
+    ``stale_default`` leads the hint when the reason they are being asked at all is
+    that their saved project dropped out of the workspace. Without it the hint reads
+    as if they never picked one.
 
     Returns whether the hint was posted, so callers can record whether the user was
     left with an explanation or with silence.
@@ -1658,13 +1674,41 @@ def _post_pick_a_project_hint(
     thread_ts = event.get("thread_ts") or event.get("ts")
     if not isinstance(slack_user_id, str) or not isinstance(channel, str) or not isinstance(thread_ts, str):
         return False
-    pick_command = "`project <id>`" if event.get("channel_type") == "im" else "`@PostHog project <id>`"
+    pick_command = _project_pick_command(event)
     text = (
         "This Slack workspace is connected to multiple PostHog projects:\n"
         f"{format_project_candidate_list(candidates)}\n\n"
         f"Use {pick_command} to pick one — that also saves it as your default."
     )
+    if stale_default is not None:
+        text = f"{stale_default_notice(stale_default, pick_command=pick_command)}\n\n{text}"
     return _post_slack_user_feedback(probe, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
+
+
+def _notify_stale_project_default(
+    slack: SlackIntegration,
+    event: dict[str, Any],
+    stale: StaleDefault,
+) -> bool:
+    """Tell the user that the project they pinned is gone, and which project answered
+    instead. Posted once a day per (workspace, Slack user, pinned project) so a default
+    nobody fixes doesn't add a line to every mention in the channel.
+    """
+    slack_user_id = event.get("user")
+    channel = event.get("channel")
+    thread_ts = event.get("thread_ts") or event.get("ts")
+    if not isinstance(slack_user_id, str) or not isinstance(channel, str) or not isinstance(thread_ts, str):
+        return False
+    key = f"slack_app:stale_default_notice:v1:{slack.integration.integration_id}:{slack_user_id}:{stale.team_id}"
+    if not cache.add(key, True, STALE_DEFAULT_NOTICE_TTL_SECONDS):
+        return False
+    ran_in = slack.integration
+    notice = stale_default_notice(stale, pick_command=_project_pick_command(event))
+    text = (
+        f"{notice}\n\nI ran this in *{ran_in.team.organization.name} · {ran_in.team.name}* "
+        f"(id `{ran_in.team_id}`) instead."
+    )
+    return _post_slack_user_feedback(slack, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
 
 
 def _post_user_resolution_failure_reply(
@@ -2003,7 +2047,9 @@ def _route_assistant_event(
     accessible = resolution.candidates
     mention_target = resolution.integration or (accessible[0] if len(accessible) == 1 else None)
     if mention_target is None:
-        _post_pick_a_project_hint(SlackIntegration(accessible[0]), accessible, event)
+        _post_pick_a_project_hint(
+            SlackIntegration(accessible[0]), accessible, event, stale_default=resolution.stale_default
+        )
         return ROUTE_HANDLED_LOCALLY
     return _handle_assistant_dm_message(
         event,
@@ -2484,7 +2530,9 @@ def route_posthog_code_event_to_relevant_region(
                 return ROUTE_HANDLED_LOCALLY
             mention_target = untagged_followup_mapping.integration
         elif mention_target is None:
-            replied = _post_pick_a_project_hint(SlackIntegration(candidates[0]), candidates, event)
+            replied = _post_pick_a_project_hint(
+                SlackIntegration(candidates[0]), candidates, event, stale_default=resolution.stale_default
+            )
             # No integration is passed on purpose: this drop exists precisely because no
             # project was picked, and candidate order has nothing to do with what the
             # user meant. Attributing it to candidates[0] would pin workspace-level
@@ -2553,6 +2601,12 @@ def route_posthog_code_event_to_relevant_region(
             posthog_user=posthog_user,
         ):
             return ROUTE_HANDLED_LOCALLY
+
+        # The mention is answered, but in a project the user didn't pin. Say so, after the
+        # gates above, so the notice never reaches a channel the bot may not speak in.
+        # Untagged followups skip it: the mention that opened the thread already said it.
+        if resolution.stale_default is not None and untagged_followup_mapping is None:
+            _notify_stale_project_default(slack, event, resolution.stale_default)
 
         return _start_mention_workflow(
             event,
