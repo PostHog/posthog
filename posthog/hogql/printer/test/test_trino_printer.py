@@ -10,7 +10,7 @@ from syrupy.assertion import SnapshotAssertion
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLQuerySettings
+from posthog.hogql.constants import HogQLDialect, HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_trino_table import DirectTrinoTable
@@ -36,6 +36,7 @@ from posthog.hogql.printer.trino_functions import (
     TRINO_FUNCTION_RENAMES_LOWER,
     TRINO_PASSTHROUGH_FUNCTIONS,
 )
+from posthog.hogql.resolver import resolve_types
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.transforms.trino.transpiler import TrinoTranspilerInput, transpile_prepared_hogql_to_trino
 from posthog.hogql.transforms.trino.validate import _SPECIAL_CALLS
@@ -791,7 +792,7 @@ def test_scalar_cte_chains_preserve_results(depth: int) -> None:
 
 def test_rejects_excessive_scalar_cte_expansion() -> None:
     ctes = ["1 AS c0", *[f"c{i - 1} + c{i - 1} AS c{i}" for i in range(1, 15)]]
-    with pytest.raises(TrinoLoweringError, match="TRINO_SCALAR_CTE_EXPANSION_LIMIT"):
+    with pytest.raises(TrinoLoweringError, match="TRINO_AST_EXPANSION_LIMIT"):
         prepare_and_print_ast(parse_select(f"WITH {', '.join(ctes)} SELECT c14"), _context_with_trino_table(), "trino")
 
 
@@ -803,6 +804,58 @@ def test_nested_array_slices_have_bounded_sql_size(length: str) -> None:
     sql, _ = prepare_and_print_ast(parse_select(f"SELECT {expression}"), _context_with_trino_table(), "trino")
     assert len(sql) < 10_000
     assert sql.count("ARRAY[1, 2, 3]") == 1
+
+
+@pytest.mark.parametrize("projection", ["id", "users.id"])
+def test_scalar_ctes_do_not_replace_real_columns(projection: str) -> None:
+    sql, _ = prepare_and_print_ast(
+        parse_select(f"WITH 1 AS id SELECT {projection} FROM users"), _context_with_trino_table(), "trino"
+    )
+    assert sql.startswith('SELECT "users"."id" FROM ')
+
+
+def test_rejects_excessive_select_alias_expansion() -> None:
+    projections = ["1 AS a0", *[f"a{i - 1} + a{i - 1} AS a{i}" for i in range(1, 15)]]
+    with pytest.raises(TrinoLoweringError, match="TRINO_AST_EXPANSION_LIMIT"):
+        prepare_and_print_ast(parse_select(f"SELECT {', '.join(projections)}"), _context_with_trino_table(), "trino")
+
+
+def test_rejects_excessive_rendered_expression_size() -> None:
+    expression = "user_id"
+    for _ in range(6):
+        expression = f"replaceOne({expression}, 'a', 'b')"
+    with (
+        mock.patch("posthog.hogql.printer.trino.MAX_TRINO_SQL_LENGTH", 10_000),
+        pytest.raises(TrinoLoweringError, match="TRINO_SQL_SIZE_LIMIT"),
+    ):
+        prepare_and_print_ast(parse_select(f"SELECT {expression} FROM users"), _context_with_trino_table(), "trino")
+
+
+@pytest.mark.parametrize("count", [10_001, 20_000])
+def test_rejects_numbers_above_the_trino_sequence_limit(count: int) -> None:
+    with pytest.raises(TrinoLoweringError, match="TRINO_NUMBERS_ROW_LIMIT_EXCEEDED"):
+        prepare_and_print_ast(
+            parse_select(f"SELECT number FROM numbers({count})"), _context_with_trino_table(), "trino"
+        )
+
+
+@pytest.mark.parametrize("name", ["date", "Date", "DATE"])
+@pytest.mark.parametrize("dialect", ["clickhouse", "trino"])
+def test_date_alias_is_case_insensitive(name: str, dialect: HogQLDialect) -> None:
+    context = _context_with_trino_table()
+    context.team_id = 1
+    sql = print_prepared_ast(
+        resolve_types(parse_select(f"SELECT {name}('2026-01-01') AS day"), context, dialect), context, dialect
+    )
+    expected_context = _context_with_trino_table()
+    expected_context.team_id = 1
+    expected = print_prepared_ast(
+        resolve_types(parse_select("SELECT toDate('2026-01-01') AS day"), expected_context, dialect),
+        expected_context,
+        dialect,
+    )
+    assert sql
+    assert sql == expected
 
 
 def test_inlines_scalar_ctes_for_trino() -> None:
@@ -824,7 +877,7 @@ def test_lowers_dynamic_numbers_with_a_bounded_cardinality() -> None:
     )
 
     assert "least(greatest(" in sql
-    assert "10000000" in sql
+    assert "10000" in sql
 
 
 @pytest.mark.parametrize(
@@ -973,7 +1026,8 @@ def test_bounds_dynamic_numbers_input() -> None:
     )
 
     assert "least(greatest(" in sql
-    assert "10000000" in sql
+    assert "10000" in sql
+    assert sql.count("date_diff(") == 1
 
 
 def test_lowers_single_array_join_to_cross_join_unnest() -> None:
@@ -1050,22 +1104,17 @@ def test_lowers_select_alias_inside_array_join_function() -> None:
     assert 'UNNEST(transform("ids"' not in sql
 
 
-def test_lowers_ordered_funnel_aggregation_to_trino_array_processing() -> None:
-    sql, _ = prepare_and_print_ast(
-        parse_select(
-            "SELECT groupArray(tuple(1, 2, user_id, '', [1, 2])) AS events_array, "
-            "arrayJoin(aggregate_funnel_trends(1, 2, 2, 10, 'first_touch', 'ordered', [''], events_array)) "
-            "AS funnel_result FROM users"
-        ),
-        _context_with_trino_table(),
-        "trino",
-    )
-
-    assert "CROSS JOIN UNNEST" in sql
-    assert "reduce(zip_with(__hogql_funnel_chain" in sql
-    assert "__hogql_funnel_event[1] - __hogql_funnel_entrance[1] <= 10" in sql
-    assert "contains(__hogql_funnel_item[1][5], -CAST((__hogql_funnel_state[1] + 1) AS TINYINT))" in sql
-    assert "slice(" not in sql
+def test_rejects_unverified_funnel_aggregation() -> None:
+    with pytest.raises(TrinoLoweringError, match="TRINO_FUNCTION_UNSUPPORTED"):
+        prepare_and_print_ast(
+            parse_select(
+                "SELECT groupArray(tuple(1, 2, user_id, '', [1, 2])) AS events_array, "
+                "arrayJoin(aggregate_funnel_trends(1, 2, 2, 10, 'first_touch', 'ordered', [''], events_array)) "
+                "AS funnel_result FROM users"
+            ),
+            _context_with_trino_table(),
+            "trino",
+        )
 
 
 def test_lowers_limit_by_to_row_number_wrapper() -> None:

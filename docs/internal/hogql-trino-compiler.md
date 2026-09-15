@@ -87,9 +87,19 @@ For ordinary `GROUP BY`, an expression that matches a selected expression uses t
 
 A top-level `ORDER BY` reference to a selected alias also uses that output's ordinal. This avoids repeating bound parameters from the selected expression and keeps grouped queries valid. Ordering direction and explicit source ordinals remain unchanged; aliases inside larger sort expressions still expand normally.
 
-Scalar `WITH` expressions share a budget of 10,000 copied expression nodes per normalization pass.
-Queries that exceed it fail with `TRINO_SCALAR_CTE_EXPANSION_LIMIT`; simplify the scalar expressions or use subqueries.
-`arraySlice` binds its arguments once so nesting does not multiply the generated SQL.
+Scalar `WITH` and SELECT alias expansion share a budget of 10,000 visited or copied expression nodes per normalization pass.
+Queries that exceed it fail with `TRINO_AST_EXPANSION_LIMIT`; simplify the expressions or use subqueries.
+The printer checks each rendered expression against a 1,000,000-character SQL limit and raises `TRINO_SQL_SIZE_LIMIT` before enclosing expressions can repeatedly expand it.
+`arraySlice` and dynamic `range` bind their arguments once so nesting does not multiply their generated SQL.
+Scalar CTE substitution preserves resolved column bindings, including columns that share a CTE name.
+
+`numbers()` uses Trino's scalar `sequence`, which supports at most 10,000 entries.
+Constant counts above this limit fail during compilation; dynamic counts are clamped to the range from zero to 10,000.
+
+`convertCurrency` requires an explicit `exchange_rate` table locator or manifest entry supplied by the caller.
+Managed warehouse compilation does not assume that this table exists.
+The rewrite emits three correlated scalar lookups per row, including a repeated source-rate lookup, and can be expensive on large inputs.
+A future relational rewrite must preserve zero-rate and NULL behavior; wrapping these correlated lookups in a lambda fails in Trino.
 
 `PIVOT` accepts explicit field grouping keys.
 `LIMIT PERCENT` resolves ordinal sort keys to projected fields before ranking rows.
@@ -190,8 +200,8 @@ and Trino returned equal results for 836 names. Seven time-dependent, random, or
 unordered results were not directly comparable. `toTypeName`, `bitNot`, and
 `cityHash64` now return explicit errors because the prior rewrites changed results.
 Trino-only checks cover `percentile_cont` and `percentile_disc`, because ClickHouse
-rejects this syntax. The ordered funnel rewrite ran on Trino, but the local
-ClickHouse shell UDF was not available. ClickHouse also rejects the registered
+rejects this syntax. `aggregate_funnel_trends` remains unsupported until its Trino behavior can be verified against the ClickHouse UDF.
+ClickHouse also rejects the registered
 `toIntervalQuarter` function because that function does not exist in ClickHouse.
 
 Some workarounds need additional rules. `arrayResize` supports an explicit fill
@@ -334,6 +344,8 @@ UUID and container selection keys remain blocked because their ordering needs ad
 
 `medianExact`, `medianExactLow`, and `medianExactHigh` support plain and `If` forms, including window clauses.
 Exact quantiles and medians exclude null and NaN input values.
+These rewrites collect and sort every value in each group with `array_agg`, so memory use grows with group size and can exceed Trino's query memory limit.
+Use `quantile` or `quantiles` when approximate results are acceptable, or reduce the input before using exact aggregates.
 Empty integer and date inputs use their type defaults. Empty float inputs return NaN.
 Nullable inputs return NULL when no non-null value passes the filter. An input with only NaN values returns NaN.
 Low medians select the lower middle value. Exact and high medians select the upper middle value.
@@ -469,3 +481,18 @@ errors. The compiler does not remove clauses or switch execution engines silentl
 Run the Trino printer, semantic expansion, and parameter-helper tests. Run the existing printer/resolver and direct-adapter tests to check shared behavior, and the startup-import guards to check initialization. Do not regenerate existing dialect snapshots simply to make a regression pass.
 
 Compilation success is not proof of target schema compatibility or equivalent results. Validate printed SQL separately against the intended Trino schema and compare results only where the source and target data are comparable.
+
+## Shared HogQL compatibility changes
+
+`arrayReverseSort` now sorts in descending order on ClickHouse as its name specifies; it previously mapped to ascending `arraySort`.
+Existing queries that relied on ascending results must use `arraySort` explicitly.
+`DATE`, `Date`, and `date` all resolve to the existing date conversion in every dialect.
+`medianExactWeighted` takes a value and weight, and its `If` form also takes a condition.
+`quantiles` and `quantilesIf` take percentile parameters separately from value arguments.
+`ifNotFinite` takes the value and its replacement.
+The shared type inference rules describe these functions for every dialect.
+Saved-query table metadata is captured eagerly only for Trino's detached compilation; other dialects retain lazy lookup and explicit missing-database errors.
+
+Trino set operations use a common type for each output position and can coerce mixed strings and numbers to strings.
+For example, `SELECT 'a' UNION ALL SELECT 1` returns strings on Trino, while ClickHouse rejects the incompatible types.
+Hidden aliases still project their underlying expressions, so UNION type alignment follows physical projection positions, including unnamed outputs.

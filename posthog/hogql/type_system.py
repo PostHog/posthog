@@ -1178,12 +1178,6 @@ def _infer_generic_function_type(
             item_type=ast.DateTimeType(nullable=False),
         )
 
-    if normalized_name == "timeslots":
-        return ast.ArrayType(
-            nullable=any(arg_type.nullable for arg_type in arg_types),
-            item_type=ast.DateTimeType(nullable=False),
-        )
-
     if normalized_name in {"dateadd", "datesub"} and arg_types:
         if len(arg_types) >= 3 and isinstance(arg_types[0], ast.StringType):
             return dataclasses.replace(arg_types[2])

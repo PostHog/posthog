@@ -33,6 +33,7 @@ from posthog.hogql.printer.trino_functions import (
 from posthog.hogql.printer.types import JoinExprResponse
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.transforms.trino.expressions import constant_integer
+from posthog.hogql.transforms.trino.limits import MAX_TRINO_SQL_LENGTH
 from posthog.hogql.visitor import clone_expr
 
 from posthog.dataclasses import frozen
@@ -185,6 +186,16 @@ class _BinaryArguments:
 class TrinoPrinter(PostgresPrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "trino"
     DIALECT_LABEL: ClassVar[str] = "Trino"
+
+    def visit(self, node: ast.AST | None) -> str:
+        sql = super().visit(node)
+        if len(sql) > MAX_TRINO_SQL_LENGTH:
+            self._unsupported(
+                "TRINO_SQL_SIZE_LIMIT",
+                "The generated Trino SQL exceeds the compilation limit. Simplify the query.",
+                node if isinstance(node, ast.Expr) else None,
+            )
+        return sql
 
     def _print_identifier(self, name: str) -> str:
         return escape_trino_identifier(name)
@@ -675,7 +686,11 @@ class TrinoPrinter(PostgresPrinter):
         if name == "convertcurrency":
             return self._visit_convert_currency(node)
         if name == "aggregate_funnel_trends":
-            return self._visit_aggregate_funnel_trends(node)
+            self._unsupported(
+                "TRINO_FUNCTION_UNSUPPORTED",
+                "aggregate_funnel_trends has no verified Trino implementation. Run this query on ClickHouse.",
+                node,
+            )
         if name == "cityhash64":
             self._unsupported(
                 "TRINO_FUNCTION_UNSUPPORTED",
@@ -842,8 +857,8 @@ class TrinoPrinter(PostgresPrinter):
                     "concat does not support DISTINCT or ORDER BY in Trino mode.",
                     node,
                 )
-            rendered = [f"CAST({self.visit(arg)} AS VARCHAR)" for arg in node.args]
-            return f"concat({', '.join(rendered)})"
+            rendered_args = [f"CAST({self.visit(arg)} AS VARCHAR)" for arg in node.args]
+            return f"concat({', '.join(rendered_args)})"
         if name == "repeat":
             binary_args = self._visit_binary_args(node)
             return (
@@ -1545,134 +1560,6 @@ class TrinoPrinter(PostgresPrinter):
             f"WHEN {from_rate} = {zero} THEN {zero} "
             f"ELSE CAST(({decimal_amount} / NULLIF({from_rate}, {zero})) * {to_rate} AS DECIMAL(38, {scale})) END"
         )
-
-    def _visit_aggregate_funnel_trends(self, node: ast.Call) -> str:
-        if len(node.args) != 8:
-            self._invalid_function_arguments(node, "aggregate_funnel_trends expects exactly 8 arguments.")
-        (
-            from_step_expr,
-            to_step_expr,
-            step_count_expr,
-            window_expr,
-            attribution_expr,
-            order_expr,
-            props_expr,
-            events_expr,
-        ) = node.args
-        integer_arguments = {
-            "from step": from_step_expr,
-            "to step": to_step_expr,
-            "step count": step_count_expr,
-        }
-        for label, argument in integer_arguments.items():
-            if (
-                not isinstance(argument, ast.Constant)
-                or isinstance(argument.value, bool)
-                or not isinstance(argument.value, int)
-            ):
-                self._unsupported(
-                    "TRINO_FUNNEL_ARGUMENT_UNSUPPORTED",
-                    f"aggregate_funnel_trends requires a constant {label} in Trino mode.",
-                    node,
-                )
-        assert isinstance(from_step_expr, ast.Constant) and isinstance(from_step_expr.value, int)
-        assert isinstance(to_step_expr, ast.Constant) and isinstance(to_step_expr.value, int)
-        assert isinstance(step_count_expr, ast.Constant) and isinstance(step_count_expr.value, int)
-        if not isinstance(order_expr, ast.Constant) or order_expr.value != "ordered":
-            self._unsupported(
-                "TRINO_FUNNEL_ORDER_UNSUPPORTED",
-                "aggregate_funnel_trends supports ordered funnels in Trino mode.",
-                node,
-            )
-        if not isinstance(attribution_expr, ast.Constant) or not isinstance(attribution_expr.value, str):
-            self._unsupported(
-                "TRINO_FUNNEL_ATTRIBUTION_UNSUPPORTED",
-                "aggregate_funnel_trends requires constant breakdown attribution in Trino mode.",
-                node,
-            )
-        attribution = attribution_expr.value
-        if (
-            attribution not in {"first_touch", "last_touch", "all_events"}
-            and re.fullmatch(r"step_\d+", attribution) is None
-        ):
-            self._unsupported(
-                "TRINO_FUNNEL_ATTRIBUTION_UNSUPPORTED",
-                f"aggregate_funnel_trends attribution '{attribution}' is not supported in Trino mode.",
-                node,
-            )
-
-        from_step = int(from_step_expr.value)
-        to_step = int(to_step_expr.value)
-        step_count = int(step_count_expr.value)
-        if not 1 <= from_step <= to_step <= step_count:
-            self._unsupported(
-                "TRINO_FUNNEL_STEP_RANGE_UNSUPPORTED",
-                "aggregate_funnel_trends requires a valid one-based step range in Trino mode.",
-                node,
-            )
-
-        window = self.visit(window_expr)
-        props = self.visit(props_expr)
-        events = self.visit(events_expr)
-        event = "__hogql_funnel_event"
-        prop = "__hogql_funnel_prop"
-        interval = "__hogql_funnel_interval"
-        chain = "__hogql_funnel_chain"
-        state = "__hogql_funnel_state"
-        item = "__hogql_funnel_item"
-        next_step = f"({state}[1] + 1)"
-
-        event_matches_prop = f"{event}[4] IS NOT DISTINCT FROM {prop}"
-        entrance_attribution = event_matches_prop if attribution in {"all_events", "step_0"} else "TRUE"
-        event_scope = event_matches_prop if attribution == "all_events" else "TRUE"
-        step_attribution = "TRUE"
-        if attribution.startswith("step_"):
-            attribution_step = int(attribution.removeprefix("step_")) + 1
-            step_attribution = f"({next_step} <> {attribution_step} OR {item}[1][4] IS NOT DISTINCT FROM {prop})"
-
-        entrance_events = f"filter({events}, {event} -> contains({event}[5], TINYINT '1') AND {entrance_attribution})"
-        intervals = f"array_distinct(transform({entrance_events}, {event} -> {event}[2]))"
-        events_in_window = (
-            f"filter({events}, {event} -> {event_scope} AND {event}[1] >= __hogql_funnel_entrance[1] "
-            f"AND {event}[1] - __hogql_funnel_entrance[1] <= {window})"
-        )
-        indexed_events = (
-            f"zip_with({chain}, sequence(BIGINT '1', CAST(cardinality({chain}) AS BIGINT)), "
-            f"(__hogql_funnel_indexed_event, __hogql_funnel_index) -> "
-            "ROW(__hogql_funnel_indexed_event, __hogql_funnel_index))"
-        )
-        exclusion = f"contains({item}[1][5], -CAST({next_step} AS TINYINT))"
-        step_match = f"contains({item}[1][5], CAST({next_step} AS TINYINT)) AND {step_attribution}"
-        state_transition = (
-            f"IF({state}[1] >= {to_step} OR {state}[2], {state}, "
-            f"IF({exclusion}, ROW({state}[1], TRUE, {item}[2]), "
-            f"IF({step_match}, ROW({next_step}, FALSE, {item}[2]), {state})))"
-        )
-        reduced_state = (
-            f"reduce({indexed_events}, ROW(BIGINT '0', FALSE, BIGINT '0'), "
-            f"({state}, {item}) -> {state_transition}, {state} -> {state})"
-        )
-        candidate = (
-            f"element_at(transform(ARRAY[{events_in_window}], {chain} -> "
-            f"element_at(transform(ARRAY[{reduced_state}], {state} -> "
-            f"ROW({interval}, {state}[1], {state}[2], {prop}, "
-            f"IF({state}[3] = 0, __hogql_funnel_entrance[3], element_at({chain}, {state}[3])[3]))), 1)), 1)"
-        )
-        candidates = (
-            f"transform({intervals}, {interval} -> element_at(transform("
-            f"ARRAY[element_at(filter({entrance_events}, {event} -> {event}[2] = {interval}), 1)], "
-            f"__hogql_funnel_entrance -> {candidate}), 1))"
-        )
-        qualifying = (
-            f"filter({candidates}, __hogql_funnel_result -> "
-            f"__hogql_funnel_result[2] >= {from_step} AND NOT __hogql_funnel_result[3])"
-        )
-        results = (
-            f"transform({qualifying}, __hogql_funnel_result -> "
-            f"ROW(__hogql_funnel_result[1], IF(__hogql_funnel_result[2] >= {to_step}, TINYINT '1', TINYINT '-1'), "
-            "__hogql_funnel_result[4], __hogql_funnel_result[5]))"
-        )
-        return f"(SELECT flatten(transform({props}, {prop} -> {results})))"
 
     def _visit_divide_decimal_with_scale(self, node: ast.Call) -> str:
         scale = node.args[2]
@@ -2395,7 +2282,13 @@ class TrinoPrinter(PostgresPrinter):
         else:
             self._invalid_function_arguments(node, "range expects one or two arguments in Trino mode.")
         value = self._print_identifier("__hogql_range_value")
-        return f"filter(sequence({start}, greatest(({end}) - 1, {start})), {value} -> ({value} < {end}))"
+        if all(isinstance(arg, ast.Constant) for arg in node.args):
+            return f"filter(sequence({start}, greatest(({end}) - 1, {start})), {value} -> ({value} < {end}))"
+        return (
+            f"element_at(transform(ARRAY[ROW({start}, {end})], __hogql_range -> "
+            "filter(sequence(__hogql_range[1], greatest(__hogql_range[2] - 1, __hogql_range[1])), "
+            f"{value} -> ({value} < __hogql_range[2]))), 1)"
+        )
 
     def _visit_map_from_arrays(self, node: ast.Call) -> str:
         if len(node.args) != 2:

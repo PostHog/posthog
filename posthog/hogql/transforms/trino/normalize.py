@@ -1,3 +1,5 @@
+from typing import TypeVar
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField
@@ -7,10 +9,13 @@ from posthog.hogql.transforms.trino.any_join import lower_trino_any_joins
 from posthog.hogql.transforms.trino.asof_join import TrinoAsOfJoinLowerer
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.transforms.trino.expressions import expression_key, positional_index
+from posthog.hogql.transforms.trino.limits import TrinoCompilationBudget
 from posthog.hogql.transforms.trino.query_wrappers import lower_trino_query_wrappers
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
-_MAX_NUMBERS_ROWS = 10_000_000
+_T_AST = TypeVar("_T_AST", bound=ast.AST | None)
+
+_MAX_NUMBERS_ROWS = 10_000
 _EVENT_PROPERTY_BACKED_FIELDS = frozenset(
     {"$session_id", "$window_id", "$group_0", "$group_1", "$group_2", "$group_3", "$group_4"}
 )
@@ -216,27 +221,11 @@ class TrinoSemanticCallLowerer(CloningVisitor):
         )
 
 
-class _ScalarCTEExpansionBudget(TraversingVisitor):
-    def __init__(self) -> None:
-        self.remaining_nodes = 10_000
-
-    def visit(self, node: ast.AST | None) -> None:
-        if node is not None:
-            self.remaining_nodes -= 1
-            if self.remaining_nodes < 0:
-                raise TrinoLoweringError(
-                    "TRINO_SCALAR_CTE_EXPANSION_LIMIT",
-                    "scalar WITH expressions that expand beyond the compilation limit; simplify the WITH expressions",
-                    node if isinstance(node, ast.Expr) else None,
-                )
-        super().visit(node)
-
-
 class TrinoScalarCTELowerer(CloningVisitor):
-    def __init__(self) -> None:
+    def __init__(self, budget: TrinoCompilationBudget) -> None:
         super().__init__(clear_types=False)
         self.scalar_ctes: dict[str, ast.Expr] = {}
-        self.expansion_budget = _ScalarCTEExpansionBudget()
+        self.expansion_budget = budget
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         outer_scalar_ctes = self.scalar_ctes
@@ -255,18 +244,28 @@ class TrinoScalarCTELowerer(CloningVisitor):
             self.scalar_ctes = outer_scalar_ctes
 
     def visit_field(self, node: ast.Field) -> ast.Expr:
-        if len(node.chain) == 1 and isinstance(node.chain[0], str) and node.chain[0] in self.scalar_ctes:
+        if (
+            isinstance(node.type, ast.FieldAliasType)
+            and len(node.chain) == 1
+            and isinstance(node.chain[0], str)
+            and node.chain[0] in self.scalar_ctes
+        ):
             self.expansion_budget.visit(self.scalar_ctes[node.chain[0]])
             return clone_expr(self.scalar_ctes[node.chain[0]], clear_types=False)
         return super().visit_field(node)
 
 
 class TrinoSelectAliasLowerer(CloningVisitor):
-    def __init__(self) -> None:
+    def __init__(self, budget: TrinoCompilationBudget) -> None:
         super().__init__(clear_types=False)
         self.aliases: dict[str, ast.Expr] = {}
         self.alias_positions: dict[str, int] = {}
         self.expanding: set[str] = set()
+        self.expansion_budget = budget
+
+    def visit(self, node: _T_AST) -> _T_AST:
+        self.expansion_budget.consume_node(node)
+        return super().visit(node)
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         outer_aliases = self.aliases
@@ -320,6 +319,7 @@ class TrinoSelectAliasLowerer(CloningVisitor):
 
     def visit_alias(self, node: ast.Alias) -> ast.Alias:
         if node.hidden:
+            self.expansion_budget.visit(node)
             return clone_expr(node, clear_types=False)
         already_expanding = node.alias in self.expanding
         self.expanding.add(node.alias)
@@ -582,7 +582,9 @@ class TrinoNormalizer(TraversingVisitor):
 
 
 def normalize_trino_ast(node: ast.AST, context: HogQLContext) -> ast.AST:
-    lowered = TrinoScalarCTELowerer().visit(node)
+    budget = TrinoCompilationBudget()
+    budget.visit(node)
+    lowered = TrinoScalarCTELowerer(budget).visit(node)
     lowered = TrinoUnpivotLowerer(context).visit(lowered)
     lowered = TrinoArrayJoinFunctionLowerer(context).visit(lowered)
     lowered = TrinoPhysicalFieldLowerer(context).visit(lowered)
@@ -590,7 +592,7 @@ def normalize_trino_ast(node: ast.AST, context: HogQLContext) -> ast.AST:
     lowered = TrinoAsOfJoinLowerer().visit(lowered)
     lowered = lower_trino_any_joins(lowered)
     lowered = lower_trino_query_wrappers(lowered)
-    lowered = TrinoSelectAliasLowerer().visit(lowered)
+    lowered = TrinoSelectAliasLowerer(budget).visit(lowered)
     lowered = TrinoPhysicalProjectionAliasLowerer(context).visit(lowered)
     TrinoNormalizer(context).visit(lowered)
     return lowered

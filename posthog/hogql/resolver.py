@@ -1613,7 +1613,11 @@ class Resolver(CloningVisitor):
                 node.type = ast.SelectViewType(
                     alias=node.alias,
                     view_name=node.table.view_name,
-                    table=cast(Database, self.database).get_table(node.table.view_name),
+                    table=(
+                        self.database.get_table(node.table.view_name)
+                        if self.dialect == "trino" and self.database is not None
+                        else None
+                    ),
                     select_query_type=cast(ast.SelectQueryType, node.table.type),
                 )
                 scope.tables[node.alias] = node.type
