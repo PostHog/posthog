@@ -34,11 +34,21 @@ const HedgehogExplorer = pngHoggie(explorerPng)
  * the Dashboard tab but can always come here for recency.
  */
 export function MCPAnalyticsActivityDashboard(): JSX.Element {
-    const { overview, overviewLoading, overviewError } = useValues(mcpEarlyDataLogic)
-    const { loadOverview } = useActions(mcpEarlyDataLogic)
+    const { overview, overviewLoading, overviewError, intentDigestLoading } = useValues(mcpEarlyDataLogic)
+    const { loadOverview, refreshAll } = useActions(mcpEarlyDataLogic)
 
     return (
         <div className="flex flex-col gap-4" data-attr="mcp-analytics-activity">
+            <FilterBar
+                left={
+                    <McpSharedFilters
+                        pageKey="mcp-activity"
+                        dataAttrPrefix="mcp-activity"
+                        onRefresh={refreshAll}
+                        refreshing={overviewLoading || intentDigestLoading}
+                    />
+                }
+            />
             {overview ? (
                 <SummaryCard />
             ) : overviewError ? (
@@ -51,7 +61,7 @@ export function MCPAnalyticsActivityDashboard(): JSX.Element {
             ) : (
                 <LemonSkeleton className="h-24 w-full" />
             )}
-            <FilterBar left={<McpSharedFilters pageKey="mcp-activity" dataAttrPrefix="mcp-activity" />} />
+
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 lg:min-h-[36rem]">
                 {/* Matched column heights are the goal: the sidebar sets the row height and the feed
                     fills it. Taking the feed out of flow is what makes that one-directional — in
