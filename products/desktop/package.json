@@ -22,7 +22,7 @@
     "build": "turbo build",
     "build:deps": "turbo build --filter=@posthog/code^...",
     "package": "turbo build && pnpm --filter code package",
-    "test": "turbo test --concurrency=2",
+    "test": "turbo test --concurrency=2 --force",
     "test:bun": "turbo test --filter=@posthog/core --filter=@posthog/cli",
     "test:vitest": "pnpm --filter code --filter @posthog/electron-trpc test",
     "test:e2e": "pnpm --filter code test:e2e",
