@@ -36,6 +36,7 @@ from django.db.models import Q
 import structlog
 import pyarrow.parquet as pq
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.routing import producer_scope
 from posthog.kafka_client.topics import KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES
@@ -87,7 +88,7 @@ def _log_fields(binding: WarehouseBinding) -> dict[str, str]:
 _EXISTENCE_LOOKUP_CHUNK_SIZE = 1_000
 
 
-@dataclasses.dataclass
+@frozen(frozen=False)
 class PerSourceResult:
     """One source's funnel counts within a run, so the recorder can persist a run row per source."""
 
@@ -651,13 +652,21 @@ BACKFILL_BATCH_SIZE = 50_000
 BACKFILL_RUN_TOKEN = "backfill"
 
 
+@frozen
+class DeltaBundleRead:
+    """What one full-table Delta read yielded for a backfill."""
+
+    bundles_by_source: dict[str, dict[str, dict]]
+    rows_read: int
+    sources_missing_key_column: frozenset[str]
+
+
 def _read_delta_bundles(
     uri: str, storage_options: dict[str, str], sources: list[PersonPropertySyncSource]
-) -> tuple[dict[str, dict[str, dict]], int, set[str]]:
+) -> DeltaBundleRead:
     """Stream the table's Delta files from S3 and accumulate {source_id: {distinct_id: bundle}}
     (last-write-wins per distinct_id). Streams batches — never materializes the whole table — so peak
-    memory tracks distinct persons, not row count. Returns (accumulated, rows_read, source ids whose
-    key column the table doesn't have)."""
+    memory tracks distinct persons, not row count."""
     import deltalake  # noqa: PLC0415 — keeps the heavy delta-rs/pandas stack off the import path
 
     accumulated: dict[str, dict[str, dict]] = {str(source.source_id): {} for source in sources}
@@ -666,7 +675,7 @@ def _read_delta_bundles(
         # as an empty read rather than erroring, but log it since a persistent empty backfill is a
         # likely "why didn't anything happen" answer.
         logger.warning("person-property backfill: no Delta table at URI, reading 0 rows", uri=uri)
-        return accumulated, 0, set()
+        return DeltaBundleRead(bundles_by_source=accumulated, rows_read=0, sources_missing_key_column=frozenset())
 
     dataset = deltalake.DeltaTable(uri, storage_options=storage_options).to_pyarrow_dataset()
     available = set(dataset.schema.names)
@@ -698,7 +707,11 @@ def _read_delta_bundles(
             bucket = accumulated[str(source.source_id)]
             for distinct_id, bundle in build_bundles(rows, source.key_column, source.column_property_map or {}):
                 bucket[distinct_id] = bundle
-    return accumulated, rows_read, missing_key_column
+    return DeltaBundleRead(
+        bundles_by_source=accumulated,
+        rows_read=rows_read,
+        sources_missing_key_column=frozenset(missing_key_column),
+    )
 
 
 def _schema_delta_uri(team_id: int, schema_id: str) -> str | None:
@@ -754,22 +767,20 @@ async def run_person_property_backfill(*, team_id: int, binding: WarehouseBindin
         return result
 
     team = await database_sync_to_async(Team.objects.get, thread_sensitive=False)(id=team_id)
-    accumulated, rows_read, missing_key_column = await asyncio.to_thread(
-        _read_delta_bundles, uri, delta_storage_options(), sources
-    )
+    read = await asyncio.to_thread(_read_delta_bundles, uri, delta_storage_options(), sources)
     result.sources = len(sources)
-    result.rows_read = rows_read
+    result.rows_read = read.rows_read
     logger.info(
         "person-property backfill: read full Delta table",
         team_id=team_id,
         **_log_fields(binding),
         trigger=trigger,
         sources=len(sources),
-        rows_read=rows_read,
+        rows_read=read.rows_read,
     )
 
     for source in sources:
-        if str(source.source_id) in missing_key_column:
+        if str(source.source_id) in read.sources_missing_key_column:
             # Nothing this source can match on, so every later stage is a no-op. Surfaced as a failed
             # run because the mapping stays broken until someone changes it — a completed run would
             # clear the source's last error and read as a healthy sync that happened to write nothing.
@@ -777,7 +788,7 @@ async def run_person_property_backfill(*, team_id: int, binding: WarehouseBindin
                 result,
                 PerSourceResult(
                     source_id=str(source.source_id),
-                    rows_read=rows_read,
+                    rows_read=read.rows_read,
                     error=(
                         f"Key column '{source.key_column}' is not a column of the synced table, so no rows "
                         "could be matched. It may have been renamed or dropped upstream, or it may be a "
@@ -786,7 +797,7 @@ async def run_person_property_backfill(*, team_id: int, binding: WarehouseBindin
                 ),
             )
             continue
-        bundles = list(accumulated[str(source.source_id)].items())
+        bundles = list(read.bundles_by_source[str(source.source_id)].items())
         ps = await _process_source_bundles(
             team_id=team_id,
             project_id=team.project_id,
@@ -795,7 +806,7 @@ async def run_person_property_backfill(*, team_id: int, binding: WarehouseBindin
             team_uuid=str(team.uuid),
             source=source,
             bundles=bundles,
-            rows_read=rows_read,
+            rows_read=read.rows_read,
             run_token=BACKFILL_RUN_TOKEN,
         )
         _accumulate(result, ps)

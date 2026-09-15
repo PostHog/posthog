@@ -238,11 +238,11 @@ class TestReadDeltaBundles:
         with patch("deltalake.DeltaTable") as dt_cls:
             dt_cls.is_deltatable.return_value = True
             dt_cls.return_value = fake_dt
-            accumulated, rows_read, missing = pps._read_delta_bundles("s3://uri", {}, sources)
+            read = pps._read_delta_bundles("s3://uri", {}, sources)
 
-        assert rows_read == 3 and missing == set()
-        assert accumulated["s1"] == {"a": {"plan_tier": "pro"}, "b": {"plan_tier": "team"}}
-        assert accumulated["s2"] == {"a": {"tier": "pro"}, "b": {"tier": "team"}}
+        assert read.rows_read == 3 and read.sources_missing_key_column == frozenset()
+        assert read.bundles_by_source["s1"] == {"a": {"plan_tier": "pro"}, "b": {"plan_tier": "team"}}
+        assert read.bundles_by_source["s2"] == {"a": {"tier": "pro"}, "b": {"tier": "team"}}
 
     def test_reports_a_source_whose_key_column_the_table_lacks(self):
         # The key column is what every row is matched on, so its absence produces nothing at all —
@@ -258,19 +258,20 @@ class TestReadDeltaBundles:
         with patch("deltalake.DeltaTable") as dt_cls:
             dt_cls.is_deltatable.return_value = True
             dt_cls.return_value = fake_dt
-            accumulated, rows_read, missing = pps._read_delta_bundles("s3://uri", {}, sources)
+            read = pps._read_delta_bundles("s3://uri", {}, sources)
 
-        assert missing == {"s2"}
-        assert accumulated["s1"] == {"a": {"plan_tier": "free"}}
-        assert accumulated["s2"] == {}
-        assert rows_read == 1
+        assert read.sources_missing_key_column == frozenset({"s2"})
+        assert read.bundles_by_source["s1"] == {"a": {"plan_tier": "free"}}
+        assert read.bundles_by_source["s2"] == {}
+        assert read.rows_read == 1
 
     def test_missing_table_returns_empty(self):
         sources = [PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "plan_tier"})]
         with patch("deltalake.DeltaTable") as dt_cls:
             dt_cls.is_deltatable.return_value = False
-            accumulated, rows_read, missing = pps._read_delta_bundles("s3://uri", {}, sources)
-        assert accumulated == {"s1": {}} and rows_read == 0 and missing == set()
+            read = pps._read_delta_bundles("s3://uri", {}, sources)
+        assert read.bundles_by_source == {"s1": {}} and read.rows_read == 0
+        assert read.sources_missing_key_column == frozenset()
 
 
 class TestBackfillOrchestration:
@@ -294,7 +295,12 @@ class TestBackfillOrchestration:
             patch(f"{_MODULE}._get_schema", return_value=schema),
             patch(f"{_MODULE}.Team") as team_cls,
             patch(f"{_MODULE}.delta_storage_options", return_value={}),
-            patch(f"{_MODULE}._read_delta_bundles", return_value=(accumulated, 5, set())) as read_delta,
+            patch(
+                f"{_MODULE}._read_delta_bundles",
+                return_value=pps.DeltaBundleRead(
+                    bundles_by_source=accumulated, rows_read=5, sources_missing_key_column=frozenset()
+                ),
+            ) as read_delta,
             patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
             patch(f"{_MODULE}._filter_existing_ids", return_value={"a"}),
             patch(f"{_MODULE}._produce_intents", return_value=1) as produce,
@@ -330,7 +336,12 @@ class TestBackfillOrchestration:
             patch(f"{_MODULE}._get_schema", return_value=schema),
             patch(f"{_MODULE}.Team") as team_cls,
             patch(f"{_MODULE}.delta_storage_options", return_value={}),
-            patch(f"{_MODULE}._read_delta_bundles", return_value=({"s1": {}}, 8, {"s1"})),
+            patch(
+                f"{_MODULE}._read_delta_bundles",
+                return_value=pps.DeltaBundleRead(
+                    bundles_by_source={"s1": {}}, rows_read=8, sources_missing_key_column=frozenset({"s1"})
+                ),
+            ),
             patch(f"{_MODULE}._produce_intents") as produce,
             patch(f"{_MODULE}._reconcile_property_definitions") as reconcile,
         ):
@@ -397,7 +408,12 @@ class TestBackfillOrchestration:
                 "products.data_modeling.backend.facade.api.get_materialized_table_uri",
                 return_value="s3://bucket/team_1_model_abc/modeling/enriched_users",
             ) as model_uri,
-            patch(f"{_MODULE}._read_delta_bundles", return_value=({"s1": {}}, 0, set())) as read_delta,
+            patch(
+                f"{_MODULE}._read_delta_bundles",
+                return_value=pps.DeltaBundleRead(
+                    bundles_by_source={"s1": {}}, rows_read=0, sources_missing_key_column=frozenset()
+                ),
+            ) as read_delta,
             patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
             patch(f"{_MODULE}._reconcile_property_definitions"),
         ):
