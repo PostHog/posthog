@@ -42187,21 +42187,6 @@ export namespace Schemas {
       createdAt: string | null;
     }
 
-    export interface FeedbackAudioError {
-      /** Why the recording could not be transcribed and how to continue. */
-      detail: string;
-    }
-
-    export interface FeedbackAudioRequest {
-      /** Recorded feedback in WebM, MP4, or Ogg format, up to 5 MiB. */
-      audio: Blob;
-    }
-
-    export interface FeedbackAudioResponse {
-      /** Transcribed feedback for the respondent to review before submitting. */
-      text: string;
-    }
-
     export interface FeedbackThemeSession {
       /** Observation whose feedback comment backs this theme. */
       observation_id: string;

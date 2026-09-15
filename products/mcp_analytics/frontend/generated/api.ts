@@ -9,8 +9,6 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
-    FeedbackAudioRequestApi,
-    FeedbackAudioResponseApi,
     MCPActivityOverviewApi,
     MCPAnalyticsSubmissionApi,
     MCPFeedbackCreateApi,
@@ -76,28 +74,6 @@ export const mcpAnalyticsFeedbackCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(mCPFeedbackCreateApi),
-    })
-}
-
-export const getMcpAnalyticsFeedbackAudioCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/mcp_analytics/feedback_audio/`
-}
-
-/**
- * Transcribe a short feedback recording without storing the audio or submitting a survey response.
- */
-export const mcpAnalyticsFeedbackAudioCreate = async (
-    projectId: string,
-    feedbackAudioRequestApi: FeedbackAudioRequestApi,
-    options?: RequestInit
-): Promise<FeedbackAudioResponseApi> => {
-    const formData = new FormData()
-    formData.append(`audio`, feedbackAudioRequestApi.audio)
-
-    return apiMutator<FeedbackAudioResponseApi>(getMcpAnalyticsFeedbackAudioCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        body: formData,
     })
 }
 

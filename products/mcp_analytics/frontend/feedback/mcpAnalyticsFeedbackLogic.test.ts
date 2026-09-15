@@ -136,9 +136,7 @@ describe('mcpAnalyticsFeedbackLogic', () => {
                 question: 'Did this tool breakdown help you find what you needed?',
                 followUpQuestion: 'What did you find, or what was missing?',
             }
-            const context = { visibleToolCalls: 4, visibleErrors: 1 }
             logic = mcpAnalyticsFeedbackLogic({
-                context,
                 userId: 'example-user',
                 contextKey: 'example-tool',
                 isImpersonated: false,
@@ -150,7 +148,6 @@ describe('mcpAnalyticsFeedbackLogic', () => {
             expect(logic.values.prompt).toEqual(prompt)
             const displayedQuestion = prompt.question
             prompt.question = 'Later copy must not change an open prompt'
-            context.visibleErrors = 0
             logic.actions.submitResponse('1', false)
             if (ending === 'complete') {
                 logic.actions.setDetail('Found a slow call.')
@@ -172,8 +169,6 @@ describe('mcpAnalyticsFeedbackLogic', () => {
                     feedback_entry_point: 'tool_review_prompt',
                     mcp_analytics_tab: 'tools',
                     feedback_question_version: 2,
-                    feedback_visible_tool_calls: 4,
-                    feedback_visible_errors: 1,
                     feedback_question: displayedQuestion,
                     feedback_followup_question: prompt.followUpQuestion,
                     $survey_questions: [
@@ -336,49 +331,11 @@ describe('mcpAnalyticsFeedbackLogic', () => {
             ],
         },
         { questions: [{ ...survey.questions[0], scale: 5 as const }, survey.questions[1]] },
-        { questions: [survey.questions[0], { ...survey.questions[1], branching: { type: 'end' as const } }] },
-        { questions: [survey.questions[0], { ...survey.questions[1], id: survey.questions[0].id }] },
+        { questions: [survey.questions[0], { ...survey.questions[1], optional: false }] },
     ])('does not show a stopped or incompatible survey: %j', (overrides) => {
         logic.actions.schedulePrompt({ ...survey, ...overrides })
         jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)
         expect(logic.values.visible).toBe(false)
         expect(posthog.capture).not.toHaveBeenCalled()
-    })
-    it('renders a stable survey snapshot and submits added questions by ID', () => {
-        const dynamicSurvey: Survey = {
-            ...survey,
-            questions: [
-                ...survey.questions,
-                {
-                    id: 'outcome',
-                    type: SurveyQuestionType.SingleChoice,
-                    question: 'Did you find the cause?',
-                    choices: ['Yes', 'Partly', 'No'],
-                },
-            ],
-        }
-        logic.actions.schedulePrompt(dynamicSurvey)
-        jest.advanceTimersByTime(FEEDBACK_PROMPT_DELAY_MS)
-        dynamicSurvey.questions[2].question = 'Changed after display'
-        expect(logic.values.survey?.questions[2].question).toBe('Did you find the cause?')
-        logic.actions.submitResponse('1', false)
-        logic.actions.submitResponse('1', true)
-        expect(logic.values.completed).toBe(false)
-        logic.actions.setResponse('outcome', 'invalid choice')
-        expect(logic.values.canComplete).toBe(false)
-        logic.actions.setResponse('outcome', 'Partly')
-        logic.actions.setResponse('example-detail', 'The error explained what to check.', true)
-        logic.actions.submitResponse('1', true)
-        expect(posthog.capture).toHaveBeenLastCalledWith(
-            'survey sent',
-            expect.objectContaining({
-                $survey_response_outcome: 'Partly',
-                '$survey_response_example-detail': 'The error explained what to check.',
-                feedback_input_method: 'voice',
-                feedback_voice_question_ids: ['example-detail'],
-                $survey_completed: true,
-            })
-        )
-        expect(logic.values.completed).toBe(true)
     })
 })

@@ -62,17 +62,12 @@ const meta: Meta<typeof MCPAnalyticsFeedbackPrompt> = {
             useEffect(() => {
                 const onSurveysLoaded = posthog.onSurveysLoaded
                 const capture = posthog.capture
-                const getFeatureFlag = posthog.getFeatureFlag
-                posthog.getFeatureFlag = (key, options) =>
-                    key === 'mcp-analytics-feedback-voice'
-                        ? !!context.parameters.featureFlags?.includes(key)
-                        : getFeatureFlag.call(posthog, key, options)
                 posthog.capture = () => ({ uuid: 'example-event' }) as ReturnType<typeof posthog.capture>
                 posthog.onSurveysLoaded = (callback) => {
                     callback([], { isLoaded: true })
                     return () => {}
                 }
-                logic.actions.showPrompt(context.parameters.feedbackSurvey ?? survey, Date.now(), 'example-submission')
+                logic.actions.showPrompt(survey, Date.now(), 'example-submission')
                 if (context.parameters.feedbackStage === 'followup') {
                     logic.actions.responseQueued('2', false)
                 }
@@ -87,14 +82,8 @@ const meta: Meta<typeof MCPAnalyticsFeedbackPrompt> = {
                 return () => {
                     posthog.onSurveysLoaded = onSurveysLoaded
                     posthog.capture = capture
-                    posthog.getFeatureFlag = getFeatureFlag
                 }
-            }, [
-                logic,
-                context.parameters.feedbackStage,
-                context.parameters.feedbackSurvey,
-                context.parameters.featureFlags,
-            ])
+            }, [logic, context.parameters.feedbackStage])
             return <Story />
         },
     ],
@@ -175,39 +164,4 @@ export const ContextualCopy: Story = {
             followUpQuestion: 'What did you find, or what was missing?',
         },
     },
-}
-
-export const DynamicQuestions: Story = {
-    ...Narrow,
-    parameters: {
-        feedbackStage: 'followup',
-        feedbackSurvey: {
-            ...survey,
-            questions: [
-                survey.questions[0],
-                { ...survey.questions[1], question: 'What were you trying to find, and what happened?' },
-                {
-                    id: 'example-outcome',
-                    type: SurveyQuestionType.SingleChoice,
-                    question: 'Did you find what you needed?',
-                    choices: ['Yes', 'Partly', 'No'],
-                    optional: true,
-                },
-            ],
-        },
-    },
-}
-
-export const VoiceFollowUp: Story = {
-    ...FollowUp,
-    decorators: [
-        mswDecorator({
-            post: {
-                '/api/projects/:team_id/mcp_analytics/feedback_audio/': {
-                    text: 'I was looking for the failing call and found an unclear error.',
-                },
-            },
-        }),
-    ],
-    parameters: { feedbackStage: 'followup', featureFlags: ['mcp-analytics-feedback-voice'] },
 }

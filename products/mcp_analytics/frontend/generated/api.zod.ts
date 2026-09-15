@@ -95,13 +95,6 @@ export const McpAnalyticsFeedbackCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Transcribe a short feedback recording without storing the audio or submitting a survey response.
- */
-export const McpAnalyticsFeedbackAudioCreateBody = /* @__PURE__ */ zod.object({
-    audio: zod.instanceof(File).describe('Recorded feedback in WebM, MP4, or Ogg format, up to 5 MiB.'),
-})
-
-/**
  * Create a new missing capability report for the current project.
  */
 export const mcpAnalyticsMissingCapabilitiesCreateBodyAttemptedToolDefault = ``
