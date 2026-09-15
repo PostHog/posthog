@@ -1,5 +1,7 @@
+from datetime import timedelta
+
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from temporalio.exceptions import ActivityError, ApplicationError
 
@@ -9,6 +11,7 @@ from products.signals.backend.temporal.drop_telemetry import (
     capture_signal_dropped_activity,
     summarize_drop_error,
 )
+from products.signals.backend.temporal.grouping import MAX_PREP_ATTEMPTS, prep_retry_backoff, retry_or_drop_prep_batch
 from products.signals.backend.temporal.types import EmitSignalInputs
 
 PIPELINE_MODULE_PATH = "products.signals.backend.temporal.drop_telemetry"
@@ -183,3 +186,52 @@ def test_summarize_drop_error(error, expected_type, expected_message):
     assert error_type == expected_type
     assert expected_message in message
     assert "\n" not in message
+
+
+GROUPING_MODULE_PATH = "products.signals.backend.temporal.grouping"
+
+
+@pytest.mark.parametrize(
+    "attempt,expected_seconds",
+    [(1, 30), (2, 60), (3, 120), (4, 240), (5, 300), (30, 300)],
+)
+def test_prep_retry_backoff_grows_then_caps(attempt, expected_seconds):
+    assert prep_retry_backoff(attempt).total_seconds() == expected_seconds
+
+
+def test_prep_retry_envelope_outlasts_a_long_dependency_outage():
+    envelope = sum((prep_retry_backoff(attempt) for attempt in range(1, MAX_PREP_ATTEMPTS)), timedelta())
+    assert envelope > timedelta(hours=2)
+
+
+@pytest.mark.asyncio
+async def test_prep_failure_below_the_cap_requeues_without_drop_telemetry():
+    batch = [_make_signal(), _make_signal(team_id=2)]
+    requeue = Mock()
+    with (
+        patch(f"{GROUPING_MODULE_PATH}.workflow.sleep", new_callable=AsyncMock) as sleep,
+        patch(f"{GROUPING_MODULE_PATH}.capture_signal_dropped", new_callable=AsyncMock) as capture,
+    ):
+        attempt = await retry_or_drop_prep_batch(batch, ValueError("boom"), 1, requeue)
+
+    assert attempt == 1
+    requeue.assert_called_once()
+    capture.assert_not_called()
+    sleep.assert_awaited_once_with(prep_retry_backoff(1))
+
+
+@pytest.mark.asyncio
+async def test_prep_failure_at_the_cap_drops_the_batch_once():
+    batch = [_make_signal(), _make_signal(team_id=2)]
+    requeue = Mock()
+    with (
+        patch(f"{GROUPING_MODULE_PATH}.workflow.sleep", new_callable=AsyncMock) as sleep,
+        patch(f"{GROUPING_MODULE_PATH}.capture_signal_dropped", new_callable=AsyncMock) as capture,
+    ):
+        attempt = await retry_or_drop_prep_batch(batch, ValueError("boom"), MAX_PREP_ATTEMPTS, requeue)
+
+    assert attempt == 0
+    requeue.assert_not_called()
+    sleep.assert_not_awaited()
+    assert capture.await_count == len(batch)
+    assert all(call.kwargs["stage"] == "grouping_prep" for call in capture.await_args_list)

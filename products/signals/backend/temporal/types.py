@@ -168,6 +168,9 @@ class TeamSignalGroupingV2Input:
     team_id: int
     pending_batch_keys: list[str] = field(default_factory=list)
     paused_until: Optional[datetime] = None
+    # Consecutive preparation failures, carried over because the workflow continues as new after
+    # every processing round. Without it the retry backoff would never grow.
+    prep_attempt: int = 0
 
 
 @dataclass

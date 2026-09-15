@@ -1,6 +1,7 @@
 import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import Optional
 
 from django.conf import settings
@@ -20,7 +21,9 @@ from posthog.temporal.common.scoped import scoped_temporal
 from products.signals.backend.temporal.grouping import (
     TYPE_EXAMPLES_CACHE_TTL,
     FetchSignalTypeExamplesOutput,
+    SignalBatchPrepError,
     _process_signal_batch,
+    retry_or_drop_prep_batch,
 )
 from products.signals.backend.temporal.types import (
     EmitSignalInputs,
@@ -81,6 +84,7 @@ class TeamSignalGroupingV2Workflow:
         self._cached_type_examples: Optional[FetchSignalTypeExamplesOutput] = None
         self._type_examples_fetched_at: Optional[datetime] = None
         self._paused_until: Optional[datetime] = None
+        self._prep_attempt: int = 0
         self._batch_buffer_size_gauge: Optional[MetricGauge] = None
         self._signals_processed_counter: Optional[MetricCounter] = None
         self._signals_dropped_counter: Optional[MetricCounter] = None
@@ -120,8 +124,29 @@ class TeamSignalGroupingV2Workflow:
                 team_id=input.team_id,
                 pending_batch_keys=list(self._batch_key_buffer),
                 paused_until=self._paused_until,
+                prep_attempt=self._prep_attempt,
             )
         )
+
+    def _requeue_batch_keys(self, object_keys: list[str]) -> None:
+        self._batch_key_buffer = object_keys + self._batch_key_buffer
+        if self._batch_buffer_size_gauge is not None:
+            self._batch_buffer_size_gauge.set(len(self._batch_key_buffer))
+
+    async def _retry_or_drop(
+        self, signals: list[EmitSignalInputs], error: SignalBatchPrepError, object_keys: list[str], team_id: int
+    ) -> None:
+        self._prep_attempt = await retry_or_drop_prep_batch(
+            signals,
+            error.cause_error,
+            self._prep_attempt + 1,
+            partial(self._requeue_batch_keys, object_keys),
+            team_id=team_id,
+            batch_size=len(signals),
+            batch_keys=object_keys,
+        )
+        if self._prep_attempt == 0 and self._signals_dropped_counter is not None:
+            self._signals_dropped_counter.add(len(signals))
 
     async def _collect_next_batch(self) -> CollectedBatch:
         collected = CollectedBatch()
@@ -192,6 +217,9 @@ class TeamSignalGroupingV2Workflow:
                 self._signals_processed_counter.add(len(signals))
             if self._signals_dropped_counter is not None and dropped > 0:
                 self._signals_dropped_counter.add(dropped)
+            self._prep_attempt = 0
+        except SignalBatchPrepError as e:
+            await self._retry_or_drop(signals, e, [object_key], input.team_id)
         except Exception:
             logger.exception(
                 "Failed to process signal batch",
@@ -227,6 +255,9 @@ class TeamSignalGroupingV2Workflow:
                 self._signals_processed_counter.add(len(collected.signals))
             if self._signals_dropped_counter is not None and dropped > 0:
                 self._signals_dropped_counter.add(dropped)
+            self._prep_attempt = 0
+        except SignalBatchPrepError as e:
+            await self._retry_or_drop(collected.signals, e, collected.object_keys, input.team_id)
         except Exception:
             logger.exception(
                 "Failed to process signal batch",
@@ -256,6 +287,7 @@ class TeamSignalGroupingV2Workflow:
         # Restore state carried over from continue_as_new
         self._batch_key_buffer.extend(input.pending_batch_keys)
         self._paused_until = input.paused_until
+        self._prep_attempt = input.prep_attempt
         start_time = workflow.now()
 
         meter = workflow.metric_meter().with_additional_attributes({"team_id": str(input.team_id)})
