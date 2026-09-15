@@ -39,7 +39,7 @@ Response:
 ## Authentication and access
 
 - Session, personal API key and OAuth callers all work. The action requires the `llm_skill:read` scope.
-- Object-level access control matches the list endpoint: a skill the list hides from the caller returns `404` here.
+- Object-level access control matches the other read actions on this viewset: a skill the caller cannot reach returns `403`, not `404`.
 - `404` for an unknown skill name and for a version the skill never published.
 
 ## Frontmatter shape
