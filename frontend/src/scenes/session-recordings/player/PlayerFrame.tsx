@@ -1,5 +1,4 @@
 import './PlayerFrame.scss'
-import './PlayerFrameLLMHighlight.scss'
 
 import useSize from '@react-hook/size'
 import clsx from 'clsx'
@@ -7,8 +6,6 @@ import { useActions, useValues } from 'kea'
 import { Handler, viewportResizeDimension } from 'posthog-js/rrweb-types'
 import { useCallback, useEffect, useRef } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getPlayerFrameScale, isIOS } from 'scenes/session-recordings/player/playerFrameScaling'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
@@ -23,27 +20,15 @@ const PLAYER_FRAME_CONTENT_ID = 'player-frame-content'
 
 export const PlayerFrame = (): JSX.Element => {
     const replayDimensionRef = useRef<viewportResizeDimension>()
-    const {
-        player,
-        sessionRecordingId,
-        maskingWindow,
-        speed,
-        resolution,
-        playerFrameDocumentFailed,
-        playerFrameLoadRetries,
-    } = useValues(sessionRecordingPlayerLogic)
+    const { player, sessionRecordingId, maskingWindow, speed, resolution, playerFrameLoadRetries } =
+        useValues(sessionRecordingPlayerLogic)
     const { setScale, setRootFrame, playerFrameDocumentLoadFailed } = useActions(sessionRecordingPlayerLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    // A frame that loaded without its mount node falls back to the container below, which is the
-    // flag-off path. That path still works, so the player renders rather than staying blank.
-    const ownDocument = !!featureFlags[FEATURE_FLAGS.REPLAY_PLAYER_OWN_DOCUMENT] && !playerFrameDocumentFailed
 
     // A frame loads again only when its src changes, so each retry adds a query string the server ignores.
     const frameSrc = playerFrameLoadRetries ? `${PLAYER_FRAME_SRC}?retry=${playerFrameLoadRetries}` : PLAYER_FRAME_SRC
 
     const iframeRef = useRef<HTMLIFrameElement | null>(null)
-    // rrweb's mount point. Under the flag it lives in the player frame's document, not this one.
+    // rrweb's mount point, which lives in the player frame's document rather than this one.
     const frameRef = useRef<HTMLDivElement | null>(null)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const containerDimensions = useSize(containerRef)
@@ -63,7 +48,7 @@ export const PlayerFrame = (): JSX.Element => {
             replayDimensionRef.current = dimensions
 
             // rrweb scales its wrapper to fit the wrapper's parent, so measure that parent rather than
-            // this container. Under the flag the parent is the player frame's body.
+            // this container. The parent is the player frame's body.
             const parentDimensions = frameRef.current.parentElement.getBoundingClientRect()
 
             const { scale, transform } = getPlayerFrameScale(parentDimensions, dimensions)
@@ -85,17 +70,14 @@ export const PlayerFrame = (): JSX.Element => {
     }, [updatePlayerDimensions])
 
     // The app stylesheet cannot reach inside the player frame, so the click duration and the
-    // masking overlay are applied to that document rather than to the container below.
+    // masking overlay are applied to that document.
     const applyFrameStyles = useCallback((): void => {
-        if (!ownDocument) {
-            return
-        }
         iframeRef.current?.contentDocument?.documentElement?.style?.setProperty(
             '--player-frame-click-duration',
             `${BASE_CLICK_INDICATOR_DURATION_S / speed}s`
         )
         frameRef.current?.classList?.toggle('PlayerFrame__content--masking-window', !!maskingWindow)
-    }, [ownDocument, speed, maskingWindow])
+    }, [speed, maskingWindow])
 
     const handleFrameLoad = useCallback((): void => {
         const frameDocument = iframeRef.current?.contentDocument
@@ -118,17 +100,13 @@ export const PlayerFrame = (): JSX.Element => {
         setRootFrame(frameRef.current)
     }, [setRootFrame, applyFrameStyles, playerFrameDocumentLoadFailed])
 
-    // Need useEffect to populate replayer on component paint. Under the flag the frame may still be
+    // Need useEffect to populate replayer on component paint. On the first paint the frame is still
     // loading, in which case handleFrameLoad does this instead.
-    // ownDocument is a dependency because flags resolve after the first paint. A user who holds a
-    // stale enabled flag paints the frame, then React swaps in the container below when the fresh
-    // value arrives, and the replayer must move with it. The fallback after a failed frame load
-    // swaps the same way.
     useEffect(() => {
         if (frameRef.current) {
             setRootFrame(frameRef.current)
         }
-    }, [sessionRecordingId, ownDocument, setRootFrame])
+    }, [sessionRecordingId, setRootFrame])
 
     useEffect(() => {
         applyFrameStyles()
@@ -155,34 +133,16 @@ export const PlayerFrame = (): JSX.Element => {
     }, [containerDimensions, windowResize])
 
     return (
-        // Adding the LLM highlight class to override clicks animation, in case we decide to make it conditional.
-        // The initial approach was conditional, but everyone liked how it looked, so we decided to make it the default.
-        // Click indicator duration scales with playback speed: 1/3s at 1x, 1/6s at 2x, etc.
-        <div
-            ref={containerRef}
-            className={clsx('PlayerFrame ph-no-capture PlayerFrame--llm-highlight', isIOS() && 'PlayerFrame--ios')}
-            style={
-                {
-                    '--player-frame-click-duration': `${BASE_CLICK_INDICATOR_DURATION_S / speed}s`,
-                } as React.CSSProperties
-            }
-        >
-            {ownDocument ? (
-                <iframe
-                    ref={iframeRef}
-                    className="PlayerFrame__document"
-                    src={frameSrc}
-                    onLoad={handleFrameLoad}
-                    title="Session replay player"
-                    // Interaction belongs to the app's controls, not the recorded page.
-                    sandbox="allow-same-origin"
-                />
-            ) : (
-                <div
-                    className={clsx('PlayerFrame__content', maskingWindow && 'PlayerFrame__content--masking-window')}
-                    ref={frameRef}
-                />
-            )}
+        <div ref={containerRef} className={clsx('PlayerFrame ph-no-capture', isIOS() && 'PlayerFrame--ios')}>
+            <iframe
+                ref={iframeRef}
+                className="PlayerFrame__document"
+                src={frameSrc}
+                onLoad={handleFrameLoad}
+                title="Session replay player"
+                // Interaction belongs to the app's controls, not the recorded page.
+                sandbox="allow-same-origin"
+            />
         </div>
     )
 }

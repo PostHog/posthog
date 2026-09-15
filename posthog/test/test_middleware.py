@@ -1963,8 +1963,7 @@ class TestCSPMiddleware(APIBaseTest):
         self.client.logout()
         response = self.client.get("/replay_player_frame/index.html")
         assert response.status_code == 200
-        # PlayerFrame.tsx looks the mount node up by this id. A rename here makes every player fall
-        # back to the app document.
+        # PlayerFrame.tsx looks the mount node up by this id. A rename here makes every player show its load error.
         assert 'id="player-frame-content"' in response.content.decode()
 
     def test_non_html_response_gets_strict_csp(self):
