@@ -4,10 +4,11 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { objectsEqual } from 'lib/utils/objects'
 
+import { ExperimentMetric, isExperimentRetentionMetric } from '~/queries/schema/schema-general'
 import { Experiment } from '~/types'
 
 import type { ExperimentIdType } from '../../types'
-import { getSessionLinkabilityEventNames } from './utils'
+import { getMetricSessionFilters, getSessionLinkabilityEventNames, isUnlinkableEventFilter } from './utils'
 
 export interface ViewRecordingsLinkabilityLogicProps {
     experiment: Experiment
@@ -24,6 +25,23 @@ export const RETENTION_UNLINKABLE_REASON =
 
 export const DATA_WAREHOUSE_UNLINKABLE_REASON =
     'This metric is measured entirely in the data warehouse, which has no session events to match recordings on.'
+
+/**
+ * Why a metric can't narrow a recordings list, or null when it can. A metric is unlinkable when
+ * every one of its sources is a never-session-linked event, or when it yields no session filter at
+ * all (a retention metric, or one measured only in the data warehouse). Either way its filter could
+ * only match zero sessions. Pass an empty `unlinkableEventNames` while the linkability check loads,
+ * which fails open, the posture every linkability consumer shares.
+ */
+export function getMetricUnlinkableReason(metric: ExperimentMetric, unlinkableEventNames: Set<string>): string | null {
+    const filters = getMetricSessionFilters(metric)
+    if (filters.length === 0) {
+        return isExperimentRetentionMetric(metric) ? RETENTION_UNLINKABLE_REASON : DATA_WAREHOUSE_UNLINKABLE_REASON
+    }
+    return filters.every((filter) => isUnlinkableEventFilter(filter, unlinkableEventNames))
+        ? METRIC_UNLINKABLE_REASON
+        : null
+}
 
 /** Only an explicit `false` marks an event unlinkable; absent keys stay linkable (fail open). */
 export function unlinkableEventNamesFromSeenTogether(

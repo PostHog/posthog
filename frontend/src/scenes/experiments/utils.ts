@@ -418,8 +418,19 @@ export function getMetricSessionFilters(metric: ExperimentMetric): UniversalFilt
         .filter((filter): filter is UniversalFiltersGroupValue => filter !== null)
 }
 
-export const NOT_A_FUNNEL_REASON =
-    "This filter shows sessions that didn't finish a funnel, so it needs a funnel metric."
+/**
+ * The distinct events a metric counts. A metric's name is free text ("Rageclicks per user"), so
+ * on its own it doesn't say what a session has to have fired to match.
+ */
+export function getMetricSourceEventNames(metric: ExperimentMetric): string[] {
+    const names = getMetricSessionFilters(metric)
+        // Only entity filters name an event; a nested filter group (which the type allows) doesn't.
+        .flatMap((filter) => ('id' in filter ? [String(filter.name ?? filter.id ?? '')] : []))
+        .filter(Boolean)
+    return [...new Set(names)]
+}
+
+export const NOT_A_FUNNEL_REASON = "This filter reads a funnel's last step, so it needs a funnel metric."
 
 export const FUNNEL_SERVER_SIDE_COMPLETION_REASON =
     "This filter reads a funnel's last step. This one is captured server-side without a session ID, so recordings can't be matched."
