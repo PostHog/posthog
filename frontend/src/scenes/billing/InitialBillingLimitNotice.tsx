@@ -7,6 +7,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { BillingProductV2Type } from '~/types'
 
 import { billingLogic } from './billingLogic'
+import { billingProductDisplayName } from './billingProductDisplayName'
 import { billingProductLogic } from './billingProductLogic'
 
 const InitialBillingLimitNoticeContents = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
@@ -30,7 +31,8 @@ const InitialBillingLimitNoticeContents = ({ product }: { product: BillingProduc
                 Default initial billing limit of <b className="text-accent">${initialBillingLimit}</b> active.
             </p>
             <p className="font-normal">
-                This protects you from accidentally incurring large unexpected charges. Some features may stop working
+                This protects you from accidentally incurring large unexpected charges on{' '}
+                {billingProductDisplayName(product)}. Your other products keep billing. Some features may stop working
                 and data may be dropped if your usage exceeds your limit.
             </p>
         </LemonBanner>
