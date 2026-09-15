@@ -1386,8 +1386,13 @@ class CSPMiddleware:
                 "manifest-src 'self'",
                 "base-uri 'self'",
                 # form-action has no default-src fallback, so leaving it unset lets an injected
-                # form post anywhere. Every form we serve targets a same-origin path.
-                "form-action 'self'",
+                # form post anywhere. Every form we serve targets a same-origin path, but Chromium
+                # judges each hop of the redirect chain too, and reports the original action rather
+                # than the hop that failed. Exiting impersonation posts to /logout, which redirects
+                # into /admin/, and AdminOAuth2Middleware sends that on to Google because
+                # restore_original_login() flushes the session holding the admin verification. So
+                # without this origin a staff logout is cancelled with nothing shown to the user.
+                "form-action 'self' https://accounts.google.com",
             ]
 
             report_uri = csp_report_endpoint(sample_rate="0.1")
