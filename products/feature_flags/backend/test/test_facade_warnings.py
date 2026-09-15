@@ -18,13 +18,19 @@ class TestManagementWarning:
         [
             ("code_only", {}),
             ("detail", {"detail": "The rule order can change traffic."}),
-            ("null_attr", {"attr": None}),
             ("field_attr", {"attr": "filters.rules"}),
             ("detail_and_attr", {"detail": "The rule order can change traffic.", "attr": "filters.rules"}),
             ("empty_strings", {"detail": "", "attr": ""}),
         ]
     )
     def test_wire_round_trip(self, _name: str, optional_members: dict[str, object]) -> None:
+        assert set(get_args(ManagementWarningCode)) == {
+            "RULE_ORDER_CHANGES_TRAFFIC",
+            "UNREACHABLE_LOWER_RULE",
+            "ROLLOUT_MISS_CAN_ENTER_LOWER_RULE",
+            "ASSIGNMENT_RESET_CHANGES_TRAFFIC",
+            "CONCLUSION_EXPANDS_POPULATION",
+        }
         for code in get_args(ManagementWarningCode):
             wire = {"code": code, **optional_members}
             warning = parse_management_warning(wire)
@@ -56,13 +62,14 @@ class TestManagementWarning:
         with pytest.raises(ValueError, match=message):
             parse_management_warning(wire)
 
-    def test_constructed_warning_omits_absent_members(self) -> None:
+    def test_absent_and_null_attr_are_equivalent(self) -> None:
         wire: ManagementWarningWire = {"code": "RULE_ORDER_CHANGES_TRAFFIC"}
-        assert serialize_management_warning(ManagementWarning(code="RULE_ORDER_CHANGES_TRAFFIC")) == wire
-        assert serialize_management_warning(ManagementWarning(code="RULE_ORDER_CHANGES_TRAFFIC", attr=None)) == {
-            **wire,
-            "attr": None,
-        }
+        warning = ManagementWarning(code="RULE_ORDER_CHANGES_TRAFFIC")
+        assert warning.attr is None
+        assert parse_management_warning(wire) == warning
+        assert parse_management_warning({**wire, "attr": None}) == warning
+        assert serialize_management_warning(warning) == wire
+        assert serialize_management_warning(ManagementWarning(code="RULE_ORDER_CHANGES_TRAFFIC", attr=None)) == wire
 
     @parameterized.expand(
         [

@@ -34,8 +34,9 @@ None of these carry a management warning code.
 ## Wire compatibility and detector ownership
 
 `ManagementWarning` requires `code` and permits optional `detail` and `attr` members.
-`detail` is presentation text; `attr` is a field string or explicit null.
-Parsing and serialization preserve an omitted member separately from `attr: null`.
+`detail` is presentation text; `attr` identifies a field when present.
+An omitted `attr` and `attr: null` both mean no field and parse as `None`.
+Serialization omits `attr` when it is `None`, so explicit null normalizes to an omitted member.
 
 The five codes are the complete `warning_codes` list of the harness registry at contract package 2.0.0 ([posthog-sdk-test-harness#57](https://github.com/PostHog/posthog-sdk-test-harness/pull/57), unreleased); the DTO rejects any other code.
 
