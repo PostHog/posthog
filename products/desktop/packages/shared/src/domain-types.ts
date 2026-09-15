@@ -742,6 +742,47 @@ export interface SignalReportChart {
   size?: SignalReportChartSize | null;
 }
 
+/** What a metric measures, independent of how its value is formatted. */
+export type SignalReportMetricKind =
+  | "affected_users"
+  | "affected_sessions"
+  | "occurrences"
+  | "conversion_rate"
+  | "error_rate"
+  | "duration"
+  | "revenue"
+  | "custom";
+
+export type SignalReportMetricRole = "primary" | "supporting";
+
+export type SignalReportMetricValueFormat =
+  | "number"
+  | "count"
+  | "percentage"
+  | "percentage_scaled"
+  | "duration"
+  | "currency";
+
+/**
+ * One measured impact on a report (`SignalReport.metrics` on the backend serializer).
+ * `value`/`value_at`/`series` are the latest saved snapshot, which the list response
+ * carries so a row needs no query. `query` is the live source of truth: it is absent
+ * on the list response and null on detail when the viewer cannot read the definition.
+ */
+export interface SignalReportMetric {
+  metric_id: string;
+  title: string;
+  kind: SignalReportMetricKind;
+  role?: SignalReportMetricRole;
+  value?: number | null;
+  value_at?: string | null;
+  series?: number[] | null;
+  value_format?: SignalReportMetricValueFormat;
+  unit?: string | null;
+  query?: unknown;
+  caption?: string | null;
+}
+
 export interface SignalReport {
   id: string;
   title: string | null;
@@ -785,6 +826,8 @@ export interface SignalReport {
   tracker_issue_error?: string | null;
   /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
   charts?: SignalReportChart[];
+  /** Typed impact measurements in display order; at most one is primary. */
+  metrics?: SignalReportMetric[];
   /** The report's PR refund, when one exists (one refund per report, ever). */
   refund?: SignalReportRefund | null;
   /** Marks reports that were never billable ("Free"), so there is nothing to refund. */

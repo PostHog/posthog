@@ -189,6 +189,14 @@ The shared renderer type for the report is `SignalReport` in `packages/shared/sr
 
 Report charts: `SignalReport.charts` carries scout-authored chart definitions (`chart_id`, `title`, `query`, `caption?`, `size?`). The desktop app renders them natively in the detail views: `packages/core/src/inbox/reportCharts.ts` classifies the stored query (runnable HogQL/trends vs saved-insight vs link-out fallback), `PostHogAPIClient.runQuery` executes runnable sources against `/api/projects/{teamId}/query/`, and `components/detail/ReportChartCard.tsx` draws the result with `@posthog/quill-charts`. Query kinds the app can't draw degrade to a card that links out to PostHog. Summary prose references charts as `[label](chart:<chart_id>)` links; `SignalReportSummaryMarkdown` turns those into in-page jumps to the chart card (plain text on list rows).
 
+Report metrics: `SignalReport.metrics` carries the typed impact measurements a scout made.
+Each one has a `metric_id`, `title`, `kind`, `role`, `value_format` and `unit`, the saved `value`/`value_at`/`series` snapshot, and — on the detail response only — the live `query`.
+`packages/core/src/inbox/reportMetrics.ts` owns the shared logic: which metric a row shows (`cardReportMetric`, mirroring the backend's own row-metric choice), how a value formats, how a trend reads, and how the stored query becomes the two executions a live value needs.
+A list row draws the snapshot through `ReportMetricStat`, and `ReportMetricSnapshotsProvider` re-measures the reports on screen in one bounded call to `POST /api/projects/{teamId}/signals/reports/refresh_metrics/` (`PostHogAPIClient.refreshSignalReportMetrics`, at most 20 ids, ready and pending-input reports only).
+The detail view runs each metric's query itself (`useReportMetricValue`: BoldNumber for the whole-window value, ActionsBar for the buckets, the same shapes the backend refresh runs), and falls back to the saved snapshot whenever that query is absent, redacted, unsupported or failing.
+A null value means "not measured for this viewer", never zero, so no surface may draw it as 0.
+The mobile host shares the same core helpers and shows the snapshots without running queries.
+
 PR refunds: `POST /api/projects/{teamId}/signals/reports/{id}/refund/` refunds a billed PR and archives the report (`PostHogAPIClient.refundSignalReport`). The action is gated behind the `signals-pr-refunds` flag (`SIGNALS_PR_REFUNDS_FLAG`) and `@posthog/core/inbox/refundEligibility`'s `computeRefundEligibility` (shared with the mobile host), which reads `implementation_pr_url`, `refund` (one `SignalReportRefund` per report, ever), `billing_exempt_reason`, and the backend-owned `refund_ineligibility_reason`. The server enforces the same rules, so the gate is display-only; `ReportDetailActions` shows no refund action when the report is ineligible.
 
 Card headlines are derived client-side from `summary` by `utils/reportPresentation.ts`; there is no backend headline field.

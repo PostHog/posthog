@@ -6,6 +6,7 @@ import { InboxScopeSelect } from "@posthog/ui/features/inbox/components/InboxSco
 import { ReportsInboxViewPresentation } from "@posthog/ui/features/inbox/components/ReportsInboxViewPresentation";
 import { useInboxSectionedReports } from "@posthog/ui/features/inbox/hooks/useInboxSectionedReports";
 import { useInboxTriageHotkey } from "@posthog/ui/features/inbox/hooks/useInboxTriageHotkey";
+import { ReportMetricSnapshotsProvider } from "@posthog/ui/features/inbox/hooks/useReportMetricSnapshots";
 import { useSelfDrivingSetupStatus } from "@posthog/ui/features/inbox/hooks/useSelfDrivingSetupStatus";
 import { useTrackReportsInboxViewed } from "@posthog/ui/features/inbox/hooks/useTrackReportsInboxViewed";
 import {
@@ -55,27 +56,29 @@ export function ReportsInboxView(): React.JSX.Element {
     !setupStatus.isConfigured;
 
   return (
-    <ReportsInboxViewPresentation
-      reports={inbox.reports}
-      triageReportCount={inbox.triageReportCount}
-      isLoading={inbox.isLoading || isAgentConfigurationLoading}
-      isFetchingNextPage={inbox.isFetchingNextPage}
-      hasNextPage={inbox.hasNextPage}
-      isError={inbox.isError}
-      isEmpty={inbox.isEmpty}
-      hasActiveFilters={hasActiveFilters}
-      showConfigureAgentsEmptyState={showConfigureAgentsEmptyState}
-      triageEnabled={triageEnabled}
-      filterControl={<InboxReportFilters />}
-      scopeControl={<InboxScopeSelect />}
-      renderReport={(report) => (
-        <InboxReportRow key={report.id} report={report} />
-      )}
-      onConfigureAgents={() => navigateToSettings("agents")}
-      onEnterTriage={() => void navigate({ to: INBOX_TRIAGE_ROUTE })}
-      onClearFilters={resetFilters}
-      onLoadMore={inbox.loadMore}
-      onRetry={inbox.retry}
-    />
+    <ReportMetricSnapshotsProvider reports={inbox.reports}>
+      <ReportsInboxViewPresentation
+        reports={inbox.reports}
+        triageReportCount={inbox.triageReportCount}
+        isLoading={inbox.isLoading || isAgentConfigurationLoading}
+        isFetchingNextPage={inbox.isFetchingNextPage}
+        hasNextPage={inbox.hasNextPage}
+        isError={inbox.isError}
+        isEmpty={inbox.isEmpty}
+        hasActiveFilters={hasActiveFilters}
+        showConfigureAgentsEmptyState={showConfigureAgentsEmptyState}
+        triageEnabled={triageEnabled}
+        filterControl={<InboxReportFilters />}
+        scopeControl={<InboxScopeSelect />}
+        renderReport={(report) => (
+          <InboxReportRow key={report.id} report={report} />
+        )}
+        onConfigureAgents={() => navigateToSettings("agents")}
+        onEnterTriage={() => void navigate({ to: INBOX_TRIAGE_ROUTE })}
+        onClearFilters={resetFilters}
+        onLoadMore={inbox.loadMore}
+        onRetry={inbox.retry}
+      />
+    </ReportMetricSnapshotsProvider>
   );
 }

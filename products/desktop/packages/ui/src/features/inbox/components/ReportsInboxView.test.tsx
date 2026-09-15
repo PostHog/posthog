@@ -148,6 +148,12 @@ vi.mock(
   }),
 );
 
+vi.mock("@posthog/ui/features/inbox/hooks/useReportMetricSnapshots", () => ({
+  ReportMetricSnapshotsProvider: ({ children }: { children: ReactNode }) =>
+    children,
+  useRefreshedReportMetrics: () => [],
+}));
+
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToSettings: mocks.navigateToSettings,
   navigateToInboxReportDetail: mocks.navigateToInboxReportDetail,
