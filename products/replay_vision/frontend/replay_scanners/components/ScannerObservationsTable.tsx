@@ -19,6 +19,7 @@ import { ObservationResultSummary, ObservationStatusTag } from '../../components
 import { ObservationRetryButton } from '../../components/ObservationRetryButton'
 import type { ReplayObservationApi } from '../../generated/api.schemas'
 import { observationDetailUrl } from '../../observations/replayObservationLogic'
+import { shortBackfillId } from '../../utils/backfills'
 import {
     OBSERVATIONS_PAGE_SIZE,
     ObservationStatusValue,
@@ -341,7 +342,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                         }}
                                         data-attr="vision-observations-backfill-filter"
                                     >
-                                        Backfill {observationBackfillFilter.slice(0, 8)}
+                                        Backfill {shortBackfillId(observationBackfillFilter)}
                                     </LemonButton>
                                 )}
                                 <LemonButton

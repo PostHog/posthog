@@ -233,6 +233,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let engine = Arc::new(Engine::new(
         storage.primary_pool.clone(),
         config.lifecycle_engine_config(),
+        config.tables(),
     ));
     if let Some(sweeper_handle) = sweeper_handle {
         let sweeper_merge_driver = MergeDriver::new(

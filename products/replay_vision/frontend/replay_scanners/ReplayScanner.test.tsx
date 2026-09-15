@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 
 import { useMocks } from '~/mocks/jest'
@@ -53,7 +53,10 @@ jest.mock('./components/ScannerAlertsTab', () => {
 })
 
 describe('ReplayScanner', () => {
+    let observationRequests: URLSearchParams[]
+
     beforeEach(() => {
+        observationRequests = []
         useMocks({
             get: {
                 '/api/projects/:team/vision/scanners/:id/': {
@@ -64,7 +67,10 @@ describe('ReplayScanner', () => {
                     sampling_rate: 1,
                     enabled: true,
                 },
-                '/api/projects/:team/vision/scanners/:id/observations/': { results: [], count: 0 },
+                '/api/projects/:team/vision/scanners/:id/observations/': ({ request }) => {
+                    observationRequests.push(new URL(request.url).searchParams)
+                    return [200, { results: [], count: 0 }]
+                },
                 '/api/projects/:team/vision/scanners/:id/observations/stats/': {
                     status_counts: { total: 0, succeeded: 0, failed: 0, ineligible: 0, in_flight: 0 },
                     coverage: { recent_sessions: 0, total_sessions: 0, recent_days: 14 },
@@ -86,6 +92,15 @@ describe('ReplayScanner', () => {
         expect(mockImportedTabs).toEqual([])
         const logic = replayScannerLogic({ id: 'scanner-example' })
         expect(logic.values.observationsActive).toBe(false)
+
+        const backfillId = '12345678-1234-4000-8000-123456789abc'
+        act(() => {
+            router.actions.push('/replay-vision/scanner-example', { tab: 'observations', backfill_id: backfillId })
+        })
+        await screen.findByText('Backfill 12345678')
+        await waitFor(() => expect(observationRequests).toHaveLength(1))
+        expect(observationRequests[0].get('backfill_id')).toBe(backfillId)
+        expect(mockImportedTabs).toEqual([])
 
         const tabs = ['Search', 'On-demand', 'Backfills', 'Configuration', 'Calibration', 'Scouts', 'Alerts']
         for (const [index, tab] of tabs.entries()) {

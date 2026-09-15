@@ -9,7 +9,6 @@ function report(id: string, overrides: Partial<SignalReport>): SignalReport {
         status: SignalReportStatus.READY,
         total_weight: 0,
         signal_count: 1,
-        relevant_user_count: null,
         artefact_count: 0,
         is_suggested_reviewer: false,
         priority: 'P2',

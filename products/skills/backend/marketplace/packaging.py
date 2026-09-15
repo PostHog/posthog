@@ -87,12 +87,15 @@ def _key_sorted(value: Any) -> Any:
     return value
 
 
-def render_frontmatter(skill: SkillExport) -> str:
-    """Serialize a skill's spec fields as a YAML frontmatter block (with delimiters).
+def frontmatter_document(skill: SkillExport) -> dict[str, object]:
+    """The skill's spec fields as a plain mapping, in the order the frontmatter block writes them.
 
     Maps storage shape -> spec shape: ``allowed_tools`` (list) becomes the spec's
     hyphenated, space-separated ``allowed-tools`` string, and the platform ``version``
     is parked under ``metadata`` since the spec defines no top-level version field.
+
+    A caller that serves the frontmatter as JSON shares this helper with ``render_frontmatter``,
+    so the JSON and the rendered block cannot drift apart.
     """
     document: dict[str, object] = {"name": skill.name, "description": skill.description}
     if skill.license:
@@ -114,7 +117,12 @@ def render_frontmatter(skill: SkillExport) -> str:
     if skill.allowed_tools:
         document["allowed-tools"] = " ".join(skill.allowed_tools)
 
-    body = yaml.safe_dump(document, sort_keys=False, allow_unicode=True, default_flow_style=False)
+    return document
+
+
+def render_frontmatter(skill: SkillExport) -> str:
+    """Serialize a skill's spec fields as a YAML frontmatter block (with delimiters)."""
+    body = yaml.safe_dump(frontmatter_document(skill), sort_keys=False, allow_unicode=True, default_flow_style=False)
     return f"---\n{body}---\n"
 
 
@@ -169,18 +177,6 @@ def render_skill_stub_md(stub: SkillStub) -> str:
 def build_skill_stub_tree(stub: SkillStub) -> FileTree:
     """A one-file skill directory whose SKILL.md tells the agent to fetch the real skill over MCP."""
     return {"SKILL.md": render_skill_stub_md(stub)}
-
-
-def validate_for_export(skill: SkillExport) -> list[str]:
-    """Return spec-compliance problems that should block or warn on export. Empty == clean."""
-    problems: list[str] = []
-    if len(skill.description) > SPEC_DESCRIPTION_MAX_LENGTH:
-        problems.append(
-            f"description is {len(skill.description)} characters; the spec maximum is {SPEC_DESCRIPTION_MAX_LENGTH}"
-        )
-    if not skill.description.strip():
-        problems.append("description is required and must be non-empty")
-    return problems
 
 
 # OpenAI Codex reads this optional sidecar for UI metadata + tool deps; every other agent
@@ -373,17 +369,9 @@ def _read_zip_text(archive: zipfile.ZipFile, member: str, label: str) -> str:
         raise SkillImportError(f"'{label}' must be UTF-8 text; binary files are not supported.")
 
 
-def compute_plugin_version(latest_change_epoch_millis: int) -> str:
-    """Content-derived, monotonic plugin version so auto-update fires on any change.
-
-    Keyed off the most recent change time (in epoch milliseconds) across all of a team's skill
-    rows (see ``adapters._team_plugin_version``): publishes and file edits add/refresh a row's
-    ``updated_at``, and archive bumps it too, so this advances on every change and never
-    regresses. Millisecond resolution keeps two edits within the same second distinct. Whether
-    Claude Code re-pulls on any version *difference* vs. strictly-greater is the open question
-    the auto-update spike answers — this scheme is safe for either.
-    """
-    return f"1.0.{latest_change_epoch_millis}"
+def compute_plugin_version(latest_change_epoch_microseconds: int) -> str:
+    """Use full timestamp precision so updates within one millisecond have distinct versions."""
+    return f"1.0.{latest_change_epoch_microseconds}"
 
 
 def build_marketplace_tree(
