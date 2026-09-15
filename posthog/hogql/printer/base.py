@@ -22,7 +22,7 @@ from posthog.hogql.database.models import DatabaseField, FunctionCallTable, Tabl
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import escape_hogql_identifier, escape_hogql_string
 from posthog.hogql.functions import find_hogql_aggregation, find_hogql_function, find_hogql_posthog_function
-from posthog.hogql.functions.core import HogQLFunctionMeta, validate_function_args
+from posthog.hogql.functions.core import validate_function_args
 from posthog.hogql.functions.mapping import (
     ALL_EXPOSED_FUNCTION_NAMES,
     HOGQL_COMPARISON_MAPPING,
@@ -82,12 +82,6 @@ class BasePrinter(Visitor[str]):
         self.tab_size = 4
         self._table_top_level_settings: dict[str, Any] = {}
         self._placeholder_macro_expansion_depth = 0
-
-    def _find_aggregation(self, name: str) -> HogQLFunctionMeta | None:
-        return find_hogql_aggregation(name)
-
-    def _find_function(self, name: str) -> HogQLFunctionMeta | None:
-        return find_hogql_function(name)
 
     def indent(self, extra: int = 0):
         return " " * self.tab_size * (self._indent + extra)
@@ -998,8 +992,8 @@ class BasePrinter(Visitor[str]):
 
     def visit_call(self, node: ast.Call):
         func_meta = (
-            self._find_aggregation(node.name)
-            or self._find_function(node.name)
+            find_hogql_aggregation(node.name)
+            or find_hogql_function(node.name)
             or find_hogql_posthog_function(node.name)
         )
 
@@ -1051,7 +1045,7 @@ class BasePrinter(Visitor[str]):
                     op=op,
                 )
             )
-        elif func_meta := self._find_aggregation(node.name):
+        elif func_meta := find_hogql_aggregation(node.name):
             if func_meta.requires_within_group and node.within_group is None:
                 raise QueryError(f"Aggregation '{node.name}' requires WITHIN GROUP")
             self._validate_within_group_for_aggregation(node, func_meta)
@@ -1079,7 +1073,7 @@ class BasePrinter(Visitor[str]):
             for stack_node in reversed(self.stack):
                 if isinstance(stack_node, ast.SelectQuery):
                     break
-                if stack_node != node and isinstance(stack_node, ast.Call) and self._find_aggregation(stack_node.name):
+                if stack_node != node and isinstance(stack_node, ast.Call) and find_hogql_aggregation(stack_node.name):
                     raise QueryError(
                         f"Aggregation '{node.name}' cannot be nested inside another aggregation '{stack_node.name}'."
                     )
@@ -1109,7 +1103,7 @@ class BasePrinter(Visitor[str]):
                 f"{self._render_aggregation_name(node, func_meta)}{params_part}{args_part}{within_group}{filter_part}"
             )
 
-        elif func_meta := self._find_function(node.name):
+        elif func_meta := find_hogql_function(node.name):
             validate_function_args(
                 node.args,
                 func_meta.min_args,

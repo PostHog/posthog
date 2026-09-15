@@ -490,7 +490,8 @@ ClickHouse and the other dialects retain their existing type inference.
 Trino's weighted median takes a value and weight, and its `If` form also takes a condition.
 Trino's `quantiles` and `quantilesIf` take percentile parameters separately from value arguments.
 Trino's `ifNotFinite` takes the value and its replacement.
-Manifest compilation with `include_hogql=True` uses Trino resolution and function signatures for the diagnostic HogQL and column names.
+Manifest compilation with `include_hogql=True` uses Trino resolution and preserves function-call syntax in the diagnostic HogQL and column names.
+The Trino compiler validates function support and arguments; diagnostic rendering does not consult the ClickHouse registry.
 Enabling these diagnostics preserves the generated Trino SQL and bound values.
 Saved-query table metadata is captured eagerly only for Trino's detached compilation; other dialects retain lazy lookup and explicit missing-database errors.
 

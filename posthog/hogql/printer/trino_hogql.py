@@ -1,26 +1,22 @@
-from dataclasses import replace
-
-from posthog.hogql.functions.core import HogQLFunctionMeta
+from posthog.hogql import ast
 from posthog.hogql.printer.hogql import HogQLPrinter
 
 
 class TrinoHogQLPrinter(HogQLPrinter):
-    # Trino's inferred column names need HogQL spelling with Trino's accepted signatures.
-    def _find_aggregation(self, name: str) -> HogQLFunctionMeta | None:
-        meta = super()._find_aggregation(name)
-        if meta is None:
-            return None
-        if name == "medianExactWeighted":
-            return replace(meta, min_args=2, max_args=2)
-        if name == "medianExactWeightedIf":
-            return replace(meta, min_args=3, max_args=3)
-        if name in {"quantiles", "quantilesIf"}:
-            count = 2 if name.endswith("If") else 1
-            return replace(meta, min_args=count, max_args=count, min_params=1, max_params=None)
-        return meta
-
-    def _find_function(self, name: str) -> HogQLFunctionMeta | None:
-        meta = super()._find_function(name)
-        if meta is not None and name == "ifNotFinite":
-            return replace(meta, min_args=2, max_args=2)
-        return meta
+    def visit_call(self, node: ast.Call) -> str:
+        # Diagnostics and inferred names must accept Trino syntax; the Trino compiler validates the calls.
+        params = f"({', '.join(self.visit(param) for param in node.params)})" if node.params is not None else ""
+        order_by = f" ORDER BY {', '.join(self.visit(expr) for expr in node.order_by)}" if node.order_by else ""
+        args_body = f"{'DISTINCT ' if node.distinct else ''}{', '.join(self.visit(arg) for arg in node.args)}{order_by}"
+        args = (
+            ""
+            if node.within_group is not None and not node.args and not node.distinct and not node.order_by
+            else f"({args_body})"
+        )
+        within_group = (
+            f" WITHIN GROUP (ORDER BY {', '.join(self.visit(expr) for expr in node.within_group)})"
+            if node.within_group
+            else ""
+        )
+        filter_part = f" FILTER (WHERE {self.visit(node.filter_expr)})" if node.filter_expr else ""
+        return f"{node.name}{params}{args}{within_group}{filter_part}"
