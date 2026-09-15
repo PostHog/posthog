@@ -7496,6 +7496,10 @@ snapshots:
         hash: v1.k794b7964.c5861b175d342db52fea2665ce0e7fb957ccc6b3b26f57f75a3ef402d021d293.hVYlxFiBOoeoyiY3YjznW61SDRRFFdtyI2GKBFAPKB8
     scenes-app-engineering-analytics-workflows--workflow-list-scoped-to-merge-queue--light:
         hash: v1.k794b7964.81034f96a01d79a233f8293715962f309d39be65d6a41683a1c18ddfd1c100f6.Wv2sRm7umnWkCm2J-G71MT5c_2yKa4sRdlzIgOqOc6M
+    scenes-app-error-project-access-denied--default--dark:
+        hash: v1.k794b7964.6d58f8cb9ef390270f74ef07d5104b7f42d70bb51ca35f3fdb6556bab46581ce.GP8NrKkdhrAlKBIiXl3b5ydJgg0KsSjEWj1UHG2muTo
+    scenes-app-error-project-access-denied--default--light:
+        hash: v1.k794b7964.ee17782476b4edf595d41079265e08ab682437c139a7121f6e66754d9df7688a.V-welVxF6fbpF4UwH8H38xQFWXaRiBBYRbQCEDD8JMM
     scenes-app-error-project-unavailable--access-revoked--dark:
         hash: v1.k794b7964.30ace8f015100159e1dedbed07ff9f0b0b770535870d5c98ea764b10ff1f7621.dTVw9qLa7D_e7ZNme4tVuPZov-0Gg1o84aiDl5zihF0
     scenes-app-error-project-unavailable--access-revoked--light:
