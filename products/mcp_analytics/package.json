@@ -10,7 +10,8 @@
         "@posthog/quill-primitives": "workspace:*",
         "kea": "catalog:",
         "kea-loaders": "catalog:",
-        "kea-router": "catalog:"
+        "kea-router": "catalog:",
+        "posthog-js": "catalog:"
     },
     "devDependencies": {
         "kea-test-utils": "catalog:"

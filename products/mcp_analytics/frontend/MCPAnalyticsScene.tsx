@@ -3,7 +3,6 @@ import { router, combineUrl } from 'kea-router'
 
 import { LemonButton, LemonTab, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
-import { FeedbackSurveyButton } from 'lib/components/FeedbackSurveyButton/FeedbackSurveyButton'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -37,7 +36,6 @@ export const scene: SceneExport = {
 }
 
 const MCP_DOCS_URL = 'https://posthog.com/docs/mcp-analytics/installation'
-const MCP_ANALYTICS_FEEDBACK_SURVEY_ID = '01a04991-bc80-0000-70c5-beeea0553cd0'
 
 export function MCPAnalyticsScene(): JSX.Element {
     return (
@@ -141,14 +139,14 @@ function MCPAnalyticsSceneContent(): JSX.Element {
                 resourceType={{ type: 'mcp_analytics' }}
                 actions={
                     <>
-                        <FeedbackSurveyButton
-                            surveyId={MCP_ANALYTICS_FEEDBACK_SURVEY_ID}
-                            properties={{
-                                feedback_surface: 'mcp_analytics',
-                                mcp_analytics_tab: activeTab,
-                            }}
+                        <LemonButton
+                            id="mcp-analytics-feedback-button"
                             data-attr="mcp-analytics-feedback-button"
-                        />
+                            size="small"
+                            tooltip="Have any questions or feedback?"
+                        >
+                            Feedback
+                        </LemonButton>
                         <LemonButton to={MCP_DOCS_URL} type="secondary" targetBlank size="small">
                             Documentation
                         </LemonButton>
