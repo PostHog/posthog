@@ -179,6 +179,23 @@ describe('onboardingLogic — flow composition', () => {
             expect(installs[0].dedupKey).toBe(INSTALL_DEDUP_KEYS.POSTHOG_JS)
         })
 
+        it('keeps the error tracking install step as the survivor when its wizard flag is on (PA primary + ET secondary)', () => {
+            // The dedicated wizard command also installs the SDK, so error tracking's step must
+            // win the shared install and still credit the dropped primary.
+            featureFlagLogic.findMounted()?.actions.setFeatureFlags([FEATURE_FLAGS.ERROR_TRACKING_NEW_WIZARD], {
+                [FEATURE_FLAGS.ERROR_TRACKING_NEW_WIZARD]: true,
+            })
+            logic.actions.setProductKey(ProductKey.PRODUCT_ANALYTICS)
+            logic.actions.setSecondaryProductKeys([ProductKey.ERROR_TRACKING])
+
+            const installs = logic.values.flow.filter((s) => s.stepKey === OnboardingStepKey.INSTALL)
+            expect(installs).toHaveLength(1)
+            expect(installs[0].id).toBe('install:error_tracking')
+            expect(installs[0].role).toBe('primary')
+            expect(installs[0].additionalProductKeys).toEqual([ProductKey.ERROR_TRACKING, ProductKey.PRODUCT_ANALYTICS])
+            expect(installs[0].additionalSetupTaskIds).toEqual([SetupTaskId.IngestFirstEvent])
+        })
+
         it('does not attach extras when only the primary contributes (no other products in dedup group)', () => {
             // PA alone has dedupKey POSTHOG_JS but no other posthog-js product to merge with.
             // Survivor should NOT carry additionalProductKeys / additionalSetupTaskIds since

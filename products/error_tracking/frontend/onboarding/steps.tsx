@@ -37,6 +37,10 @@ export const errorTrackingOnboarding: ProductOnboardingProvider = {
             // `EnableErrorTracking` task still gets ticked because the dedup pass merges
             // setupTaskIds from dropped descriptors into the survivor.
             dedupKey: INSTALL_DEDUP_KEYS.POSTHOG_JS,
+            // The dedicated wizard command installs the SDK before it sets up error tracking, so it
+            // covers the shared posthog-js install: this step must survive dedup even when error
+            // tracking is a secondary product, or the flagged command never shows.
+            dedupPriority: wizardOverrides ? 1 : 0,
             render: () => (
                 <OnboardingInstallStep
                     sdkInstructionMap={ErrorTrackingSDKInstructions}
