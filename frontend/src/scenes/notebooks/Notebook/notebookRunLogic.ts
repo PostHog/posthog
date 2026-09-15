@@ -203,6 +203,9 @@ export const notebookRunLogic = kea<notebookRunLogicType>([
                 cache.startedAt = performance.now()
                 try {
                     const started = await notebooksRunsCreate(teamId(), props.shortId, {})
+                    // The only place this id exists before the first poll, and `startRun`
+                    // cleared the previous run, so without it every poll asks for /runs/undefined/.
+                    cache.runId = started.run_id
                     posthog.capture(...buildNotebookRunStartedEvent(props.shortId, started.cell_count))
                     if (started.starts_sandbox) {
                         // The backend decides this at dispatch, so it is the only accurate source.
