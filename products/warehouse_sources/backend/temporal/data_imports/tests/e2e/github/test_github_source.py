@@ -459,13 +459,13 @@ class TestValidateCredentials:
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session"
         ) as mock_get:
-            mock_response = mock.MagicMock(status_code=403)
-            mock_response.json.return_value = {"message": "API rate limit exceeded"}
+            mock_response = mock.MagicMock(status_code=403, headers={}, text="Resource not accessible by integration")
+            mock_response.json.return_value = {"message": "Resource not accessible by integration"}
             mock_get.return_value.request.return_value = mock_response
             valid, error = validate_credentials("token", "owner/repo")
 
         assert valid is False
-        assert error == "API rate limit exceeded"
+        assert error == "Resource not accessible by integration"
 
     def test_request_exception(self) -> None:
         with mock.patch(
@@ -1769,6 +1769,38 @@ class TestGithubWebhookSource:
             return_value=session,
         ):
             result = update_repo_webhook("tok", "owner/repo", webhook_url, ["pull_request_review"])
+
+        assert result.success is False
+        assert result.error is not None
+        assert "rate limit" in result.error
+        assert "admin:repo_hook" not in result.error
+
+    @parameterized.expand(
+        [
+            ("create", [], "post_response", "create_webhook"),
+            (
+                "delete",
+                [{"id": 42, "config": {"url": "https://app.posthog.com/webhook"}}],
+                "delete_response",
+                "delete_webhook",
+            ),
+        ]
+    )
+    def test_webhook_write_rate_limit_is_not_a_permission_error(
+        self, _name: str, hooks: list[dict[str, Any]], write_response: str, method: str
+    ) -> None:
+        # The listing succeeds but the write itself is rate limited; reading that 403 as a missing
+        # admin:repo_hook grant would send the user off to rotate a token that is fine.
+        rate_limited = _make_response(status=403, body={"message": "API rate limit exceeded"})
+        rate_limited.headers = {"x-ratelimit-remaining": "0"}
+        rate_limited.text = "API rate limit exceeded"
+        session = self._hook_session(_make_response(status=200, body=hooks), **{write_response: rate_limited})
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session",
+            return_value=session,
+        ):
+            result = getattr(self.source, method)(_pat_config(), "https://app.posthog.com/webhook", team_id=1)
 
         assert result.success is False
         assert result.error is not None

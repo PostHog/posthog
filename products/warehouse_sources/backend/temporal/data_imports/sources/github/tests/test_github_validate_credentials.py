@@ -88,3 +88,21 @@ def test_repository_url_is_read_as_owner_repo(repository):
 
     assert (is_valid, message) == (True, None)
     assert session.request.call_args.args[1].endswith("/repos/owner/repo")
+
+
+@pytest.mark.parametrize(
+    "status_code,headers",
+    [
+        (429, {}),  # secondary rate limit
+        (403, {"x-ratelimit-remaining": "0"}),  # primary limit exhausted
+    ],
+)
+def test_rate_limit_is_not_read_as_a_credential_problem(status_code, headers):
+    # A throttled validation must tell the user to retry, not surface the 403 or 429 as if the
+    # token or repository were wrong.
+    response = _response(status_code, json_body={"message": "API rate limit exceeded"})
+    response.headers = headers
+    is_valid, message = _validate_with(response)
+    assert is_valid is False
+    assert message is not None
+    assert "retry" in message

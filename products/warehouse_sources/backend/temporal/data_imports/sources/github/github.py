@@ -416,6 +416,7 @@ def validate_credentials(
             timeout=10,
             session=make_tracked_session(),
         )
+        raise_if_github_rate_limited(response)
 
         if response.status_code == 200:
             return True, None
@@ -442,7 +443,7 @@ def validate_credentials(
             False,
             f"GitHub rejected the request (status {response.status_code}). Please check your token and repository access.",
         )
-    except GitHubEgressBudgetExhausted:
+    except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
         return False, "GitHub rate limit reached while validating the repository; please retry shortly."
     except requests.exceptions.RequestException as e:
         return False, str(e)
