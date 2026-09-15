@@ -526,7 +526,7 @@ describe('RecordingService', () => {
             )
         })
 
-        it('excludes already_deleted sessions from postgres batch', async () => {
+        it('still cleans up derived data for an already_deleted session', async () => {
             mockKeyStore.deleteKey
                 .mockResolvedValueOnce({ status: 'deleted', deletedAt: 1700000000, deletedBy: 'test@example.com' })
                 .mockResolvedValueOnce({
@@ -539,10 +539,12 @@ describe('RecordingService', () => {
 
             // 4 DELETE statements + 1 asset expiry UPDATE + 1 activity log INSERT
             expect(mockPostgres.query).toHaveBeenCalledTimes(6)
+            // Cleanup is best-effort, so a shred that already happened still gets another pass;
+            // otherwise a failed one is never retried.
             expect(mockPostgres.query).toHaveBeenCalledWith(
                 expect.anything(),
                 expect.stringContaining('ee_single_session_summary'),
-                [1, ['new-session']],
+                [1, ['new-session', 'already-deleted-session']],
                 'deleteSessionSummaries'
             )
         })
@@ -613,7 +615,19 @@ describe('RecordingService', () => {
 
             await service.deleteRecordings(['session-1'], 1, 'test@example.com')
 
-            expect(mockPostgres.query).not.toHaveBeenCalled()
+            expect(mockPostgres.query).not.toHaveBeenCalledWith(
+                expect.anything(),
+                expect.stringContaining('posthog_activitylog'),
+                expect.anything(),
+                'logRecordingDeletion'
+            )
+            // The shred is not repeated, but its derived data still gets a cleanup pass.
+            expect(mockPostgres.query).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.stringContaining('replay_vision_replayobservation'),
+                [1, ['session-1']],
+                'deleteReplayVisionObservations'
+            )
         })
 
         it('reports success when logActivity fails after shred', async () => {

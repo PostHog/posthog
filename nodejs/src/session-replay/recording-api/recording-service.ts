@@ -321,6 +321,10 @@ export class RecordingService {
 
         await this.propagateDeletion(
             deleted.map((r) => r.sessionId),
+            // A shred that already happened still gets its derived data cleaned up. Cleanup is
+            // best-effort, so without this a failed pass is never retried: the next delete of the
+            // same recording reports already_deleted and skips it.
+            [...deleted, ...alreadyDeleted].map((r) => r.sessionId),
             teamId,
             deletedBy
         )
@@ -353,13 +357,18 @@ export class RecordingService {
      * Failures are non-fatal — the key shred already makes the recording unplayable (410).
      * Stale metadata from failed propagation is harmless but won't be automatically cleaned up.
      */
-    private async propagateDeletion(sessionIds: string[], teamId: number, deletedBy: string): Promise<void> {
-        if (sessionIds.length === 0) {
+    private async propagateDeletion(
+        sessionIds: string[],
+        cleanupSessionIds: string[],
+        teamId: number,
+        deletedBy: string
+    ): Promise<void> {
+        if (sessionIds.length === 0 && cleanupSessionIds.length === 0) {
             return
         }
         const [kafka, postgres, activity] = await Promise.allSettled([
             this.emitDeletionEvents(sessionIds, teamId),
-            this.deletePostgresRecords(sessionIds, teamId),
+            this.deletePostgresRecords(cleanupSessionIds, teamId),
             this.logActivity(sessionIds, teamId, deletedBy),
         ])
         if (kafka.status === 'rejected') {
