@@ -25,3 +25,7 @@ The counter is `vapi_api_requests_total`, labeled `scope, method, endpoint, stat
 ## Auth
 
 `VAPI_PUBLIC_KEY`, sent as a bearer token.
+
+## Sources
+
+- [Call concurrency](https://docs.vapi.ai/calls/call-concurrency): concurrent call slots. Vapi's docs state no REST request limit.

@@ -7,7 +7,7 @@ The whole instance draws from one budget under the key `firecrawl:account:defaul
 
 ## Budget
 
-Firecrawl's per-plan limits are not discoverable from the running process, so the budget is an operator ceiling on spend, read from settings at acquire time:
+Firecrawl publishes per-minute limits by plan for `/scrape` and `/search`, but the running process cannot tell which plan its key is on, so the budget is an operator ceiling on spend, read from settings at acquire time:
 
 - `FIRECRAWL_EGRESS_PER_MINUTE_BUDGET` (default 60) smooths a burst of concurrent callers.
 - `FIRECRAWL_EGRESS_HOURLY_BUDGET` (default 1,000) caps what a runaway caller can spend before anyone notices.
@@ -25,9 +25,9 @@ Nothing in this domain runs `CRITICAL`, because what gets scraped comes from use
 
 ## Rate-limit headers
 
-When a response carries `X-RateLimit-Remaining` and `X-RateLimit-Limit`, they feed the `firecrawl_api_rate_limit_{remaining,limit}` gauges, with the endpoint path as `resource`, because Firecrawl meters each endpoint separately.
-The reset header is not recorded, because Firecrawl does not document whether it is an epoch or a number of seconds.
-The counter is `firecrawl_api_requests_total`.
+Firecrawl documents no rate-limit status headers, so the domain declares no gauges.
+A 429 carries `Retry-After`, and the caller owns the retry.
+The counter is `firecrawl_api_requests_total`, labeled `account, method, endpoint, status_code, source`.
 
 ## Auth
 
@@ -42,3 +42,9 @@ It raises `FirecrawlScrapeFailed` when Firecrawl answers with anything but a suc
 `search(query, source=...)` returns a `FirecrawlSearch` of web results and raises `FirecrawlSearchFailed` on the same conditions.
 It rejects a `limit` above `MAX_SEARCH_LIMIT` or a query above `MAX_SEARCH_QUERY_CHARS` before any call.
 Only `POST /v2/scrape` and `POST /v2/search` are wired up.
+
+## Sources
+
+- [Rate limits](https://docs.firecrawl.dev/rate-limits): per-minute limits by plan for `/scrape` and `/search`.
+- [Errors](https://docs.firecrawl.dev/api-reference/errors): `Retry-After` on a 429, and no rate-limit status headers.
+- [Billing](https://docs.firecrawl.dev/billing): one credit per scrape, two credits per ten search results.

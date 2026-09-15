@@ -39,6 +39,17 @@ Take each answer from the vendor's documentation or from production traffic, nev
 3. **Lanes.** Keep the default reserve: `BATCH` is denied at 70% of a window, `NORMAL` at 90%. Pass `reserve={}` only when every caller runs on one lane, say why in the limiter docstring, and add the domain to `_FLAT_DOMAINS` in `posthog/egress/test/test_domains.py`. Give every caller an explicit lane: a person waiting gets `NORMAL`, background work gets `BATCH`. A call built from user-controlled input never runs `CRITICAL`, because `CRITICAL` is never shed.
 4. **Headers.** Parse only the rate-limit headers the vendor documents, and declare a gauge only for those. A header with an undocumented encoding (epoch or seconds) gets no gauge.
 
+## Source every vendor fact
+
+A limit, a cost, a quota, a header name, or a claim that a header is absent is a vendor fact.
+Each one goes into the domain `README.md` with its evidence under `## Sources`. `test_domains.py` fails a README without that section.
+
+- **Cite the vendor's own page.** A PR description, a sibling domain, a code comment, a blog post, or a search-result summary is not a source. Open the page it points at and cite that.
+- **Render docs that need JavaScript.** WebFetch returns an empty shell for a single-page docs site and can get a 429. Open the page in a headless browser (the Playwright MCP) or fetch the site's `llms-full.txt`. A docs site that renders nothing is not proof that the vendor documents nothing.
+- **Write "unverified" when no source loads.** Never turn an unchecked fact into a confident sentence.
+- **Check the gauges after the first deploy.** Query the domain's rate-limit gauges once the domain has traffic. An empty gauge means the headers do not reach PostHog, even when the docs say they do.
+- **Rule out your own code before you blame the vendor.** Before you write that a header does not arrive, confirm three things: the recorder passes a scope, the parser reads the documented name, and the process exports other gauges.
+
 ## Build a new domain
 
 Work through "Adding a new egress domain" in the egress README.
@@ -46,8 +57,8 @@ Copy the closest reference domain for the file layout:
 
 | Shape                                | Reference                        |
 | ------------------------------------ | -------------------------------- |
-| Sync, gated, with rate-limit headers | `posthog/egress/firecrawl/`      |
-| Sync, gated, no rate-limit headers   | `posthog/egress/logodev/`        |
+| Sync, gated, with rate-limit headers | `posthog/egress/github/`         |
+| Sync, gated, no rate-limit headers   | `posthog/egress/firecrawl/`      |
 | Record-only, secret identity         | `posthog/egress/vapi/`           |
 | Async (aiohttp)                      | `posthog/egress/harmonic/`       |
 | Vendor SDK                           | `posthog/egress/slack/client.py` |
@@ -86,7 +97,8 @@ These do not:
 - **A fake gate.** `CRITICAL` plus a huge budget, or `_consume` that always returns `True`. Use `RecordedEgressClient` instead.
 - **A missing scope.** A scope of `None` or `""` skips the gate. A single-account domain passes a constant scope such as `"default"`, or every call goes through ungated.
 - **The base lane.** `EgressClient.request` defaults to `CRITICAL`. The `<domain>_request` helper sets its own sheddable default.
-- **Header names guessed from another vendor.**
+- **Header names guessed from another vendor.** Firecrawl shipped gauges for GitHub-style `X-RateLimit-*` names that Firecrawl never documented, and they never recorded a value.
+- **A vendor fact copied from a PR description.** Open the vendor page, even when the page needs a browser to render.
 - **A caller from an unmerged PR documented as if it exists.**
 - **A domain added as a side effect of a product PR, with no README.** `test_domains.py` fails it. Write the README rather than skipping the test.
 - **Position words and hand-kept lists in docs** ("like the two above", "the second domain"). They break when the next domain lands.

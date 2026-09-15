@@ -81,3 +81,8 @@ The headers are already on the response, so it needs no request restructuring, b
 
 The cache-hit counter in `github_integration_base` is a separate concern (which rows are reading a warm cache) and legitimately keys by the integration row, not by the installation. It is not egress-budget telemetry.
 The caches it counts are installation-scoped, so a row can record a hit on an entry another row on the same installation filled.
+
+## Sources
+
+- [Rate limits for the REST API](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api): installation limits and the `x-ratelimit-*` headers.
+- [Search](https://docs.github.com/en/rest/search/search): the search and code search limits per minute.

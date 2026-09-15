@@ -11,6 +11,7 @@ The hash keeps the token out of the metric label.
 ## Budget
 
 Browserless meters **concurrent sessions**, not requests, and a session is held for the whole page load: a few seconds for a screenshot, tens of seconds for a Lighthouse audit.
+A load over the concurrency limit waits in a queue, and a load that finds the queue full gets a 429.
 So the budget counts browser loads asked of one fleet, and the ceilings are small next to an API budget:
 
 - `BROWSERLESS_EGRESS_PER_MINUTE_BUDGET` (default 120)
@@ -25,7 +26,7 @@ A denied call raises `BrowserlessEgressBudgetExhausted`; the heatmap caller maps
 
 ## Rate-limit headers
 
-Browserless publishes none.
+Browserless documents none, and a live response from the hosted fleet carries no `X-RateLimit-*` and no `Retry-After`.
 Its `X-Response-*` headers describe the page it fetched, not the API's budget, so the domain declares no gauges.
 The counter is `browserless_requests_total`, labeled `scope, method, endpoint, status_code, source`.
 
@@ -33,3 +34,8 @@ The counter is `browserless_requests_total`, labeled `scope, method, endpoint, s
 
 The token stays in the URL's query string, because Browserless REST routes do not accept an `Authorization` header.
 `browserless_request` also takes the token separately, so the fleet can be fingerprinted without parsing the URL.
+
+## Sources
+
+- [Built-in queueing system](https://docs.browserless.io/enterprise/long-queues): the concurrency limit, the queue, and the 429 when the queue is full.
+- [#92939](https://github.com/PostHog/posthog/pull/92939): a live hosted-fleet response with no rate-limit headers.

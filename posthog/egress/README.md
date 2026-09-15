@@ -162,7 +162,7 @@ The `/routing-outbound-api-calls` agent skill names the reference domain to copy
 3. **For a gated domain, add `limiter.py`.** Register a policy (usually `per_minute_and_hourly_policy`) and a thin gate that builds the `{domain}:{scope}:{id}` key. Keep the default reserve unless no higher lane exists; a flat policy needs a docstring reason and an entry in `test/test_domains.py`.
 4. **Add `observability.py`** with one `EgressObservability` and the domain's metric names. Declare a gauge and parse a header only when the API documents it.
 5. **Add `transport.py`** with the client subclass and a `<domain>_request` helper.
-6. **Add `README.md`** with the sections the other domains use: Identity, Budget, Lanes and callers, Rate-limit headers, Auth. `test/test_domains.py` fails without it.
+6. **Add `README.md`** with the sections the other domains use: Identity, Budget, Lanes and callers, Rate-limit headers, Auth, Sources. Sources links the vendor page behind each limit, cost, and header claim. `test/test_domains.py` fails without the README or its Sources section.
 7. **Test the real policy** for any claim about which lane sheds first. A test that patches the gate cannot see a missing reserve.
 
 Keep the subpackage free of `posthog.models` imports, and remember the limiter is non-blocking: the caller owns the back-off.

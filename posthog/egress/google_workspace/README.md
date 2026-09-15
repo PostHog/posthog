@@ -34,3 +34,9 @@ The counter is `google_workspace_api_requests_total`, labeled `scope, method, en
 ## Auth
 
 The caller passes the account's OAuth access token, sent as a bearer token.
+
+## Sources
+
+- [Gmail usage limits](https://developers.google.com/workspace/gmail/api/reference/quota): quota units per user and per method.
+- [Calendar quotas](https://developers.google.com/workspace/calendar/api/guides/quota): requests per user per minute.
+- [Gmail errors](https://developers.google.com/workspace/gmail/api/guides/handle-errors): quota errors in the response body.

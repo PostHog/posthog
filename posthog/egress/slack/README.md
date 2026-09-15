@@ -34,3 +34,7 @@ The counter is `slack_api_requests_total`, labeled `workspace_id, method, endpoi
 ## Auth
 
 The caller passes its bot or user token.
+
+## Sources
+
+- [Web API rate limits](https://docs.slack.dev/apis/web-api/rate-limits): limits per method and workspace, the Marketplace change, and `Retry-After` on a 429.

@@ -4,8 +4,8 @@ Harmonic bills one account-wide rate limit — there is one ``HARMONIC_API_KEY``
 instance, not one per installation or team — so every call anywhere in the codebase draws from a
 single shared budget under the constant key ``harmonic:account:default``.
 
-Harmonic's API reference, as cited in PostHog/posthog#96708, sets a limit of 10 requests per second
-for most endpoints and answers 429 above it. The default budget of 15 per second sits above
+Harmonic's API reference documents a limit of 10 requests per second for most endpoints and answers
+429 above it. The default budget of 15 per second sits above
 that on purpose: the BATCH reserve floors to 4 of 15 units, so the bulk lane is admitted up to 11 calls a
 second, next to the documented rate.
 

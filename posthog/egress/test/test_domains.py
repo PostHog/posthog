@@ -13,8 +13,15 @@ def _domain_dirs() -> list[Path]:
     return sorted(path.parent for path in _EGRESS_ROOT.glob("*/transport.py") if path.parent.name != "transport")
 
 
-def test_every_domain_documents_itself_in_a_readme() -> None:
-    missing = [domain.name for domain in _domain_dirs() if not (domain / "README.md").is_file()]
+def _cites_sources(readme: Path) -> bool:
+    if not readme.is_file():
+        return False
+    _, _, sources = readme.read_text().partition("\n## Sources\n")
+    return "https://" in sources
+
+
+def test_every_domain_documents_itself_in_a_readme_with_sources() -> None:
+    missing = [domain.name for domain in _domain_dirs() if not _cites_sources(domain / "README.md")]
     assert missing == []
 
 

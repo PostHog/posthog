@@ -7,7 +7,7 @@ The whole instance draws from one budget under the key `logodev:account:default`
 
 ## Budget
 
-logo.dev publishes no rate-limit numbers, so the budget is an operator ceiling read from settings at acquire time:
+logo.dev limits requests per month by plan, not per minute or per hour, so the budget is an operator ceiling read from settings at acquire time:
 
 - `LOGODEV_EGRESS_PER_MINUTE_BUDGET` (default 300) smooths bursts, such as a catalog page fanning out cache misses.
 - `LOGODEV_EGRESS_HOURLY_BUDGET` (default 5,000) caps total spend.
@@ -25,7 +25,8 @@ A denied call raises `LogoDevEgressBudgetExhausted`, and the caller degrades to 
 
 ## Rate-limit headers
 
-logo.dev returns none, so the domain declares no gauges.
+logo.dev documents that it returns no `Retry-After`, `X-RateLimit-*`, or quota headers on any endpoint, so the domain declares no gauges.
+A request over the plan's limit gets a 429.
 The counter is `logodev_api_requests_total`, labeled `account, method, endpoint, status_code, source`.
 Image URLs collapse to the `/img/{domain}` endpoint label, so each brand does not mint its own series.
 
@@ -34,3 +35,8 @@ Image URLs collapse to the `/img/{domain}` endpoint label, so each brand does no
 - Image CDN requests use `LOGO_DEV_PUBLISHABLE_KEY` (a `pk_` key) as a query parameter.
 - Search API requests use `LOGO_DEV_SECRET_KEY` (an `sk_` key) as a bearer token.
 - `LOGO_DEV_TOKEN` is a deprecated fallback for image requests only, and never authenticates a Search API request.
+
+## Sources
+
+- [Rate limits](https://www.logo.dev/docs/platform/rate-limits): monthly limits by plan.
+- [Errors and status codes](https://www.logo.dev/docs/platform/errors): 429 on the plan limit, and no rate-limit headers.

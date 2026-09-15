@@ -8,8 +8,8 @@ Every call draws from one budget under the key `harmonic:account:default`.
 ## Budget
 
 A single per-second ceiling read from settings at acquire time: `HARMONIC_EGRESS_PER_SECOND_BUDGET` (default 15).
-[#96708](https://github.com/PostHog/posthog/pull/96708) cites Harmonic's API reference for a limit of 10 requests per second on most endpoints, with a 429 above it.
-The reference renders only inside Harmonic's console, so this README does not re-check the number.
+Harmonic documents a limit of 10 requests per second for most endpoints, with a 429 above it.
+Search agent and Scout task creation have lower limits of their own, and PostHog calls neither.
 The default sits above that on purpose. The `BATCH` reserve floors to 4 of 15 units, so the bulk lane is admitted up to 11 calls a second, next to the documented rate.
 
 ## Lanes and callers
@@ -25,8 +25,9 @@ A denied call raises `HarmonicEgressBudgetExhausted`. A caller that folds except
 
 ## Rate-limit headers
 
-The parser reads `X-Ratelimit-Limit-Second` and `X-Ratelimit-Remaining-Second`, the header names #96708 cites, into the `harmonic_api_rate_limit_{limit,remaining}` gauges, with `account` as `resource`.
-Production responses from the endpoints PostHog calls carry neither header, so the gauges stay empty. Do not tune the budget from them.
+Harmonic documents `X-Ratelimit-Limit-Second` and `X-Ratelimit-Remaining-Second` on every response, and they feed the `harmonic_api_rate_limit_{limit,remaining}` gauges, with `account` as `resource`.
+Production has recorded no value on either gauge, although the recording path sets them for this scope and the worker exports gauges.
+Check a live response with the API key before you build a dashboard or tune the budget on them.
 Harmonic documents no reset header, so the domain declares no reset gauge.
 The counter is `harmonic_api_requests_total`.
 
@@ -37,3 +38,7 @@ The caller sends the key in the `apikey` header, never as a URL query parameter,
 ## Transport
 
 Harmonic is the async domain: it subclasses `AsyncEgressClient`, because its client speaks aiohttp, and the caller supplies its own `aiohttp.ClientSession`.
+
+## Sources
+
+- [API reference, rate limit](https://console.harmonic.ai/docs/api-reference/introduction#rate-limit): the per-second limit, the lower endpoint limits, and the headers. The page renders only with JavaScript, so open it in a browser.
