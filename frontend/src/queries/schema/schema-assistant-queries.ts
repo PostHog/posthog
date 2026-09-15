@@ -37,15 +37,17 @@ import {
 import { integer, positive_integer } from './type-utils'
 
 /**
- * This filter only works with absolute dates.
+ * This filter only works with absolute dates. A bound without a UTC offset is read in the project timezone.
  */
 export interface AssistantDateRange {
     /**
-     * ISO8601 date string.
+     * ISO8601 date string. A calendar day without a time (`2026-09-01`) starts at the first moment of that day.
      */
     date_from: string
     /**
      * ISO8601 date string.
+     * A calendar day without a time (`2026-09-01`) is inclusive: the window ends at the last moment of that day,
+     * so events on that day are in the results.
      */
     date_to?: string | null
 }

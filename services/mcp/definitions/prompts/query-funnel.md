@@ -86,6 +86,16 @@ All operators take a single value except for `equals` and `doesn't equal` which 
 
 You should not filter events by time using property filters. Instead, use the `dateRange` field. If the question doesn't mention time, use last 30 days as a default time period.
 
+### Date boundaries
+
+A `date_to` with no time is an inclusive calendar day.
+The window ends at the last moment of that day in the project timezone, so events on that day are in the results.
+Give a full timestamp to end the window at an exact instant instead.
+
+- All of August: `{ "date_from": "2026-08-01", "date_to": "2026-08-31" }`.
+- The same window written as exact instants: `{ "date_from": "2026-08-01T00:00:00Z", "date_to": "2026-09-01T00:00:00Z" }`.
+- 1 September only: `{ "date_from": "2026-09-01", "date_to": "2026-09-01" }`.
+
 # Funnel guidelines
 
 ## Exclusion steps

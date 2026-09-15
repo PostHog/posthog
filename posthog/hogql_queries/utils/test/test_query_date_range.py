@@ -305,6 +305,22 @@ class TestQueryDateRange(APIBaseTest):
         self.assertEqual(query_date_range.date_from(), parser.isoparse("2021-02-25T12:25:23.000Z"))
         self.assertEqual(query_date_range.date_to(), parser.isoparse("2021-04-25T10:59:23.000Z"))
 
+    @parameterized.expand(
+        [
+            # A bare calendar day is an inclusive end date, so the whole of 2021-04-25 stays in range.
+            ("bare_calendar_day", "2021-04-25", None, "2021-04-25T23:59:59.999999Z"),
+            # The same day given as a timestamp means an exact boundary, which MCP callers get through
+            # `explicitDate`. The window stops at midnight instead of running to the end of the day.
+            ("timestamp_boundary", "2021-04-25T00:00:00Z", True, "2021-04-25T00:00:00Z"),
+        ]
+    )
+    def test_absolute_date_to_boundary(self, _name, date_to, explicit_date, expected):
+        now = parser.isoparse("2021-08-25T00:00:00.000Z")
+        date_range = DateRange(date_from="2021-04-01", date_to=date_to, explicitDate=explicit_date)
+        query_date_range = QueryDateRange(team=self.team, date_range=date_range, interval=IntervalType.DAY, now=now)
+
+        self.assertEqual(query_date_range.date_to(), parser.isoparse(expected))
+
     def test_yesterday(self):
         now = parser.isoparse("2021-08-25T00:00:00.000Z")
         date_range = DateRange(date_from="-1dStart", date_to="-1dEnd", explicitDate=False)

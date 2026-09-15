@@ -2378,8 +2378,18 @@ const llmaTraceReviewUpdate = (): ToolBase<
 // --- Query wrapper schemas from schema.json ---
 
 const AssistantDateRange = z.object({
-    date_from: z.string().describe('ISO8601 date string.'),
-    date_to: z.string().nullable().describe('ISO8601 date string.').optional(),
+    date_from: z
+        .string()
+        .describe(
+            'ISO8601 date string. A calendar day without a time (`2026-09-01`) starts at the first moment of that day.'
+        ),
+    date_to: z
+        .string()
+        .nullable()
+        .describe(
+            'ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive: the window ends at the last moment of that day, so events on that day are in the results.'
+        )
+        .optional(),
 })
 
 const AssistantDurationRange = z.object({

@@ -113,7 +113,7 @@
                 {
                     "properties": {
                         "date_from": {
-                            "description": "ISO8601 date string.",
+                            "description": "ISO8601 date string. A calendar day without a time (`2026-09-01`) starts at the first moment of that day.",
                             "type": "string"
                         },
                         "date_to": {
@@ -125,7 +125,7 @@
                                     "type": "null"
                                 }
                             ],
-                            "description": "ISO8601 date string."
+                            "description": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive: the window ends at the last moment of that day, so events on that day are in the results."
                         }
                     },
                     "required": ["date_from"],

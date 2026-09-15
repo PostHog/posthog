@@ -586,8 +586,20 @@ class AssistantDateRange(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    date_from: str = Field(..., description="ISO8601 date string.")
-    date_to: str | None = Field(default=None, description="ISO8601 date string.")
+    date_from: str = Field(
+        ...,
+        description=(
+            "ISO8601 date string. A calendar day without a time (`2026-09-01`) starts at the first moment of that day."
+        ),
+    )
+    date_to: str | None = Field(
+        default=None,
+        description=(
+            "ISO8601 date string. A calendar day without a time (`2026-09-01`) is"
+            " inclusive: the window ends at the last moment of that day, so events on"
+            " that day are in the results."
+        ),
+    )
 
 
 class AssistantDurationRange(BaseModel):
