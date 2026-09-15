@@ -1883,16 +1883,22 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         // logic's own handlers do.
         const applyFromUrl = (id: string | undefined, searchParams: Record<string, any>): void => {
             // kea-router replays urlToAction on mount with the current location, so a tab that
-            // mounts after the URL already carries the params still sees them. The replace below
-            // re-enters here without them, and the guard covers any other repeat within one mount.
-            if (cache.appliedDeepLink || Number(id) !== Number(props.experiment.id)) {
+            // mounts after the URL already carries the params still sees them.
+            if (Number(id) !== Number(props.experiment.id)) {
                 return
             }
             const link = parseExperimentRecordingsDeepLink(searchParams)
             if (!link) {
                 return
             }
-            cache.appliedDeepLink = true
+            // The replace below re-enters here without the params, so this only guards against a
+            // repeat of the same link. Keyed on the link rather than set once, so a second link
+            // arriving while the tab stays mounted still moves the facets.
+            const linkKey = JSON.stringify(link)
+            if (cache.appliedDeepLink === linkKey) {
+                return
+            }
+            cache.appliedDeepLink = linkKey
             actions.applyDeepLink(link)
             // The tab unmounts on a tab switch and remounts on return, so params left in the URL
             // would re-apply and overwrite whatever the viewer changed by hand in between. Every
