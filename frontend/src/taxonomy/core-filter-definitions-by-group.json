@@ -373,8 +373,8 @@
         "$ai_evaluation_result": {
             "description": "The boolean verdict of the evaluation (true = pass, false = fail).",
             "examples": [
-                true,
-                false
+                "true",
+                "false"
             ],
             "label": "AI Evaluation Result (LLM)"
         },
@@ -2228,6 +2228,14 @@
             ],
             "label": "MCP exec inner tool catalog"
         },
+        "$mcp_exec_target_tool": {
+            "description": "The tool an exec info, schema, or call verb named, when it resolves to a tool in the server's catalog; `unrecognized` otherwise so the caller's own token is never recorded. Links an `info` read to the `call` that follows it.",
+            "examples": [
+                "experiment-get",
+                "unrecognized"
+            ],
+            "label": "MCP exec target tool"
+        },
         "$mcp_exec_tool_call_description": {
             "description": "In single-exec mode, $mcp_tool_name is always 'exec' (the dispatcher), so the SDK's $mcp_tool_description is the dispatcher's static text on every call. This property carries the description of the inner tool the agent was actually invoking via 'call <tool> ...' \u2014 derived server-side by parsing the exec command and looking the inner tool up in our catalog. Only present when an exec call targets a recognized inner tool.",
             "examples": [
@@ -2243,6 +2251,24 @@
                 "feature-flag-get-all"
             ],
             "label": "MCP exec inner tool name"
+        },
+        "$mcp_exec_verb": {
+            "description": "Which exec dispatcher verb the request ran: tools, search, info, schema, call, learn, or `unrecognized` for a verb the server does not accept. Only set in exec mode ($mcp_mode).",
+            "examples": [
+                "call",
+                "info",
+                "unrecognized"
+            ],
+            "label": "MCP exec verb"
+        },
+        "$mcp_input_keys": {
+            "description": "Top-level argument names the caller sent, on every MCP tool call, success or failure, sorted and capped at 20. Names only, never values. In exec mode these are the inner tool's arguments parsed from the command string. Group by it with $mcp_param_aliases_used to see how agents spell a parameter.",
+            "examples": [
+                "id",
+                "experimentId",
+                "filters, key, name"
+            ],
+            "label": "MCP input keys"
         },
         "$mcp_intent": {
             "description": "Free-text description of why the agent is calling this tool, written by the agent itself. Comes from a context argument the client supplied at call time, or \u2014 if none was supplied \u2014 from an intentFallback the MCP server provides.",
@@ -2323,6 +2349,14 @@
             "description": "PostHog organization ID resolved for the authenticated MCP session.",
             "label": "MCP organization ID"
         },
+        "$mcp_param_aliases_used": {
+            "description": "Declared parameter aliases the call relied on, as `alias->canonical` (for example `experimentId->id`). Present only when at least one alias was used. Both names come from the tool's own schema. Measures how much traffic the alias layer rescues, and which spellings agents reach for.",
+            "examples": [
+                "experimentId->id",
+                "flagKey->key"
+            ],
+            "label": "MCP parameter aliases used"
+        },
         "$mcp_parameters": {
             "description": "The arguments the client passed when invoking the tool. Large strings and sensitive keys (tokens, API keys, etc.) are redacted before capture.",
             "label": "MCP parameters"
@@ -2367,6 +2401,15 @@
             "description": "The response the MCP server returned. Large strings and sensitive keys are redacted before capture.",
             "label": "MCP response"
         },
+        "$mcp_schema_read_before_call": {
+            "description": "On an exec-mode `call`, whether the same MCP session read the tool's schema (`info` or `schema`) earlier. Absent in tools mode, where the schema is in the tool listing, and absent when the request carries no MCP session id.",
+            "examples": [
+                true,
+                false
+            ],
+            "label": "MCP schema read before call",
+            "type": "Boolean"
+        },
         "$mcp_scope_preset": {
             "description": "Which kind of caller minted the token behind an MCP request, worked out from its scope set. 'scout' is a Signals scout run, 'research' is a read-only report-research run, 'implementation' is a write-capable implementation run, 'sandbox' is any other server-minted run (a task started from the desktop app or the pipeline before the scratchpad scopes tell research and implementation apart), and 'user' is a person's own token. Stamped on every event by PostHog's own MCP server. Use it to split scratchpad and notes usage by caller, for example to measure scout scratchpad adoption apart from ordinary users.",
             "examples": [
@@ -2377,6 +2420,14 @@
                 "user"
             ],
             "label": "MCP scope preset"
+        },
+        "$mcp_server_build": {
+            "description": "The git commit (12 hex characters) PostHog's MCP server was built from, or `dev` outside a release build. $mcp_server_version stays the protocol-facing version clients display; use this one to tie a change in behaviour to the deploy that shipped it.",
+            "examples": [
+                "b3b941584ba0",
+                "dev"
+            ],
+            "label": "MCP server build"
         },
         "$mcp_server_name": {
             "description": "The advertised name of the MCP server that handled the request.",
@@ -2389,9 +2440,29 @@
             "description": "The advertised version of the MCP server that handled the request.",
             "label": "MCP server version"
         },
+        "$mcp_session_age_ms": {
+            "description": "Milliseconds since the MCP session's first observed request. 0 on that first request. Absent when the request carries no MCP session id.",
+            "examples": [
+                0,
+                4200,
+                1800000
+            ],
+            "label": "MCP session age (ms)",
+            "type": "Numeric"
+        },
         "$mcp_session_id": {
             "description": "Transport-level session handle the MCP SDK observed for this request (e.g. MCP `extra.sessionId` or a framework session cookie). Rotates per process restart, reconnect, or framework boundary \u2014 use $mcp_conversation_id when you need a stable identifier across reconnects.",
             "label": "MCP session ID"
+        },
+        "$mcp_session_tool_call_index": {
+            "description": "How many tool calls the MCP session has made so far, including this one; 1 on the first call. Discovery verbs (tools, search, info, schema) are stamped with the count but do not advance it. Absent when the request carries no MCP session id.",
+            "examples": [
+                1,
+                2,
+                15
+            ],
+            "label": "MCP session tool call index",
+            "type": "Numeric"
         },
         "$mcp_skill_body_offset": {
             "description": "Where in a skill's body a `skill-get` started reading. Long bodies come back in slices, so one skill load is several calls that differ only by this offset, and a first read usually omits the offset \u2014 absent and 0 both mean a first page. Scope the query to `$mcp_tool_name IN ('skill-get', 'llma-skill-get')` before counting: the property is never set on `skill-file-get` or on a failed read, so an absent value outside that scope means 'never paginated' rather than 'first page', and counting it inflates loads. Within the scope, count calls where the offset is absent or 0 for loads, and every call for pages read. Set only on reads that succeeded, like `$mcp_skill_name`.",
@@ -2450,6 +2521,22 @@
                 "streamable-http"
             ],
             "label": "MCP transport"
+        },
+        "$mcp_validation_fields": {
+            "description": "Parameter paths the MCP server's own input schema rejected, as `path:code` (for example `id:invalid_type`). Names from the tool's schema, never caller values. Only set when the server rejected the input before calling PostHog.",
+            "examples": [
+                "id:invalid_type",
+                "filters.groups:required"
+            ],
+            "label": "MCP validation fields"
+        },
+        "$mcp_validation_input_keys": {
+            "description": "Top-level argument names the caller sent on a call the MCP server's input schema rejected, sorted and capped at 20. Shows which name an agent used for a parameter the schema spells differently. Only set on local schema rejections; see $mcp_input_keys for every call.",
+            "examples": [
+                "experimentId",
+                "flagKey, limit"
+            ],
+            "label": "MCP validation input keys"
         },
         "$mcp_vendor_client": {
             "description": "Vendor client header the MCP client sent on the transport (x-anthropic-client), captured raw. The strongest harness signal: clientInfo.name can't tell one vendor surface from another, but this header can.",
@@ -4544,6 +4631,14 @@
             ],
             "label": "MCP exec inner tool catalog"
         },
+        "$mcp_exec_target_tool": {
+            "description": "The tool an exec info, schema, or call verb named, when it resolves to a tool in the server's catalog; `unrecognized` otherwise so the caller's own token is never recorded. Links an `info` read to the `call` that follows it.",
+            "examples": [
+                "experiment-get",
+                "unrecognized"
+            ],
+            "label": "MCP exec target tool"
+        },
         "$mcp_exec_tool_call_description": {
             "description": "In single-exec mode, $mcp_tool_name is always 'exec' (the dispatcher), so the SDK's $mcp_tool_description is the dispatcher's static text on every call. This property carries the description of the inner tool the agent was actually invoking via 'call <tool> ...' \u2014 derived server-side by parsing the exec command and looking the inner tool up in our catalog. Only present when an exec call targets a recognized inner tool.",
             "examples": [
@@ -4559,6 +4654,24 @@
                 "feature-flag-get-all"
             ],
             "label": "MCP exec inner tool name"
+        },
+        "$mcp_exec_verb": {
+            "description": "Which exec dispatcher verb the request ran: tools, search, info, schema, call, learn, or `unrecognized` for a verb the server does not accept. Only set in exec mode ($mcp_mode).",
+            "examples": [
+                "call",
+                "info",
+                "unrecognized"
+            ],
+            "label": "MCP exec verb"
+        },
+        "$mcp_input_keys": {
+            "description": "Top-level argument names the caller sent, on every MCP tool call, success or failure, sorted and capped at 20. Names only, never values. In exec mode these are the inner tool's arguments parsed from the command string. Group by it with $mcp_param_aliases_used to see how agents spell a parameter.",
+            "examples": [
+                "id",
+                "experimentId",
+                "filters, key, name"
+            ],
+            "label": "MCP input keys"
         },
         "$mcp_intent": {
             "description": "Free-text description of why the agent is calling this tool, written by the agent itself. Comes from a context argument the client supplied at call time, or \u2014 if none was supplied \u2014 from an intentFallback the MCP server provides.",
@@ -4639,6 +4752,14 @@
             "description": "PostHog organization ID resolved for the authenticated MCP session.",
             "label": "MCP organization ID"
         },
+        "$mcp_param_aliases_used": {
+            "description": "Declared parameter aliases the call relied on, as `alias->canonical` (for example `experimentId->id`). Present only when at least one alias was used. Both names come from the tool's own schema. Measures how much traffic the alias layer rescues, and which spellings agents reach for.",
+            "examples": [
+                "experimentId->id",
+                "flagKey->key"
+            ],
+            "label": "MCP parameter aliases used"
+        },
         "$mcp_parameters": {
             "description": "The arguments the client passed when invoking the tool. Large strings and sensitive keys (tokens, API keys, etc.) are redacted before capture.",
             "label": "MCP parameters"
@@ -4683,6 +4804,15 @@
             "description": "The response the MCP server returned. Large strings and sensitive keys are redacted before capture.",
             "label": "MCP response"
         },
+        "$mcp_schema_read_before_call": {
+            "description": "On an exec-mode `call`, whether the same MCP session read the tool's schema (`info` or `schema`) earlier. Absent in tools mode, where the schema is in the tool listing, and absent when the request carries no MCP session id.",
+            "examples": [
+                true,
+                false
+            ],
+            "label": "MCP schema read before call",
+            "type": "Boolean"
+        },
         "$mcp_scope_preset": {
             "description": "Which kind of caller minted the token behind an MCP request, worked out from its scope set. 'scout' is a Signals scout run, 'research' is a read-only report-research run, 'implementation' is a write-capable implementation run, 'sandbox' is any other server-minted run (a task started from the desktop app or the pipeline before the scratchpad scopes tell research and implementation apart), and 'user' is a person's own token. Stamped on every event by PostHog's own MCP server. Use it to split scratchpad and notes usage by caller, for example to measure scout scratchpad adoption apart from ordinary users.",
             "examples": [
@@ -4693,6 +4823,14 @@
                 "user"
             ],
             "label": "MCP scope preset"
+        },
+        "$mcp_server_build": {
+            "description": "The git commit (12 hex characters) PostHog's MCP server was built from, or `dev` outside a release build. $mcp_server_version stays the protocol-facing version clients display; use this one to tie a change in behaviour to the deploy that shipped it.",
+            "examples": [
+                "b3b941584ba0",
+                "dev"
+            ],
+            "label": "MCP server build"
         },
         "$mcp_server_name": {
             "description": "The advertised name of the MCP server that handled the request.",
@@ -4705,9 +4843,29 @@
             "description": "The advertised version of the MCP server that handled the request.",
             "label": "MCP server version"
         },
+        "$mcp_session_age_ms": {
+            "description": "Milliseconds since the MCP session's first observed request. 0 on that first request. Absent when the request carries no MCP session id.",
+            "examples": [
+                0,
+                4200,
+                1800000
+            ],
+            "label": "MCP session age (ms)",
+            "type": "Numeric"
+        },
         "$mcp_session_id": {
             "description": "Transport-level session handle the MCP SDK observed for this request (e.g. MCP `extra.sessionId` or a framework session cookie). Rotates per process restart, reconnect, or framework boundary \u2014 use $mcp_conversation_id when you need a stable identifier across reconnects.",
             "label": "MCP session ID"
+        },
+        "$mcp_session_tool_call_index": {
+            "description": "How many tool calls the MCP session has made so far, including this one; 1 on the first call. Discovery verbs (tools, search, info, schema) are stamped with the count but do not advance it. Absent when the request carries no MCP session id.",
+            "examples": [
+                1,
+                2,
+                15
+            ],
+            "label": "MCP session tool call index",
+            "type": "Numeric"
         },
         "$mcp_skill_body_offset": {
             "description": "Where in a skill's body a `skill-get` started reading. Long bodies come back in slices, so one skill load is several calls that differ only by this offset, and a first read usually omits the offset \u2014 absent and 0 both mean a first page. Scope the query to `$mcp_tool_name IN ('skill-get', 'llma-skill-get')` before counting: the property is never set on `skill-file-get` or on a failed read, so an absent value outside that scope means 'never paginated' rather than 'first page', and counting it inflates loads. Within the scope, count calls where the offset is absent or 0 for loads, and every call for pages read. Set only on reads that succeeded, like `$mcp_skill_name`.",
@@ -4766,6 +4924,22 @@
                 "streamable-http"
             ],
             "label": "MCP transport"
+        },
+        "$mcp_validation_fields": {
+            "description": "Parameter paths the MCP server's own input schema rejected, as `path:code` (for example `id:invalid_type`). Names from the tool's schema, never caller values. Only set when the server rejected the input before calling PostHog.",
+            "examples": [
+                "id:invalid_type",
+                "filters.groups:required"
+            ],
+            "label": "MCP validation fields"
+        },
+        "$mcp_validation_input_keys": {
+            "description": "Top-level argument names the caller sent on a call the MCP server's input schema rejected, sorted and capped at 20. Shows which name an agent used for a parameter the schema spells differently. Only set on local schema rejections; see $mcp_input_keys for every call.",
+            "examples": [
+                "experimentId",
+                "flagKey, limit"
+            ],
+            "label": "MCP validation input keys"
         },
         "$mcp_vendor_client": {
             "description": "Vendor client header the MCP client sent on the transport (x-anthropic-client), captured raw. The strongest harness signal: clientInfo.name can't tell one vendor surface from another, but this header can.",
@@ -5113,8 +5287,8 @@
         "$ai_evaluation_result": {
             "description": "The boolean verdict of the evaluation (true = pass, false = fail).",
             "examples": [
-                true,
-                false
+                "true",
+                "false"
             ],
             "label": "AI Evaluation Result (LLM)"
         },
@@ -7401,6 +7575,14 @@
             ],
             "label": "MCP exec inner tool catalog"
         },
+        "$mcp_exec_target_tool": {
+            "description": "The tool an exec info, schema, or call verb named, when it resolves to a tool in the server's catalog; `unrecognized` otherwise so the caller's own token is never recorded. Links an `info` read to the `call` that follows it.",
+            "examples": [
+                "experiment-get",
+                "unrecognized"
+            ],
+            "label": "MCP exec target tool"
+        },
         "$mcp_exec_tool_call_description": {
             "description": "In single-exec mode, $mcp_tool_name is always 'exec' (the dispatcher), so the SDK's $mcp_tool_description is the dispatcher's static text on every call. This property carries the description of the inner tool the agent was actually invoking via 'call <tool> ...' \u2014 derived server-side by parsing the exec command and looking the inner tool up in our catalog. Only present when an exec call targets a recognized inner tool.",
             "examples": [
@@ -7416,6 +7598,24 @@
                 "feature-flag-get-all"
             ],
             "label": "MCP exec inner tool name"
+        },
+        "$mcp_exec_verb": {
+            "description": "Which exec dispatcher verb the request ran: tools, search, info, schema, call, learn, or `unrecognized` for a verb the server does not accept. Only set in exec mode ($mcp_mode).",
+            "examples": [
+                "call",
+                "info",
+                "unrecognized"
+            ],
+            "label": "MCP exec verb"
+        },
+        "$mcp_input_keys": {
+            "description": "Top-level argument names the caller sent, on every MCP tool call, success or failure, sorted and capped at 20. Names only, never values. In exec mode these are the inner tool's arguments parsed from the command string. Group by it with $mcp_param_aliases_used to see how agents spell a parameter.",
+            "examples": [
+                "id",
+                "experimentId",
+                "filters, key, name"
+            ],
+            "label": "MCP input keys"
         },
         "$mcp_intent": {
             "description": "Free-text description of why the agent is calling this tool, written by the agent itself. Comes from a context argument the client supplied at call time, or \u2014 if none was supplied \u2014 from an intentFallback the MCP server provides.",
@@ -7496,6 +7696,14 @@
             "description": "PostHog organization ID resolved for the authenticated MCP session.",
             "label": "MCP organization ID"
         },
+        "$mcp_param_aliases_used": {
+            "description": "Declared parameter aliases the call relied on, as `alias->canonical` (for example `experimentId->id`). Present only when at least one alias was used. Both names come from the tool's own schema. Measures how much traffic the alias layer rescues, and which spellings agents reach for.",
+            "examples": [
+                "experimentId->id",
+                "flagKey->key"
+            ],
+            "label": "MCP parameter aliases used"
+        },
         "$mcp_parameters": {
             "description": "The arguments the client passed when invoking the tool. Large strings and sensitive keys (tokens, API keys, etc.) are redacted before capture.",
             "label": "MCP parameters"
@@ -7540,6 +7748,15 @@
             "description": "The response the MCP server returned. Large strings and sensitive keys are redacted before capture.",
             "label": "MCP response"
         },
+        "$mcp_schema_read_before_call": {
+            "description": "On an exec-mode `call`, whether the same MCP session read the tool's schema (`info` or `schema`) earlier. Absent in tools mode, where the schema is in the tool listing, and absent when the request carries no MCP session id.",
+            "examples": [
+                true,
+                false
+            ],
+            "label": "MCP schema read before call",
+            "type": "Boolean"
+        },
         "$mcp_scope_preset": {
             "description": "Which kind of caller minted the token behind an MCP request, worked out from its scope set. 'scout' is a Signals scout run, 'research' is a read-only report-research run, 'implementation' is a write-capable implementation run, 'sandbox' is any other server-minted run (a task started from the desktop app or the pipeline before the scratchpad scopes tell research and implementation apart), and 'user' is a person's own token. Stamped on every event by PostHog's own MCP server. Use it to split scratchpad and notes usage by caller, for example to measure scout scratchpad adoption apart from ordinary users.",
             "examples": [
@@ -7550,6 +7767,14 @@
                 "user"
             ],
             "label": "MCP scope preset"
+        },
+        "$mcp_server_build": {
+            "description": "The git commit (12 hex characters) PostHog's MCP server was built from, or `dev` outside a release build. $mcp_server_version stays the protocol-facing version clients display; use this one to tie a change in behaviour to the deploy that shipped it.",
+            "examples": [
+                "b3b941584ba0",
+                "dev"
+            ],
+            "label": "MCP server build"
         },
         "$mcp_server_name": {
             "description": "The advertised name of the MCP server that handled the request.",
@@ -7562,9 +7787,29 @@
             "description": "The advertised version of the MCP server that handled the request.",
             "label": "MCP server version"
         },
+        "$mcp_session_age_ms": {
+            "description": "Milliseconds since the MCP session's first observed request. 0 on that first request. Absent when the request carries no MCP session id.",
+            "examples": [
+                0,
+                4200,
+                1800000
+            ],
+            "label": "MCP session age (ms)",
+            "type": "Numeric"
+        },
         "$mcp_session_id": {
             "description": "Transport-level session handle the MCP SDK observed for this request (e.g. MCP `extra.sessionId` or a framework session cookie). Rotates per process restart, reconnect, or framework boundary \u2014 use $mcp_conversation_id when you need a stable identifier across reconnects.",
             "label": "MCP session ID"
+        },
+        "$mcp_session_tool_call_index": {
+            "description": "How many tool calls the MCP session has made so far, including this one; 1 on the first call. Discovery verbs (tools, search, info, schema) are stamped with the count but do not advance it. Absent when the request carries no MCP session id.",
+            "examples": [
+                1,
+                2,
+                15
+            ],
+            "label": "MCP session tool call index",
+            "type": "Numeric"
         },
         "$mcp_skill_body_offset": {
             "description": "Where in a skill's body a `skill-get` started reading. Long bodies come back in slices, so one skill load is several calls that differ only by this offset, and a first read usually omits the offset \u2014 absent and 0 both mean a first page. Scope the query to `$mcp_tool_name IN ('skill-get', 'llma-skill-get')` before counting: the property is never set on `skill-file-get` or on a failed read, so an absent value outside that scope means 'never paginated' rather than 'first page', and counting it inflates loads. Within the scope, count calls where the offset is absent or 0 for loads, and every call for pages read. Set only on reads that succeeded, like `$mcp_skill_name`.",
@@ -7623,6 +7868,22 @@
                 "streamable-http"
             ],
             "label": "MCP transport"
+        },
+        "$mcp_validation_fields": {
+            "description": "Parameter paths the MCP server's own input schema rejected, as `path:code` (for example `id:invalid_type`). Names from the tool's schema, never caller values. Only set when the server rejected the input before calling PostHog.",
+            "examples": [
+                "id:invalid_type",
+                "filters.groups:required"
+            ],
+            "label": "MCP validation fields"
+        },
+        "$mcp_validation_input_keys": {
+            "description": "Top-level argument names the caller sent on a call the MCP server's input schema rejected, sorted and capped at 20. Shows which name an agent used for a parameter the schema spells differently. Only set on local schema rejections; see $mcp_input_keys for every call.",
+            "examples": [
+                "experimentId",
+                "flagKey, limit"
+            ],
+            "label": "MCP validation input keys"
         },
         "$mcp_vendor_client": {
             "description": "Vendor client header the MCP client sent on the transport (x-anthropic-client), captured raw. The strongest harness signal: clientInfo.name can't tell one vendor surface from another, but this header can.",

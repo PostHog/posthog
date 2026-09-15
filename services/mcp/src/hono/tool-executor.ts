@@ -20,10 +20,12 @@ import {
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { resolveGatewayTools } from '@/lib/gateway-tools'
 import { getPostHogClient } from '@/lib/posthog'
+import { describeAliasesUsed, readParamAliases } from '@/tools/cast-helpers'
 import {
     createExecTool,
     describeApiValidationError,
     describeExecCommand,
+    describeInputKeys,
     describeValidationError,
     formatInputValidationError,
     markNoncanonicalMetricRun,
@@ -53,6 +55,7 @@ import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metr
 import type { ResolvedState } from './request-state-resolver'
 import type { SkillCatalogService } from './skill-catalog-service'
 import { buildSkillsSessionState } from './skills-session'
+import { type ToolCallObservation, buildToolCallSessionState } from './tool-call-session'
 import type { ToolCatalog } from './tool-catalog'
 
 interface ResolvedTool {
@@ -271,6 +274,15 @@ export class ToolExecutor {
         analyticsMeta?: ToolCallAnalyticsMeta
     ): Promise<unknown> {
         const rawToolArgs = (params?.arguments ?? {}) as Record<string, unknown>
+        // Computed on the raw input, before any alias is folded away by preprocess.
+        const inputShape = inputShapeAnalyticsProperties(rawToolArgs, tool.schema)
+        // Started before the handler so the Redis round trip overlaps it; awaited at
+        // each event site below.
+        const sessionShape = this.observeToolCallSession(state, {
+            verb: 'call',
+            targetTool: tool.name,
+            schemaRequiresRead: false,
+        })
         const firstPass = tool.schema.safeParse(rawToolArgs, { reportInput: true })
         const rewrapped = firstPass.success
             ? undefined
@@ -295,7 +307,11 @@ export class ToolExecutor {
                 0,
                 true,
                 state,
-                errorAnalyticsProperties(classifyToolError(rejection, tool.name), rejection),
+                {
+                    ...inputShape,
+                    ...(await sessionShape),
+                    ...errorAnalyticsProperties(classifyToolError(rejection, tool.name), rejection),
+                },
                 analyticsMeta,
                 this.servedToolDescription(tool.name)
             )
@@ -363,6 +379,8 @@ export class ToolExecutor {
                 false,
                 state,
                 {
+                    ...inputShape,
+                    ...(await sessionShape),
                     ...skillShape,
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
@@ -414,6 +432,8 @@ export class ToolExecutor {
                 true,
                 state,
                 {
+                    ...inputShape,
+                    ...(await sessionShape),
                     ...errorAnalyticsProperties(classification, error),
                     ...(lookupMiss ? skillLookupMissProperties(lookupMiss.kind) : {}),
                 },
@@ -448,6 +468,22 @@ export class ToolExecutor {
 
             const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
             return handleToolError(error, tool.name, state.distinctId, sessionUuid)
+        }
+    }
+
+    /**
+     * Session properties for one request, or none when the request carries no MCP
+     * session id or the session cache is unreachable. Telemetry never fails a call.
+     */
+    private async observeToolCallSession(
+        state: ResolvedState,
+        observation: ToolCallObservation
+    ): Promise<Record<string, unknown>> {
+        try {
+            const session = buildToolCallSessionState(state.reqCtx, state.requestContext.mcpSessionId)
+            return session ? await session.observe(observation) : {}
+        } catch {
+            return {}
         }
     }
 
@@ -491,6 +527,16 @@ export class ToolExecutor {
         // one opaque `exec` bucket and an `info <tool>` can be linked to the
         // `call <tool>` that follows it.
         const execShape = execCommandAnalyticsProperties(validation.data, state)
+        // The inner tool's argument keys and any alias among them, read from the
+        // command string the same way the dispatcher does. Only a `call` carries
+        // arguments; the schema comes from this connection's catalog when the
+        // target resolved to a tool in it.
+        const execInputShape = execInputShapeAnalyticsProperties(validation.data, execShape, state)
+        const sessionShape = this.observeToolCallSession(state, {
+            verb: typeof execShape.$mcp_exec_verb === 'string' ? execShape.$mcp_exec_verb : undefined,
+            targetTool: recordedTargetTool(execShape),
+            schemaRequiresRead: true,
+        })
         // Which stored skill an exec-routed read returned. Success only, unlike the
         // verb above: that records what the agent attempted, this records what it got.
         const execSkillShape = execSkillAnalyticsProperties(validation.data)
@@ -526,6 +572,8 @@ export class ToolExecutor {
                 state,
                 {
                     ...execShape,
+                    ...execInputShape,
+                    ...(await sessionShape),
                     ...(failureShape ?? execSkillShape),
                     ...(execMetrics.skillLookupMissKind
                         ? skillLookupMissProperties(execMetrics.skillLookupMissKind)
@@ -553,7 +601,13 @@ export class ToolExecutor {
                 Date.now() - startMs,
                 true,
                 state,
-                { ...execShape, ...errorAnalyticsProperties(classification, error), ...execMetrics.commandMeta },
+                {
+                    ...execShape,
+                    ...execInputShape,
+                    ...(await sessionShape),
+                    ...errorAnalyticsProperties(classification, error),
+                    ...execMetrics.commandMeta,
+                },
                 analyticsMeta,
                 this.servedToolDescription(metricTool)
             )
@@ -927,6 +981,63 @@ function safeUrlPath(url: string): string {
     } catch {
         return ''
     }
+}
+
+/** Arguments the SDK or host injects on every call; not something the agent chose to send. */
+const INJECTED_ARG_KEYS = new Set(['context', 'llm_model'])
+
+/**
+ * `$mcp_input_keys`: the top-level argument names the caller sent, on every event,
+ * success and failure alike. `$mcp_validation_input_keys` only exists on a local
+ * schema rejection, so until now a call that sent `experimentId` and was
+ * rescued by an alias, or sent an unknown key a permissive schema ignored, left
+ * no trace of its shape. Names only, never values (see `describeInputKeys`).
+ *
+ * `$mcp_param_aliases_used`: which declared aliases the call relied on, as
+ * `alias->canonical`, present only when at least one was. Both halves are names
+ * the tool's own schema declares.
+ */
+function inputShapeAnalyticsProperties(
+    input: Record<string, unknown>,
+    schema: ResolvedTool['schema'] | undefined
+): Record<string, unknown> {
+    const own = Object.fromEntries(Object.entries(input).filter(([key]) => !INJECTED_ARG_KEYS.has(key)))
+    const aliases = describeAliasesUsed(schema ? readParamAliases(schema) : undefined, own)
+    return {
+        $mcp_input_keys: describeInputKeys(own),
+        ...(aliases.length > 0 ? { $mcp_param_aliases_used: aliases } : {}),
+    }
+}
+
+/** The target `describeExecCommand` recorded, when it resolved to a real tool name. */
+function recordedTargetTool(execShape: Record<string, unknown>): string | undefined {
+    const target = execShape.$mcp_exec_target_tool
+    return typeof target === 'string' && target !== 'unrecognized' ? target : undefined
+}
+
+/**
+ * The exec-mode counterpart of `inputShapeAnalyticsProperties`: the inner arguments
+ * live as JSON inside `command`, so they are parsed with the dispatcher's own parser.
+ * Verbs other than `call` carry no arguments and get no keys. The schema is looked up
+ * only among the tools this connection can see; a gated or retired target records
+ * its keys but no aliases.
+ */
+function execInputShapeAnalyticsProperties(
+    execArgs: unknown,
+    execShape: Record<string, unknown>,
+    state: ResolvedState
+): Record<string, unknown> {
+    const command = (execArgs as { command?: unknown } | undefined)?.command
+    if (typeof command !== 'string' || execShape.$mcp_exec_verb !== 'call') {
+        return {}
+    }
+    const innerArgs = parseExecCallInnerArgs(command)
+    if (!innerArgs) {
+        return {}
+    }
+    const target = recordedTargetTool(execShape)
+    const schema = target ? state.allTools.find((tool) => tool.name === target)?.schema : undefined
+    return inputShapeAnalyticsProperties(innerArgs, schema)
 }
 
 /**

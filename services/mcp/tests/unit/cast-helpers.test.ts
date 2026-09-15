@@ -10,7 +10,13 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
-import { castBooleanToString, castStringToInt } from '../../src/tools/cast-helpers'
+import {
+    castBooleanToString,
+    castStringToInt,
+    describeAliasesUsed,
+    normalizeParamAliases,
+    readParamAliases,
+} from '../../src/tools/cast-helpers'
 
 describe('castStringToInt', () => {
     const schema = z.preprocess(castStringToInt, z.number().int())
@@ -77,5 +83,53 @@ describe('castBooleanToString', () => {
         ['empty array', []],
     ] as const)('rejects non-boolean, non-string input: %s', (_label, input) => {
         expect(() => schema.parse(input)).toThrow()
+    })
+})
+
+describe('readParamAliases', () => {
+    it('reads the alias map back off a preprocess-wrapped schema', () => {
+        const schema = z.preprocess(
+            normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+            z.object({ id: z.number() })
+        )
+
+        expect(readParamAliases(schema)).toEqual({ id: ['experimentId', 'experiment_id'] })
+    })
+
+    it('merges the maps of nested preprocess layers', () => {
+        const inner = z.preprocess(
+            normalizeParamAliases({ id: ['experimentId'] }),
+            z.object({ id: z.number(), key: z.string() })
+        )
+        const outer = z.preprocess(normalizeParamAliases({ key: ['flagKey'] }), inner)
+
+        expect(readParamAliases(outer)).toEqual({ id: ['experimentId'], key: ['flagKey'] })
+    })
+
+    it('returns undefined for a schema that declares no aliases', () => {
+        expect(readParamAliases(z.object({ id: z.number() }))).toBeUndefined()
+        // A preprocess that is not an alias normaliser is not mistaken for one.
+        expect(readParamAliases(z.preprocess((value) => value, z.object({ id: z.number() })))).toBeUndefined()
+    })
+})
+
+describe('describeAliasesUsed', () => {
+    const aliasMap = { id: ['experimentId', 'experiment_id'], key: ['flagKey'] }
+
+    it('lists every alias the input carried as alias->canonical, sorted', () => {
+        expect(describeAliasesUsed(aliasMap, { flagKey: 'k', experimentId: 1 })).toEqual([
+            'experimentId->id',
+            'flagKey->key',
+        ])
+    })
+
+    it('is empty when the input used the canonical names or no map exists', () => {
+        expect(describeAliasesUsed(aliasMap, { id: 1, key: 'k' })).toEqual([])
+        expect(describeAliasesUsed(undefined, { experimentId: 1 })).toEqual([])
+    })
+
+    it('never includes input values', () => {
+        const used = describeAliasesUsed(aliasMap, { experimentId: 'secret-value' })
+        expect(JSON.stringify(used)).not.toContain('secret-value')
     })
 })

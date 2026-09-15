@@ -90,9 +90,24 @@ time, never by person.
 Per-event additions: `$mcp_error_status` (upstream HTTP status), `$mcp_error_code` (machine-readable leaf failure code: the API's validation error code or the exec rejection reason), and `$mcp_error_field` (the validation error's field path, array indexes normalized to `N`, e.g. `actions__N__inputs__email`) — all stamped by `services/mcp/src/hono/tool-executor.ts` — **server-side, despite sitting next to the SDK's typed error properties in queries**; and `tool_count`, `read_only`, `via_sse_redirect` on `$mcp_initialize`. Failed calls may also carry
 `$mcp_validation_fields` and `$mcp_validation_input_keys` (which fields failed validation, and
 which keys the caller actually sent), and exec-mode calls carry `$mcp_exec_verb` (which dispatcher
-verb ran) and `$mcp_exec_target_tool` (the tool that `info`/`schema`/`call` named). Those four are
-stamped in `tool-executor.ts` but are **not registered in `posthog/taxonomy/taxonomy.py`**, so they
-have no descriptions in the property picker — they still query fine. `execute-sql` calls additionally emit a separate `$ai_generation` event
+verb ran) and `$mcp_exec_target_tool` (the tool that `info`/`schema`/`call` named). All four are
+stamped in `tool-executor.ts` and registered in `posthog/taxonomy/taxonomy.py`.
+
+Every `$mcp_tool_call` also carries the call's shape, stamped in `tool-executor.ts` from the raw
+input before any alias is folded away: `$mcp_input_keys` (the top-level argument names the caller
+sent, sorted, capped at 20, never values; in exec mode parsed from the `call` command's JSON) and
+`$mcp_param_aliases_used` (`alias->canonical` tokens such as `experimentId->id`, present only when
+a declared alias rescued the call). Group the two by `$mcp_client_name` to see which spelling each
+agent reaches for and how much of it the alias layer absorbs. When the request carries an
+`Mcp-Session-Id`, three per-session properties come from a Redis record (`tool-call-session.ts`,
+same cache and 24 h TTL as the skills-first gate): `$mcp_session_tool_call_index` (1 on the
+session's first `call`), `$mcp_session_age_ms` (since the session's first request), and, on
+exec-mode `call`s only, `$mcp_schema_read_before_call` (did this session run `info`/`schema` on
+that tool earlier). Sessions without the header (most Claude Code traffic on the 2026-07-28
+revision, see [stateless-and-sessions.md](stateless-and-sessions.md)) carry none of the three.
+`$mcp_server_build` is the git commit the server was built from (`dev` locally); prefer it to
+`$mcp_server_version`, which is the protocol-facing constant, when tying a change to a deploy.
+`execute-sql` calls additionally emit a separate `$ai_generation` event
 carrying `$ai_trace_id`, `$ai_input`, `$ai_output_choices`, and `$ai_latency`.
 
 ## Exec-mode properties

@@ -50,6 +50,7 @@ import {
     ToolInputValidationError,
     wrapError,
 } from '@/lib/errors'
+import { normalizeParamAliases } from '@/tools/cast-helpers'
 
 import { toolFromPreBuilt } from '../shared/test-utils'
 
@@ -110,6 +111,26 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         metadataCompact: undefined,
         groupTypes: undefined,
         ...overrides,
+    }
+}
+
+/** An in-memory stand-in for the session Redis cache, shared across requests of one session. */
+function memorySessionCache(): { get: ReturnType<typeof vi.fn>; set: ReturnType<typeof vi.fn> } {
+    const store = new Map<string, unknown>()
+    return {
+        get: vi.fn(async (key: string) => store.get(key)),
+        set: vi.fn(async (key: string, value: unknown) => {
+            store.set(key, value)
+        }),
+    }
+}
+
+/** A state whose request carries an MCP session id and whose session cache is `cache`. */
+function withSession(state: ResolvedState, cache: unknown, mcpSessionId = 'mcp-session-1'): ResolvedState {
+    return {
+        ...state,
+        reqCtx: { ...state.reqCtx, getSessionCache: vi.fn(() => cache) } as any,
+        requestContext: { ...state.requestContext, mcpSessionId },
     }
 }
 
@@ -458,6 +479,105 @@ describe('ToolExecutor metrics', () => {
             })
         })
 
+        // `$mcp_validation_input_keys` exists only on a rejection, so a call the alias
+        // layer rescued left no trace of the name the agent actually used. The shape
+        // is read from the raw input, before preprocess folds the alias away.
+        it('stamps the input keys and the alias used on a successful direct call', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+                name: 'alias-tool',
+                build() {
+                    return this.base
+                },
+                base: {
+                    schema: z.preprocess(normalizeParamAliases({ id: ['experimentId'] }), z.object({ id: z.number() })),
+                    handler: vi.fn().mockResolvedValue('ok'),
+                    _meta: undefined,
+                },
+            } as any)
+
+            await executor.handleToolCall(
+                { name: 'alias-tool', arguments: { experimentId: 29, llm_model: 'claude', context: {} } },
+                makeState([{ name: 'alias-tool' }])
+            )
+
+            const call = mockTrackToolCall.mock.calls.find((c) => c[0] === 'alias-tool')!
+            expect(call[2]).toBe(false)
+            expect(call[4]).toMatchObject({
+                // SDK-injected arguments are not something the agent chose to send.
+                $mcp_input_keys: ['experimentId'],
+                $mcp_param_aliases_used: ['experimentId->id'],
+            })
+            expect(JSON.stringify(call[4])).not.toContain('29')
+        })
+
+        it('stamps the input keys on a rejected direct call, without an alias property', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+                name: 'strict-tool',
+                build() {
+                    return this.base
+                },
+                base: { schema: z.object({ required_field: z.string() }), handler: vi.fn(), _meta: undefined },
+            } as any)
+
+            await executor.handleToolCall(
+                { name: 'strict-tool', arguments: { requiredField: 'x' } },
+                makeState([{ name: 'strict-tool' }])
+            )
+
+            const extras = trackToolCallExtras('strict-tool')
+            expect(extras).toMatchObject({ $mcp_input_keys: ['requiredField'] })
+            expect(extras).not.toHaveProperty('$mcp_param_aliases_used')
+        })
+
+        describe('session properties', () => {
+            it('counts calls across requests on one session, and never flags a schema read in tools mode', async () => {
+                const cache = memorySessionCache()
+                vi.spyOn(catalog, 'getToolByName').mockReturnValue(makeFakeTool('ok-tool') as any)
+
+                await executor.handleToolCall(
+                    { name: 'ok-tool', arguments: {} },
+                    withSession(makeState([{ name: 'ok-tool' }]), cache)
+                )
+                await executor.handleToolCall(
+                    { name: 'ok-tool', arguments: {} },
+                    withSession(makeState([{ name: 'ok-tool' }]), cache)
+                )
+
+                const [first, second] = mockTrackToolCall.mock.calls.filter((c) => c[0] === 'ok-tool')
+                expect(first?.[4]).toMatchObject({ $mcp_session_tool_call_index: 1 })
+                expect(second?.[4]).toMatchObject({ $mcp_session_tool_call_index: 2 })
+                expect(second?.[4]).not.toHaveProperty('$mcp_schema_read_before_call')
+                expect(second?.[4]).toHaveProperty('$mcp_session_age_ms')
+            })
+
+            it('omits them when the request carries no MCP session id', async () => {
+                vi.spyOn(catalog, 'getToolByName').mockReturnValue(makeFakeTool('ok-tool') as any)
+
+                await executor.handleToolCall({ name: 'ok-tool', arguments: {} }, makeState([{ name: 'ok-tool' }]))
+
+                expect(trackToolCallExtras('ok-tool')).not.toHaveProperty('$mcp_session_tool_call_index')
+            })
+
+            // Telemetry must never fail a call: an unreachable session cache drops the
+            // three session properties and nothing else.
+            it('still runs the tool and emits the event when the session cache fails', async () => {
+                const failing = { get: vi.fn().mockRejectedValue(new Error('redis down')), set: vi.fn() }
+                const tool = makeFakeTool('ok-tool')
+                vi.spyOn(catalog, 'getToolByName').mockReturnValue(tool as any)
+
+                const result = await executor.handleToolCall(
+                    { name: 'ok-tool', arguments: {} },
+                    withSession(makeState([{ name: 'ok-tool' }]), failing)
+                )
+
+                expect(tool.base.handler).toHaveBeenCalled()
+                expect((result as any).isError).not.toBe(true)
+                const extras = trackToolCallExtras('ok-tool')
+                expect(extras).toMatchObject({ $mcp_input_keys: [] })
+                expect(extras).not.toHaveProperty('$mcp_session_tool_call_index')
+            })
+        })
+
         it('records error for unknown tool', async () => {
             await executor.handleToolCall({ name: 'nonexistent', arguments: {} }, makeState([]))
 
@@ -501,6 +621,66 @@ describe('ToolExecutor metrics', () => {
 
             const call = mockTrackToolCall.mock.calls.at(-1)
             expect(call?.[4]).toMatchObject(expected)
+        })
+
+        // In exec mode the inner arguments are JSON inside `command`, so the direct
+        // path's wiring alone would record nothing about the shape of nearly every call.
+        it('stamps the inner input keys and alias on an exec call', async () => {
+            await executor.handleToolCall(
+                {
+                    name: 'exec',
+                    arguments: { command: 'call feature-flag-get-definition-by-key {"flagKey": "checkout-v2"}' },
+                },
+                execState()
+            )
+
+            const extras = mockTrackToolCall.mock.calls.at(-1)?.[4]
+            expect(extras).toMatchObject({
+                $mcp_exec_verb: 'call',
+                $mcp_input_keys: ['flagKey'],
+                $mcp_param_aliases_used: ['flagKey->key'],
+            })
+            expect(JSON.stringify(extras)).not.toContain('checkout-v2')
+        })
+
+        it.each([
+            ['info docs-search'],
+            ['schema docs-search query'],
+            ['tools'],
+            // An unparseable body carries no keys either.
+            ['call docs-search {not json'],
+        ])('stamps no input keys for "%s"', async (command) => {
+            await executor.handleToolCall({ name: 'exec', arguments: { command } }, execState())
+
+            expect(mockTrackToolCall.mock.calls.at(-1)?.[4]).not.toHaveProperty('$mcp_input_keys')
+        })
+
+        it('records whether the session read the schema before calling the tool', async () => {
+            const cache = memorySessionCache()
+
+            await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'info docs-search' } },
+                withSession(execState(), cache)
+            )
+            expect(mockTrackToolCall.mock.calls.at(-1)?.[4]).toMatchObject({ $mcp_session_tool_call_index: 0 })
+
+            await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'call docs-search {"query": "flags"}' } },
+                withSession(execState(), cache)
+            )
+            expect(mockTrackToolCall.mock.calls.at(-1)?.[4]).toMatchObject({
+                $mcp_session_tool_call_index: 1,
+                $mcp_schema_read_before_call: true,
+            })
+
+            await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'call feature-flag-get-all {}' } },
+                withSession(execState(), cache)
+            )
+            expect(mockTrackToolCall.mock.calls.at(-1)?.[4]).toMatchObject({
+                $mcp_session_tool_call_index: 2,
+                $mcp_schema_read_before_call: false,
+            })
         })
 
         // A name a feature flag retired is one we own, so it is recordable like any

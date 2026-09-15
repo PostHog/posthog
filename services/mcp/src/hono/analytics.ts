@@ -4,7 +4,7 @@ import type { MCPAnalyticsIntentSource, MCPAnalyticsModelSource } from '@posthog
 
 import type { McpAuthFailure } from '@/lib/auth-errors'
 import { classifyAuthMethod } from '@/lib/auth-method'
-import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
+import { MCP_ANALYTICS_SOURCE, MCP_SERVER_BUILD, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { resolveEventSource } from '@/lib/event-source'
 import { gatewayServerSlug, isGatewayToolName, THIRD_PARTY_TOOL_CATEGORY } from '@/lib/gateway-tools'
 import { getPostHogClient } from '@/lib/posthog'
@@ -55,6 +55,7 @@ function buildBaseProperties(
         $mcp_source: MCP_ANALYTICS_SOURCE,
         $mcp_server_name: MCP_SERVER_NAME,
         $mcp_server_version: MCP_SERVER_VERSION,
+        $mcp_server_build: MCP_SERVER_BUILD,
         $mcp_version: MCP_ANALYTICS_VERSION,
         $mcp_client_name: clientIdentity.mcpClientName,
         $mcp_client_version: clientIdentity.mcpClientVersion,
@@ -480,6 +481,7 @@ export function trackAuthFailure(props: RequestProperties, failure: McpAuthFailu
                 $mcp_source: MCP_ANALYTICS_SOURCE,
                 $mcp_server_name: MCP_SERVER_NAME,
                 $mcp_server_version: MCP_SERVER_VERSION,
+                $mcp_server_build: MCP_SERVER_BUILD,
                 $mcp_version: MCP_ANALYTICS_VERSION,
                 $mcp_client_name: props.mcpClientName,
                 $mcp_client_version: props.mcpClientVersion,

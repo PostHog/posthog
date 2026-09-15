@@ -21,6 +21,11 @@ export const getAuthorizationServerUrl = (): string => resolveAuthorizationServe
 
 export const MCP_SERVER_NAME = 'PostHog'
 export const MCP_SERVER_VERSION = '1.0.0'
+// The commit the running bundle was built from, injected by the esbuild `define` in
+// scripts/hono-esbuild-config.ts from the image's COMMIT_HASH. `MCP_SERVER_VERSION`
+// stays the protocol-facing value clients display; this one goes on analytics so a
+// behaviour change can be tied to the deploy that shipped it.
+export const MCP_SERVER_BUILD = process.env.MCP_BUILD_SHA ? process.env.MCP_BUILD_SHA.slice(0, 12) : 'dev'
 export const MCP_ANALYTICS_SOURCE = 'posthog_mcp_analytics'
 
 // Claude Code truncates a server's `instructions` payload at this many characters — silently,

@@ -1246,11 +1246,19 @@ export function describeValidationError(
             })
         ),
     ].slice(0, MAX_VALIDATION_DESCRIPTORS)
-    const inputKeys = Object.keys(input)
+    return { fields, inputKeys: describeInputKeys(input) }
+}
+
+/**
+ * The top-level keys a caller sent, sorted and capped, with no values. Shared by the
+ * validation descriptors and the per-call `$mcp_input_keys` property so both record the
+ * same shape of the same request.
+ */
+export function describeInputKeys(input: Record<string, unknown>): string[] {
+    return Object.keys(input)
         .sort()
         .slice(0, MAX_VALIDATION_DESCRIPTORS)
         .map((key) => key.slice(0, MAX_KEY_LENGTH))
-    return { fields, inputKeys }
 }
 
 /** Whether the tool's input schema declares an `output_format` field. Unwraps

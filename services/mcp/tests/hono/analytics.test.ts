@@ -117,6 +117,8 @@ describe('Hono MCP analytics contexts', () => {
             $mcp_region: 'us',
             $mcp_auth_method: 'personal_api_key',
             $mcp_vendor_client: 'ClaudeAI',
+            // The commit the bundle was built from; `dev` outside a release build.
+            $mcp_server_build: 'dev',
             mcp_session_client_name: 'claude-code',
             mcp_session_client_version: '1.0',
             mcp_session_protocol_version: '2025-03-26',

@@ -1,3 +1,5 @@
+import { z } from 'zod'
+
 /**
  * Input casts for permissive zod schemas at the MCP tool boundary.
  *
@@ -66,9 +68,8 @@ export const castBooleanToString = (v: unknown): unknown => (typeof v === 'boole
  * Wired up declaratively via `param_overrides: { id: { aliases: [...] } }` in
  * product `tools.yaml` files — see services/mcp/scripts/generate-tools.ts.
  */
-export const normalizeParamAliases =
-    (aliasMap: Record<string, readonly string[]>) =>
-    (input: unknown): unknown => {
+export const normalizeParamAliases = (aliasMap: Record<string, readonly string[]>): ((input: unknown) => unknown) => {
+    const normalize = (input: unknown): unknown => {
         if (input === null || typeof input !== 'object' || Array.isArray(input)) {
             return input
         }
@@ -90,3 +91,55 @@ export const normalizeParamAliases =
         }
         return result
     }
+    ALIAS_MAPS.set(normalize, aliasMap)
+    return normalize
+}
+
+/**
+ * Alias maps keyed by the preprocess function that applies them. Telemetry reads the
+ * map back off a tool's schema to record which alias a call carried, so the map has
+ * one source of truth: the same `normalizeParamAliases(...)` call the schema uses.
+ */
+const ALIAS_MAPS = new WeakMap<(input: unknown) => unknown, Record<string, readonly string[]>>()
+
+/**
+ * The alias maps a schema applies, merged across nested `z.preprocess(normalizeParamAliases(...), ...)`
+ * layers, or undefined when it applies none. Walks the pipe chain that `z.preprocess` builds
+ * (`ZodPipe` with the transform on `.in`), the same way `schemaHasOutputFormat` walks `.out`.
+ */
+export function readParamAliases(schema: z.ZodType): Record<string, readonly string[]> | undefined {
+    let merged: Record<string, readonly string[]> | undefined
+    let current: unknown = schema
+    for (let depth = 0; depth < 8 && current instanceof z.ZodPipe; depth++) {
+        const transform = (current.in as { def?: { transform?: unknown } }).def?.transform
+        const aliasMap =
+            typeof transform === 'function' ? ALIAS_MAPS.get(transform as (input: unknown) => unknown) : undefined
+        if (aliasMap) {
+            merged = Object.assign(merged ?? {}, aliasMap)
+        }
+        current = current.out
+    }
+    return merged
+}
+
+/**
+ * Which aliases an input carried, as `alias->canonical` tokens. Both halves are names the
+ * tool's own schema declares, never input values, so the list is safe to record.
+ */
+export function describeAliasesUsed(
+    aliasMap: Record<string, readonly string[]> | undefined,
+    input: Record<string, unknown>
+): string[] {
+    if (!aliasMap) {
+        return []
+    }
+    const used: string[] = []
+    for (const [canonical, aliases] of Object.entries(aliasMap)) {
+        for (const alias of aliases) {
+            if (alias in input) {
+                used.push(`${alias}->${canonical}`)
+            }
+        }
+    }
+    return used.sort()
+}
