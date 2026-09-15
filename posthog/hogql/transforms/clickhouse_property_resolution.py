@@ -1803,6 +1803,11 @@ class ClickHousePropertyResolver(CloningVisitor):
         ClickHouse cannot parse a text literal as an array, so the plain comparison fails the whole query with
         CANNOT_READ_ARRAY_FROM_TEXT. A data warehouse column typed `Array(...)` reaches here whenever a property
         filter targets it, so the membership form is what makes such an insight runnable at all.
+
+        The item type is not checked, because warehouse resolution maps every `Array(...)` column to
+        `StringArrayDatabaseField` and keeps no item type. A text value against an `Array(Float64)` column therefore
+        prints `has(col, 'text')`, which ClickHouse rejects for having no common type. That column is equally
+        unusable without this rewrite, and a cast to the item type needs that type kept at resolution time.
         """
         if node.op not in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
             return None
