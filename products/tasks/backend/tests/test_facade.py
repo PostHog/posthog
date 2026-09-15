@@ -595,7 +595,10 @@ class TestFacadeReadsAndMappers(TestCase):
             task=task, team=self.team, status=TaskRun.Status.COMPLETED, output={"final_message": "done"}
         )
 
-        dto = facade.get_task_detail(task.id, self.team.id, self.user.id)
+        # The runs this path prefetches already carry the earlier PR, so finding it costs
+        # no second trip to the database.
+        with self.assertNumQueries(3):
+            dto = facade.get_task_detail(task.id, self.team.id, self.user.id)
 
         assert dto is not None and dto.latest_run is not None
         self.assertEqual(dto.latest_run.output["pr_url"], "https://x/pull/7")

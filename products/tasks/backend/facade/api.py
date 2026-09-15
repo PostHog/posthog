@@ -563,6 +563,20 @@ def _inherited_pr_fields(output: object) -> dict[str, Any]:
     return {key: output[key] for key in _INHERITED_PR_OUTPUT_KEYS if key in output}
 
 
+def _prior_pr_output_from_runs(task: Task) -> dict[str, Any] | None:
+    """The task's most recent PR-carrying run output, taken from the runs already in memory.
+
+    Every caller that maps one task prefetches ``runs``, and ``Task.latest_run`` has just walked
+    them, so the row this needs is loaded — a query for it would be a second trip for rows the
+    request already holds. Same team scoping and same recency rule as ``Task.latest_run``. The
+    list path batches its own lookup instead and passes the result in.
+    """
+    pr_runs = [run for run in task.runs.all() if run.team_id == task.team_id and read_pr_urls(run.output)]
+    if not pr_runs:
+        return None
+    return max(pr_runs, key=lambda run: (run.created_at, run.id)).output
+
+
 def _task_slack_thread_references(task: Task) -> list[contracts.SlackThreadReferenceDTO]:
     references: list[contracts.SlackThreadReferenceDTO] = []
     for item in (task.state or {}).get("slack_thread_references", []):
@@ -661,7 +675,8 @@ def _task_detail_to_dto(
 
     ``prior_pr_output`` is the task's most recent PR-carrying run output, which backfills
     the PR onto ``latest_run`` when that run opened none itself. Callers that map a page of
-    tasks pass it to keep the lookup to one query; leave it unset for a single task.
+    tasks pass it to keep the lookup to one query; a single task leaves it unset and the
+    answer comes from the runs that caller already prefetched.
     """
     if not include_latest_run:
         resolved_latest_run = None
@@ -678,9 +693,7 @@ def _task_detail_to_dto(
         # out of `latest_run` — and with it the PR button every client reads from there.
         # Logs and artifacts already survive a resume; the PR has to as well.
         resolved_prior_pr_output = (
-            get_prior_pr_output_by_task(task.team_id, [task.id]).get(str(task.id))
-            if isinstance(prior_pr_output, _PriorPrOutputUnset)
-            else prior_pr_output
+            _prior_pr_output_from_runs(task) if isinstance(prior_pr_output, _PriorPrOutputUnset) else prior_pr_output
         )
         inherited = _inherited_pr_fields(resolved_prior_pr_output)
         if inherited:
