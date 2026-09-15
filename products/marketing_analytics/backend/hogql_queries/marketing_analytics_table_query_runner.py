@@ -129,6 +129,14 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             error=self._conversion_goal_error,
         )
 
+    def _build_not_ready_response(self) -> MarketingAnalyticsTableQueryResponse:
+        return MarketingAnalyticsTableQueryResponse(
+            results=[],
+            columns=[],
+            modifiers=self.modifiers,
+            precomputeNotReady=True,
+        )
+
     def _get_column_names_for_order_by(self, select_columns: list[ast.Expr]) -> list[str]:
         """Extract column names from AST expressions for order by"""
         return [col.alias if isinstance(col, ast.Alias) else str(col) for col in select_columns]
@@ -225,6 +233,9 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
 
         previous_period_query = previous_runner.to_query()
         current_period_query = self.to_query()
+        # Both periods are on screen, so the response's freshness is the older of the two. `to_query`
+        # resets this per build, so fold the previous period in only after the current one has run.
+        self.note_precompute_computed_at(previous_runner._precompute_computed_at)
 
         # Get column names for the compare query
         select_columns = self._get_filtered_select_columns(current_period_query)

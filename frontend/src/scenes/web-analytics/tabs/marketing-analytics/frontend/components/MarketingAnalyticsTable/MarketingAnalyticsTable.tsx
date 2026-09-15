@@ -19,6 +19,9 @@ import {
     MarketingAnalyticsTableQuery,
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn } from '~/queries/types'
+import { MarketingAnalyticsFreshness } from '~/scenes/marketing-analytics/MarketingAnalyticsFreshness'
+import { MarketingAnalyticsNotReady } from '~/scenes/marketing-analytics/MarketingAnalyticsNotReady'
+import { useMarketingAnalyticsPrecompute } from '~/scenes/marketing-analytics/useMarketingAnalyticsPrecompute'
 import { webAnalyticsDataTableQueryContext } from '~/scenes/web-analytics/tiles/WebAnalyticsTile'
 import { InsightLogicProps } from '~/types'
 
@@ -51,6 +54,7 @@ export const MarketingAnalyticsTable = ({
     const hasDrillDown = useFeatureFlag('MARKETING_ANALYTICS_DRILL_DOWN')
     const hasExtendedDrillDown = useFeatureFlag('MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN')
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
+    const { notReady: precomputeNotReady, computedAt } = useMarketingAnalyticsPrecompute(query.source, insightProps)
 
     const [searchTerm, setSearchTerm] = useState('')
 
@@ -116,7 +120,7 @@ export const MarketingAnalyticsTable = ({
     return (
         <div className="bg-surface-primary">
             <div className="p-4 border-b border-border bg-bg-light">
-                <div className="flex gap-4 justify-between items-center">
+                <div className="flex flex-wrap gap-4 justify-between items-center">
                     <div className="flex items-center gap-2">
                         <LemonInput
                             type="search"
@@ -194,9 +198,12 @@ export const MarketingAnalyticsTable = ({
                             <IconInfo className="text-xl text-secondary" />
                         </Tooltip>
                     </div>
-                    <LemonButton type="secondary" icon={<IconGear />} onClick={showColumnConfigModal}>
-                        Configure columns
-                    </LemonButton>
+                    <div className="flex items-center gap-2">
+                        <MarketingAnalyticsFreshness computedAt={computedAt} />
+                        <LemonButton type="secondary" icon={<IconGear />} onClick={showColumnConfigModal}>
+                            Configure columns
+                        </LemonButton>
+                    </div>
                 </div>
             </div>
             {validationWarnings && validationWarnings.length > 0 && (
@@ -213,15 +220,21 @@ export const MarketingAnalyticsTable = ({
                     />
                 </div>
             )}
-            <div className="relative marketing-analytics-table-container">
-                <Query
-                    attachTo={attachTo}
-                    query={query}
-                    readOnly={false}
-                    context={marketingAnalyticsContext}
-                    setQuery={setQuery}
-                />
-            </div>
+            {precomputeNotReady ? (
+                <div className="p-4">
+                    <MarketingAnalyticsNotReady />
+                </div>
+            ) : (
+                <div className="relative marketing-analytics-table-container">
+                    <Query
+                        attachTo={attachTo}
+                        query={query}
+                        readOnly={false}
+                        context={marketingAnalyticsContext}
+                        setQuery={setQuery}
+                    />
+                </div>
+            )}
             <MarketingAnalyticsColumnConfigModal query={query} />
         </div>
     )
