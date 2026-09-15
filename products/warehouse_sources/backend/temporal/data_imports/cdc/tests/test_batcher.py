@@ -3,6 +3,8 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Literal
 
+import pytest
+
 import pyarrow as pa
 from parameterized import parameterized
 
@@ -22,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     enrich_delete_rows,
     enrich_toast_omitted_rows,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCReservedColumnError
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 
 
@@ -751,3 +754,48 @@ class TestSeqColumn:
         # The DELETE row copied `name` from the preceding update, proving
         # enrichment ran while seq stayed per-event.
         assert enriched.column("name")[1].as_py() == "Alice"
+
+
+class TestScd2TimestampType:
+    """`valid_from` carries the timestamp column's own values, so it must carry its type too.
+
+    The buffered path normalizes timestamps to naive before the loader derives SCD2; the legacy
+    path derives it in the extraction activity, where they are still UTC-aware. Declaring a fixed
+    type made pyarrow reject the whole batch on the buffered path.
+    """
+
+    @parameterized.expand([("naive", None), ("utc_aware", "UTC")])
+    def test_scd2_columns_match_the_timestamp_column(self, _name, tz):
+        ts = pa.timestamp("us", tz=tz)
+        table = pa.table(
+            {
+                "id": pa.array([1, 1], pa.int64()),
+                CDC_TIMESTAMP_COLUMN: pa.array([0, 1], ts),
+            }
+        )
+
+        result = build_scd2_table(table, ["id"])
+
+        assert result.schema.field(SCD2_VALID_FROM_COLUMN).type == ts
+        assert result.schema.field(SCD2_VALID_TO_COLUMN).type == ts
+        assert result.column(SCD2_VALID_TO_COLUMN).to_pylist()[0] is not None
+
+
+class TestScd2ReservedColumns:
+    @parameterized.expand([(SCD2_VALID_FROM_COLUMN,), (SCD2_VALID_TO_COLUMN,)])
+    def test_a_source_column_named_like_the_stamp_fails_before_the_writer(self, taken):
+        # Delta refuses the duplicate name at write time, but by then a batch is half built and
+        # the error names a qualified field, not the customer's column. A silent skip here is
+        # worse still: the writer would close rows against the customer's own values.
+        table = pa.table(
+            {
+                "id": pa.array([1], pa.int64()),
+                taken: pa.array([datetime(2020, 1, 1)], pa.timestamp("us")),
+                CDC_SEQ_COLUMN: pa.array([5], pa.int64()),
+                CDC_OP_COLUMN: pa.array(["U"], pa.string()),
+                CDC_TIMESTAMP_COLUMN: pa.array([datetime(2026, 1, 1)], pa.timestamp("us")),
+            }
+        )
+
+        with pytest.raises(CDCReservedColumnError, match=taken):
+            build_scd2_table(table, ["id"])

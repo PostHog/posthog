@@ -8,13 +8,29 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_COLUMN, CDC_SEQ_PROVENANCE
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
+    CDC_OP_COLUMN,
+    CDC_SEQ_COLUMN,
+    CDC_SEQ_PROVENANCE,
+    CDC_TIMESTAMP_COLUMN,
+    SCD2_VALID_FROM_COLUMN,
+    SCD2_VALID_TO_COLUMN,
+    TOAST_OMITTED_COLUMN,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import build_buffer_file_name
+from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import LanePosition
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
+    BUFFERED_LANE_KEY,
+    COMPANION_WRITE_MODE,
+    CONSOLIDATED_WRITE_MODE,
+    CDCLane,
     CDCSourceManager,
-    has_pending_legacy_backlog,
-    is_buffered_consolidated,
+    ReplayFilter,
+    build_output_lanes,
+    consumes_buffer,
+    has_batches_in_flight,
     scheduled_sync_consumes_buffer,
+    served_lanes,
     serves_buffered_lane,
 )
 
@@ -31,6 +47,44 @@ def _table(ids: list[int], seqs: list[int]) -> pa.Table:
     return pa.table({"id": pa.array(ids, pa.int64())}).append_column(
         pa.field(CDC_SEQ_COLUMN, pa.int64(), metadata=CDC_SEQ_PROVENANCE), pa.array(seqs, pa.int64())
     )
+
+
+def _ops(
+    ids: list[int],
+    seqs: list[int],
+    ops: list[str] | None = None,
+    labels: list[str | None] | None = None,
+    omitted: list[list[str] | None] | None = None,
+) -> pa.Table:
+    """A batch as the lanes see it: keyed rows carrying the position, operation and commit time.
+
+    `label` is the one content column, so two changes to a key can differ. `omitted` is the TOAST
+    marker: the columns a row does not carry because the source left them unchanged.
+    """
+    stamps = pa.array([dt.datetime(2026, 1, 1, tzinfo=dt.UTC)] * len(ids), pa.timestamp("us", tz="UTC"))
+    table = (
+        _table(ids, seqs)
+        .append_column(pa.field("label", pa.string()), pa.array(labels or ["v1"] * len(ids), pa.string()))
+        .append_column(pa.field(CDC_OP_COLUMN, pa.string()), pa.array(ops or ["I"] * len(ids), pa.string()))
+        .append_column(pa.field(CDC_TIMESTAMP_COLUMN, stamps.type), stamps)
+    )
+    if omitted is not None:
+        table = table.append_column(
+            pa.field(TOAST_OMITTED_COLUMN, pa.list_(pa.string())), pa.array(omitted, pa.list_(pa.string()))
+        )
+    return table
+
+
+def _held(*rows: tuple[int, str] | tuple[int, str, str]) -> dict:
+    """Rows a history table holds at its position, as `read_lane_position` returns them."""
+    grouped: dict = {}
+    for row in rows:
+        row_id, op, label = (*row, "v1")[:3]
+        grouped.setdefault((row_id, op), []).append({"id": row_id, "label": label})
+    return grouped
+
+
+_NO_POSITION = LanePosition(position=None, applied={})
 
 
 def _parquet_bytes(table: pa.Table) -> bytes:
@@ -51,8 +105,11 @@ class _FakeS3:
         files: dict[str, bytes],
         missing_prefix: bool = False,
         mtimes: dict[str, dt.datetime] | None = None,
+        missing_keys: set[str] | None = None,
     ) -> None:
         self.files = dict(files)
+        # Listed but gone by the time the reader opens them, as a concurrent retry leaves things.
+        self.missing_keys = missing_keys or set()
         self.removed: list[str] = []
         self.opened: list[str] = []
         self.missing_prefix = missing_prefix
@@ -72,7 +129,7 @@ class _FakeS3:
 
     async def open_async(self, key, mode):
         self.opened.append(key)
-        if key not in self.files:
+        if key in self.missing_keys or key not in self.files:
             raise FileNotFoundError(key)
         data = self.files[key]
 
@@ -86,14 +143,11 @@ class _FakeS3:
 
 
 @contextlib.contextmanager
-def _patched(s3: _FakeS3, load_position: int | None, proof_time: dt.datetime | None):
+def _patched(s3: _FakeS3):
     with (
         patch(
             "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.aget_s3_client"
         ) as mock_client,
-        patch.object(CDCSourceManager, "_read_consume_state", AsyncMock(return_value=(load_position, None))),
-        patch.object(CDCSourceManager, "_completed_listing_time", AsyncMock(return_value=proof_time)),
-        patch.object(CDCSourceManager, "_stamp_listing", AsyncMock()) as mock_stamp,
         patch(
             "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.get_buffer_prefix",
             return_value=f"s3://{_PREFIX}",
@@ -101,25 +155,23 @@ def _patched(s3: _FakeS3, load_position: int | None, proof_time: dt.datetime | N
     ):
         mock_client.return_value.__aenter__ = AsyncMock(return_value=s3)
         mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
-        yield mock_stamp
+        yield
 
 
-def _manager() -> CDCSourceManager:
+def _manager(*, deletion_floor: int | None = None, proof_time: dt.datetime | None = None) -> CDCSourceManager:
     inputs = MagicMock()
     inputs.team_id = _TEAM_ID
     inputs.schema_id = _SCHEMA_ID
     inputs.reset_pipeline = False
-    return CDCSourceManager(inputs=inputs, logger=AsyncMock())
+    return CDCSourceManager(inputs=inputs, logger=AsyncMock(), deletion_floor=deletion_floor, proof_time=proof_time)
 
 
 async def _collect(
-    s3: _FakeS3,
-    load_position: int | None = None,
-    proof_time: dt.datetime | None = None,
-    **kwargs,
+    s3: _FakeS3, *, deletion_floor: int | None = None, proof_time: dt.datetime | None = None, **kwargs
 ) -> list[pa.Table]:
-    with _patched(s3, load_position, proof_time):
-        return [t async for t in _manager().get_items("users", **kwargs)]
+    manager = _manager(deletion_floor=deletion_floor, proof_time=proof_time)
+    with _patched(s3), patch.object(CDCSourceManager, "stamp_listing", AsyncMock()):
+        return [t async for t in manager.get_items(**kwargs)]
 
 
 def _schema(**overrides) -> MagicMock:
@@ -128,8 +180,13 @@ def _schema(**overrides) -> MagicMock:
     schema.cdc_mode = overrides.get("cdc_mode", "streaming")
     schema.cdc_table_mode = overrides.get("cdc_table_mode", "consolidated")
     schema.initial_sync_complete = overrides.get("initial_sync_complete", True)
-    schema.sync_type_config = overrides.get("sync_type_config", {})
+    # A flipped schema carries the opt-in marker; consolidated is served without it.
+    default_config = {} if schema.cdc_table_mode == "consolidated" else {BUFFERED_LANE_KEY: True}
+    schema.sync_type_config = overrides.get("sync_type_config", default_config)
     schema.source.job_inputs = overrides.get("job_inputs", {})
+    schema.primary_key_columns = overrides.get("primary_key_columns", ["id"])
+    schema.name = overrides.get("name", "users")
+    schema.resolved_s3_folder_name = overrides.get("resolved_s3_folder_name", "users")
     return schema
 
 
@@ -163,71 +220,6 @@ class TestCDCSourceManager:
         tables = await _collect(s3)
 
         assert tables[0].column("id").to_pylist() == [1, 2, 3]
-
-    async def test_files_strictly_below_the_position_are_deleted_and_never_read(self):
-        s3 = _FakeS3(
-            {
-                _key(100, 199): _parquet_bytes(_table([1], [100])),
-                _key(200, 299): _parquet_bytes(_table([2], [200])),
-            }
-        )
-
-        tables = await _collect(s3, load_position=250)
-
-        assert s3.removed == [_key(100, 199)]
-        assert s3.opened == [_key(200, 299)]
-        assert tables[0].column("id").to_pylist() == [2]
-
-    async def test_a_trailing_file_is_deleted_once_a_completed_listing_predates_it(self):
-        # Position alone cannot prove the file at the floor consumed, so an idle schema would
-        # otherwise re-merge and re-bill its trailing file on every sync forever.
-        s3 = _FakeS3({_key(100, 200): _parquet_bytes(_table([1], [200]))})
-
-        tables = await _collect(s3, load_position=200, proof_time=_OLD_MTIME + dt.timedelta(hours=1))
-
-        assert s3.removed == [_key(100, 200)]
-        assert tables == []
-
-    @parameterized.expand(
-        [
-            # A file written after the proving run's listing was never in it — it can hold the
-            # unread tail of a transaction split across files (all rows share one position).
-            ("written_after_the_proving_listing", _NOW, _NOW - dt.timedelta(minutes=30)),
-            # Within the clock-skew margin of the listing, existence in it is unproven.
-            ("within_the_skew_margin", _NOW - dt.timedelta(minutes=32), _NOW - dt.timedelta(minutes=30)),
-            ("no_completed_listing_yet", _OLD_MTIME, None),
-        ]
-    )
-    async def test_a_file_at_the_position_is_kept_when_consumption_is_unproven(self, _name, mtime, proof_time):
-        key = _key(100, 200)
-        s3 = _FakeS3({key: _parquet_bytes(_table([1], [200]))}, mtimes={key: mtime})
-
-        tables = await _collect(s3, load_position=200, proof_time=proof_time)
-
-        assert s3.removed == []
-        assert len(tables) == 1
-
-    async def test_no_files_are_deleted_before_anything_is_committed(self):
-        s3 = _FakeS3({_key(100, 199): _parquet_bytes(_table([1], [100]))})
-
-        await _collect(s3, load_position=None, proof_time=_NOW)
-
-        assert s3.removed == []
-
-    async def test_files_are_not_deleted_on_yield(self):
-        # The v3 batcher buffers across yields, so a yielded table can still be in memory. Only a
-        # committed position may delete a file.
-        s3 = _FakeS3(
-            {
-                _key(100, 199): _parquet_bytes(_table(list(range(6000)), [100] * 6000)),
-                _key(200, 299): _parquet_bytes(_table([1], [200])),
-            }
-        )
-
-        tables = await _collect(s3)
-
-        assert len(tables) == 2
-        assert s3.removed == []
 
     async def test_names_that_do_not_match_the_contract_are_ignored(self):
         s3 = _FakeS3(
@@ -269,38 +261,93 @@ class TestCDCSourceManager:
         assert [t.num_rows for t in tables] == [800, 400]
 
 
+class TestServedLanes:
+    @parameterized.expand(
+        [
+            ("consolidated", "consolidated", [CDCLane(resource_name="users", write_mode="incremental_merge")]),
+            ("cdc_only", "cdc_only", [CDCLane(resource_name="users_cdc", write_mode="scd2_append")]),
+            (
+                "both",
+                "both",
+                [
+                    CDCLane(resource_name="users", write_mode="incremental_merge"),
+                    CDCLane(resource_name="users_cdc", write_mode="scd2_append"),
+                ],
+            ),
+        ]
+    )
+    def test_a_table_mode_names_the_tables_its_changes_feed(self, _name, table_mode, expected):
+        assert served_lanes(_schema(cdc_table_mode=table_mode)) == expected
+
+    def test_an_unrecognized_table_mode_feeds_nothing(self):
+        # Fail closed: a mode this module cannot write must not reach the buffer at all.
+        assert served_lanes(_schema(cdc_table_mode="something_new")) == []
+
+    def test_the_companion_is_named_off_the_schema_not_the_folder(self):
+        # The consolidated lane follows the snapshot's resolved folder, which diverges from `name`
+        # for a row renamed bare to qualified. Following it here would append history into a table
+        # no query reads — the companion is keyed on `name`, like its snapshot seed.
+        schema = _schema(name="public.users", resolved_s3_folder_name="users", cdc_table_mode="both")
+        assert [lane.resource_name for lane in served_lanes(schema)] == ["users", "public.users_cdc"]
+
+
+class TestBufferedLaneOptIn:
+    @parameterized.expand(
+        [
+            ("consolidated", False, True),
+            ("cdc_only", False, False),
+            ("both", False, False),
+            ("cdc_only", True, True),
+            ("both", True, True),
+        ]
+    )
+    def test_history_modes_serve_only_once_the_flip_marked_them(self, mode, marked, served):
+        # A source flipped before history modes were served left those schemas on legacy with their
+        # schedules paused. Widening by mode alone would have capture route them into the buffer on
+        # deploy, with nothing scheduled to consume it. Consolidated predates the marker.
+        schema = _schema(cdc_table_mode=mode, sync_type_config={BUFFERED_LANE_KEY: True} if marked else {})
+
+        assert serves_buffered_lane(schema) is served
+
+
 class TestBufferedGating:
     @parameterized.expand(
         [
             ("not_cdc", {"is_cdc": False}),
             ("still_snapshotting", {"cdc_mode": "snapshot"}),
-            ("companion_lane", {"cdc_table_mode": "cdc_only"}),
-            ("both_lanes", {"cdc_table_mode": "both"}),
+            ("unrecognized_table_mode", {"cdc_table_mode": "something_new"}),
             ("no_table_yet", {"initial_sync_complete": False}),
         ]
     )
     def test_ineligible_schemas_stay_on_the_legacy_path(self, _name, overrides):
         assert serves_buffered_lane(_schema(**overrides)) is False
 
-    def test_a_consolidated_streaming_schema_serves_the_buffered_lane(self):
-        assert serves_buffered_lane(_schema()) is True
+    @parameterized.expand([("consolidated",), ("cdc_only",), ("both",)])
+    def test_every_streaming_table_mode_serves_the_buffered_lane(self, table_mode):
+        assert serves_buffered_lane(_schema(cdc_table_mode=table_mode)) is True
 
     @parameterized.expand([("legacy",), ("",), ("nonsense",)])
     def test_a_source_that_was_not_flipped_stays_on_the_legacy_path(self, ingest_mode):
-        assert is_buffered_consolidated(_schema(), ingest_mode=ingest_mode) is False
+        assert consumes_buffer(_schema(), ingest_mode=ingest_mode) is False
 
-    def test_a_flipped_consolidated_schema_consumes_the_buffer(self):
-        assert is_buffered_consolidated(_schema(), ingest_mode="buffered") is True
+    @parameterized.expand([("consolidated",), ("cdc_only",), ("both",)])
+    def test_a_flipped_schema_consumes_the_buffer(self, table_mode):
+        assert consumes_buffer(_schema(cdc_table_mode=table_mode), ingest_mode="buffered") is True
 
-    def test_a_flipped_schema_forces_the_buffered_consumer_on_its_scheduled_sync(self):
-        assert scheduled_sync_consumes_buffer(_schema(job_inputs={"cdc_ingest_mode": "buffered"})) is True
+    @parameterized.expand([("consolidated",), ("cdc_only",), ("both",)])
+    def test_a_flipped_schema_forces_the_buffered_consumer_on_its_scheduled_sync(self, table_mode):
+        schema = _schema(job_inputs={"cdc_ingest_mode": "buffered"}, cdc_table_mode=table_mode)
+        assert scheduled_sync_consumes_buffer(schema) is True
 
     @parameterized.expand(
         [
             ("source_never_flipped", {}),
             ("no_job_inputs", {"job_inputs": None}),
+            (
+                "unrecognized_table_mode",
+                {"job_inputs": {"cdc_ingest_mode": "buffered"}, "cdc_table_mode": "something_new"},
+            ),
             ("job_inputs_not_a_mapping", {"job_inputs": "buffered"}),
-            ("companion_lane", {"job_inputs": {"cdc_ingest_mode": "buffered"}, "cdc_table_mode": "cdc_only"}),
             ("still_snapshotting", {"job_inputs": {"cdc_ingest_mode": "buffered"}, "cdc_mode": "snapshot"}),
         ]
     )
@@ -308,7 +355,8 @@ class TestBufferedGating:
         assert scheduled_sync_consumes_buffer(_schema(**overrides)) is False
 
 
-class TestPendingLegacyBacklog:
+@pytest.mark.asyncio
+class TestBatchesInFlight:
     # Legacy deliveries carry no position column, so a consumer merge racing them can be overwritten
     # by an older row. These prove both backlog forms hold the consumer off.
 
@@ -316,7 +364,7 @@ class TestPendingLegacyBacklog:
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.psycopg"
         ) as mock_psycopg:
-            assert has_pending_legacy_backlog(_schema(sync_type_config={"cdc_deferred_runs": [{"x": 1}]})) is True
+            assert has_batches_in_flight(_schema(sync_type_config={"cdc_deferred_runs": [{"x": 1}]})) is True
             mock_psycopg.Connection.connect.assert_not_called()
 
     @parameterized.expand([("batches_pending", 12.5, True), ("queue_drained", None, False)])
@@ -331,45 +379,390 @@ class TestPendingLegacyBacklog:
                 return_value=age,
             ),
         ):
-            assert has_pending_legacy_backlog(schema) is expected
+            assert has_batches_in_flight(schema) is expected
 
 
 @pytest.mark.asyncio
-class TestListingProof:
-    # The deletion proof must come only from a run that listed the buffer AND completed. A gated
-    # no-op run (which never lists) or a crashed run (whose job never completes) must prove nothing.
+class TestReplayFilter:
+    """What each lane drops when a run re-reads a buffer its table has partly consumed.
 
-    async def test_every_consuming_run_stamps_its_listing(self):
-        s3 = _FakeS3({_key(100, 199): _parquet_bytes(_table([1], [100]))})
+    The two lanes differ only at the position itself: a merge rewrites those rows as upserts,
+    while history would keep a second copy, so only the append lane matches them, by content.
+    """
 
-        with _patched(s3, None, None) as mock_stamp:
-            [t async for t in _manager().get_items("users")]
+    @staticmethod
+    def _append(position, applied):
+        return ReplayFilter(LanePosition(position=position, applied=applied, key_columns=("id", CDC_OP_COLUMN)))
 
-        mock_stamp.assert_awaited_once()
+    def test_nothing_is_dropped_before_a_lane_has_written_anything(self):
+        table = _ops([1, 2], [10, 20], ["I", "U"])
 
-    @parameterized.expand([("job_completed", True, True), ("job_not_completed", False, False)])
-    async def test_a_stamp_proves_only_once_its_job_completes(self, _name, completed, expect_proof):
-        listing = {"listed_at": _NOW.isoformat(), "job_id": "018f0000-0000-0000-0000-000000000001"}
-        exists_qs = MagicMock()
-        exists_qs.exists.return_value = completed
+        assert self._append(None, {}).apply(table) is table
+        assert ReplayFilter(LanePosition(position=None, applied={}, key_columns=())).apply(table) is table
+
+    def test_the_table_rows_are_read_only_once_a_batch_holds_a_row_at_the_position(self):
+        loads = 0
+
+        def load():
+            nonlocal loads
+            loads += 1
+            return LanePosition(position=20, applied=_held((2, "I")), key_columns=("id", CDC_OP_COLUMN))
+
+        replay = ReplayFilter(
+            LanePosition(position=20, applied={}, key_columns=("id", CDC_OP_COLUMN), load_applied=load)
+        )
+
+        assert replay.apply(_ops([3], [30])).column("id").to_pylist() == [3]
+        assert loads == 0
+        assert replay.apply(_ops([2, 3], [20, 30])).column("id").to_pylist() == [3]
+        assert replay.apply(_ops([2], [20])).column("id").to_pylist() == [2]
+        assert loads == 1
+
+    def test_rows_below_the_position_are_dropped(self):
+        result = ReplayFilter(LanePosition(position=20, applied={}, key_columns=())).apply(
+            _ops([1, 2, 3], [10, 20, 30])
+        )
+
+        assert result.column(CDC_SEQ_COLUMN).to_pylist() == [20, 30]
+
+    def test_the_merge_lane_keeps_every_row_at_its_position(self):
+        result = ReplayFilter(LanePosition(position=20, applied={}, key_columns=())).apply(
+            _ops([1, 2, 3], [20, 20, 30])
+        )
+
+        assert result.column("id").to_pylist() == [1, 2, 3]
+
+    def test_the_append_lane_drops_only_the_rows_its_table_already_holds(self):
+        result = self._append(20, _held((1, "I"), (2, "U"))).apply(
+            _ops([1, 2, 3, 4], [20, 20, 20, 30], ["I", "U", "I", "U"])
+        )
+
+        assert result.column("id").to_pylist() == [3, 4]
+
+    def test_a_file_that_arrives_late_at_a_consumed_position_still_lands(self):
+        # The previous run read every file at position 20 and its table holds those two rows.
+        # Capture then wrote another file at the same position, carrying rows nothing has seen.
+        result = self._append(20, _held((1, "I"), (2, "I"))).apply(_ops([7, 8], [20, 20], ["I", "I"]))
+
+        assert result.column("id").to_pylist() == [7, 8]
+
+    def test_a_second_change_to_a_key_is_kept_when_the_table_holds_only_the_first(self):
+        # One transaction updated key 1 twice, across two buffer files. The first file was applied
+        # and then deleted; only the second is read now. Its row shares every key column with the
+        # one the table holds, and matching on the key alone would have dropped it for good.
+        result = self._append(20, _held((1, "U", "first"))).apply(_ops([1], [20], ["U"], labels=["second"]))
+
+        assert result.column("label").to_pylist() == ["second"]
+
+    def test_a_replayed_row_is_matched_by_its_content(self):
+        result = self._append(20, _held((1, "U", "first"))).apply(_ops([1], [20], ["U"], labels=["first"]))
+
+        assert result.num_rows == 0
+
+    def test_a_key_changed_twice_in_one_transaction_spends_one_row_per_match(self):
+        result = self._append(20, _held((1, "U", "a"))).apply(_ops([1, 1], [20, 20], ["U", "U"], labels=["a", "b"]))
+
+        assert result.column("label").to_pylist() == ["b"]
+
+    def test_a_delete_rows_nulls_are_unknowns_not_values(self):
+        # Under the default replica identity a delete carries only its key; the loader filled the
+        # rest from the table before storing it. Comparing the batch's nulls against those values
+        # would never match, and the delete would be appended again on every re-read of its file.
+        replay = self._append(20, _held((1, "D", "filled-in")))
+
+        result = replay.apply(_ops([1], [20], ["D"], labels=[None]))
+
+        assert result.num_rows == 0
+
+    def test_a_deletes_non_null_column_still_has_to_match(self):
+        replay = self._append(20, _held((1, "D", "was-a")))
+
+        result = replay.apply(_ops([1], [20], ["D"], labels=["was-b"]))
+
+        assert result.num_rows == 1
+
+    def test_a_column_that_will_not_cast_compares_by_its_string_form(self):
+        # Dropping the column would make a wrong match likelier, and a wrong match is a lost change.
+        held = {(1, "U"): [{"id": 1, "label": "v1", "amount": "9.5"}]}
+        stored = pa.table({"amount": pa.array(["9.5"], pa.string())})
+        schema = _ops([1], [20]).select(["id", "label"]).append_column("amount", stored.column("amount")).schema
+        replay = ReplayFilter(
+            LanePosition(position=20, applied=held, key_columns=("id", CDC_OP_COLUMN), content_schema=schema)
+        )
+        differs = _ops([1], [20], ["U"]).append_column("amount", pa.array([[9, 5]], pa.list_(pa.int64())))
+
+        assert replay.apply(differs).num_rows == 1
+
+    def test_above_the_cap_the_batch_content_is_never_materialized(self):
+        # The table side carried no content, so reading the batch's would cost what the cap avoids.
+        replay = ReplayFilter(
+            LanePosition(
+                position=20, applied={(1, "I"): [{}]}, key_columns=("id", CDC_OP_COLUMN), content_matched=False
+            )
+        )
+
+        with patch.object(ReplayFilter, "_batch_contents", side_effect=AssertionError("read content")):
+            result = replay.apply(_ops([1, 2], [20, 20], ["I", "I"]))
+
+        assert result.column("id").to_pylist() == [2]
+
+    def test_a_toast_omitted_column_is_left_out_of_the_comparison(self):
+        # The source left `label` unchanged, so the batch row does not carry it and the table's
+        # row does. Comparing it would never match, and the row would be appended a second time.
+        replay = self._append(20, _held((1, "U", "unchanged")))
+
+        result = replay.apply(_ops([1], [20], ["U"], labels=[None], omitted=[["label"]]))
+
+        assert result.num_rows == 0
+
+    def test_the_identity_is_spent_across_files_that_share_the_position(self):
+        replay = self._append(20, _held((1, "I"), (2, "I")))
+
+        first = replay.apply(_ops([1], [20], ["I"]))
+        second = replay.apply(_ops([2, 3], [20, 20], ["I", "I"]))
+
+        assert first.num_rows == 0
+        assert second.column("id").to_pylist() == [3]
+
+    def test_rows_past_the_position_are_never_matched(self):
+        replay = self._append(20, _held((1, "I")))
+        result = replay.apply(_ops([1, 2], [30, 40], ["I", "I"]))
+
+        assert result.column("id").to_pylist() == [1, 2]
+        assert replay.rows_skipped == 0
+
+    def test_a_table_missing_a_key_column_keys_the_batch_the_same_way(self):
+        # The position reports the columns it actually read. If the filter keyed batch rows by a
+        # wider tuple than the table was read with, nothing would ever match and every replayed
+        # row would be appended a second time.
+        replay = ReplayFilter(
+            LanePosition(position=20, applied={("I",): [{"id": 1, "label": "v1"}]}, key_columns=(CDC_OP_COLUMN,))
+        )
+
+        result = replay.apply(_ops([1, 2], [20, 20], ["I", "I"]))
+
+        assert result.num_rows == 1
+
+    def test_a_batch_is_cast_to_the_table_types_before_comparing(self):
+        # A column the loader widened from date to timestamp reads back as a datetime, and the
+        # batch's date is not equal to it. Left uncast, every replayed row would be appended again.
+        held = {(1, "I"): [{"id": 1, "label": "v1", "day": dt.datetime(2026, 1, 1)}]}
+        stored = pa.table({"day": pa.array([dt.datetime(2026, 1, 1)], pa.timestamp("us"))})
+        schema = _ops([1], [20]).select(["id", "label"]).append_column("day", stored.column("day")).schema
+        replay = ReplayFilter(
+            LanePosition(position=20, applied=held, key_columns=("id", CDC_OP_COLUMN), content_schema=schema)
+        )
+        batch = _ops([1], [20], ["I"]).append_column("day", pa.array([dt.date(2026, 1, 1)], pa.date32()))
+
+        assert replay.apply(batch).num_rows == 0
+
+    def test_a_source_owned_position_column_is_never_matched(self):
+        # The batcher passes a source column literally named _ph_cdc_seq through untouched, so its
+        # values are customer data. Matching them against this lane's position would drop rows
+        # nothing has written.
+        table = pa.table(
+            {
+                "id": pa.array([1, 2], pa.int64()),
+                CDC_SEQ_COLUMN: pa.array([20, 20], pa.int64()),
+                CDC_OP_COLUMN: pa.array(["I", "I"], pa.string()),
+            }
+        )
+        replay = self._append(20, _held((1, "I"), (2, "I")))
+
+        assert replay.apply(table) is table
+
+    def test_skipped_rows_are_counted(self):
+        replay = self._append(20, _held((2, "I")))
+        replay.apply(_ops([1, 2, 3], [10, 20, 20], ["I", "I", "I"]))
+
+        assert replay.rows_skipped == 2
+
+    def test_each_kind_of_drop_reports_its_own_reason(self):
+        # `superseded` is the series the loader raised while the position lived there. Reporting
+        # the identity drop under the same name would flatten a dashboard onto one number.
+        counter = MagicMock()
+        replay = ReplayFilter(
+            LanePosition(position=20, applied=_held((2, "I")), key_columns=("id", CDC_OP_COLUMN)), team_id=7
+        )
 
         with patch(
-            "products.warehouse_sources.backend.models.external_data_job.ExternalDataJob.objects.filter",
-            return_value=exists_qs,
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager."
+            "CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL",
+            counter,
         ):
-            proof = await _manager()._completed_listing_time(listing)
+            replay.apply(_ops([1, 2, 3], [10, 20, 20], ["I", "I", "I"]))
 
-        assert (proof == _NOW) is expect_proof
-        assert (proof is None) is (not expect_proof)
+        assert [call.kwargs["reason"] for call in counter.labels.call_args_list] == ["superseded", "already_written"]
 
-    @parameterized.expand(
-        [
-            ("no_stamp", None),
-            ("malformed_date", {"listed_at": "not-a-date", "job_id": "018f0000-0000-0000-0000-000000000001"}),
-            ("naive_timestamp", {"listed_at": "2026-08-14T12:00:00", "job_id": "018f0000-0000-0000-0000-000000000001"}),
-            ("malformed_job_id", {"listed_at": "2026-08-14T12:00:00+00:00", "job_id": "not-a-uuid"}),
-            ("missing_job", {"listed_at": "2026-08-14T12:00:00+00:00"}),
-        ]
-    )
-    async def test_unusable_stamps_prove_nothing(self, _name, listing):
-        assert await _manager()._completed_listing_time(listing) is None
+
+@pytest.mark.asyncio
+class TestFloorDeletion:
+    """Files every table has settled are deleted before they are read, never after."""
+
+    async def test_files_strictly_below_the_floor_are_deleted_and_never_read(self):
+        s3 = _FakeS3({_key(1, 10): _parquet_bytes(_table([1], [10])), _key(21, 30): _parquet_bytes(_table([2], [30]))})
+        await _collect(s3, deletion_floor=20)
+
+        assert s3.removed == [_key(1, 10)]
+        assert s3.opened == [_key(21, 30)]
+
+    async def test_a_file_at_the_floor_is_kept_until_a_completed_run_proves_it_read(self):
+        s3 = _FakeS3({_key(11, 20): _parquet_bytes(_table([1], [20]))})
+        await _collect(s3, deletion_floor=20)
+
+        assert s3.removed == []
+        assert s3.opened == [_key(11, 20)]
+
+    async def test_a_file_at_the_floor_goes_once_an_older_completed_listing_covers_it(self):
+        s3 = _FakeS3({_key(11, 20): _parquet_bytes(_table([1], [20]))})
+        await _collect(s3, deletion_floor=20, proof_time=_NOW)
+
+        assert s3.removed == [_key(11, 20)]
+
+    async def test_a_trailing_file_stops_being_re_read_once_a_completed_run_proves_it(self):
+        """The at-floor file has to go, or an idle merge lane re-stages it every tick.
+
+        Only the append lane drops those rows by identity. The merge lane keeps them on purpose,
+        so without this proof an idle schema re-writes and re-bills its last transaction forever.
+        """
+        s3 = _FakeS3({_key(11, 20): _parquet_bytes(_table([1], [20]))})
+        await _collect(s3, deletion_floor=20, proof_time=_NOW)
+
+        assert s3.removed == [_key(11, 20)]
+        assert s3.opened == []
+
+    async def test_nothing_is_deleted_before_every_lane_has_a_position(self):
+        s3 = _FakeS3({_key(1, 10): _parquet_bytes(_table([1], [10]))})
+        await _collect(s3, deletion_floor=None, proof_time=_NOW)
+
+        assert s3.removed == []
+
+
+@pytest.mark.asyncio
+class TestBuildOutputLanes:
+    @staticmethod
+    async def _build(schema, positions: list[LanePosition]):
+        delta_ref = MagicMock()
+        delta_ref.return_value.get_delta_table = AsyncMock(return_value=MagicMock())
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.DeltaTableRef", delta_ref
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.ensure_position_stats",
+                AsyncMock(),
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.read_lane_position",
+                AsyncMock(side_effect=positions),
+            ),
+        ):
+            return await build_output_lanes(schema, MagicMock(), AsyncMock())
+
+    async def test_both_writes_two_tables_in_one_run(self):
+        lanes, _ = await self._build(_schema(cdc_table_mode="both"), [_NO_POSITION, _NO_POSITION])
+
+        assert [lane.name for lane in lanes] == ["users", "users_cdc"]
+        assert [lane.cdc_write_mode for lane in lanes] == [CONSOLIDATED_WRITE_MODE, COMPANION_WRITE_MODE]
+
+    @parameterized.expand([("consolidated", "consolidated", "users"), ("cdc_only", "cdc_only", "users_cdc")])
+    async def test_a_single_table_mode_bills_its_only_lane(self, _name, table_mode, expected):
+        lanes, _ = await self._build(_schema(cdc_table_mode=table_mode), [_NO_POSITION])
+
+        assert [(lane.name, lane.billable) for lane in lanes] == [(expected, True)]
+
+    async def test_both_bills_the_consolidated_lane_only(self):
+        lanes, _ = await self._build(_schema(cdc_table_mode="both"), [_NO_POSITION, _NO_POSITION])
+
+        assert [(lane.name, lane.billable) for lane in lanes] == [("users", True), ("users_cdc", False)]
+
+    async def test_only_the_append_lane_is_asked_for_identity(self):
+        # Asserted on the call, not on hand-fed positions: if both lanes asked for identity the
+        # merge lane would drop rows at its own position, and a test that feeds the positions in
+        # cannot see that.
+        reads = AsyncMock(side_effect=[_NO_POSITION, _NO_POSITION])
+        stats = AsyncMock()
+        delta_ref = MagicMock()
+        delta_ref.return_value.get_delta_table = AsyncMock(return_value=MagicMock())
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.DeltaTableRef", delta_ref
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.ensure_position_stats",
+                stats,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.read_lane_position", reads
+            ),
+        ):
+            await build_output_lanes(_schema(cdc_table_mode="both"), MagicMock(), AsyncMock())
+
+        merge_keys, append_keys = (call.kwargs["key_columns"] for call in reads.call_args_list)
+        assert merge_keys is None
+        assert append_keys == ["id", CDC_OP_COLUMN]
+        # The history table's own merge predicates on valid_to, so it keeps its pruning too.
+        assert SCD2_VALID_TO_COLUMN in stats.call_args_list[1].args[1]
+        assert SCD2_VALID_TO_COLUMN not in stats.call_args_list[0].args[1]
+
+    async def test_a_lane_with_no_primary_keys_asks_for_no_identity(self):
+        # Otherwise the identity is the operation alone, which matches rows the table never held.
+        reads = AsyncMock(side_effect=[_NO_POSITION])
+        delta_ref = MagicMock()
+        delta_ref.return_value.get_delta_table = AsyncMock(return_value=MagicMock())
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.DeltaTableRef", delta_ref
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.ensure_position_stats",
+                AsyncMock(),
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.read_lane_position", reads
+            ),
+        ):
+            await build_output_lanes(
+                _schema(cdc_table_mode="cdc_only", primary_key_columns=[]), MagicMock(), AsyncMock()
+            )
+
+        assert reads.call_args.kwargs["key_columns"] is None
+
+    async def test_only_the_append_lane_matches_rows_at_the_position(self):
+        lanes, _ = await self._build(
+            _schema(cdc_table_mode="both"),
+            [
+                LanePosition(position=20, applied={}),
+                LanePosition(
+                    position=20,
+                    applied=_held((1, "I"), (2, "I"), (3, "I")),
+                    key_columns=("id", CDC_OP_COLUMN),
+                ),
+            ],
+        )
+
+        batch = _ops([1, 2, 3, 4], [20, 20, 20, 30], ["I", "I", "I", "I"])
+        merged, history = (lane.transform(batch) for lane in lanes)
+
+        assert merged.column("id").to_pylist() == [1, 2, 3, 4]
+        assert history.column("id").to_pylist() == [4]
+        # Stamped by the lane, not the loader: a loader on the previous release has no SCD2 step
+        # and would append these rows with no validity at all.
+        assert SCD2_VALID_FROM_COLUMN in history.column_names
+        assert SCD2_VALID_TO_COLUMN in history.column_names
+        assert SCD2_VALID_FROM_COLUMN not in merged.column_names
+
+    async def test_the_floor_is_the_lowest_position_any_table_holds(self):
+        _, floor = await self._build(
+            _schema(cdc_table_mode="both"),
+            [LanePosition(position=50, applied={}), LanePosition(position=20, applied={})],
+        )
+
+        assert floor == 20
+
+    async def test_a_lane_with_no_position_holds_the_floor_open(self):
+        _, floor = await self._build(
+            _schema(cdc_table_mode="both"), [LanePosition(position=50, applied={}), _NO_POSITION]
+        )
+
+        assert floor is None
