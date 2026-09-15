@@ -37,6 +37,7 @@ The `ETag` covers more, because the list body shows more than the skill rows:
 | The team's owner rows  | Owners are keyed on the skill name, so an owner-only `PATCH` changes no skill row.              |
 | The requesting user    | Access filtering is per user, so one caller's validator must never match another caller's list. |
 | The whole query string | `search`, `created_by_id`, `owner_id`, `category`, ordering and the page all change the body.   |
+| The deploy revision    | Every other input is a store row, so a release that serializes the list differently would otherwise keep its old validator. Costs one full body per client per deploy. |
 
 The version is read uncached.
 `team_skills_version_cached` exists for the marketplace, which polls it far more often than it changes; its TTL would let a publish inside the window answer `304` for a list that already moved.

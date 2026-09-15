@@ -481,6 +481,19 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response["ETag"] != etag
 
+    def test_list_etag_does_not_carry_across_a_deploy(self):
+        # Every other seed input is a store row, so without the revision a release that serializes
+        # the list differently would answer 304 with the previous shape until the next store write.
+        self.create_skill(name="skill-a", description="Does A things.")
+        with patch("products.skills.backend.api.skills.get_git_commit_short", return_value="1111111111"):
+            etag = self.client.get(self._url())["ETag"]
+
+        with patch("products.skills.backend.api.skills.get_git_commit_short", return_value="2222222222"):
+            response = self.client.get(self._url(), HTTP_IF_NONE_MATCH=etag)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response["ETag"] != etag
+
     def test_list_etag_does_not_carry_between_filtered_pages(self):
         self.create_skill(name="pdf-processing", description="Handles PDFs.")
         self.create_skill(name="code-review", description="Reviews code.")

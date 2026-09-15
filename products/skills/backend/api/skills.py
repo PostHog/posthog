@@ -35,6 +35,7 @@ from posthog.auth import (
 )
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
+from posthog.git import get_git_commit_short
 from posthog.models import User
 from posthog.models.utils import execute_with_timeout
 from posthog.permissions import AccessControlPermission, get_authenticator_scopes, posthog_feature_flag_value
@@ -1885,6 +1886,11 @@ class LLMSkillViewSet(
         hand a client another client's page. Over-invalidating on a param the endpoint ignores is
         the safe direction.
 
+        The deploy revision covers the representation itself. This runs before `_list_response`,
+        so no serializer, paginator or output-shape change can reach the hash through the store
+        rows, and a release that renders the list differently would keep answering 304 with the
+        previous shape. The cost is one full body per client per deploy.
+
         Known bound: a change to a member's access, made with no skill and no owner touched, does
         not move the fingerprint, so that member can revalidate onto their previous list until the
         next store change. Nothing new is disclosed, because the client only keeps a body it already
@@ -1893,6 +1899,7 @@ class LLMSkillViewSet(
         list_version = skills_list_version(self.team)
         seed = urlencode(
             [
+                ("rev", get_git_commit_short() or ""),
                 ("store", list_version.store_fingerprint),
                 ("user", request.user.pk),
                 *sorted(request.query_params.lists()),
