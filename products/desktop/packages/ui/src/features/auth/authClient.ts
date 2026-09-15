@@ -3,7 +3,6 @@ import type { AuthState } from "@posthog/core/auth/schemas";
 import type { HostTrpcClient } from "@posthog/host-router/client";
 import { useHostTRPCClient } from "@posthog/host-router/react";
 import { getCloudUrlFromRegion, NotAuthenticatedError } from "@posthog/shared";
-import { registerApiBaseHost } from "@posthog/ui/shell/apiBaseHostRegistry";
 import { useMemo } from "react";
 import { useAuthStateValue } from "./store";
 
@@ -16,11 +15,8 @@ export function createAuthenticatedClient(
     return null;
   }
 
-  const apiBaseHost = getCloudUrlFromRegion(authState.cloudRegion);
-  registerApiBaseHost(apiBaseHost);
-
   const client = new PostHogAPIClient(
-    apiBaseHost,
+    getCloudUrlFromRegion(authState.cloudRegion),
     getValidAccessToken,
     refreshAccessToken,
     authState.currentProjectId ?? undefined,

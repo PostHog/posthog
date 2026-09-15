@@ -8,7 +8,12 @@ import type {
   AnalyticsProperties,
   IAnalytics,
 } from "@posthog/platform/analytics";
-import type { Adapter, ModelAccess } from "@posthog/shared";
+import {
+  type Adapter,
+  CLOUD_REGIONS,
+  getCloudUrlFromRegion,
+  type ModelAccess,
+} from "@posthog/shared";
 import {
   type EventPropertyMap,
   isInboxAnalyticsEvent,
@@ -22,7 +27,6 @@ import type {
   AnalyticsUserGroups,
 } from "@posthog/ui/shell/analytics";
 import { logger } from "@posthog/ui/shell/logger";
-import { getApiBaseHost } from "./apiBaseHostRegistry";
 
 const log = logger.scope("analytics");
 
@@ -148,24 +152,18 @@ function templateOwnApiPath(pathname: string): string | undefined {
  * backend host get path-based attribution; everything else collapses to a fixed
  * value.
  *
- * `apiBaseHost` is the desktop app's own backend (registerApiBaseHost), not the
- * `api_host` passed to posthog.init() below — that's the separate analytics
- * ingestion endpoint posthog-js itself talks to, and posthog-js already excludes
- * its own requests from this metric. `apiBaseHost` is `null` until a cloud
- * region is chosen, so nothing is treated as the app's own host yet.
+ * Backend URLs come from the region configuration. Analytics ingestion uses
+ * a separate host, so it cannot identify backend requests.
  */
 export function networkMetricPath(
   request: NetworkMetricsRequest,
-  apiBaseHost: string | null,
 ): string | undefined {
-  if (apiBaseHost === null) {
-    return "external";
-  }
-
   try {
     const requestUrl = new URL(request.url);
-    const appHost = new URL(apiBaseHost).host;
-    if (requestUrl.host !== appHost) {
+    const isBackend = CLOUD_REGIONS.some(
+      (region) => getCloudUrlFromRegion(region) === requestUrl.origin,
+    );
+    if (!isBackend) {
       return "external";
     }
     return templateOwnApiPath(requestUrl.pathname);
@@ -208,7 +206,7 @@ export function initializePostHog(sessionId?: string) {
       // attribution to this app's own backend — see `networkMetricPath`.
       network: {
         attributes: (request) => {
-          const path = networkMetricPath(request, getApiBaseHost());
+          const path = networkMetricPath(request);
           return path === undefined ? undefined : { path };
         },
       },

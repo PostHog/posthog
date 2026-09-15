@@ -222,29 +222,29 @@ describe("track", () => {
 });
 
 describe("networkMetricPath", () => {
-  const apiBaseHost = "https://us.posthog.com";
-
-  it("leaves the path undefined for the app's own backend host", async () => {
+  it.each([
+    "https://us.posthog.com",
+    "https://eu.posthog.com",
+    "http://localhost:8010",
+    "https://app.dev.posthog.dev",
+  ])("keeps API paths for %s without authentication", async (origin) => {
     const { networkMetricPath } = await loadAnalytics();
 
-    const path = networkMetricPath(
-      { url: "https://us.posthog.com/api/projects/1/tasks/", method: "GET" },
-      apiBaseHost,
-    );
-
-    expect(path).toBeUndefined();
+    expect(
+      networkMetricPath({
+        url: `${origin}/api/projects/1/tasks/`,
+        method: "GET",
+      }),
+    ).toBeUndefined();
   });
 
   it("collapses the path for a presigned artifact URL on another host", async () => {
     const { networkMetricPath } = await loadAnalytics();
 
-    const path = networkMetricPath(
-      {
-        url: "https://s3.example.com/bucket/artifacts/ab12cd34_customer-roadmap.pdf?X-Amz-Signature=abc",
-        method: "GET",
-      },
-      apiBaseHost,
-    );
+    const path = networkMetricPath({
+      url: "https://s3.example.com/bucket/artifacts/ab12cd34_customer-roadmap.pdf?X-Amz-Signature=abc",
+      method: "GET",
+    });
 
     expect(path).toBe("external");
   });
@@ -252,23 +252,38 @@ describe("networkMetricPath", () => {
   it("collapses the path for an unparseable URL", async () => {
     const { networkMetricPath } = await loadAnalytics();
 
-    const path = networkMetricPath(
-      { url: "not a url", method: "GET" },
-      apiBaseHost,
-    );
+    const path = networkMetricPath({ url: "not a url", method: "GET" });
 
     expect(path).toBe("external");
   });
 
-  it("collapses the path when no backend host is registered yet", async () => {
+  it.each([
+    "https://us.posthog.com.example.com/api/projects/1/tasks/",
+    "https://us.posthog.com:8443/api/projects/1/tasks/",
+    "https://internal-c.posthog.com/api/projects/1/tasks/",
+    "https://posthog.example.com/api/projects/1/tasks/",
+  ])("redacts an unknown backend: %s", async (url) => {
     const { networkMetricPath } = await loadAnalytics();
 
-    const path = networkMetricPath(
-      { url: "https://us.posthog.com/api/projects/1/tasks/", method: "GET" },
-      null,
-    );
+    expect(networkMetricPath({ url, method: "GET" })).toBe("external");
+  });
 
-    expect(path).toBe("external");
+  it("uses the existing custom cloud configuration", async () => {
+    const { networkMetricPath } = await loadAnalytics();
+    const { configureCustomCloud } = await import("@posthog/shared");
+    const request = {
+      url: "https://posthog.example.com/api/projects/1/tasks/",
+      method: "GET",
+    };
+
+    expect(networkMetricPath(request)).toBe("external");
+    configureCustomCloud({
+      url: "https://posthog.example.com",
+      oauthClientId: "test-client",
+    });
+    expect(networkMetricPath(request)).toBeUndefined();
+    configureCustomCloud(null);
+    expect(networkMetricPath(request)).toBe("external");
   });
 
   // Skill names and file paths are free text a team member picks, not an id
@@ -288,42 +303,36 @@ describe("networkMetricPath", () => {
   ])("templates $case on the app's own backend", async ({ url, expected }) => {
     const { networkMetricPath } = await loadAnalytics();
 
-    const path = networkMetricPath({ url, method: "GET" }, apiBaseHost);
+    const path = networkMetricPath({ url, method: "GET" });
 
     expect(path).toBe(expected);
   });
 });
 
 describe("metrics.network.attributes callback", () => {
-  it("reflects a backend host registered after init, without re-initializing", async () => {
-    const { initializePostHog } = await loadAnalytics();
-    const { registerApiBaseHost } = await import(
-      "@posthog/ui/shell/apiBaseHostRegistry"
-    );
+  it.each(["https://us.posthog.com", "https://eu.posthog.com"])(
+    "keeps API paths for %s with a separate analytics host",
+    async (origin) => {
+      vi.stubEnv("VITE_POSTHOG_API_HOST", "https://internal-c.posthog.com");
+      const { initializePostHog } = await loadAnalytics();
 
-    initializePostHog();
-    const attributesCallback =
-      mockPosthog.init.mock.calls[0][1].metrics.network.attributes;
-    const request = {
-      url: "https://us.posthog.com/api/projects/1/tasks/",
-      method: "GET",
-    };
+      initializePostHog();
+      const attributesCallback =
+        mockPosthog.init.mock.calls[0][1].metrics.network.attributes;
 
-    expect(attributesCallback(request)).toEqual({ path: "external" });
-
-    registerApiBaseHost("https://us.posthog.com");
-
-    expect(attributesCallback(request)).toBeUndefined();
-  });
+      expect(
+        attributesCallback({
+          url: `${origin}/api/projects/1/tasks/`,
+          method: "GET",
+        }),
+      ).toBeUndefined();
+    },
+  );
 
   it("returns { path: 'external' } for requests to other hosts", async () => {
     const { initializePostHog } = await loadAnalytics();
-    const { registerApiBaseHost } = await import(
-      "@posthog/ui/shell/apiBaseHostRegistry"
-    );
 
     initializePostHog();
-    registerApiBaseHost("https://us.posthog.com");
 
     const attributesCallback =
       mockPosthog.init.mock.calls[0][1].metrics.network.attributes;

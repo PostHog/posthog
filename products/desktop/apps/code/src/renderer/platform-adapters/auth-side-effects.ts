@@ -16,7 +16,6 @@ import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingSt
 import { resetSessionService } from "@posthog/ui/features/sessions/sessionServiceHost";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
-import { registerApiBaseHost } from "@posthog/ui/shell/apiBaseHostRegistry";
 import { inject, injectable } from "inversify";
 
 @injectable()
@@ -55,7 +54,6 @@ export class RendererAuthSideEffects implements IAuthSideEffects {
 
   async onLogout(previousRegion: CloudRegion | null): Promise<void> {
     track(ANALYTICS_EVENTS.USER_LOGGED_OUT);
-    registerApiBaseHost(null);
     resetSessionService();
     clearAuthScopedQueries();
     resetInboxReportActionDrafts();
