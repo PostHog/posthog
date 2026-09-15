@@ -1,5 +1,7 @@
 from collections.abc import Callable
 
+from pydantic import BaseModel
+
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
@@ -19,6 +21,21 @@ from ee.hogai.utils.query import validate_assistant_query
 from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery, AnyPydanticModelQuery
 
 from .prompts import INSIGHT_RESULT_TEMPLATE
+
+type _ResponseExclusions = dict[str | int, bool | _ResponseExclusions]
+
+
+def _response_exclusions(value: object) -> _ResponseExclusions:
+    if isinstance(value, BaseModel):
+        return {
+            name: True if name == "response" else _response_exclusions(getattr(value, name))
+            for name in type(value).model_fields
+        }
+    if isinstance(value, (list, tuple)):
+        return {index: _response_exclusions(item) for index, item in enumerate(value)}
+    if isinstance(value, dict):
+        return {key: _response_exclusions(item) for key, item in value.items() if isinstance(key, (str, int))}
+    return {}
 
 
 class InsightContext:
@@ -128,7 +145,7 @@ class InsightContext:
     async def format_schema(self, prompt_template: str = INSIGHT_RESULT_TEMPLATE) -> str:
         """Format insight as schema-only (no execution)."""
         effective_query = await self._get_effective_query()
-        query_schema = effective_query.model_dump_json(exclude_none=True)
+        query_schema = effective_query.model_dump_json(exclude_none=True, exclude=_response_exclusions(effective_query))
         return format_prompt_string(
             prompt_template,
             insight_name=self.name,

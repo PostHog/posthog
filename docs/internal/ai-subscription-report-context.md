@@ -7,6 +7,8 @@ and five concurrent context queries.
 HogQL repair receives a separate schema-only snapshot from `DashboardContext.format_schema`
 and `InsightContext.format_schema`. These formatters use validated queries and apply saved
 dashboard filters and variable overrides. Repair never receives the saved result rows.
+Schema serialization excludes embedded `response` fields recursively, including responses on
+nested query nodes, without changing the stored or executed query.
 
 The schema snapshot has a 12,000-character total budget, divided across the selected available
 contexts, including separators. Oversized schemas carry a truncation marker. Formatting failures
