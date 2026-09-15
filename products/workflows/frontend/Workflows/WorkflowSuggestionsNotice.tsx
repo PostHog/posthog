@@ -17,6 +17,7 @@ export function WorkflowSuggestionsNotice({ id }: { id: string }): JSX.Element |
     return (
         <LemonBanner
             type="info"
+            className="shrink-0"
             action={{
                 children: 'Review',
                 'data-attr': 'workflow-suggestions-review',
