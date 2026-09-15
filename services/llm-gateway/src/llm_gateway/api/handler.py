@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
@@ -23,6 +24,7 @@ from llm_gateway.observability import capture_exception
 from llm_gateway.request_context import (
     rebuild_request_context,
     set_auth_user,
+    set_caller_metadata,
     set_effort,
     set_time_to_first_token,
 )
@@ -233,12 +235,16 @@ async def handle_llm_request(
     product: str = "llm_gateway",
 ) -> dict[str, Any] | StreamingResponse:
     _raise_if_unsupported_model(model)
-    request_data = _sanitize_request_data(request_data)
     settings = get_settings()
     start_time = time.monotonic()
 
     rebuild_request_context(product)
     set_auth_user(user)
+
+    raw_metadata = request_data.get("metadata")
+    set_caller_metadata(copy.deepcopy(raw_metadata) if isinstance(raw_metadata, dict) else None)
+
+    request_data = _sanitize_request_data(request_data)
 
     # Stash effort for the PostHog callback to stamp on the $ai_generation event (mirrors
     # time_to_first_token). Set unconditionally so a stale value can't leak if the context
