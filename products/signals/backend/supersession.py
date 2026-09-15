@@ -105,8 +105,16 @@ def schedule_report_replacements(team_id: int, report_id: str) -> None:
     from products.signals.backend.tasks import reconcile_implementation_replacement
 
     replacement = pending_replacement(team_id, report_id)
-    if replacement:
-        transaction.on_commit(partial(reconcile_implementation_replacement.delay, team_id, str(replacement.id)))
+    if replacement is None:
+        return
+    replacement_id = str(replacement.id)
+
+    def enqueue() -> None:
+        reconcile_implementation_replacement.delay(team_id, replacement_id)
+
+    # A named callback rather than a `partial`, because Django reads the callback's qualified name
+    # when it logs a failed `robust` hook.
+    transaction.on_commit(enqueue, robust=True)
 
 
 def canonical_pr_url(url: str) -> str | None:

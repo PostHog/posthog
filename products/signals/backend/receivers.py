@@ -70,11 +70,17 @@ def schedule_implementation_handover(sender: type, instance: Any, created: bool,
         return
     from products.signals.backend.tasks import reconcile_implementation_replacement
 
+    team_id = instance.team_id
     for replacement_id in SignalReportArtefact.objects.filter(
-        team_id=instance.team_id, task_id=instance.task_id, type="implementation_replacement"
+        team_id=team_id, task_id=instance.task_id, type="implementation_replacement"
     ).values_list("id", flat=True):
+        # The id is bound as a default argument because the hooks run after the loop ends, so a
+        # closure over the loop variable would send every one of them the last id. `robust=True`
+        # keeps a broker failure here from cancelling the other hooks this save queued, and Django
+        # cannot log a `partial` in that path because it reads the callback's qualified name.
         transaction.on_commit(
-            partial(reconcile_implementation_replacement.delay, instance.team_id, str(replacement_id))
+            lambda queued=str(replacement_id): reconcile_implementation_replacement.delay(team_id, queued),
+            robust=True,
         )
 
 
@@ -84,7 +90,8 @@ def schedule_handover_for_work_change(sender: type, instance: SignalReportArtefa
         return
     from products.signals.backend.supersession import schedule_report_replacements
 
-    transaction.on_commit(partial(schedule_report_replacements, instance.team_id, str(instance.report_id)))
+    team_id, report_id = instance.team_id, str(instance.report_id)
+    transaction.on_commit(lambda: schedule_report_replacements(team_id, report_id), robust=True)
 
 
 @receiver(post_save, sender=SignalReport)
@@ -94,7 +101,8 @@ def schedule_handover_for_report_change(sender: type, instance: SignalReport, **
         return
     from products.signals.backend.supersession import schedule_report_replacements
 
-    transaction.on_commit(partial(schedule_report_replacements, instance.team_id, str(instance.id)))
+    team_id, report_id = instance.team_id, str(instance.id)
+    transaction.on_commit(lambda: schedule_report_replacements(team_id, report_id), robust=True)
 
 
 def sync_task_run_pr_to_assignments(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:

@@ -416,11 +416,17 @@ class TestSupersedeHandover(BaseTest):
         replacement = self.start_replacement()
         content = ImplementationReplacement.model_validate_json(replacement.content)
         run = TaskRun.objects.get(id=content.run_id)
+        second = SignalReportArtefact.add_log(
+            team_id=self.team.id,
+            report_id=str(self.report.id),
+            content=content,
+            attribution=ArtefactAttribution.from_task(str(replacement.task_id)),
+        )
         with patch("products.signals.backend.tasks.reconcile_implementation_replacement.delay") as enqueue:
             with self.captureOnCommitCallbacks(execute=True):
                 run.status = "completed"
                 run.save(update_fields=["status"])
-            assert enqueue.called
+            assert {call.args[1] for call in enqueue.call_args_list} == {str(replacement.id), str(second.id)}
             enqueue.reset_mock()
             unrelated = TaskRun.objects.create(
                 team=self.team,
