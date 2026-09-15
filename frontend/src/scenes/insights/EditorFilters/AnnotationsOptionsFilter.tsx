@@ -87,7 +87,7 @@ export function AnnotationsOptionsFilter(): JSX.Element {
                                 {showNoEmojiSwitch && (
                                     <LemonSwitch
                                         fullWidth
-                                        label={<span className="text-xs font-normal leading-7">No emoji</span>}
+                                        label={<span className="text-xs font-normal leading-7">Default</span>}
                                         className="px-2 [--lemon-switch-handle-size:15px]"
                                         checked={!draft?.hideWithoutEmoji}
                                         onChange={(shown) => setFilter({ hideWithoutEmoji: !shown })}
