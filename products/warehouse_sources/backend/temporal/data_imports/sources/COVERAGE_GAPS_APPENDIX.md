@@ -774,10 +774,10 @@ Diffed against: <https://api.bettermode.com/ (live GraphQL introspection of quer
 - [x] `postTypes / spacePostTypes` — lookup resolving the postTypeId carried on every post we already sync (high), both added here
 - [x] `collections` — lookup that groups the spaces we already sync (high), added here
 - [x] `roles` — lookup resolving roleId on members and space members (high), added here
-- [ ] `events` — community events are a first-class content object alongside posts (high)
-- [ ] `eventRegistrations / memberEventRegistrations` — attendance and RSVP records, the core event engagement metric (high)
-- [ ] `activityLogs` — network-wide activity event stream for behavioral analysis (high)
-- [ ] `postReactionParticipants` — per-reaction engagement records tied to posts we sync (medium)
+- [ ] `events` — skipped: no `events` root query in the current API. Community events are Post rows of an Event post type, already covered by the `posts` table; `EventType` in the schema is a webhook-event catalog descriptor, not a content collection.
+- [ ] `eventRegistrations / memberEventRegistrations` — skipped: no such query, object, input, or enum in the current API reference. RSVP data, where present, lives in post custom fields rather than a queryable registrations collection.
+- [ ] `activityLogs` — skipped: appears only in the legacy Tribe schema listing; the current reference documents no `ActivityLog` object type, so a GraphQL selection set can't be verified without live introspection. Flagged for follow-up when API access is available.
+- [x] `postReactionParticipants` — per-reaction engagement records tied to posts we sync (medium), added here
 - [ ] `tagPosts` — post-to-tag join; we sync both tags and posts but not the link (medium)
 - [ ] `analytics` — vendor's aggregated community analytics reports (medium)
 - [ ] `chats / messages / chatParticipants` — direct messaging is an entire engagement channel currently missing (medium)
