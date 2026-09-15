@@ -1594,9 +1594,11 @@ class TestTaskAPI(BaseTaskAPITest):
     @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_task_returns_run_error_when_temporal_marks_run_failed(self, mock_workflow, _mock_internal_team):
+        internal_error = 'Failed client connect: tonic::transport::Error(ConnectError("tcp", 127.0.0.1:7233))'
+
         def fail_run(**kwargs):
             TaskRun.objects.filter(id=kwargs["run_id"]).update(
-                status=TaskRun.Status.FAILED, error_message="Temporal unavailable"
+                status=TaskRun.Status.FAILED, error_message=internal_error
             )
 
         mock_workflow.side_effect = fail_run
@@ -1607,7 +1609,8 @@ class TestTaskAPI(BaseTaskAPITest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["run_error"], "Temporal unavailable")
+        self.assertEqual(response.json()["run_error"], "Failed to start task workflow.")
+        self.assertNotIn("127.0.0.1", response.json()["run_error"])
 
     @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
     @patch("products.tasks.backend.presentation.views.api.tasks_facade.run_task", side_effect=RuntimeError("failed"))

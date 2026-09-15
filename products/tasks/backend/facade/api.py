@@ -4981,6 +4981,9 @@ def bootstrap_task_run(
     return contracts.TaskRunCreateResult(run=_task_run_detail_to_dto(_task_run_queryset().get(pk=run.pk)))
 
 
+WORKFLOW_START_FAILED_ERROR = "Failed to start task workflow."
+
+
 def _trigger_task_processing_workflow(
     task: Task,
     run: TaskRun,
@@ -5029,7 +5032,7 @@ def _trigger_task_processing_workflow(
         logger.exception("Failed to trigger task processing workflow for task %s, run %s: %s", task.id, run.id, e)
         if raise_on_error:
             raise
-        return "Failed to start task workflow."
+        return WORKFLOW_START_FAILED_ERROR
 
 
 # Statuses from which a cloud run may be started via the start endpoint.
@@ -7865,9 +7868,9 @@ def run_task(
 
     try:
         if run_error is None:
-            task_run.refresh_from_db(fields=["status", "error_message"])
+            task_run.refresh_from_db(fields=["status"])
             if task_run.status == TaskRun.Status.FAILED:
-                run_error = task_run.error_message or "Failed to start task workflow."
+                run_error = WORKFLOW_START_FAILED_ERROR
         task_detail = get_task_detail(task.id, team_id, user_id)
     except Exception:
         logger.exception("Failed to hydrate task %s after starting run %s", task.id, task_run.id)
