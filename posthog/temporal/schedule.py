@@ -179,14 +179,25 @@ async def create_schedule_all_subscriptions_schedule(client: Client):
     schedule_all_subscriptions_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
             "schedule-all-subscriptions",
-            asdict(ScheduleAllSubscriptionsWorkflowInputs()),
+            {
+                "buffer_minutes": ScheduleAllSubscriptionsWorkflowInputs().buffer_minutes,
+                "subscriptions_page_size": ScheduleAllSubscriptionsWorkflowInputs().subscriptions_page_size,
+            },
             id="schedule-all-subscriptions-schedule",
             task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+            # Bounds a stuck page while allowing the full chain to exceed ten minutes:
+            # unlike execution_timeout, run_timeout resets after Continue-As-New.
+            run_timeout=timedelta(minutes=10),
         ),
         spec=ScheduleSpec(cron_expressions=["25,55 * * * *"]),  # Run shortly before :30 and :00 deliveries
         # ALLOW_ALL: if a previous run is still executing, start the new one anyway.
         # Deterministic subscription child IDs prevent duplicate starts while a child is open.
-        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.ALLOW_ALL),
+        # Each run queries the current database backlog, so replaying old scheduler
+        # ticks after a long Temporal outage can duplicate coordinator work.
+        policy=SchedulePolicy(
+            overlap=ScheduleOverlapPolicy.ALLOW_ALL,
+            catchup_window=timedelta(minutes=15),
+        ),
     )
 
     if await a_schedule_exists(client, "schedule-all-subscriptions-schedule"):
