@@ -12,7 +12,7 @@ import { TeamManager } from '~/common/utils/team-manager'
 import type { CommonConfig } from '../common/config'
 import { InternalCaptureService } from '../common/services/internal-capture'
 import type { CdpConfig } from './config'
-import { WarehouseSourceWebhooksOutput } from './outputs/outputs'
+import { CdpEventsDlqOutput, CdpInternalEventsDlqOutput, WarehouseSourceWebhooksOutput } from './outputs/outputs'
 import { CdpProducerName } from './outputs/producers'
 import { createCdpOutputsRegistry } from './outputs/registry'
 import { CapturedEventsService } from './services/captured-events/captured-events.service'
@@ -55,7 +55,13 @@ import { PosthogJwtAudience } from './utils/jwt-utils'
 import { ScopedServiceJwt } from './utils/scoped-service-jwt'
 
 /** Union of every output name resolved by `createCdpOutputsRegistry()`. */
-export type CdpOutput = AppMetricsOutput | LogEntriesOutput | HogInvocationResultsOutput | WarehouseSourceWebhooksOutput
+export type CdpOutput =
+    | AppMetricsOutput
+    | LogEntriesOutput
+    | HogInvocationResultsOutput
+    | WarehouseSourceWebhooksOutput
+    | CdpEventsDlqOutput
+    | CdpInternalEventsDlqOutput
 
 export type CdpOutputs = IngestionOutputs<CdpOutput>
 
@@ -181,6 +187,12 @@ export type CdpCoreServicesConfig = Pick<
         | 'MESSAGE_ASSETS_PRODUCER'
         | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC'
         | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER'
+        | 'CDP_DLQ_ENABLED'
+        | 'CDP_DLQ_BATCH_FAIL_RATIO'
+        | 'CDP_EVENTS_DLQ_TOPIC'
+        | 'CDP_EVENTS_DLQ_PRODUCER'
+        | 'CDP_INTERNAL_EVENTS_DLQ_TOPIC'
+        | 'CDP_INTERNAL_EVENTS_DLQ_PRODUCER'
     >
 
 export interface CdpCoreServicesDeps {
