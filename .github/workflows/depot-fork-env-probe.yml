@@ -1,0 +1,43 @@
+name: Depot fork environment probe
+
+on:
+    pull_request:
+        paths:
+            - '.github/workflows/depot-fork-env-probe.yml'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions: {}
+
+jobs:
+    probe:
+        if: github.repository == 'PostHog/posthog'
+        name: Cache variable presence (${{ matrix.runner }})
+        runs-on: ${{ matrix.runner }}
+        timeout-minutes: 3
+        strategy:
+            fail-fast: false
+            matrix:
+                runner: [ubuntu-latest, depot-ubuntu-24.04]
+        steps:
+            - name: Report variable presence without values
+              shell: bash
+              env:
+                  PROBE_RUNNER: ${{ matrix.runner }}
+                  PROBE_IS_FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+              run: |
+                  set +x
+                  {
+                      printf 'Runner: %s\n\nFork PR: %s\n\n' "$PROBE_RUNNER" "$PROBE_IS_FORK"
+                      printf '| Variable | Nonempty |\n| --- | --- |\n'
+                      for name in DEPOT_CACHE_TOKEN SCCACHE_WEBDAV_ENDPOINT SCCACHE_WEBDAV_TOKEN \
+                          SCCACHE_WEBDAV_USERNAME SCCACHE_WEBDAV_PASSWORD TURBO_API TURBO_TOKEN; do
+                          present=false
+                          if [[ -n "${!name}" ]]; then
+                              present=true
+                          fi
+                          printf '| %s | %s |\n' "$name" "$present"
+                      done
+                  } | tee -a "$GITHUB_STEP_SUMMARY"
