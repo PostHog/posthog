@@ -24,6 +24,7 @@ import {
 
 import {
     experimentsInSessionExposureRetrieve,
+    experimentsReplayLinkabilityRetrieve,
     experimentsSessionBucketsCreate,
     experimentsSessionContextsCreate,
     experimentsSessionEventDeltasCreate,
@@ -31,7 +32,11 @@ import {
 import { visionScannersList } from 'products/replay_vision/frontend/generated/api'
 
 import { FUNNEL_DATA_WAREHOUSE_COMPLETION_REASON, FUNNEL_SERVER_SIDE_COMPLETION_REASON } from '../utils'
-import { RETENTION_UNLINKABLE_REASON, viewRecordingsLinkabilityLogic } from '../viewRecordingsLinkabilityLogic'
+import {
+    FLAG_NOT_SESSION_LINKED_REASON,
+    RETENTION_UNLINKABLE_REASON,
+    viewRecordingsLinkabilityLogic,
+} from '../viewRecordingsLinkabilityLogic'
 import {
     type ExperimentReplayRecording,
     ExperimentReplayListEmptyReason,
@@ -44,6 +49,7 @@ jest.mock('lib/utils/product-intents', () => ({
 
 jest.mock('products/experiments/frontend/generated/api', () => ({
     experimentsInSessionExposureRetrieve: jest.fn(),
+    experimentsReplayLinkabilityRetrieve: jest.fn(),
     experimentsSessionContextsCreate: jest.fn().mockResolvedValue({ results: [] }),
     experimentsSessionBucketsCreate: jest.fn(),
     experimentsSessionEventDeltasCreate: jest.fn(),
@@ -154,6 +160,8 @@ type InSessionExposureResponse = {
     unavailable_reason: string | null
     uses_stamped_fallback: boolean
 }
+
+const FLAG_COVERAGE_LINKABLE = { exposure_event_linkable: true, flag_property_linkable: null, max_window_days: 7 }
 
 // The common case: in-session evidence is the exposure event itself, and the scope can answer.
 const IN_SESSION_AVAILABLE: InSessionExposureResponse = {
@@ -316,6 +324,8 @@ describe('experimentReplayTabLogic', () => {
         ;(visionScannersList as jest.Mock).mockResolvedValue({ results: [] })
         ;(experimentsInSessionExposureRetrieve as jest.Mock).mockClear()
         ;(experimentsInSessionExposureRetrieve as jest.Mock).mockResolvedValue(IN_SESSION_AVAILABLE)
+        ;(experimentsReplayLinkabilityRetrieve as jest.Mock).mockClear()
+        ;(experimentsReplayLinkabilityRetrieve as jest.Mock).mockResolvedValue(FLAG_COVERAGE_LINKABLE)
         seenTogetherSpy = jest.spyOn(api.propertyDefinitions, 'seenTogether')
         seenTogetherSpy.mockResolvedValue(ALL_LINKABLE)
         logic = experimentReplayTabLogic({ experiment: EXPERIMENT })
@@ -432,6 +442,28 @@ describe('experimentReplayTabLogic', () => {
         pending.unmount()
     })
 
+    it('stops holding the playlist once the flag-scoped check outlasts its budget', async () => {
+        // That check reads live events, so a cold one can run for many seconds. The all-sessions
+        // list is ready and correct, and the check can only ever refuse the narrowing, so a
+        // skeleton must not wait on it for as long as the scan is allowed to take.
+        jest.useFakeTimers()
+        try {
+            ;(experimentsReplayLinkabilityRetrieve as jest.Mock).mockReturnValue(new Promise(() => {}))
+            const slow = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 57 } as Experiment })
+            slow.mount()
+            slow.actions.setExposureScope('in_session')
+
+            await expectLogic(slow).toDispatchActions(['loadInSessionExposureSuccess'])
+            expect(slow.values.playlistHeldForChecks).toBe(true)
+
+            jest.runAllTimers()
+            expect(slow.values.playlistHeldForChecks).toBe(false)
+            slow.unmount()
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it('disables in-session and stays on all sessions when the backend reports it unavailable', async () => {
         // The backend refuses in_session for experiments whose exposure can't be pinned to a
         // session (activation, or a custom event with no session-linked stand-in, or a fallback
@@ -453,6 +485,59 @@ describe('experimentReplayTabLogic', () => {
         expect(unavailable.values.effectiveExposureScope).toBe('all_exposed')
         expect(unavailable.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 52 })
         unavailable.unmount()
+    })
+
+    // The backend availability check reads the project-wide `seen_together` fact, which one
+    // client-evaluated flag makes true for every experiment's exposure event, so it reports the
+    // scope available for a server-evaluated flag too. Narrowing on that would show an empty
+    // list with no reason; the flag-scoped verdict is what tells this experiment apart. The second
+    // case is the one the pair alone misses: the query keeps the exposure event here, so a stand-in
+    // with coverage changes nothing about what it can match.
+    it.each([
+        ['neither the exposure event nor its stand-in can match a session', false],
+        ['the stand-in can match but the query will not use it', true],
+    ])('disables in-session when %s', async (_, flagPropertyLinkable) => {
+        ;(experimentsReplayLinkabilityRetrieve as jest.Mock).mockResolvedValue({
+            exposure_event_linkable: false,
+            flag_property_linkable: flagPropertyLinkable,
+            max_window_days: 7,
+        })
+        const serverSide = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 55 } as Experiment })
+        serverSide.mount()
+        await expectLogic(serverSide).toFinishAllListeners()
+        serverSide.actions.setExposureScope('in_session')
+
+        expect(serverSide.values.exposureInSessionUnavailableReason).toBe(FLAG_NOT_SESSION_LINKED_REASON)
+        expect(serverSide.values.effectiveExposureScope).toBe('all_exposed')
+        expect(serverSide.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 55 })
+        expect(serverSide.values.exposureLinkable).toBe(false)
+        serverSide.unmount()
+    })
+
+    it('leaves the metric filter unapplied when the flag cannot be matched to a session', async () => {
+        // The bucket scan answers over the same exposed sessions the in-session scope narrows to,
+        // so on this flag it could only come back empty, and the tab reports an empty bucket as a
+        // metric miss rather than as the flag's own linkability.
+        ;(experimentsReplayLinkabilityRetrieve as jest.Mock).mockResolvedValue({
+            exposure_event_linkable: false,
+            flag_property_linkable: false,
+            max_window_days: 7,
+        })
+        const serverSide = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 58 } as Experiment })
+        serverSide.mount()
+        await expectLogic(serverSide).toFinishAllListeners()
+        ;(experimentsSessionBucketsCreate as jest.Mock).mockClear()
+
+        serverSide.actions.setMetricSelected('metric-purchase', true)
+        serverSide.actions.setMetricFilterMode('no_metric_activity')
+        await expectLogic(serverSide).toFinishAllListeners()
+
+        expect(serverSide.values.sessionBucketRequest).toBeNull()
+        expect(experimentsSessionBucketsCreate).not.toHaveBeenCalled()
+        // Undefined, not empty: the playlist keeps the all-exposed population instead of listing
+        // nothing under a filter that could never match.
+        expect(serverSide.values.bucketSessionIds).toBeUndefined()
+        serverSide.unmount()
     })
 
     it('falls back to all sessions when the availability check fails', async () => {
@@ -722,6 +807,46 @@ describe('experimentReplayTabLogic', () => {
         await expectLogic(pending).toFinishAllListeners()
         expect(tabViews()).toHaveLength(1)
         pending.unmount()
+    })
+
+    it('holds the tab view until the flag-scoped check settles, and records what it refused', async () => {
+        // That check reads live events, so it normally lands after the other two. Reported before
+        // it, a persisted in-session choice records the scope the tab then refuses, and the
+        // refusal never reaches the telemetry that measures it.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        const tabViews = (): any[] =>
+            captureSpy.mock.calls.filter(
+                ([event, properties]) =>
+                    event === 'experiment recordings tab viewed' && (properties as any)?.experiment_id === 56
+            )
+
+        let resolveCoverage!: (coverage: Record<string, unknown>) => void
+        ;(experimentsReplayLinkabilityRetrieve as jest.Mock).mockReturnValue(
+            new Promise((resolve) => (resolveCoverage = resolve))
+        )
+        const refused = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 56 } as Experiment })
+        refused.mount()
+        refused.actions.setExposureScope('in_session')
+
+        // The other two checks settled and asked for the report; the coverage scan still holds it.
+        await expectLogic(refused).toDispatchActions([
+            'loadSeenTogetherSuccess',
+            'loadInSessionExposureSuccess',
+            'reportTabViewed',
+        ])
+        expect(tabViews()).toHaveLength(0)
+
+        resolveCoverage({ exposure_event_linkable: false, flag_property_linkable: false, max_window_days: 7 })
+        await expectLogic(refused).toFinishAllListeners()
+
+        expect(tabViews()).toHaveLength(1)
+        expect(tabViews()[0][1]).toMatchObject({
+            experiment_id: 56,
+            exposure_scope: 'all_exposed',
+            in_session_available: false,
+            in_session_unavailable_reason: FLAG_NOT_SESSION_LINKED_REASON,
+        })
+        refused.unmount()
     })
 
     it('flushes the tab view at unmount when the availability check has not settled', async () => {
@@ -1049,9 +1174,14 @@ describe('experimentReplayTabLogic', () => {
 
     it('reports the exposure event as unlinkable when it is never seen with a session id', async () => {
         // The residual "in window, replay on, still empty" bucket is the one the tab can't explain,
-        // and an exposure event captured without a session id is the likeliest cause in it.
+        // and an exposure event captured without a session id is the likeliest cause in it. Read
+        // off the flag-scoped check, the only one that can say it of this experiment's own flag.
         const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
-        seenTogetherSpy.mockResolvedValue({ ...ALL_LINKABLE, $feature_flag_called: false })
+        ;(experimentsReplayLinkabilityRetrieve as jest.Mock).mockResolvedValue({
+            exposure_event_linkable: false,
+            flag_property_linkable: true,
+            max_window_days: 7,
+        })
         const unlinkable = experimentReplayTabLogic({
             experiment: { ...EXPERIMENT, id: 112, start_date: daysAgo(10), end_date: null } as Experiment,
         })

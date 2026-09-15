@@ -48,6 +48,11 @@ const meta: Meta = {
                 [`/api/projects/:team_id/feature_flags/${EXPERIMENT_WITH_FUNNEL_METRIC.feature_flag.id}/status/`]: {},
                 '/api/environments/:team_id/default_release_conditions/': [],
                 '/api/projects/:team_id/property_definitions/seen_together': {},
+                [`/api/projects/:team_id/experiments/${EXPERIMENT_WITH_FUNNEL_METRIC.id}/replay_linkability/`]: {
+                    exposure_event_linkable: true,
+                    flag_property_linkable: null,
+                    max_window_days: 7,
+                },
                 '/api/projects/:team_id/vision/scanners/': { count: 0, results: [] },
             },
             post: {
@@ -118,6 +123,32 @@ export const ExperimentRecordingsEmptyInSessionHasNone: Story = {
     play: async ({ canvasElement }) => {
         await clickWhenRendered(canvasElement, 'experiment-recordings-exposure-scope-in-session')
     },
+}
+
+/**
+ * The flag is evaluated server-side and nothing it touches carries a session id. The in-session
+ * scope is refused with that reason instead of narrowing the list to a set that can only be empty.
+ */
+export const ExperimentRecordingsFlagNotSessionLinked: Story = {
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="experiment-recordings-exposure-scope-in-session"]' },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/experiments/${EXPERIMENT_WITH_FUNNEL_METRIC.id}/in_session_exposure/`]: {
+                    available: true,
+                    unavailable_reason: null,
+                    uses_stamped_fallback: false,
+                },
+                [`/api/projects/:team_id/experiments/${EXPERIMENT_WITH_FUNNEL_METRIC.id}/replay_linkability/`]: {
+                    exposure_event_linkable: false,
+                    flag_property_linkable: false,
+                    max_window_days: 7,
+                },
+            },
+        }),
+    ],
 }
 
 /** The two metric-filter reasons need the filter switched on, which only the menu can do. */

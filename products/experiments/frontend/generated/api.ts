@@ -21,6 +21,7 @@ import type {
     ExperimentHoldoutsListParams,
     ExperimentInSessionExposureApi,
     ExperimentMetricsRecalculationApi,
+    ExperimentReplayLinkabilityApi,
     ExperimentSavedMetricApi,
     ExperimentSavedMetricsListParams,
     ExperimentSessionBucketRequestApi,
@@ -839,6 +840,30 @@ export const experimentsRecalculateTimeseriesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(experimentApi),
+    })
+}
+
+export const getExperimentsReplayLinkabilityRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/replay_linkability/`
+}
+
+/**
+ * Whether this experiment's flag produces anything a recordings filter can match.
+ *
+ * Scoped to the flag and to a recent window, which the taxonomy `seen_together` fact the
+ * recordings surfaces otherwise read cannot be: it answers for an event name across the whole
+ * project and for all time, so a project that evaluates other flags on the client reports
+ * `$feature_flag_called` as linkable for a server-evaluated flag too. Cached per experiment,
+ * so repeat views of the tab don't re-scan.
+ */
+export const experimentsReplayLinkabilityRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentReplayLinkabilityApi> => {
+    return apiMutator<ExperimentReplayLinkabilityApi>(getExperimentsReplayLinkabilityRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

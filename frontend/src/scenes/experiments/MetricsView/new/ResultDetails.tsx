@@ -14,6 +14,7 @@ import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
 import { applySessionLinkability, getExposureFallbackFilter, getViewRecordingFilters } from 'scenes/experiments/utils'
 import {
     EXPOSURE_UNLINKABLE_REASON,
+    FLAG_NOT_SESSION_LINKED_REASON,
     viewRecordingsLinkabilityLogic,
 } from 'scenes/experiments/viewRecordingsLinkabilityLogic'
 
@@ -108,7 +109,9 @@ export function ResultDetails({
     metric: ExperimentMetric
 }): JSX.Element {
     const { featureFlags } = useValues(experimentLogic)
-    const { unlinkableEventNames, linkabilityLoaded } = useValues(viewRecordingsLinkabilityLogic({ experiment }))
+    const { unlinkableEventNames, linkabilityLoaded, exposureSessionLinkable, exposureFallbackLinkable } = useValues(
+        viewRecordingsLinkabilityLogic({ experiment })
+    )
 
     const baselineKey = result.baseline?.key
 
@@ -196,7 +199,12 @@ export function ResultDetails({
                     ? applySessionLinkability(
                           filters,
                           unlinkableEventNames,
-                          getExposureFallbackFilter(experiment, variantKey)
+                          // The stand-in only helps if it can match a session itself. On a flag
+                          // whose events carry no session id at all it is as empty as the exposure
+                          // filter, so withhold it and let the button explain rather than open a
+                          // playlist that can only be blank.
+                          exposureFallbackLinkable === false ? null : getExposureFallbackFilter(experiment, variantKey),
+                          exposureSessionLinkable
                       )
                     : { filters, droppedMetricEventCount: 0, exposureUnlinkable: false, usedExposureFallback: false }
 
@@ -235,7 +243,9 @@ export function ResultDetails({
                         disabled={safeFilters.length === 0}
                         disabledReason={
                             exposureUnlinkable
-                                ? EXPOSURE_UNLINKABLE_REASON
+                                ? exposureFallbackLinkable === false
+                                    ? FLAG_NOT_SESSION_LINKED_REASON
+                                    : EXPOSURE_UNLINKABLE_REASON
                                 : filters.length === 0
                                   ? 'Unable to identify recordings for this metric'
                                   : undefined
