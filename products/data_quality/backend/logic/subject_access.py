@@ -12,7 +12,7 @@ know is absent from that snapshot and therefore out of reach.
 """
 
 import json
-from collections.abc import Collection, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import field
 from itertools import batched
 from typing import TYPE_CHECKING, Any, Optional, TypeVar
@@ -35,6 +35,7 @@ from ..facade.enums import SubjectType
 from ..models import DataQualityCheck, DataQualityCheckRun
 from .checks import latest_run_ids
 from .contracts import SubjectIdentity, SubjectRef
+from .exceptions import SubjectAccessUnverifiable
 from .registry import all_specs, get_spec
 from .spec import CheckTypeSpec
 from .subjects import resolve_metric_subjects, resolve_subject, resolve_subject_by_name
@@ -96,18 +97,52 @@ class ReadableSubjects:
         return False
 
 
+class DeferredDatabase:
+    """The caller's HogQL database, built at most once and only if a verdict needs it.
+
+    Only one question needs the whole HogQL name universe: whether a name a definition reads can be
+    confirmed to resolve at all. Every other gate here is answered from identities and names, so a
+    surface that asks none of them -- the run-history routes -- must not pay for a database holding
+    every warehouse table of the team as a pydantic object.
+
+    A plain class rather than a frozen dataclass, because it memoizes and :class:`DenialContext`
+    stays frozen around it.
+    """
+
+    def __init__(self, build: Callable[[], Database]) -> None:
+        self._build = build
+        self._database: Database | None = None
+
+    @classmethod
+    def built(cls, database: Database) -> "DeferredDatabase":
+        return cls(lambda: database)
+
+    @classmethod
+    def lazy(cls, build: Callable[[], Database]) -> "DeferredDatabase":
+        return cls(build)
+
+    def get(self) -> Database:
+        if self._database is None:
+            try:
+                self._database = self._build()
+            except Exception as err:
+                capture_exception(err)
+                raise SubjectAccessUnverifiable
+        return self._database
+
+
 @frozen
 class DenialContext:
     """Everything a gate needs about one caller, resolved once and passed down.
 
     ``readable`` answers the identity-keyed questions a stored row asks, ``denied`` the name-keyed
-    ones a definition asks, and ``database`` is the caller's own HogQL database -- carried so a
-    surface that has already built one never builds a second.
+    ones a definition asks, and ``database`` is the caller's own HogQL database -- deferred, so it
+    is built only where a verdict needs it and a surface that has one already never builds a second.
     """
 
     readable: ReadableSubjects
     denied: set[str]
-    database: Database
+    database: DeferredDatabase
     metadata: "SubjectMetadata"
     matcher: DeniedTableMatcher = field(init=False, repr=False, compare=False)
 
@@ -200,17 +235,22 @@ def reference_gate(
 
 @frozen
 class SubjectMetadata:
+    """The team's live subjects by id. ``table_keys`` is the dotted form a query writes."""
+
     table_names: dict[UUID, str]
+    table_keys: dict[UUID, str]
     view_names: dict[UUID, str]
     metrics: tuple[MetricSummary, ...]
 
 
 def subject_metadata(team_id: int) -> SubjectMetadata:
-    tables = warehouse_facade.all_queryable_table_names(team_id)
+    tables = warehouse_facade.all_queryable_table_keys(team_id)
     excluded_table_ids = set(data_modeling_facade.backing_table_ids_by_saved_query(team_id))
     excluded_table_ids.update(warehouse_facade.direct_access_table_ids(team_id))
+    included = {table_id: names for table_id, names in tables.items() if table_id not in excluded_table_ids}
     return SubjectMetadata(
-        table_names={table_id: name for table_id, name in tables.items() if table_id not in excluded_table_ids},
+        table_names={table_id: names.row_name for table_id, names in included.items()},
+        table_keys={table_id: names.queryable_key for table_id, names in included.items()},
         view_names={
             UUID(view_id): name for view_id, name in data_modeling_facade.all_saved_query_names(team_id).items()
         },
@@ -243,16 +283,41 @@ def readable_subjects(
     )
 
 
+def unreachable_subject_names(
+    team_id: int, user_access_control: Optional["UserAccessControl"], metadata: SubjectMetadata
+) -> set[str]:
+    """Every name this caller cannot reach, in both spellings a query can write.
+
+    A source table answers to its row name and to its dotted key, and the gate that reads this
+    matches leaf names, so recording only one of the two would let the other spelling through. No
+    access-control context means nothing is reachable, which is how a service token fails closed.
+    """
+    allowed_tables = (
+        warehouse_facade.allowed_table_ids(team_id, user_access_control)
+        if user_access_control is not None
+        else frozenset()
+    )
+    allowed_views = (
+        data_modeling_facade.allowed_saved_query_ids(team_id, user_access_control)
+        if user_access_control is not None
+        else frozenset()
+    )
+    denied = {
+        spelling
+        for identifier, name in metadata.table_names.items()
+        if identifier not in allowed_tables
+        for spelling in (name, metadata.table_keys.get(identifier, name))
+    }
+    denied.update(name for identifier, name in metadata.view_names.items() if identifier not in allowed_views)
+    return denied
+
+
 def denial_context(team_id: int, database: Database, *, metadata: SubjectMetadata | None = None) -> DenialContext:
     """The caller's denial state, from a HogQL database that has already been built for them."""
     metadata = metadata if metadata is not None else subject_metadata(team_id)
-    denied = set(database._denied_tables)
     access = database.user_access_control
+    denied = set(database._denied_tables) | unreachable_subject_names(team_id, access, metadata)
     can_read_catalog = access is not None and access.check_access_level_for_resource("data_catalog", "viewer")
-    allowed_tables = warehouse_facade.allowed_table_ids(team_id, access) if access is not None else frozenset()
-    allowed_views = data_modeling_facade.allowed_saved_query_ids(team_id, access) if access is not None else frozenset()
-    denied.update(name for identifier, name in metadata.table_names.items() if identifier not in allowed_tables)
-    denied.update(name for identifier, name in metadata.view_names.items() if identifier not in allowed_views)
     return DenialContext(
         readable=readable_subjects(
             team_id,
@@ -261,7 +326,7 @@ def denial_context(team_id: int, database: Database, *, metadata: SubjectMetadat
             metadata=metadata,
         ),
         denied=denied,
-        database=database,
+        database=DeferredDatabase.built(database),
         metadata=metadata,
     )
 
@@ -269,13 +334,38 @@ def denial_context(team_id: int, database: Database, *, metadata: SubjectMetadat
 def caller_denial_context(
     team: "Team",
     user: "User",
-    user_access_control: Optional["UserAccessControl"] = None,
+    user_access_control: "UserAccessControl",
     *,
     metadata: SubjectMetadata | None = None,
 ) -> DenialContext:
-    """The caller's denial state, building the HogQL database this request will reuse."""
-    return denial_context(
-        team.id, Database.create_for(team=team, user=user, user_access_control=user_access_control), metadata=metadata
+    """The caller's denial state, read from their grants. Defers the HogQL database build.
+
+    The denial set a database would compute for this caller is the same object access check over the
+    same objects, so it is derived here instead. The build is kept behind
+    :class:`DeferredDatabase` for the one verdict that needs the whole name universe.
+    """
+    try:
+        metadata = metadata if metadata is not None else subject_metadata(team.id)
+        denied = set(system_table_denials(team, user, user_access_control))
+        denied.update(unreachable_subject_names(team.id, user_access_control, metadata))
+        readable = readable_subjects(
+            team.id,
+            denied,
+            can_read_catalog=user_access_control.check_access_level_for_resource("data_catalog", "viewer"),
+            metadata=metadata,
+        )
+    except Exception as err:
+        # The snapshot walks every saved query; one malformed definition must not 500 the surface,
+        # and failing open would leak denied subjects.
+        capture_exception(err)
+        raise SubjectAccessUnverifiable
+    return DenialContext(
+        readable=readable,
+        denied=denied,
+        database=DeferredDatabase.lazy(
+            lambda: Database.create_for(team=team, user=user, user_access_control=user_access_control)
+        ),
+        metadata=metadata,
     )
 
 
@@ -442,7 +532,7 @@ def definition_reads_unreadable_subject(
         return True
     if context.matcher.matches(refs.names):
         return True
-    return bool(unconfirmable_subject_names(refs.names, context.database))
+    return bool(unconfirmable_subject_names(refs.names, context.database.get()))
 
 
 def unconfirmable_subject_names(names: tuple[str, ...], database: Database) -> set[str]:

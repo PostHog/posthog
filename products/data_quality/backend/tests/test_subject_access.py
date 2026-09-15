@@ -6,6 +6,8 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
@@ -25,9 +27,11 @@ from products.data_catalog.backend.facade.models import Metric
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.facade.enums import SubjectType
 from products.data_quality.backend.logic.checks import upsert_check
-from products.data_quality.backend.logic.permissions import writable_subjects
+from products.data_quality.backend.logic.exceptions import SubjectAccessUnverifiable
+from products.data_quality.backend.logic.permissions import restrict_subject_types, writable_subjects
 from products.data_quality.backend.logic.runner import run_check
 from products.data_quality.backend.logic.subject_access import (
+    DeferredDatabase,
     DenialContext,
     definition_reads_unreadable_subject,
     denial_context,
@@ -70,11 +74,10 @@ class TestMetricSubjectAccess(BaseTest):
         [("metric_table", {"revenue_rows"}, True), ("extra_table", {"thresholds"}, True), ("allowed", set(), False)]
     )
     def test_composed_references_control_access(self, _name: str, denied: set[str], expected: bool) -> None:
-        database = Database.create_for(team=self.team, user=self.user)
         context = DenialContext(
             readable=readable_subjects(self.team.id, denied),
             denied=denied,
-            database=database,
+            database=DeferredDatabase.built(Database.create_for(team=self.team, user=self.user)),
             metadata=subject_metadata(self.team.id),
         )
         assert (
@@ -201,7 +204,7 @@ class TestMetricSubjectAccess(BaseTest):
         context = DenialContext(
             readable=readable,
             denied=denied,
-            database=Database.create_for(team=self.team, user=self.user),
+            database=DeferredDatabase.built(Database.create_for(team=self.team, user=self.user)),
             metadata=subject_metadata(self.team.id),
         )
         assert (
@@ -214,7 +217,7 @@ class TestMetricSubjectAccess(BaseTest):
         context = DenialContext(
             readable=readable_subjects(self.team.id, set()),
             denied=set(),
-            database=Database.create_for(team=self.team, user=self.user),
+            database=DeferredDatabase.built(Database.create_for(team=self.team, user=self.user)),
             metadata=subject_metadata(self.team.id),
         )
         with self.assertNumQueries(4):
@@ -222,6 +225,67 @@ class TestMetricSubjectAccess(BaseTest):
         context = replace(context, denied=context.denied | {"thresholds"})
         with self.assertNumQueries(2):
             assert hidden_check_ids(self.team.id, [check] * 20, context) == {check.id}
+
+    def test_a_database_build_that_fails_is_reported_as_unverifiable_access(self) -> None:
+        def explode() -> Database:
+            raise RuntimeError("a saved query will not parse")
+
+        with self.assertRaises(SubjectAccessUnverifiable):
+            DeferredDatabase.lazy(explode).get()
+
+    def test_the_deferred_database_is_built_once_and_only_when_a_verdict_needs_it(self) -> None:
+        builds = 0
+
+        def build() -> Database:
+            nonlocal builds
+            builds += 1
+            return Database.create_for(team=self.team, user=self.user)
+
+        deferred = DeferredDatabase.lazy(build)
+        assert builds == 0
+        assert deferred.get() is deferred.get()
+        assert builds == 1
+
+    def test_reading_the_subject_snapshot_costs_the_same_however_many_source_tables_exist(self) -> None:
+        source = ExternalDataSource.objects.create(team=self.team, source_type="Stripe")
+        with CaptureQueriesContext(connection) as one_table:
+            subject_metadata(self.team.id)
+        for index in range(5):
+            DataWarehouseTable.objects.create(
+                team=self.team,
+                name=f"stripe_charges_{index}",
+                format=DataWarehouseTable.TableFormat.Parquet,
+                url_pattern=f"s3://bucket/charges_{index}",
+                external_data_source=source,
+            )
+
+        with CaptureQueriesContext(connection) as six_tables:
+            metadata = subject_metadata(self.team.id)
+
+        assert len(six_tables.captured_queries) == len(one_table.captured_queries)
+        assert "stripe.charges_0" in metadata.table_keys.values()
+
+    @parameterized.expand([("row_name", "stripe_charges"), ("queryable_key", "stripe.charges")])
+    def test_scoping_tables_away_denies_every_name_a_query_can_write(self, _name: str, written_as: str) -> None:
+        # A caller whose scopes reach views but not tables must not read a check that selects from a
+        # source table, whichever of the table's two names the query writes.
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="stripe_charges",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://bucket/stripe_charges",
+            external_data_source=ExternalDataSource.objects.create(team=self.team, source_type="Stripe"),
+        )
+        context = DenialContext(
+            readable=readable_subjects(self.team.id, set()),
+            denied=set(),
+            database=DeferredDatabase.built(Database.create_for(team=self.team, user=self.user)),
+            metadata=subject_metadata(self.team.id),
+        )
+
+        restricted = restrict_subject_types(context, [SubjectType.VIEW, SubjectType.METRIC])
+
+        assert restricted.matcher.matches([written_as]) is True
 
     def test_failed_composition_cannot_record_empty_references(self) -> None:
         assert pin_referenced_subjects(self.team.id, "custom_sql", {"query": "SELECT 1"}, subject=self.subject) is None

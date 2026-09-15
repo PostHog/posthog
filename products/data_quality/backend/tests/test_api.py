@@ -13,6 +13,8 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
+from posthog.hogql.database.database import Database
+
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog, Detail, log_activity
 
@@ -28,6 +30,7 @@ from products.data_quality.backend.models import DataQualityCheck, DataQualityCh
 from products.data_quality.backend.presentation.serializers import DataQualitySuiteRunSerializer
 from products.data_quality.backend.presentation.views import SavedQueryCheckViewSet
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 if TYPE_CHECKING:
@@ -1300,14 +1303,17 @@ class TestDataQualityCheckAPI(APIBaseTest):
     def _deny_the_view(self) -> None:
         # Deny the default member object-level access to the "orders" view, the way the HogQL
         # database sees it -- so denied_subject_names() picks it up and the endpoint hides it.
+        self._deny_object("warehouse_view", str(self.view.id))
+
+    def _deny_object(self, resource: str, resource_id: str) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save(update_fields=["available_product_features"])
         AccessControl.objects.create(
             team=self.team,
-            resource="warehouse_view",
-            resource_id=str(self.view.id),
+            resource=resource,
+            resource_id=resource_id,
             organization_member=self.organization_membership,
             access_level="none",
         )
@@ -1389,6 +1395,65 @@ class TestDataQualityCheckAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert DataQualityCheck.objects.for_team(self.team.id).count() == 0
+
+    def test_a_denied_source_table_stays_denied_under_the_key_a_query_writes(self) -> None:
+        allowed = self._make_view("customers")
+        charges = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="stripe_charges",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://bucket/stripe_charges",
+            external_data_source=ExternalDataSource.objects.create(team=self.team, source_type="Stripe"),
+        )
+        reads_charges = self._payload(
+            check_type=CheckType.CUSTOM_SQL, column_name="", config={"query": "SELECT 1 FROM stripe.charges"}
+        )
+        created = self.client.post(f"{self._checks_url(allowed.id)}/", reads_charges)
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        self._deny_object("warehouse_table", str(charges.id))
+
+        with patch.object(Database, "create_for", side_effect=Database.create_for) as build:
+            listed = self.client.get(f"{self._checks_url(allowed.id)}/")
+            recreated = self.client.post(f"{self._checks_url(allowed.id)}/", reads_charges)
+
+        build.assert_not_called()
+        assert listed.status_code == status.HTTP_200_OK, listed.json()
+        assert listed.json()["results"] == []
+        assert recreated.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_a_listing_builds_the_callers_warehouse_database_at_most_once(self) -> None:
+        allowed = self._make_view("customers")
+        for index in range(3):
+            self._create_check(
+                url=self._checks_url(allowed.id),
+                check_type=CheckType.CUSTOM_SQL,
+                column_name="",
+                config={"query": f"SELECT {index} FROM customers"},
+            )
+        self._deny_the_view()
+
+        with patch.object(Database, "create_for", side_effect=Database.create_for) as build:
+            listed = self.client.get(f"{self._checks_url(allowed.id)}/")
+
+        assert listed.status_code == status.HTTP_200_OK, listed.json()
+        assert len(listed.json()["results"]) == 3
+        assert build.call_count == 1
+
+    def test_a_database_build_that_fails_refuses_rather_than_500s(self) -> None:
+        allowed = self._make_view("customers")
+        self._create_check(
+            url=self._checks_url(allowed.id),
+            check_type=CheckType.CUSTOM_SQL,
+            column_name="",
+            config={"query": "SELECT 1 FROM customers"},
+        )
+        self._deny_the_view()
+
+        with patch.object(Database, "create_for", side_effect=RuntimeError("a saved query will not parse")):
+            response = self.client.get(f"{self._checks_url(allowed.id)}/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "Could not verify your access to this table or view."
 
     @parameterized.expand([("patch",), ("put",)])
     def test_editing_a_check_to_read_a_denied_subject_writes_nothing(self, method: str) -> None:
