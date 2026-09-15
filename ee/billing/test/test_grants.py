@@ -85,6 +85,9 @@ class TestEffectiveBillingGrants(APIBaseTest):
             ("read_flag_on", False, True, BillingEntitlement.USAGE_READ),
             ("read_flag_off", False, False, BillingEntitlement.MEMBER),
             ("owner_only_on_beats_read_flag", True, True, BillingEntitlement.MEMBER),
+            # A flag state that cannot be read counts as on, here as for an admin: billing's own
+            # gate fails closed to the owner, and the minter that replaces it has to do the same.
+            ("owner_only_unknown_beats_read_flag", None, True, BillingEntitlement.MEMBER),
         ]
     )
     def test_member_depends_on_both_flags(self, _, owner_only, member_read, expected):
