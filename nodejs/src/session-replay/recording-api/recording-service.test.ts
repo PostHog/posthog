@@ -521,8 +521,8 @@ describe('RecordingService', () => {
             expect(mockPostgres.query).toHaveBeenCalledWith(
                 expect.anything(),
                 expect.stringContaining('posthog_exportedasset'),
-                [1, ['session-1', 'session-2']],
-                'expireReplayVisionAssets'
+                [1, ['"session-1"', '"session-2"']],
+                'expireRenderedRecordingVideos'
             )
         })
 

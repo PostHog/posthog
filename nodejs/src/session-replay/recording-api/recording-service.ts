@@ -449,18 +449,17 @@ export class RecordingService {
             // Expired, not deleted: the row is the only pointer to the stored object, which the expiry sweep needs.
             this.postgres.query(
                 PostgresUse.COMMON_WRITE,
-                // `->` matches the jsonb value that exportedasset_system_session indexes; `->>` would not.
+                // `= ANY` over a jsonb array, so the planner can use exportedasset_system_session;
+                // `IN (SELECT ...)` becomes a hashed subplan that cannot drive the expression index.
                 `UPDATE posthog_exportedasset
                  SET expires_after = now()
                  WHERE team_id = $1
                    AND is_system
                    AND export_format = 'video/mp4'
                    AND expires_after > now()
-                   AND export_context -> 'session_recording_id' IN (
-                       SELECT to_jsonb(session_id) FROM unnest($2::text[]) AS session_id
-                   )`,
-                [teamId, sessionIds],
-                'expireReplayVisionAssets'
+                   AND export_context -> 'session_recording_id' = ANY($2::jsonb[])`,
+                [teamId, sessionIds.map((sessionId) => JSON.stringify(sessionId))],
+                'expireRenderedRecordingVideos'
             ),
         ])
 

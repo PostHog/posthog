@@ -95,6 +95,33 @@ class TestExportedAssetModel(APIBaseTest):
         mock_delete.assert_called_once_with(["exports/mp4/team-1/task-1.mp4"])
         assert not ExportedAsset.objects_including_ttl_deleted.filter(id=expired.id).exists()
 
+    def test_delete_expired_assets_skips_past_a_failing_object(self) -> None:
+        # One unreachable key must not stall the rest of the sweep behind it.
+        stuck = ExportedAsset.objects_including_ttl_deleted.create(
+            team=self.team,
+            created_by=self.user,
+            content_location="exports/mp4/team-1/stuck.mp4",
+            expires_after=datetime.now() - timedelta(days=1),
+        )
+        following = ExportedAsset.objects_including_ttl_deleted.create(
+            team=self.team,
+            created_by=self.user,
+            content_location="exports/mp4/team-1/following.mp4",
+            expires_after=datetime.now() - timedelta(days=1),
+        )
+
+        with (
+            patch("products.exports.backend.models.exported_asset._EXPIRY_DELETE_BATCH", 1),
+            patch(
+                "posthog.storage.object_storage.delete_objects",
+                side_effect=lambda keys: [k for k in keys if k.endswith("stuck.mp4")],
+            ),
+        ):
+            ExportedAsset.delete_expired_assets()
+
+        assert ExportedAsset.objects_including_ttl_deleted.filter(id=stuck.id).exists()
+        assert not ExportedAsset.objects_including_ttl_deleted.filter(id=following.id).exists()
+
     def test_delete_expired_assets_keeps_the_row_when_the_object_delete_fails(self) -> None:
         # Losing the row here would leave the file unreachable, so the row waits for the next run.
         expired = ExportedAsset.objects_including_ttl_deleted.create(
