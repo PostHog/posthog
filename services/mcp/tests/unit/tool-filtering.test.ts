@@ -591,6 +591,11 @@ describe('getAdvertisedOAuthScopes', () => {
         expect(missing, `tool-required scopes dropped from the advertised list: ${missing.join(', ')}`).toEqual([])
     })
 
+    it('includes endpoint scopes in protected resource metadata', () => {
+        expect(advertisedSet.has('endpoint:read')).toBe(true)
+        expect(advertisedSet.has('endpoint:write')).toBe(true)
+    })
+
     it('narrows the full grantable set rather than mirroring it', () => {
         expect(advertised.length).toBeLessThan(OAUTH_SCOPES_SUPPORTED.length)
     })

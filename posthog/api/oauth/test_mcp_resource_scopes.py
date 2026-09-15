@@ -66,6 +66,8 @@ class TestMcpResourceScopes(SimpleTestCase):
         # generated catalog.
         self.assertIn("event_definition:read", scopes)
         self.assertIn("property_definition:read", scopes)
+        self.assertIn("endpoint:read", scopes)
+        self.assertIn("endpoint:write", scopes)
         self.assertGreater(len(scopes), 50)
 
     def test_tool_required_scopes_merges_by_tool_name_with_generated_winning(self):

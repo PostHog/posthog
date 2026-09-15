@@ -251,8 +251,7 @@ export const OAUTH_SCOPES = [
 // applies to every future server-side scope addition the app relies on, even when
 // OAUTH_SCOPES itself is unchanged.
 // v7: "*" replaced with the explicit list above.
-// v9: force reauthorization for installs whose grants predate endpoint scopes.
-export const OAUTH_SCOPE_VERSION = 9;
+export const OAUTH_SCOPE_VERSION = 8;
 
 export function getOauthClientIdFromRegion(region: CloudRegion): string {
   switch (region) {
