@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
@@ -155,6 +156,24 @@ describe('maxGlobalLogic', () => {
             await expectLogic(logic).toMatchValues({
                 editInsightToolRegistered: true,
             })
+        })
+    })
+
+    // The history loads on arrival, so its failures greet a person who only opened the panel. The
+    // panel already falls back to its empty state, and the backend's scope wording is not copy.
+    describe('conversation history failures', () => {
+        it.each([
+            { cause: 'a project that no longer resolves', status: 404, body: { detail: 'Project not found.' } },
+            { cause: 'a gateway that could not reach the backend', status: 503, body: {} },
+        ])('raises no toast for $cause', async ({ status, body }) => {
+            const toastErrorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => ({ id: 'x' }) as any)
+            useMocks({ get: { '/api/environments/:team_id/conversations/': () => [status, body] } })
+
+            await expectLogic(logic, () => logic.actions.loadConversationHistory())
+                .toDispatchActions(['loadConversationHistoryFailure'])
+                .toFinishAllListeners()
+
+            expect(toastErrorSpy).not.toHaveBeenCalled()
         })
     })
 
