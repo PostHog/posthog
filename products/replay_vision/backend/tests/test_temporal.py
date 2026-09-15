@@ -330,6 +330,59 @@ class TestCreateObservationActivity:
         observation = ReplayObservation.objects.get(id=result.observation_id)
         assert observation.scanner_snapshot["scanner_config"] == original_config
 
+    def _assert_verify_mode(self, scanner: ReplayScanner, expected: str) -> None:
+        result = create_observation_activity(
+            CreateObservationInputs(
+                scanner_id=scanner.id,
+                team_id=scanner.team_id,
+                session_id="sess-1",
+                triggered_by=ObservationTrigger.SCHEDULE,
+                triggered_by_user_id=None,
+                workflow_id="wf-1",
+            )
+        )
+        assert result.observation_id is not None
+        observation = ReplayObservation.objects.get(id=result.observation_id)
+        assert observation.scanner_snapshot["verify_positives"] == expected
+
+    @pytest.mark.parametrize("variant", ["shadow", "enforce"])
+    def test_monitor_snapshot_stamps_the_flag_variant(self, variant: str) -> None:
+        scanner = _make_scanner()
+        with patch(
+            "products.replay_vision.backend.temporal.activities.create_observation.get_feature_flag_or_none",
+            return_value=variant,
+        ):
+            self._assert_verify_mode(scanner, variant)
+
+    @pytest.mark.parametrize("variant", ["control", True, None, False])
+    def test_monitor_maps_unknown_variant_and_flag_failure_to_off(self, variant: object) -> None:
+        scanner = _make_scanner()
+        with patch(
+            "products.replay_vision.backend.temporal.activities.create_observation.get_feature_flag_or_none",
+            return_value=variant,
+        ):
+            self._assert_verify_mode(scanner, "off")
+
+    def test_non_monitor_snapshot_never_carries_a_verify_mode(self) -> None:
+        scanner = _make_scanner(scanner_type=ScannerType.SUMMARIZER)
+        with patch(
+            "products.replay_vision.backend.temporal.activities.create_observation.get_feature_flag_or_none",
+            return_value="enforce",
+        ):
+            result = create_observation_activity(
+                CreateObservationInputs(
+                    scanner_id=scanner.id,
+                    team_id=scanner.team_id,
+                    session_id="sess-1",
+                    triggered_by=ObservationTrigger.SCHEDULE,
+                    triggered_by_user_id=None,
+                    workflow_id="wf-1",
+                )
+            )
+        assert result.observation_id is not None
+        observation = ReplayObservation.objects.get(id=result.observation_id)
+        assert observation.scanner_snapshot["verify_positives"] == "off"
+
     def test_returns_existing_observation_on_unique_conflict(self) -> None:
         scanner = _make_scanner()
         existing = _make_observation(scanner, session_id="sess-dup")
