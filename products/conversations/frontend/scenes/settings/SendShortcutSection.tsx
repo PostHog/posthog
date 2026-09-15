@@ -20,13 +20,15 @@ export function SendShortcutSection(): JSX.Element {
             <LemonCard hoverEffect={false} className="flex flex-col gap-y-3 max-w-[800px] px-4 py-3">
                 <div className="flex items-center gap-4 justify-between">
                     <div>
-                        <label className="font-medium">Send with Enter</label>
+                        <label htmlFor="conversations-send-on-enter" className="font-medium">
+                            Send with Enter
+                        </label>
                         <p className="text-xs text-muted-alt mb-0">
                             When on, Enter sends the reply and Shift+Enter adds a new line. When off, Enter adds a new
-                            line. Cmd+Enter sends either way.
+                            line. Cmd/Ctrl+Enter sends either way.
                         </p>
                     </div>
-                    <LemonSwitch checked={sendOnEnter} onChange={setSendOnEnter} />
+                    <LemonSwitch id="conversations-send-on-enter" checked={sendOnEnter} onChange={setSendOnEnter} />
                 </div>
             </LemonCard>
         </SceneSection>

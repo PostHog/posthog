@@ -799,8 +799,14 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             try {
                 const response = await api.conversationsTickets.list(params)
                 breakpoint()
-                // Filters, sorting or the page may have moved while the poll was in flight.
-                if (values.ticketsLoading || !objectsEqual(params, buildTicketListParams(values, props))) {
+                // The same guards again: a load, a bulk update or a selection can all start
+                // while the poll is in flight, and the filters may have moved under it too.
+                if (
+                    values.ticketsLoading ||
+                    values.bulkUpdating ||
+                    values.selectedTicketIds.length > 0 ||
+                    !objectsEqual(params, buildTicketListParams(values, props))
+                ) {
                     return
                 }
                 actions.setTickets(response.results || [])

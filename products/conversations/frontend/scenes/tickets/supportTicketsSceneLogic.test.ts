@@ -429,5 +429,27 @@ describe('supportTicketsSceneLogic', () => {
             expect(logic.values.tickets.map((ticket) => ticket.id)).toEqual(['a'])
             expect(logic.values.selectedTicketIds).toEqual(['a'])
         })
+
+        // The guard before the request is not enough on its own: a 20s poll leaves a wide
+        // window in which the user can start selecting rows before the response lands.
+        it('drops a response when rows get selected while the poll is in flight', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            served = [makeTicket('a'), makeTicket('b')]
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/conversations/tickets/': () => {
+                        logic.actions.setSelectedTicketIds(['a'])
+                        return [200, { count: served.length, results: served }]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.pollTickets()
+            }).toFinishAllListeners()
+
+            expect(logic.values.tickets.map((ticket) => ticket.id)).toEqual(['a'])
+        })
     })
 })
