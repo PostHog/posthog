@@ -1,7 +1,6 @@
 from datetime import datetime
 
-from products.feature_flags.backend.facade.api import list_flag_summaries
-from products.feature_flags.backend.facade.contracts import FlagSummary
+from products.feature_flags.backend.facade.api import FlagSummary, list_flag_summaries
 from products.reaper_hog.backend.facade.enums import NAMED_SCOPES, SCOPE_ALL, SCOPE_FLAGS, RootKind, ScoutName
 from products.reaper_hog.backend.logic.artefacts import EvidenceValue, Hit
 from products.reaper_hog.backend.logic.constants import FLAG_DISABLED_DAYS, FLAG_FULL_ROLLOUT_DAYS, FLAG_UNCALLED_DAYS
