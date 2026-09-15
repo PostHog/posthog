@@ -33,8 +33,7 @@ function getHomepageMode(
     return null
 }
 
-/** The homepage picker, rendered by the Navigation settings page. */
-export function HomepageConfiguration(): JSX.Element {
+export function ConfigureHomeModalContent(): JSX.Element {
     const { homepage } = useValues(sceneLogic)
     const { currentTeam } = useValues(teamLogic)
     const { setHomepage } = useActions(sceneLogic)
@@ -43,19 +42,13 @@ export function HomepageConfiguration(): JSX.Element {
     const isUsingNewTabHomepage = homepage?.sceneId === Scene.NewTab
     const isUsingDefaultDashboard =
         homepage?.sceneId === Scene.Dashboard && homepage?.id?.startsWith('homepage-dashboard-')
-
-    // Local UI selection so users can preview the "Default dashboard" picker even
-    // when no `primary_dashboard` is set yet — otherwise the picker is hidden behind
-    // a disabled tile, and the only place to set it is the same hidden picker.
     const [pendingMode, setPendingMode] = useState<HomepageMode | null>(null)
     const currentMode = getHomepageMode(isUsingProjectDefault, isUsingNewTabHomepage, isUsingDefaultDashboard)
     useEffect(() => setPendingMode(null), [currentMode])
     const activeMode = pendingMode ?? currentMode
     const showDashboardPicker = activeMode === 'default_dashboard'
-
     const homepageDisplayTitle = homepage ? homepage.customTitle || homepage.title : 'Launchpad'
     const homepageSubtitle = isUsingProjectDefault ? 'Default' : isUsingNewTabHomepage ? 'Search' : null
-
     const homepageIcon = homepage?.iconType
     const homepageIconElement = iconForType(
         homepageIcon && homepageIcon !== 'loading' && homepageIcon !== 'blank'
@@ -64,7 +57,6 @@ export function HomepageConfiguration(): JSX.Element {
               ? ('default_icon_type' as FileSystemIconType)
               : ('home' as FileSystemIconType)
     )
-
     const newTabHomepage: SceneTab = {
         id: 'homepage-new-tab',
         pathname: urls.newTab(),
@@ -92,9 +84,7 @@ export function HomepageConfiguration(): JSX.Element {
                         size="small"
                         value={activeMode ?? undefined}
                         onChange={(newValue) => {
-                            posthog.capture('homepage configure set homepage', {
-                                'homepage choice': newValue,
-                            })
+                            posthog.capture('homepage configure set homepage', { 'homepage choice': newValue })
                             if (newValue === 'launchpad') {
                                 setPendingMode(null)
                                 setHomepage(null)
@@ -117,8 +107,6 @@ export function HomepageConfiguration(): JSX.Element {
                                         sceneParams: emptySceneParams,
                                     })
                                 } else {
-                                    // No primary dashboard yet — keep selection local so the picker
-                                    // appears; setHomepage fires once a dashboard is chosen below.
                                     setPendingMode('default_dashboard')
                                 }
                             }
