@@ -112,6 +112,7 @@ export const SSE_EVENT_ERROR = 'error'
 export const SSE_PAYLOAD_KEEPALIVE: Record<string, string> = { type: 'keepalive' }
 export const SSE_PAYLOAD_STREAM_END: Record<string, string> = { status: 'complete' }
 export const SSE_PAYLOAD_ROTATED: Record<string, string> = { type: 'rotated' }
+export const SSE_PAYLOAD_RESYNC: Record<string, string> = { type: 'resync', reason: 'trimmed' }
 
 export function makeSseErrorPayload(error: string): Record<string, string> {
     return { error }

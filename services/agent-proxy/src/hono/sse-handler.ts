@@ -16,6 +16,7 @@
 //   Keepalive            — eventName='keepalive', data={"type":"keepalive"}
 //   Terminal             — eventName='stream-end',  data={"status":"complete"}
 //   Rotation             — eventName='end',          data={"type":"rotated"}
+//   Resync               — eventName='end',          data={"type":"resync","reason":"trimmed"}
 //   Stream error         — eventName='error',        data={"error":"<msg>"}
 //   Stream unavailable   — eventName='error',        data={"error":"Stream not available"}
 
@@ -29,6 +30,7 @@ import {
     SSE_EVENT_KEEPALIVE,
     SSE_EVENT_STREAM_END,
     SSE_PAYLOAD_KEEPALIVE,
+    SSE_PAYLOAD_RESYNC,
     SSE_PAYLOAD_ROTATED,
     SSE_PAYLOAD_STREAM_END,
     WAIT_DELAY_INCREMENT_MS,
@@ -108,6 +110,7 @@ export async function* streamTaskRunEvents(
         startLatest?: boolean
         presenceGated?: boolean
         isTerminal?: boolean
+        resyncCapable?: boolean
     }
 ): AsyncGenerator<Buffer, void, unknown> {
     const originProduct = opts.originProduct ?? 'unknown'
@@ -115,6 +118,7 @@ export async function* streamTaskRunEvents(
     const startLatest = opts.startLatest ?? false
     const presenceGated = opts.presenceGated ?? false
     const isTerminal = opts.isTerminal ?? false
+    const resyncCapable = opts.resyncCapable ?? false
 
     const redisStream = new TaskRunRedisStream(streamKey, redis)
     const connectionStartedAt = Date.now()
@@ -204,16 +208,23 @@ export async function* streamTaskRunEvents(
         }
 
         // -- Resume gap detection (only on reconnects; best-effort) --
+        let resumePointTrimmed = false
         if (lastEventId) {
             try {
                 observeStreamLengthOnConnect(await redisStream.getLength())
-                if (await redisStream.resumePointTrimmed(lastEventId)) {
+                resumePointTrimmed = await redisStream.resumePointTrimmed(lastEventId)
+                if (resumePointTrimmed) {
                     observeStreamResumeGap(originProduct)
-                    logger.warn('stream:resume_gap', { streamKey, lastEventId })
+                    logger.warn('stream:resume_gap', { streamKey, lastEventId, resyncCapable })
                 }
             } catch {
                 logger.warn('stream:attach_observe_failed', { streamKey })
             }
+        }
+        if (resumePointTrimmed && resyncCapable) {
+            outcome = 'resync'
+            yield formatSseEvent(SSE_PAYLOAD_RESYNC, { eventName: SSE_EVENT_END })
+            return
         }
 
         // Dedicated connection for the blocking XREAD loop so it cannot delay the

@@ -127,6 +127,7 @@ export type StreamConnectionOutcome =
     | 'drained'
     | 'client_disconnect'
     | 'rotated'
+    | 'resync'
 
 export type DisconnectClassification = 'run_over' | 'idle' | 'mid_turn'
 
