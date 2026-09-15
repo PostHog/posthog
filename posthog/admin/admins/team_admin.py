@@ -7,7 +7,7 @@ import hashlib
 import dataclasses
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, cast
 from urllib import parse
 
 from django.conf import settings
@@ -35,7 +35,7 @@ from posthog.admin.inlines.team_experiments_config_inline import TeamExperiments
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
 from posthog.helpers.impersonation import is_impersonated
 from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, add_credit, get_wallet
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, ActivityLog, Detail, log_activity
 from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.models.remote_config import RemoteConfig
@@ -69,7 +69,10 @@ from products.notifications.backend.facade.api import (
     create_notification,
 )
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
-from products.workflows.backend.services.email_sending_tier import recompute_email_sending_tier_for_team
+from products.workflows.backend.services.email_sending_tier import (
+    log_email_sending_tier_change,
+    recompute_email_sending_tier_for_team,
+)
 from products.workflows.backend.utils.email_sending_tiers import (
     MIN_EMAIL_SENDING_TIER,
     get_email_sending_tier_limits,
@@ -792,6 +795,7 @@ class TeamAdmin(admin.ModelAdmin):
         get_or_create_team_extension(team, TeamWorkflowsConfig)
         with transaction.atomic():
             config = TeamWorkflowsConfig.objects.select_for_update().get(team_id=team.pk)
+            previous_tier = config.email_sending_tier
             if config.email_sending_suspended_at is not None:
                 already_suspended_at = config.email_sending_suspended_at
                 suspended_at = None
@@ -834,6 +838,16 @@ class TeamAdmin(admin.ModelAdmin):
             triggered_by=request.user.email,
         )
         self._log_email_suspension_activity(request, team, "email_sending_suspended", reason)
+        log_email_sending_tier_change(
+            team_id=team.id,
+            team_name=team.name,
+            organization_id=team.organization_id,
+            previous_tier=previous_tier,
+            new_tier=MIN_EMAIL_SENDING_TIER,
+            reason="staff_suspension",
+            user=request.user,
+            was_impersonated=is_impersonated(request),
+        )
         # Best-effort side effects: the state flip has already committed, and the idempotency
         # guard would silently skip a retry. Log the failure and let the admin know rather than
         # 500-ing on a broker/DB hiccup and stranding the state without a customer notification.
@@ -1027,6 +1041,7 @@ class TeamAdmin(admin.ModelAdmin):
         with transaction.atomic():
             config = TeamWorkflowsConfig.objects.select_for_update().get(team_id=team.pk)
             previous_tier = config.email_sending_tier
+            previous_pinned = config.email_sending_tier_pinned
             config.email_sending_tier = tier
             config.email_sending_tier_pinned = pinned
             if tier != previous_tier:
@@ -1051,6 +1066,17 @@ class TeamAdmin(admin.ModelAdmin):
             # User | AnonymousUser.
             triggered_by=getattr(request.user, "email", ""),
         )
+        log_email_sending_tier_change(
+            team_id=team.id,
+            team_name=team.name,
+            organization_id=team.organization_id,
+            previous_tier=previous_tier,
+            new_tier=tier,
+            previous_pinned=previous_pinned,
+            pinned=pinned,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated(request),
+        )
         self.message_user(
             request,
             f"Set team '{team.name}' to email sending tier {tier}"
@@ -1073,7 +1099,9 @@ class TeamAdmin(admin.ModelAdmin):
         # suspend and set-tier actions.
         get_or_create_team_extension(team, TeamWorkflowsConfig)
         try:
-            decision = recompute_email_sending_tier_for_team(team.id)
+            decision = recompute_email_sending_tier_for_team(
+                team.id, user=cast(User, request.user), was_impersonated=is_impersonated(request)
+            )
         except Exception:
             logger.exception("admin_recompute_email_sending_tier_failed", team_id=team.id)
             self.message_user(request, "Could not recompute the tier. Check the logs.", level=messages.ERROR)

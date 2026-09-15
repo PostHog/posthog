@@ -692,6 +692,39 @@ class TestTeamAdminEmailSendingSuspension(BaseTest):
         assert config.email_sending_tier == 0
         assert config.email_sending_tier_updated_at is not None
 
+        entry = ActivityLog.objects.get(scope="Team", team_id=self.team.id, activity="email_sending_tier_changed")
+        assert entry.user == self.user
+        assert (entry.detail or {})["context"] == {"reason": "staff_suspension"}
+
+    @parameterized.expand(
+        [
+            ("tier_change", {"tier": "2"}, [("email_sending_tier", 1, 2)]),
+            ("pin_only", {"tier": "1", "pinned": "on"}, [("email_sending_tier_pinned", False, True)]),
+            ("no_change", {"tier": "1"}, None),
+        ]
+    )
+    def test_set_tier_audits_what_changed(
+        self, _name: str, form: dict[str, str], expected_changes: list[tuple[str, object, object]] | None
+    ) -> None:
+        get_or_create_team_extension(
+            self.team, TeamWorkflowsConfig, defaults={"email_sending_tier": 1, "email_sending_tier_pinned": False}
+        )
+
+        response = self.admin.set_email_sending_tier_view(self._post(form), str(self.team.pk))
+        assert response.status_code == 302
+
+        entries = list(
+            ActivityLog.objects.filter(scope="Team", team_id=self.team.id, activity="email_sending_tier_changed")
+        )
+        if expected_changes is None:
+            assert entries == []
+            return
+        assert len(entries) == 1
+        assert entries[0].user == self.user
+        detail = entries[0].detail or {}
+        assert detail["context"] == {"reason": ""}
+        assert [(c["field"], c["before"], c["after"]) for c in detail["changes"]] == expected_changes
+
     def test_tier_actions_render_without_a_nested_form(self) -> None:
         # The field renders inside the admin's team change form. A nested <form> would break the page,
         # so the actions must submit the surrounding form through formaction instead.
@@ -740,7 +773,7 @@ class TestTeamAdminEmailSendingSuspension(BaseTest):
         ) as mock_recompute:
             response = self.admin.recompute_email_sending_tier_view(self._post(), str(self.team.pk))
         assert response.status_code == 302
-        mock_recompute.assert_called_once_with(self.team.id)
+        mock_recompute.assert_called_once_with(self.team.id, user=self.user, was_impersonated=False)
         assert self._config() is not None
 
     def test_suspend_is_idempotent(self) -> None:

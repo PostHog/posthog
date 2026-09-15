@@ -2,6 +2,7 @@ from collections import Counter
 from collections.abc import Iterable
 from datetime import timedelta
 from typing import Any, Optional
+from uuid import uuid4
 
 from django.core.management.base import BaseCommand
 from django.utils import timezone
@@ -9,16 +10,19 @@ from django.utils import timezone
 import structlog
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.models.activity_logging.activity_log import Trigger
 from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.services.email_sending_tier import (
+    EMAIL_SENDING_TIER_BACKFILL_JOB_TYPE,
     SesTenantState,
     TeamSendingHistory,
     TierDecision,
     build_sending_histories,
     decide_tier,
+    log_email_sending_tier_change,
 )
 from products.workflows.backend.utils.email_sending_tiers import (
     MIN_EMAIL_SENDING_TIER,
@@ -137,6 +141,7 @@ class Command(BaseCommand):
     def _apply(self, decisions: list[TierDecision]) -> int:
         teams = {team.id: team for team in Team.objects.filter(id__in=[d.team_id for d in decisions])}
         now = timezone.now()
+        trigger = Trigger(job_type=EMAIL_SENDING_TIER_BACKFILL_JOB_TYPE, job_id=str(uuid4()), payload={})
         written = 0
         for decision in decisions:
             team = teams.get(decision.team_id)
@@ -165,6 +170,15 @@ class Command(BaseCommand):
                 previous_tier=decision.previous_tier,
                 new_tier=decision.new_tier,
                 reason=decision.reason,
+            )
+            log_email_sending_tier_change(
+                team_id=decision.team_id,
+                team_name=team.name,
+                organization_id=team.organization_id,
+                previous_tier=decision.previous_tier,
+                new_tier=decision.new_tier,
+                reason=decision.reason,
+                trigger=trigger,
             )
         return written
 
