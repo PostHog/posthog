@@ -39,21 +39,36 @@ interface ReferencesRailProps {
 }
 
 /**
- * A group in the rail is one question a person asks at a glance: where are
- * the numbers, what is live, what is broken. Kinds that share an answer share
- * a group; anything rarer lands under "Also linked".
+ * The rail groups linked objects by the work a person or an agent does with
+ * them, not by product type. The type stays on the row as a small label.
+ * "Reading" is the first group and holds docs and files; these hold the rest.
  */
-const OBJECT_GROUPS: { title: string; kinds: ContextObjectKind[] }[] = [
-  { title: "Dashboards and insights", kinds: ["dashboard", "insight"] },
-  { title: "Flags", kinds: ["flag"] },
-  { title: "Experiments", kinds: ["experiment"] },
-  { title: "Errors", kinds: ["error"] },
-  { title: "Surveys", kinds: ["survey"] },
+const JOB_GROUPS: {
+  title: string;
+  hint: string;
+  kinds: ContextObjectKind[];
+}[] = [
+  {
+    title: "Measuring",
+    hint: "dashboards, insights",
+    kinds: ["dashboard", "insight", "cohort", "action", "event"],
+  },
+  {
+    title: "Shipping",
+    hint: "flags, experiments",
+    kinds: ["flag", "experiment"],
+  },
+  { title: "Fixing", hint: "error issues", kinds: ["error"] },
+  { title: "Listening", hint: "surveys, replays", kinds: ["survey", "replay"] },
 ];
 
+/** Objects that read like documents sit with the docs, not with the live objects. */
+const READING_KINDS: ContextObjectKind[] = ["notebook", "link", "person"];
+
 /**
- * What agents read and what they watch for this space. Docs and files first,
- * then the linked objects by type, each with its live state.
+ * What agents read, measure, ship, fix, and listen to in this space. Docs and
+ * files first, then the linked objects by the work done with them, each with
+ * its live state.
  */
 export function ReferencesRail({
   links,
@@ -63,24 +78,17 @@ export function ReferencesRail({
   isSaving,
 }: ReferencesRailProps) {
   const [linking, setLinking] = useState(false);
-  const groups = useMemo(() => {
-    const placed = new Set<number>();
-    const result = OBJECT_GROUPS.map((group) => ({
-      title: group.title,
-      items: objects
-        .map((object, index) => ({ object, index }))
-        .filter(({ object, index }) => {
-          if (!group.kinds.includes(object.kind)) return false;
-          placed.add(index);
-          return true;
-        }),
-    })).filter((group) => group.items.length > 0);
-    const rest = objects
-      .map((object, index) => ({ object, index }))
-      .filter(({ index }) => !placed.has(index));
-    if (rest.length > 0) result.push({ title: "Also linked", items: rest });
-    return result;
-  }, [objects]);
+  const indexed = useMemo(
+    () => objects.map((object, index) => ({ object, index })),
+    [objects],
+  );
+  const readingObjects = indexed.filter(({ object }) =>
+    READING_KINDS.includes(object.kind),
+  );
+  const groups = JOB_GROUPS.map((group) => ({
+    ...group,
+    items: indexed.filter(({ object }) => group.kinds.includes(object.kind)),
+  })).filter((group) => group.items.length > 0);
 
   const removeObject = (index: number) =>
     onObjectsChange(objects.filter((_, i) => i !== index));
@@ -89,7 +97,8 @@ export function ReferencesRail({
     <aside className="flex min-w-0 flex-col gap-6">
       <RailGroup
         title="Reading"
-        count={links.length}
+        hint="docs, files"
+        count={links.length + readingObjects.length}
         emptyHint="Specs, docs, and repository files agents should read."
         isSaving={isSaving}
         renderForm={(close) => (
@@ -122,16 +131,23 @@ export function ReferencesRail({
             />
           );
         })}
+        {readingObjects.map(({ object, index }) => (
+          <WatchedRow
+            key={`${object.url}-${index}`}
+            object={object}
+            onRemove={() => removeObject(index)}
+            disabled={isSaving}
+          />
+        ))}
       </RailGroup>
 
       {groups.map((group) => (
         <section key={group.title} className="flex flex-col gap-1.5">
-          <Text size="xs" weight="medium" variant="muted">
-            {group.title}
-            <span className="ml-1.5 font-normal tabular-nums">
-              {group.items.length}
-            </span>
-          </Text>
+          <GroupHeading
+            title={group.title}
+            hint={group.hint}
+            count={group.items.length}
+          />
           <ul className="-mx-2 flex flex-col">
             {group.items.map(({ object, index }) => (
               <WatchedRow
@@ -171,8 +187,31 @@ export function ReferencesRail({
   );
 }
 
+function GroupHeading({
+  title,
+  hint,
+  count,
+}: {
+  title: string;
+  hint: string;
+  count: number;
+}) {
+  return (
+    <Text size="xs" weight="medium" variant="muted">
+      {title}
+      <span className="ml-1.5 font-normal text-muted-foreground/70">
+        {hint}
+      </span>
+      {count > 0 ? (
+        <span className="ml-1.5 font-normal tabular-nums">{count}</span>
+      ) : null}
+    </Text>
+  );
+}
+
 function RailGroup({
   title,
+  hint,
   count,
   emptyHint,
   isSaving,
@@ -180,6 +219,7 @@ function RailGroup({
   children,
 }: {
   title: string;
+  hint: string;
   count: number;
   emptyHint: string;
   isSaving: boolean;
@@ -190,12 +230,7 @@ function RailGroup({
   return (
     <section className="flex flex-col gap-1.5">
       <div className="flex items-center justify-between gap-2">
-        <Text size="xs" weight="medium" variant="muted">
-          {title}
-          {count > 0 ? (
-            <span className="ml-1.5 font-normal tabular-nums">{count}</span>
-          ) : null}
-        </Text>
+        <GroupHeading title={title} hint={hint} count={count} />
         {!adding ? (
           <Button
             variant="default"
