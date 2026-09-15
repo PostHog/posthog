@@ -158,6 +158,18 @@ const FALLBACK_GATEWAY_MODELS: GatewayModel[] = [
     supports_vision: true,
   },
   {
+    id: "claude-fable-5",
+    owned_by: "anthropic",
+    context_window: 1000000,
+    supports_vision: true,
+  },
+  {
+    id: "claude-fable-5-1",
+    owned_by: "anthropic",
+    context_window: 1000000,
+    supports_vision: true,
+  },
+  {
     id: "claude-sonnet-5",
     owned_by: "anthropic",
     context_window: 1000000,
@@ -255,8 +267,9 @@ const FALLBACK_GATEWAY_MODELS: GatewayModel[] = [
   },
 ];
 
-// Every model the gateway advertises belongs here: one failed /v1/models fetch
-// must not be what decides whether a model is offered. Access flags are applied
+// Every model a picker can offer belongs here: one failed /v1/models fetch
+// must not be what decides whether a model is offered. Retired ids stay on the
+// list too, so a session pinned to one still runs. Access flags are applied
 // later, from the shared catalog.
 export function fallbackModelConfigs(
   region: CloudRegion,

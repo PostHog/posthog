@@ -314,6 +314,16 @@ describe("model classification", () => {
     expect(model?.api).toBe("openai-completions");
   });
 
+  it.each(["claude-fable-5", "claude-fable-5-1"])(
+    "offers %s from the offline fallback list",
+    (id) => {
+      const model = byId("us").get(id);
+      expect(model).toBeDefined();
+      expect(model?.api).toBe("anthropic-messages");
+      expect(model?.contextWindow).toBe(1_000_000);
+    },
+  );
+
   it("points OpenAI models at the region-specific gateway", () => {
     const eu = byId("eu").get("gpt-5.5");
     expect(eu?.baseUrl).toBe("https://gateway.eu.posthog.com/posthog_code/v1");
