@@ -606,6 +606,7 @@ def _build_template_context(
             "custom_products": [],
             "switched_team": getattr(request, "switched_team", None),
             "suggested_users_with_access": getattr(request, "suggested_users_with_access", None),
+            "project_access_denied": getattr(request, "project_access_denied", None),
             "commit_sha": context["git_rev"],
             "livestream_host": settings.LIVESTREAM_HOST,
             **posthog_app_context,

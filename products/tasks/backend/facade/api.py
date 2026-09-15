@@ -2250,6 +2250,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "sandbox_memory_gb",
         "sandbox_ttl_seconds",
         "inactivity_timeout_seconds",
+        "systemPrompt",
         "wizard_config",
         "wizard_head_branch",
         "use_modal_directory_resume_snapshots",
@@ -5488,6 +5489,10 @@ def _list_tasks_queryset(
     origin_product = filters.get("origin_product")
     if origin_product:
         qs = qs.filter(origin_product=origin_product)
+
+    client_provenance = filters.get("client_provenance")
+    if client_provenance:
+        qs = qs.filter(client_provenance=client_provenance)
 
     exclude_origin_product = filters.get("exclude_origin_product")
     if exclude_origin_product:

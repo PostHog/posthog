@@ -7,7 +7,7 @@ import { sessionStartMonth } from '~/ingestion/pipelines/sessionreplay/ml-mirror
 
 import { MlDataKey, MlEncryptedEnvelope, MlKeyReadExpiredError, decryptEnvelope, encryptEnvelope } from './crypto'
 import { MlKeyReader } from './reader'
-import { INGESTION_VERSION_HEADER, sessionKeyId, tableKeyString } from './schema'
+import { INGESTION_VERSION_HEADER, MlWireVersion, sessionKeyId, tableKeyString } from './schema'
 
 export interface MlDecodedMessage {
     message: Message
@@ -27,6 +27,11 @@ export function ingestionVersion(message: Pick<Message, 'headers'>): 1 | 2 {
     throw new Error('Unsupported ML ingestion version')
 }
 
+/** Only an encrypted record carries a key, so the key decides the version every producer stamps. */
+export function mlWireVersion(key: MlDataKey | undefined): MlWireVersion {
+    return key ? '2' : '1'
+}
+
 export function encryptedKafkaValue(
     key: MlDataKey | undefined,
     kind: string,
@@ -37,10 +42,10 @@ export function encryptedKafkaValue(
         ? {
               value: encryptEnvelope(key, kind, value, ref),
               headers: {
-                  [INGESTION_VERSION_HEADER]: '2',
+                  [INGESTION_VERSION_HEADER]: mlWireVersion(key),
               },
           }
-        : { value, headers: { [INGESTION_VERSION_HEADER]: '1' } }
+        : { value, headers: { [INGESTION_VERSION_HEADER]: mlWireVersion(key) } }
 }
 
 export function validateImageOwner(ref: string, key: MlDataKey | undefined): void {

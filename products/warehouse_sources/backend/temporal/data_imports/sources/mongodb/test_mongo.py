@@ -2,7 +2,7 @@ import uuid
 import base64
 import datetime
 import contextlib
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from typing import Any, cast
 
 from unittest.mock import MagicMock, patch
@@ -13,6 +13,7 @@ from bson import Binary, DatetimeMS, ObjectId
 from bson.binary import UUID_SUBTYPE
 from parameterized import parameterized
 from pymongo.errors import CursorNotFound, OperationFailure, ServerSelectionTimeoutError
+from pymongo.hello import Hello
 from pymongo.server_description import ServerDescription
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
@@ -29,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
     _process_doc_with_field_logging,
     _process_nested_value,
     get_leading_index_keys,
+    get_server_metadata,
     mongo_source,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
@@ -764,6 +766,35 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
         assert collection.cursors[0].sorted_by == ["_id", 1]
         assert collection.cursors[1].sorted_by == ["_id", 1]
 
+    def test_execution_timeout_mid_stream_resumes_from_last_id(self):
+        # Regression: Atlas free/shared/flex tier clusters enforce a hard operation execution-time
+        # limit independent of no_cursor_timeout, so a getMore against a large collection can be
+        # killed with OperationFailure code 50 (MaxTimeMSExpired) partway through. The cursor is
+        # _id-ordered, so last_id is a safe resume point — resume instead of failing the whole sync.
+        collection = _FakeCollection(
+            [{"_id": "1"}, {"_id": "2"}, {"_id": "3"}],
+            error=OperationFailure("operation exceeded time limit, correlationID = 18d582877a9d2284f38efbb3", 50),
+            error_after=2,
+            fallback_docs=[{"_id": "1"}, {"_id": "2"}, {"_id": "3"}],
+        )
+
+        rows = self._run_get_rows(collection)
+
+        assert [row["_id"] for row in rows] == ["1", "2", "3"]
+        assert len(collection.find_calls) == 2
+        # Resume query picks up after the last document that was yielded.
+        assert collection.find_queries[1] == {"_id": {"$gt": "2"}}
+
+    def test_execution_timeout_without_progress_is_not_retried_forever(self):
+        # Resuming re-runs the same query, so a getMore that times out before yielding anything
+        # would hit the identical limit again — it must re-raise instead of looping forever.
+        collection = _FakeCollection([], error=OperationFailure("operation exceeded time limit", 50))
+
+        with self.assertRaises(OperationFailure):
+            self._run_get_rows(collection)
+
+        assert len(collection.find_calls) == 1
+
     @parameterized.expand(
         [
             (
@@ -876,3 +907,63 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
             self._run_get_rows(collection)
 
         assert len(collection.find_calls) == 2
+
+
+class TestGetServerMetadata(SimpleTestCase):
+    @staticmethod
+    def _server(host: str, max_wire_version: int | None) -> ServerDescription:
+        # A ServerDescription built without a hello response is the state pymongo holds for a node
+        # it has not handshaked with, which is what the probe has to leave out.
+        if max_wire_version is None:
+            return ServerDescription((host, 27017))
+        return ServerDescription(
+            (host, 27017),
+            Hello({"ok": 1, "isWritablePrimary": True, "minWireVersion": 0, "maxWireVersion": max_wire_version}),
+        )
+
+    @contextlib.contextmanager
+    def _patched_client(self, server_version: str, servers: list[ServerDescription]) -> Iterator[None]:
+        client = MagicMock()
+        client.server_info.return_value = {"version": server_version}
+        client.topology_description.server_descriptions.return_value = {server.address: server for server in servers}
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo.mongo_client"
+        ) as client_factory:
+            client_factory.return_value.__enter__.return_value = client
+            yield
+
+    @parameterized.expand(
+        [
+            ("single_node", "7.0.14", [("a.example.com", 21)], 21, 1, 1),
+            # The driver refuses the whole topology over one node below its floor, so reporting
+            # anything but the weakest node would mark this source safe to upgrade when it is not.
+            ("replica_set_reports_weakest_node", "4.0.28", [("a.example.com", 21), ("b.example.com", 7)], 7, 2, 2),
+            # Server selection returns on the first usable node, so the wire version here comes
+            # from a partial view. The counts have to disagree, or the reading passes as complete
+            # and an older secondary the probe never saw goes uncounted.
+            ("unhandshaked_node_is_ignored", "6.0.1", [("a.example.com", 13), ("b.example.com", None)], 13, 1, 2),
+            ("no_handshaked_node_reports_no_wire_version", "", [("a.example.com", None)], None, 0, 1),
+        ]
+    )
+    def test_wire_version_comes_from_the_weakest_handshaked_node(
+        self,
+        _name: str,
+        server_version: str,
+        nodes: list[tuple[str, int | None]],
+        expected_wire_version: int | None,
+        expected_handshaked_nodes: int,
+        expected_topology_nodes: int,
+    ) -> None:
+        servers = [self._server(host, max_wire_version) for host, max_wire_version in nodes]
+
+        with self._patched_client(server_version, servers):
+            metadata = get_server_metadata("mongodb://user:pass@a.example.com/db?tls=true", team_id=1)
+
+        assert metadata["engine"] == "mongodb"
+        assert metadata["server_version"] == server_version
+        assert metadata["handshaked_nodes"] == expected_handshaked_nodes
+        assert metadata["topology_nodes"] == expected_topology_nodes
+        if expected_wire_version is None:
+            assert "wire_version" not in metadata
+        else:
+            assert metadata["wire_version"] == expected_wire_version
