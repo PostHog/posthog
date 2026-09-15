@@ -361,10 +361,18 @@ export interface tracingDataLogicActions {
         errorObject?: any
     }
     fetchLatencyHeatmapSuccess: (
-        rawLatencyHeatmap: LatencyHeatmapRow[],
+        rawLatencyHeatmap: {
+            bucket_ns: number
+            count: number
+            time: string
+        }[],
         payload?: any
     ) => {
-        rawLatencyHeatmap: LatencyHeatmapRow[]
+        rawLatencyHeatmap: {
+            bucket_ns: number
+            count: number
+            time: string
+        }[]
         payload?: any
     }
     fetchMatchingCounts: () => any
@@ -465,10 +473,18 @@ export interface tracingDataLogicActions {
         errorObject?: any
     }
     fetchSparklineSuccess: (
-        rawSparklineData: SparklineRow[],
+        rawSparklineData: {
+            count: number
+            service: string
+            time: string
+        }[],
         payload?: any
     ) => {
-        rawSparklineData: SparklineRow[]
+        rawSparklineData: {
+            count: number
+            service: string
+            time: string
+        }[]
         payload?: any
     }
     handleFilterChange: (
