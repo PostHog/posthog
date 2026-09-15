@@ -37,6 +37,7 @@ import {
 import {
     AnyDataWarehouseNode,
     AnyEntityNode,
+    AnnotationsFilter,
     BreakdownFilter,
     CompareFilter,
     DatabaseSchemaField,
@@ -75,6 +76,7 @@ import {
     getResultCustomizationBy,
     getSeries,
     getShowAlertThresholdLines,
+    getAnnotationsFilter,
     getShowAnnotations,
     getShowLabelsOnSeries,
     getShowLegend,
@@ -261,6 +263,7 @@ export interface insightVizDataLogicValues {
     shouldShowSessionAnalysisWarning: boolean
     showAlertThresholdLines: boolean | null | undefined
     showAnnotations: boolean | null | undefined
+    annotationsFilter: AnnotationsFilter | null | undefined
     showLabelOnSeries: boolean | null | undefined
     showLegend: boolean | null | undefined
     showMultipleYAxes: boolean | null | undefined
@@ -857,6 +860,19 @@ export interface insightVizDataLogicMeta {
                 | WebStatsTableQuery
                 | null
         ) => boolean | null | undefined
+        annotationsFilter: (
+            querySource:
+                | FunnelsQuery
+                | LifecycleQuery
+                | PathsQuery
+                | PathsV2Query
+                | RetentionQuery
+                | StickinessQuery
+                | TrendsQuery
+                | WebOverviewQuery
+                | WebStatsTableQuery
+                | null
+        ) => AnnotationsFilter | null | undefined
         showLegend: (
             querySource:
                 | FunnelsQuery
@@ -1818,6 +1834,21 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     | import('~/queries/schema/schema-general').WebOverviewQuery
                     | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (q ? getShowAnnotations(q) : null),
+        ],
+        annotationsFilter: [
+            (s) => [s.querySource],
+            (
+                q:
+                    | FunnelsQuery
+                    | LifecycleQuery
+                    | RetentionQuery
+                    | StickinessQuery
+                    | TrendsQuery
+                    | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
+            ) => (q ? getAnnotationsFilter(q) : null),
         ],
         showLegend: [
             (s) => [s.querySource],

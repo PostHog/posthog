@@ -1692,6 +1692,13 @@ export const AggregationAxisFormatApi = {
     Short: 'short',
 } as const
 
+export interface AnnotationsFilterApi {
+    /** Render only annotations with one of these emojis. */
+    emojis?: string[] | null
+    /** Render only annotations whose content contains this text, case-insensitive. */
+    search?: string | null
+}
+
 export type CurveApi = (typeof CurveApi)[keyof typeof CurveApi]
 
 export const CurveApi = {
@@ -1845,6 +1852,7 @@ export interface TrendsFilterApi {
     aggregationAxisPostfix?: string | null
     /** Literal prefix applied to every value (e.g. `$`). Use to pin a unit or currency symbol that does not depend on `aggregationAxisFormat` — for example, when values are denominated in a fixed currency regardless of the project's base currency. Include any trailing space yourself. */
     aggregationAxisPrefix?: string | null
+    annotationsFilter?: AnnotationsFilterApi | null
     breakdown_histogram_bin_count?: number | null
     /** Chart rendering style overrides (line shape). */
     chartStyle?: ChartStyleApi | null
@@ -2217,6 +2225,8 @@ export const FunnelLayoutApi = {
 export type FunnelsFilterApiResultCustomizations = { [key: string]: ResultCustomizationByValueApi } | null
 
 export interface FunnelsFilterApi {
+    /** Only applies to historical-trends funnels. */
+    annotationsFilter?: AnnotationsFilterApi | null
     binCount?: number | null
     breakdownAttributionType?: BreakdownAttributionTypeApi | null
     breakdownAttributionValue?: number | null

@@ -3841,6 +3841,13 @@ export namespace Schemas {
       Short: 'short',
     } as const;
 
+    export interface AnnotationsFilter {
+      /** Render only annotations with one of these emojis. */
+      emojis?: string[] | null;
+      /** Render only annotations whose content contains this text, case-insensitive. */
+      search?: string | null;
+    }
+
     export type Curve = typeof Curve[keyof typeof Curve];
 
 
@@ -3999,6 +4006,7 @@ export namespace Schemas {
       aggregationAxisPostfix?: string | null;
       /** Literal prefix applied to every value (e.g. `$`). Use to pin a unit or currency symbol that does not depend on `aggregationAxisFormat` — for example, when values are denominated in a fixed currency regardless of the project's base currency. Include any trailing space yourself. */
       aggregationAxisPrefix?: string | null;
+      annotationsFilter?: AnnotationsFilter | null;
       breakdown_histogram_bin_count?: number | null;
       /** Chart rendering style overrides (line shape). */
       chartStyle?: ChartStyle | null;
@@ -4222,6 +4230,8 @@ export namespace Schemas {
     export type FunnelsFilterResultCustomizations = {[key: string]: ResultCustomizationByValue} | null;
 
     export interface FunnelsFilter {
+      /** Only applies to historical-trends funnels. */
+      annotationsFilter?: AnnotationsFilter | null;
       binCount?: number | null;
       breakdownAttributionType?: BreakdownAttributionType | null;
       breakdownAttributionValue?: number | null;

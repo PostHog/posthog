@@ -1,0 +1,116 @@
+import { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
+
+import {
+    createInsightStory,
+    insightSceneMswDecorator,
+    insightSceneStoryParameters,
+} from 'scenes/insights/__mocks__/createInsightScene'
+
+import { mswDecorator } from '~/mocks/browser'
+import { AnnotationsFilter } from '~/queries/schema/schema-general'
+import { AnnotationScope, RawAnnotationType } from '~/types'
+
+import __trendsLine from '../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
+
+const ANNOTATIONS: RawAnnotationType[] = (
+    [
+        [1001, '2022-03-04T09:00:00Z', 'Pricing page redesign shipped', '🚀'],
+        [1002, '2022-03-05T14:30:00Z', 'Signup flow experiment started', '🧪'],
+        [1003, '2022-03-07T08:15:00Z', 'Release 2.4 rolled out to all regions', '🚀'],
+        [1004, '2022-03-08T11:00:00Z', 'Checkout latency incident', null],
+        [1005, '2022-03-10T16:45:00Z', 'Spring campaign launch', '📣'],
+    ] as const
+).map(([id, date_marker, content, emoji]) => ({
+    id,
+    content,
+    emoji,
+    date_marker,
+    scope: AnnotationScope.Project,
+    created_at: '2022-01-01T00:00:00Z',
+    updated_at: '2022-01-01T00:00:00Z',
+    dashboard_item: null,
+    creation_type: 'USR',
+    deleted: false,
+}))
+
+function trendsLineInsight(annotationsFilter?: AnnotationsFilter): Record<string, any> {
+    const insight = __trendsLine as Record<string, any>
+    return {
+        ...insight,
+        query: {
+            ...insight.query,
+            source: {
+                ...insight.query.source,
+                trendsFilter: { ...insight.query.source.trendsFilter, annotationsFilter },
+            },
+        },
+    }
+}
+
+async function openAnnotationsFilter(): Promise<void> {
+    const click = async (selector: string): Promise<void> => {
+        const element = await waitFor(
+            () => {
+                const match = Array.from(document.body.querySelectorAll<HTMLElement>(selector)).find(
+                    (candidate) => candidate.offsetParent !== null
+                )
+                if (!match) {
+                    throw new Error(`${selector} not ready`)
+                }
+                return match
+            },
+            { timeout: 10_000 }
+        )
+        await userEvent.click(element)
+    }
+    await click('button[aria-label="Options"]')
+    await click('[data-attr="insight-annotations-filter"]')
+    await waitFor(() => {
+        if (!document.body.querySelector('[data-attr="insight-annotations-filter-search"]')) {
+            throw new Error('Annotations filter popover not ready')
+        }
+    })
+}
+
+type Story = StoryObj<{}>
+const meta: Meta = {
+    title: 'Scenes-App/Insights/TrendsAnnotationsFilter',
+    parameters: insightSceneStoryParameters,
+    decorators: [
+        insightSceneMswDecorator,
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/annotations/': () => [
+                    200,
+                    { count: ANNOTATIONS.length, next: null, previous: null, results: ANNOTATIONS },
+                ],
+            },
+        }),
+    ],
+}
+
+export default meta
+
+export const AllAnnotations: Story = {
+    render: createInsightStory(trendsLineInsight() as any, 'edit'),
+    parameters: { ...meta.parameters, testOptions: { ...meta.parameters?.testOptions, waitForSelector: 'canvas' } },
+}
+
+export const FilteredByEmoji: Story = {
+    render: createInsightStory(trendsLineInsight({ emojis: ['🚀'] }) as any, 'edit'),
+    parameters: { ...meta.parameters, testOptions: { ...meta.parameters?.testOptions, waitForSelector: 'canvas' } },
+}
+
+export const FilterOpen: Story = {
+    render: createInsightStory(trendsLineInsight({ emojis: ['🚀'], search: 'release' }) as any, 'edit'),
+    parameters: {
+        ...meta.parameters,
+        testOptions: {
+            ...meta.parameters?.testOptions,
+            waitForSelector: '[data-attr="insight-annotations-filter-search"]',
+        },
+    },
+    play: openAnnotationsFilter,
+}

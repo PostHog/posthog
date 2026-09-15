@@ -8,6 +8,7 @@ import {
     AccountsQuery,
     AccountsTableQuery,
     ActionsNode,
+    AnnotationsFilter,
     ActorsQuery,
     AnyDataWarehouseNode,
     AnyEntityNode,
@@ -676,6 +677,15 @@ export const getShowAnnotations = (query: InsightQueryNode): boolean | undefined
         return query.trendsFilter?.showAnnotations
     } else if (isFunnelsQuery(query)) {
         return query.funnelsFilter?.showAnnotations
+    }
+    return undefined
+}
+
+export const getAnnotationsFilter = (query: InsightQueryNode): AnnotationsFilter | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.annotationsFilter
+    } else if (isFunnelsQuery(query)) {
+        return query.funnelsFilter?.annotationsFilter
     }
     return undefined
 }

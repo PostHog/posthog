@@ -1655,6 +1655,15 @@ export interface ChartStyle {
     curve?: 'linear' | 'smooth'
 }
 
+/** Narrows which annotations a chart renders. Unset or empty fields do not narrow.
+ * Has no effect when `showAnnotations` is false. */
+export interface AnnotationsFilter {
+    /** Render only annotations with one of these emojis. */
+    emojis?: string[]
+    /** Render only annotations whose content contains this text, case-insensitive. */
+    search?: string
+}
+
 export type TrendsFilter = {
     /** @default 1 */
     smoothingIntervals?: integer
@@ -1754,6 +1763,7 @@ export type TrendsFilter = {
     hideWeekends?: boolean
     /** @default true */
     showAnnotations?: boolean
+    annotationsFilter?: AnnotationsFilter
     /** Show the period-over-period change pill on the Metric display.
      * @default true */
     metricShowChange?: boolean
@@ -1812,6 +1822,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'excludeBoxPlotOutliers',
     'hideWeekends',
     'showAnnotations',
+    'annotationsFilter',
     'metricShowChange',
     'metricChangeIncreaseColor',
     'metricChangeDecreaseColor',
@@ -2025,6 +2036,8 @@ export type FunnelsFilter = {
      * @default true
      */
     showAnnotations?: boolean
+    /** Only applies to historical-trends funnels. */
+    annotationsFilter?: AnnotationsFilter
     /**
      * Trends only: hide periods whose conversion window has not fully elapsed yet, so the recent
      * tail of the trend isn't dragged down by entrants who still have time to convert.
