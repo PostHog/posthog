@@ -47,6 +47,7 @@ vi.mock('@/tools', () => ({
     TOOL_MAP: {
         'tool-a': () => makeToolBase('tool-a'),
         'tool-b': () => makeToolBase('tool-b'),
+        'tool-d': () => makeToolBase('tool-d'),
         'update-feature-flag': () =>
             makeToolBase('update-feature-flag', {
                 schema: z.object({ source: z.literal('handwritten') }),
@@ -68,6 +69,10 @@ const DEFINITIONS: Record<string, FakeDefinition> = {
     'tool-a': fakeDef({ required_scopes: ['project:read'] }),
     'tool-b': fakeDef({ feature: 'insights', annotations: { ...fakeDef().annotations, readOnlyHint: true } }),
     'gen-tool-c': fakeDef({ required_scopes: ['action:write'] }),
+    'tool-d': fakeDef({
+        required_scopes: ['action:write'],
+        annotations: { ...fakeDef().annotations, destructiveHint: true },
+    }),
     'update-feature-flag': fakeDef({ required_scopes: ['feature_flag:write'] }),
 }
 
@@ -189,7 +194,30 @@ describe('ToolCatalog', () => {
                 scopes: ['project:read', 'action:write', 'feature_flag:write'],
             })
             const names = tools.map((t) => t.name).sort()
-            expect(names).toEqual(['gen-tool-c', 'tool-a', 'tool-b', 'update-feature-flag'])
+            expect(names).toEqual(['gen-tool-c', 'tool-a', 'tool-b', 'tool-d', 'update-feature-flag'])
+        })
+
+        it('should group tools by read-only, write, and destructive actions', () => {
+            const tools = catalog.getFilteredTools({
+                scopes: ['project:read', 'action:write', 'feature_flag:write'],
+            })
+            const names = tools.map((t) => t.name)
+            expect(names).toEqual(['tool-b', 'tool-a', 'gen-tool-c', 'update-feature-flag', 'tool-d'])
+        })
+
+        it('should place destructive tools last when both read-only and destructive hints are set', () => {
+            const originalReadOnlyHint = DEFINITIONS['tool-d'].annotations.readOnlyHint
+            try {
+                DEFINITIONS['tool-d'].annotations.readOnlyHint = true
+
+                const tools = catalog.getFilteredTools({
+                    scopes: ['project:read', 'action:write', 'feature_flag:write'],
+                })
+                const names = tools.map((t) => t.name)
+                expect(names).toEqual(['tool-b', 'tool-a', 'gen-tool-c', 'update-feature-flag', 'tool-d'])
+            } finally {
+                DEFINITIONS['tool-d'].annotations.readOnlyHint = originalReadOnlyHint
+            }
         })
 
         it('should prefer hand-written factory when name collides with generated', () => {
@@ -207,7 +235,7 @@ describe('ToolCatalog', () => {
                 excludeTools: ['tool-b'],
             })
             const names = tools.map((t) => t.name).sort()
-            expect(names).toEqual(['gen-tool-c', 'tool-a'])
+            expect(names).toEqual(['gen-tool-c', 'tool-a', 'tool-d'])
         })
 
         it('should filter by scopes', () => {
