@@ -54,6 +54,54 @@ const billingWithProducts = (
     custom_limits_usd: customLimitsUsd,
 })
 
+const hoursFromNow = (hours: number): string => new Date(Date.now() + hours * 60 * 60 * 1000).toISOString()
+
+const billingWithTrial = (
+    trial: NonNullable<BillingType['trial']>,
+    overrides: Partial<BillingType> = {}
+): BillingType => ({
+    ...billingWithProducts([productWithUsage(0)]),
+    trial,
+    ...overrides,
+})
+
+type TrialAlertCase = {
+    name: string
+    billing: BillingType
+    status: 'info' | 'warning'
+    warnsAboutCharge: boolean
+}
+
+const trialAlertCases: TrialAlertCase[] = [
+    {
+        name: 'warns about the charge on an autosubscribe trial that converts',
+        billing: billingWithTrial(
+            { type: 'autosubscribe', status: 'active', target: 'boost', expires_at: hoursFromNow(48) },
+            { has_active_subscription: true }
+        ),
+        status: 'warning',
+        warnsAboutCharge: true,
+    },
+    {
+        name: 'does not mention a charge on an autosubscribe trial with no subscription to convert',
+        billing: billingWithTrial(
+            { type: 'autosubscribe', status: 'active', target: 'boost', expires_at: hoursFromNow(48) },
+            { has_active_subscription: false }
+        ),
+        status: 'info',
+        warnsAboutCharge: false,
+    },
+    {
+        name: 'does not mention a charge on a standard trial, which only expires',
+        billing: billingWithTrial(
+            { type: 'standard', status: 'active', target: 'enterprise', expires_at: hoursFromNow(48) },
+            { has_active_subscription: true }
+        ),
+        status: 'info',
+        warnsAboutCharge: false,
+    },
+]
+
 type BillingAccessCase = {
     name: string
     membershipLevel: OrganizationMembershipLevel
@@ -193,6 +241,35 @@ describe('billingLogic', () => {
             message: 'Checkout failed',
             contactSupport: true,
         })
+    })
+
+    it.each(trialAlertCases)('$name', async ({ billing, status, warnsAboutCharge }) => {
+        billingState = billing
+        billingLogic.mount()
+        await expectLogic(preflightLogic).toFinishAllListeners()
+
+        await expectLogic(billingLogic, () => {
+            billingLogic.actions.loadBilling()
+        }).toFinishAllListeners()
+
+        const alert = billingLogic.values.billingAlert
+        expect(alert).toMatchObject({ kind: 'trial', status })
+        expect(`${alert?.title} ${alert?.message}`.includes('charged')).toBe(warnsAboutCharge)
+    })
+
+    it('stays quiet until an autosubscribe trial is within 72 hours of ending', async () => {
+        billingState = billingWithTrial(
+            { type: 'autosubscribe', status: 'active', target: 'boost', expires_at: hoursFromNow(96) },
+            { has_active_subscription: true }
+        )
+        billingLogic.mount()
+        await expectLogic(preflightLogic).toFinishAllListeners()
+
+        await expectLogic(billingLogic, () => {
+            billingLogic.actions.loadBilling()
+        }).toFinishAllListeners()
+
+        expect(billingLogic.values.billingAlert).toBeNull()
     })
 
     it('unregisters removed custom limit analytics properties', async () => {
