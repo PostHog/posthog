@@ -40,7 +40,7 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     run_started_floor_constant,
     run_windowed_job_created_floor_constant,
 )
-from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_list_costs
+from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_costs_since
 from products.engineering_analytics.backend.logic.views import issue_events
 
 _LIMIT = 200
@@ -167,7 +167,8 @@ class PullRequestTimelinesQuery:
         default_branch = next((row[9] for row in prs if row[9]), "")
         master_failures = self._query_master_failures(attempts, default_branch, run_from)
         out_of_queue = self._query_out_of_queue(pr_numbers)
-        costs = query_pr_list_costs(curated=self._curated, pr_numbers=pr_numbers)
+        # Floored like the runs scan: an unfloored cost read scans the whole jobs history for a team scope.
+        costs = query_pr_costs_since(curated=self._curated, pr_numbers=pr_numbers, run_from=run_from)
 
         items = []
         for row in prs:
@@ -206,7 +207,7 @@ class PullRequestTimelinesQuery:
                 ),
                 master_failures,
             )
-            cost = costs.get((repo_owner, repo_name, number))
+            cost = costs.get(number)
             items.append(
                 PRTimeline(
                     number=number,
