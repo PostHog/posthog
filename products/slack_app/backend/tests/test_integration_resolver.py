@@ -4,13 +4,19 @@ from django.apps import apps
 from django.test import override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping, SlackUserProfileCache
-from products.slack_app.backend.services.integration_resolver import load_integrations, resolve_user_for_workspace
+from products.slack_app.backend.services.integration_resolver import (
+    StaleDefault,
+    load_integrations,
+    resolve_user_for_workspace,
+)
 
 WORKSPACE = "T_WS"
 SLACK_USER = "U001"
@@ -224,15 +230,22 @@ class TestResolveIntegration:
         assert result.source == "needs_picker"
         assert {i.id for i in result.candidates} == {self.integration_a.id, self.integration_b.id}
 
-    def test_user_default_ignored_when_target_kind_changed(self):
+    @parameterized.expand(
+        [
+            ("personal_default", SLACK_USER, "personal"),
+            ("workspace_default", None, "workspace"),
+        ]
+    )
+    def test_default_ignored_when_target_kind_changed(self, _name, row_slack_user_id, expected_scope):
         # Stored default points at integration_a, but its kind no longer matches the
         # Slack lookup (e.g. the row was repurposed for a different provider). The
-        # default must silently fall through rather than routing the user to the
-        # wrong-kind integration.
+        # default must fall through rather than routing the user to the wrong-kind
+        # integration, and it must say which project it could not use so the caller
+        # can explain why the mention answered from somewhere else.
         SlackSettings.objects.create(
             default_integration=self.integration_a,
             slack_workspace_id=WORKSPACE,
-            slack_user_id=SLACK_USER,
+            slack_user_id=row_slack_user_id,
         )
         self.integration_a.kind = "github"
         self.integration_a.save(update_fields=["kind"])
@@ -249,6 +262,52 @@ class TestResolveIntegration:
         # remaining accessible candidate.
         assert result.source == "sole_candidate"
         assert result.integration == self.integration_b
+        assert result.stale_default == StaleDefault(team_id=self.team_a.id, scope=expected_scope)
+
+    def test_stale_personal_default_survives_the_workspace_fallback(self):
+        # The personal pin is dead but the workspace row still resolves. The workspace
+        # project answers, and the skipped personal pin must still reach the caller:
+        # it is the reason this mention went somewhere the user did not choose.
+        SlackSettings.objects.create(
+            default_integration=self.integration_a,
+            slack_workspace_id=WORKSPACE,
+            slack_user_id=SLACK_USER,
+        )
+        SlackSettings.objects.create(
+            default_integration=self.integration_b,
+            slack_workspace_id=WORKSPACE,
+            slack_user_id=None,
+        )
+        self.integration_a.kind = "github"
+        self.integration_a.save(update_fields=["kind"])
+
+        result = load_integrations(
+            slack_team_id=WORKSPACE,
+            kinds=["slack"],
+            slack_user_id=SLACK_USER,
+            user=self.user,
+        )
+
+        assert result.source == "workspace_default"
+        assert result.integration == self.integration_b
+        assert result.stale_default == StaleDefault(team_id=self.team_a.id, scope="personal")
+
+    def test_no_stale_default_reported_when_default_still_resolves(self):
+        SlackSettings.objects.create(
+            default_integration=self.integration_a,
+            slack_workspace_id=WORKSPACE,
+            slack_user_id=SLACK_USER,
+        )
+
+        result = load_integrations(
+            slack_team_id=WORKSPACE,
+            kinds=["slack"],
+            slack_user_id=SLACK_USER,
+            user=self.user,
+        )
+
+        assert result.integration == self.integration_a
+        assert result.stale_default is None
 
     def test_null_user_default_falls_through_to_workspace(self):
         # A null personal row exists because the user reset their project

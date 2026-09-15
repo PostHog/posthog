@@ -1,10 +1,11 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal
 
 from django.db.models import Q
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.models.integration import Integration
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissions
@@ -23,6 +24,35 @@ ResolutionSource = Literal[
 ]
 
 UserResolutionFailure = Literal["user_not_found", "no_team_access"]
+
+StaleDefaultScope = Literal["personal", "workspace"]
+
+
+@frozen
+class StaleDefault:
+    """A saved routing default the resolver had to skip because its project left the
+    candidate set: the project's Slack install stopped authenticating, or its
+    integration row changed kind. The row stays on disk, so every later mention hits
+    the same skip until someone picks a project again.
+    """
+
+    team_id: int
+    scope: StaleDefaultScope
+
+
+def stale_default_notice(stale: StaleDefault, *, pick_command: str) -> str:
+    """The in-thread text that explains why a saved default was not used."""
+    if stale.scope == "personal":
+        return (
+            f"I could not use your default project `{stale.team_id}`. Its Slack connection is "
+            f"missing or broken. Reconnect Slack in that project, or pick another project with "
+            f"{pick_command}."
+        )
+    return (
+        f"I could not use the workspace default project `{stale.team_id}`. Its Slack connection is "
+        f"missing or broken. Ask an admin to reconnect Slack in that project, or pick a project for "
+        f"yourself with {pick_command}."
+    )
 
 
 def user_resolution_failure_reply(
@@ -56,11 +86,12 @@ def user_resolution_failure_reply(
     return None
 
 
-@dataclass
+@frozen
 class ResolutionResult:
     integration: Integration | None
     source: ResolutionSource
     candidates: list[Integration] = field(default_factory=list)
+    stale_default: StaleDefault | None = None
 
     def resolved_or_first(self) -> Integration | None:
         """The resolved integration, falling back to the workspace's oldest install.
@@ -98,6 +129,10 @@ def resolve_from_candidates(
     silently fall through. When ``user is None`` the resolver trusts saved
     defaults as-is and treats every workspace integration as a candidate.
 
+    A default skipped because its project left the candidate set is reported on
+    ``ResolutionResult.stale_default``, so the caller can say why routing moved
+    rather than leaving the user with an unexplained change.
+
     Callers that don't need routing (e.g. link_shared / unfurl) can pass
     ``slack_user_id=""``; the SlackSettings lookup is skipped and the result
     falls through to ``sole_candidate`` / ``needs_picker``.
@@ -116,6 +151,7 @@ def resolve_from_candidates(
         accessible_team_ids = {c.team_id for c in accessible}
     candidate_ids = {c.id for c in candidates}
     candidates_by_team_id = {c.team_id: c for c in candidates}
+    stale_default: StaleDefault | None = None
 
     if channel and thread_ts and slack_team_id:
         thread_match = (
@@ -156,20 +192,37 @@ def resolve_from_candidates(
             target = default.default_integration
             if target is None:
                 continue
-            if accessible_team_ids is not None and target.team_id not in accessible_team_ids:
-                continue
             # Refuse a stale default whose target is no longer in the candidate
             # set — e.g. the integration's kind was changed away from the one
-            # we were asked to resolve, or it was deleted+recreated. The user
-            # can overwrite the row at any time with `@PostHog project <id>`.
+            # we were asked to resolve, or its install stopped authenticating.
+            # Checked before the access filter, which is built from the candidate
+            # set and so can never hold a team that already dropped out of it.
             if target.id not in candidate_ids:
+                # Report the highest-precedence skip only: that is the row the
+                # user last picked, so it is the one worth explaining.
+                if stale_default is None:
+                    stale_default = StaleDefault(
+                        team_id=target.team_id,
+                        scope="personal" if default.slack_user_id else "workspace",
+                    )
+                continue
+            if accessible_team_ids is not None and target.team_id not in accessible_team_ids:
                 continue
             source: ResolutionSource = "user_default" if default.slack_user_id else "workspace_default"
-            return ResolutionResult(integration=target, source=source, candidates=accessible)
+            # ``stale_default`` rides along: a personal row skipped on the way here is
+            # why the workspace row is answering, and the caller has to be able to say so.
+            return ResolutionResult(
+                integration=target, source=source, candidates=accessible, stale_default=stale_default
+            )
 
     if len(accessible) == 1:
-        return ResolutionResult(integration=accessible[0], source="sole_candidate", candidates=accessible)
-    return ResolutionResult(integration=None, source="needs_picker", candidates=accessible)
+        return ResolutionResult(
+            integration=accessible[0],
+            source="sole_candidate",
+            candidates=accessible,
+            stale_default=stale_default,
+        )
+    return ResolutionResult(integration=None, source="needs_picker", candidates=accessible, stale_default=stale_default)
 
 
 def load_integrations(
@@ -203,7 +256,7 @@ def load_integrations(
     )
 
 
-@dataclass
+@frozen
 class UserAndIntegrationsResolution:
     """Outcome of the user identification + access-filter step.
 
@@ -222,6 +275,7 @@ class UserAndIntegrationsResolution:
     source: ResolutionSource = "needs_picker"
     failure_reason: UserResolutionFailure | None = None
     slack_email: str | None = None
+    stale_default: StaleDefault | None = None
 
 
 def resolve_user_for_workspace(
@@ -317,4 +371,5 @@ def resolve_user_for_workspace(
         integration=target,
         candidates=accessible_candidates,
         source=workspace_result.source if target is not None else "needs_picker",
+        stale_default=workspace_result.stale_default,
     )
