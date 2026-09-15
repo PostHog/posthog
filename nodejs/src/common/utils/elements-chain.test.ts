@@ -1,4 +1,4 @@
-import { chainToElements, elementsToString, extractElements } from './elements-chain'
+import { chainToElements, elementsChainFromProperties, elementsToString, extractElements } from './elements-chain'
 
 describe('elementsToString and chainToElements', () => {
     it('is reversible', () => {
@@ -180,5 +180,43 @@ describe('extractElements()', () => {
                 attributes: { attr__class: ['btn', 'btn-sm'] },
             })
         )
+    })
+})
+
+describe('elementsChainFromProperties()', () => {
+    it('returns $elements_chain when present', () => {
+        expect(elementsChainFromProperties({ $elements_chain: 'a:nth-child="1"' })).toBe('a:nth-child="1"')
+    })
+
+    it('derives the chain from a legacy $elements array', () => {
+        expect(
+            elementsChainFromProperties({
+                $elements: [{ tag_name: 'a', $el_text: 'click', nth_child: 1, nth_of_type: 1 }],
+            })
+        ).toBe('a:nth-child="1"nth-of-type="1"text="click"')
+    })
+
+    it('returns an empty string when neither reserved property is present', () => {
+        expect(elementsChainFromProperties({})).toBe('')
+    })
+
+    it('does not reorder the input $elements class array', () => {
+        const properties = {
+            $elements: [{ tag_name: 'a', attr__class: ['zeta', 'alpha'], nth_child: 1, nth_of_type: 1 }],
+        }
+        elementsChainFromProperties(properties)
+        expect(properties.$elements[0].attr__class).toEqual(['zeta', 'alpha'])
+    })
+
+    // A malformed legacy `$elements` payload must not throw, because the transformer derives
+    // the chain outside any per-event guard, where a throw crashes the ingestion worker.
+    it.each([
+        ['a scalar $elements', { $elements: 'not-an-array' }],
+        ['a null element entry', { $elements: [null] }],
+        ['a numeric $el_text', { $elements: [{ $el_text: 42 }] }],
+        ['a numeric attr__class', { $elements: [{ attr__class: 42 }] }],
+    ])('returns an empty string for %s', (_description, properties) => {
+        expect(() => elementsChainFromProperties(properties as Record<string, any>)).not.toThrow()
+        expect(elementsChainFromProperties(properties as Record<string, any>)).toBe('')
     })
 })

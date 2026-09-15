@@ -107,6 +107,25 @@ export function chainToElements(chain: string, teamId: number, options: { throwO
     return elements
 }
 
+export function elementsChainFromProperties(properties: Record<string, any>): string {
+    if (properties['$elements_chain']) {
+        return properties['$elements_chain']
+    }
+    const elements: Record<string, any>[] | undefined = properties['$elements']
+    if (elements && elements.length) {
+        // Event properties are untrusted, so a malformed `$elements` payload can throw here.
+        // Return an empty chain instead of crashing, because the transformer and filter call
+        // sites derive the chain outside any per-event try/catch.
+        try {
+            return elementsToString(extractElements(elements))
+        } catch (error) {
+            captureException(error)
+            return ''
+        }
+    }
+    return ''
+}
+
 export function extractElements(elements: Array<Record<string, any>>): Element[] {
     return elements.map((el) => ({
         text: el['$el_text']?.slice(0, 400),
@@ -125,7 +144,9 @@ function extractAttrClass(el: Record<string, any>): Element['attr_class'] {
     if (!attr_class) {
         return undefined
     } else if (Array.isArray(attr_class)) {
-        return attr_class
+        // Return a copy, because elementsToString sorts attr_class in place and must not
+        // reorder the caller's live `$elements` on the legacy derivation path.
+        return [...attr_class]
     } else {
         return attr_class.split(' ')
     }
