@@ -42,6 +42,13 @@ class TestResolveAgentRuntime:
             ("wildcard_team_step_exact", 999, "scout", _CODEX_NO_EFFORT),
             # unlisted step under wildcard team with no step-wildcard → default
             ("wildcard_team_step_missing", 999, "research", DEFAULT_RUNTIME),
+            (
+                "unconfigured_feature_discovery",
+                999,
+                "feature_discovery",
+                AgentRuntime(runtime_adapter="claude", model="claude-opus-5"),
+            ),
+            ("feature_discovery_respects_override", 2, "feature_discovery", _SONNET_MODEL_ONLY),
         ]
     )
     def test_resolution_precedence(self, _name: str, team_id: int, step: str, expected: AgentRuntime) -> None:

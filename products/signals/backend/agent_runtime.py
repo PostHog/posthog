@@ -36,7 +36,8 @@ A resolved override threads through `CustomPromptSandboxContext`
 (runtime_adapter/model/reasoning_effort) → `Task.create_and_run` → the run state → the agent server
 (see `products/tasks` RuntimeAdapter). A step config may set only `model` (swap the model within the
 default Claude runtime) or `runtime_adapter` + `model` together (switch the whole harness, e.g.
-Codex). Missing fields stay `None` (agent-server default).
+Codex). Missing fields stay `None` (agent-server default). Unconfigured feature discovery uses
+Claude Opus 5 explicitly instead of inheriting the agent-server model.
 """
 
 from __future__ import annotations
@@ -83,6 +84,7 @@ class AgentRuntime:
 
 
 DEFAULT_RUNTIME = AgentRuntime()
+FEATURE_DISCOVERY_RUNTIME = AgentRuntime(runtime_adapter="claude", model="claude-opus-5")
 
 # The Codex trial config (used by the local `analyze_report --codex` override).
 CODEX_RUNTIME = AgentRuntime(runtime_adapter="codex", model="gpt-5.5", reasoning_effort="xhigh")
@@ -163,4 +165,7 @@ def resolve_agent_runtime(team_id: int, step: str) -> AgentRuntime:
     `_resolve_from_payload`). Any failure — unreadable/malformed payload — falls back to the
     default; gating the runtime must never be able to fail an agentic run. Blocking network I/O
     (the payload read), so async callers wrap this in `database_sync_to_async`."""
-    return _resolve_from_payload(_read_flag_payload(), team_id, step)
+    runtime = _resolve_from_payload(_read_flag_payload(), team_id, step)
+    if step == STEP_FEATURE_DISCOVERY and runtime == DEFAULT_RUNTIME:
+        return FEATURE_DISCOVERY_RUNTIME
+    return runtime

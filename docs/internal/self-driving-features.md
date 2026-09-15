@@ -2,6 +2,8 @@
 
 Self-driving features reuse inbox reports as durable feature records. The implementation and ownership contract is described in [the product architecture](../../products/signals/backend/features.md).
 
+This work is a paused draft, not ready to merge. See [the goals, architecture, and outstanding work handoff](self-driving-features-handoff.md) before resuming implementation.
+
 ## Rollout
 
 Keep `self-driving-features` off by default. Configure it as an organization-targeted flag and enable only the internal test organization. The same key gates the Features tab, the feature API, discovery activity startup, and owner scout loading. Both inbox layouts support it.
@@ -27,6 +29,10 @@ Use a connected repository intended for internal testing. Work through each step
 11. Disable the flag and confirm new feature actions and owner launches stop.
 
 Test pagination with enough staged results to require another page; managed and planning features must remain visible in their independent list. Automatic discovery retries should retain completed documents and remain visibly running until success or terminal failure.
+
+Discovery defaults to Claude Opus 5 (`claude-opus-5`). The `signals-pipeline-models` payload can override the `feature_discovery` step. Research remains sequential within one Opus session. The agent investigates and writes each report directly, reuses established repository facts and active-work checks, and gathers only missing candidate evidence. It normally returns two small code excerpts and reuses its document-validation script. Detailed bug hunting and implementation design belong to later planning and ownership.
+
+During discovery, check that questions resolve conflicting evidence or product decisions that materially affect ownership or safe improvement. Existing behavior does not need routine confirmation, and optional enhancements belong in next steps. Zero questions is a valid result. Research should remain thorough while summaries select only the most important findings. The agent checks draft JSON string lengths, list sizes, and code-reference spans with a script before returning each document.
 
 ## Existing branch data
 

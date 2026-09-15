@@ -230,8 +230,12 @@ async def test_feature_discovery_follows_candidate_ledger_until_agent_stops() ->
     assert "Only replay features" in feature_prompt
     assert "candidate `Session replay`" in feature_prompt
     assert '"user_goal":"Use session replay."' in feature_prompt
-    assert "exactly one fresh subagent" in feature_prompt
-    assert "at most one feature-investigation subagent active at a time" in feature_prompt
+    coordinator_context = json.loads(
+        feature_prompt.split("<coordinator_context>\n", 1)[1].split("\n</coordinator_context>", 1)[0]
+    )
+    assert coordinator_context["active_work_sources"] == [
+        source.model_dump() for source in exploration.active_work_sources
+    ]
     assert "structured set of bounded sections" in feature_prompt
     assert "open_questions" in feature_prompt
     assert "Do not guess about intended behavior" in feature_prompt

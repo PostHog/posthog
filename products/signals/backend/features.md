@@ -1,6 +1,6 @@
 # Self-driving features
 
-> Status: **Draft** · Owner: Oliver Browne · Last updated: 2026-09-07
+> Status: **Paused draft** · Owner: Oliver Browne · Last updated: 2026-09-15
 
 ## Summary
 
@@ -43,6 +43,9 @@ Older feature reports without that artefact still derive membership and phase fr
 
 Starting discovery creates a team-scoped `FeatureDiscoveryRun` and a Temporal workflow.
 The workflow provisions the same trusted, full-clone sandbox used by report research and keeps one agent session alive across all turns.
+Discovery uses Claude Opus 5 by default and researches candidates sequentially in that session, without per-feature subagent handoffs.
+The agent reuses established repository facts, file reads, and active-work checks, gathers missing evidence for each candidate, and writes the report directly.
+Discovery establishes a grounded inventory; detailed bug hunting and implementation design belong to planning and ownership.
 
 The agent:
 
@@ -57,9 +60,12 @@ Discovery separates features by user goal, lifecycle, success measures, and owne
 Shared files do not collapse distinct workflows into one feature, while internal mechanisms do not become standalone features merely because they have separate modules.
 An in-flight-work section states which available repository-host and version-control sources were checked when no relevant work is found.
 
-The agent records every uncertainty about intended functionality as an open question instead of guessing.
+The agent records questions only when conflicting evidence or an unresolved product decision materially affects ownership or safe improvement.
+Clear existing behavior is documented as fact; optional enhancements belong in next steps. A feature can have no open questions.
 Each agent-authored question includes two to five concise, mutually exclusive suggested answers.
 Those questions become task-attributed `question` artefacts on the staged feature so a human can select an answer or write a custom one before dependent implementation work begins.
+
+Research depth is separate from report length. The agent selects the most important summary findings, keeps supporting evidence in code references and owner fields, and checks draft JSON lengths, list sizes, and excerpt spans with a reusable script before returning it. Two small code excerpts are normally sufficient; a third can establish a separate essential boundary.
 
 An optional focus from the user is a hard scope constraint throughout exploration and continuation.
 The workflow persists no feature reports until every turn succeeds.
@@ -164,3 +170,4 @@ Finishing initial planning promotes a discovered or new feature, activates its o
 - Disabling the flag blocks new launches; it does not cancel already running Tasks.
 
 See [internal testing](../../../../docs/internal/self-driving-features.md) for the rollout and walkthrough.
+See [the paused-draft handoff](../../../../docs/internal/self-driving-features-handoff.md) for the goals, architecture map, and outstanding work.
