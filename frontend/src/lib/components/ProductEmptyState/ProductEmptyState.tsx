@@ -6,7 +6,7 @@ import { IconBook, IconGear } from '@posthog/icons'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TerminalCard } from 'lib/components/CommandBlock/TerminalCard'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { TeamMembershipLevel } from 'lib/constants'
+import { type FeatureFlagKey, TeamMembershipLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
@@ -72,7 +72,7 @@ function mergeText(
 function resolveConfig(config: ProductEmptyStateConfig, featureFlags: FeatureFlagsSet): ProductEmptyStateConfig {
     const resolved: ProductEmptyStateConfig = { ...config }
     for (const [flag, override] of Object.entries(config.featureFlagOverrides ?? {})) {
-        if (!override || !featureFlags[flag]) {
+        if (!override || !featureFlags[flag as FeatureFlagKey]) {
             continue
         }
         const { text, ...rest } = override
