@@ -26,6 +26,7 @@ from urllib.parse import urlparse
 import psycopg
 
 from posthog.dataclasses import frozen
+from posthog.temporal.common.errors import NonReportableError
 
 from products.managed_warehouse.backend.common import (
     _get_org_id_for_team,
@@ -776,6 +777,30 @@ def create_staging_read_secret(conn: psycopg.Connection, catalog_bucket: str) ->
     )
 
 
+class TransientDuckgresSessionError(NonReportableError):
+    """Duckgres cannot hand out a session yet, for a reason that clears on its own.
+
+    Still fails the activity, so the caller's Temporal retry policy rides the condition
+    out. Keeps it out of error tracking, where one saturated cluster would otherwise mint
+    an occurrence for every attempt of every affected team.
+    """
+
+
+def _is_transient_session_failure(error: psycopg.OperationalError) -> bool:
+    """Report whether duckgres refused the session for a reason that clears on its own.
+
+    "warehouse provisioning failed; contact support" is deliberately absent: it is terminal,
+    and somebody has to act on it. So is FailedPrecondition, which also reports real
+    misconfiguration; when its cause is a known transient one, the shared
+    ``is_transient_db_error`` matches the inner message instead.
+    """
+    message = str(error)
+    if "warehouse is still provisioning" in message:
+        return True
+    # ResourceExhausted on session create means the org's worker pool is momentarily full.
+    return "failed to create session" in message and "code = ResourceExhausted" in message
+
+
 def connect_to_duckgres(
     server: DuckgresServer,
     *,
@@ -791,21 +816,27 @@ def connect_to_duckgres(
     ``options`` is forwarded as the libpq startup options for caller-specific
     Duckgres settings.
     """
-    return psycopg.connect(
-        host=server.host,
-        port=server.port,
-        dbname=server.database,
-        user=server.username,
-        password=server.password,
-        autocommit=True,
-        application_name=application_name,
-        options=options,
-    )
+    try:
+        return psycopg.connect(
+            host=server.host,
+            port=server.port,
+            dbname=server.database,
+            user=server.username,
+            password=server.password,
+            autocommit=True,
+            application_name=application_name,
+            options=options,
+        )
+    except psycopg.OperationalError as error:
+        if _is_transient_session_failure(error):
+            raise TransientDuckgresSessionError(str(error)) from error
+        raise
 
 
 __all__ = [
     "DuckLakeStorageConfig",
     "CrossAccountDestination",
+    "TransientDuckgresSessionError",
     "cleanup_staged_files",
     "compute_staging_uri",
     "configure_connection",

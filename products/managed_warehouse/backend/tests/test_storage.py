@@ -1,14 +1,18 @@
+import pytest
 from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+import psycopg
 from parameterized import parameterized
 
 from products.managed_warehouse.backend.storage import (
     _DELTA_LOG_VERSION_RE,
     AwsCredentials,
     DuckLakeStorageConfig,
+    TransientDuckgresSessionError,
     _collect_delta_log_keys,
+    connect_to_duckgres,
     normalize_endpoint,
 )
 
@@ -562,3 +566,47 @@ class TestStageDeltaTable:
         # version 3 log entry must NOT have been copied
         all_copied = [call.kwargs["Key"] for call in mock_s3.copy_object.call_args_list]
         assert "__posthog_staging/data/table/_delta_log/00000000000000000003.json" not in all_copied
+
+
+_WORKER_POOL_FULL = (
+    'connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL:  '
+    "failed to create session: create session on worker 1: create session recv: rpc error: "
+    "code = ResourceExhausted desc = create session: context deadline exceeded"
+)
+_STILL_PROVISIONING = (
+    'connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL:  '
+    "warehouse is still provisioning, please retry in a few minutes"
+)
+_PROVISIONING_FAILED = (
+    'connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL:  '
+    "warehouse provisioning failed; contact support"
+)
+_BAD_PASSWORD = "connection failed: FATAL:  password authentication failed for user"
+
+
+class TestConnectToDuckgres:
+    @parameterized.expand(
+        [
+            ("worker_pool_full", _WORKER_POOL_FULL, True),
+            ("still_provisioning", _STILL_PROVISIONING, True),
+            # Terminal: somebody has to act on it, so it must keep reaching error tracking.
+            ("provisioning_failed", _PROVISIONING_FAILED, False),
+            ("bad_password", _BAD_PASSWORD, False),
+        ]
+    )
+    def test_classifies_session_create_failures(self, _name, message, expect_transient):
+        server = MagicMock(host="duckgres.internal", port=5432, database="ducklake")
+        expected = TransientDuckgresSessionError if expect_transient else psycopg.OperationalError
+
+        with patch("psycopg.connect", side_effect=psycopg.OperationalError(message)):
+            with pytest.raises(expected):
+                connect_to_duckgres(server)
+
+    def test_transient_failure_keeps_the_server_message(self):
+        server = MagicMock(host="duckgres.internal", port=5432, database="ducklake")
+
+        with patch("psycopg.connect", side_effect=psycopg.OperationalError(_WORKER_POOL_FULL)):
+            with pytest.raises(TransientDuckgresSessionError) as caught:
+                connect_to_duckgres(server)
+
+        assert "ResourceExhausted" in str(caught.value)
