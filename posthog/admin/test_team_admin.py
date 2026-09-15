@@ -25,7 +25,6 @@ from posthog.llm.gateway_internal_client import (
 )
 from posthog.models import Organization
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.personhog_client.fake_client import FakePersonHogClient
 from posthog.personhog_client.proto import GetGroupTypeMappingsByProjectIdRequest
@@ -680,8 +679,8 @@ class TestTeamAdminEmailSendingSuspension(BaseTest):
         assert self.mock_notification.call_count == 1
 
     def test_suspend_drops_the_tier_to_zero_even_when_pinned(self) -> None:
-        config = get_or_create_team_extension(
-            self.team, TeamWorkflowsConfig, defaults={"email_sending_tier": 3, "email_sending_tier_pinned": True}
+        config, _ = TeamWorkflowsConfig.objects.update_or_create(
+            team=self.team, defaults={"email_sending_tier": 3, "email_sending_tier_pinned": True}
         )
 
         response = self.admin.suspend_email_sending_view(self._post({"reason": "spam complaints"}), str(self.team.pk))
@@ -691,6 +690,39 @@ class TestTeamAdminEmailSendingSuspension(BaseTest):
         assert config.email_sending_suspended_at is not None
         assert config.email_sending_tier == 0
         assert config.email_sending_tier_updated_at is not None
+
+        entry = ActivityLog.objects.get(scope="Team", team_id=self.team.id, activity="email_sending_tier_changed")
+        assert entry.user == self.user
+        assert (entry.detail or {})["context"] == {"reason": "staff_suspension"}
+
+    @parameterized.expand(
+        [
+            ("tier_change", {"tier": "2"}, [("email_sending_tier", 1, 2)]),
+            ("pin_only", {"tier": "1", "pinned": "on"}, [("email_sending_tier_pinned", False, True)]),
+            ("no_change", {"tier": "1"}, None),
+        ]
+    )
+    def test_set_tier_audits_what_changed(
+        self, _name: str, form: dict[str, str], expected_changes: list[tuple[str, object, object]] | None
+    ) -> None:
+        TeamWorkflowsConfig.objects.update_or_create(
+            team=self.team, defaults={"email_sending_tier": 1, "email_sending_tier_pinned": False}
+        )
+
+        response = self.admin.set_email_sending_tier_view(self._post(form), str(self.team.pk))
+        assert response.status_code == 302
+
+        entries = list(
+            ActivityLog.objects.filter(scope="Team", team_id=self.team.id, activity="email_sending_tier_changed")
+        )
+        if expected_changes is None:
+            assert entries == []
+            return
+        assert len(entries) == 1
+        assert entries[0].user == self.user
+        detail = entries[0].detail or {}
+        assert detail["context"] == {"reason": ""}
+        assert [(c["field"], c["before"], c["after"]) for c in detail["changes"]] == expected_changes
 
     def test_tier_actions_render_without_a_nested_form(self) -> None:
         # The field renders inside the admin's team change form. A nested <form> would break the page,
@@ -734,7 +766,7 @@ class TestTeamAdminEmailSendingSuspension(BaseTest):
         ) as mock_recompute:
             response = self.admin.recompute_email_sending_tier_view(self._post(), str(self.team.pk))
         assert response.status_code == 302
-        mock_recompute.assert_called_once_with(self.team.id)
+        mock_recompute.assert_called_once_with(self.team.id, user=self.user, was_impersonated=False)
         assert self._config() is not None
 
     def test_suspend_is_idempotent(self) -> None:
