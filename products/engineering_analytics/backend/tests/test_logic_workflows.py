@@ -627,6 +627,11 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         assert ci.last_failure_at is not None
         assert ci.billable_minutes is None  # no jobs source seeded → no cost figure
 
+        assert len(items) > 1
+        scoped = api.list_workflow_health(team=self.team, date_from="-30d", workflow_name="CI")
+        assert [item.workflow_name for item in scoped] == ["CI"]
+        assert scoped[0].run_count == ci.run_count
+
     def test_workflow_health_prev_window_survives_raw_scan_floor(self) -> None:
         # The prev-window query's raw-string scan floor must come from prev_from, not date_from.
         # A run in [prev_from, date_from) sits below the date_from floor; if that floor leaked into
