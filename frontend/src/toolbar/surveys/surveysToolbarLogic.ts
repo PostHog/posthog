@@ -211,7 +211,6 @@ const DEFAULT_APPEARANCE: SurveyAppearance = {
     ratingButtonColor: 'white',
     ratingButtonActiveColor: 'black',
     borderColor: '#c9c6c6',
-    placeholder: 'Start typing...',
     displayThankYouMessage: true,
     thankYouMessageHeader: 'Thank you for your feedback!',
     position: SurveyPosition.Right,

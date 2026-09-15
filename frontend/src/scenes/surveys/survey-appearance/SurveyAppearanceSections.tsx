@@ -313,6 +313,7 @@ export function SurveyColorsAppearance({
                     error={validationErrors?.placeholder}
                     disabledReason={disabledReason}
                     label="Placeholder text"
+                    placeholder="Start typing..."
                 />
             )}
         </div>
