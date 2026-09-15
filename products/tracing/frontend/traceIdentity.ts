@@ -50,6 +50,18 @@ export function resolveTraceIdentity(
     }
     return {
         distinctId: singleValueAcrossSpans(spans, getDistinctIdWithKey, configuredDistinctIdKeys),
-        sessionId: singleValueAcrossSpans(spans, getSessionIdWithKey, configuredSessionIdKeys),
+        sessionId: resolveTraceSessionId(spans, configuredSessionIdKeys),
     }
+}
+
+// The session half on its own, for callers that need no person. It keeps the same
+// disagreement rule as `resolveTraceIdentity`, so both surfaces resolve one session or none.
+export function resolveTraceSessionId(spans: Span[], configuredSessionIdKeys: string[] | undefined): string | null {
+    return singleValueAcrossSpans(spans, getSessionIdWithKey, configuredSessionIdKeys)
+}
+
+// One span's session, for a caller that answers a row rather than a whole trace. A single span
+// carries at most one session, so there is nothing here for the disagreement rule to decide.
+export function resolveSpanSessionId(span: Span, configuredSessionIdKeys: string[] | undefined): string | null {
+    return getSessionIdWithKey(span.attributes, span.resource_attributes, configuredSessionIdKeys)?.value ?? null
 }

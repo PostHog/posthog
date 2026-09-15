@@ -46,6 +46,9 @@ export function tracingUrlForService(serviceName: string, { dateRange }: { dateR
     }).url
 }
 
+/** The product's docs, linked from the empty states and from surfaces that need instrumenting. */
+export const TRACING_DOCS_URL = 'https://posthog.com/docs/tracing'
+
 /** The window a `ts`-hinted cold load queries: ±1h is generous for any single trace's spans. */
 export function traceLookupDateRange(ts: string): { date_from: string; date_to: string } {
     return {

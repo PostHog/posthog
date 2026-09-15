@@ -49,7 +49,7 @@ describe('tracingViewerLogic', () => {
         expect(getTraceSpy.mock.calls.length > 0).toBe(shouldFetch)
     })
 
-    describe('traceIdentity', () => {
+    describe('identity resolution', () => {
         // The featureFlags reducer persists, so it survives initKeaTests. Each test sets the flag
         // it wants, otherwise a flag one test enables leaks into the next.
         beforeEach(() => {
@@ -109,6 +109,36 @@ describe('tracingViewerLogic', () => {
 
             expect(logic.values.canLoadMoreTraceSpans).toBe(true)
             expect(logic.values.traceIdentity).toEqual({ distinctId: null, sessionId: null })
+        })
+
+        // The Errors tab needs the session without the person, so it follows the error badge flag.
+        // Reading the person flag instead would leave the tab empty on a team that has only badges.
+        it.each([
+            ['the error badge flag', FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES, 'session-1'],
+            ['the person and replay flag', FEATURE_FLAGS.TRACING_SESSION_PERSON_LINKS, null],
+        ])('resolves traceSessionId under %s', (_name, flag, expected) => {
+            featureFlagLogic.actions.setFeatureFlags([flag], { [flag]: true })
+
+            openCompleteTrace({ posthogDistinctId: 'user-1', sessionId: 'session-1' })
+
+            expect(logic.values.traceSessionId).toBe(expected)
+        })
+
+        // A badge sits on one row and resolves that row's session. A trace touching two sessions
+        // must therefore still answer for the row the badge opened, or clicking a row that just
+        // showed a count lands on a tab saying the trace has no session.
+        it('resolves traceSessionId from the span the drawer is anchored on', () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES], {
+                [FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES]: true,
+            })
+            tracingDataLogic().actions.fetchSpansSuccess([
+                makeSpan({ uuid: 'span-0', span_id: 'span-0', trace_id: 'trace-x', attributes: { sessionId: 'a' } }),
+                makeSpan({ uuid: 'span-1', span_id: 'span-1', trace_id: 'trace-x', attributes: { sessionId: 'b' } }),
+            ])
+
+            logic.actions.openTrace('trace-x', { spanId: 'span-1', ts: '2024-01-01T00:00:00Z' })
+
+            expect(logic.values.traceSessionId).toBe('b')
         })
     })
 
