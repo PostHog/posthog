@@ -195,6 +195,9 @@ function pickWorkflowEdits(workflow: HogFlow): Partial<HogFlow> {
 interface SaveContext {
     initiatedByAutoSave: boolean
     pendingSchedule: { rrule: string; starts_at: string; timezone?: string } | null | false
+    // The form version this save captured. Its response compares the live version against this
+    // one, not against the version a later queued save captured.
+    editVersion: number
 }
 
 function omitWorkflowContent(workflow: HogFlow): Partial<HogFlow> {
@@ -3140,7 +3143,11 @@ export const workflowLogic = kea<workflowLogicType>([
                     // The pending schedule rides along because an earlier save's reset clears it,
                     // which would drop a schedule change the user asked a manual save to persist.
                     const saveContexts = (cache.saveContexts ??= []) as SaveContext[]
-                    saveContexts.push({ initiatedByAutoSave, pendingSchedule: values.pendingSchedule })
+                    saveContexts.push({
+                        initiatedByAutoSave,
+                        pendingSchedule: values.pendingSchedule,
+                        editVersion: values.workflowEditVersion,
+                    })
                     // Whether this save means to change the lifecycle. Only the enable and disable
                     // control does, and it says so when it dispatches. Comparing the payload's
                     // status against the stored one cannot tell the difference: that control does
@@ -4111,9 +4118,6 @@ export const workflowLogic = kea<workflowLogicType>([
         loadWorkflowFailure: () => {
             actions.replayDeferredResourceEdited()
         },
-        saveWorkflow: () => {
-            cache.saveEditVersion = values.workflowEditVersion
-        },
         saveWorkflowFailure: () => {
             // Keep the queue aligned with the saves still in flight.
             ;(cache.saveContexts as SaveContext[] | undefined)?.shift()
@@ -4232,8 +4236,7 @@ export const workflowLogic = kea<workflowLogicType>([
 
             // A staged save's response carries the live config plus the new draft blob: rebaseline the
             // form on the merged view, or the reset would wipe the just-saved edits off the canvas.
-            const editedDuringSave =
-                cache.saveEditVersion !== undefined && values.workflowEditVersion !== cache.saveEditVersion
+            const editedDuringSave = saveContext !== undefined && values.workflowEditVersion !== saveContext.editVersion
             const editsDuringSave = editedDuringSave ? pickWorkflowEdits(values.workflow) : null
             actions.resetWorkflow(withStagedDraft(originalWorkflow))
             actions.markAutoSave(false)
@@ -4242,6 +4245,11 @@ export const workflowLogic = kea<workflowLogicType>([
                 // in flight (the live email editor writes on every pause) must survive the reset and
                 // stay dirty, or it vanishes from the form and the canvas reloads the stale version.
                 actions.setWorkflowValues(editsDuringSave)
+                // That write bumps the version without a user edit. Count it for the saves still
+                // queued, so their responses only re-apply real edits and do not queue one more save.
+                for (const queued of (cache.saveContexts as SaveContext[] | undefined) ?? []) {
+                    queued.editVersion += 1
+                }
                 actions.autoSaveWorkflow()
             }
             actions.replayDeferredResourceEdited()

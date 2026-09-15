@@ -510,6 +510,54 @@ describe('workflowLogic auto-save', () => {
             await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
         })
 
+        it('keeps an edit typed between two overlapping saves when the first one lands', async () => {
+            jest.useFakeTimers()
+            // Both saves are held, so the form is checked while the second is provably still open.
+            const release: (() => void)[] = []
+            let held = 0
+            useMocks({
+                patch: {
+                    '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        held += 1
+                        await new Promise<void>((resolve) => release.push(resolve))
+                        return [
+                            200,
+                            makeWorkflow({ updated_at: '2026-05-01T00:00:0' + held + '.000Z', name: body.name }),
+                        ]
+                    },
+                },
+            })
+
+            logic.actions.setWorkflowValue('name', 'Renamed by me')
+            await jest.advanceTimersByTimeAsync(3100)
+            await expectLogic(logic).toDispatchActions(['saveWorkflow'])
+            expect(held).toBe(1)
+
+            // Typed while the auto-save is in flight, then "Save draft" queues a second save behind it.
+            logic.actions.setWorkflowValue('name', 'Renamed again')
+            logic.actions.submitWorkflow()
+            await jest.advanceTimersByTimeAsync(50)
+
+            release[0]()
+            await jest.advanceTimersByTimeAsync(50)
+            await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess'])
+            expect(held).toBe(2)
+
+            // The first response carries the old name. Rebaselining the form on it shows stale
+            // content until the second save lands, and reloads any open email canvas twice.
+            expect(logic.values.workflow.name).toBe('Renamed again')
+
+            release[1]()
+            await jest.advanceTimersByTimeAsync(50)
+            await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess'])
+            expect(logic.values.workflow.name).toBe('Renamed again')
+
+            // The second save already carried the edit, so nothing is left to save.
+            await jest.advanceTimersByTimeAsync(3500)
+            expect(held).toBe(2)
+        })
+
         it('does not raise the conflict banner at the only editor', async () => {
             logic.actions.setWorkflowValue('name', 'Renamed by me')
             await expectLogic(logic).toDispatchActions(['saveWorkflow'])
