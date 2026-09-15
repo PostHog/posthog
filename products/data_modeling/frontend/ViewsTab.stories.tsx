@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { fireEvent, within } from '@testing-library/react'
+import { fireEvent, within } from '@testing-library/dom'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ViewsTab } from 'scenes/data-warehouse/scene/ViewsTab'

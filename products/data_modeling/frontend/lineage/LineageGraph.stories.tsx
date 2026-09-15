@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { fireEvent, waitFor, within } from '@testing-library/react'
+import { fireEvent, waitFor, within } from '@testing-library/dom'
 
 import { ModelsLineageTab } from 'scenes/models/tabs/ModelsLineageTab'
 

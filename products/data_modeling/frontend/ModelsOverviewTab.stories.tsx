@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { fireEvent, waitFor, within } from '@testing-library/react'
+import { fireEvent, waitFor, within } from '@testing-library/dom'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ModelsOverviewTab } from 'scenes/models/tabs/ModelsOverviewTab'
