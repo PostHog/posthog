@@ -3485,7 +3485,7 @@ export namespace Schemas {
       /** @nullable */
       is_system?: boolean | null;
       /**
-         * @maxLength 32
+         * @maxLength 100
          * @nullable
          */
       client?: string | null;
