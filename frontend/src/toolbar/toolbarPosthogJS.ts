@@ -20,10 +20,18 @@ const initResult = posthog.init(
             featureFlags: {},
         },
         autocapture: false,
-        // The toolbar runs on customer pages and must not install global exception handlers.
+        // The toolbar runs on customer pages, so all autocapture stays off. Remote config for this
+        // token comes from PostHog's own project and turns each of these on unless the client sets
+        // it explicitly, which would send the customer's page data to an internal project.
         capture_exceptions: false,
+        capture_dead_clicks: false,
+        capture_heatmaps: false,
+        capture_performance: false,
         capture_pageview: false,
         capture_pageleave: false,
+        // Console capture has no client-side off switch. Remote config turns it on and a client
+        // `logs` value cannot turn it back off, so keep the extension out of this instance.
+        __extensionClasses: { logs: undefined },
         disable_surveys: true,
         disable_scroll_properties: true,
         disable_product_tours: true,
@@ -35,6 +43,12 @@ const initResult = posthog.init(
             blockClass: 'ph-internal-no-capture',
             blockSelector: '.ph-no-capture:not(#__POSTHOG_TOOLBAR__):not(#__POSTHOG_TOOLBAR__ *)',
             maskAllInputs: true,
+            // Product tours starts a recording on the customer's page. Input masking and the block
+            // selector above do not reach network payloads or canvas pixels, and remote config
+            // turns each of these on unless the client sets it explicitly.
+            recordHeaders: false,
+            recordBody: false,
+            captureCanvas: { recordCanvas: false },
         },
     },
     'ph_toolbar_internal'
