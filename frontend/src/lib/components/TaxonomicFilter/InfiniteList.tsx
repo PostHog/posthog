@@ -3,7 +3,6 @@ import './InfiniteList.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import { CSSProperties, useEffect, useState } from 'react'
 import { List, useListRef } from 'react-window'
 
@@ -19,7 +18,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { AUTOCAPTURE_INTERACTIONS } from 'lib/components/TaxonomicFilter/eventTypeShortcuts'
 import { hasRecentContext } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import {
-    markEmptySearchDestinationOpened,
+    captureEmptySearchDestinationClick,
     taxonomicEmptySearchDestination,
 } from 'lib/components/TaxonomicFilter/taxonomicEmptySearchDestination'
 import { SelectItemMeta, taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
@@ -861,22 +860,13 @@ function InfiniteListEmptyState(): JSX.Element {
                             to={emptySearchDestination.url}
                             targetBlank
                             onClick={() => {
-                                markEmptySearchDestinationOpened(() =>
-                                    posthog.capture('taxonomic filter empty search destination returned', {
-                                        surface: legacyTaxonomicSurface(
-                                            featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
-                                        ),
-                                        groupType: listGroupType,
-                                        destination: emptySearchDestination.destination,
-                                    })
-                                )
-                                posthog.capture('taxonomic filter empty search destination clicked', {
-                                    surface: legacyTaxonomicSurface(
+                                captureEmptySearchDestinationClick(
+                                    legacyTaxonomicSurface(
                                         featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
                                     ),
-                                    groupType: listGroupType,
-                                    destination: emptySearchDestination.destination,
-                                })
+                                    listGroupType,
+                                    emptySearchDestination.destination
+                                )
                             }}
                         >
                             Search in {emptySearchDestination.label}

@@ -45,7 +45,7 @@ import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
 import { useTaxonomicFilterContext } from '../headless/context'
 import { useGroupList } from '../hooks/useGroupList'
-import { markEmptySearchDestinationOpened, taxonomicEmptySearchDestination } from '../taxonomicEmptySearchDestination'
+import { captureEmptySearchDestinationClick, taxonomicEmptySearchDestination } from '../taxonomicEmptySearchDestination'
 import {
     OPEN_AS_SELF_ON_REOPEN,
     TaxonomicDefinitionTypes,
@@ -1125,23 +1125,10 @@ export function MenuFilterCombobox({
                                                         data-attr="taxonomic-empty-search-destination"
                                                         nativeButton={false}
                                                         onClick={() => {
-                                                            markEmptySearchDestinationOpened(() =>
-                                                                posthog.capture(
-                                                                    'taxonomic filter empty search destination returned',
-                                                                    {
-                                                                        surface: TAXONOMIC_FILTER_SURFACE,
-                                                                        groupType: telemetryGroupType,
-                                                                        destination: emptySearchDestination.destination,
-                                                                    }
-                                                                )
-                                                            )
-                                                            posthog.capture(
-                                                                'taxonomic filter empty search destination clicked',
-                                                                {
-                                                                    surface: TAXONOMIC_FILTER_SURFACE,
-                                                                    groupType: telemetryGroupType,
-                                                                    destination: emptySearchDestination.destination,
-                                                                }
+                                                            captureEmptySearchDestinationClick(
+                                                                TAXONOMIC_FILTER_SURFACE,
+                                                                telemetryGroupType,
+                                                                emptySearchDestination.destination
                                                             )
                                                         }}
                                                         render={

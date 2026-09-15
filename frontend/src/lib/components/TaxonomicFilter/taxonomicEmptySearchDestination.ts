@@ -1,4 +1,5 @@
 import { combineUrl } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { urls } from 'scenes/urls'
@@ -43,6 +44,25 @@ export function consumeEmptySearchDestinationReturn(): boolean {
     const returned = returnedAt !== null && Date.now() - returnedAt < EMPTY_SEARCH_RETURN_WINDOW_MS
     returnedAt = null
     return returned
+}
+
+export function captureEmptySearchDestinationClick(
+    surface: string,
+    groupType: string | undefined,
+    destination: 'explore' | 'persons' | 'groups'
+): void {
+    markEmptySearchDestinationOpened(() =>
+        posthog.capture('taxonomic filter empty search destination returned', {
+            surface,
+            groupType,
+            destination,
+        })
+    )
+    posthog.capture('taxonomic filter empty search destination clicked', {
+        surface,
+        groupType,
+        destination,
+    })
 }
 
 const PERSON_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
