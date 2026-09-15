@@ -27,6 +27,7 @@ from posthog.models.utils import hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
 
+from ...api import skill_services
 from ...api.skill_serializers import validate_skill_file_path
 from ...api.skill_services import archive_skill, set_skill_owners
 from ...marketplace import adapters
@@ -748,17 +749,24 @@ class TestMarketplaceVersion(APIBaseTest):
         version = json.loads(tree[".claude-plugin/marketplace.json"])["plugins"][0]["version"]
         return int(version.rsplit(".", 1)[1])
 
-    def test_plugin_version_query_is_cached_across_requests(self):
-        # The Max(updated_at) query should run once per window, not on every synthesis — a clone is
-        # two requests (info/refs + upload-pack) plus repeated auto-update polls.
-        LLMSkill.objects.create(
+    def test_marketplace_observes_the_version_advertised_by_the_list(self):
+        skill = LLMSkill.objects.create(
             team=self.team, name="s", description="d", body="x", version=1, is_latest=True, created_by=self.user
         )
+        now = timezone.now().replace(microsecond=100)
+        LLMSkill.objects.filter(pk=skill.pk).update(updated_at=now)
         cache.clear()
-        with patch.object(adapters, "_team_plugin_version", wraps=adapters._team_plugin_version) as spy:
-            adapters.synthesize_team_marketplace_repo(self.team)
-            adapters.synthesize_team_marketplace_repo(self.team)
-        assert spy.call_count == 1
+        before = adapters.synthesize_team_marketplace_repo(self.team)
+        version_before = skill_services.team_skills_version(self.team)
+
+        LLMSkill.objects.filter(pk=skill.pk).update(body="new body", updated_at=now + timedelta(microseconds=1))
+        response = self.client.get(f"/api/projects/{self.team.id}/llm_skills/")
+        assert response.status_code == status.HTTP_200_OK
+        version = response["X-Skills-Version"]
+        assert version != version_before
+        after = adapters.synthesize_team_marketplace_repo(self.team)
+        assert after.head_sha != before.head_sha
+        assert version.encode() in b"".join(obj.data for obj in after.objects)
 
     def test_archiving_newest_skill_does_not_regress_version(self):
         now = timezone.now().replace(microsecond=0)
