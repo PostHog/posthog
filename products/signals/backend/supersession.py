@@ -227,10 +227,12 @@ def verify_target(team_id: int, target: ImplementationTarget, *, check_sha: bool
 
 
 def research_implementation_context(team_id: int, report_id: str) -> ImplementationResearchContext:
-    report = SignalReport.objects.filter(team_id=team_id, id=report_id).first()
-    if report is None:
-        return ImplementationResearchContext()
+    # Every read sits inside the guard, including the report itself: research asked for this context
+    # as a best effort and must not fail over any part of looking it up.
     try:
+        report = SignalReport.objects.filter(team_id=team_id, id=report_id).first()
+        if report is None:
+            return ImplementationResearchContext()
         candidates = []
         for target in automated_targets(team_id, report_id):
             sha = verify_target(team_id, target, check_sha=False)
