@@ -1495,7 +1495,10 @@ export interface DataWarehouseSavedQueryApi {
      * @nullable
      */
     edited_history_id?: string | null
-    /** @nullable */
+    /**
+     * Activity log ID of the most recent edit to this view. Send it back as edited_history_id on the next write, so conflict detection can tell whether someone else edited in the meantime.
+     * @nullable
+     */
     readonly latest_history_id: string | null
     /**
      * If true, skip column inference and validation. For saving drafts.
@@ -1619,7 +1622,10 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @nullable
      */
     edited_history_id?: string | null
-    /** @nullable */
+    /**
+     * Activity log ID of the most recent edit to this view. Send it back as edited_history_id on the next write, so conflict detection can tell whether someone else edited in the meantime.
+     * @nullable
+     */
     readonly latest_history_id?: string | null
     /**
      * If true, skip column inference and validation. For saving drafts.

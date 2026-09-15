@@ -94,7 +94,11 @@ class DataWarehouseSavedQuerySerializer(
     sync_frequency_bounds = serializers.SerializerMethodField(
         read_only=True, help_text=sync_cadence.SYNC_FREQUENCY_BOUNDS_HELP_TEXT
     )
-    latest_history_id = serializers.SerializerMethodField(read_only=True)
+    latest_history_id = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="Activity log ID of the most recent edit to this view. Send it back as edited_history_id "
+        "on the next write, so conflict detection can tell whether someone else edited in the meantime.",
+    )
     last_run_at = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
     latest_error = serializers.SerializerMethodField(read_only=True)
