@@ -2,6 +2,7 @@ import os
 import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from urllib.parse import urlparse
 
 
 def main() -> None:
@@ -41,9 +42,23 @@ def main() -> None:
 
         def do_POST(self) -> None:
             if self.authorized():
-                self.rfile.read(int(self.headers.get("Content-Length", "0")))
+                body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
                 if self.path == f"{run_path}append_log/":
                     self.respond(200, run)
+                elif urlparse(self.path).path.endswith("/v1/messages"):
+                    self.respond(
+                        200,
+                        {
+                            "id": "msg_workflow_test",
+                            "type": "message",
+                            "role": "assistant",
+                            "model": json.loads(body)["model"],
+                            "content": [{"type": "text", "text": "."}],
+                            "stop_reason": "max_tokens",
+                            "stop_sequence": None,
+                            "usage": {"input_tokens": 1, "output_tokens": 1},
+                        },
+                    )
                 else:
                     self.respond(404, {"detail": "Unexpected test API request"})
 
