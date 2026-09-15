@@ -30,7 +30,11 @@ import type {
 
 import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { UserType } from '../../../../frontend/src/types'
-import { deliverPermissionResponse, isPermissionTargetEnded } from '../policy/permissionDelivery'
+import {
+    deliverPermissionResponse,
+    isPermissionTargetEnded,
+    waitForPermissionResolution,
+} from '../policy/permissionDelivery'
 import { isPlanPermissionRequest } from '../policy/permissionUtils'
 import { parseSandboxQuestions } from '../policy/questionUtils'
 import {
@@ -3531,15 +3535,24 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 if (controller.signal.aborted || disposables.isDisposed) {
                     return
                 }
-                posthog.captureException(error)
                 // The run ended before the approval arrived, so every further attempt gets the same
                 // rejection. Drop the card instead of asking for a retry that cannot succeed.
                 if (isPermissionTargetEnded(error)) {
+                    posthog.captureException(error)
                     actions.clearPermissionRequest()
                     lemonToast.error("This run has ended, so the approval wasn't sent. Send a new message to continue.")
                     return
                 }
-                if (automatic) {
+                // A duplicate reply can fail before the live resolution arrives and cancels this delivery.
+                await waitForPermissionResolution(controller.signal)
+                if (controller.signal.aborted || disposables.isDisposed) {
+                    return
+                }
+                posthog.captureException(error)
+                if (
+                    automatic &&
+                    (!values.pendingPermissionRequest || values.pendingPermissionRequest.requestId === record.requestId)
+                ) {
                     actions.ingestPermissionRequest(record)
                 }
                 actions.permissionResponseFailed(record.requestId)
