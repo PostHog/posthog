@@ -16,17 +16,8 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.redis import get_client
 
-from products.growth.backend.constants import (
-    SDK_TYPES,
-    SdkVersionEntry,
-    github_sdk_versions_key,
-    team_sdk_versions_v2_key,
-)
-from products.growth.backend.sdk_health import SdkHealthReport, compute_sdk_health
-
-# NOTE: products.growth.backend.team_sdk_versions is imported lazily inside get_team_data
-# below. Importing it pulls posthog.hogql.query, the direct-SQL adapters, and
-# ee.clickhouse.materialized_columns, none of which the rest of posthog/api needs.
+from products.growth.backend.facade import api as growth_api
+from products.growth.backend.facade.contracts import SDK_TYPES, SdkHealthReport, SdkVersionEntry
 
 logger = structlog.get_logger(__name__)
 
@@ -215,7 +206,7 @@ class SdkHealthViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 ],
             }
 
-        report = compute_sdk_health(combined, project_id=self.team_id)
+        report = growth_api.compute_sdk_health(combined, project_id=self.team_id)
         return Response(SdkHealthReportSerializer(asdict(report)).data)
 
 
@@ -270,12 +261,10 @@ def sdk_health(request: Request) -> Response:
 
 
 def get_team_data(team_id: int, force_refresh: bool) -> dict[str, list[SdkVersionEntry]] | None:
-    from products.growth.backend.team_sdk_versions import get_and_cache_team_sdk_versions
-
     redis_client = get_client()
 
     if not force_refresh:
-        cache_key = team_sdk_versions_v2_key(team_id)
+        cache_key = growth_api.team_sdk_versions_cache_key(team_id)
         cached_data = redis_client.get(cache_key)
         if cached_data:
             try:
@@ -292,7 +281,7 @@ def get_team_data(team_id: int, force_refresh: bool) -> dict[str, list[SdkVersio
 
     logger.info("sdk_health_team_cache_miss", team_id=team_id)
     try:
-        sdk_versions = get_and_cache_team_sdk_versions(team_id, redis_client)
+        sdk_versions = growth_api.get_and_cache_team_sdk_versions(team_id, redis_client)
         if sdk_versions is not None:
             logger.info("sdk_health_team_cache_populated", team_id=team_id)
             return sdk_versions
@@ -310,7 +299,7 @@ def get_github_sdk_data() -> dict[str, Any]:
 
     data: dict[str, Any] = {}
     for sdk_type in SDK_TYPES:
-        cache_key = github_sdk_versions_key(sdk_type)
+        cache_key = growth_api.github_sdk_versions_cache_key(sdk_type)
         cached_data = redis_client.get(cache_key)
         if cached_data:
             try:

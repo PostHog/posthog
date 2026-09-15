@@ -14,6 +14,7 @@ from parameterized import parameterized
 
 from posthog.models.organization import Organization, OrganizationMembership
 
+from products.growth.backend.enrichment import label_batch as label_batch_module
 from products.growth.backend.enrichment.labels import (
     MAX_INPUT_LIST_ITEMS,
     MAX_INPUT_VALUE_CHARS,
@@ -23,11 +24,10 @@ from products.growth.backend.enrichment.labels import (
     classify_payload,
     signup_domain_for_organization,
 )
-from products.growth.backend.management.commands import enrichment_label_batch as batch_command_module
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
-_BATCH_COMMAND_MODULE = "products.growth.backend.management.commands.enrichment_label_batch"
-_DRY_RUN_COMMAND_MODULE = "products.growth.backend.management.commands.enrichment_label_dry_run"
+_LABEL_BATCH_MODULE = "products.growth.backend.enrichment.label_batch"
+_LAB_MODULE = "products.growth.backend.enrichment.lab"
 
 
 def _mock_llm_client(
@@ -360,7 +360,7 @@ class TestEnrichmentLabelBatch(BaseTest):
         fetch = self._fetch()
         client = _mock_llm_client()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
         result = EnrichmentLabelResult.objects.get(organization=self.organization, label_name="test_label")
@@ -382,7 +382,7 @@ class TestEnrichmentLabelBatch(BaseTest):
         response.usage.completion_tokens = 40
         client.chat.completions.create.return_value = response
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
         output = EnrichmentLabelResult.objects.get(label_name="test_label").output
@@ -402,7 +402,7 @@ class TestEnrichmentLabelBatch(BaseTest):
         self._fetch()
         client = _mock_llm_client()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
         result = EnrichmentLabelResult.objects.get(label_name="test_label")
@@ -414,7 +414,7 @@ class TestEnrichmentLabelBatch(BaseTest):
         self._fetch(payload={})
         client = _mock_llm_client()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
         result = EnrichmentLabelResult.objects.get(label_name="test_label")
@@ -428,7 +428,7 @@ class TestEnrichmentLabelBatch(BaseTest):
         self._fetch()
         client = _mock_llm_client()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1)
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
@@ -440,7 +440,7 @@ class TestEnrichmentLabelBatch(BaseTest):
         first_fetch = self._fetch()
         client = _mock_llm_client()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
         second_fetch = self._fetch(payload={"name": "Acme v2"})
@@ -448,7 +448,7 @@ class TestEnrichmentLabelBatch(BaseTest):
             fetched_at=first_fetch.fetched_at + dt.timedelta(minutes=5)
         )
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
         rows = EnrichmentLabelResult.objects.filter(
@@ -464,7 +464,7 @@ class TestEnrichmentLabelBatch(BaseTest):
         self._fetch()
         client = _mock_llm_client()
         renamed = {"done": False}
-        original_classify = batch_command_module.classify_payload
+        original_classify = label_batch_module.classify_payload
 
         def rename_then_classify(*args, **kwargs):
             if not renamed["done"]:
@@ -473,8 +473,8 @@ class TestEnrichmentLabelBatch(BaseTest):
             return original_classify(*args, **kwargs)
 
         with (
-            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
-            patch(f"{_BATCH_COMMAND_MODULE}.classify_payload", side_effect=rename_then_classify),
+            patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_LABEL_BATCH_MODULE}.classify_payload", side_effect=rename_then_classify),
         ):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
@@ -498,8 +498,8 @@ class TestEnrichmentLabelBatch(BaseTest):
         client.chat.completions.create.return_value = response
 
         with (
-            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
-            patch(f"{_BATCH_COMMAND_MODULE}.capture_exception") as capture_mock,
+            patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_LABEL_BATCH_MODULE}.capture_exception") as capture_mock,
             patch("tenacity.nap.time.sleep"),
         ):
             # Exiting 0 on a run where every item failed reads as a clean run to whatever
@@ -532,7 +532,7 @@ class TestEnrichmentLabelBatch(BaseTest):
         client = MagicMock()
         out = StringIO()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
 
         assert "unknown 1" in out.getvalue()
@@ -545,14 +545,14 @@ class TestEnrichmentLabelBatch(BaseTest):
         self._fetch()
         client = _mock_llm_client()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
         v1.is_active = False
         v1.save()
         self._config(version="ai-pilled-clay-v2", prompt_text="a different prompt entirely. Email: {email}")
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
         assert EnrichmentLabelResult.objects.filter(prompt_version="ai-pilled-clay-v1").count() == 1
@@ -598,7 +598,7 @@ class TestEnrichmentLabelDryRun(BaseTest):
         )
         client = _mock_llm_client()
 
-        with patch(f"{_DRY_RUN_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LAB_MODULE}.get_llm_client", return_value=client):
             call_command("enrichment_label_dry_run", label="test_label")
 
         assert EnrichmentLabelResult.objects.count() == 0
@@ -649,7 +649,7 @@ class TestEnrichmentLabelDryRun(BaseTest):
         client.chat.completions.create.return_value = response
         out = StringIO()
 
-        with patch(f"{_DRY_RUN_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LAB_MODULE}.get_llm_client", return_value=client):
             call_command(
                 "enrichment_label_dry_run",
                 label="ai_native_teams",
@@ -694,13 +694,13 @@ class TestEnrichmentLabelBatchConcurrency(NonAtomicBaseTest):
             )
         client = _mock_llm_client()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=2)
 
         assert client.chat.completions.create.call_count == 4
         assert EnrichmentLabelResult.objects.count() == 4
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=2)
 
         assert client.chat.completions.create.call_count == 4

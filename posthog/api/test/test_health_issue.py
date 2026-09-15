@@ -18,7 +18,7 @@ from posthog.models.team import Team
 from posthog.redis import get_client
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.growth.backend.constants import github_sdk_versions_key
+from products.growth.backend.facade.api import github_sdk_versions_cache_key
 
 
 class TestHealthIssueAPI(APIBaseTest):
@@ -373,7 +373,7 @@ class TestHealthIssueAPI(APIBaseTest):
         # exclusion keyed on release freshness blacks out their issues permanently. The Redis seed
         # below sets up exactly that condition; the endpoints must ignore it, so don't remove it
         # as unused setup.
-        key = github_sdk_versions_key("posthog-python")
+        key = github_sdk_versions_cache_key("posthog-python")
         release_date = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
         get_client().set(key, json.dumps({"latestVersion": "7.18.3", "releaseDates": {"7.18.3": release_date}}))
         self.addCleanup(get_client().delete, key)

@@ -14,7 +14,7 @@ from products.growth.backend.enrichment.fields import EnrichmentFields
 from products.growth.backend.enrichment.providers import ProviderLookup
 from products.growth.backend.models import OrganizationEnrichment, OrganizationEnrichmentFetch
 
-_COMMAND_MODULE = "products.growth.backend.management.commands.backfill_harmonic_ownership"
+_LOGIC_MODULE = "products.growth.backend.enrichment.ownership_backfill"
 
 
 def _lookup(
@@ -86,8 +86,8 @@ class TestWritePath(_BackfillTestCase):
         )
 
         with (
-            patch(f"{_COMMAND_MODULE}.HarmonicEnrichmentProvider", provider_cls),
-            patch(f"{_COMMAND_MODULE}.get_client", return_value=pha_client),
+            patch(f"{_LOGIC_MODULE}.HarmonicEnrichmentProvider", provider_cls),
+            patch(f"{_LOGIC_MODULE}.get_client", return_value=pha_client),
         ):
             call_command("backfill_harmonic_ownership", sleep=0)
 
@@ -124,8 +124,8 @@ class TestWritePath(_BackfillTestCase):
         out = StringIO()
 
         with (
-            patch(f"{_COMMAND_MODULE}.HarmonicEnrichmentProvider", provider_cls),
-            patch(f"{_COMMAND_MODULE}.get_client", return_value=pha_client),
+            patch(f"{_LOGIC_MODULE}.HarmonicEnrichmentProvider", provider_cls),
+            patch(f"{_LOGIC_MODULE}.get_client", return_value=pha_client),
         ):
             call_command("backfill_harmonic_ownership", sleep=0, stdout=out)
 
@@ -148,8 +148,8 @@ class TestSelection(_BackfillTestCase):
         provider_cls = _mock_provider([_lookup(ownership_status="ACTIVE")])
 
         with (
-            patch(f"{_COMMAND_MODULE}.HarmonicEnrichmentProvider", provider_cls),
-            patch(f"{_COMMAND_MODULE}.get_client", return_value=MagicMock()),
+            patch(f"{_LOGIC_MODULE}.HarmonicEnrichmentProvider", provider_cls),
+            patch(f"{_LOGIC_MODULE}.get_client", return_value=MagicMock()),
         ):
             call_command("backfill_harmonic_ownership", sleep=0)
 
@@ -163,8 +163,8 @@ class TestSelection(_BackfillTestCase):
         provider_cls = _mock_provider([_lookup(ownership_status="ACTIVE")])
 
         with (
-            patch(f"{_COMMAND_MODULE}.HarmonicEnrichmentProvider", provider_cls),
-            patch(f"{_COMMAND_MODULE}.get_client", return_value=MagicMock()),
+            patch(f"{_LOGIC_MODULE}.HarmonicEnrichmentProvider", provider_cls),
+            patch(f"{_LOGIC_MODULE}.get_client", return_value=MagicMock()),
         ):
             call_command("backfill_harmonic_ownership", sleep=0)
 
@@ -182,8 +182,8 @@ class TestSelection(_BackfillTestCase):
         provider_cls = _mock_provider([_lookup(ownership_status="ACTIVE")])
 
         with (
-            patch(f"{_COMMAND_MODULE}.HarmonicEnrichmentProvider", provider_cls),
-            patch(f"{_COMMAND_MODULE}.get_client", return_value=MagicMock()),
+            patch(f"{_LOGIC_MODULE}.HarmonicEnrichmentProvider", provider_cls),
+            patch(f"{_LOGIC_MODULE}.get_client", return_value=MagicMock()),
         ):
             call_command("backfill_harmonic_ownership", sleep=0)
 
@@ -206,8 +206,8 @@ class TestDryRun(_BackfillTestCase):
         )
 
         with (
-            patch(f"{_COMMAND_MODULE}.HarmonicEnrichmentProvider", provider_cls),
-            patch(f"{_COMMAND_MODULE}.get_client") as get_client_mock,
+            patch(f"{_LOGIC_MODULE}.HarmonicEnrichmentProvider", provider_cls),
+            patch(f"{_LOGIC_MODULE}.get_client") as get_client_mock,
         ):
             call_command("backfill_harmonic_ownership", "--dry-run", sleep=0)
 
@@ -225,8 +225,8 @@ class TestArchive(_BackfillTestCase):
         provider_cls = _mock_provider([_lookup(found=False, enrichment_urn="urn:harmonic:enrichment:miss")])
 
         with (
-            patch(f"{_COMMAND_MODULE}.HarmonicEnrichmentProvider", provider_cls),
-            patch(f"{_COMMAND_MODULE}.get_client", return_value=MagicMock()),
+            patch(f"{_LOGIC_MODULE}.HarmonicEnrichmentProvider", provider_cls),
+            patch(f"{_LOGIC_MODULE}.get_client", return_value=MagicMock()),
         ):
             call_command("backfill_harmonic_ownership", sleep=0)
 
@@ -239,9 +239,9 @@ class TestArchive(_BackfillTestCase):
         provider_cls = _mock_provider([RuntimeError("harmonic is down")])
 
         with (
-            patch(f"{_COMMAND_MODULE}.HarmonicEnrichmentProvider", provider_cls),
-            patch(f"{_COMMAND_MODULE}.get_client", return_value=MagicMock()),
-            patch(f"{_COMMAND_MODULE}.capture_exception"),
+            patch(f"{_LOGIC_MODULE}.HarmonicEnrichmentProvider", provider_cls),
+            patch(f"{_LOGIC_MODULE}.get_client", return_value=MagicMock()),
+            patch(f"{_LOGIC_MODULE}.capture_exception"),
         ):
             call_command("backfill_harmonic_ownership", sleep=0)
 
@@ -259,8 +259,8 @@ class TestResume(_BackfillTestCase):
         provider_cls = _mock_provider([_lookup(ownership_status="ACTIVE")])
 
         with (
-            patch(f"{_COMMAND_MODULE}.HarmonicEnrichmentProvider", provider_cls),
-            patch(f"{_COMMAND_MODULE}.get_client", return_value=MagicMock()),
+            patch(f"{_LOGIC_MODULE}.HarmonicEnrichmentProvider", provider_cls),
+            patch(f"{_LOGIC_MODULE}.get_client", return_value=MagicMock()),
         ):
             call_command("backfill_harmonic_ownership", after_id=str(first.id), sleep=0)
 
@@ -294,9 +294,9 @@ class TestSummary(_BackfillTestCase):
         )
         out = StringIO()
         with (
-            patch(f"{_COMMAND_MODULE}.HarmonicEnrichmentProvider", provider_cls),
-            patch(f"{_COMMAND_MODULE}.get_client", return_value=MagicMock()),
-            patch(f"{_COMMAND_MODULE}.capture_exception") as capture_mock,
+            patch(f"{_LOGIC_MODULE}.HarmonicEnrichmentProvider", provider_cls),
+            patch(f"{_LOGIC_MODULE}.get_client", return_value=MagicMock()),
+            patch(f"{_LOGIC_MODULE}.capture_exception") as capture_mock,
         ):
             call_command("backfill_harmonic_ownership", sleep=0, stdout=out)
 
@@ -312,7 +312,7 @@ class TestSummary(_BackfillTestCase):
         capture_mock.assert_called_once()
 
 
-_SEED_FETCH_ROW = ("harmonic", False, {})
+_SEED_FETCH_ROW: tuple[str, bool, dict[str, Any]] = ("harmonic", False, {})
 
 
 def _fetch_rows(record: OrganizationEnrichment) -> list[tuple[str, bool, dict[str, Any]]]:
@@ -332,14 +332,14 @@ class TestBackfillHarmonicOwnershipGolden(_BackfillTestCase):
     def setUp(self):
         super().setUp()
         self.pha_client = MagicMock()
-        self.get_client = self.enterContext(patch(f"{_COMMAND_MODULE}.get_client", return_value=self.pha_client))
-        self.capture_exception = self.enterContext(patch(f"{_COMMAND_MODULE}.capture_exception"))
+        self.get_client = self.enterContext(patch(f"{_LOGIC_MODULE}.get_client", return_value=self.pha_client))
+        self.capture_exception = self.enterContext(patch(f"{_LOGIC_MODULE}.capture_exception"))
         self.out = StringIO()
 
     def _run(self, *args: str, lookups: list[Any], **options: Any) -> str:
         provider_cls = _mock_provider(lookups)
         self.enrich_by_domain = provider_cls.return_value.enrich_by_domain
-        with patch(f"{_COMMAND_MODULE}.HarmonicEnrichmentProvider", provider_cls):
+        with patch(f"{_LOGIC_MODULE}.HarmonicEnrichmentProvider", provider_cls):
             call_command("backfill_harmonic_ownership", *args, sleep=0, stdout=self.out, **options)
         return self.out.getvalue()
 

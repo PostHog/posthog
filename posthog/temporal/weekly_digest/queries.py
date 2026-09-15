@@ -14,7 +14,6 @@ from products.error_tracking.backend.facade.api import query_new_error_issues as
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.growth.backend.models import ProductPushCampaign
 from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
@@ -141,23 +140,6 @@ def query_saved_filters(period_start: datetime, period_end: datetime) -> QuerySe
         )
         .values("name", "short_id", "view_count")
         .order_by("-view_count")
-    )
-
-
-def query_org_product_push_campaigns(organization_id: str, period_end: datetime) -> QuerySet:
-    """Product push campaigns still running at the end of the digest period.
-
-    Only ACTIVE campaigns qualify. A campaign that closed mid-period did so because the org
-    either adopted the product or moved on from it, and neither is worth an email nudge.
-    """
-    return (
-        ProductPushCampaign.objects.filter(
-            organization_id=organization_id,
-            status=ProductPushCampaign.Status.ACTIVE,
-            started_at__lte=period_end,
-        )
-        .order_by("-started_at")
-        .values("product_key", "reason_text")
     )
 
 

@@ -42,7 +42,8 @@ from posthog.temporal.weekly_digest.types import (
     UsageTrends,
 )
 
-from products.growth.backend.product_push.selection import project_uses_product
+from products.growth.backend.facade.api import active_product_push_campaigns, project_uses_product
+from products.growth.backend.facade.contracts import ProductPushCampaignSummary
 
 
 class MockRedis:
@@ -785,7 +786,7 @@ async def test_generate_product_suggestion_lookup(mock_redis, common_input, dige
     mock_opted_out_user.id = 101
     mock_opted_out_user.allow_sidebar_suggestions = False
 
-    campaigns = [{"product_key": "session_replay", "reason_text": "Give replay a go"}]
+    campaigns = (ProductPushCampaignSummary(product_key="session_replay", reason_text="Give replay a go"),)
 
     mock_team_queryset = MockAsyncQuerySet([mock_team])
 
@@ -799,24 +800,24 @@ async def test_generate_product_suggestion_lookup(mock_redis, common_input, dige
     async def project_uses_product_wrapper(*args, **kwargs):
         return False
 
-    def fake_database_sync_to_async(fn):
-        # The activity wraps two different sync callables; dispatch on which one.
-        if fn is project_uses_product:
-            return project_uses_product_wrapper
-        return users_wrapper
-
-    async def mock_queryset_to_list(qs):
+    async def active_campaigns_wrapper(*args, **kwargs):
         return campaigns
 
+    def fake_database_sync_to_async(fn):
+        # The activity wraps several sync callables; dispatch on which one.
+        if fn is project_uses_product:
+            return project_uses_product_wrapper
+        if fn is active_product_push_campaigns:
+            return active_campaigns_wrapper
+        return users_wrapper
+
     with patch("posthog.temporal.weekly_digest.activities.query_teams_for_digest", return_value=mock_team_queryset):
-        with patch("posthog.temporal.weekly_digest.activities.query_org_product_push_campaigns"):
-            with patch("posthog.temporal.weekly_digest.activities.queryset_to_list", side_effect=mock_queryset_to_list):
-                with patch(
-                    "posthog.temporal.weekly_digest.activities.database_sync_to_async",
-                    side_effect=fake_database_sync_to_async,
-                ):
-                    with patch("posthog.temporal.weekly_digest.activities.redis.from_url", return_value=mock_redis):
-                        await generate_product_suggestion_lookup(input_data)
+        with patch(
+            "posthog.temporal.weekly_digest.activities.database_sync_to_async",
+            side_effect=fake_database_sync_to_async,
+        ):
+            with patch("posthog.temporal.weekly_digest.activities.redis.from_url", return_value=mock_redis):
+                await generate_product_suggestion_lookup(input_data)
 
     assert f"{digest.key}-product-suggestion-101" not in mock_redis.data
 
@@ -853,26 +854,26 @@ async def test_generate_product_suggestion_lookup_skips_projects_already_using_t
     async def project_uses_product_wrapper(*args, **kwargs):
         return True
 
+    async def active_campaigns_wrapper(*args, **kwargs):
+        return (ProductPushCampaignSummary(product_key="session_replay", reason_text=None),)
+
     def fake_database_sync_to_async(fn):
         if fn is project_uses_product:
             return project_uses_product_wrapper
+        if fn is active_product_push_campaigns:
+            return active_campaigns_wrapper
         return users_wrapper
-
-    async def mock_queryset_to_list(qs):
-        return [{"product_key": "session_replay", "reason_text": None}]
 
     with patch(
         "posthog.temporal.weekly_digest.activities.query_teams_for_digest",
         return_value=MockAsyncQuerySet([mock_team]),
     ):
-        with patch("posthog.temporal.weekly_digest.activities.query_org_product_push_campaigns"):
-            with patch("posthog.temporal.weekly_digest.activities.queryset_to_list", side_effect=mock_queryset_to_list):
-                with patch(
-                    "posthog.temporal.weekly_digest.activities.database_sync_to_async",
-                    side_effect=fake_database_sync_to_async,
-                ):
-                    with patch("posthog.temporal.weekly_digest.activities.redis.from_url", return_value=mock_redis):
-                        await generate_product_suggestion_lookup(input_data)
+        with patch(
+            "posthog.temporal.weekly_digest.activities.database_sync_to_async",
+            side_effect=fake_database_sync_to_async,
+        ):
+            with patch("posthog.temporal.weekly_digest.activities.redis.from_url", return_value=mock_redis):
+                await generate_product_suggestion_lookup(input_data)
 
     assert mock_redis.data == {}
 

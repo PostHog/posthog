@@ -11,10 +11,10 @@ from parameterized import parameterized
 
 from posthog.models.organization import Organization
 
-from products.growth.backend.management.commands.backfill_enrichment_fields import stale_placeholder_keys
+from products.growth.backend.enrichment.fields_backfill import stale_placeholder_keys
 from products.growth.backend.models import OrganizationEnrichment, OrganizationEnrichmentFetch
 
-_COMMAND_MODULE = "products.growth.backend.management.commands.backfill_enrichment_fields"
+_LOGIC_MODULE = "products.growth.backend.enrichment.fields_backfill"
 
 _PAYLOAD = {
     "companyType": "STARTUP",
@@ -69,7 +69,7 @@ class TestBackfillEnrichmentFields(BaseTest):
         return _create_fetch(organization or self.organization, payload, fetched_at)
 
     def test_refuses_outside_us_region(self):
-        with patch(f"{_COMMAND_MODULE}.get_instance_region", return_value="EU"):
+        with patch(f"{_LOGIC_MODULE}.get_instance_region", return_value="EU"):
             with self.assertRaises(CommandError) as raised:
                 call_command("backfill_enrichment_fields")
 
@@ -82,7 +82,7 @@ class TestBackfillEnrichmentFields(BaseTest):
         ]
     )
     def test_refuses_invalid_numeric_options(self, _name, args, message):
-        with patch(f"{_COMMAND_MODULE}.get_instance_region", return_value="US"):
+        with patch(f"{_LOGIC_MODULE}.get_instance_region", return_value="US"):
             with self.assertRaises(CommandError) as raised:
                 call_command("backfill_enrichment_fields", *args)
 
@@ -95,8 +95,8 @@ class TestBackfillEnrichmentFields(BaseTest):
         )
         pha_client = MagicMock()
         with (
-            patch(f"{_COMMAND_MODULE}.get_instance_region", return_value="US"),
-            patch(f"{_COMMAND_MODULE}.get_client", return_value=pha_client),
+            patch(f"{_LOGIC_MODULE}.get_instance_region", return_value="US"),
+            patch(f"{_LOGIC_MODULE}.get_client", return_value=pha_client),
         ):
             call_command("backfill_enrichment_fields", "--dry-run")
 
@@ -111,8 +111,8 @@ class TestBackfillEnrichmentFields(BaseTest):
         pha_client = MagicMock()
 
         with (
-            patch(f"{_COMMAND_MODULE}.get_instance_region", return_value="US"),
-            patch(f"{_COMMAND_MODULE}.get_client", return_value=pha_client),
+            patch(f"{_LOGIC_MODULE}.get_instance_region", return_value="US"),
+            patch(f"{_LOGIC_MODULE}.get_client", return_value=pha_client),
         ):
             call_command("backfill_enrichment_fields", "--delay=0")
 
@@ -127,8 +127,8 @@ class TestBackfillEnrichmentFields(BaseTest):
         pha_client = MagicMock()
 
         with (
-            patch(f"{_COMMAND_MODULE}.get_instance_region", return_value="US"),
-            patch(f"{_COMMAND_MODULE}.get_client", return_value=pha_client),
+            patch(f"{_LOGIC_MODULE}.get_instance_region", return_value="US"),
+            patch(f"{_LOGIC_MODULE}.get_client", return_value=pha_client),
         ):
             call_command("backfill_enrichment_fields", "--limit=2", "--delay=0")
 
@@ -139,8 +139,8 @@ class TestBackfillEnrichmentFields(BaseTest):
         pha_client = MagicMock()
 
         with (
-            patch(f"{_COMMAND_MODULE}.get_instance_region", return_value="US"),
-            patch(f"{_COMMAND_MODULE}.get_client", return_value=pha_client),
+            patch(f"{_LOGIC_MODULE}.get_instance_region", return_value="US"),
+            patch(f"{_LOGIC_MODULE}.get_client", return_value=pha_client),
         ):
             call_command("backfill_enrichment_fields", "--delay=0")
 
@@ -177,8 +177,8 @@ class TestBackfillEnrichmentFields(BaseTest):
         pha_client = MagicMock()
 
         with (
-            patch(f"{_COMMAND_MODULE}.get_instance_region", return_value="US"),
-            patch(f"{_COMMAND_MODULE}.get_client", return_value=pha_client),
+            patch(f"{_LOGIC_MODULE}.get_instance_region", return_value="US"),
+            patch(f"{_LOGIC_MODULE}.get_client", return_value=pha_client),
         ):
             call_command("backfill_enrichment_fields", "--delay=0")
 
@@ -192,8 +192,8 @@ class TestBackfillEnrichmentFields(BaseTest):
         pha_client = MagicMock()
 
         with (
-            patch(f"{_COMMAND_MODULE}.get_instance_region", return_value="US"),
-            patch(f"{_COMMAND_MODULE}.get_client", return_value=pha_client),
+            patch(f"{_LOGIC_MODULE}.get_instance_region", return_value="US"),
+            patch(f"{_LOGIC_MODULE}.get_client", return_value=pha_client),
         ):
             call_command("backfill_enrichment_fields", "--delay=0")
 
@@ -217,8 +217,8 @@ class TestBackfillEnrichmentFieldsGolden(BaseTest):
 
     def _call(self, out: StringIO, *args, pha_client: MagicMock) -> None:
         with (
-            patch(f"{_COMMAND_MODULE}.get_instance_region", return_value="US"),
-            patch(f"{_COMMAND_MODULE}.get_client", return_value=pha_client),
+            patch(f"{_LOGIC_MODULE}.get_instance_region", return_value="US"),
+            patch(f"{_LOGIC_MODULE}.get_client", return_value=pha_client),
         ):
             call_command("backfill_enrichment_fields", *args, stdout=out, no_color=True)
 

@@ -110,7 +110,7 @@ from products.experiments.backend.temporal.schedule import (
     create_experiment_precompute_enrollment_census_schedule,
 )
 from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
-from products.growth.backend.temporal.signup_enrichment.schedule import (
+from products.growth.backend.facade.temporal import (
     create_harmonic_status_poll_schedule,
     create_icp_reenrichment_sweep_schedule,
 )

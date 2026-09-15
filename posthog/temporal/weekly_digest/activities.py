@@ -40,7 +40,6 @@ from posthog.temporal.weekly_digest.queries import (
     query_new_external_data_sources,
     query_new_feature_flags,
     query_org_members,
-    query_org_product_push_campaigns,
     query_org_teams,
     query_orgs_for_digest,
     query_saved_filters,
@@ -75,7 +74,8 @@ from posthog.temporal.weekly_digest.types import (
     UserDigestContext,
 )
 
-from products.growth.backend.product_push.selection import project_uses_product, resolve_product_path
+from products.growth.backend.facade.api import active_product_push_campaigns, project_uses_product, resolve_product_path
+from products.growth.backend.facade.contracts import ProductPushCampaignSummary
 
 
 def _redis_url(common: CommonInput) -> str:
@@ -545,15 +545,17 @@ async def generate_product_suggestion_lookup(input: GenerateDigestDataBatchInput
         suggestion_count = 0
         users_with_suggestion: set[int] = set()
         # Campaigns are org-scoped but this batch walks teams, so cache per org.
-        campaigns_by_org: dict[str, list[dict]] = {}
+        campaigns_by_org: dict[str, tuple[ProductPushCampaignSummary, ...]] = {}
 
         async with redis.from_url(_redis_url(input.common)) as r:
             async for team in _teams_in_range(input):
                 try:
                     organization_id = str(team.organization_id)
                     if organization_id not in campaigns_by_org:
-                        campaigns_by_org[organization_id] = await queryset_to_list(
-                            query_org_product_push_campaigns(organization_id, input.digest.period_end)
+                        # Only ACTIVE campaigns qualify: one that closed mid-period did so because the org
+                        # adopted the product or moved on from it, and neither is worth an email nudge.
+                        campaigns_by_org[organization_id] = await database_sync_to_async(active_product_push_campaigns)(
+                            organization_id, started_before=input.digest.period_end
                         )
                     campaigns = campaigns_by_org[organization_id]
                     if not campaigns:
@@ -561,11 +563,11 @@ async def generate_product_suggestion_lookup(input: GenerateDigestDataBatchInput
                         continue
 
                     campaign = campaigns[0]
-                    product_path = resolve_product_path(campaign["product_key"])
+                    product_path = resolve_product_path(campaign.product_key)
                     # The push is org-wide, but a project that already uses the product
                     # shouldn't be nudged about it - same rule the nav card applies.
                     if product_path is None or await database_sync_to_async(project_uses_product)(
-                        team.project_id, campaign["product_key"], organization_id
+                        team.project_id, campaign.product_key, organization_id
                     ):
                         team_count += 1
                         continue
@@ -583,7 +585,7 @@ async def generate_product_suggestion_lookup(input: GenerateDigestDataBatchInput
                         suggestion = DigestProductSuggestion(
                             team_id=team.id,
                             product_path=product_path,
-                            reason_text=campaign["reason_text"],
+                            reason_text=campaign.reason_text,
                         )
                         key = user_data_key(input.digest.key, UserDataKey.PRODUCT_SUGGESTION, user.id)
                         await r.setex(key, input.common.redis_ttl, suggestion.model_dump_json())

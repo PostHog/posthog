@@ -1,6 +1,6 @@
 import dagster
 
-from products.growth.dags import (
+from products.growth.backend.facade.dags import (
     ai_enrichment,
     custom_product_push_campaigns,
     github_sdk_versions,

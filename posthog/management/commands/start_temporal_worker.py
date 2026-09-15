@@ -215,7 +215,7 @@ from products.exports.backend.temporal.subscriptions import (
     ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
     WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
 )
-from products.growth.backend.temporal import (
+from products.growth.backend.facade.temporal import (
     ACTIVITIES as GROWTH_ACTIVITIES,
     WORKFLOWS as GROWTH_WORKFLOWS,
 )

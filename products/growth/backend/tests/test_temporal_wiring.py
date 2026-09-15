@@ -11,7 +11,7 @@ from temporalio import activity, workflow
 from temporalio.client import ScheduleOverlapPolicy
 from temporalio.common import WorkflowIDReusePolicy
 
-from products.growth.backend.temporal import ACTIVITIES, WORKFLOWS
+from products.growth.backend.facade.temporal import ACTIVITIES, WORKFLOWS
 from products.growth.backend.temporal.signup_enrichment import schedule
 from products.growth.backend.temporal.signup_enrichment.harmonic_status_poll import HarmonicStatusPollInputs
 from products.growth.backend.temporal.signup_enrichment.reenrichment import IcpReenrichmentSweepInputs

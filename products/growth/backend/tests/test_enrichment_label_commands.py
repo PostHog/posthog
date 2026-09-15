@@ -21,11 +21,11 @@ from parameterized import parameterized
 
 from posthog.models.organization import Organization
 
-from products.growth.backend.management.commands import enrichment_label_batch as batch_command_module
+from products.growth.backend.enrichment import label_batch as label_batch_module
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
-_BATCH_COMMAND_MODULE = "products.growth.backend.management.commands.enrichment_label_batch"
-_DRY_RUN_COMMAND_MODULE = "products.growth.backend.management.commands.enrichment_label_dry_run"
+_LABEL_BATCH_MODULE = "products.growth.backend.enrichment.label_batch"
+_LAB_MODULE = "products.growth.backend.enrichment.lab"
 
 _OUTPUT_FIELDS = [
     {"key": "is_ai", "type": "boolean", "description": ""},
@@ -95,7 +95,7 @@ class TestGatewayRetryBudget(_BatchCommandTestCase):
         self._fetch()
         client = _mock_llm_client()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
         client.with_options.assert_called_once_with(max_retries=0)
@@ -105,7 +105,7 @@ class TestGatewayRetryBudget(_BatchCommandTestCase):
         self._fetch()
         client = _mock_llm_client()
 
-        with patch(f"{_DRY_RUN_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LAB_MODULE}.get_llm_client", return_value=client):
             call_command("enrichment_label_dry_run", label="test_label", sample=1)
 
         client.with_options.assert_called_once_with(max_retries=0)
@@ -120,8 +120,8 @@ class TestCircuitBreaker(_BatchCommandTestCase):
         client.chat.completions.create.return_value = _bad_response()
 
         with (
-            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
-            patch(f"{_BATCH_COMMAND_MODULE}.capture_exception"),
+            patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_LABEL_BATCH_MODULE}.capture_exception"),
         ):
             with self.assertRaises(CommandError) as ctx:
                 call_command("enrichment_label_batch", label="test_label", workers=1, max_failures=2)
@@ -144,8 +144,8 @@ class TestCircuitBreaker(_BatchCommandTestCase):
         ]
 
         with (
-            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
-            patch(f"{_BATCH_COMMAND_MODULE}.capture_exception"),
+            patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_LABEL_BATCH_MODULE}.capture_exception"),
         ):
             # max_failures=2 would trip on two failures in a row; these two never land back to
             # back, so the run must complete rather than abort partway through.
@@ -172,10 +172,10 @@ class TestKeysetPagination(_BatchCommandTestCase):
             options["limit"] = limit
 
         with (
-            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client),
             # Forces the 5 orgs across 3 keyset pages instead of 1, so a cursor off-by-one would
             # duplicate or skip a row instead of silently passing on a single-page test.
-            patch(f"{_BATCH_COMMAND_MODULE}._ID_BATCH_SIZE", 2),
+            patch(f"{_LABEL_BATCH_MODULE}._ID_BATCH_SIZE", 2),
         ):
             call_command("enrichment_label_batch", **options)
 
@@ -208,9 +208,9 @@ class TestKeysetPagination(_BatchCommandTestCase):
         out = StringIO()
 
         with (
-            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client),
             # Forces the 3 already-done orgs and the 1 fresh org across separate keyset pages.
-            patch(f"{_BATCH_COMMAND_MODULE}._ID_BATCH_SIZE", 2),
+            patch(f"{_LABEL_BATCH_MODULE}._ID_BATCH_SIZE", 2),
         ):
             call_command("enrichment_label_batch", label="test_label", workers=1, limit=1, stdout=out)
 
@@ -226,7 +226,7 @@ class TestAdvisoryLock(_BatchCommandTestCase):
         self._config()
         self._fetch()
         client = _mock_llm_client()
-        lock_key = batch_command_module._advisory_lock_key("test_label")
+        lock_key = label_batch_module._advisory_lock_key("test_label")
 
         holder_ready = threading.Event()
         release_holder = threading.Event()
@@ -248,7 +248,7 @@ class TestAdvisoryLock(_BatchCommandTestCase):
             assert holder_ready.wait(timeout=5)
             assert holder_state["acquired"] is True
 
-            with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+            with patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client):
                 with self.assertRaises(CommandError) as ctx:
                     call_command("enrichment_label_batch", label="test_label", workers=1)
             assert (
@@ -262,7 +262,7 @@ class TestAdvisoryLock(_BatchCommandTestCase):
             holder.join(timeout=5)
 
     def test_the_lock_key_is_stable_across_processes(self):
-        assert batch_command_module._advisory_lock_key("test_label") == -8658742456223998626
+        assert label_batch_module._advisory_lock_key("test_label") == -8658742456223998626
 
 
 class TestUnknownAccounting(_BatchCommandTestCase):
@@ -275,7 +275,7 @@ class TestUnknownAccounting(_BatchCommandTestCase):
         client = _mock_llm_client()
         out = StringIO()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
 
         assert "unknown 1" in out.getvalue()
@@ -307,8 +307,8 @@ class TestExitCodeAndSummary(_BatchCommandTestCase):
             options["min_success_rate"] = min_success_rate
 
         with (
-            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
-            patch(f"{_BATCH_COMMAND_MODULE}.capture_exception"),
+            patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_LABEL_BATCH_MODULE}.capture_exception"),
         ):
             if expect_raise:
                 with self.assertRaises(CommandError):
@@ -330,8 +330,8 @@ class TestExitCodeAndSummary(_BatchCommandTestCase):
         out = StringIO()
 
         with (
-            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
-            patch(f"{_BATCH_COMMAND_MODULE}.capture_exception"),
+            patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_LABEL_BATCH_MODULE}.capture_exception"),
         ):
             with self.assertRaises(CommandError):
                 call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
@@ -350,7 +350,7 @@ class TestExitCodeAndSummary(_BatchCommandTestCase):
         ]
         out = StringIO()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
 
         assert "prompt_tokens 350" in out.getvalue()
@@ -372,7 +372,7 @@ class TestExpectedVersionGuard(_BatchCommandTestCase):
         self._fetch()
         client = _mock_llm_client()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client):
             with self.assertRaises(CommandError):
                 call_command("enrichment_label_batch", label="test_label", workers=1, expected_version="v1")
 
@@ -384,7 +384,7 @@ class TestExpectedVersionGuard(_BatchCommandTestCase):
         self._fetch()
         client = _mock_llm_client()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1, expected_version="v2")
 
         assert EnrichmentLabelResult.objects.count() == 1
@@ -394,7 +394,7 @@ class TestExpectedVersionGuard(_BatchCommandTestCase):
         self._fetch()
         client = _mock_llm_client()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
         assert EnrichmentLabelResult.objects.count() == 1
@@ -422,9 +422,9 @@ class TestWorkerConnectionErrors(NonAtomicBaseTest):
         client = _mock_llm_client()
 
         with (
-            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
-            patch(f"{_BATCH_COMMAND_MODULE}.close_old_connections", side_effect=RuntimeError("connection reset")),
-            patch(f"{_BATCH_COMMAND_MODULE}.capture_exception") as capture_mock,
+            patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_LABEL_BATCH_MODULE}.close_old_connections", side_effect=RuntimeError("connection reset")),
+            patch(f"{_LABEL_BATCH_MODULE}.capture_exception") as capture_mock,
         ):
             with self.assertRaises(CommandError):
                 call_command("enrichment_label_batch", label="test_label", workers=2)
@@ -456,7 +456,7 @@ class TestDryRunFixes(BaseTest):
         client = _mock_llm_client()
         out = StringIO()
 
-        with patch(f"{_DRY_RUN_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LAB_MODULE}.get_llm_client", return_value=client):
             call_command("enrichment_label_dry_run", label="test_label", sample=2, stdout=out)
 
         printed = out.getvalue()
@@ -470,7 +470,7 @@ class TestDryRunFixes(BaseTest):
         )
         client = _mock_llm_client()
 
-        with patch(f"{_DRY_RUN_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LAB_MODULE}.get_llm_client", return_value=client):
             with self.assertRaises(CommandError):
                 call_command("enrichment_label_dry_run", label="test_label", sample=1)
 
@@ -483,7 +483,7 @@ class TestAiProcessingConsent(_BatchCommandTestCase):
         self._fetch()
         client = _mock_llm_client()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
         client.chat.completions.create.assert_not_called()
@@ -498,11 +498,11 @@ class TestAiProcessingConsent(_BatchCommandTestCase):
         self._fetch()
         client = _mock_llm_client()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1)
         self.organization.is_ai_data_processing_approved = True
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
         assert EnrichmentLabelResult.objects.count() == 1
@@ -523,7 +523,7 @@ class TestAiProcessingConsent(_BatchCommandTestCase):
 
         client.chat.completions.create.side_effect = _revoke_after_first
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
         assert client.chat.completions.create.call_count == 1
@@ -536,7 +536,7 @@ class TestAiProcessingConsent(_BatchCommandTestCase):
         self._fetch()
         client = _mock_llm_client()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
         client.chat.completions.create.assert_not_called()
@@ -549,7 +549,7 @@ class TestAiProcessingConsent(_BatchCommandTestCase):
         client = _mock_llm_client()
         out = StringIO()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
 
         assert "skipped_no_ai_consent 1" in out.getvalue()
@@ -573,7 +573,7 @@ class TestAiProcessingConsent(_BatchCommandTestCase):
         client = _mock_llm_client()
         out = StringIO()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1, limit=1, stdout=out)
 
         assert EnrichmentLabelResult.objects.filter(organization=approved_org).exists()
@@ -589,7 +589,7 @@ class TestAiProcessingConsent(_BatchCommandTestCase):
         client = _mock_llm_client()
         out = StringIO()
 
-        with patch(f"{_DRY_RUN_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LAB_MODULE}.get_llm_client", return_value=client):
             call_command("enrichment_label_dry_run", label="test_label", sample=1, stdout=out)
 
         output = out.getvalue()
@@ -616,9 +616,9 @@ class TestLabelBatchGolden(_BatchCommandTestCase):
         clock = MagicMock()
         clock.monotonic.side_effect = [100.0, 101.5]
         with (
-            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
-            patch(f"{_BATCH_COMMAND_MODULE}.time", clock),
-            patch(f"{_BATCH_COMMAND_MODULE}.capture_exception", self.capture_exception),
+            patch(f"{_LABEL_BATCH_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_LABEL_BATCH_MODULE}.time", clock),
+            patch(f"{_LABEL_BATCH_MODULE}.capture_exception", self.capture_exception),
         ):
             yield StringIO()
 
@@ -820,7 +820,7 @@ class TestLabelDryRunGolden(_BatchCommandTestCase):
         client.chat.completions.create.side_effect = [_good_response(), RuntimeError("gateway down")]
         out = StringIO()
 
-        with patch(f"{_DRY_RUN_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LAB_MODULE}.get_llm_client", return_value=client):
             call_command("enrichment_label_dry_run", label="test_label", no_color=True, stdout=out)
 
         assert out.getvalue() == (
@@ -863,7 +863,7 @@ class TestLabelDryRunGolden(_BatchCommandTestCase):
         client = _mock_llm_client()
         out = StringIO()
 
-        with patch(f"{_DRY_RUN_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LAB_MODULE}.get_llm_client", return_value=client):
             call_command(
                 "enrichment_label_dry_run", label="test_label", compare_version="v0", no_color=True, stdout=out
             )
@@ -891,7 +891,7 @@ class TestLabelDryRunGolden(_BatchCommandTestCase):
         client.chat.completions.create.side_effect = RuntimeError("gateway down")
         out = StringIO()
 
-        with patch(f"{_DRY_RUN_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LAB_MODULE}.get_llm_client", return_value=client):
             with self.assertRaises(CommandError) as ctx:
                 call_command("enrichment_label_dry_run", label="test_label", no_color=True, stdout=out)
 
@@ -918,7 +918,7 @@ class TestLabelDryRunGolden(_BatchCommandTestCase):
         with tempfile.TemporaryDirectory() as tmp:
             prompt_path = Path(tmp) / "prompt.txt"
             prompt_path.write_text("Overridden prompt for {email}")
-            with patch(f"{_DRY_RUN_COMMAND_MODULE}.get_llm_client", return_value=client):
+            with patch(f"{_LAB_MODULE}.get_llm_client", return_value=client):
                 call_command(
                     "enrichment_label_dry_run",
                     label="test_label",
@@ -973,7 +973,7 @@ class TestLabelDryRunGolden(_BatchCommandTestCase):
         client = _mock_llm_client()
         out = StringIO()
 
-        with patch(f"{_DRY_RUN_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_LAB_MODULE}.get_llm_client", return_value=client):
             with self.assertRaises(CommandError) as ctx:
                 call_command("enrichment_label_dry_run", label="test_label", stdout=out, **options)
 

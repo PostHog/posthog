@@ -1,42 +1,8 @@
-"""Load the RevOps ICP scoring list exports (tags + quality investors) into a new IcpScoringConfig row.
-
-Quarterly flow: RevOps edits the two internal sheets, exports them as CSV, and this command
-turns the exports into a new versioned row — optionally activating it in the same run.
-A list change is always a new row; rows are never edited in place, so every stamped
-`icp_lists_version` in stored scores stays reconstructable.
-"""
-
-import csv
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
-from django.db import transaction
 
-from products.growth.backend.enrichment.icp_lists import (
-    TAG_BUCKETS,
-    build_curated_lists,
-    clear_lists_cache,
-    parse_investors_csv_rows,
-    parse_tags_csv_rows,
-    unrecognized_recommendation_tokens,
-)
-from products.growth.backend.models import IcpScoringConfig
-
-TAGS_REQUIRED_COLUMNS = {"tag", "recommendation"}
-INVESTORS_REQUIRED_COLUMNS = {"investor"}
-
-
-def _read_csv(path: str, required: set[str]) -> list[dict[str, Any]]:
-    try:
-        with open(path, newline="", encoding="utf-8-sig") as handle:
-            reader = csv.DictReader(handle)
-            columns = set(reader.fieldnames or [])
-            missing = required - columns
-            if missing:
-                raise CommandError(f"{path} is missing required columns: {sorted(missing)}")
-            return list(reader)
-    except OSError as e:
-        raise CommandError(f"could not read {path}: {e}")
+from products.growth.backend.facade import api, contracts
 
 
 class Command(BaseCommand):
@@ -55,64 +21,39 @@ class Command(BaseCommand):
 
     def handle(self, *args: Any, **options: Any) -> None:
         version: str = options["list_version"]
-        if IcpScoringConfig.objects.filter(version=version).exists():
-            raise CommandError(f"IcpScoringConfig version {version!r} already exists; pick a new version")
-
-        tags = parse_tags_csv_rows(_read_csv(options["tags_csv"], TAGS_REQUIRED_COLUMNS))
-        investors = parse_investors_csv_rows(_read_csv(options["investors_csv"], INVESTORS_REQUIRED_COLUMNS))
-        if not tags:
-            raise CommandError("tags export parsed to zero rows; refusing to create an empty list version")
-        if not investors:
-            raise CommandError("investors export parsed to zero rows; refusing to create an empty list version")
-
-        curated = build_curated_lists(IcpScoringConfig(version=version, tags=tags, quality_investors=investors))
-        bucket_counts = {field: len(getattr(curated, field)) for field in sorted(TAG_BUCKETS)}
-        if not any(bucket_counts.values()):
-            raise CommandError(
-                f"tags export for version {version!r} parsed to buckets that are all empty "
-                "(vocabulary drift, a wrong delimiter, or a shifted column?); refusing to create it"
-            )
-        if not curated.quality_investors:
-            raise CommandError(
-                f"investors export for version {version!r} parsed to zero quality investors; refusing to create it"
-            )
-
-        with transaction.atomic():
-            if options["activate"]:
-                IcpScoringConfig.objects.filter(is_active=True).update(is_active=False)
-            config = IcpScoringConfig.objects.create(
+        try:
+            created = api.create_icp_scoring_lists(
                 version=version,
-                tags=tags,
-                quality_investors=investors,
-                is_active=options["activate"],
+                tags_csv=options["tags_csv"],
+                investors_csv=options["investors_csv"],
+                activate=options["activate"],
             )
-        clear_lists_cache()
+        except contracts.ScoringListsRejected as e:
+            raise CommandError(str(e)) from e
 
-        investors_with_aliases = sum(1 for investor in investors if investor["aliases"])
-        state = "active" if config.is_active else "inactive (activate via admin or --activate)"
+        state = "active" if created.is_active else "inactive (activate via admin or --activate)"
         self.stdout.write(
             self.style.SUCCESS(
-                f"created IcpScoringConfig {version}: {len(tags)} tag rows, {len(investors)} investors "
-                f"({investors_with_aliases} with aliases) — {state}"
+                f"created IcpScoringConfig {version}: {created.tag_rows} tag rows, {created.investor_rows} investors "
+                f"({created.investors_with_aliases} with aliases) — {state}"
             )
         )
         self.stdout.write(
             "buckets: "
-            + ", ".join(f"{field}={count}" for field, count in bucket_counts.items())
-            + f", quality_investors={len(curated.quality_investors)}"
+            + ", ".join(f"{field}={count}" for field, count in created.bucket_counts)
+            + f", quality_investors={created.quality_investors}"
         )
 
-        if investors_with_aliases == 0:
+        if created.investors_with_aliases == 0:
             self.stdout.write(
                 self.style.WARNING(
                     "no investor has any aliases — check whether the aliases column was renamed or dropped"
                 )
             )
 
-        unrecognized = unrecognized_recommendation_tokens(tags)
-        if unrecognized:
-            total = sum(unrecognized.values())
-            detail = ", ".join(f"{token!r} x{count}" for token, count in unrecognized.most_common())
+        if created.unrecognized_tokens:
+            total = sum(count for _, count in created.unrecognized_tokens)
+            detail = ", ".join(f"{token!r} x{count}" for token, count in created.unrecognized_tokens)
             self.stdout.write(
                 self.style.WARNING(f"{total} unrecognized recommendation token(s) dropped from every bucket: {detail}")
             )

@@ -45,7 +45,7 @@ from posthog.utils import get_can_create_org, get_trusted_client_ip, is_relative
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
 from products.demo.backend.facade.api import HedgeboxMatrix, MatrixManager
-from products.growth.backend.temporal.signup_enrichment.trigger import start_signup_enrichment_workflow
+from products.growth.backend.facade.temporal import start_signup_enrichment_workflow
 
 logger = structlog.get_logger(__name__)
 

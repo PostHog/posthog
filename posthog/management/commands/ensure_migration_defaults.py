@@ -14,7 +14,7 @@ from posthog.models.oauth import OAuthApplication
 
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.demo.backend.facade.api import seed_dev_dashboard_templates
-from products.growth.backend.models import EnrichmentPromptConfig
+from products.growth.backend.facade.api import ensure_label_config
 
 # auth groups originally seeded by RunPython migrations. Keep this in sync with
 # any 04xx/05xx migration that did `AuthGroup.objects.get_or_create(name=...)`.
@@ -328,26 +328,14 @@ class Command(BaseCommand):
             DataColorTheme.objects.create(name="Default Theme", colors=_DEFAULT_THEME_COLORS)
             created_items.append("Data color theme: Default Theme")
 
-        # Same two-step shape as growth migration 0006: insert inactive so the
-        # growth_prompt_config_one_active constraint can't collide, promote only
-        # when no other active config exists.
-        ai_pilled, _ = EnrichmentPromptConfig.objects.get_or_create(
+        if ensure_label_config(
             name="ai_pilled",
             version="ai-pilled-clay-v1",
-            defaults={
-                "prompt_text": _AI_PILLED_CLAY_V1_PROMPT,
-                "model": "gpt-5-mini",
-                "input_fields": _AI_PILLED_INPUT_FIELDS,
-                "output_fields": _AI_PILLED_OUTPUT_FIELDS,
-                "is_active": False,
-            },
-        )
-        other_active_exists = (
-            EnrichmentPromptConfig.objects.filter(name="ai_pilled", is_active=True).exclude(pk=ai_pilled.pk).exists()
-        )
-        if not ai_pilled.is_active and not other_active_exists:
-            ai_pilled.is_active = True
-            ai_pilled.save(update_fields=["is_active"])
+            prompt_text=_AI_PILLED_CLAY_V1_PROMPT,
+            model="gpt-5-mini",
+            input_fields=_AI_PILLED_INPUT_FIELDS,
+            output_fields=_AI_PILLED_OUTPUT_FIELDS,
+        ):
             created_items.append("Growth enrichment prompt config: ai_pilled")
 
         if not OAuthApplication.objects.filter(client_id=_STREAMLIT_OAUTH_CLIENT_ID).exists():

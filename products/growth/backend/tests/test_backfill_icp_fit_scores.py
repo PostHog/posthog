@@ -18,7 +18,7 @@ from products.growth.backend.enrichment.bridge import OrganizationBridgeInputs, 
 from products.growth.backend.enrichment.icp_lists import clear_lists_cache
 from products.growth.backend.models import IcpScoringConfig, OrganizationEnrichment, OrganizationEnrichmentFetch
 
-_COMMAND_MODULE = "products.growth.backend.management.commands.backfill_icp_fit_scores"
+_LOGIC_MODULE = "products.growth.backend.enrichment.fit_backfill"
 _GATES_MODULE = "products.growth.backend.enrichment.gates"
 
 _PAYLOAD = {
@@ -111,9 +111,9 @@ class TestBackfillIcpFitScores(BaseTest):
 
         with (
             patch(f"{_GATES_MODULE}.get_instance_region", return_value="US"),
-            patch(f"{_COMMAND_MODULE}.get_regional_ph_client", return_value=pha_client),
-            patch(f"{_COMMAND_MODULE}.read_organization_bridge_inputs", **bridge_patch_kwargs),
-            patch(f"{_COMMAND_MODULE}.capture_exception") as capture_mock,
+            patch(f"{_LOGIC_MODULE}.get_regional_ph_client", return_value=pha_client),
+            patch(f"{_LOGIC_MODULE}.read_organization_bridge_inputs", **bridge_patch_kwargs),
+            patch(f"{_LOGIC_MODULE}.capture_exception") as capture_mock,
         ):
             call_command("backfill_icp_fit_scores", "--delay=0")
 
@@ -133,12 +133,12 @@ class TestBackfillIcpFitScores(BaseTest):
 
         with (
             patch(f"{_GATES_MODULE}.get_instance_region", return_value="US"),
-            patch(f"{_COMMAND_MODULE}.get_regional_ph_client", return_value=pha_client),
+            patch(f"{_LOGIC_MODULE}.get_regional_ph_client", return_value=pha_client),
             patch(
-                f"{_COMMAND_MODULE}.read_organization_bridge_inputs",
+                f"{_LOGIC_MODULE}.read_organization_bridge_inputs",
                 side_effect=RuntimeError("group store down"),
             ),
-            patch(f"{_COMMAND_MODULE}.capture_exception") as capture_mock,
+            patch(f"{_LOGIC_MODULE}.capture_exception") as capture_mock,
         ):
             call_command("backfill_icp_fit_scores", "--delay=0", stdout=out, no_color=True)
 
@@ -153,8 +153,8 @@ class TestBackfillIcpFitScores(BaseTest):
 
         with (
             patch(f"{_GATES_MODULE}.get_instance_region", return_value="US"),
-            patch(f"{_COMMAND_MODULE}.get_regional_ph_client", return_value=MagicMock()),
-            patch(f"{_COMMAND_MODULE}.read_organization_bridge_inputs", return_value=OrganizationBridgeInputs()),
+            patch(f"{_LOGIC_MODULE}.get_regional_ph_client", return_value=MagicMock()),
+            patch(f"{_LOGIC_MODULE}.read_organization_bridge_inputs", return_value=OrganizationBridgeInputs()),
         ):
             call_command("backfill_icp_fit_scores", "--delay=0")
 
@@ -197,9 +197,9 @@ class TestBackfillIcpFitScoresGolden(BaseTest):
     def _call(self, out: StringIO, *args, region="US", pha_client=None, bridge=None):
         with (
             patch(f"{_GATES_MODULE}.get_instance_region", return_value=region),
-            patch(f"{_COMMAND_MODULE}.get_regional_ph_client", return_value=pha_client),
+            patch(f"{_LOGIC_MODULE}.get_regional_ph_client", return_value=pha_client),
             patch(
-                f"{_COMMAND_MODULE}.read_organization_bridge_inputs",
+                f"{_LOGIC_MODULE}.read_organization_bridge_inputs",
                 return_value=bridge or OrganizationBridgeInputs(),
             ),
         ):

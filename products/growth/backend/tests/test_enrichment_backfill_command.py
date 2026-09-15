@@ -14,7 +14,7 @@ from posthog.models.user import User
 from products.growth.backend.models import EnrichmentSignupSnapshot, OrganizationEnrichment, OrganizationEnrichmentFetch
 from products.growth.backend.temporal.signup_enrichment.workflow import SignupEnrichmentInputs
 
-_COMMAND_MODULE = "products.growth.backend.management.commands.backfill_signup_enrichment"
+_LOGIC_MODULE = "products.growth.backend.enrichment.signup_backfill"
 _GATES_MODULE = "products.growth.backend.enrichment.gates"
 
 
@@ -31,6 +31,7 @@ def _stamp(org: Organization) -> str:
 
 def _inputs(org: Organization) -> SignupEnrichmentInputs:
     user = org.memberships.get().user
+    assert user.distinct_id is not None
     return SignupEnrichmentInputs(
         organization_id=str(org.id), distinct_id=user.distinct_id, domain=user.email.rsplit("@", 1)[1]
     )
@@ -80,7 +81,7 @@ class TestBackfillSignupEnrichment(_SignupBackfillTestCase):
 
         with (
             patch(f"{_GATES_MODULE}.get_instance_region", return_value="US"),
-            patch(f"{_COMMAND_MODULE}.dispatch_signup_enrichment") as dispatch,
+            patch(f"{_LOGIC_MODULE}.dispatch_signup_enrichment") as dispatch,
         ):
             call_command("backfill_signup_enrichment", "--delay=0", **_window())
 
@@ -100,7 +101,7 @@ class TestBackfillSignupEnrichment(_SignupBackfillTestCase):
 
         with (
             patch(f"{_GATES_MODULE}.get_instance_region", return_value="EU"),
-            patch(f"{_COMMAND_MODULE}.dispatch_signup_enrichment") as dispatch,
+            patch(f"{_LOGIC_MODULE}.dispatch_signup_enrichment") as dispatch,
         ):
             call_command("backfill_signup_enrichment", "--delay=0", **_window())
 
@@ -120,7 +121,7 @@ class TestBackfillSignupEnrichment(_SignupBackfillTestCase):
         with (
             patch(f"{_GATES_MODULE}.get_instance_region", return_value="US"),
             patch(
-                f"{_COMMAND_MODULE}.dispatch_signup_enrichment", side_effect=[RuntimeError("temporal down"), None]
+                f"{_LOGIC_MODULE}.dispatch_signup_enrichment", side_effect=[RuntimeError("temporal down"), None]
             ) as dispatch,
         ):
             call_command("backfill_signup_enrichment", "--delay=0", **_window())
@@ -132,7 +133,7 @@ class TestBackfillSignupEnrichment(_SignupBackfillTestCase):
         self._org(email="a@stripe.com")
         with (
             patch(f"{_GATES_MODULE}.get_instance_region", return_value="US"),
-            patch(f"{_COMMAND_MODULE}.dispatch_signup_enrichment") as dispatch,
+            patch(f"{_LOGIC_MODULE}.dispatch_signup_enrichment") as dispatch,
         ):
             call_command("backfill_signup_enrichment", "--dry-run", **_window())
 
@@ -143,7 +144,7 @@ class TestBackfillSignupEnrichmentGolden(_SignupBackfillTestCase):
     def setUp(self):
         super().setUp()
         self.enterContext(patch(f"{_GATES_MODULE}.get_instance_region", return_value="US"))
-        self.dispatch = self.enterContext(patch(f"{_COMMAND_MODULE}.dispatch_signup_enrichment"))
+        self.dispatch = self.enterContext(patch(f"{_LOGIC_MODULE}.dispatch_signup_enrichment"))
         self.out = StringIO()
         self.err = StringIO()
         self.now = dt.datetime.now(dt.UTC)
