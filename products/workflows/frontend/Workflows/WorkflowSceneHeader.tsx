@@ -42,6 +42,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
         publishDisabledReason,
         discardDisabledReason,
         showDraftActions,
+        duplicatePending,
     } = useValues(workflowLogic)
     const {
         saveWorkflowPartial,
@@ -236,6 +237,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                         <ButtonPrimitive
                                             menuItem
                                             onClick={() => duplicate()}
+                                            disabledReasons={{ 'Duplicating…': duplicatePending }}
                                             data-attr="workflow-duplicate-btn"
                                         >
                                             <IconCopy />

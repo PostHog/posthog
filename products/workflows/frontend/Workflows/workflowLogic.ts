@@ -216,6 +216,7 @@ export interface workflowLogicValues {
     deferredResourceEdited: ResourceEditedEvent | null
     discardDisabledReason: string | undefined
     draftActionPending: 'discard' | 'publish' | null
+    duplicatePending: boolean
     edgesByActionId: Record<string, HogFlowEdge[]>
     emailSendingPauseRequiresSupport: boolean
     emailSendingPaused: boolean
@@ -2398,6 +2399,9 @@ export interface workflowLogicActions {
     setDraftActionPending: (pending: 'discard' | 'publish' | null) => {
         pending: 'discard' | 'publish' | null
     }
+    setDuplicatePending: (pending: boolean) => {
+        pending: boolean
+    }
     setExternallyEdited: (externallyEdited: boolean) => {
         externallyEdited: boolean
     }
@@ -3065,6 +3069,7 @@ export const workflowLogic = kea<workflowLogicType>([
         }),
         discardChanges: true,
         duplicate: true,
+        setDuplicatePending: (pending: boolean) => ({ pending }),
         autoSaveWorkflow: true,
         markAutoSave: (isAutoSave: boolean) => ({ isAutoSave }),
         setAutoSaveEnabled: (enabled: boolean) => ({ enabled }),
@@ -3473,6 +3478,12 @@ export const workflowLogic = kea<workflowLogicType>([
             false,
             {
                 setResumeEmailSendingPending: (_, { pending }) => pending,
+            },
+        ],
+        duplicatePending: [
+            false,
+            {
+                setDuplicatePending: (_, { pending }) => pending,
             },
         ],
         // A resource_edited event parked while our own save/reload was in flight. Replayed once the
@@ -4345,15 +4356,18 @@ export const workflowLogic = kea<workflowLogicType>([
         },
         duplicate: async () => {
             const workflow = values.originalWorkflow
-            if (!workflow) {
+            if (!workflow || values.duplicatePending) {
                 return
             }
+            actions.setDuplicatePending(true)
             try {
                 const createdWorkflow = await api.hogFlows.createHogFlow(prepareWorkflowDuplicate(workflow))
                 lemonToast.success('Workflow duplicated')
                 router.actions.push(urls.workflow(createdWorkflow.id, 'workflow'))
             } catch {
                 lemonToast.error('Could not duplicate the workflow. Please try again.')
+            } finally {
+                actions.setDuplicatePending(false)
             }
         },
         triggerManualWorkflow: async ({ variables }) => {
