@@ -312,7 +312,6 @@
                                                 "type": "number"
                                             }
                                         },
-                                        "required": ["x", "y", "w", "h"],
                                         "type": "object"
                                     },
                                     "xs": {
@@ -335,7 +334,6 @@
                                                 "type": "number"
                                             }
                                         },
-                                        "required": ["x", "y", "w", "h"],
                                         "type": "object"
                                     }
                                 },
@@ -593,7 +591,6 @@
                                                 "type": "number"
                                             }
                                         },
-                                        "required": ["x", "y", "w", "h"],
                                         "type": "object"
                                     },
                                     "xs": {
@@ -616,7 +613,6 @@
                                                 "type": "number"
                                             }
                                         },
-                                        "required": ["x", "y", "w", "h"],
                                         "type": "object"
                                     }
                                 },
@@ -862,7 +858,6 @@
                                                 "type": "number"
                                             }
                                         },
-                                        "required": ["x", "y", "w", "h"],
                                         "type": "object"
                                     },
                                     "xs": {
@@ -885,7 +880,6 @@
                                                 "type": "number"
                                             }
                                         },
-                                        "required": ["x", "y", "w", "h"],
                                         "type": "object"
                                     }
                                 },
@@ -986,7 +980,6 @@
                                                 "type": "number"
                                             }
                                         },
-                                        "required": ["x", "y", "w", "h"],
                                         "type": "object"
                                     },
                                     "xs": {
@@ -1009,7 +1002,6 @@
                                                 "type": "number"
                                             }
                                         },
-                                        "required": ["x", "y", "w", "h"],
                                         "type": "object"
                                     }
                                 },
@@ -1085,7 +1077,6 @@
                                                 "type": "number"
                                             }
                                         },
-                                        "required": ["x", "y", "w", "h"],
                                         "type": "object"
                                     },
                                     "xs": {
@@ -1108,7 +1099,6 @@
                                                 "type": "number"
                                             }
                                         },
-                                        "required": ["x", "y", "w", "h"],
                                         "type": "object"
                                     }
                                 },
@@ -1225,7 +1215,6 @@
                                                 "type": "number"
                                             }
                                         },
-                                        "required": ["x", "y", "w", "h"],
                                         "type": "object"
                                     },
                                     "xs": {
@@ -1248,7 +1237,6 @@
                                                 "type": "number"
                                             }
                                         },
-                                        "required": ["x", "y", "w", "h"],
                                         "type": "object"
                                     }
                                 },
@@ -1396,7 +1384,6 @@
                                                 "type": "number"
                                             }
                                         },
-                                        "required": ["x", "y", "w", "h"],
                                         "type": "object"
                                     },
                                     "xs": {
@@ -1419,7 +1406,6 @@
                                                 "type": "number"
                                             }
                                         },
-                                        "required": ["x", "y", "w", "h"],
                                         "type": "object"
                                     }
                                 },
@@ -1562,7 +1548,6 @@
                                                 "type": "number"
                                             }
                                         },
-                                        "required": ["x", "y", "w", "h"],
                                         "type": "object"
                                     },
                                     "xs": {
@@ -1585,7 +1570,6 @@
                                                 "type": "number"
                                             }
                                         },
-                                        "required": ["x", "y", "w", "h"],
                                         "type": "object"
                                     }
                                 },
