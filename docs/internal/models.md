@@ -6,6 +6,7 @@ Paginated tables keep a fixed height, including on a partial last page, so other
 Skipped runs describe upstream models stopped after repeated failures as suspended.
 
 Open a saved view from Models to inspect its query, refresh schedule, and run history.
+The Models breadcrumb on a model detail page returns to the models list tab.
 The actions menu offers **Delete view** for a saved view and **Delete materialized view** for a materialized view.
 Deletion asks for confirmation, removes the saved view and its materialized data, and returns to Models after success.
 Queries that depend on the deleted view will stop working.
