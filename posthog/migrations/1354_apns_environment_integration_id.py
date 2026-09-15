@@ -1,5 +1,9 @@
 from django.db import migrations
 
+import structlog
+
+logger = structlog.get_logger(__name__)
+
 
 def normalize_apns_integrations(apps, schema_editor):
     """Give each sandbox APNs credential its own row identity, and drop copied whitespace.
@@ -39,7 +43,7 @@ def normalize_apns_integrations(apps, schema_editor):
             update_fields.append("config")
 
         base = f"{team_id_apple}.{bundle_id}"
-        integration_id = f"{base}.sandbox" if config.get("environment") == "sandbox" else base
+        integration_id = f"{base}:sandbox" if config.get("environment") == "sandbox" else base
         taken = (
             Integration.objects.filter(team_id=integration.team_id, kind="apns", integration_id=integration_id)
             .exclude(pk=integration.pk)
@@ -48,6 +52,12 @@ def normalize_apns_integrations(apps, schema_editor):
         if integration.integration_id != integration_id and not taken:
             integration.integration_id = integration_id
             update_fields.append("integration_id")
+        elif taken:
+            # Two rows of one environment whose ids differ only by whitespace. Deleting either one
+            # drops a credential a team may still send with, so both stay and this names the team.
+            logger.warning(
+                "apns_integration_id_taken", team_id=integration.team_id, integration_id=integration.integration_id
+            )
 
         if update_fields:
             integration.save(update_fields=update_fields)

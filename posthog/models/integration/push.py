@@ -1,5 +1,6 @@
 """Push-notification provider credentials (APNS, Firebase) and device-identity verification config."""
 
+import re
 import time
 from datetime import timedelta
 
@@ -217,6 +218,10 @@ class FirebaseIntegration:
 
 APNS_ENVIRONMENTS = ("production", "sandbox")
 
+# Apple team ids are alphanumeric, and bundle ids add only hyphens and periods. A colon appears in
+# neither, which is what lets the environment suffix below never collide with a real bundle id.
+APNS_IDENTIFIER = re.compile(r"^[A-Za-z0-9.\-]+$")
+
 
 def apns_integration_id(team_id_apple: str, bundle_id: str, environment: str) -> str:
     """The row identity of an APNs credential, which the environment is part of.
@@ -226,7 +231,7 @@ def apns_integration_id(team_id_apple: str, bundle_id: str, environment: str) ->
     before the environment was part of the identity keep the id they already have.
     """
     base = f"{team_id_apple}.{bundle_id}"
-    return f"{base}.sandbox" if environment == "sandbox" else base
+    return f"{base}:sandbox" if environment == "sandbox" else base
 
 
 class ApplePushIntegration:
@@ -271,6 +276,9 @@ class ApplePushIntegration:
 
         if not all([signing_key, key_id, team_id_apple, bundle_id]):
             raise ValidationError("All APNS fields are required: signing_key, key_id, team_id_apple, bundle_id")
+
+        if not APNS_IDENTIFIER.match(team_id_apple) or not APNS_IDENTIFIER.match(bundle_id):
+            raise ValidationError("APNS team_id_apple and bundle_id accept letters, digits, hyphens and periods only")
 
         if environment not in APNS_ENVIRONMENTS:
             raise ValidationError("APNS environment must be 'production' or 'sandbox'")

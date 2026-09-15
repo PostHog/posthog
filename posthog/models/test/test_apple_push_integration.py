@@ -91,10 +91,26 @@ class TestApplePushIntegration(BaseTest):
 
         assert production.id != sandbox.id
         assert production.integration_id == "TEAM123.com.example.app"
-        assert sandbox.integration_id == "TEAM123.com.example.app.sandbox"
+        assert sandbox.integration_id == "TEAM123.com.example.app:sandbox"
         production.refresh_from_db()
         assert production.config["environment"] == "production"
         assert sandbox.config["environment"] == "sandbox"
+
+    def test_a_bundle_id_cannot_impersonate_a_sandbox_credential(self):
+        sandbox = self._create_apple_push_integration(environment="sandbox")
+        lookalike = self._create_apple_push_integration(bundle_id="com.example.app.sandbox")
+
+        assert sandbox.id != lookalike.id
+
+    @parameterized.expand(
+        [
+            ("team_id_apple", {"team_id_apple": "TEAM:123"}),
+            ("bundle_id", {"bundle_id": "com.example.app:sandbox"}),
+        ]
+    )
+    def test_rejects_an_identifier_that_could_forge_another_identity(self, _name, kwargs):
+        with self.assertRaises(ValidationError):
+            self._create_apple_push_integration(**kwargs)
 
     def test_wrapper_properties(self):
         integration = self._create_apple_push_integration()
