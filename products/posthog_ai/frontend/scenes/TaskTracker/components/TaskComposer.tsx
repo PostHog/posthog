@@ -76,7 +76,7 @@ export function TaskComposer(): JSX.Element {
                 <Welcome headline={displayHeadline}>
                     {/* Temporary migration affordance — delete with the rest of the onboarding takeover
                         once everyone is on the new PostHog AI. */}
-                    <OnboardingReplayButton panelId={panelId} />
+                    {!composerOverride?.hideOnboardingReplay && <OnboardingReplayButton panelId={panelId} />}
                 </Welcome>
 
                 <Suggestions.Root

@@ -63,6 +63,9 @@ export const NEW_WORKFLOW_COMPOSER_OVERRIDE: ComposerOverride = {
     hideRepositorySelector: true,
     hideSuggestions: true,
     hideRecentTasks: true,
+    // This page is not a takeover host, and it closes a side panel open on PostHog AI, so nothing
+    // would receive the replay click.
+    hideOnboardingReplay: true,
 }
 
 export interface NewWorkflowSuggestion {
