@@ -1666,6 +1666,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     is_query_service: bool = False
     workload: Workload
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT
+    # Trusted internal runs with no acting user (see posthog/hogql/ACCESS_CONTROL.md) opt out of
+    # warehouse access control, which otherwise fails closed and denies every warehouse table.
+    bypass_warehouse_access_control: bool = False
     # Opt-in (set by process_query_model): on a cache hit, keep the results segment of the
     # cached response as raw JSON bytes in raw_cached_results_bytes instead of parsing it,
     # leaving a `results=[]` placeholder on the returned model.
@@ -1684,9 +1687,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         extract_modifiers=lambda query: query.modifiers if hasattr(query, "modifiers") else None,
         user: Optional[User] = None,
         ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+        bypass_warehouse_access_control: bool = False,
     ):
         self.team = team
         self.user = user
+        self.bypass_warehouse_access_control = bypass_warehouse_access_control
         self.timings = timings or HogQLTimings()
         self._shared_database: Optional[Database] = None
         self._shared_database_build_lock = threading.Lock()
@@ -1753,6 +1758,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 user=self.user,
                 user_access_control=self.user_access_control,
                 modifiers=self.modifiers,
+                bypass_warehouse_access_control=self.bypass_warehouse_access_control,
                 trigger="shared_kill_switch",
             )
         if self._shared_database is None:
@@ -1768,13 +1774,20 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             user_access_control=self.user_access_control,
                             modifiers=self.modifiers,
                             timings=self.timings,
+                            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
                             trigger="shared",
                         )
         return self._shared_database
 
     def build_hogql_context(self, **kwargs: Any) -> HogQLContext:
         """Context for execute_hogql_query calls this runner makes, wired to the shared database."""
-        return HogQLContext(team_id=self.team.pk, user=self.user, database=self.shared_database, **kwargs)
+        return HogQLContext(
+            team_id=self.team.pk,
+            user=self.user,
+            database=self.shared_database,
+            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
+            **kwargs,
+        )
 
     def response_hogql(self, query: ast.SelectQuery | ast.SelectSetQuery) -> str:
         """Display-only HogQL for the response payload (never executed).
@@ -2632,6 +2645,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if restricted:
             payload["restricted_properties"] = restricted
 
+        # A bypassed run reads warehouse tables the access-controlled path would deny, so its result
+        # must never land on the key an ordinary run reads. The scope-based partitioning below cannot
+        # see this: a warehouse table reached through an action row is invisible to the query node.
+        if self.bypass_warehouse_access_control:
+            payload["bypass_warehouse_access_control"] = True
+
         # Vary the cache key by the events-retention floor: a cache hit returns before the printer applies the floor,
         # so without this a result cached pre-enforcement (or at a longer period) would keep surfacing events past
         # retention. Only set when enforced, so non-cohort teams' keys are unchanged.
@@ -3144,8 +3163,18 @@ class QueryRunnerWithHogQLContext(AnalyticsQueryRunner[AR]):
         self._build_hogql_context_for_user(self.user)
 
     def _build_hogql_context_for_user(self, user: Optional[User]) -> None:
-        self.database = Database.create_for(team=self.team, user=user, trigger="runner_context")
-        self.hogql_context = HogQLContext(team_id=self.team.pk, database=self.database, user=user)
+        self.database = Database.create_for(
+            team=self.team,
+            user=user,
+            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
+            trigger="runner_context",
+        )
+        self.hogql_context = HogQLContext(
+            team_id=self.team.pk,
+            database=self.database,
+            user=user,
+            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
+        )
 
     def _on_user_changed(self) -> None:
         if self.hogql_context.user is self.user:

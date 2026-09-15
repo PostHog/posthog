@@ -157,6 +157,11 @@ Without a user, warehouse access control denies every warehouse table and view, 
 execute_hogql_query(query=..., team=team, bypass_warehouse_access_control=True)
 ```
 
+A background job that runs a query runner rather than `execute_hogql_query` passes the same flag to the runner's constructor.
+It reaches the runner's shared database and the context `build_hogql_context()` returns, and it partitions the query cache so a bypassed result never lands on the key an access-controlled run reads.
+A runner that calls `execute_hogql_query` directly has to forward `self.bypass_warehouse_access_control` at that call, because that call builds its own database.
+The web analytics weekly digest (`products/web_analytics/backend/weekly_digest.py`) uses this path: it builds one digest per team for a recipient list, so there is no acting user to run as.
+
 Data Modeling materialized views are project-owned. Refreshes do not run as `created_by` and do not inherit account, ticket, or object-level access. Data Modeling passes `allowed_system_tables` to declassify approved system tables into warehouse data. The allowlist accepts exact table names and denies every other system table. Warehouse-view permissions protect the materialized result. Billing entitlements still apply, and only userless database builds can use the allowlist.
 
 4. **Public dashboards / notebooks / shared insights:** the viewer is anonymous, so queries run as `SharedLinkUser` (`posthog/shared_link_user.py`, built in `SharingViewerPageViewSet`).
