@@ -7,6 +7,7 @@ interpolated into mrkdwn text.
 
 from django.conf import settings
 
+from products.error_tracking.backend.logic import build_issue_permalink_path
 from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
 
 ROOT_HEADLINES = {
@@ -31,8 +32,16 @@ def _truncate(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-def issue_url(team_id: int, issue_id: str) -> str:
-    return f"{settings.SITE_URL}/project/{team_id}/error_tracking/{issue_id}"
+def issue_url(inputs: AlertDeliveryWorkflowInputs) -> str:
+    # Slack keeps the root forever and a merge deletes the source issue, so the link
+    # follows the fingerprint to whichever issue owns it now. The path segment takes
+    # the environment id, which is what the workflow inputs carry.
+    return settings.SITE_URL + build_issue_permalink_path(
+        # Cymbal persists an explicitly empty manual fingerprint; that has no route.
+        project_id=inputs.team_id,
+        issue_id=inputs.issue_id,
+        fingerprint=inputs.fingerprint or None,
+    )
 
 
 def root_headline(event: str) -> str:
@@ -67,7 +76,7 @@ def _link_block(inputs: AlertDeliveryWorkflowInputs) -> dict:
             {
                 "type": "button",
                 "text": {"type": "plain_text", "text": "View issue", "emoji": True},
-                "url": issue_url(inputs.team_id, inputs.issue_id),
+                "url": issue_url(inputs),
             }
         ],
     }
