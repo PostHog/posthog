@@ -116,7 +116,7 @@ export function LogAttributes({ attributes, type, logUuid, title }: LogAttribute
                         dataIndex: 'key',
                         width: 0,
                         render: (_, record) => (
-                            <span className="font-mono text-xs text-tertiary whitespace-nowrap">{record.key}</span>
+                            <span className="font-mono text-xs text-secondary whitespace-nowrap">{record.key}</span>
                         ),
                     },
                     {
