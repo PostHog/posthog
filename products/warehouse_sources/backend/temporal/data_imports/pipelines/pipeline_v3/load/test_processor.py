@@ -170,6 +170,30 @@ class TestPromoteStagedCursor:
         mock_objects.get.assert_called_once_with(id="schema-1", team_id=1)
         schema.promote_staged_incremental_values.assert_called_once_with("run-abc-a1")
 
+    @parameterized.expand(
+        [
+            ("incremental_run_warns", True, 1),
+            ("full_refresh_run_stays_quiet", False, 0),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.logger")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.ExternalDataSchema.objects"
+    )
+    def test_warns_when_a_completed_run_has_no_staged_cursor(
+        self, _name: str, uses_incremental_field: bool, warnings: int, mock_objects: MagicMock, mock_logger: MagicMock
+    ) -> None:
+        schema = MagicMock()
+        schema.promote_staged_incremental_values.return_value = False
+        schema.should_use_incremental_field = uses_incremental_field
+        mock_objects.get.return_value = schema
+
+        _promote_staged_cursor(self._make_signal())
+
+        assert mock_logger.warning.call_count == warnings
+        if warnings:
+            assert mock_logger.warning.call_args.args == ("staged_cursor_missing",)
+
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.ExternalDataSchema.objects"
     )
