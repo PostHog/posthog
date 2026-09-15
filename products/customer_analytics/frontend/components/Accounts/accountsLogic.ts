@@ -1304,7 +1304,6 @@ export const accountsLogic = kea<accountsLogicType>([
         },
         setAwaitingSavedView: ({ awaiting }) => {
             if (!awaiting) {
-                actions.persistViewState()
                 actions.syncViewStateToUrl()
             }
         },

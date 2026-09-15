@@ -18,7 +18,7 @@ import { ACCOUNTS_DEFAULT_COLUMNS, accountsColumnConfigLogic } from './accountsC
 import { accountsLogic, SEARCH_DEBOUNCE_MS } from './accountsLogic'
 import { accountsOverviewTilesLogic } from './accountsOverviewTilesLogic'
 import { accountsViewsLogic } from './accountsViewsLogic'
-import { type AccountsViewState, writeAccountsViewDraft } from './accountsViewState'
+import { readAccountsViewDraft, type AccountsViewState, writeAccountsViewDraft } from './accountsViewState'
 import { DEFAULT_TILES } from './constants'
 
 const CURRENT_USER_ID = MOCK_DEFAULT_USER.id
@@ -180,6 +180,9 @@ describe('accountsViewsLogic', () => {
             expect(accountsLogic.values.awaitingSavedView).toBe(false)
             expect(logic.values.currentViewId).toBe(savedView ? 'view-1' : null)
             expect(logic.values.isDirty).toBe(false)
+            if (!savedView) {
+                expect(readAccountsViewDraft(MOCK_DEFAULT_TEAM.id, MOCK_DEFAULT_USER.uuid)).toBeNull()
+            }
         }
     )
 
