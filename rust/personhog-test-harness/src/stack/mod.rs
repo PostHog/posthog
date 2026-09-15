@@ -261,8 +261,8 @@ impl Stack {
         let router_url = format!("http://127.0.0.1:{traffic_router_port}");
 
         // Identity resolves and creates on the Postgres primary and pushes
-        // initial properties through the traffic router; it holds no etcd
-        // state, so it can come up alongside the routers. Its table set is
+        // initial properties through the traffic router; from etcd it reads
+        // only the partition count the reset above wrote. Its table set is
         // derived from the stack's person table so identity, writer, and the
         // leader fallback agree on one id namespace.
         let identity_url = if config.spawn_identity {
@@ -274,6 +274,8 @@ impl Stack {
                     ("GRPC_ADDRESS", format!("127.0.0.1:{IDENTITY_GRPC_PORT}")),
                     ("PRIMARY_DATABASE_URL", config.persons_db_url.clone()),
                     ("ROUTER_URL", router_url.clone()),
+                    ("ETCD_ENDPOINTS", config.etcd_endpoints.clone()),
+                    ("ETCD_PREFIX", ETCD_PREFIX.to_string()),
                     ("METRICS_PORT", IDENTITY_METRICS_PORT.to_string()),
                     ("PERSON_TABLE", config.pg_target_table.clone()),
                     (

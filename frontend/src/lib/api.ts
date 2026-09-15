@@ -93,7 +93,6 @@ import {
     DashboardTemplateType,
     DashboardType,
     DataColorThemeModel,
-    DataModelingDAG,
     DataModelingEdge,
     DataModelingJob,
     DataModelingNode,
@@ -313,6 +312,16 @@ export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
 export interface ApiMethodOptions {
     signal?: AbortSignal
     headers?: Record<string, any>
+}
+
+export interface ApiUploadProgress {
+    loaded: number
+    /** Null when the browser can't measure the body, so only `loaded` is meaningful. */
+    total: number | null
+}
+
+export interface ApiUploadOptions extends ApiMethodOptions {
+    onUploadProgress?: (progress: ApiUploadProgress) => void
 }
 
 export { ApiError, NetworkError }
@@ -1490,15 +1499,6 @@ export class ApiRequest {
 
     public dataModelingJobsRecent(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('data_modeling_jobs').addPathComponent('recent')
-    }
-
-    // # Data Modeling DAGs
-    public dataModelingDags(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('data_modeling_dags')
-    }
-
-    public dataModelingDag(id: DataModelingDAG['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.dataModelingDags(teamId).addPathComponent(id)
     }
 
     // # Data Modeling Nodes
@@ -5619,10 +5619,15 @@ const api = {
         async refreshSchema(tableId: DataWarehouseTable['id']): Promise<void> {
             await new ApiRequest().dataWarehouseTable(tableId).withAction('refresh_schema').create()
         },
-        // FormData, not JSON — the browser sets the multipart boundary itself, so don't add a
-        // Content-Type header here (`api.createResponse` already skips it for FormData bodies).
-        async uploadFile(data: FormData): Promise<WarehouseTableFileUpload> {
-            return await new ApiRequest().dataWarehouseTables().withAction('upload_file').create({ data })
+        // Goes over XHR rather than fetch so the caller can follow how much of a large file has
+        // gone up. FormData, not JSON — the browser sets the multipart boundary itself, so neither
+        // this call nor the transport adds a Content-Type header.
+        async uploadFile(data: FormData, options?: ApiUploadOptions): Promise<WarehouseTableFileUpload> {
+            return await api.createWithUploadProgress(
+                new ApiRequest().dataWarehouseTables().withAction('upload_file').assembleFullUrl(),
+                data,
+                options
+            )
         },
         async createFromUpload(data: {
             upload_id: string
@@ -5734,19 +5739,9 @@ const api = {
         },
     },
 
-    dataModelingDags: {
-        async list(): Promise<PaginatedResponse<DataModelingDAG>> {
-            return await new ApiRequest().dataModelingDags().get()
-        },
-    },
-
     dataModelingNodes: {
-        async list(dagId?: string): Promise<PaginatedResponse<DataModelingNode>> {
-            const req = new ApiRequest().dataModelingNodes()
-            if (dagId) {
-                return await req.withQueryString({ dag: dagId }).get()
-            }
-            return await req.get()
+        async list(): Promise<PaginatedResponse<DataModelingNode>> {
+            return await new ApiRequest().dataModelingNodes().get()
         },
         async get(nodeId: DataModelingNode['id']): Promise<DataModelingNode> {
             return await new ApiRequest().dataModelingNode(nodeId).get()
@@ -5765,11 +5760,6 @@ const api = {
         },
         async materialize(nodeId: DataModelingNode['id']): Promise<void> {
             await new ApiRequest().dataModelingNode(nodeId).withAction('materialize').create()
-        },
-        async dagIds(): Promise<{
-            dag_ids: Array<{ id: string; name: string }>
-        }> {
-            return await new ApiRequest().dataModelingNodes().withAction('dag_ids').get()
         },
         async lineage({
             nodeId,
@@ -5790,12 +5780,8 @@ const api = {
     },
 
     dataModelingEdges: {
-        async list(dagId?: string): Promise<PaginatedResponse<DataModelingEdge>> {
-            const req = new ApiRequest().dataModelingEdges()
-            if (dagId) {
-                return await req.withQueryString({ dag: dagId }).get()
-            }
-            return await req.get()
+        async list(): Promise<PaginatedResponse<DataModelingEdge>> {
+            return await new ApiRequest().dataModelingEdges().get()
         },
     },
 
@@ -7149,6 +7135,21 @@ const api = {
         )
     },
 
+    /**
+     * POST a body and report how much of it has been sent.
+     *
+     * `fetch` exposes no upload progress at all, so a caller uploading a large file can only show
+     * an indeterminate spinner. This sends over XMLHttpRequest instead and wraps the result in a
+     * `Response`, so the call still goes through the same error, retry, and telemetry path as
+     * every other request.
+     */
+    async createWithUploadProgress<T = any>(url: string, data: FormData, options?: ApiUploadOptions): Promise<T> {
+        url = prepareUrl(url)
+        ensureProjectIdNotInvalid(url)
+        const response = await handleFetch(url, 'POST', () => xhrPost(url, data, options))
+        return await getJSONFromSuccessResponse(response, 'POST', url)
+    },
+
     async delete(url: string): Promise<any> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
@@ -7455,6 +7456,59 @@ function captureClientRequestFailure(properties: {
     if (posthog.capture) {
         posthog.capture('client_request_failure', properties)
     }
+}
+
+// The `Response` constructor rejects a body on these statuses, so they resolve with a null body.
+const NULL_BODY_STATUSES = new Set([204, 205, 304])
+
+function parseXhrHeaders(rawHeaders: string): Headers {
+    const headers = new Headers()
+    for (const line of rawHeaders.trim().split(/[\r\n]+/)) {
+        const separator = line.indexOf(':')
+        if (separator > 0) {
+            headers.append(line.slice(0, separator), line.slice(separator + 1).trim())
+        }
+    }
+    return headers
+}
+
+function xhrPost(url: string, data: FormData, options?: ApiUploadOptions): Promise<Response> {
+    return new Promise<Response>((resolve, reject) => {
+        const xhr = new XMLHttpRequest()
+        xhr.open('POST', url, true)
+        // No Content-Type: the body is always FormData, which carries its own multipart boundary.
+        const headers = {
+            ...objectClean(options?.headers ?? {}),
+            'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+            ...tracingHeaders(),
+            ...oauthAuthHeaders(url),
+        }
+        for (const [name, value] of Object.entries(headers)) {
+            xhr.setRequestHeader(name, value)
+        }
+
+        const onUploadProgress = options?.onUploadProgress
+        if (onUploadProgress) {
+            xhr.upload.onprogress = (event) =>
+                onUploadProgress({ loaded: event.loaded, total: event.lengthComputable ? event.total : null })
+        }
+
+        // `fetch` rejects with a TypeError when the request never reached the server, and aborts
+        // surface as an AbortError. Match both so handleFetch classifies XHR failures the same way.
+        xhr.onerror = () => reject(new TypeError('Failed to fetch'))
+        xhr.onabort = () => reject(new DOMException('The user aborted a request.', 'AbortError'))
+        xhr.onload = () =>
+            resolve(
+                new Response(NULL_BODY_STATUSES.has(xhr.status) ? null : xhr.responseText, {
+                    status: xhr.status,
+                    statusText: xhr.statusText,
+                    headers: parseXhrHeaders(xhr.getAllResponseHeaders()),
+                })
+            )
+
+        options?.signal?.addEventListener('abort', () => xhr.abort())
+        xhr.send(data)
+    })
 }
 
 async function handleFetch(

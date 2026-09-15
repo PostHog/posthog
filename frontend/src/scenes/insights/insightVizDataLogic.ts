@@ -23,7 +23,6 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { AggregationType } from 'scenes/insights/views/InsightsTable/insightsTableDataLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 
@@ -116,6 +115,7 @@ import {
 } from '~/types'
 
 import { getClampedFunnelStepRange } from 'products/product_analytics/frontend/insights/funnels/funnelUtils'
+import { AggregationType } from 'products/product_analytics/frontend/insights/shared/InsightsTable/insightsTableDataLogic'
 import { BASE_MATH_DEFINITIONS } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 
 import type { DataColorTheme } from '../../lib/colors'
