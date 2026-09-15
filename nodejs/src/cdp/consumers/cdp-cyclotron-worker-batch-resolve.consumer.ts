@@ -185,9 +185,10 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
      * Terminate a cancel-flagged resolver job: no further pages, and no terminal status
      * PUT — Django flips the batch job's status itself as part of the cancel request, and
      * the internal status endpoint absorbs terminal states, so a racing completion still
-     * resolves consistently. The log lands on the batch run's log stream so the stop is
-     * visible next to its runs. Flushes monitoring itself because the cancel paths return
-     * before processResolverJob's finally-flush.
+     * resolves consistently. The log lands on the workflow's log stream, keyed by flow id
+     * with the batch run as `instance_id`, so the stop is readable in the Logs tab and can
+     * still be filtered down to this one run. Flushes monitoring itself because the cancel
+     * paths return before processResolverJob's finally-flush.
      */
     private async cancelResolverJob(job: CyclotronV2DequeuedJob): Promise<void> {
         counterBatchHogFlowResolverJobs.labels({ outcome: 'canceled' }).inc()
@@ -196,7 +197,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                 {
                     team_id: job.teamId,
                     log_source: 'hog_flow',
-                    log_source_id: job.parentRunId ?? job.functionId ?? '',
+                    log_source_id: job.functionId ?? '',
                     instance_id: job.parentRunId ?? job.id,
                     ...logEntry('info', 'Batch run canceled. The remaining audience will not receive this workflow.'),
                 },
@@ -443,7 +444,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
 
     private emitTruncationLog(state: BatchResolverState): void {
         counterBatchHogFlowAudienceTruncated.labels({ hog_flow_id: state.hogFlowId }).inc()
-        const message = `Audience reached the max cap of ${state.maxAudienceSize}, ${state.totalEnqueued} persons enqueued; the remainder did not receive this workflow.`
+        const message = `This batch reached its audience limit of ${state.maxAudienceSize}. ${state.totalEnqueued} people were enqueued and the rest did not receive this workflow.`
         logger.warn('⚠️', `${this.name} - audience truncated`, {
             batchJobId: state.batchJobId,
             totalEnqueued: state.totalEnqueued,
@@ -454,7 +455,11 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                 {
                     team_id: state.teamId,
                     log_source: 'hog_flow',
-                    log_source_id: state.batchJobId,
+                    // Keyed on the flow, not the batch job: the logs API reads log_source_id as the
+                    // HogFlow id, so a row written under the batch job id reaches no UI at all and
+                    // the customer sees a silently truncated audience. The batch job id stays as
+                    // instance_id, which is what filters one run out of the flow's stream.
+                    log_source_id: state.hogFlowId,
                     instance_id: state.batchJobId,
                     ...logEntry('warn', message),
                 },
@@ -483,7 +488,9 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                 {
                     team_id: state.teamId,
                     log_source: 'hog_flow',
-                    log_source_id: state.batchJobId,
+                    // Same reason as the truncation log: keyed on the flow so the failure is
+                    // readable in the workflow's Logs tab.
+                    log_source_id: state.hogFlowId,
                     instance_id: state.batchJobId,
                     ...logEntry('error', `Batch resolver failed: ${reasonMessage}`),
                 },

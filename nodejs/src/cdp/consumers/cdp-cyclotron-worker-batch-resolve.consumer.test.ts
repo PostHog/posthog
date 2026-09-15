@@ -264,6 +264,36 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
         })
     })
 
+    describe('audience truncation', () => {
+        // A truncated audience is the customer's only signal that a batch reached fewer people
+        // than its trigger matched. Keyed on the batch job id it reaches no UI, because the logs
+        // API reads log_source_id as the HogFlow id.
+        it('logs the truncation on the workflow, keyed by flow id with the batch run as instance', () => {
+            const queueLogs = jest.fn()
+            const consumer = Object.create(CdpCyclotronWorkerBatchResolve.prototype)
+            Object.assign(consumer, { hogFunctionMonitoringService: { queueLogs } })
+            ;(consumer as any).emitTruncationLog({
+                batchJobId: 'batch-job-1',
+                teamId: team.id,
+                hogFlowId: hogFlow.id,
+                cursor: null,
+                filters: { properties: [] },
+                maxAudienceSize: 1000,
+                totalEnqueued: 1000,
+                pagesProcessed: 1,
+                attempts: 0,
+                variables: {},
+                startedAt: '2026-08-11T00:00:00.000Z',
+            } satisfies BatchResolverState)
+
+            const [logs] = queueLogs.mock.calls[0]
+            expect(logs[0].log_source_id).toEqual(hogFlow.id)
+            expect(logs[0].instance_id).toEqual('batch-job-1')
+            expect(logs[0].level).toEqual('warn')
+            expect(logs[0].message).toContain('audience limit of 1000')
+        })
+    })
+
     describe('cancel-flagged resolver jobs', () => {
         it('terminates on dequeue without fetching a page, even when the state is unparseable', async () => {
             const getBlastRadiusPersons = jest.fn()
@@ -291,10 +321,12 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
 
             expect(cancel).toHaveBeenCalledTimes(1)
             expect(getBlastRadiusPersons).not.toHaveBeenCalled()
-            // The stop is visible on the batch run's log stream, keyed by parent run id.
+            // Keyed on the flow so the stop is readable in the workflow's Logs tab, with the
+            // batch run kept as instance_id so it can still be filtered to this run.
             expect(queueLogs).toHaveBeenCalledTimes(1)
             const [logs] = queueLogs.mock.calls[0]
-            expect(logs[0].log_source_id).toEqual('batch-job-1')
+            expect(logs[0].log_source_id).toEqual(hogFlow.id)
+            expect(logs[0].instance_id).toEqual('batch-job-1')
             expect(flush).toHaveBeenCalled()
         })
     })
