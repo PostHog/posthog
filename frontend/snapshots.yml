@@ -5956,6 +5956,14 @@ snapshots:
         hash: v1.k794b7964.6d96696bb96a440ce1fa7b776edc81f103b6812009d0a850bcda00634acf485f.dm_X4B9rkIjkeWEqyEbies8fE9rJzn6jP1Rwjfl1Txs
     products-posthog-ai-startup-chat--sidebar--light:
         hash: v1.k794b7964.21eaee49f9429125b726ca537df2609832e2d31297b0e98d8264964866f293cb.u5AJc9X9898pYhh_P0fqkrmxDZRscEkFWYiCq68frv4
+    products-posthog-ai-taskassigneefiltermenu--non-staff--dark:
+        hash: v1.k794b7964.4035ea833c33e4ee5a2170621229dd92f1d100cf62a6e31a76e87f9b7208929d.A-PKKpUmtDu7WAcdTGXByPOQIfE5-GNHqOQ6uIa5Dfg
+    products-posthog-ai-taskassigneefiltermenu--non-staff--light:
+        hash: v1.k794b7964.068f6f8c005f286387bdaf6bfa91856bb0b3eed287c94d80983a74ea5663363a.1HycZE07eRlacyWMXxpLE6iI1aalIj2fNub2NQHSmoA
+    products-posthog-ai-taskassigneefiltermenu--staff--dark:
+        hash: v1.k794b7964.4035ea833c33e4ee5a2170621229dd92f1d100cf62a6e31a76e87f9b7208929d.psrRGt1S88jvdKLhtV2jSQ7BA1aRSlMwqM4giZf51uk
+    products-posthog-ai-taskassigneefiltermenu--staff--light:
+        hash: v1.k794b7964.068f6f8c005f286387bdaf6bfa91856bb0b3eed287c94d80983a74ea5663363a.xsldW73f4YSK9PPTcqbUdzQvps4iPX5EcQdQKZa5-04
     products-posthog-ai-threadactivitygroup--long-history--dark:
         hash: v1.k794b7964.8b34d1e1c80e586075052512fbf6342204ac90e7e990b4b0a2216794daffe677.RbS0dZBWhHvm3zRt-7dgogNZVBloP_Oonxbo8qrZIoA
     products-posthog-ai-threadactivitygroup--long-history--light:
@@ -10719,7 +10727,7 @@ snapshots:
     scenes-other-onboarding-shared-wizard-cloud-run--run-it-yourself--dark:
         hash: v1.k794b7964.5a35f0677ffb11febcba8084a0ccb558ecff39d861a8cd8c6501671f47a1fac2.Of5i_K-cfe3g96_a6dHtRI0PeaDjaJ0rdWZMi6O4aG0
     scenes-other-onboarding-shared-wizard-cloud-run--run-it-yourself--light:
-        hash: v1.k794b7964.8cff144ac77c6006b48a62a014070b994affcef9058056e2a95b8f4e22084c76.hP6I6QLsGi3k_TebVwrWapvf_CjCVBsmTFQ81_8HVfo
+        hash: v1.k794b7964.acc28e25e011b28ef72f89cc2e2494c5b20d4df504f501b3841777f33caecc2f.yvS9TBOTcaphHhW5g2EW9hNjWcKf7TidUb2f2Tp2ROk
     scenes-other-onboarding-shared-wizard-handoff-dialog--opened--dark:
         hash: v1.k794b7964.810fb1774d7f9ebf7b63cab5e3b5a45606bb9f498c3aff4ee6ee4d45bbb33123.jD9rqBcIaYTHx4mQTQs73wzG3zM_WtCv8UutSWtnny0
     scenes-other-onboarding-shared-wizard-handoff-dialog--opened--light:
