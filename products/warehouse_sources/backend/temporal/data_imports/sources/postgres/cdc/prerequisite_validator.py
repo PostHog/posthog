@@ -12,12 +12,20 @@ from typing import Literal
 import psycopg
 from psycopg import sql
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.slot_manager import (
     publication_exists,
     slot_exists,
 )
 
 logger = logging.getLogger(__name__)
+
+
+@frozen
+class _QualifiedTable:
+    schema: str
+    table: str
 
 
 def validate_cdc_prerequisites(
@@ -102,7 +110,7 @@ def _check_wal_level(conn: psycopg.Connection) -> list[str]:
     return []
 
 
-def _resolve_table_schemas(tables: list[str], schema: str | None) -> list[tuple[str, str]]:
+def _resolve_table_schemas(tables: list[str], schema: str | None) -> list[_QualifiedTable]:
     """Pair each table with the schema that holds it.
 
     A source configured for one schema lists bare table names, so they all take that schema. A
@@ -110,16 +118,19 @@ def _resolve_table_schemas(tables: list[str], schema: str | None) -> list[tuple[
     catalog lookup, because `relname` holds the table name alone.
     """
     if schema is not None:
-        return [(schema, table) for table in tables]
+        return [_QualifiedTable(schema=schema, table=table) for table in tables]
 
-    resolved: list[tuple[str, str]] = []
+    resolved: list[_QualifiedTable] = []
     for table in tables:
         schema_name, separator, table_name = table.partition(".")
-        resolved.append((schema_name, table_name) if separator else ("public", table))
+        if separator:
+            resolved.append(_QualifiedTable(schema=schema_name, table=table_name))
+        else:
+            resolved.append(_QualifiedTable(schema="public", table=table))
     return resolved
 
 
-def _check_tables_have_primary_keys(conn: psycopg.Connection, tables: list[tuple[str, str]]) -> list[str]:
+def _check_tables_have_primary_keys(conn: psycopg.Connection, tables: list[_QualifiedTable]) -> list[str]:
     """Each target table must have a primary key.
 
     Uses pg_catalog rather than information_schema because information_schema views
@@ -131,36 +142,41 @@ def _check_tables_have_primary_keys(conn: psycopg.Connection, tables: list[tuple
 
     errors: list[str] = []
     with conn.cursor() as cur:
-        for schema, table in tables:
+        for qualified in tables:
             cur.execute(
                 sql.SQL(
                     "SELECT COUNT(*) FROM pg_index i "
                     "JOIN pg_class c ON c.oid = i.indrelid "
                     "JOIN pg_namespace n ON n.oid = c.relnamespace "
                     "WHERE i.indisprimary AND n.nspname = {} AND c.relname = {}"
-                ).format(sql.Literal(schema), sql.Literal(table))
+                ).format(sql.Literal(qualified.schema), sql.Literal(qualified.table))
             )
             row = cur.fetchone()
             if row is None or row[0] == 0:
-                errors.append(f"Table '{schema}.{table}' has no primary key. CDC requires a primary key on each table.")
+                errors.append(
+                    f"Table '{qualified.schema}.{qualified.table}' has no primary key. "
+                    "CDC requires a primary key on each table."
+                )
     return errors
 
 
-def _check_select_permission(conn: psycopg.Connection, tables: list[tuple[str, str]]) -> list[str]:
+def _check_select_permission(conn: psycopg.Connection, tables: list[_QualifiedTable]) -> list[str]:
     """Check SELECT permission on target tables."""
     errors: list[str] = []
     with conn.cursor() as cur:
-        for schema, table in tables:
+        for qualified in tables:
             try:
                 cur.execute(
-                    sql.SQL("SELECT 1 FROM {}.{} LIMIT 0").format(sql.Identifier(schema), sql.Identifier(table))
+                    sql.SQL("SELECT 1 FROM {}.{} LIMIT 0").format(
+                        sql.Identifier(qualified.schema), sql.Identifier(qualified.table)
+                    )
                 )
             except psycopg.errors.InsufficientPrivilege:
                 conn.rollback()
-                errors.append(f"No SELECT permission on table '{schema}.{table}'.")
+                errors.append(f"No SELECT permission on table '{qualified.schema}.{qualified.table}'.")
             except psycopg.errors.UndefinedTable:
                 conn.rollback()
-                errors.append(f"Table '{schema}.{table}' does not exist.")
+                errors.append(f"Table '{qualified.schema}.{qualified.table}' does not exist.")
     return errors
 
 
