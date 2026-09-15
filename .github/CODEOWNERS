@@ -73,7 +73,7 @@ products/mcp_store/backend/catalog.py @PostHog/team-self-driving @cvolzer3
 products/isolation_baseline.txt @PostHog/team-devex
 
 # Product analytics owns the dashboard, alerts, and subscriptions products.
-products/dashboard/** @PostHog/team-product-analytics
+products/dashboards/** @PostHog/team-product-analytics
 products/alerts/** @PostHog/team-product-analytics
 products/subscriptions/** @PostHog/team-product-analytics
 
