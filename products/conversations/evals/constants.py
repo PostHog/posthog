@@ -18,8 +18,8 @@ EVAL_OUTCOMES: tuple[EvalOutcome, ...] = ("answerable", "needs_clarification", "
 BLOCKER_TYPES: tuple[BlockerType, ...] = ("none", "customer_info", "knowledge", "contradiction")
 TICKET_TYPES: tuple[TicketType, ...] = ("how_to", "diagnostic", "account_billing", "bug", "unactionable")
 
-# Pipeline `ai_triage.result` values the current (and planned) loop can emit, mapped to
-# the eval outcome the fixture asks for. Unknown results fail closed as escalate.
+# Pipeline `ai_triage.result` values the loop can emit, mapped to the eval outcome
+# the fixture asks for.
 PIPELINE_RESULT_TO_EVAL_OUTCOME: dict[str, EvalOutcome] = {
     "persisted": "answerable",
     "escalated_with_best": "escalate",

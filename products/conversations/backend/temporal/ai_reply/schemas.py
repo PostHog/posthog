@@ -47,6 +47,7 @@ class ClassifyOutput:
     ticket_type: str
     needs_diagnostics: bool
     seed_queries: list[str] = field(default_factory=list)
+    llm_attempts: int = 1
 
 
 @dataclass
@@ -63,6 +64,7 @@ class RefineQueriesInput:
 @dataclass
 class RefineQueriesOutput:
     queries: list[str]
+    llm_attempts: int = 1
 
 
 @dataclass
@@ -136,6 +138,7 @@ class ValidateOutput:
     coverage: float
     confidence: float
     missing: list[str]
+    llm_attempts: int = 1
 
 
 @dataclass
@@ -169,6 +172,7 @@ class SafetyFilterOutput:
     safe: bool
     threat_type: str = ""
     explanation: str = ""
+    llm_attempts: int = 1
 
 
 @dataclass
@@ -186,6 +190,7 @@ class ReviewReplyInput:
 class ReviewReplyOutput:
     safe: bool
     reason: str = ""
+    llm_attempts: int = 1
 
 
 @dataclass

@@ -154,7 +154,7 @@ FIXTURES: tuple[SupportReplyFixture, ...] = (
         blocker="customer_info",
         seed_queries=("events not showing", "events missing"),
         mocked_draft=MockedDraft(
-            reply="Which SDK are you using, and which page on app.example.com should have fired the event?",
+            reply="Which SDK are you using?",
             citation_sources=(),
             confidence=0.2,
         ),
@@ -169,7 +169,7 @@ FIXTURES: tuple[SupportReplyFixture, ...] = (
         needs_diagnostics=True,
         seed_queries=("broken",),
         mocked_draft=MockedDraft(
-            reply="Which product surface is broken, and what did you expect to see instead?",
+            reply="Which product surface is broken?",
             citation_sources=(),
             confidence=0.1,
         ),
@@ -184,7 +184,7 @@ FIXTURES: tuple[SupportReplyFixture, ...] = (
         seed_queries=("unexpected charge", "invoice"),
         forbidden_claims=("I'll refund", "I'll issue a credit"),
         mocked_draft=MockedDraft(
-            reply="Which organization is this for, and which invoice month are you asking about?",
+            reply="Which organization is this for?",
             citation_sources=(),
             confidence=0.2,
         ),

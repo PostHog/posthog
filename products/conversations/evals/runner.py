@@ -75,6 +75,8 @@ WORKFLOW_ACTIVITIES = [
     support_record_triage_activity,
 ]
 
+_MOCKED_WORKFLOW_LOCK = asyncio.Lock()
+
 
 def live_eval_enabled() -> bool:
     return os.environ.get(LIVE_EVAL_ENV_VAR, "") == "1"
@@ -266,8 +268,9 @@ async def run_fixture(fixture: SupportReplyFixture, seed: SeededCase, *, live: b
         if live:
             workflow_result = await _execute_workflow(seed.team_id, seed.ticket_id)
         else:
-            with _mocked_llm_activities(fixture, seed):
-                workflow_result = await _execute_workflow(seed.team_id, seed.ticket_id)
+            async with _MOCKED_WORKFLOW_LOCK:
+                with _mocked_llm_activities(fixture, seed):
+                    workflow_result = await _execute_workflow(seed.team_id, seed.ticket_id)
         return await asyncio.to_thread(
             lambda: collect_output(fixture=fixture, seed=seed, workflow_result=workflow_result, live=live)
         )

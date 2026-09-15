@@ -10,7 +10,7 @@ import asyncio
 from functools import partial
 from typing import Any
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from products.conversations.evals.fixtures import FIXTURES, SupportReplyFixture, expected_for
 from products.conversations.evals.report import format_report
@@ -33,6 +33,8 @@ class Command(BaseCommand):
         keep: bool = options["keep"]
         rows = asyncio.run(self._run(live=live, fixture_filter=fixture_filter, keep=keep))
         self.stdout.write(format_report(rows))
+        if any(output.get("exit_code") not in (0, None) for _, output, _ in rows):
+            raise CommandError("One or more support-reply fixtures failed to execute.")
 
     async def _run(
         self, *, live: bool, fixture_filter: str, keep: bool

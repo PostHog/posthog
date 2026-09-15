@@ -27,7 +27,7 @@ class TestEvalOutcomeFromTriage(SimpleTestCase):
             ("persisted_is_answerable", {"status": "done", "result": "persisted"}, "answerable"),
             ("escalated_with_best", {"status": "done", "result": "escalated_with_best"}, "escalate"),
             ("skipped_unactionable", {"status": "done", "result": "skipped_unactionable"}, "escalate"),
-            ("unknown_result_fail_closed", {"status": "done", "result": "mystery"}, "escalate"),
+            ("unknown_result_is_unscored", {"status": "done", "result": "mystery"}, None),
             (
                 "clarification_status_wins",
                 {"status": "awaiting_clarification", "result": "persisted"},
@@ -45,6 +45,10 @@ class TestSupportReplyScorers(SimpleTestCase):
         expected = {"outcome_match": {"outcome": "answerable"}}
         assert OutcomeMatch()._run_eval_sync({"eval_outcome": "answerable"}, expected).score == 1.0
         assert OutcomeMatch()._run_eval_sync({"eval_outcome": "escalate"}, expected).score == 0.0
+        assert (
+            OutcomeMatch()._run_eval_sync({"eval_outcome": None}, {"outcome_match": {"outcome": "escalate"}}).score
+            == 0.0
+        )
 
     def test_citation_precision_skips_when_no_expected_sources(self):
         score = CitationPrecision()._run_eval_sync(

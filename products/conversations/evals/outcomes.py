@@ -19,4 +19,4 @@ def eval_outcome_from_triage(ai_triage: dict[str, Any] | None) -> EvalOutcome | 
     result = triage.get("result")
     if not isinstance(result, str) or not result:
         return None
-    return PIPELINE_RESULT_TO_EVAL_OUTCOME.get(result, "escalate")
+    return PIPELINE_RESULT_TO_EVAL_OUTCOME.get(result)

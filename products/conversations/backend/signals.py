@@ -173,7 +173,12 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
 
             if is_team_message and created_by_id:
                 try:
-                    maybe_record_human_outcome(team_id=team_id, ticket_id=item_id, human_content=content or "")
+                    maybe_record_human_outcome(
+                        team_id=team_id,
+                        ticket_id=item_id,
+                        comment_id=comment_id,
+                        human_content=content or "",
+                    )
                 except Exception as e:
                     capture_exception(e, {"ticket_id": item_id})
 

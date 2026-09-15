@@ -110,6 +110,15 @@ class TestTicketMessageSignals(BaseTest):
         self.ticket.refresh_from_db()
         assert "human_outcome" not in (self.ticket.ai_triage or {})
 
+    def test_human_reply_before_ai_note_does_not_block_later_outcome(self, mock_on_commit):
+        draft = "Add the snippet to the head of every page."
+        self._create_team_message("Looking into this.")
+        self._create_ai_message(draft)
+        self._create_team_message(draft)
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.ai_triage["human_outcome"] == "used"
+
     @patch("products.conversations.backend.signals.capture_message_sent")
     @patch(
         "products.conversations.backend.signals.maybe_record_human_outcome",
