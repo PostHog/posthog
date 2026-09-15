@@ -46,8 +46,17 @@ export function RuleModal({
     filtersOptional = false,
     showTestButton = true,
 }: RuleModalProps): JSX.Element {
-    const { isOpen, rule, hasFilters, matchResult, matchResultLoading, savingLoading, deletingLoading, dateRange } =
-        useValues(logic)
+    const {
+        isOpen,
+        rule,
+        hasFilters,
+        matchResult,
+        matchResultLoading,
+        saveError,
+        savingLoading,
+        deletingLoading,
+        dateRange,
+    } = useValues(logic)
     const { closeModal, updateRule, loadMatchCount, saveRule, deleteRule, increaseDateRange } = useActions(logic)
 
     const isEditing = rule.id !== 'new'
@@ -195,6 +204,8 @@ export function RuleModal({
                 </div>
 
                 {extraFields}
+
+                {saveError && <LemonBanner type="error">{saveError}</LemonBanner>}
 
                 {matchResult !== null && !matchResultLoading && suffix ? (
                     <LemonBanner type={matchResult.exceptionCount === 0 ? 'error' : 'success'}>
