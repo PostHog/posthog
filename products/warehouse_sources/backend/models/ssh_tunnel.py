@@ -17,10 +17,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 # format problem, so both the parser and the validator give the same passphrase-specific guidance.
 _PASSPHRASE_ERROR_TERMS = ("checksum", "decrypt", "password", "passphrase")
 
-# Prefixes of the SSH public-key algorithm names paramiko can build a host key from. A pasted host
-# key may be a bare `<type> <base64>` public key or a full known_hosts line (`<host> <type> <base64>`),
-# so we locate the algorithm token rather than assume its position.
-_SSH_KEY_TYPE_PREFIXES = ("ssh-", "ecdsa-", "sk-ssh-", "sk-ecdsa-")
+# The algorithm names paramiko can build a host key from. These are the classes `from_type_string`
+# dispatches on, so each name it accepts is listed here and no other. A pasted host key may be a
+# bare `<type> <base64>` public key or a full known_hosts line (`<host> <type> <base64>`), so we
+# match the algorithm token rather than assume its position. Certificates are excluded, because a
+# certificate is not a host key.
+_SSH_KEY_TYPES = frozenset(
+    identifier
+    for key_class in (DSSKey, RSAKey, Ed25519Key, ECDSAKey)
+    for identifier in key_class.identifiers()
+    if "-cert-v01@" not in identifier
+)
 
 _HOST_KEY_FORMAT_HELP = (
     "Paste the server's public host key as `<type> <base64>`, for example one line of "
@@ -32,25 +39,28 @@ class HostKeyParseError(ValueError):
     """Carries the user-facing reason a pasted host key was rejected."""
 
 
-def _host_key_from_line(line: str) -> PKey | None:
-    """Return the host key on one known_hosts-style line, or None when the line carries none."""
+def _host_keys_from_line(line: str) -> list[PKey]:
+    """Return every host key on one known_hosts-style line."""
+    keys: list[PKey] = []
     tokens = line.split()
     for index, token in enumerate(tokens):
-        if not token.startswith(_SSH_KEY_TYPE_PREFIXES) or index + 1 >= len(tokens):
+        if token not in _SSH_KEY_TYPES or index + 1 >= len(tokens):
             continue
-        # A known_hosts host field can itself start with `ssh-`/`ecdsa-` (e.g. a bastion named
-        # `ssh-jump`), so a prefix match is only a candidate. The real algorithm token is the one
-        # whose next field is the base64 key, so skip a candidate the rest of the line disproves
-        # and keep scanning instead of failing on the hostname.
         try:
             key_bytes = base64.b64decode(tokens[index + 1], validate=True)
-        except ValueError:
-            continue
-        try:
-            return PKey.from_type_string(token, key_bytes)
+            key = PKey.from_type_string(token, key_bytes)
         except Exception:
             continue
-    return None
+        # paramiko zero-fills a short blob instead of raising, so a key whose base64 wrapped across
+        # lines still builds a well-formed key that can never match the server. Only a key that
+        # re-serializes to exactly the bytes pasted is the one the user meant to pin.
+        if key.asbytes() != key_bytes:
+            raise HostKeyParseError(
+                "The host key looks incomplete. Paste the whole key on one line, because a line "
+                "break inside the key data cuts it short."
+            )
+        keys.append(key)
+    return keys
 
 
 def host_key_from_string(value: str) -> PKey:
@@ -74,14 +84,12 @@ def host_key_from_string(value: str) -> PKey:
                 "A `@cert-authority` or `@revoked` known_hosts line is not a host key. Paste the "
                 "server's own public host key instead."
             )
-        key = _host_key_from_line(stripped)
-        if key is not None:
-            keys.append(key)
+        keys.extend(_host_keys_from_line(stripped))
 
     if len(keys) > 1:
         raise HostKeyParseError(
-            "Paste a single host key line. `ssh-keyscan` prints one line per key type, so pick the "
-            "one you want to pin, for example the `ssh-ed25519` line."
+            "Paste a single host key. `ssh-keyscan` prints one line per key type, so pick the one "
+            "you want to pin, for example the `ssh-ed25519` line."
         )
     if len(keys) == 0:
         raise HostKeyParseError(f"No SSH host key found. {_HOST_KEY_FORMAT_HELP}")

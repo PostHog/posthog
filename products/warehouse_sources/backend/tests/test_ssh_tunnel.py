@@ -165,21 +165,43 @@ def test_unparseable_host_key_is_rejected(host_key, expected):
     assert expected in error.lower()
 
 
-def test_multiple_host_keys_are_rejected():
-    # `ssh-keyscan` prints one line per key type and a tunnel pins exactly one key. Taking whichever
-    # key parses first pins a key the user never chose and ignores the rest without saying so.
-    keyscan_output = "\n".join(
-        [
-            "# host.com:22 SSH-2.0-OpenSSH_9.6",
-            f"host.com {_host_key_line('ssh-rsa')}",
-            f"host.com {_host_key_line('ssh-ed25519')}",
-        ]
-    )
+@pytest.mark.parametrize("on_one_line", [False, True])
+def test_multiple_host_keys_are_rejected(on_one_line):
+    # A tunnel pins exactly one key, so taking whichever key parses first pins a key the user never
+    # chose and ignores the rest without saying so. Counting keys per line misses the one-line case.
+    rsa_key, ed25519_key = _host_key_line("ssh-rsa"), _host_key_line("ssh-ed25519")
+    if on_one_line:
+        paste = f"host.com {rsa_key} {ed25519_key}"
+    else:
+        paste = "\n".join(["# host.com:22 SSH-2.0-OpenSSH_9.6", f"host.com {rsa_key}", f"host.com {ed25519_key}"])
 
-    res, error = _password_tunnel(host_key=keyscan_output).is_host_key_valid()
+    res, error = _password_tunnel(host_key=paste).is_host_key_valid()
 
     assert res is False
-    assert "single host key line" in error.lower()
+    assert "single host key" in error.lower()
+
+
+def test_a_host_key_wrapped_across_lines_is_rejected():
+    # paramiko zero-fills a short blob instead of raising, so a wrapped paste builds a well-formed
+    # key that can never match the server. Without this the source saves clean and every later sync
+    # fails at the handshake as a host-key mismatch, which reads as an attack rather than a bad paste.
+    key_type, key_base64 = _host_key_line("ssh-rsa").split()
+
+    res, error = _password_tunnel(host_key=f"{key_type} {key_base64[:60]}\n{key_base64[60:]}").is_host_key_valid()
+
+    assert res is False
+    assert "incomplete" in error.lower()
+
+
+def test_a_key_advertised_under_an_sha2_name_is_accepted():
+    # `rsa-sha2-256` and `rsa-sha2-512` are registered RSA identifiers, so a paste naming either
+    # must parse rather than read as "no host key found".
+    _, key_base64 = _host_key_line("ssh-rsa").split()
+
+    parsed = _password_tunnel(host_key=f"rsa-sha2-256 {key_base64}").parse_host_key()
+
+    assert parsed is not None
+    assert parsed.get_base64() == key_base64
 
 
 @pytest.mark.parametrize(
