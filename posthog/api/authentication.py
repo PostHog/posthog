@@ -1298,6 +1298,12 @@ def social_identity_matches_session(
     if not request or not request.user.is_authenticated or social is not None:
         return
 
+    is_github_account_link = getattr(backend, "name", "") == "github" and (
+        strategy.session_get("next") or ""
+    ).startswith("/account-connected/github-login")
+    if is_github_account_link:
+        return
+
     identity_email = ((details or {}).get("email") or "").lower()
     if user is None or user.pk != request.user.pk or identity_email != request.user.email.lower():
         logger.warning(

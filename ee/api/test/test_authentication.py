@@ -2,6 +2,7 @@ import os
 import json
 import uuid
 import datetime
+from types import SimpleNamespace
 from typing import Any, cast
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -693,7 +694,8 @@ class TestEEAuthenticationAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertNotIn("_auth_user_id", self.client.session)
 
-    def test_authenticated_session_cannot_attach_a_different_social_identity(self):
+    @parameterized.expand([("oidc",), ("github",)])
+    def test_authenticated_session_cannot_attach_a_different_social_identity(self, backend_name):
         request = RequestFactory().get("/complete/oidc/")
         request.session = self.client.session
         request.user = self.user
@@ -702,10 +704,27 @@ class TestEEAuthenticationAPI(APILicensedTest):
         with self.assertRaises(AuthFailed):
             social_identity_matches_session(
                 strategy,
-                backend=cast(Any, "oidc"),
+                backend=SimpleNamespace(name=backend_name),
                 details={"email": "someone-else@example.com"},
                 user=None,
             )
+
+    def test_github_account_link_allows_a_different_identity_email(self):
+        session = self.client.session
+        session["next"] = "/account-connected/github-login?provider=github&connect_from=posthog_code"
+        session.save()
+
+        request = RequestFactory().get("/complete/github/")
+        request.session = session
+        request.user = self.user
+        strategy = load_strategy(request)
+
+        social_identity_matches_session(
+            strategy,
+            backend=SimpleNamespace(name="github"),
+            details={"email": "github@example.com"},
+            user=self.user,
+        )
 
     @parameterized.expand(
         [
