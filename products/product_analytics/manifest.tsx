@@ -236,13 +236,5 @@ export const manifest: ProductManifest = {
             sceneKey: 'Annotations',
             sceneKeys: ['Annotations'],
         },
-        {
-            path: 'Comments',
-            category: 'Metadata',
-            iconType: 'comment',
-            href: urls.comments(),
-            sceneKey: 'Comments',
-            sceneKeys: ['Comments'],
-        },
     ],
 }

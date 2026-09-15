@@ -1,7 +1,7 @@
 from datetime import timedelta
 from typing import Literal
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -219,7 +219,7 @@ class TestActivityLogsCacheKey(BaseTest):
     def test_cache_key_varies_with_the_retention_window(self):
         # A cache hit returns before the printer applies the floor, so without this a result cached
         # on a longer plan keeps serving rows the organization is no longer entitled to read.
-        with freeze_time("2026-08-14T10:30:00Z"):
+        with time_machine.travel("2026-08-14T10:30:00Z", tick=False):
             wide = self._payload(limit=365, unit="days")
             narrow = self._payload(limit=30, unit="days")
 
@@ -274,11 +274,11 @@ class TestActivityLogsCacheKey(BaseTest):
         ]
         self.organization.save()
 
-        with freeze_time("2026-08-14T10:30:00Z"):
+        with time_machine.travel("2026-08-14T10:30:00Z", tick=False):
             earlier = get_query_runner(
                 HogQLQuery(query="SELECT id FROM system.activity_logs"), team=self.team, user=self.user
             ).get_cache_key()
-        with freeze_time("2026-08-14T11:30:00Z"):
+        with time_machine.travel("2026-08-14T11:30:00Z", tick=False):
             later = get_query_runner(
                 HogQLQuery(query="SELECT id FROM system.activity_logs"), team=self.team, user=self.user
             ).get_cache_key()

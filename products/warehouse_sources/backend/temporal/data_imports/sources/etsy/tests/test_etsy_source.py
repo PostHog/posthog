@@ -1,4 +1,4 @@
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.etsy.settings import ENDPOINTS, ETSY_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.etsy.source import EtsySource
@@ -18,6 +18,17 @@ class TestEtsySourceClass:
         assert config.iconPath == "/static/services/etsy.png"
         # A hidden source cannot be connected — a finished source must stay visible.
         assert config.unreleasedSource is None
+
+    def test_credential_fields_include_the_shared_secret(self) -> None:
+        # Etsy rejects a keystring-only x-api-key, so setup has to collect the secret alongside it.
+        secret_field = next(
+            field
+            for field in EtsySource().get_source_config.fields
+            if isinstance(field, SourceFieldInputConfig) and field.name == "shared_secret"
+        )
+
+        assert secret_field.required is True
+        assert secret_field.secret is True
 
     def test_shop_id_is_a_connection_host_field(self) -> None:
         # shop_id steers where the stored token is sent, so changing it must force credential re-entry.

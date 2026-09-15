@@ -16,6 +16,7 @@ from posthog.schema import EventsNode, TrendsQuery
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.errors import CHQueryErrorNoCommonType
+from posthog.exceptions import APIQueriesBudgetExceeded
 
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 from products.endpoints.backend.logic.execution import EndpointExecutionService, _emit_endpoint_failure_signal
@@ -197,6 +198,33 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("Query execution failed.", detail)
         if forbidden_detail:
             self.assertNotIn(forbidden_detail, detail)
+
+    def test_budget_refusal_does_not_count_as_an_endpoint_error(self):
+        endpoint = create_endpoint_with_version(
+            name="budget_refused",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
+            created_by=self.user,
+            is_active=True,
+        )
+
+        with (
+            mock.patch(
+                "products.endpoints.backend.logic.execution.process_query_model",
+                side_effect=APIQueriesBudgetExceeded(wait=120),
+            ),
+            mock.patch("products.endpoints.backend.logic.execution.ENDPOINT_EXECUTION_TOTAL") as mock_counter,
+            mock.patch("products.endpoints.backend.logic.execution._emit_endpoint_failure_signal") as mock_signal,
+            mock.patch("products.endpoints.backend.logic.execution.capture_exception") as mock_capture,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        mock_counter.labels.assert_not_called()
+        mock_signal.assert_not_called()
+        mock_capture.assert_not_called()
 
     def test_hogql_endpoint_executes_with_variable_override(self):
         endpoint = create_endpoint_with_version(

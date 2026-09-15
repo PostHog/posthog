@@ -31,7 +31,6 @@ from rest_framework.serializers import BaseSerializer
 
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -45,9 +44,9 @@ from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, changes_between, load_activity
-from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.utils import UUIDT, uuid7
-from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
+from posthog.renderers import ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from posthog.utils import relative_date_parse
 
@@ -64,6 +63,7 @@ from products.notebooks.backend.analytics import (
     notebook_node_count,
 )
 from products.notebooks.backend.collab import submit_steps
+from products.notebooks.backend.facade.api import to_markdown_notebook_content
 from products.notebooks.backend.facade.compute_pricing import (
     COMPUTE_PRESETS,
     DEFAULT_COMPUTE_PRESET_KEY,
@@ -71,7 +71,12 @@ from products.notebooks.backend.facade.compute_pricing import (
     find_matching_preset,
     get_compute_rates,
 )
-from products.notebooks.backend.facade.contracts import NotebookRunBusy, TeamRunCapacityFull
+from products.notebooks.backend.facade.contracts import (
+    NotebookContentNotConvertible,
+    NotebookRunBusy,
+    TeamRunCapacityFull,
+)
+from products.notebooks.backend.facade.kernel_sandbox_usage import record_sandbox_ended_by_id
 from products.notebooks.backend.facade.sql_v2 import acquire_run_slots, release_run_slots
 from products.notebooks.backend.facade.widgets import (
     WidgetConflictError,
@@ -107,7 +112,7 @@ from products.notebooks.backend.presentation.widget_throttles import (
     WidgetFrameBurstThrottle,
     WidgetFrameSustainedThrottle,
 )
-from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
+from products.notebooks.backend.python_analysis import analyze_python_globals
 from products.notebooks.backend.query_validation import InvalidNotebookQueryError, normalize_notebook_query_nodes
 from products.notebooks.backend.sql_v2 import (
     PAGE_LOCK_TTL_SECONDS,
@@ -157,7 +162,6 @@ from products.tasks.backend.facade.exceptions import SandboxProvisionError
 from products.tasks.backend.facade.sandbox import SandboxStatus
 
 from ee.hogai.utils.aio import async_to_sync
-from ee.hogai.utils.asgi import SyncIterableToAsync
 
 logger = structlog.get_logger(__name__)
 
@@ -305,7 +309,9 @@ class NotebookSerializer(NotebookMinimalSerializer):
         ]
         extra_kwargs = {
             **_NOTEBOOK_FIELD_HELP_TEXTS,
-            "content": {"help_text": "Notebook content as a ProseMirror JSON document structure."},
+            "content": {
+                "help_text": "Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook: one ph-markdown-notebook node that holds the converted markdown."
+            },
             "text_content": {"help_text": "Plain text representation of the notebook content for search."},
             "version": {
                 "help_text": "Version number for optimistic concurrency control. Must match the current version when updating content."
@@ -345,10 +351,26 @@ class NotebookSerializer(NotebookMinimalSerializer):
                 )
             validated_data["short_id"] = short_id
 
+        # Counted before conversion, so the event keeps reporting the size of the document the caller sent.
+        node_count = notebook_node_count(validated_data.get("content"))
+        # The cell tools and the editor work on markdown notebooks only, so a create never stores rich text.
+        try:
+            markdown_content = to_markdown_notebook_content(
+                validated_data.get("content"), organization_id=team.organization_id
+            )
+        except NotebookContentNotConvertible as err:
+            raise serializers.ValidationError({"content": str(err)})
+        if markdown_content is not None:
+            # validate_content counted cells before conversion, when rich text has none, so count the converted document.
+            try:
+                validate_cell_count(None, markdown_content)
+            except NotebookCellLimitExceeded as err:
+                raise serializers.ValidationError({"content": str(err)})
+            validated_data["content"] = markdown_content
+        # Search reads text_content, so it mirrors the stored markdown, as a markdown save does.
+        validated_data["text_content"] = markdown_collab.get_markdown_notebook_markdown(validated_data["content"])
+
         created_by = validated_data.pop("created_by", request.user)
-        content = validated_data.get("content")
-        if isinstance(content, dict):
-            validated_data["content"] = annotate_python_nodes(content)
         notebook = Notebook.objects.create(
             team=team,
             created_by=created_by,
@@ -373,7 +395,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             user=request.user,
             request=request,
             visibility=notebook.visibility,
-            node_count=notebook_node_count(notebook.content),
+            node_count=node_count,
             mcp_consumer=source_props.get("mcp_consumer"),
             api_key_type=source_props.get("api_key_type"),
         )
@@ -422,9 +444,6 @@ class NotebookSerializer(NotebookMinimalSerializer):
                                 "and this notebook is publicly shared."
                             )
 
-                    content = validated_data.get("content")
-                    if isinstance(content, dict):
-                        validated_data["content"] = annotate_python_nodes(content)
                     update_diff = markdown_collab.build_markdown_update_diff(
                         locked_instance.content, validated_data.get("content")
                     )
@@ -489,22 +508,6 @@ class NotebookKernelExecuteSerializer(serializers.Serializer):
     code = serializers.CharField(allow_blank=True)
     return_variables = serializers.BooleanField(default=True)
     timeout = serializers.FloatField(required=False, min_value=0.1, max_value=120)
-
-
-class NotebookHogQLExecuteSerializer(serializers.Serializer):
-    query = serializers.CharField(allow_blank=True)
-
-
-class NotebookKernelDataframeSerializer(serializers.Serializer):
-    variable_name = serializers.CharField()
-    offset = serializers.IntegerField(default=0, min_value=0)
-    limit = serializers.IntegerField(default=10, min_value=1, max_value=500)
-    timeout = serializers.FloatField(required=False, min_value=0.1, max_value=120)
-
-    def validate_variable_name(self, value: str) -> str:
-        if not value.isidentifier():
-            raise serializers.ValidationError("Variable name must be a valid identifier.")
-        return value
 
 
 ALLOWED_KERNEL_CPU_CORES = [0.125, 0.25, 0.5, 1, 2, 4, 6, 8, 16, 32, 64]
@@ -636,16 +639,6 @@ class NotebookCollabPresenceSerializer(serializers.Serializer):
 
 def _collab_user_name(user: User) -> str:
     return user.get_full_name() or "Wandering Hog"
-
-
-def _format_hogql_response_payload(response: Any) -> dict[str, Any]:
-    if hasattr(response, "model_dump"):
-        response_payload = response.model_dump(exclude_none=True)
-    else:
-        response_payload = response.dict(exclude_none=True)
-    for key in ("clickhouse", "hogql", "timings", "modifiers"):
-        response_payload.pop(key, None)
-    return response_payload
 
 
 IDENTITY_ONLY_DETAIL_ACTIONS = frozenset({"collab_presence", "collab_stream", "activity"})
@@ -1292,6 +1285,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         cpu_cores = sandbox_config.cpu_cores
 
         status = runtime.status if runtime else KernelRuntime.Status.STOPPED
+        sandbox_still_running = False
         if (
             runtime
             and runtime.sandbox_id
@@ -1308,6 +1302,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     status = KernelRuntime.Status.STOPPED
             except Exception:
                 status = KernelRuntime.Status.STOPPED
+                sandbox_still_running = True
 
         if runtime and status == KernelRuntime.Status.STOPPED:
             if (
@@ -1322,6 +1317,13 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             if runtime.status != status:
                 runtime.status = status
                 runtime.save(update_fields=["status"])
+            record_sandbox_ended_by_id(
+                runtime.id,
+                team_id=runtime.team_id,
+                user_id=runtime.user_id,
+                reason=status,
+                sandbox_still_running=sandbox_still_running,
+            )
 
         # A running sandbox keeps the shape it started with, so price that rather than the
         # notebook's configuration. They differ between a resize and the restart that applies it.
@@ -1549,93 +1551,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             return Response({"detail": "Failed to execute notebook code."}, status=503)
 
         return Response(execution.as_dict())
-
-    @action(methods=["POST"], url_path="hogql/execute", detail=True)
-    def hogql_execute(self, request: Request, **kwargs):
-        serializer = NotebookHogQLExecuteSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        notebook = self._get_notebook_for_kernel()
-
-        try:
-            response = execute_hogql_query(
-                query=serializer.validated_data["query"], team=self.team, user=self._current_user()
-            )
-        except Exception as err:
-            logger.exception("notebook_hogql_execute_failed", notebook_short_id=notebook.short_id)
-            return Response({"error": str(err)}, status=400)
-
-        return Response(_format_hogql_response_payload(response))
-
-    @action(
-        methods=["POST"],
-        url_path="kernel/execute/stream",
-        detail=True,
-        renderer_classes=[ServerSentEventRenderer],
-    )
-    def kernel_execute_stream(self, request: Request, **kwargs):
-        serializer = NotebookKernelExecuteSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        notebook = self._get_notebook_for_kernel()
-
-        analysis = analyze_python_globals(serializer.validated_data["code"])
-        variable_names = [entry["name"] for entry in analysis.exported_with_types]
-        renderer = SafeJSONRenderer()
-
-        def stream():
-            try:
-                for event in get_kernel_runtime(notebook, self._current_user()).execute_stream(
-                    serializer.validated_data["code"],
-                    capture_variables=serializer.validated_data.get("return_variables", True),
-                    variable_names=variable_names,
-                    timeout=serializer.validated_data.get("timeout"),
-                ):
-                    if event["type"] == "result":
-                        payload = event["data"]
-                    else:
-                        payload = {"text": event.get("text", "")}
-                    payload_json = renderer.render(payload).decode()
-                    yield f"event: {event['type']}\ndata: {payload_json}\n\n".encode()
-            except SandboxProvisionError:
-                logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
-                payload = {"error": "Failed to execute notebook code."}
-                payload_json = renderer.render(payload).decode()
-                yield f"event: error\ndata: {payload_json}\n\n".encode()
-            except RuntimeError:
-                logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
-                payload = {"error": "Failed to execute notebook code."}
-                payload_json = renderer.render(payload).decode()
-                yield f"event: error\ndata: {payload_json}\n\n".encode()
-
-        streaming_content = SyncIterableToAsync(stream()) if SERVER_GATEWAY_INTERFACE == "ASGI" else stream()
-        return sse_streaming_response(streaming_content, endpoint="notebook_stream")
-
-    @action(methods=["GET"], url_path="kernel/dataframe", detail=True)
-    def kernel_dataframe(self, request: Request, **kwargs):
-        serializer = NotebookKernelDataframeSerializer(data=request.query_params)
-        serializer.is_valid(raise_exception=True)
-        notebook = self._get_notebook_for_kernel()
-
-        try:
-            data = get_kernel_runtime(notebook, self._current_user()).dataframe_page(
-                serializer.validated_data["variable_name"],
-                offset=serializer.validated_data["offset"],
-                limit=serializer.validated_data["limit"],
-                timeout=serializer.validated_data.get("timeout"),
-            )
-        except ValueError:
-            logger.exception(
-                "notebook_kernel_dataframe_invalid_request",
-                notebook_short_id=notebook.short_id,
-            )
-            return Response({"detail": "Invalid dataframe request."}, status=400)
-        except SandboxProvisionError:
-            logger.exception("notebook_kernel_dataframe_failed", notebook_short_id=notebook.short_id)
-            return Response({"detail": "Failed to fetch dataframe data."}, status=503)
-        except RuntimeError:
-            logger.exception("notebook_kernel_dataframe_failed", notebook_short_id=notebook.short_id)
-            return Response({"detail": "Failed to fetch dataframe data."}, status=503)
-
-        return Response(data)
 
     @extend_schema(
         responses={200: NotebookSQLV2StateResponseSerializer},
@@ -2217,7 +2132,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         if result.status == "accepted":
             notebook_before = Notebook.objects.get(pk=notebook.pk)
             Notebook.objects.filter(pk=notebook.pk).update(
-                content=annotate_python_nodes(content) if isinstance(content, dict) else content,
+                content=content,
                 text_content=data.get("text_content", ""),
                 title=data.get("title", notebook.title),
                 version=result.version,
@@ -2324,8 +2239,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     validate_cell_count(locked_notebook.content, submitted_content)
                 except NotebookCellLimitExceeded as err:
                     raise serializers.ValidationError(str(err))
-                annotated_content = annotate_python_nodes(submitted_content)
-                diff = markdown_collab.build_markdown_update_diff(locked_notebook.content, annotated_content)
+                diff = markdown_collab.build_markdown_update_diff(locked_notebook.content, submitted_content)
                 result = markdown_collab.submit_markdown_update(
                     locked_notebook.team_id,
                     str(locked_notebook.short_id),
@@ -2339,7 +2253,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 )
                 if result.status == "accepted":
                     notebook_before = Notebook.objects.get(pk=notebook.pk)
-                    locked_notebook.content = annotated_content
+                    locked_notebook.content = submitted_content
                     locked_notebook.text_content = data.get("text_content", "")
                     if "title" in data:
                         locked_notebook.title = data["title"]
@@ -2494,23 +2408,23 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     @extend_schema(operation_id="notebooks_all_activity_retrieve")
     @action(methods=["GET"], url_path="activity", detail=False)
     def all_activity(self, request: Request, **kwargs):
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        page_params = parse_activity_page_params(request)
 
-        activity_page = load_activity(scope="Notebook", team_id=self.team_id, limit=limit, page=page)
-        return activity_page_response(activity_page, limit, page, request)
+        activity_page = load_activity(
+            scope="Notebook", team_id=self.team_id, limit=page_params.limit, page=page_params.page
+        )
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
     @action(methods=["GET"], url_path="activity", detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: Request, **kwargs):
         notebook = self.get_object()
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        page_params = parse_activity_page_params(request)
 
         activity_page = load_activity(
             scope="Notebook",
             team_id=self.team_id,
             item_ids=[notebook.id, notebook.short_id],
-            limit=limit,
-            page=page,
+            limit=page_params.limit,
+            page=page_params.page,
         )
-        return activity_page_response(activity_page, limit, page, request)
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)

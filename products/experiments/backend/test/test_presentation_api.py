@@ -4,7 +4,7 @@ from typing import Any, cast
 from uuid import uuid4
 
 import unittest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import ClickhouseTestMixin, FuzzyInt, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import ANY, MagicMock, patch
 
@@ -661,7 +661,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
 
         with (
-            freeze_time(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=now_offset_days)),
+            time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=now_offset_days), tick=False),
             patch("posthoganalytics.feature_enabled", return_value=True),
         ):
             serialized = ExperimentSerializer(
@@ -1502,7 +1502,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(response.json()["type"], "validation_error")
         self.assertEqual(response.json()["detail"], "Metadata must be an object")
 
-    @freeze_time("2025-02-10T13:00:00Z")
+    @time_machine.travel("2025-02-10T13:00:00Z", tick=False)
     def test_fetching_experiment_with_stale_metric_dates_applies_experiment_date_range(self):
         test_feature_flag = FeatureFlag.objects.create(
             name=f"Test experiment flag",
@@ -7147,7 +7147,11 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         results = response.json()["results"]
 
         item_ids = {entry["item_id"] for entry in results}
-        self.assertNotIn(str(other_experiment_id), item_ids)
+        # Scoped, because experiments and feature flags number from separate sequences and so reuse
+        # each other's ids. Matching the id alone reads this experiment's own flag entry as the
+        # unrelated experiment leaking in, whenever the two sequences happen to line up.
+        experiment_item_ids = {entry["item_id"] for entry in results if entry["scope"] == "Experiment"}
+        self.assertNotIn(str(other_experiment_id), experiment_item_ids)
         self.assertLessEqual(item_ids, {str(experiment_id), str(holdout_id), str(saved_metric_id), str(flag_id)})
         flag_entries = [entry for entry in results if entry["scope"] == "FeatureFlag"]
         self.assertEqual({entry["item_id"] for entry in flag_entries}, {str(flag_id)})

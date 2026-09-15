@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import { IconCheck } from '@posthog/icons'
 import { LemonInput, Spinner } from '@posthog/lemon-ui'
 
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { captureInboxReportAction, InboxReportActionSurface } from '../../inboxAnalytics'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
@@ -92,7 +92,9 @@ export function ReviewerSearchList({
             return
         }
         const optimisticEntry: EnrichedReviewer = {
-            github_login: '',
+            // The picker adds a PostHog member, whose GitHub login (if any) the server fills in.
+            github_login: null,
+            user_uuid: option.user_uuid,
             github_name: option.name || null,
             relevant_commits: [],
             user: {

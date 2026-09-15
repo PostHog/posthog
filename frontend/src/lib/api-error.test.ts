@@ -1,4 +1,10 @@
-import { ApiError, NetworkError, isTransientServerError, shouldReportApiFailure } from './api-error'
+import {
+    ApiError,
+    NetworkError,
+    isScopeNotFoundError,
+    isTransientServerError,
+    shouldReportApiFailure,
+} from './api-error'
 
 describe('api-error', () => {
     describe('ApiError.fromResponse', () => {
@@ -103,6 +109,11 @@ describe('api-error', () => {
             // degrades excuses one, through `isUnavailableEndpointError`.
             ['a 404', { status: 404 }, true],
             ['a 405', { status: 405 }, true],
+            // The exception is a 404 that names a dead scope: retrying it can never succeed, so it
+            // is excused globally rather than per caller.
+            ['a project-not-found 404', { status: 404, detail: 'Project not found.' }, false],
+            ['an organization-not-found 404', { status: 404, detail: 'Organization not found.' }, false],
+            ['a 404 for some other missing resource', { status: 404, detail: 'Not found.' }, true],
             // A request the browser never sent. Nothing of ours failed, and grouping is stack-based,
             // so reporting these opens one issue per loader that met the same connectivity blip.
             ['a Chromium fetch failure', new TypeError('Failed to fetch'), false],
@@ -137,6 +148,27 @@ describe('api-error', () => {
             const error = await ApiError.fromResponse(new Response(JSON.stringify(body), { status: 403 }))
 
             expect(shouldReportApiFailure(error)).toBe(false)
+        })
+    })
+
+    describe('isScopeNotFoundError', () => {
+        it.each([
+            ['a project-not-found 404 via detail', { status: 404, detail: 'Project not found.' }, true],
+            ['an org-not-found 404 via detail', { status: 404, detail: 'Organization not found.' }, true],
+            ['a 404 with the detail nested under data', { status: 404, data: { detail: 'Project not found.' } }, true],
+            ['a 404 for another resource', { status: 404, detail: 'Not found.' }, false],
+            ['a 404 with no detail', { status: 404 }, false],
+            ['a 403 that names the project', { status: 403, detail: 'Project not found.' }, false],
+            ['null', null, false],
+        ])('decides whether %s is a scope-not-found error', (_, error, expected) => {
+            expect(isScopeNotFoundError(error)).toBe(expected)
+        })
+
+        it('reads the detail off a constructed ApiError', async () => {
+            const error = await ApiError.fromResponse(
+                new Response(JSON.stringify({ detail: 'Project not found.' }), { status: 404 })
+            )
+            expect(isScopeNotFoundError(error)).toBe(true)
         })
     })
 })

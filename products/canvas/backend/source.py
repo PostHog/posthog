@@ -18,6 +18,13 @@ from urllib.parse import urlsplit
 import jsonschema
 
 from products.canvas.backend.actions import CANVAS_ACTIONS
+from products.canvas.backend.connectors import (
+    MCP_PROVIDER_PREFIX,
+    NATIVE_CONNECTORS,
+    is_known_provider,
+    mcp_provider_host,
+    unregistered_native_tools,
+)
 from products.canvas.backend.contract import (
     MAX_COMPONENT_HEIGHT,
     MAX_COMPONENT_WIDTH,
@@ -173,6 +180,9 @@ _PH_STATE_CALL_RE = re.compile(r"\bph\s*\.\s*state\s*\.\s*(get|set|list)\s*\(")
 _STATE_SCOPE_LITERAL_RE = re.compile(r"\bscope\s*:\s*[\"']([^\"']+)[\"']")
 _PH_ACTIONS_RE = re.compile(r"\bph\s*\.\s*actions\s*\.\s*invoke\s*\(\s*(?:[\"']([^\"']+)[\"'])?")
 _PH_AGENT_REQUEST_RE = re.compile(r"\bph\s*\.\s*agent\s*\.\s*request\s*\(")
+_PH_CONNECTORS_CALL_RE = re.compile(
+    r"\bph\s*\.\s*connectors\s*\.\s*call\s*\(\s*(?:[\"']([^\"']+)[\"']\s*(?:,\s*[\"']([^\"']+)[\"'])?)?"
+)
 
 _PATH_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._@-]+$")
 
@@ -374,6 +384,97 @@ def _validate_code_file(path: str, code: str) -> list[dict[str, Any]]:
                 )
             )
 
+    return diagnostics
+
+
+def _validate_connector_declarations(declared: Any) -> list[dict[str, Any]]:
+    """Check capabilities.connectors: known providers, registered native tools, public MCP hosts."""
+    diagnostics: list[dict[str, Any]] = []
+    if not isinstance(declared, list):
+        return [diagnostic("error", "invalid_connector_declaration", "capabilities.connectors must be a list")]
+    for entry in declared:
+        provider = entry.get("provider") if isinstance(entry, dict) else None
+        tools = entry.get("tools") if isinstance(entry, dict) else None
+        if not isinstance(provider, str) or not isinstance(tools, list) or not tools:
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "invalid_connector_declaration",
+                    "each capabilities.connectors entry needs a provider and a non-empty list of tool names",
+                )
+            )
+            continue
+        if not is_known_provider(provider):
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "connector_provider_unknown",
+                    f'capabilities.connectors names unknown provider "{provider}" — use one of '
+                    + ", ".join(sorted(NATIVE_CONNECTORS))
+                    + f', or "{MCP_PROVIDER_PREFIX}<server host>" for an MCP store server',
+                )
+            )
+            continue
+        host = mcp_provider_host(provider)
+        if host is not None and canonical_network_origin(f"https://{host}") is None:
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "connector_provider_unknown",
+                    f'connector provider "{provider}" must name a public server host, e.g. "mcp:mcp.example.com"',
+                )
+            )
+            continue
+        unregistered = unregistered_native_tools(provider, [tool for tool in tools if isinstance(tool, str)])
+        if unregistered:
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "connector_tool_not_registered",
+                    f"capabilities.connectors declares unknown {provider} tools: {', '.join(unregistered)} — "
+                    f"registered tools: {', '.join(sorted(NATIVE_CONNECTORS[provider].tools))}",
+                )
+            )
+    return diagnostics
+
+
+def _validate_connector_calls(path: str, code: str, capabilities: dict[str, Any]) -> list[dict[str, Any]]:
+    """Check ph.connectors.call sites against capabilities.connectors."""
+    diagnostics: list[dict[str, Any]] = []
+    declared: dict[str, set[str]] = {}
+    for entry in capabilities.get("connectors") or []:
+        if isinstance(entry, dict) and isinstance(entry.get("provider"), str):
+            declared.setdefault(entry["provider"], set()).update(
+                tool for tool in entry.get("tools") or [] if isinstance(tool, str)
+            )
+    for match in _PH_CONNECTORS_CALL_RE.finditer(code):
+        provider, tool = match.group(1), match.group(2)
+        line = _line_of(code, match.start())
+        if provider is None:
+            if not declared:
+                diagnostics.append(
+                    diagnostic(
+                        "warning",
+                        "capability_missing_connector",
+                        "ph.connectors.call() is called with a dynamic provider but capabilities.connectors is "
+                        "empty — declare every provider and tool the canvas calls",
+                        path=path,
+                        line=line,
+                    )
+                )
+            continue
+        if provider not in declared or (tool is not None and tool not in declared[provider]):
+            called = f'"{provider}", "{tool}"' if tool is not None else f'"{provider}"'
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "capability_missing_connector",
+                    f"ph.connectors.call({called}) requires that provider and tool in capabilities.connectors — "
+                    "the host rejects undeclared connector calls at runtime",
+                    path=path,
+                    line=line,
+                )
+            )
     return diagnostics
 
 
@@ -709,6 +810,15 @@ def validate_source_project(project: dict[str, Any], *, kind: str = "freeform") 
                 + ", ".join(sorted(CANVAS_ACTIONS)),
             )
         )
+    diagnostics.extend(_validate_connector_declarations(capabilities.get("connectors") or []))
+    if capabilities.get("connectors") and "shared" in (capabilities.get("posthog") or {}).get("state", []):
+        diagnostics.append(
+            diagnostic(
+                "error",
+                "connector_results_in_shared_state",
+                "Canvases with connectors cannot declare shared state. Use user-scoped state for connector data.",
+            )
+        )
     if len(files) + len(assets) > limits["maxSourceFiles"]:
         diagnostics.append(
             diagnostic(
@@ -794,5 +904,6 @@ def validate_source_project(project: dict[str, Any], *, kind: str = "freeform") 
         if path.endswith(_CODE_EXTENSIONS):
             diagnostics.extend(_validate_code_file(path, content))
             diagnostics.extend(_validate_capabilities(path, content, capabilities))
+            diagnostics.extend(_validate_connector_calls(path, content, capabilities))
 
     return diagnostics

@@ -319,3 +319,46 @@ class TestPandaDocClient(TestCase):
         ):
             with self.assertRaises(pandadoc.PandaDocError):
                 pandadoc.PandaDocClient().void_document(document_id="doc_123")
+
+    @override_settings(PANDADOC_API_KEY="key", PANDADOC_API_BASE_URL="https://api.pandadoc.com")
+    def test_force_void_document_returns_404_without_status_pre_check(self) -> None:
+        patch_response = MagicMock()
+        patch_response.status_code = 404
+        patch_response.text = "not found"
+
+        with (
+            patch("products.legal_documents.backend.logic.pandadoc.requests.get") as mock_get,
+            patch(
+                "products.legal_documents.backend.logic.pandadoc.requests.patch", return_value=patch_response
+            ) as mock_patch,
+        ):
+            result = pandadoc.PandaDocClient().force_void_document(document_id="doc_123")
+
+        self.assertEqual(result, 404)
+        mock_get.assert_not_called()
+        mock_patch.assert_called_once()
+
+    @override_settings(PANDADOC_API_KEY="key", PANDADOC_API_BASE_URL="https://api.pandadoc.com")
+    def test_force_void_document_voids_a_live_envelope(self) -> None:
+        patch_response = MagicMock()
+        patch_response.status_code = 204
+
+        with patch(
+            "products.legal_documents.backend.logic.pandadoc.requests.patch", return_value=patch_response
+        ) as mock_patch:
+            result = pandadoc.PandaDocClient().force_void_document(document_id="doc_123")
+
+        self.assertEqual(result, 204)
+        args, kwargs = mock_patch.call_args
+        self.assertEqual(args[0], "https://api.pandadoc.com/public/v1/documents/doc_123/status")
+        self.assertEqual(kwargs["json"], {"status": 11, "notify_recipients": False})
+
+    @override_settings(PANDADOC_API_KEY="key", PANDADOC_API_BASE_URL="https://api.pandadoc.com")
+    def test_force_void_document_raises_when_pandadoc_refuses(self) -> None:
+        patch_response = MagicMock()
+        patch_response.status_code = 409
+        patch_response.text = "Document is still rendering"
+
+        with patch("products.legal_documents.backend.logic.pandadoc.requests.patch", return_value=patch_response):
+            with self.assertRaises(pandadoc.PandaDocError):
+                pandadoc.PandaDocClient().force_void_document(document_id="doc_123")

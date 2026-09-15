@@ -81,6 +81,8 @@ def test_prints_resolved_query_with_explicit_trino_locator_and_bound_value() -> 
         "SELECT user_id FROM users WHERE user_id = 'person-1'",
         "SELECT properties.color, count() FROM users GROUP BY properties.color",
         "SELECT user_id FROM users ORDER BY created_at DESC LIMIT 2 BY user_id",
+        "WITH seed AS (SELECT 7 AS n) SELECT n FROM seed UNION ALL SELECT n FROM seed",
+        "SELECT user_id FROM users WHERE user_id IN ['violet', 'amber']",
     ],
 )
 def test_prepared_trino_transpiler_does_not_rebuild_the_schema_database(
@@ -648,6 +650,39 @@ def test_prints_trino_limit_syntax_after_set_operation() -> None:
     assert sql.endswith("OFFSET 4 ROWS LIMIT 10")
 
 
+@pytest.mark.parametrize("pretty", [False, True])
+@pytest.mark.parametrize("nested", [False, True])
+def test_set_query_ctes_are_visible_to_every_operand(pretty: bool, nested: bool) -> None:
+    query = "WITH seed AS (SELECT 7 AS n) SELECT n FROM seed LIMIT 1 UNION ALL SELECT n FROM seed"
+    if nested:
+        query = f"SELECT n FROM ({query})"
+
+    sql, _ = prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino", pretty=pretty)
+
+    compact = " ".join(sql.split())
+    assert 'WITH "seed" AS (SELECT 7 AS "n")' in compact
+    assert '(SELECT "seed"."n" FROM "seed" LIMIT 1) UNION ALL (SELECT "seed"."n" FROM "seed")' in compact
+    assert compact.count('WITH "seed"') == 1
+    if not nested:
+        assert compact.startswith("WITH ")
+
+
+@pytest.mark.parametrize("branch_is_set", [False, True])
+@pytest.mark.parametrize("branch_first", [False, True])
+def test_set_operand_preserves_branch_local_cte_scope(branch_is_set: bool, branch_first: bool) -> None:
+    branch = "WITH seed AS (SELECT 11 AS n) SELECT n FROM seed"
+    if branch_is_set:
+        branch += " UNION ALL SELECT n FROM seed"
+    outer = "WITH seed AS (SELECT 7 AS n) SELECT n FROM seed"
+    query = f"({branch}) UNION ALL ({outer})" if branch_first else f"{outer} UNION ALL ({branch})"
+
+    sql, _ = prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
+
+    assert 'WITH "seed" AS (SELECT 7 AS "n") ' in sql
+    assert 'WITH "seed" AS (SELECT 11 AS "n") ' in sql
+    assert "(SELECT * FROM (WITH " in sql
+
+
 def test_rejects_non_literal_trino_limit() -> None:
     query = parse_select("SELECT user_id FROM users")
     assert isinstance(query, ast.SelectQuery)
@@ -712,6 +747,19 @@ def test_prints_additional_semantics_safe_trino_expressions(expression: str, exp
         ),
         ("in(user_id, ('a', 'b'))", '"users"."user_id" IN (%(hogql_val_0)s, %(hogql_val_1)s)'),
         ("notIn(user_id, ('a', 'b'))", '"users"."user_id" NOT IN (%(hogql_val_0)s, %(hogql_val_1)s)'),
+        ("user_id IN ['violet', 'amber']", '"users"."user_id" IN (%(hogql_val_0)s, %(hogql_val_1)s)'),
+        ("user_id NOT IN ['violet']", '"users"."user_id" NOT IN (%(hogql_val_0)s)'),
+        ("in(user_id, ['violet'])", '"users"."user_id" IN (%(hogql_val_0)s)'),
+        ("notIn(user_id, [])", "SELECT TRUE FROM"),
+        ("user_id IN []", "SELECT FALSE FROM"),
+        ("(1, 2) IN []", "SELECT FALSE FROM"),
+        ("notIn((1, 2), [])", "SELECT TRUE FROM"),
+        ("NULL IN []", "SELECT FALSE FROM"),
+        ("NULL NOT IN []", "SELECT TRUE FROM"),
+        ("arrayMap(x -> x IN [], [1, 2])", 'transform(ARRAY[1, 2], "x" -> FALSE)'),
+        ("arrayFilter(x -> x NOT IN [], [1, 2])", 'filter(ARRAY[1, 2], "x" -> TRUE)'),
+        ("arrayMap(x -> in(x, []), [1, 2])", 'transform(ARRAY[1, 2], "x" -> FALSE)'),
+        ("user_id IN ['violet', NULL]", '"users"."user_id" IN (%(hogql_val_0)s, NULL)'),
         ("toDateTime(created_at, 'UTC')", 'with_timezone(CAST("users"."created_at" AS TIMESTAMP),'),
         ("toTimeZone(created_at, 'America/Toronto')", "at_timezone(with_timezone(CAST("),
         ("parseDateTime(user_id, '%Y-%m-%d')", 'TRY(date_parse("users"."user_id",'),

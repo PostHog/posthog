@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional, cast
 from uuid import uuid4
 
-from freezegun.api import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
@@ -26,7 +26,7 @@ from posthog.models import ActivityLog, EventDefinition, Organization, Tag, Team
 from products.actions.backend.models.action import Action
 
 
-@freeze_time("2020-01-02")
+@time_machine.travel("2020-01-02", tick=False)
 class TestEventDefinitionAPI(APIBaseTest):
     demo_team: Team = None  # type: ignore
 
@@ -115,6 +115,25 @@ class TestEventDefinitionAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["count"] == len(self.EXPECTED_EVENT_DEFINITIONS)
+
+    def test_list_event_definitions_filtered_by_tag_pages_in_sql(self):
+        # The tag filter used to read every definition in the project to collect ids. It now pages in
+        # SQL, so the page has to stay bounded, the count has to cover every match, and a definition
+        # that carries two of the filtered tags must still appear once.
+        bulk_url = f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_tags/"
+        tagged_names = ["installed_app", "purchase"]
+        ids = [str(EventDefinition.objects.get(team=self.demo_team, name=name).id) for name in tagged_names]
+        self.client.post(bulk_url, {"ids": ids, "action": "add", "tags": ["billing"]})
+        self.client.post(bulk_url, {"ids": ids[:1], "action": "add", "tags": ["revenue"]})
+
+        response = self.client.get(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/",
+            data={"tags": '["billing", "revenue"]', "limit": "1"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["count"] == len(tagged_names)
+        assert [result["name"] for result in response.json()["results"]] == ["installed_app"]
 
     @parameterized.expand(
         [
@@ -737,10 +756,24 @@ class TestCreateEventDefinitionsSql(SimpleTestCase):
         assert "FULL OUTER JOIN" not in sql
 
 
+class TestEventDefinitionListStatementTimeout(APIBaseTest):
+    def test_cancelled_list_query_returns_a_retryable_503(self) -> None:
+        slow_count_sql = "SELECT count(*) FROM (SELECT pg_sleep(3)) s WHERE %(project_id)s IS NOT NULL"
+
+        with (
+            patch("posthog.api.event_definition.create_event_definitions_count_sql", return_value=slow_count_sql),
+            patch("posthog.api.event_definition.DEFINITION_LIST_STATEMENT_TIMEOUT_MS", 250),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.pk}/event_definitions/")
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert response.json()["code"] == "event_definitions_timeout"
+
+
 class TestEventDefinitionExcludeStale(APIBaseTest):
     """Stale filter tests need real wall-clock times so the Postgres NOW() comparison
     in `exclude_stale` matches the fixture last_seen_at values. The other test class is
-    wrapped in freeze_time which Postgres NOW() does not respect."""
+    wrapped in a frozen clock which Postgres NOW() does not respect."""
 
     @parameterized.expand(
         [

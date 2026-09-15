@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 
 def _get_run_record(team_id: int, run_id: UUID) -> WizardRun:
-    run = WizardRun.objects.for_team(team_id).filter(id=run_id).first()
+    run = WizardRun.objects.for_team(team_id).select_related("created_by").filter(id=run_id).first()
 
     if run is None:
         raise WizardRunNotFoundError
@@ -107,6 +107,10 @@ def mark_cancellation_requested(team_id: int, run_id: UUID) -> None:
     WizardRun.objects.for_team(team_id).filter(id=run_id).update(cancellation_requested_at=timezone.now())
 
 
+def cancellation_requested(team_id: int, run_id: UUID) -> bool:
+    return _get_run_record(team_id, run_id).cancellation_requested_at is not None
+
+
 def mark_cancellation_dispatched(team_id: int, run_id: UUID) -> None:
     WizardRun.objects.for_team(team_id).filter(id=run_id).update(cancellation_dispatched_at=timezone.now())
 
@@ -122,6 +126,10 @@ def mark_dispatch_succeeded(team_id: int, run_id: UUID, workflow_id: str) -> Non
 
 
 def mark_dispatch_failed(team_id: int, run_id: UUID) -> bool:
+    """
+    Marks a dispatch attempt as failed and returns whether the run has exhausted its retry attempts.
+    """
+
     with database_transaction.atomic():
         run = WizardRun.objects.for_team(team_id).select_for_update().filter(id=run_id).first()
         if run is None:
@@ -167,7 +175,7 @@ def get_run_for_update(team_id: int, run_id: UUID) -> WizardRunDTO:
 
 
 def list_runs(params: ListWizardRunsInput) -> WizardRunPage:
-    runs = WizardRun.objects.for_team(params.team_id).order_by("-created_at")
+    runs = WizardRun.objects.for_team(params.team_id).select_related("created_by").order_by("-created_at")
     page = runs[params.offset : params.offset + params.limit]
     results: list[WizardRunDTO] = []
     for run in page:

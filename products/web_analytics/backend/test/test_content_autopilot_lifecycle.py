@@ -9,6 +9,7 @@ from products.web_analytics.backend.content_autopilot.lifecycle import (
     MAX_PROPOSAL_MARKDOWN_CHARS,
     ContentAutopilotLifecycleError,
     cancel_run,
+    delete_profile,
     edit_proposal,
     regenerate_proposal,
     reject_proposal,
@@ -58,8 +59,25 @@ class TestContentAutopilotLifecycle(BaseTest):
             cancel_run(team=other_team, run_id=str(run.id))
         with self.assertRaisesRegex(ContentAutopilotLifecycleError, "Select a site"):
             start_run(team=other_team, profile_id=str(profile.id), triggered_by_id=self.user.id)
+        with self.assertRaisesRegex(ContentAutopilotLifecycleError, "could not be found"):
+            delete_profile(team=other_team, profile_id=str(profile.id))
         proposal.refresh_from_db()
         self.assertEqual(proposal.lifecycle_status, ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW)
+
+    def test_deleting_a_site_stops_its_active_run_and_retires_the_site(self) -> None:
+        profile = create_content_autopilot_profile(self.team)
+        run = start_run(team=self.team, profile_id=str(profile.id), triggered_by_id=self.user.id)
+
+        deleted = delete_profile(team=self.team, profile_id=str(profile.id))
+        run.refresh_from_db()
+
+        self.assertTrue(deleted.deleted)
+        self.assertEqual(run.run_status, ContentAutopilotRun.RunStatus.CANCELED)
+        self.assertIsNotNone(run.completed_at)
+        with self.assertRaisesRegex(ContentAutopilotLifecycleError, "Select a site"):
+            start_run(team=self.team, profile_id=str(profile.id), triggered_by_id=self.user.id)
+        with self.assertRaisesRegex(ContentAutopilotLifecycleError, "could not be found"):
+            delete_profile(team=self.team, profile_id=str(profile.id))
 
     def test_each_site_has_its_own_active_run_boundary(self) -> None:
         first_profile = create_content_autopilot_profile(self.team, search_console_enabled=True)

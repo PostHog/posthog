@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -417,7 +417,7 @@ class TestDataDeletionRequestAdminSubmitView(BaseTest):
         self.assertFalse(self._call_submit(property_removal, method="GET").context_data["auto_approve_candidate"])
 
 
-@freeze_time("2025-01-15 12:00:00")
+@time_machine.travel("2025-01-15 12:00:00", tick=False)
 @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
 class TestDataDeletionRequestAdminSaveModel(BaseTest):
     def setUp(self):
@@ -517,7 +517,7 @@ class TestDataDeletionRequestAdminSaveModel(BaseTest):
         self.assertIsNone(obj.property_removal_marker)
 
 
-@freeze_time("2025-01-15 12:00:00")
+@time_machine.travel("2025-01-15 12:00:00", tick=False)
 class TestDataDeletionRequestModelValidation(BaseTest):
     def test_person_removal_rejects_person_properties_field(self):
         from django.core.exceptions import ValidationError
@@ -917,7 +917,7 @@ class TestDataDeletionRequestAdminDuplicate(BaseTest):
             ("without_notes", ""),
         ]
     )
-    @freeze_time("2026-01-15")
+    @time_machine.travel("2026-01-15", tick=False)
     def test_duplicate_copies_criteria_into_a_fresh_draft_with_link_note(self, _name, original_notes):
         original = DataDeletionRequest.objects.create(
             team_id=self.team.id,

@@ -1,13 +1,19 @@
 import { PutObjectCommandInput, S3Client } from '@aws-sdk/client-s3'
 import { ParquetReader } from '@dsnp/parquetjs'
+import sodium from 'libsodium-wrappers'
+import { register } from 'prom-client'
+
+import { parseJSON } from '~/common/utils/json-parse'
 
 import { BlockMetadataParquetStore } from './block-metadata-parquet-store'
 import { MlBlockMetadataRow } from './block-metadata-row'
+import { MlDataKey, decryptEnvelope } from './privacy/crypto'
+import { TrainingEncryptionVector } from './privacy/test-vectors'
+import { encryptReplayIndex, replayIndexPartitions } from './replay-index'
 
 const row = (sessionId: string, teamId: string): MlBlockMetadataRow => ({
     session_id: sessionId,
     team_id: teamId,
-    distinct_id: 'did-pseudo',
     block_url: `s3://ml-bucket/key-${sessionId}?range=bytes=0-9`,
     block_s3_key: `s3://ml-bucket/key-${sessionId}`,
     block_byte_start: 0,
@@ -49,6 +55,7 @@ describe('BlockMetadataParquetStore', () => {
     let s3: S3Client
 
     beforeEach(() => {
+        register.resetMetrics()
         puts = []
         s3 = {
             send: jest.fn((cmd: { input: PutObjectCommandInput }) => {
@@ -56,6 +63,168 @@ describe('BlockMetadataParquetStore', () => {
                 return Promise.resolve({})
             }),
         } as unknown as S3Client
+    })
+
+    it('splits encrypted metadata by session month rather than upload time', async () => {
+        const envelopes = ['2026-09-30T23:59:59.999Z', '2026-10-01T00:00:00Z'].map((date) => {
+            const hex = Date.parse(date).toString(16).padStart(12, '0')
+            return {
+                ...TrainingEncryptionVector.envelope,
+                context: {
+                    ...TrainingEncryptionVector.envelope.context,
+                    sessionId: `${hex.slice(0, 8)}-${hex.slice(8)}-7000-8000-000000000007`,
+                },
+            }
+        })
+        await new BlockMetadataParquetStore(s3, 'ml-bucket', 'block-metadata', 'pod').writeEncrypted(envelopes)
+        expect(puts.map((put) => put.Key?.split('/').slice(0, 3).join('/'))).toEqual([
+            'block-metadata/v2/2026-09',
+            'block-metadata/v2/2026-10',
+        ])
+        for (const [index, put] of puts.entries()) {
+            const records = await readRows(put.Body)
+            expect(records.map((record) => record.session_id)).toEqual([envelopes[index].context.sessionId])
+        }
+    })
+
+    it('stores encrypted eval indexes by session month with raw team IDs across late blocks', async () => {
+        await sodium.ready
+        const starts = ['2026-09-30T23:59:59.999Z', '2026-10-01T00:00:00Z']
+        const eventTimestamp = Date.parse('2026-10-01T00:00:01Z')
+        const store = new BlockMetadataParquetStore(s3, 'ml-bucket', 'block-metadata', 'pod')
+        for (const [index, start] of starts.entries()) {
+            const hex = Date.parse(start).toString(16).padStart(12, '0')
+            const sessionId = `${hex.slice(0, 8)}-${hex.slice(8)}-7000-8000-000000000007`
+            const key: MlDataKey = {
+                identity: { teamId: 7, organizationId: 'test-org', sessionId },
+                plaintext: Buffer.alloc(32, 7),
+                wrapped: Buffer.from('wrapped'),
+            }
+            const metadata: MlBlockMetadataRow = {
+                ...row(sessionId, '7'),
+                format_version: 2,
+                first_ts_ms: eventTimestamp,
+                last_ts_ms: eventTimestamp,
+                replay_index_entries: [
+                    { kind: 'full_snapshot', windowId: 'w1', eventTimestamp, eventIndex: 0 },
+                    { kind: 'json_ld', windowId: 'w1', eventTimestamp, eventIndex: 1, rootTypes: ['Product'] },
+                    { kind: 'page', windowId: 'w1', eventTimestamp, eventIndex: 1, url: 'https://example.com/product' },
+                ],
+            }
+            await store.writeEncryptedReplayIndex(encryptReplayIndex(metadata, key))
+            const month = start.slice(0, 7)
+            const objects = puts.filter((put) => put.Key!.startsWith(`block-metadata-replay-index/v2/${month}/`))
+            expect(objects).toHaveLength(2)
+            const labels = await readRows(objects.find((put) => put.Key!.includes('/kind=json_ld/'))!.Body)
+            expect(labels).toHaveLength(1)
+            expect(labels[0]).toMatchObject({ team_id: '7', session_id: sessionId })
+            expect(labels[0].url).toBeUndefined()
+            expect(labels[0].root_types).toBeUndefined()
+            const envelope = parseJSON(labels[0].payload.toString())
+            const decoded = parseJSON(decryptEnvelope(key, envelope, 'replay-index', 'json_ld').toString())
+            expect(decoded).toEqual([
+                expect.objectContaining({
+                    team_id: '7',
+                    session_id: sessionId,
+                    session_start_ts_ms: Date.parse(starts[index]),
+                    event_ts_ms: eventTimestamp,
+                    kind: 'json_ld',
+                    root_types: ['Product'],
+                    url: 'https://example.com/product',
+                }),
+            ])
+            expect(() => decryptEnvelope(key, envelope, 'replay-index', 'full_snapshot')).toThrow()
+        }
+    })
+
+    it.each([false, true])('counts encrypted uploads and failures: %s', async (failed) => {
+        if (failed) {
+            jest.mocked(s3.send).mockImplementationOnce(() => Promise.reject(new Error('upload failed')))
+        }
+        const store = new BlockMetadataParquetStore(s3, 'ml-bucket', 'block-metadata', 'pod-1')
+        const write = store.writeEncrypted([TrainingEncryptionVector.envelope])
+        if (failed) {
+            await expect(write).rejects.toThrow('upload failed')
+        } else {
+            await write
+        }
+        const rows = await register.getSingleMetric('ml_mirror_parquet_sink_rows_written_total')!.get()
+        const failures = await register.getSingleMetric('ml_mirror_parquet_sink_write_errors_total')!.get()
+        expect(rows.values[0].value).toBe(failed ? 0 : 1)
+        expect(failures.values[0].value).toBe(failed ? 1 : 0)
+        if (!failed) {
+            expect((await readRows(puts[0].Body))[0].payload).toEqual(
+                Buffer.from(JSON.stringify(TrainingEncryptionVector.envelope))
+            )
+        }
+    })
+
+    it.each([
+        { name: 'adjacent URL', pageIndex: 0, pageTime: 1000, window: 'w1', expected: 'https://example.com/page' },
+        { name: 'same timestamp', pageIndex: 0, pageTime: 1100, window: 'w1', expected: 'https://example.com/page' },
+        { name: 'intervening event', pageIndex: 0, pageTime: 1000, window: 'w1', expected: null },
+        { name: 'different window', pageIndex: 0, pageTime: 1000, window: 'w2', expected: null },
+        { name: 'reversed timestamps', pageIndex: 0, pageTime: 1200, window: 'w1', expected: null },
+        { name: 'later URL', pageIndex: 4, pageTime: 1200, window: 'w1', expected: null },
+    ])('enriches snapshot URLs from block metadata: $name', ({ name, pageIndex, pageTime, window, expected }) => {
+        const block: MlBlockMetadataRow = {
+            ...row('s1', 't1'),
+            session_start_ts_ms: 1000,
+            event_count: 6,
+            replay_index_entries: [
+                {
+                    kind: 'full_snapshot',
+                    windowId: 'w1',
+                    eventIndex: name === 'intervening event' ? 2 : 1,
+                    eventTimestamp: 1100,
+                },
+                {
+                    kind: 'page',
+                    windowId: window,
+                    eventIndex: pageIndex,
+                    eventTimestamp: pageTime,
+                    url: 'https://example.com/page',
+                },
+            ],
+        }
+        const entries = [...replayIndexPartitions([block]).values()].flat()
+        expect(entries.find((entry) => entry.kind === 'full_snapshot')?.url).toBe(expected)
+    })
+
+    it('does not carry URLs between blocks', () => {
+        const source = {
+            ...row('s1', 't1'),
+            session_start_ts_ms: 1000,
+        }
+        const entries = [
+            ...replayIndexPartitions([
+                {
+                    ...source,
+                    replay_index_entries: [
+                        {
+                            kind: 'page',
+                            windowId: 'w1',
+                            eventIndex: 0,
+                            eventTimestamp: 1000,
+                            url: 'https://example.com/page',
+                        },
+                    ],
+                },
+                {
+                    ...source,
+                    replay_index_entries: [
+                        { kind: 'full_snapshot', windowId: 'w1', eventIndex: 1, eventTimestamp: 1100 },
+                    ],
+                },
+            ]).values(),
+        ].flat()
+        expect(entries.find((entry) => entry.kind === 'full_snapshot')?.url).toBeNull()
+    })
+
+    it('rejects plaintext v2 metadata before writing any objects', async () => {
+        const store = new BlockMetadataParquetStore(s3, 'ml-bucket', 'block-metadata', 'pod-1')
+        await expect(store.write([{ ...row('session', '42'), format_version: 2 }])).rejects.toThrow('encrypted storage')
+        expect(puts).toHaveLength(0)
     })
 
     it('writes one dt-partitioned Parquet object that round-trips', async () => {
@@ -70,6 +239,111 @@ describe('BlockMetadataParquetStore', () => {
         expect(rows).toHaveLength(2)
         expect(Number(rows[0].block_byte_end)).toBe(9)
         expect(rows[0].snapshot_source).toBe('web')
+    })
+
+    it('indexes cross-block pairs by session start day and preserves window and fractional timestamps', async () => {
+        const store = new BlockMetadataParquetStore(s3, 'ml-bucket', 'block-metadata', 'pod-1')
+        const start = Date.parse('2025-01-01T23:59:00Z')
+        const snapshotTimestamp = start + 60_000.5
+        const full = {
+            ...row('s1', 't1'),
+            session_start_ts_ms: start,
+            first_ts_ms: snapshotTimestamp,
+            last_ts_ms: snapshotTimestamp,
+            replay_index_entries: [
+                { kind: 'full_snapshot' as const, windowId: 'w1', eventTimestamp: snapshotTimestamp, eventIndex: 0 },
+                {
+                    kind: 'page' as const,
+                    windowId: 'w1',
+                    eventTimestamp: snapshotTimestamp,
+                    eventIndex: 1,
+                    url: 'https://example.com/[redacted]',
+                },
+            ],
+        }
+        const label = {
+            ...full,
+            block_s3_key: 's3://ml-bucket/other-block',
+            replay_index_entries: [
+                {
+                    kind: 'json_ld' as const,
+                    windowId: 'w1',
+                    eventTimestamp: snapshotTimestamp,
+                    eventIndex: 2,
+                    fullSnapshotTimestamp: snapshotTimestamp,
+                    rootTypes: ['Product'],
+                },
+            ],
+        }
+        await store.write([label])
+        await store.write([full])
+        const indexPuts = puts.filter((put) => put.Key!.includes('-replay-index/'))
+        expect(indexPuts).toHaveLength(3)
+        for (const put of indexPuts) {
+            expect(put.Key).toContain('/session_start_date=2025-01-01/')
+        }
+        const labels = await readRows(indexPuts.find((put) => put.Key!.includes('kind=json_ld'))!.Body)
+        const snapshots = await readRows(indexPuts.find((put) => put.Key!.includes('kind=full_snapshot'))!.Body)
+        expect(labels[0]).toMatchObject({
+            team_id: 't1',
+            session_id: 's1',
+            window_id: 'w1',
+            event_index: 2,
+            full_snapshot_ts_ms: snapshots[0].event_ts_ms,
+            root_types: ['Product'],
+            block_s3_key: 's3://ml-bucket/other-block',
+            block_byte_start: 0,
+            block_byte_end: 9,
+        })
+        expect(snapshots[0].event_ts_ms).toBe(snapshotTimestamp)
+        const pages = await readRows(indexPuts.find((put) => put.Key!.includes('kind=page'))!.Body)
+        expect(pages[0].url).toBe('https://example.com/[redacted]')
+    })
+
+    it('propagates index upload failures so Kafka offsets cannot advance', async () => {
+        const store = new BlockMetadataParquetStore(s3, 'ml-bucket', 'block-metadata', 'pod-1')
+        jest.mocked(s3.send).mockImplementationOnce(() => Promise.reject(new Error('index unavailable')))
+        await expect(
+            store.write([
+                {
+                    ...row('s1', 't1'),
+                    session_start_ts_ms: 1000,
+                    replay_index_entries: [
+                        { kind: 'full_snapshot', windowId: 'w1', eventTimestamp: 1000, eventIndex: 0 },
+                    ],
+                },
+            ])
+        ).rejects.toThrow('index unavailable')
+    })
+
+    it.each([
+        { session_start_ts_ms: undefined },
+        { session_start_ts_ms: 3000 },
+        { session_start_ts_ms: 1, last_ts_ms: 8 * 86_400_000 },
+        { replay_index_entries: [{ kind: 'full_snapshot', windowId: 'w1', eventTimestamp: 1000, eventIndex: 99 }] },
+        {
+            replay_index_entries: [
+                {
+                    kind: 'json_ld',
+                    windowId: 'w1',
+                    eventTimestamp: 1000,
+                    eventIndex: 0,
+                    fullSnapshotTimestamp: 'invalid',
+                },
+            ],
+        },
+    ])('keeps block metadata when index fields are unusable: %j', async (override) => {
+        const store = new BlockMetadataParquetStore(s3, 'ml-bucket', 'block-metadata', 'pod-1')
+        await store.write([
+            {
+                ...row('s1', 't1'),
+                session_start_ts_ms: 1000,
+                replay_index_entries: [{ kind: 'full_snapshot', windowId: 'w1', eventTimestamp: 1000, eventIndex: 0 }],
+                ...override,
+            } as MlBlockMetadataRow,
+        ])
+        expect(puts).toHaveLength(1)
+        expect(puts[0].Key).toMatch(/^block-metadata\/dt=/)
     })
 
     it('sorts rows by (team_id, session_id)', async () => {

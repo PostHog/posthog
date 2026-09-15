@@ -1,11 +1,13 @@
 """How a session-scoped experiment surface reads exposure.
 
-The session buckets and the watch shelf both answer questions about "the sessions this experiment
-exposed someone in", and both have to mean the same thing by it: which event carries the exposure,
-which property carries the variant, and what to do when that event was only ever captured where
-there is no session to record. Resolved once here, because two surfaces disagreeing on the
-population would show up as one of them silently answering over a wider set of sessions than it
-names.
+The session buckets and the recordings list's in-session narrowing both answer questions about
+"the sessions this experiment exposed someone in", and both have to mean the same thing by it:
+which event carries the exposure, which property carries the variant, and what to do when that
+event was only ever captured where there is no session to record. Resolved once here, because two
+surfaces disagreeing on the population would show up as one of them silently answering over a
+wider set of sessions than it names. The watch shelf reads the person-scoped exposed population
+through ``replay_linkage`` instead, so it is not a reader of this seam beyond
+:func:`never_session_linked_events`.
 """
 
 from dataclasses import dataclass
@@ -27,6 +29,14 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     resolve_default_exposure_event,
 )
 from products.experiments.backend.models.experiment import Experiment
+
+# How long a session can run, so a window anchored on one of the session's own events still covers
+# the rest of it. The two session-scoped surfaces read it in opposite directions. The delta scan
+# resolves its ceiling from each session's last activity, so it has to reach this far back or a
+# session that began earlier is read from the middle and the events it opened with go missing. The
+# bucket scan anchors on the last exposure, so it has to reach this far forward or the metric
+# events that follow that exposure read as absence.
+MAX_SESSION_DURATION_HOURS = 24
 
 
 def never_session_linked_events(team: Team, event_names: frozenset[str]) -> frozenset[str]:

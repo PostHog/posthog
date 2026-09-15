@@ -29,6 +29,7 @@ from django.utils.deprecation import MiddlewareMixin
 from django.utils.http import http_date, url_has_allowed_host_and_scheme
 
 import structlog
+import posthoganalytics
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
@@ -46,7 +47,7 @@ from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.helpers.sso import sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
-from posthog.models import Team, User
+from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_HEADER,
     ACTIVITY_LOG_CLIENT_MAX_LENGTH,
@@ -1157,6 +1158,71 @@ def csp_report_endpoint(**params: str) -> str:
     return f"{endpoint}{separator}{urlencode(params)}"
 
 
+# The full path, matched exactly. Django sends every unmatched path to the app catch-all, so a
+# prefix match would also hand the app document this policy and stop it from starting.
+REPLAY_PLAYER_FRAME_PATH = "/replay_player_frame/index.html"
+
+# The app policy names only PostHog origins in `frame-ancestors`. Enforcing it on these paths stops
+# every embedded dashboard, shared link and survey from rendering on a customer's site.
+#
+# The list follows `posthog/urls.py`. The Contour ingress keeps a similar list in
+# `charts/argocd/contour-ingress/values/values.{dev,prod-us,prod-eu}.yaml`, which omits
+# `/interview/` and the bare `/exporter`. Sync to the URL patterns, not to that list.
+EMBEDDABLE_PATH_PREFIXES = (
+    "/shared_dashboard/",
+    "/shared/",
+    "/embedded/",
+    "/interview/",
+    "/exporter/",
+    "/external_surveys/",
+)
+EMBEDDABLE_PATHS = frozenset({"/render_query", "/exporter"})
+
+
+def is_embeddable_document(path: str) -> bool:
+    return path in EMBEDDABLE_PATHS or path.startswith(EMBEDDABLE_PATH_PREFIXES)
+
+
+CSP_ENFORCE_APP_POLICY_FLAG = "csp-enforce-app-policy"
+
+
+def csp_enforcement_enabled(request: HttpRequest) -> bool:
+    user = getattr(request, "user", None)
+    distinct_id = getattr(user, "distinct_id", None) if user is not None and user.is_authenticated else None
+    if user is None or not distinct_id:
+        # An anonymous page has nobody to bucket, so login, signup and the OAuth pages keep the
+        # report-only header until enforcement covers everyone.
+        return False
+    try:
+        # Local evaluation only. A network call here would sit in the path of every HTML response,
+        # and an unevaluable flag returns None, which leaves the policy report-only.
+        #
+        # Local evaluation holds the flag's conditions but not the person's properties, so a
+        # condition on `email` cannot resolve unless the caller supplies it. Without this the
+        # staff-only rollout every other flag here uses would return None and enforce nothing.
+        return bool(
+            posthoganalytics.feature_enabled(
+                CSP_ENFORCE_APP_POLICY_FLAG,
+                distinct_id,
+                person_properties={"email": user.email} if user.email else {},
+                only_evaluate_locally=True,
+            )
+        )
+    except Exception:
+        # A failed lookup and a deliberate opt-out both leave the policy report-only. The rollout
+        # needs to tell them apart.
+        logger.warning("csp.enforcement_flag_check_failed_defaulting_off", exc_info=True)
+        return False
+
+
+def app_csp_header_name(request: HttpRequest) -> str:
+    if is_embeddable_document(request.path):
+        return "Content-Security-Policy-Report-Only"
+    if csp_enforcement_enabled(request):
+        return "Content-Security-Policy"
+    return "Content-Security-Policy-Report-Only"
+
+
 class CSPMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
@@ -1172,6 +1238,40 @@ class CSPMiddleware:
         # csp headers only matter on html documents, so for defense in depth, add strong csp to all other requests
         if "text/html" not in content_type:
             response.headers["Content-Security-Policy"] = "default-src 'none'"
+            return response
+
+        if request.path == REPLAY_PLAYER_FRAME_PATH:
+            # rrweb's own iframe is on about:blank, and a frame on a local scheme inherits its
+            # parent's policy wholesale. Mounting rrweb inside this document rather than the app's
+            # makes this policy the one a recorded page is judged against.
+            #
+            # Recorded pages load whatever they loaded when recorded, so the media directives are
+            # open on purpose. Scripts are the exception: rrweb sandboxes its frame without
+            # allow-scripts, so nothing recorded ever executes, and 'none' states that rather than
+            # leaving it to the sandbox attribute alone.
+            #
+            # No report-uri: violations here describe a customer's site, not ours.
+            #
+            # frame-ancestors stays open because shared and embedded recordings put the app itself
+            # in a customer's page, which makes this frame's ancestor chain cross-origin. The
+            # document holds no data and cannot be scripted into cross-origin, so framing it
+            # elsewhere yields a blank page.
+            response.headers["Content-Security-Policy"] = "; ".join(
+                [
+                    "default-src 'none'",
+                    "script-src 'none'",
+                    "style-src * 'unsafe-inline' data: blob:",
+                    "img-src * data: blob:",
+                    "font-src * data: blob:",
+                    "media-src * data: blob:",
+                    "connect-src *",
+                    "frame-src *",
+                    "child-src *",
+                    "form-action 'none'",
+                    "base-uri 'none'",
+                    "frame-ancestors *",
+                ]
+            )
             return response
 
         is_admin_view = request.path.startswith("/admin/")
@@ -1201,12 +1301,25 @@ class CSPMiddleware:
                     f'posthog="{admin_report_endpoint}", default="{admin_report_endpoint}"'
                 )
             response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
+        elif "Content-Security-Policy" in response.headers:
+            # The view picked this policy for this document: a canvas artifact runs untrusted code,
+            # and the workflow asset endpoint sandboxes captured email HTML. The app policy would
+            # drop that sandbox and impose a frame-ancestors list the app's own origin does not
+            # match. Adding it report-only is no better, because these documents never aim to
+            # satisfy it, so each load would report a violation of a policy we chose not to apply.
+            return response
         else:
             resource_url = "https://*.posthog.com"
+            # Enforced for every viewer, flag or not, because this directive is what admits these
+            # origins: a frame-ancestors directive makes browsers ignore X-Frame-Options, which
+            # names only our own origin.
+            frame_ancestors = "frame-ancestors https://posthog.com https://preview.posthog.com"
             if settings.DEBUG or settings.TEST:
                 resource_url = "http://localhost:8234"
             elif settings.SITE_URL.endswith(".dev.posthog.dev"):
                 resource_url = "https://*.dev.posthog.dev"
+                # The posthog.com dev server frames the dev app.
+                frame_ancestors += " http://localhost:8001"
 
             connect_debug_url = "ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
             csp_parts = [
@@ -1218,12 +1331,43 @@ class CSPMiddleware:
                 # nothing to an attacker who cannot already run script, and nothing further to one who
                 # can. Session replay decompresses snapshots with snappy-wasm and the HogQL editor
                 # parses with a WebAssembly build, so both break without it.
-                f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval' {resource_url} https://*.i.posthog.com",
-                f"font-src 'self' {resource_url} https://app-static.eu.posthog.com https://app-static-prod.posthog.com https://fonts.gstatic.com https://cdn.jsdelivr.net",
-                "worker-src 'self'",
+                #
+                # Stripe and Turnstile are the two scripts we cannot serve ourselves: both vendors
+                # require the file to load from their own origin, so the flag-font trick of shipping
+                # a copy does not apply. `loadStripe` injects js.stripe.com for the payment entry
+                # modal, and the signup captcha loads the Turnstile API. `frame-src 'self' https:`
+                # already admits the iframes each one opens, and neither produced a connect-src
+                # violation while this policy was report-only, so their API calls run inside those
+                # frames rather than from our page.
+                f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval' {resource_url} https://*.i.posthog.com https://js.stripe.com https://challenges.cloudflare.com",
+                # A data: font cannot execute script, and this directive governs font loading only,
+                # so the token widens nothing else. It also carries nothing out: a data: URL makes
+                # no request, which is what the CSS-injection attacks on this directive need. The
+                # `data:` refusal in the worker-src note below is a different case, because a
+                # worker body is code.
+                f"font-src 'self' data: {resource_url} https://app-static.eu.posthog.com https://app-static-prod.posthog.com https://fonts.gstatic.com",
+                # `blob:` grants nothing to an attacker who cannot already run script, because only
+                # script can mint a blob URL, and a worker started from one inherits this policy
+                # rather than escaping it. The ServiceWorker spec rejects `blob:` on its own, so
+                # this cannot register a persistent worker either.
+                #
+                # The reasoning holds only while every blob worker body is a compile-time constant.
+                # `no-dynamic-worker-body` in .semgrep/rules/security checks first-party code for
+                # that. It follows an object URL or a `data:` URL into a worker constructor through
+                # the assignments in one function, so it catches the shapes we write rather than
+                # every possible one.
+                #
+                # posthog-js builds its rrweb recorder worker from a blob, and PixiJS builds two
+                # ImageBitmap workers the same way. Do not add `data:`: the recorder falls back to a
+                # data URL only when blob fails, so allowing blob stops those attempts.
+                "worker-src 'self' blob:",
                 "child-src 'none'",
                 "object-src 'none'",
-                "media-src https://res.cloudinary.com",
+                # `'self'` carries the PostHog AI onboarding videos under /static/. Max hands-free
+                # needs the other two: it primes playback with a silent `data:` clip, then plays
+                # the TTS response from a blob URL. None of the three can execute, because
+                # media-src governs <audio> and <video> only.
+                "media-src 'self' data: blob: https://res.cloudinary.com",
                 # `https:` is here for the OAuth authorize page, which renders an application's icon
                 # from a URL its registrant supplied. There is no allowlist that covers those, so
                 # until we serve them ourselves the directive has to accept any host.
@@ -1236,10 +1380,11 @@ class CSPMiddleware:
                 # exfiltration channel: an attacker who injects markup but cannot run script still
                 # gets a beacon out through an image URL.
                 f"img-src 'self' data: https: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
-                "frame-ancestors https://posthog.com https://preview.posthog.com https://vercel.com",
+                frame_ancestors,
                 f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com https://api.github.com",
-                # allow all sites for displaying heatmaps
-                "frame-src https:",
+                # https: lets heatmaps frame a customer's site. 'self' is for the replay player
+                # frame, whose document is same-origin: an http origin does not match https:.
+                "frame-src 'self' https:",
                 "manifest-src 'self'",
                 "base-uri 'self'",
                 # form-action has no default-src fallback, so leaving it unset lets an injected
@@ -1260,7 +1405,12 @@ class CSPMiddleware:
                 # Browsers only deliver crash reports to the endpoint named `default`; the CSP
                 # `report-to posthog` directive keeps routing violations to `posthog`.
                 response.headers["Reporting-Endpoints"] = f'posthog="{report_endpoint}", default="{report_endpoint}"'
-            response.headers["Content-Security-Policy-Report-Only"] = "; ".join(csp_parts)
+            header_name = app_csp_header_name(request)
+            response.headers[header_name] = "; ".join(csp_parts)
+            if header_name == "Content-Security-Policy-Report-Only" and not is_embeddable_document(request.path):
+                # Django owns this header. A responseHeadersPolicy on the Contour ingress replaces
+                # it, and with it the enforced app policy above, so the ingress must not set one.
+                response.headers["Content-Security-Policy"] = frame_ancestors
 
         return response
 
@@ -1323,9 +1473,43 @@ class SocialAuthExceptionMiddleware:
         return error_detail
 
 
-class ActiveOrganizationMiddleware:
+# Page prefixes kept per block, keyed by the page that explains it. An invite targets the inviting
+# organization, which this check never judges. Settling the balance is how a member lifts a
+# deactivation; no payment restores a pending deletion. `organizationLogic` holds the same table.
+ALLOWED_WHILE_BLOCKED: dict[str, tuple[str, ...]] = {
+    "/organization-pending-deletion": ("/organization-pending-deletion", "/signup/"),
+    "/organization-deactivated": (
+        "/organization-deactivated",
+        "/signup/",
+        "/organization/billing",
+        "/billing/authorization_status",
+    ),
+}
+
+
+def organization_block_page(organization: Organization) -> Optional[str]:
+    """The page explaining why this organization is closed to its members, or None when it is open.
+
+    Only an explicit `False` deactivates. `is_active` is nullable, but the migration that added it
+    backfilled every row to `True` and operators write `False` explicitly, so a null means "never
+    deactivated".
     """
-    Middleware to verify that the current authenticated session is attached to an active organization (is_active = None or True)
+    if organization.is_pending_deletion:
+        return "/organization-pending-deletion"
+    if organization.is_active is False:
+        return "/organization-deactivated"
+    return None
+
+
+class ActiveOrganizationMiddleware:
+    """Keep members out of an organization that is deactivated or pending deletion.
+
+    Runs after `AutoProjectMiddleware`, which switches the user into the organization a
+    `/project/<id>` URL names, so this middleware needs no path parsing of its own.
+    `test_middleware.py` pins the order.
+
+    This is UX, not enforcement: every `/api` path is skipped, and `ActiveOrganizationPermission`
+    is what holds the API.
     """
 
     _IGNORED_PATHS = ("/logout", "/api", "/admin")
@@ -1342,26 +1526,21 @@ class ActiveOrganizationMiddleware:
             return self.get_response(request)
 
         user = cast(User, request.user)
+        organization = user.current_organization
 
-        if user.current_organization is None:
+        if organization is None:
             return self.get_response(request)
 
-        # Check pending deletion first — takes priority over is_active
-        if user.current_organization.is_pending_deletion:
-            return (
-                self.get_response(request)
-                if request.path == "/organization-pending-deletion"
-                else redirect("/organization-pending-deletion")
-            )
+        block_page = organization_block_page(organization)
 
-        if user.current_organization.is_active is not False:
-            return redirect("/") if request.path == "/organization-deactivated" else self.get_response(request)
+        if block_page is None:
+            # A member sitting on a block page has been let back in.
+            return redirect("/") if request.path in ALLOWED_WHILE_BLOCKED else self.get_response(request)
 
-        return (
-            self.get_response(request)
-            if request.path == "/organization-deactivated"
-            else redirect("/organization-deactivated")
-        )
+        if any(request.path.startswith(allowed) for allowed in ALLOWED_WHILE_BLOCKED[block_page]):
+            return self.get_response(request)
+
+        return redirect(block_page)
 
 
 # Session key used to mark an impersonation session as read-only
