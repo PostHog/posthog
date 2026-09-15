@@ -109,4 +109,62 @@ describe('scannerRunTabLogic', () => {
         expect(postedBody).toEqual({ session_ids: ['a', 'b', 'c'] })
         expect(logic.values.bulkScanning).toBe(false)
     })
+
+    it('splits a selection above the per-request cap into cap-sized batches', async () => {
+        const postedBatches: string[][] = []
+        useMocks({
+            post: {
+                '/api/projects/:team/vision/scanners/:id/bulk_observe/': async ({ request }: { request: Request }) => {
+                    const body = await request.json()
+                    postedBatches.push(body.session_ids)
+                    return [
+                        202,
+                        {
+                            started: body.session_ids.length,
+                            results: body.session_ids.map((session_id: string) => ({
+                                session_id,
+                                scan_outcome: 'started',
+                            })),
+                        },
+                    ]
+                },
+            },
+        })
+        const sessionIds = Array.from({ length: 250 }, (_, i) => `s${i}`)
+
+        await expectLogic(logic, () => logic.actions.startBulkScan(sessionIds)).toFinishAllListeners()
+
+        // One request of 250 is rejected whole by the API, so every session has to go in a batch it accepts.
+        expect(postedBatches.map((batch) => batch.length)).toEqual([200, 50])
+        expect(postedBatches.flat()).toEqual(sessionIds)
+    })
+
+    it('stops batching once a batch reports a skip', async () => {
+        const postedBatches: string[][] = []
+        useMocks({
+            post: {
+                '/api/projects/:team/vision/scanners/:id/bulk_observe/': async ({ request }: { request: Request }) => {
+                    const body = await request.json()
+                    postedBatches.push(body.session_ids)
+                    return [
+                        202,
+                        {
+                            started: 0,
+                            results: body.session_ids.map((session_id: string) => ({
+                                session_id,
+                                scan_outcome: 'skipped_quota',
+                            })),
+                        },
+                    ]
+                },
+            },
+        })
+
+        await expectLogic(logic, () =>
+            logic.actions.startBulkScan(Array.from({ length: 250 }, (_, i) => `s${i}`))
+        ).toFinishAllListeners()
+
+        // The quota that bound on the first batch binds on every later one, so asking again only burns requests.
+        expect(postedBatches).toHaveLength(1)
+    })
 })
