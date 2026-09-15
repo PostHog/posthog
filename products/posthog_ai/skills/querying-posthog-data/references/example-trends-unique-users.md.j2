@@ -8,7 +8,7 @@ First, check the event with `posthog:read-data-schema`. Then call `posthog:query
 {
   "kind": "TrendsQuery",
   "series": [{ "kind": "EventsNode", "event": "chat with ai", "math": "dau" }],
-  "dateRange": { "date_from": "-30d" },
+  "dateRange": { "date_from": "-30d", "explicitDate": true },
   "interval": "day"
 }
 ```
@@ -22,7 +22,7 @@ Use the native insight controls for breakdowns or period comparisons. Do not gen
 This build-time SQL represents the same aggregation and time range. It cannot inherit the project's test-account setting. Before running or adapting it, apply the project's test-account filters when "Filter out internal and test users" is enabled.
 
 ```sql
-{{ render_hogql_example({"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "chat with ai", "math": "dau"}], "dateRange": {"date_from": "-30d"}, "interval": "day"}) }}
+{{ render_hogql_example({"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "chat with ai", "math": "dau"}], "dateRange": {"date_from": "-30d", "explicitDate": true}, "interval": "day"}) }}
 ```
 
 ## Simple aggregate: prefer a typed query when both fit

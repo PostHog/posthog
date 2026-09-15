@@ -498,6 +498,11 @@ const WebAnalyticsConversionGoal = z.union([ActionConversionGoal, CustomEventCon
 const AssistantDateRange = z.object({
     date_from: z.string().describe('ISO8601 date string.'),
     date_to: z.string().nullable().describe('ISO8601 date string.').optional(),
+    explicitDate: z.coerce
+        .boolean()
+        .nullable()
+        .describe('Use the date range exactly as provided, without rounding to interval boundaries.')
+        .optional(),
 })
 
 const AssistantDurationRange = z.object({
@@ -506,6 +511,11 @@ const AssistantDurationRange = z.object({
         .describe(
             "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start."
         ),
+    explicitDate: z.coerce
+        .boolean()
+        .nullable()
+        .describe('Use the rolling duration exactly as provided, without rounding to interval boundaries.')
+        .optional(),
 })
 
 const AssistantDateRangeFilter = z.union([AssistantDateRange, AssistantDurationRange])
