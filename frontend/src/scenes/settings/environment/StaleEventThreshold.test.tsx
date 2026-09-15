@@ -39,4 +39,11 @@ describe('<StaleEventThreshold />', () => {
             'true'
         )
     })
+
+    it('names the input, which the settings heading does not do for it', () => {
+        const { container } = render(<StaleEventThreshold />)
+        expect(container.querySelector('[data-attr="stale-event-threshold-days"]')).toHaveAccessibleName(
+            'Stale event threshold in days'
+        )
+    })
 })

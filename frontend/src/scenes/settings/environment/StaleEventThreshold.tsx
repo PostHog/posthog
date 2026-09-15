@@ -36,6 +36,7 @@ export function StaleEventThreshold(): JSX.Element {
                 className="w-24"
                 suffix={<span className="text-secondary">days</span>}
                 disabledReason={restrictionReason}
+                aria-label="Stale event threshold in days"
                 data-attr="stale-event-threshold-days"
             />
             <LemonButton
