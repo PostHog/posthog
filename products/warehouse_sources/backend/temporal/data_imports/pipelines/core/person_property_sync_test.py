@@ -238,18 +238,40 @@ class TestReadDeltaBundles:
         with patch("deltalake.DeltaTable") as dt_cls:
             dt_cls.is_deltatable.return_value = True
             dt_cls.return_value = fake_dt
-            accumulated, rows_read = pps._read_delta_bundles("s3://uri", {}, sources)
+            read = pps._read_delta_bundles("s3://uri", {}, sources)
 
-        assert rows_read == 3
-        assert accumulated["s1"] == {"a": {"plan_tier": "pro"}, "b": {"plan_tier": "team"}}
-        assert accumulated["s2"] == {"a": {"tier": "pro"}, "b": {"tier": "team"}}
+        assert read.rows_read == 3 and read.sources_missing_key_column == frozenset()
+        assert read.bundles_by_source["s1"] == {"a": {"plan_tier": "pro"}, "b": {"plan_tier": "team"}}
+        assert read.bundles_by_source["s2"] == {"a": {"tier": "pro"}, "b": {"tier": "team"}}
+
+    def test_reports_a_source_whose_key_column_the_table_lacks(self):
+        # The key column is what every row is matched on, so its absence produces nothing at all —
+        # the reader has to say so, or the backfill can't tell this apart from an idle table.
+        sources = [
+            PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "plan_tier"}),
+            PersonPropertySyncSource("s2", "d2", "computed_key", {"plan": "tier"}),
+        ]
+        fake_dt = MagicMock()
+        fake_dt.to_pyarrow_dataset.return_value = self._dataset(
+            [{"distinct_id": "a", "plan": "free"}], ["distinct_id", "plan"]
+        )
+        with patch("deltalake.DeltaTable") as dt_cls:
+            dt_cls.is_deltatable.return_value = True
+            dt_cls.return_value = fake_dt
+            read = pps._read_delta_bundles("s3://uri", {}, sources)
+
+        assert read.sources_missing_key_column == frozenset({"s2"})
+        assert read.bundles_by_source["s1"] == {"a": {"plan_tier": "free"}}
+        assert read.bundles_by_source["s2"] == {}
+        assert read.rows_read == 1
 
     def test_missing_table_returns_empty(self):
         sources = [PersonPropertySyncSource("s1", "d1", "distinct_id", {"plan": "plan_tier"})]
         with patch("deltalake.DeltaTable") as dt_cls:
             dt_cls.is_deltatable.return_value = False
-            accumulated, rows_read = pps._read_delta_bundles("s3://uri", {}, sources)
-        assert accumulated == {"s1": {}} and rows_read == 0
+            read = pps._read_delta_bundles("s3://uri", {}, sources)
+        assert read.bundles_by_source == {"s1": {}} and read.rows_read == 0
+        assert read.sources_missing_key_column == frozenset()
 
 
 class TestBackfillOrchestration:
@@ -273,7 +295,12 @@ class TestBackfillOrchestration:
             patch(f"{_MODULE}._get_schema", return_value=schema),
             patch(f"{_MODULE}.Team") as team_cls,
             patch(f"{_MODULE}.delta_storage_options", return_value={}),
-            patch(f"{_MODULE}._read_delta_bundles", return_value=(accumulated, 5)) as read_delta,
+            patch(
+                f"{_MODULE}._read_delta_bundles",
+                return_value=pps.DeltaBundleRead(
+                    bundles_by_source=accumulated, rows_read=5, sources_missing_key_column=frozenset()
+                ),
+            ) as read_delta,
             patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
             patch(f"{_MODULE}._filter_existing_ids", return_value={"a"}),
             patch(f"{_MODULE}._produce_intents", return_value=1) as produce,
@@ -293,6 +320,65 @@ class TestBackfillOrchestration:
         assert write_snapshot.await_count == 2
         assert all(call.args[3] == pps.BACKFILL_RUN_TOKEN for call in write_snapshot.await_args_list)
         assert produce.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_source_without_its_key_column_fails_instead_of_producing_nothing(self):
+        # Previously this completed clean with produced=0, which cleared the source's last error and
+        # read as a healthy sync — the mapping stays broken until someone changes the key column.
+        team = MagicMock(api_token="tok", project_id=7)
+        schema = MagicMock()
+        schema.folder_path.return_value = "team_1_source_schema-1"
+        schema.resolved_s3_folder_name = "orders"
+        schema.name = "orders"
+        sources = [PersonPropertySyncSource("s1", "d1", "computed_key", {"plan": "plan_tier"})]
+        with (
+            patch(f"{_MODULE}.person_property_sync_sources_for", return_value=sources),
+            patch(f"{_MODULE}._get_schema", return_value=schema),
+            patch(f"{_MODULE}.Team") as team_cls,
+            patch(f"{_MODULE}.delta_storage_options", return_value={}),
+            patch(
+                f"{_MODULE}._read_delta_bundles",
+                return_value=pps.DeltaBundleRead(
+                    bundles_by_source={"s1": {}}, rows_read=8, sources_missing_key_column=frozenset({"s1"})
+                ),
+            ),
+            patch(f"{_MODULE}._produce_intents") as produce,
+            patch(f"{_MODULE}._reconcile_property_definitions") as reconcile,
+        ):
+            team_cls.objects.get.return_value = team
+            result = await pps.run_person_property_backfill(team_id=1, binding=_SCHEMA, trigger="backfill")
+
+        (ps,) = result.per_source
+        assert ps.source_id == "s1"
+        assert ps.rows_read == 8 and ps.produced == 0
+        assert "computed_key" in (ps.error or "")
+        # The source is skipped outright rather than walked through stages that cannot match a row.
+        produce.assert_not_called()
+        reconcile.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_source_error_is_recorded_as_a_failed_run(self):
+        result = pps.SyncResult(
+            per_source=[
+                pps.PerSourceResult(source_id="s1", rows_read=8, error="Key column 'computed_key' is not a column"),
+                pps.PerSourceResult(source_id="s2", rows_read=8, produced=2),
+            ]
+        )
+        with patch(f"{_MODULE}.record_person_property_sync_run") as record:
+            await pps.record_completed_runs(
+                team_id=1,
+                binding=_SCHEMA,
+                job_id="job-1",
+                trigger="backfill",
+                started_at="2026-01-01T00:00:00+00:00",
+                finished_at="2026-01-01T00:00:01+00:00",
+                result=result,
+            )
+
+        recorded = {call.args[0].source_id: call.args[0] for call in record.call_args_list}
+        # Only the errored source fails, so one broken mapping can't mark a healthy sibling failed.
+        assert recorded["s1"].status == "failed" and "computed_key" in recorded["s1"].error
+        assert recorded["s2"].status == "completed" and recorded["s2"].error is None
 
     @parameterized.expand([("schema", _SCHEMA), ("saved_query", _VIEW)])
     @pytest.mark.asyncio
@@ -322,7 +408,12 @@ class TestBackfillOrchestration:
                 "products.data_modeling.backend.facade.api.get_materialized_table_uri",
                 return_value="s3://bucket/team_1_model_abc/modeling/enriched_users",
             ) as model_uri,
-            patch(f"{_MODULE}._read_delta_bundles", return_value=({"s1": {}}, 0)) as read_delta,
+            patch(
+                f"{_MODULE}._read_delta_bundles",
+                return_value=pps.DeltaBundleRead(
+                    bundles_by_source={"s1": {}}, rows_read=0, sources_missing_key_column=frozenset()
+                ),
+            ) as read_delta,
             patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
             patch(f"{_MODULE}._reconcile_property_definitions"),
         ):
