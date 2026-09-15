@@ -34,7 +34,7 @@ from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.language_service import LanguageServiceResult
 
-from posthog.api.services.query import process_query_model
+from posthog.api.services.query import _language_service_eligible, process_query_model
 from posthog.exceptions import DatabaseSchemaUnavailable
 from posthog.models import Team, User
 
@@ -47,6 +47,11 @@ from products.warehouse_sources.backend.facade.types import ExternalDataSourceTy
 
 
 class TestLanguageServiceRouting(SimpleTestCase):
+    def test_hogql_metadata_with_index_usage_is_language_service_eligible(self) -> None:
+        query = HogQLMetadata(query="SELECT * FROM events", language=HogLanguage.HOG_QL, indexUsage=True)
+
+        assert _language_service_eligible(query)
+
     @patch("posthog.api.services.query._language_service_call")
     def test_hogql_autocomplete_uses_language_service_response(self, mock_language_service_call: MagicMock):
         mock_language_service_call.return_value = LanguageServiceResult(
