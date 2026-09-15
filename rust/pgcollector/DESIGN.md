@@ -203,8 +203,11 @@ daily partitions created ahead by the collector's sink on startup and hourly,
 old partitions dropped by `retention_days` (default 14, per-collector override
 via `[sink.retention]`). Columns: `server_id`,
 `instance`, `datname` (nullable for cluster scope), `collected_at`, `interval_seconds`, key
-columns, then metric columns. Index on `(server_id, collected_at)` and on key
-columns + time for the hot ones.
+columns, then metric columns. Index on `(server_id, collected_at)`; a snapshot can
+declare extra `(server_id, <cols>, collected_at)` indexes (`Snapshot.indexes`). On a
+table that already has partitions the index is created `ON ONLY` the parent, and a
+background task (retried by the hourly maintenance) builds the per-partition indexes
+`CONCURRENTLY` and attaches them, so inserts are never blocked.
 
 **Current state** `cur_<collector>` — upsert by identity, with `first_seen`,
 `last_seen`, `content_hash`. Snapshot diffs append to `events(server_id,

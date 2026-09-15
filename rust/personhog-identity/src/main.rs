@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use assignment_coordination::store::{EtcdStore, StoreConfig};
 use axum::{routing::get, Router};
 use common_database::{get_pool_with_config, PoolConfig};
 use envconfig::Envconfig;
@@ -19,6 +20,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
 use personhog_common::client::RouterClient;
+use personhog_coordination::store::PersonhogStore;
 use personhog_identity::config::Config;
 use personhog_identity::leader::LifecycleLeader;
 use personhog_identity::lifecycle::delete::DeleteDriver;
@@ -83,6 +85,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Leader fan-out concurrency"
     );
     tracing::info!("Tables: {:?}", config.tables());
+
+    // The delete saga groups its fence calls by the leaders' partition
+    // count, which lives in etcd; a service that cannot read it would
+    // batch wrong, so refuse to start instead.
+    let num_partitions = {
+        let etcd_store = EtcdStore::connect(StoreConfig {
+            endpoints: config.etcd_endpoint_list(),
+            prefix: config.etcd_prefix.clone(),
+        })
+        .await
+        .expect("Failed to connect to etcd");
+        PersonhogStore::new(etcd_store)
+            .get_total_partitions()
+            .await
+            .expect("Failed to read total_partitions from etcd")
+    };
+    tracing::info!(num_partitions, "loaded partition count from etcd");
 
     // Build lifecycle manager and register components
     let mut manager = Manager::builder("personhog-identity").build();
@@ -245,6 +264,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             lifecycle_leader.clone(),
             config.tables(),
             config.lifecycle_leader_call_concurrency,
+            num_partitions,
         );
         let sweeper_engine = engine.clone();
         let sweep_interval = config.lifecycle_sweep_interval();
@@ -302,6 +322,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         lifecycle_leader,
         config.tables(),
         config.lifecycle_leader_call_concurrency,
+        num_partitions,
     );
     let service = PersonHogIdentityService::new(
         storage,
