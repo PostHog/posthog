@@ -175,7 +175,7 @@ Two cross-metric reads sharpen any pattern below before you write a cause hypoth
   the critical path instead — and that splits in two. On a server-rendered document the
   critical path is delivery and render-blocking resources, so `remediation.md` covers it.
   On a page whose markup is nearly empty and whose paint waits on a script bundle, the
-  critical path *is* what the boot entry imports statically, and no amount of edge caching
+  critical path _is_ what the boot entry imports statically, and no amount of edge caching
   or inlined CSS moves it. Read the served HTML to tell the two apart before you pick a
   cause: if the content a user reads is absent from the markup, the finding is a
   code-shape one, and
