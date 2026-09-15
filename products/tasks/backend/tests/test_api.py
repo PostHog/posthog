@@ -1736,6 +1736,7 @@ class TestTaskAPI(BaseTaskAPITest):
             (Task.OriginProduct.SIGNALS_CHAT,),
             (Task.OriginProduct.TASK_ANALYSIS,),
             (Task.OriginProduct.REVIEW_HOG,),
+            (Task.OriginProduct.SLACK,),
         ]
     )
     def test_create_task_rejects_server_created_origin(self, origin_product: Task.OriginProduct):
@@ -11858,6 +11859,69 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(call_kwargs["json"]["method"], "set_config_option")
         self.assertEqual(call_kwargs["json"]["params"]["configId"], "mode")
         self.assertEqual(call_kwargs["json"]["params"]["value"], "plan")
+
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_patch_cannot_forge_the_gateway_pin_stamp(self, _mock_publish):
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state={"ai_gateway_product": "slack_app"}
+        )
+        url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/"
+
+        # Dropping or repointing the stamp would let a model change move a pinned sandbox off its pin.
+        response = self.client.patch(url, {"state": {}, "state_remove_keys": ["ai_gateway_product"]}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response = self.client.patch(url, {"state": {"ai_gateway_product": "review_hog"}}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        run.refresh_from_db()
+        assert run.state["ai_gateway_product"] == "slack_app"
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_command_refuses_a_model_outside_the_runs_gateway_pin(self, mock_post):
+        # The sandbox's token pins its models and a gateway denial does not fall back.
+        reset_sandbox_jwt_key_cache()
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+        TaskRun.objects.filter(id=run.id).update(state={**(run.state or {}), "ai_gateway_product": "slack_app"})
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {
+                "jsonrpc": "2.0",
+                "method": "set_config_option",
+                "params": {"configId": "model", "value": "zai-org/glm-5.3"},
+                "id": "req-pin",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_post.assert_not_called()
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_command_proxies_a_model_inside_the_runs_gateway_pin(self, mock_post):
+        reset_sandbox_jwt_key_cache()
+        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "id": "req-pin", "result": {"updated": True}})
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+        TaskRun.objects.filter(id=run.id).update(state={**(run.state or {}), "ai_gateway_product": "slack_app"})
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {
+                "jsonrpc": "2.0",
+                "method": "set_config_option",
+                "params": {"configId": "model", "value": "claude-opus-5"},
+                "id": "req-pin",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_post.call_args[1]["json"]["params"]["value"], "claude-opus-5")
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")

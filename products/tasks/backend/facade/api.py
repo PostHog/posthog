@@ -84,6 +84,7 @@ from products.tasks.backend.feature_flags import get_model_access_error, is_work
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
 )
+from products.tasks.backend.logic.services.gateway_model_pin import GATEWAY_PRODUCT_STATE_KEY, pinned_run_allows_model
 from products.tasks.backend.logic.services.image_builder import (
     ensure_image_builder_task,
     is_custom_images_enabled,
@@ -185,6 +186,7 @@ __all__ = [
     "WarmRunActivationUnavailable",
     "append_task_run_log",
     "apply_task_run_model_config",
+    "task_run_model_outside_gateway_pin",
     "ensure_task_run_session",
     "beacon_task_presence",
     "bootstrap_task_run",
@@ -2313,6 +2315,9 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # is_interactive_signals_run reads it the same way, so forging it would move the run off
         # the interactive budget and out of its per-run spend ceiling.
         "ai_stage",
+        # Which model-pinned gateway token the current sandbox holds, stamped by the worker at mint.
+        # Dropping it would let a model change move the sandbox off its pin, which the gateway denies.
+        GATEWAY_PRODUCT_STATE_KEY,
         # Names the agent (scout, custom agent, workflow) the run executes, lifted onto its
         # $ai_generation events. A PATCHable value would bill a caller's spend to another agent.
         "ai_agent_name",
@@ -4388,6 +4393,10 @@ def apply_task_run_model_config(
         # gated model the caller could not have started the run on.
         logger.warning("Model access denied switching task run %s to %s", run.id, model)
         return False
+    if model and not pinned_run_allows_model(run.state, model):
+        # The sandbox's gateway token pins its models, and a gateway denial does not fall back.
+        logger.warning("Model %s is outside the gateway pin of task run %s", model, run.id)
+        return False
 
     auth_token = (
         create_sandbox_connection_token(run, user_id=actor.id, distinct_id=distinct_id)
@@ -4406,6 +4415,14 @@ def apply_task_run_model_config(
     if applied:
         TaskRun.update_state_atomic(run.id, updates=applied)
     return len(applied) == len(requested)
+
+
+def task_run_model_outside_gateway_pin(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, model: str | None
+) -> bool:
+    """Whether switching this run to ``model`` would leave its sandbox's model-pinned gateway token."""
+    run = _get_visible_run(run_id, task_id, team_id)
+    return run is not None and not pinned_run_allows_model(run.state, model)
 
 
 def get_task_run_sandbox_connection(

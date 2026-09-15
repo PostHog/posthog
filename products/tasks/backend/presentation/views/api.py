@@ -3016,6 +3016,16 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ):
                 return access_response
 
+        if (
+            method == "set_config_option"
+            and params.get("configId") == "model"
+            and tasks_facade.task_run_model_outside_gateway_pin(pk, task_id, self.team_id, params.get("value"))
+        ):
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "This run's gateway token does not allow that model."}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         connection = tasks_facade.get_task_run_sandbox_connection(
             pk, task_id, self.team_id, user_id=request.user.id, distinct_id=request.user.distinct_id
         )

@@ -35,6 +35,7 @@ from products.tasks.backend.constants import (
 )
 from products.tasks.backend.exceptions import CredentialUnavailableError
 from products.tasks.backend.feature_flags import is_mcp_exec_skills_enabled
+from products.tasks.backend.logic.services.gateway_model_pin import GATEWAY_PRODUCT_STATE_KEY, PRODUCT_ALLOWED_MODELS
 from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS
 from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url as _resolve_mcp_url
 
@@ -49,7 +50,9 @@ from products.tasks.backend.logic.services.run_actor import (
 )
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
+    AI_GATEWAY_TOKEN_MINTS,
     MINTABLE_PRODUCTS,
+    mint_refusal,
     mint_scoped_token,
     resolve_sandbox_ai_product,
     sandbox_product_routed,
@@ -1323,13 +1326,34 @@ def run_gateway_env_vars(ctx, task) -> dict[str, str]:
     """
     if ctx.claude_model_access == "own-subscription":
         return {}
-    return ai_gateway_env_vars(
+    env_vars = ai_gateway_env_vars(
         team_id=ctx.team_id,
         origin_product=ctx.origin_product,
         ai_stage=(ctx.state or {}).get("ai_stage"),
         internal=task.internal,
         distinct_id=ctx.distinct_id,
+        state=ctx.state,
+        model=ctx.model,
+        runtime=ctx.task_runtime,
     )
+    _record_pinned_gateway_product(ctx.run_id, ctx.state, env_vars.get("AI_GATEWAY_PRODUCT"))
+    return env_vars
+
+
+def _record_pinned_gateway_product(run_id: str, state: dict | None, minted_product: str | None) -> None:
+    """Stamp which model-pinned token this sandbox holds, so a later model change keeps inside the pin."""
+    from products.tasks.backend.models import TaskRun  # noqa: PLC0415
+
+    pinned = minted_product if minted_product in PRODUCT_ALLOWED_MODELS else None
+    if pinned == (state or {}).get(GATEWAY_PRODUCT_STATE_KEY):
+        return
+    try:
+        if pinned:
+            TaskRun.update_state_atomic(run_id, updates={GATEWAY_PRODUCT_STATE_KEY: pinned})
+        else:
+            TaskRun.update_state_atomic(run_id, remove_keys=[GATEWAY_PRODUCT_STATE_KEY])
+    except Exception:
+        logger.warning("ai_gateway_token: failed to record the pinned product", extra={"run_id": run_id}, exc_info=True)
 
 
 def ai_gateway_env_vars(
@@ -1339,6 +1363,9 @@ def ai_gateway_env_vars(
     ai_stage: str | None = None,
     internal: bool = False,
     distinct_id: str | None = None,
+    state: dict[str, Any] | None = None,
+    model: str | None = None,
+    runtime: str | None = None,
 ) -> dict[str, str]:
     """Env vars routing listed products to the Go ai-gateway, shared by every
     injection site so the both-or-nothing guard cannot drift per site. Both
@@ -1365,6 +1392,14 @@ def ai_gateway_env_vars(
         if ai_product in MINTABLE_PRODUCTS and sandbox_product_routed(
             ai_product, ai_stage, settings.SANDBOX_AI_GATEWAY_PRODUCTS
         ):
+            refusal = mint_refusal(ai_product, team_id=team_id, state=state, model=model, runtime=runtime)
+            if refusal:
+                AI_GATEWAY_TOKEN_MINTS.labels(result="skipped").inc()
+                logger.info(
+                    "ai_gateway_token: mint skipped, run stays on the Python gateway",
+                    extra={"ai_product": ai_product, "team_id": team_id, "reason": refusal},
+                )
+                return env_vars
             token = mint_scoped_token(ai_product=ai_product, team_id=team_id, user=distinct_id)
             if token:
                 env_vars["AI_GATEWAY_TOKEN"] = token
