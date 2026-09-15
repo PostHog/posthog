@@ -146,7 +146,7 @@ describe('ml-mirror-pipeline', () => {
                 topHog,
                 isDebugLoggingEnabled: () => false,
             },
-            { anonymizeMaxConcurrency: 4 }
+            { anonymizeMaxConcurrency: 4, nowMs: () => Date.UTC(2026, 8, 15, 13) }
         )
     }
 
