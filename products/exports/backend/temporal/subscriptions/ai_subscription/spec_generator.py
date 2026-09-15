@@ -291,6 +291,7 @@ def sanitize_prompt(raw: str | None) -> str:
         raise PromptRejectedError(f"Prompt exceeds {PROMPT_MAX_LENGTH} characters.")
 
     cleaned = sanitize_user_text(raw, max_len=PROMPT_MAX_LENGTH, preserve_newlines=True)
+    cleaned = "\n".join("" if line == r"\n" else line for line in cleaned.split("\n")).strip()
     if not cleaned:
         raise PromptRejectedError("Prompt is empty.")
 
