@@ -107,7 +107,6 @@ posthog/clickhouse/client/test/test_limit.py::TestRateLimit
 posthog/clickhouse/test/test_deletion_coverage.py::TestDeletionCoverage
 posthog/clickhouse/test/test_query_tagging.py::TestAddFallbackQueryTags
 posthog/helpers/test_markdown_safety.py::TestStripExternalLinks
-posthog/helpers/tests/test_email_utils.py::TestEmailNormalizer
 posthog/helpers/tests/test_encrypted_fields.py::TestEncryptedFields
 posthog/helpers/tests/test_geoip.py::TestGeoIPDBError
 posthog/helpers/tests/test_geoip.py::TestGeoIPError
