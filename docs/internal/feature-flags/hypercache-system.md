@@ -527,6 +527,14 @@ It winds down at a batch boundary two minutes before the soft limit,
 recording the partial run under `reason="deadline"` in `posthog_hypercache_verification_incomplete_runs_total`;
 the next run restarts from the first team.
 
+Each task that returns without raising stamps the time in
+`posthog_hypercache_verification_last_success_timestamp_seconds{cache_type="..."}`
+and in the shared cache under `posthog:hypercache_verification:last_success:<cache_type>`.
+Every worker republishes the stamps at boot, so the value survives a rollout that replaces
+every pod. Sweep liveness alerts read the age of this stamp, because the per-pod
+`posthog_celery_task_success_total` counters restart at zero on each rollout and a healthy
+sweep then reads the same as a stopped one.
+
 Configuration:
 
 ```bash
