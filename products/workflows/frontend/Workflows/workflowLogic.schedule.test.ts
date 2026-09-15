@@ -7,6 +7,7 @@ import { HogFlowSchedule } from './hogflows/types'
 import { workflowLogic } from './workflowLogic'
 
 const WEEKLY_MONDAY_RRULE = 'FREQ=WEEKLY;INTERVAL=1;BYDAY=MO'
+const HOURLY_RRULE = 'FREQ=HOURLY;INTERVAL=1'
 const STARTS_AT = '2026-04-10T09:00:00.000Z'
 
 const makeSchedule = (overrides: Partial<HogFlowSchedule> = {}): HogFlowSchedule => ({
@@ -59,6 +60,17 @@ describe('workflowLogic schedule reducers', () => {
             })
         })
 
+        it('initializes reducers from an hourly schedule', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setSchedules([makeSchedule({ rrule: HOURLY_RRULE })])
+            }).toMatchValues({
+                isScheduleRepeating: true,
+            })
+
+            expect(logic.values.scheduleState.frequency).toBe('hourly')
+            expect(logic.values.scheduleState.interval).toBe(1)
+        })
+
         it('resets to defaults when schedules list is empty', async () => {
             logic.actions.setSchedules([makeSchedule()])
 
@@ -79,6 +91,26 @@ describe('workflowLogic schedule reducers', () => {
             }).toMatchValues({
                 pendingSchedule: false,
             })
+        })
+
+        test.each([
+            ['an hourly rule', HOURLY_RRULE],
+            ['a rule the picker cannot write', 'FREQ=HOURLY;INTERVAL=6;BYHOUR=9,12'],
+        ])('reports no change after loading %s', (_, rrule) => {
+            logic.actions.setSchedules([makeSchedule({ rrule })])
+            expect(logic.values.pendingSchedule).toBe(false)
+        })
+
+        it('rebuilds the rule from the picker after a kept rule is edited', () => {
+            logic.actions.setSchedules([makeSchedule({ rrule: 'FREQ=HOURLY;INTERVAL=6;BYHOUR=9,12' })])
+            logic.actions.setScheduleState({ ...logic.values.scheduleState, interval: 2 })
+            expect(logic.values.pendingSchedule).toMatchObject({ rrule: 'FREQ=HOURLY;INTERVAL=2' })
+        })
+
+        it('does not add a weekday to a weekly rule that has none', () => {
+            logic.actions.setSchedules([makeSchedule({ rrule: 'FREQ=WEEKLY;INTERVAL=1' })])
+            logic.actions.setScheduleState({ ...logic.values.scheduleState, interval: 2 })
+            expect(logic.values.pendingSchedule).toMatchObject({ rrule: 'FREQ=WEEKLY;INTERVAL=2' })
         })
 
         it('returns schedule config when starts_at changes', async () => {

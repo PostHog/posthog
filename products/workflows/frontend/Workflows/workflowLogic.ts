@@ -3326,11 +3326,13 @@ export const workflowLogic = kea<workflowLogicType>([
         scheduleState: [
             { ...DEFAULT_STATE } as ScheduleState,
             {
-                setScheduleState: (_, { scheduleState }) => scheduleState,
+                // A picker change replaces a preserved rule with one built from the controls.
+                setScheduleState: (_, { scheduleState, source }) =>
+                    source === 'picker' ? { ...scheduleState, rawRRule: null } : scheduleState,
                 setSchedules: (_, { schedules }) => {
                     const schedule = schedules[0]
                     if (schedule && !isOneTimeSchedule(schedule.rrule)) {
-                        return parseRRuleToState(schedule.rrule)
+                        return parseRRuleToState(schedule.rrule, schedule.starts_at)
                     }
                     return { ...DEFAULT_STATE }
                 },
