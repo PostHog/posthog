@@ -1395,12 +1395,20 @@ class TestPostHogFeatureFlagPermission(BaseTest):
         self.assertEqual(kwargs["person_properties"], caller)
         self.assertEqual(kwargs["group_properties"]["organization"], {**caller, "id": str(self.organization.id)})
 
-    @patch("posthoganalytics.feature_enabled", return_value=False)
-    def test_denies_when_flag_disabled(self, mock_ff):
+    @parameterized.expand(
+        [
+            ("the flag is off", False),
+            # A flag key nothing has created, and a flag service that cannot answer, both come
+            # back as None. Neither is a yes, so neither opens the view.
+            ("the flag does not exist", None),
+        ]
+    )
+    def test_denies_unless_the_flag_says_yes(self, _, flag_value):
         request = self._create_mock_request()
         view = self._create_mock_view(flag="my-flag")
 
-        result = self.permission.has_permission(request, view)
+        with patch("posthoganalytics.feature_enabled", return_value=flag_value):
+            result = self.permission.has_permission(request, view)
 
         self.assertFalse(result)
         # DRF passes both onto the 403 body. The code lets a client tell a not-yet-ingested
