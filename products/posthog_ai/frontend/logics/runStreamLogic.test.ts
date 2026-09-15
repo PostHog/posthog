@@ -158,6 +158,12 @@ class MockStreamConnection {
         await flushPromises()
     }
 
+    /** Emit a named `event: end` control frame (a rotation or a resync) without closing the body. */
+    async emitEndFrame(payload: Record<string, unknown>): Promise<void> {
+        this.deliver({ done: false, value: this.encodeFrame({ data: JSON.stringify(payload), event: 'end' }) })
+        await flushPromises()
+    }
+
     /** Emit the durable `event: stream-end` end-of-run sentinel, then close the body. */
     async emitStreamEnd(): Promise<void> {
         this.deliver({
@@ -2425,6 +2431,32 @@ describe('runStreamLogic', () => {
             // The reconnect resumes exactly after the last-seen frame — header set, no start=latest.
             expect(MockStream.latest().options.lastEventId).toEqual('1700-0')
             jest.useRealTimers()
+        })
+
+        it('rebuilds from history and replays the stream window when the server reports the cursor trimmed', async () => {
+            const logsSpy = jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+            await MockStream.latest().emitOpen()
+            expect(logsSpy).toHaveBeenCalledTimes(1)
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '1700-0')
+            await MockStream.latest().emitEndFrame({ type: 'resync', reason: 'trimmed' })
+
+            jest.useFakeTimers()
+            await MockStream.latest().emitClose()
+            await flushPromises()
+            jest.advanceTimersByTime(2000)
+
+            // The reopen reads the whole surviving window (no cursor, no start=latest) so the seam dedupe
+            // can fill in the in-progress turn, and history is re-read once the connection is up.
+            expect(MockStream.latest().options.lastEventId).toBeUndefined()
+            expect(MockStream.latest().options.startLatest).toEqual(false)
+            expect(window.sessionStorage.getItem('posthog-ai:stream-resume:run-1')).toBeNull()
+            jest.useRealTimers()
+            await MockStream.latest().emitOpen()
+            expect(logsSpy).toHaveBeenCalledTimes(2)
         })
 
         it('preserves a known in-flight status when the reconnect reopens the stream', async () => {
