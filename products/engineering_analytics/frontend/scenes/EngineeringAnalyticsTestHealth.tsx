@@ -43,7 +43,7 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
             key: 'testCount',
             align: 'right',
             sorter: (a, b) => a.testCount - b.testCount,
-            render: (_, row) => humanFriendlyNumber(row.testCount),
+            render: (_, row) => formatCappedCount(row.testCount),
         },
         {
             title: 'Overdue',
@@ -53,9 +53,9 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
             sorter: (a, b) => a.overdueCount - b.overdueCount,
             render: (_, row) =>
                 row.overdueCount > 0 ? (
-                    <span className="font-semibold text-danger">{humanFriendlyNumber(row.overdueCount)}</span>
+                    <span className="font-semibold text-danger">{formatCappedCount(row.overdueCount)}</span>
                 ) : (
-                    '0'
+                    formatCappedCount(0)
                 ),
         },
         {
