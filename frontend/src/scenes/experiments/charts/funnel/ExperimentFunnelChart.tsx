@@ -42,6 +42,8 @@ export interface ExperimentFunnelChartProps {
     metric: ExperimentFunnelMetric
     /** Enables click-to-inspect actors on the funnel bars. */
     experimentQuery?: ExperimentQuery
+    /** Drops the card chrome so the chart can sit inside a parent panel. */
+    embedded?: boolean
 }
 
 function getStepName(step: ExperimentFunnelMetricStep | undefined, stepNumber: number): string {
@@ -63,6 +65,7 @@ export function ExperimentFunnelChart({
     experiment,
     metric,
     experimentQuery,
+    embedded = false,
 }: ExperimentFunnelChartProps): JSX.Element {
     const theme = useChartTheme()
 
@@ -134,20 +137,24 @@ export function ExperimentFunnelChart({
         })
     }
 
-    return (
+    const chart = (
+        <FunnelChart<VariantFunnelMeta>
+            steps={steps}
+            series={series}
+            theme={theme}
+            config={config}
+            tooltip={(ctx) => <FunnelTooltip ctx={ctx} steps={steps} showClickHint={!!experimentQuery} />}
+            onStepClick={experimentQuery ? handleStepClick : undefined}
+            stepFooter={(stepIndex) => <StepFooterCell stepIndex={stepIndex} steps={steps} stepTotals={stepTotals} />}
+            dataAttr="experiment-funnel-chart"
+        />
+    )
+
+    return embedded ? (
+        <div className="h-96 flex flex-col p-2">{chart}</div>
+    ) : (
         <LemonCard hoverEffect={false} className="h-96 flex flex-col p-2">
-            <FunnelChart<VariantFunnelMeta>
-                steps={steps}
-                series={series}
-                theme={theme}
-                config={config}
-                tooltip={(ctx) => <FunnelTooltip ctx={ctx} steps={steps} showClickHint={!!experimentQuery} />}
-                onStepClick={experimentQuery ? handleStepClick : undefined}
-                stepFooter={(stepIndex) => (
-                    <StepFooterCell stepIndex={stepIndex} steps={steps} stepTotals={stepTotals} />
-                )}
-                dataAttr="experiment-funnel-chart"
-            />
+            {chart}
         </LemonCard>
     )
 }

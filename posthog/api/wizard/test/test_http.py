@@ -279,7 +279,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         assert body["gateway_url"] == "https://ai-gateway.us.posthog.com"
         assert body["team_id"] == self.team.id
         assert mock_mint.call_args.kwargs == {
-            "obo": str(self.team.organization_id),
+            "obo": str(self.team.id),
             "user": str(self.user.distinct_id),
             "product": "wizard:integration",
             "cap_usd": None,

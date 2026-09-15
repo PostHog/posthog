@@ -102,6 +102,8 @@ for the values. Key points:
 
 The `logs` collector reads the Postgres log and writes typed rows —
 `ts_query_durations` is where **real per-query latency quantiles** come from.
+Duration rows carry a fingerprint of the statement; the text itself is stored once
+per fingerprint in `cur_query_texts`.
 On Aurora the log is already exported to CloudWatch Logs
 (`enabled_cloudwatch_logs_exports = ["postgresql"]`), one group per cluster,
 one stream per instance:

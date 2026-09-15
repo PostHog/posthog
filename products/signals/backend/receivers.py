@@ -24,9 +24,9 @@ from posthog.event_usage import groups
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_embeddings import (
-    emit_report_embedding,
+    emit_report_embeddings,
     emit_report_tombstone,
-    render_report_document,
+    render_report_documents,
 )
 from products.signals.backend.scout_harness.suggestions import mark_stale_if_fleet_changed
 from products.tasks.backend.facade.task_run_signals import connect_task_run_post_save
@@ -179,7 +179,7 @@ def capture_prior_state(
     # _state.adding to tell an unsaved row (no prior status) from an update.
     if instance._state.adding:
         instance._prior_status = None  # type: ignore[attr-defined]
-        instance._prior_document = None  # type: ignore[attr-defined]
+        instance._prior_documents = None  # type: ignore[attr-defined]
         return
 
     update_fields = kwargs.get("update_fields")
@@ -187,7 +187,7 @@ def capture_prior_state(
     wants_document = update_fields is None or bool(_DOCUMENT_FIELDS & set(update_fields))
     if not wants_status and not wants_document:
         instance._prior_status = None  # type: ignore[attr-defined]
-        instance._prior_document = None  # type: ignore[attr-defined]
+        instance._prior_documents = None  # type: ignore[attr-defined]
         return
 
     # Project only what this save needs. The bulk-state endpoint transitions up to 100 reports per
@@ -203,8 +203,8 @@ def capture_prior_state(
     # edit look unchanged on the final save and skip re-emitting A over the B vector already published.
     prior = sender.objects.using("default").filter(pk=instance.pk).values(*fields).first()
     instance._prior_status = prior["status"] if prior and wants_status else None  # type: ignore[attr-defined]
-    instance._prior_document = (  # type: ignore[attr-defined]
-        render_report_document(prior["title"], prior["summary"]) if prior and wants_document else None
+    instance._prior_documents = (  # type: ignore[attr-defined]
+        render_report_documents(prior["title"], prior["summary"]) if prior and wants_document else None
     )
 
 
@@ -275,6 +275,10 @@ def close_pr_when_report_dismissed(
     from products.signals.backend.tasks import close_dismissed_report_pr, close_report_tracker_issue  # noqa: PLC0415
 
     prior_status = getattr(instance, "_prior_status", None)
+    # The person who asked for this transition, when a caller set it before the save. GitHub
+    # credits the App for the close, so the comment left beside it is the only place they appear.
+    # Absent on every automated transition (PR webhook, judges, temporal), which stays unattributed.
+    actor_user_id = getattr(instance, "_transition_actor_user_id", None)
     reason = _pr_close_reason(
         instance,
         created=created,
@@ -290,13 +294,17 @@ def close_pr_when_report_dismissed(
         report_id = str(instance.id)
         if getattr(instance, "_status_from_pr_state", False) and instance.status == SignalReport.Status.RESOLVED:
             transaction.on_commit(
-                lambda: close_report_tracker_issue.delay(report_id=report_id, team_id=team_id, completed=True)
+                lambda: close_report_tracker_issue.delay(
+                    report_id=report_id, team_id=team_id, completed=True, actor_user_id=actor_user_id
+                )
             )
         elif instance.status == SignalReport.Status.DELETED:
             # A deleted report leaves the inbox for good, so nothing will ever answer its work
             # item. The issue closes as not done, because no pull request completed the work.
             transaction.on_commit(
-                lambda: close_report_tracker_issue.delay(report_id=report_id, team_id=team_id, completed=False)
+                lambda: close_report_tracker_issue.delay(
+                    report_id=report_id, team_id=team_id, completed=False, actor_user_id=actor_user_id
+                )
             )
         return
 
@@ -308,6 +316,7 @@ def close_pr_when_report_dismissed(
             report_id=report_id,
             team_id=team_id,
             reason=reason,
+            actor_user_id=actor_user_id,
         )
     )
 
@@ -363,12 +372,16 @@ def emit_report_embedding_on_document_change(
     if instance.status == SignalReport.Status.DELETED:
         return
 
-    content = render_report_document(instance.title, instance.summary)
-    if content is None:
-        return
+    documents = render_report_documents(instance.title, instance.summary)
+    prior_documents = getattr(instance, "_prior_documents", None) or {}
+    removed_renderings = tuple(rendering for rendering in prior_documents if rendering not in documents)
     # A save can touch title/summary without changing them: the grouping pipeline rewrites `title`
     # for every signal that joins the report. Re-embedding identical text would spend an embedding
     # call to write a row identical to the one already stored.
+    #
+    # Applied per rendering, because each one is a separate row under its own key: a summary-only edit
+    # changes the composed document while the title rendering stays byte-identical, and only the
+    # changed one is worth an embedding call.
     #
     # Restricted to saves that carry no status transition, because unchanged text does not imply a live
     # row. An unreviewed edit tombstones the report while Postgres keeps the edited text, so when the
@@ -381,16 +394,24 @@ def emit_report_embedding_on_document_change(
     # bare `save()` is what Django admin does, so treating it as judged would let re-saving a report in
     # admin republish text an edit had retracted, under a verdict that predates it.
     carries_status_transition = update_fields is not None and "status" in update_fields
-    if not carries_status_transition and not reviewed_reindex and getattr(instance, "_prior_document", None) == content:
+    if not carries_status_transition and not reviewed_reindex:
+        documents = {
+            rendering: content for rendering, content in documents.items() if prior_documents.get(rendering) != content
+        }
+    if not documents and not removed_renderings:
         return
 
     def _emit() -> None:
         try:
+            if removed_renderings:
+                emit_report_tombstone(
+                    team_id=team_id, report_id=report_id, created_at=created_at, renderings=removed_renderings
+                )
             # Checked post-commit, because a scout report's safety verdict is written as an artefact
             # in the same transaction as the report row it judges, so it is only visible from here.
-            if _is_safety_suppressed(report_id, team_id):
+            if not documents or _is_safety_suppressed(report_id, team_id):
                 return
-            emit_report_embedding(team_id=team_id, report_id=report_id, content=content, created_at=created_at)
+            emit_report_embeddings(team_id=team_id, report_id=report_id, documents=documents, created_at=created_at)
         except Exception:
             # A missing vector costs the ranking model one feature row. It must never fail the write
             # that produced the report.

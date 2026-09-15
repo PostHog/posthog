@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
+from temporalio.exceptions import ActivityError, RetryState
 
 from posthog.models import Organization, Team
 
@@ -54,6 +55,7 @@ from products.conversations.backend.temporal.ai_reply.schemas import (
 )
 from products.conversations.backend.temporal.pipeline import (
     SupportReplyWorkflow,
+    _bill_llm_activity,
     support_build_context_activity,
     support_classify_activity,
     support_draft_activity,
@@ -1584,6 +1586,7 @@ class TestRecordTriageActivity:
                     reply="answer",
                     citations=["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],
                     confidence=0.9,
+                    sandbox_seconds=1.5,
                 ),
             ),
             patch(
@@ -1642,6 +1645,22 @@ class TestRecordTriageActivity:
             assert last_call_patch["status"] == "done"
             assert last_call_patch["result"] == expected_result
             assert "finished_at" in last_call_patch
+            expected_llm_calls = {
+                "persisted": 5,
+                "blocked_unsafe": 1,
+                "skipped_unactionable": 2,
+                "blocked_unsafe_reply": 5,
+            }[_name]
+            expected_sandbox = {
+                "persisted": 1.5,
+                "blocked_unsafe": 0.0,
+                "skipped_unactionable": 0.0,
+                "blocked_unsafe_reply": 1.5,
+            }[_name]
+            assert last_call_patch["cost"] == {
+                "sandbox_seconds": expected_sandbox,
+                "llm_calls": expected_llm_calls,
+            }
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -1673,7 +1692,7 @@ class TestRecordTriageActivity:
             patch(
                 f"{DRAFT_MODULE}._draft_async",
                 new_callable=AsyncMock,
-                return_value=DraftOutput(reply="", citations=[], confidence=0.0),
+                return_value=DraftOutput(reply="", citations=[], confidence=0.0, sandbox_seconds=0.25),
             ),
             patch(
                 f"{VALIDATE_MODULE}._validate",
@@ -1719,6 +1738,89 @@ class TestRecordTriageActivity:
             assert last_call_patch["status"] == "done"
             assert last_call_patch["result"] == "escalated_no_reply"
             assert last_call_patch["attempts"] == MAX_ATTEMPTS
+            assert last_call_patch["cost"]["sandbox_seconds"] == pytest.approx(0.25 * MAX_ATTEMPTS)
+            assert last_call_patch["cost"]["llm_calls"] == 2 + MAX_ATTEMPTS * 2
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_retried_classify_bills_all_attempts(self):
+        from temporalio.testing import WorkflowEnvironment
+        from temporalio.worker import Worker
+
+        classify_calls = {"n": 0}
+
+        async def flaky_classify(_input: ClassifyInput) -> ClassifyOutput:
+            classify_calls["n"] += 1
+            if classify_calls["n"] < 3:
+                raise RuntimeError("transient classify failure")
+            return ClassifyOutput(ticket_type="unactionable", needs_diagnostics=False)
+
+        with (
+            patch(
+                f"{BUILD_CONTEXT_MODULE}._build_context_sync",
+                return_value=BuildContextOutput(ticket_context="help", ticket_title="Help"),
+            ),
+            patch(
+                f"{SAFETY_FILTER_MODULE}._safety_filter",
+                new_callable=AsyncMock,
+                return_value=SafetyFilterOutput(safe=True),
+            ),
+            patch(f"{CLASSIFY_MODULE}._classify", new=flaky_classify),
+            patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync") as mock_record_triage,
+        ):
+            async with await WorkflowEnvironment.start_time_skipping() as env:
+                async with Worker(
+                    env.client,
+                    task_queue="test-queue",
+                    workflows=[SupportReplyWorkflow],
+                    activities=[
+                        support_build_context_activity,
+                        support_safety_filter_activity,
+                        support_classify_activity,
+                        support_record_triage_activity,
+                    ],
+                ):
+                    result = await env.client.execute_workflow(
+                        SupportReplyWorkflow.run,
+                        SupportReplyInput(team_id=1, ticket_id="deadbeef-0000-0000-0000-000000000001"),
+                        id="test-triage-retried-classify",
+                        task_queue="test-queue",
+                    )
+
+        assert result == "skipped_unactionable"
+        assert classify_calls["n"] == 3
+        last_call_patch = mock_record_triage.call_args_list[-1][0][0].patch
+        assert last_call_patch["cost"]["llm_calls"] == 4
+
+
+def _activity_error(retry_state: RetryState) -> ActivityError:
+    return ActivityError(
+        "activity failed",
+        scheduled_event_id=1,
+        started_event_id=2,
+        identity="test-worker",
+        activity_type="support_classify_activity",
+        activity_id="classify-1",
+        retry_state=retry_state,
+    )
+
+
+class TestBillLlmActivity:
+    def test_success_uses_stamped_attempts(self):
+        output = ClassifyOutput(ticket_type="how_to", needs_diagnostics=False, llm_attempts=3)
+        assert _bill_llm_activity(output=output, error=None, maximum_attempts=3) == 3
+
+    def test_missing_stamp_defaults_to_one(self):
+        output = ClassifyOutput(ticket_type="how_to", needs_diagnostics=False)
+        assert _bill_llm_activity(output=output, error=None, maximum_attempts=3) == 1
+
+    def test_exhausted_retries_bill_cap(self):
+        error = _activity_error(RetryState.MAXIMUM_ATTEMPTS_REACHED)
+        assert _bill_llm_activity(output=None, error=error, maximum_attempts=3) == 3
+
+    def test_non_retryable_bills_one(self):
+        error = _activity_error(RetryState.NON_RETRYABLE_FAILURE)
+        assert _bill_llm_activity(output=None, error=error, maximum_attempts=3) == 1
 
 
 class TestRecordTriageSync:

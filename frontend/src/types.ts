@@ -6163,9 +6163,12 @@ export enum ActivityScope {
     EVENT_DEFINITION = 'EventDefinition',
     PROPERTY_DEFINITION = 'PropertyDefinition',
     NOTEBOOK = 'Notebook',
+    GENERATED_WIDGET = 'GeneratedWidget',
     CANVAS = 'Canvas',
     DASHBOARD = 'Dashboard',
     REPLAY = 'Replay',
+    REPLAY_SCANNER = 'ReplayScanner',
+    VISION_ALERT_CONFIGURATION = 'VisionAlertConfiguration',
     // TODO: doh! we don't need replay and recording
     RECORDING = 'recording',
     EXPERIMENT = 'Experiment',
@@ -6305,16 +6308,6 @@ export interface DataModelingEdge {
 }
 
 export type DataModelingSyncInterval = '15min' | '30min' | '1hour' | '6hour' | '12hour' | '24hour' | '7day' | '30day'
-
-export interface DataModelingDAG {
-    id: string
-    name: string
-    description: string
-    sync_frequency: DataModelingSyncInterval | null
-    node_count: number
-    created_at: string
-    updated_at: string
-}
 
 export interface DataWarehouseSavedQuery {
     /** UUID */
