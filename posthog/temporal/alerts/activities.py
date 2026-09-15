@@ -70,7 +70,7 @@ from products.notifications.backend.facade.api import (
     TargetType,
     create_notification,
 )
-from products.product_analytics.backend.facade.models import Insight
+from products.product_analytics.backend.facade.api import lock_insight_for_evaluation
 
 logger = structlog.get_logger(__name__)
 
@@ -357,23 +357,15 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         should_run_metrics_investigation = False
         with transaction.atomic():
             # Insight deletion locks the insight before deleting its alerts. Use the same order.
-            current_insight = (
-                Insight.objects_including_soft_deleted.select_for_update(no_key=True)
-                .filter(id=evaluated_alert.insight_id, team_id=evaluated_alert.team_id)
-                .first()
+            insight_exists = lock_insight_for_evaluation(
+                insight_id=evaluated_alert.insight_id, team_id=evaluated_alert.team_id
             )
             current_alert = (
                 AlertConfiguration.objects.select_for_update(of=("self",), no_key=True)
-                .select_related("team", "threshold")
+                .select_related("insight", "team", "threshold")
                 .filter(id=inputs.alert_id, team_id=evaluated_alert.team_id)
                 .first()
             )
-            if (
-                current_alert is not None
-                and current_insight is not None
-                and current_alert.insight_id == evaluated_alert.insight_id
-            ):
-                current_alert.insight = current_insight
             # Threshold is nullable, so PostgreSQL cannot lock it through the outer join.
             if current_alert is not None and current_alert.threshold_id is not None:
                 current_alert.threshold = Threshold.objects.select_for_update(no_key=True).get(
@@ -381,7 +373,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                 )
             if (
                 current_alert is None
-                or current_insight is None
+                or not insight_exists
                 or current_alert.insight_id != evaluated_alert.insight_id
                 or not _evaluation_inputs_match(evaluated_alert, current_alert)
             ):
