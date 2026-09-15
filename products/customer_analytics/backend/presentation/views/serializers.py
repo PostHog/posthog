@@ -1052,7 +1052,7 @@ class AccountNotebookSerializer(DataclassSerializer):
     content = serializers.JSONField(
         required=False,
         allow_null=True,
-        help_text="Notebook content as a ProseMirror JSON document structure.",
+        help_text="Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook.",
     )
     text_content = serializers.CharField(
         required=False,
