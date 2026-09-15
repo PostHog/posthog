@@ -12,6 +12,8 @@ export type SceneTabConfig = {
     key: SceneTabKey
     label: string
     href: string
+    /** Release stage shown as a tag after the label, e.g. "Alpha". */
+    stage?: string
 }
 
 export const SCENE_TABS: SceneTabConfig[] = [
@@ -24,6 +26,7 @@ export const SCENE_TABS: SceneTabConfig[] = [
         key: 'patterns',
         label: 'Patterns',
         href: urls.supportPatterns(),
+        stage: 'Alpha',
     },
     {
         key: 'settings',
