@@ -252,8 +252,8 @@ export function FinishExperimentModal(): JSX.Element {
     })
 
     const aggregationTargetName =
-        experiment.filters.aggregation_group_type_index != null
-            ? aggregationLabel(experiment.filters.aggregation_group_type_index).plural
+        experiment.feature_flag?.filters?.aggregation_group_type_index != null
+            ? aggregationLabel(experiment.feature_flag.filters.aggregation_group_type_index).plural
             : 'users'
 
     const handleClose = (): void => {
