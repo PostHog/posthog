@@ -8,7 +8,7 @@ rules:
           and register the handlers in `products/<product>/backend/webhook_consumers.py`.
           An endpoint that genuinely needs DRF team scoping (Customer.io) keeps its view and
           subclasses `WebhookSignatureAuthentication`; that class moves onto the ingress schemes
-          in its own PR. `docs/internal/inbound-webhooks.md` holds the transport contract.
+          in its own PR. `posthog/ingress/README.md` holds the transport contract.
 
           Why: a hand-rolled verifier repeats the parts that are easy to get wrong, the
           constant-time compare, the replay window and the exact signed input, and it lands

@@ -86,7 +86,6 @@ rules:
     # lands on, so a change here reaches further than the product that prompted it.
     - match:
           - '/docs/internal/github-webhooks.md'
-          - '/docs/internal/inbound-webhooks.md'
           - '/docs/internal/url-routing.md'
           - '/posthog/api/__init__.py'
           - '/posthog/api/github_webhooks/'

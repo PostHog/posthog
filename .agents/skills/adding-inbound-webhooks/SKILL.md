@@ -10,12 +10,12 @@ description: >
 # Adding an inbound webhook
 
 Every webhook a third party sends to PostHog goes through `posthog/ingress/`.
-Read [docs/internal/inbound-webhooks.md](../../../docs/internal/inbound-webhooks.md) for the transport contract and [posthog/ingress/README.md](../../../posthog/ingress/README.md) for the package reference.
+Read [posthog/ingress/README.md](../../../posthog/ingress/README.md) for the transport contract and the package reference.
 This skill is the decision tree and the checklists.
 
 Which job are you doing?
 
-- The provider already has an endpoint (see the table in `inbound-webhooks.md`) and you want to react to its events: **add a consumer**.
+- The provider already has an endpoint (see the Endpoints table in `posthog/ingress/README.md`) and you want to react to its events: **add a consumer**.
 - No endpoint exists for this third party, or the semgrep rule flagged a hand-rolled verifier: **add a provider**, then add its consumer.
 - Outbound call to a vendor API, which is the other direction: `/routing-outbound-api-calls`.
 

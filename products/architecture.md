@@ -204,7 +204,7 @@ A product whose facade hands out unapproved behavior is not soundly isolated: it
 A product declares its handlers in `backend/webhook_consumers.py`, in a `WEBHOOK_CONSUMERS` sequence.
 `posthog/ingress/` discovers that module through `load_product_modules("webhook_consumers")` on the first delivery, and its registry validates each consumer at build: an unknown provider app, a name already taken for that provider, or an event type the provider does not declare raises.
 No class crosses, because a consumer is a plain function behind a frozen contract, and an import-linter contract holds the module to its own product's `facade/`.
-See [inbound-webhooks.md](/docs/internal/inbound-webhooks.md).
+See [posthog/ingress/README.md](/posthog/ingress/README.md).
 
 Why shape rules rather than location rules: publicness-by-location without a constrained API shape rots.
 Shopify's Packwerk `app/public` folders became a "catch-all drawer" of models, controllers, and jobs for exactly this reason.
