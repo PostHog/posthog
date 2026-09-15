@@ -53,6 +53,7 @@ MAX_TEXT_CHARS = 48
 MIN_SHARE_SHIFT = 0.25
 
 _PROPERTY_NAME_HINT = "version"
+_UNSET = "unset"
 _FENCE_LABEL = "emitter-version"
 
 _GUIDANCE = (
@@ -100,6 +101,7 @@ def describe_emitter_version_shift(*, team: Team, event: str, triggered_dates: l
         if not properties:
             return ""
         shifted: dict[str, list[_VersionMix]] = {}
+        compared: list[str] = []
         for name in properties:
             mixes = _query_version_mix(
                 team=team,
@@ -109,9 +111,14 @@ def describe_emitter_version_shift(*, team: Team, event: str, triggered_dates: l
                 window_to=window_to,
                 baseline_from=baseline_from,
             )
+            if not _is_comparable(mixes):
+                continue
+            compared.append(name)
             moved = _shifted_values(mixes)
             if moved:
                 shifted[name] = moved
+        if not compared:
+            return ""
     except Exception:
         logger.warning("anomaly_investigation.emitter_version_failed", exc_info=True)
         return ""
@@ -123,7 +130,7 @@ def describe_emitter_version_shift(*, team: Team, event: str, triggered_dates: l
     )
     measured = [f'Event "{_single_line(event)}"']
     if not shifted:
-        stable = ", ".join(f"`{_single_line(name)}`" for name in properties)
+        stable = ", ".join(f"`{_single_line(name)}`" for name in compared)
         measured.append(f"- No version boundary: {stable} held the same mix across both periods.")
     else:
         measured.extend(
@@ -197,7 +204,7 @@ def _query_version_mix(
         ),
         team=team,
     )
-    rows = [(_single_line(str(row[0] or "unset")), int(row[1]), int(row[2])) for row in response.results or []]
+    rows = [(_single_line(str(row[0] or _UNSET)), int(row[1]), int(row[2])) for row in response.results or []]
     window_total = sum(row[1] for row in rows)
     before_total = sum(row[2] for row in rows)
     if not window_total or not before_total:
@@ -208,6 +215,18 @@ def _query_version_mix(
         _VersionMix(value=value, before_share=before / before_total, window_share=in_window / window_total)
         for value, in_window, before in rows
     ]
+
+
+def _is_comparable(mixes: list[_VersionMix]) -> bool:
+    """Whether the mix carries version evidence for both sides of the window.
+
+    An empty mix means one side had no events. A lone unset value means the property is in
+    the taxonomy but is not being sent. Neither a boundary nor the absence of one follows
+    from either, so the property is left out rather than reported as a mix that held.
+    """
+    if not mixes:
+        return False
+    return not (len(mixes) == 1 and mixes[0].value == _UNSET)
 
 
 def _shifted_values(mixes: list[_VersionMix]) -> list[_VersionMix]:

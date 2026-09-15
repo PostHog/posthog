@@ -110,6 +110,21 @@ class TestEmitterVersionAgainstClickHouse(ClickhouseTestMixin, BaseTest):
         assert described.count("</emitter-version>") == 1
         assert described.split("</emitter-version>")[-1].strip().startswith("How to read this block:")
 
+    @parameterized.expand(
+        [
+            ("no_baseline_events", "judge_version", ["2026-09-14"]),
+            ("property_never_sent", "retired_version", ["2026-09-01", "2026-09-14"]),
+        ]
+    )
+    def test_says_nothing_without_a_comparable_mix(self, _name: str, probed: str, days: list[str]) -> None:
+        _create_person(team_id=self.team.pk, distinct_ids=["judge-0"])
+        self._record_taxonomy(probed)
+        for day in days:
+            self._judge(day, "17", 10)
+        flush_persons_and_events()
+
+        assert describe_emitter_version_shift(team=self.team, event=JUDGED, triggered_dates=["2026-09-14"]) == ""
+
     def test_says_nothing_when_the_event_records_no_version_property(self) -> None:
         _create_person(team_id=self.team.pk, distinct_ids=["judge-0"])
         self._record_taxonomy("severity")
