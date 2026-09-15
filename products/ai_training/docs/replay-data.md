@@ -110,7 +110,7 @@ The index uses 32 partitions named `month:<YYYY-MM>:shard:<0..31>` and stores ke
 Session keys and image keys appear in this index.
 
 Run `python manage.py delete_ai_training_month YYYY-MM` to remove the keys of that UTC session month.
-The mirror drops a session whose ID started more than 14 days in the past or more than 1 day in the future, and the command accepts a month from 14 days after the month ends, so a key cannot arrive after its index shard was swept.
+The mirror drops a session whose ID started more than 14 days in the past or more than 1 day in the future, and the command accepts a month from 14 days and one hour after the month ends, so a batch admitted just inside the limit cannot commit a key after its index shard was swept.
 Neither side reads a shared block item for the month, because every commit in the fleet would contend on that one DynamoDB item.
 The command uses strongly consistent queries and bounded writes.
 Rerun the command after an interrupted run; it safely repeats completed pages.

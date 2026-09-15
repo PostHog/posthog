@@ -31,6 +31,10 @@ const session: MlSessionIdentity = {
 }
 const table = 'ml-privacy-test'
 
+function transientError(name: string): Error {
+    return Object.assign(new Error(name), { name })
+}
+
 class DynamoBoundary {
     public readonly items = new Map<string, DynamoItem>()
     public readSizes: number[] = []
@@ -142,7 +146,7 @@ describe('ML session key batches', () => {
                 remaining > 0
             ) {
                 remaining -= 1
-                return Promise.reject(new Error('ProvisionedThroughputExceededException'))
+                return Promise.reject(transientError('ProvisionedThroughputExceededException'))
             }
             return send(command)
         })
@@ -157,13 +161,23 @@ describe('ML session key batches', () => {
         expect(boundary.items.has(tableKeyString(sessionKeyId(session.teamId, session.sessionId)))).toBe(succeeds)
     })
 
+    it('fails fast on a non-retryable write error', async () => {
+        const send = boundary.send.bind(boundary)
+        jest.spyOn(boundary, 'send').mockImplementation((command) =>
+            command instanceof PutItemCommand ? Promise.reject(transientError('ValidationException')) : send(command)
+        )
+        const batch = await store.prepare([session])
+        await expect(batch.commit()).rejects.toThrow('ValidationException')
+        expect(boundary.writes).toBeLessThanOrEqual(2)
+    })
+
     it('writes the month index entry before the key and repairs a failed index put', async () => {
         const send = boundary.send.bind(boundary)
         let remaining = 1
         jest.spyOn(boundary, 'send').mockImplementation((command) => {
             if (command instanceof PutItemCommand && command.input.Item!.pk.S!.startsWith('month:') && remaining > 0) {
                 remaining -= 1
-                return Promise.reject(new Error('ProvisionedThroughputExceededException'))
+                return Promise.reject(transientError('ProvisionedThroughputExceededException'))
             }
             return send(command)
         })
@@ -188,7 +202,7 @@ describe('ML session key batches', () => {
                 lostResponses > 0
             ) {
                 lostResponses -= 1
-                throw new Error('ECONNRESET')
+                throw Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' })
             }
             return result
         })
@@ -214,7 +228,7 @@ describe('ML session key batches', () => {
                 remaining > 0
             ) {
                 remaining -= 1
-                throw new Error('ProvisionedThroughputExceededException')
+                throw transientError('ProvisionedThroughputExceededException')
             }
             if (command instanceof BatchGetItemCommand && slowReads) {
                 await new Promise((resolve) => setTimeout(resolve, 20_000))

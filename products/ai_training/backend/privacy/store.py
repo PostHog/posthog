@@ -22,6 +22,8 @@ logger = structlog.get_logger(__name__)
 KEY_SHARDS = 32
 # Equals ML_SESSION_MAX_AGE_DAYS in nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format.ts: ingestion drops sessions that started earlier than that, so no key for a month can appear after the month end plus this period.
 MONTH_DELETE_GRACE_DAYS = 14
+# A batch admitted just inside the grace period still commits within its 45 s budget, so deletion stays behind that too.
+MONTH_DELETE_IN_FLIGHT_MARGIN = timedelta(hours=1)
 DynamoItem = dict[str, dict[str, str | bool | bytes]]
 
 
@@ -87,13 +89,15 @@ class AITrainingPrivacyStore:
         if re.fullmatch(r"[0-9]{4}-(0[1-9]|1[0-2])", session_month) is None:
             raise ValueError("Session month must use YYYY-MM")
         try:
-            deletable_from = month_end(session_month) + timedelta(days=MONTH_DELETE_GRACE_DAYS)
+            deletable_from = (
+                month_end(session_month) + timedelta(days=MONTH_DELETE_GRACE_DAYS) + MONTH_DELETE_IN_FLIGHT_MARGIN
+            )
         except ValueError as error:
             raise ValueError("Session month must use YYYY-MM") from error
         if timezone.now() < deletable_from:
             raise ValueError(
-                f"Session month {session_month} can be deleted from {deletable_from:%Y-%m-%d}, "
-                f"{MONTH_DELETE_GRACE_DAYS} days after the month ends"
+                f"Session month {session_month} can be deleted from {deletable_from:%Y-%m-%d %H:%M} UTC, "
+                f"{MONTH_DELETE_GRACE_DAYS} days and one hour after the month ends"
             )
         count = 0
         for shard in range(KEY_SHARDS):

@@ -33,7 +33,7 @@ export class MlPrivacyDynamoDB {
         private readonly attempts = 5
     ) {}
 
-    public async read(keys: TableKey[]): Promise<Map<string, DynamoItem>> {
+    public async read(keys: TableKey[], deadline?: AbortSignal): Promise<Map<string, DynamoItem>> {
         const unique = [...new Map(keys.map((key) => [tableKeyString(key), key])).values()]
         const result = new Map<string, DynamoItem>()
         const chunks: TableKey[][] = []
@@ -49,7 +49,7 @@ export class MlPrivacyDynamoDB {
                             new BatchGetItemCommand({
                                 RequestItems: { [this.tableName]: { Keys: pending, ConsistentRead: true } },
                             }),
-                            { abortSignal: AbortSignal.timeout(this.requestTimeoutMs) }
+                            { abortSignal: this.requestSignal(deadline) }
                         )
                         for (const item of response.Responses?.[this.tableName] ?? []) {
                             result.set(tableKeyString(decodeKey(item)), item)
@@ -68,7 +68,7 @@ export class MlPrivacyDynamoDB {
         return result
     }
 
-    public async putIfAbsent(key: TableKey, attributes: DynamoItem): Promise<boolean> {
+    public async putIfAbsent(key: TableKey, attributes: DynamoItem, deadline?: AbortSignal): Promise<boolean> {
         return this.writeConcurrency(async () => {
             try {
                 await this.client.send(
@@ -77,7 +77,7 @@ export class MlPrivacyDynamoDB {
                         Item: { ...encodeKey(key), ...attributes },
                         ConditionExpression: 'attribute_not_exists(pk)',
                     }),
-                    { abortSignal: AbortSignal.timeout(this.requestTimeoutMs) }
+                    { abortSignal: this.requestSignal(deadline) }
                 )
                 return true
             } catch (error) {
@@ -89,15 +89,20 @@ export class MlPrivacyDynamoDB {
         })
     }
 
-    public async put(key: TableKey, attributes: DynamoItem): Promise<void> {
+    public async put(key: TableKey, attributes: DynamoItem, deadline?: AbortSignal): Promise<void> {
         await this.writeConcurrency(() =>
             this.client.send(
                 new PutItemCommand({ TableName: this.tableName, Item: { ...encodeKey(key), ...attributes } }),
                 {
-                    abortSignal: AbortSignal.timeout(this.requestTimeoutMs),
+                    abortSignal: this.requestSignal(deadline),
                 }
             )
         )
+    }
+
+    private requestSignal(deadline?: AbortSignal): AbortSignal {
+        const timeout = AbortSignal.timeout(this.requestTimeoutMs)
+        return deadline ? AbortSignal.any([deadline, timeout]) : timeout
     }
 
     public async backoff(attempt: number): Promise<void> {

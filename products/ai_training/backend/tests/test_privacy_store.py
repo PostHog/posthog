@@ -64,13 +64,15 @@ class TestAITrainingPrivacyStore(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("2025-09", "2025-10-14T23:59:59+00:00", False),
-            ("2025-09", "2025-10-15T00:00:00+00:00", True),
-            ("2025-12", "2026-01-14T23:59:59+00:00", False),
-            ("2025-12", "2026-01-15T00:00:00+00:00", True),
+            ("2025-09", "2025-10-15T00:59:59+00:00", False),
+            ("2025-09", "2025-10-15T01:00:00+00:00", True),
+            ("2025-12", "2026-01-15T00:59:59+00:00", False),
+            ("2025-12", "2026-01-15T01:00:00+00:00", True),
         ]
     )
-    def test_month_deletion_opens_fourteen_days_after_the_month_ends(self, month: str, now: str, allowed: bool) -> None:
+    def test_month_deletion_opens_fourteen_days_and_one_hour_after_the_month_ends(
+        self, month: str, now: str, allowed: bool
+    ) -> None:
         client = MagicMock()
         client.query.return_value = {"Items": []}
         store = AITrainingPrivacyStore(client, "table")
