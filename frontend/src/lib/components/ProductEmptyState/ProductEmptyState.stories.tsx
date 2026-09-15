@@ -2,6 +2,8 @@ import { Meta } from '@storybook/react'
 import { screen, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import type { Mocks } from '~/mocks/utils'
 
 import { actionsEmptyState } from 'products/actions/frontend/emptyState/actionsEmptyState'
@@ -337,6 +339,19 @@ export const ErrorTrackingWaitingForData: ProductEmptyStateStory = productEmptyS
     'waiting-for-data',
     { mocks: errorTrackingMocks }
 )
+
+// The `error-tracking` wizard subcommand is flag-gated: with the flag on the terminal card
+// is the only call to action and the autocapture opt-in leaves the screen.
+const errorTrackingNeedsSetupNewWizard = productEmptyStateStory(errorTrackingEmptyState, 'needs-setup', {
+    mocks: errorTrackingMocks,
+})
+export const ErrorTrackingNeedsSetupNewWizard: ProductEmptyStateStory = {
+    ...errorTrackingNeedsSetupNewWizard,
+    parameters: {
+        ...errorTrackingNeedsSetupNewWizard.parameters,
+        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_NEW_WIZARD],
+    },
+}
 
 // Logs detection asks the has-logs API on mount - answer "none yet".
 export const LogsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(logsEmptyState, 'needs-setup', {

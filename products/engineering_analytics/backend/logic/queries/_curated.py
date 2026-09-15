@@ -41,6 +41,7 @@ from products.engineering_analytics.backend.logic.views import (
     issue_events,
     job_costs,
     pull_requests,
+    reviews,
     team_members,
     trunk_merge_queue,
     trunk_quarantined_tests,
@@ -246,6 +247,13 @@ class CuratedGitHubSource:
         if not self._tables.issue_events:
             return None
         return f"({issue_events.build_query(self._tables.issue_events)})"
+
+    def reviews_source(self) -> str | None:
+        """Curated submitted-reviews ``SELECT`` subquery, or None when the optional reviews table
+        isn't synced."""
+        if not self._tables.reviews:
+            return None
+        return f"({reviews.build_query(self._tables.reviews)})"
 
     def deploy_sources(self) -> "DeploySources | None":
         """The curated deploy ``SELECT`` subqueries, or None when the optional deploy pair isn't
