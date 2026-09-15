@@ -90,6 +90,10 @@ class RunAgenticReportOutput:
     # Resolved impact-metric payload, with the same replay-safe replace/clear/preserve semantics as
     # charts. The transition activity writes it with the matching title and summary.
     metrics: list[dict[str, Any]] | None = None
+    # Whether the rollout let this run author charts at all. Carried so telemetry can tell a run
+    # that chose not to chart apart from one that was never allowed to, which would otherwise read
+    # as the agent's charting rate moving on every rollout step. `None` predates the field.
+    charts_enabled: bool | None = None
 
 
 _ArtefactContentT = TypeVar("_ArtefactContentT", bound=BaseModel)
@@ -775,6 +779,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             repository=repository,
             charts=charts_payload,
             metrics=metrics_payload,
+            charts_enabled=charts_enabled,
         )
     except Exception as error:
         logger.exception(
