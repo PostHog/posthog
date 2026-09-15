@@ -38,13 +38,17 @@ from products.batch_exports.backend.models.batch_export import (
     BatchExportSource,
 )
 from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
+from products.batch_exports.backend.tests.temporal.destinations.s3.utils import has_valid_credentials
 
 pytestmark = [
     pytest.mark.asyncio,
     pytest.mark.django_db,
 ]
 
+requires_aws_credentials = pytest.mark.requires_vendor_credentials(check=has_valid_credentials)
 
+
+@requires_aws_credentials
 async def test_can_generate_s3_pre_signed_url(s3_client, s3_bucket, aws_role_arn):
     """Test we can generate a S3 pre signed URL for some test data."""
     key = f"batch-exports/{str(uuid.uuid4())}"
@@ -265,6 +269,7 @@ async def test_file_download_retrieve_returns_empty_when_no_data_exported(
     assert data["files"] == []
 
 
+@requires_aws_credentials
 @pytest.mark.usefixtures("override_file_download_settings")
 @pytest.mark.django_db(transaction=True)
 async def test_file_download_download_fails_when_not_completed(
@@ -297,6 +302,7 @@ async def test_file_download_download_fails_when_not_completed(
             assert b"still in progress" in response.content
 
 
+@requires_aws_credentials
 @pytest.mark.usefixtures("override_file_download_settings")
 @pytest.mark.django_db(transaction=True)
 async def test_file_download_download(
@@ -497,6 +503,7 @@ async def test_file_download_list_returns_run_ids_and_statuses(
     ]
 
 
+@requires_aws_credentials
 @pytest.mark.usefixtures("override_file_download_settings")
 @pytest.mark.django_db(transaction=True)
 async def test_file_download_end_to_end(
@@ -812,6 +819,7 @@ class TestFileDownloadHogQL:
         assert batch_export_model.hogql_query == hogql_query
         assert mock_start_file_download_export.call_args.kwargs["max_size_mb"] == DEFAULT_MAX_SIZE_MB
 
+    @requires_aws_credentials
     @pytest.mark.usefixtures("override_file_download_settings", "enable_hogql_flag")
     @pytest.mark.django_db(transaction=True)
     async def test_end_to_end(self, async_client: AsyncClient, temporal_client, team, user, hogql_export_test_events):
