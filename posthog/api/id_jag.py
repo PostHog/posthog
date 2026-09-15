@@ -156,8 +156,15 @@ def _get_allowed_audiences() -> list[str]:
 def get_allowed_resources() -> list[str]:
     """Accepted ID-JAG `resource` values — the resource identifier the client discovered.
     Always includes SITE_URL; Cloud adds extra resource servers via ID_JAG_ALLOWED_RESOURCES.
-    Also used by the resource server (posthog.auth) to validate the minted token's `aud`."""
-    return _id_jag_allowlist(settings.ID_JAG_ALLOWED_RESOURCES)
+    Also used by the resource server (posthog.auth) to validate the minted token's `aud`.
+
+    Billing is left out of this list on purpose. PostHog mints billing-audience tokens only on
+    the server (ee.billing.access_token), so the token endpoint has no way to hand one to a
+    client."""
+    billing_audience = (getattr(settings, "BILLING_SERVICE_URL", "") or "").rstrip("/")
+    return [
+        resource for resource in _id_jag_allowlist(settings.ID_JAG_ALLOWED_RESOURCES) if resource != billing_audience
+    ]
 
 
 def _get_jwks_client(issuer: str, jwks_url: str | None = None) -> jwt.PyJWKClient:
@@ -474,6 +481,12 @@ def _construct_access_token(payload: dict[str, Any]) -> str:
         algorithm="RS256",
         headers={"typ": ACCESS_TOKEN_TYPE, "kid": jwk_from_pem(signing_key).thumbprint()},
     )
+
+
+def sign_access_token(payload: dict[str, Any]) -> str:
+    """Sign an `at+jwt` access token with the OIDC key. Shared by the ID-JAG token endpoint and
+    the billing token PostHog mints server-side, so both verify against the same JWKS."""
+    return _construct_access_token(payload)
 
 
 def _parse_scope_list(value: str | list[str] | None) -> list[str]:
