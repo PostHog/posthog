@@ -11,8 +11,9 @@ from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel
 from posthog.personhog_client.client import personhog_call
 from posthog.personhog_client.metrics import PERSONHOG_TEAM_MISMATCH_TOTAL, get_client_name
-from posthog.session_recordings.models.metadata import RecordingMatchingEvents, RecordingMetadata, as_utc
+from posthog.session_recordings.models.metadata import RecordingMatchingEvents, RecordingMetadata
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
+from posthog.utils import ensure_utc
 
 logger = structlog.get_logger(__name__)
 
@@ -234,7 +235,7 @@ class SessionRecording(UUIDTModel):
             recording.activity_score = ch_recording.get("activity_score", None)
             recording.retention_period_days = ch_recording.get("retention_period_days", None)
             ch_expiry_time = ch_recording.get("expiry_time", None)
-            recording.expiry_time = as_utc(ch_expiry_time) if ch_expiry_time else None
+            recording.expiry_time = ensure_utc(ch_expiry_time) if ch_expiry_time else None
             recording.recording_ttl = ch_recording.get("recording_ttl", None)
 
             recordings.append(recording)

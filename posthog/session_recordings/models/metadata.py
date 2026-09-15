@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Literal, Optional, TypedDict, Union
 
 SnapshotData = dict
@@ -7,13 +7,6 @@ WindowId = Optional[str]
 # A session counts as ongoing when replay data for it was last ingested within this window.
 # Shared so the listing query and the single-recording metadata query agree on "ongoing".
 ONGOING_SESSION_WINDOW_MINUTES = 5
-
-
-def as_utc(timestamp: datetime) -> datetime:
-    """Replay queries derive `expiry_time` in SQL from `dateTrunc` plus an interval, and ClickHouse
-    can return such a computed value with no timezone. The value is always UTC, so attach it here.
-    Otherwise the naive result raises TypeError when it is compared against an aware `now`."""
-    return timestamp if timestamp.tzinfo else timestamp.replace(tzinfo=UTC)
 
 
 class RecordingSegment(TypedDict):
