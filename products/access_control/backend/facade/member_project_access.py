@@ -21,11 +21,7 @@ from products.access_control.backend.facade.subject_access_control import (
     SubjectAccessControl,
     get_project_scoped_visible_membership_ids,
 )
-from products.access_control.backend.facade.user_access_control import (
-    AccessControlLevel,
-    ResolvedAccess,
-    UserAccessControl,
-)
+from products.access_control.backend.facade.user_access_control import AccessControlLevel, ResolvedAccess
 from products.access_control.backend.models.role import Role, RoleMembership
 
 
@@ -105,8 +101,9 @@ def member_project_access(
     entries: dict[UUID, list[ProjectAccessEntry]] = defaultdict(list)
     for team in teams:
         team.organization = organization
-        requester_access = UserAccessControl(user, team, organization_id=str(organization.id))
-        requester_access.__dict__["_organization_membership"] = requester
+        # The requester as their own subject: their rules, roles and admin bypass, seeded with
+        # the membership already loaded so the check costs no query per project
+        requester_access = SubjectAccessControl(user, team, org_membership=requester, member=requester)
         if not requester_access.check_access_level_for_object(team, "member"):
             continue
 
