@@ -417,6 +417,22 @@ async function getJSONFromSuccessResponse(response: Response, method: string, ur
     }
 }
 
+/**
+ * The query endpoint always sends a JSON body, so an empty one means the request failed and
+ * `getJSONFromSuccessResponse` resolved it to null. Every wrapper around the endpoint types its
+ * result as non-nullable and callers dereference it, so name the failure here. `message` carries
+ * the query kind for error tracking; `detail` carries the copy the query error state shows,
+ * because that state reads `detail` and ignores `message`.
+ */
+export function requireQueryResponse<T>(response: T | null, kind?: string): T {
+    if (!response) {
+        throw new ApiError(`Empty response from the query endpoint (${kind ?? 'unknown kind'})`, undefined, undefined, {
+            detail: 'The query returned an empty response. Try running it again.',
+        })
+    }
+    return response
+}
+
 export class ApiConfig {
     private static _currentOrganizationId: OrganizationType['id'] | null = null
     private static _currentProjectId: ProjectType['id'] | null = null
@@ -3761,7 +3777,9 @@ const api = {
                 ...params,
             }
 
-            return await new ApiRequest().query().create({ ...options, data: { query: groupsQuery } })
+            const response = await new ApiRequest().query().create({ ...options, data: { query: groupsQuery } })
+
+            return requireQueryResponse(response, groupsQuery.kind)
         },
         async create(data: CreateGroupParams): Promise<Group> {
             return await new ApiRequest().groups().create({ data })
@@ -6787,14 +6805,7 @@ const api = {
             },
         })
 
-        if (!response) {
-            // This endpoint always sends a JSON body, so an empty one means the request failed
-            // and `getJSONFromSuccessResponse` resolved it to null. The result is typed
-            // non-nullable and every caller dereferences it, so name the failure here.
-            throw new ApiError(`Empty response from the query endpoint (${bodyKind ?? 'unknown kind'})`)
-        }
-
-        return response
+        return requireQueryResponse(response, bodyKind)
     },
 
     async queryHogQL<T = any[]>(
@@ -6822,7 +6833,7 @@ const api = {
             )
         }
 
-        return await new ApiRequest().query(undefined, hogQLQuery.kind).create({
+        const response = await new ApiRequest().query(undefined, hogQLQuery.kind).create({
             ...queryOptions?.requestOptions,
             data: {
                 query: hogQLQuery,
@@ -6832,6 +6843,8 @@ const api = {
                 variables_override: queryOptions?.variablesOverride,
             },
         })
+
+        return requireQueryResponse(response, hogQLQuery.kind)
     },
 
     schema: {

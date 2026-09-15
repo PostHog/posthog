@@ -172,7 +172,9 @@ describe('query', () => {
             limit: 100,
         })
 
-        await expect(performQuery(q)).rejects.toThrow('Empty response from the query endpoint (EventsQuery)')
+        const error = (await performQuery(q).catch((e: unknown) => e)) as ApiError
+        expect(error.message).toContain('Empty response from the query endpoint (EventsQuery)')
+        expect(error.detail).toBe('The query returned an empty response. Try running it again.')
     })
 
     it('does not emit a query failed event when the request is aborted', async () => {
