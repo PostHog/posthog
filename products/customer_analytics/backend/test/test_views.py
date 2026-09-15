@@ -1336,12 +1336,32 @@ class TestAccountNotebookViewSet(APIBaseTest):
         self.assertEqual(notebook.content, build_markdown_notebook_content(expected_markdown))
         self.assertEqual(notebook.text_content, expected_markdown)
 
-    def test_create_rejects_content_that_cannot_be_converted(self):
-        broken_content = {
-            "type": "doc",
-            "content": [{"type": "paragraph", "content": [{"type": "text", "text": "x", "marks": 1}]}],
-        }
-        response = self.client.post(self.endpoint_base, {"title": "Broken", "content": broken_content}, format="json")
+    @parameterized.expand(
+        [
+            (
+                "rich_text_that_cannot_convert",
+                {
+                    "type": "doc",
+                    "content": [{"type": "paragraph", "content": [{"type": "text", "text": "x", "marks": 1}]}],
+                },
+            ),
+            (
+                "rich_text_over_the_cell_limit",
+                {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "ph-query",
+                            "attrs": {"nodeId": f"q{i}", "query": {"kind": "SavedInsightNode", "shortId": "abc"}},
+                        }
+                        for i in range(51)
+                    ],
+                },
+            ),
+        ]
+    )
+    def test_create_rejects_invalid_content(self, _name: str, content: dict) -> None:
+        response = self.client.post(self.endpoint_base, {"title": "Invalid", "content": content}, format="json")
 
         self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
         self.assertEqual(response.json()["attr"], "content")

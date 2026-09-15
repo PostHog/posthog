@@ -117,7 +117,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     UserCustomerAnalyticsConfigUpdateSerializer,
 )
 from products.notebooks.backend.facade.content import build_markdown_notebook_content
-from products.notebooks.backend.facade.contracts import NotebookContentNotConvertible
+from products.notebooks.backend.facade.contracts import NotebookCellLimitExceeded, NotebookContentNotConvertible
 
 # Object-level access levels for the resource ViewSets, matching what
 # ``AccessControlPermission._get_required_access_level`` derives for these scope objects:
@@ -2134,7 +2134,7 @@ class AccountNotebookViewSet(
                 user=cast(User, request.user),
                 user_access_control=self.user_access_control,
             )
-        except NotebookContentNotConvertible as err:
+        except (NotebookContentNotConvertible, NotebookCellLimitExceeded) as err:
             raise ValidationError({"content": str(err)})
         if notebook is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)

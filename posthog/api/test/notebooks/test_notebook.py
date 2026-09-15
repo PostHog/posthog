@@ -288,6 +288,20 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
                 },
                 "cannot be stored as a markdown notebook",
             ),
+            (
+                "rich_text_over_the_cell_limit",
+                {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "ph-query",
+                            "attrs": {"nodeId": f"q{i}", "query": {"kind": "SavedInsightNode", "shortId": "abc"}},
+                        }
+                        for i in range(51)
+                    ],
+                },
+                "limit of 50 cells",
+            ),
         ]
     )
     def test_create_notebook_rejects_invalid_content(self, _, bad_content: dict, expected_detail: str) -> None:

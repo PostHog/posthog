@@ -195,6 +195,8 @@ def create_account_notebook(
     if not is_markdown_notebook_content(content):
         organization_id = Team.objects.values_list("organization_id", flat=True).get(id=team_id)
         content = to_markdown_notebook_content(content, organization_id=organization_id)
+    # A converted or synthesized document can hold more cells than the editor allows, so count it before saving.
+    validate_cell_count(None, content)
     # Search reads text_content, so it mirrors the stored markdown.
     text_content = get_markdown_notebook_markdown(content)
     with transaction.atomic():

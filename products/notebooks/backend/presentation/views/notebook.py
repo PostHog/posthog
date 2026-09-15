@@ -360,6 +360,11 @@ class NotebookSerializer(NotebookMinimalSerializer):
         except NotebookContentNotConvertible as err:
             raise serializers.ValidationError({"content": str(err)})
         if markdown_content is not None:
+            # validate_content counted cells before conversion, when rich text has none, so count the converted document.
+            try:
+                validate_cell_count(None, markdown_content)
+            except NotebookCellLimitExceeded as err:
+                raise serializers.ValidationError({"content": str(err)})
             validated_data["content"] = markdown_content
         # Search reads text_content, so it mirrors the stored markdown, as a markdown save does.
         validated_data["text_content"] = markdown_collab.get_markdown_notebook_markdown(validated_data["content"])
