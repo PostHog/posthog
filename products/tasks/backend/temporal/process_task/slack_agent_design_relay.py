@@ -2,12 +2,10 @@
 
 Three stream surfaces, chosen by ``stream_mode`` on the input:
 
-- ``timeline`` — narrative streams as markdown_text; consecutive tool calls share
-  one live task card interleaved in arrival order (Slack's
-  ``task_display_mode="timeline"``). The card's details grow one line per call
-  (tool name, capped args, the outcome glued on when it arrives), the title
-  counts the calls, and narrative closes the card — complete, or error when any
-  call in it failed.
+- ``timeline`` — narrative streams as markdown_text and every tool call is its
+  own live step in one plan rail (``task_display_mode="plan"``): opened
+  in_progress with the args in details, closed by its outcome with the result
+  preview in output ("Failed:" prefixed on errors), or by the next step.
 - ``final_only`` — nothing streams while the turn runs; when the turn completes
   the final answer posts in one batch through the same start/stop lifecycle.
 - unset — the legacy plan-block surface, kept for relays whose start was
@@ -21,7 +19,7 @@ Whatever the surface, the stream closes with the trailing @-mention and the
 provenance footer.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, Optional, Union
 
@@ -52,12 +50,6 @@ STATUS_MIN_INTERVAL_SECONDS = 2.0
 TURN_IDLE_TIMEOUT_MINUTES = 5
 _STEP_FIELD_LIMIT = 256
 _NARRATIVE_STEP_TITLE = "💭"
-# Per-line caps inside a burst card. Each delta chunk must stay under Slack's
-# 256-char task_update limit, and appends cannot be retracted, so the line cap
-# is preemptive — the title keeps counting past it.
-_CARD_ARGS_LIMIT = 140
-_CARD_RESULT_LIMIT = 80
-_CARD_MAX_LINES = 15
 
 _ACTIVITY_OPTIONS: dict[str, Any] = {
     "start_to_close_timeout": timedelta(seconds=10),
@@ -81,36 +73,11 @@ class QueuedText:
 
 @dataclass
 class QueuedToolResult:
-    """A finished tool call's outcome, to annotate the open burst card."""
+    """A finished tool call's outcome, closing that call's plan step."""
 
     tool_call_id: str
     output: Optional[str]
     failed: bool
-
-
-@dataclass
-class BurstCard:
-    """The live card a run of consecutive tool calls shares.
-
-    Slack appends a same-id task_update's details to the card rather than
-    replacing them, so every chunk carries only its delta: one new line per
-    call, the outcome glued onto that line when it arrives."""
-
-    card_id: str
-    title_base: str
-    count: int = 0
-    uniform: bool = True
-    lines: int = 0
-    any_failed: bool = False
-    # Calls that own a line in the card; a result for a call without one (the
-    # line cap suppressed it, or the burst closed) appends nothing.
-    line_tool_ids: set[str] = field(default_factory=set)
-
-    @property
-    def display_title(self) -> str:
-        if not self.uniform:
-            return f"{self.count} tool calls"
-        return self.title_base if self.count == 1 else f"{self.title_base} ({self.count})"
 
 
 @dataclass
@@ -156,10 +123,9 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         # Bumped by every content signal, so the final_only wait can tell live
         # silence from a turn that is still producing.
         self._signal_seq: int = 0
-        # The open burst card: consecutive tool calls update one live card (count in
-        # the title, the current call in details, the latest outcome in output).
-        # Narrative closes it — complete, or error when any call in it failed.
-        self._burst: Optional[BurstCard] = None
+        # Maps a tool call to its plan step so the call's outcome can close that
+        # step with the result preview in its output field.
+        self._cards_by_tool_id: dict[str, tuple[str, str]] = {}
 
     @workflow.signal
     async def agent_status_update(self, payload: dict[str, Any] | str) -> None:
@@ -293,69 +259,60 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         tail = self._events[-1] if self._events else None
         return (len(self._events), len(tail.text) if isinstance(tail, QueuedText) else -1)
 
-    def _burst_chunk(self, status: str, details_delta: Optional[str]) -> StreamChunk:
-        assert self._burst is not None
-        return StreamChunk(
-            task_update=TaskUpdateChunk(
-                id=self._burst.card_id,
-                title=self._burst.display_title,
-                status=status,
-                details=details_delta,
+    def _card_chunks_for_step(self, step: PendingStep) -> list[StreamChunk]:
+        """Open a plan step for the tool call; a still-running previous step completes.
+
+        One step per call, so the plan rail lists every call by tool name with its
+        args in the step's details. The call's outcome later closes this step."""
+        chunks: list[StreamChunk] = []
+        if self._current_task_id and self._current_task_title:
+            chunks.append(
+                StreamChunk(
+                    task_update=TaskUpdateChunk(
+                        id=self._current_task_id,
+                        title=self._current_task_title,
+                        status="complete",
+                    )
+                )
+            )
+        new_id = str(workflow.uuid4())
+        chunks.append(
+            StreamChunk(
+                task_update=TaskUpdateChunk(id=new_id, title=step.title, status="in_progress", details=step.details)
             )
         )
-
-    def _card_chunks_for_step(self, step: PendingStep) -> list[StreamChunk]:
-        """Fold the tool call into the open burst card, or open a new one.
-
-        The card is the burst's single timeline point. Its details grow one line
-        per call (tool name plus capped args); the title counts every call, even
-        the ones past the line cap."""
-        if self._burst is None:
-            self._burst = BurstCard(card_id=str(workflow.uuid4()), title_base=step.title)
-        elif step.title != self._burst.title_base:
-            self._burst.uniform = False
-        self._burst.count += 1
-        details_delta: Optional[str] = None
-        if self._burst.lines < _CARD_MAX_LINES:
-            line = f"{step.title}: {step.details[:_CARD_ARGS_LIMIT]}" if step.details else step.title
-            details_delta = f"\n{line}" if self._burst.lines else line
-            self._burst.lines += 1
-            if step.tool_call_id:
-                self._burst.line_tool_ids.add(step.tool_call_id)
-        return [self._burst_chunk("in_progress", details_delta)]
+        self._current_task_id = new_id
+        self._current_task_title = step.title
+        self._current_task_details = step.details
+        if step.tool_call_id:
+            self._cards_by_tool_id[step.tool_call_id] = (new_id, step.title)
+        return chunks
 
     def _card_chunk_for_result(self, result: QueuedToolResult) -> Optional[StreamChunk]:
-        """Glue the outcome onto its call's line in the open burst card.
+        """Close the call's step with its outcome in the output field.
 
-        Results arrive before the next call in a sequential agent, so the append
-        lands on the line the call wrote. One for a closed burst, or for a call
-        past the line cap, changes nothing visible."""
-        if self._burst is None:
+        Failures render as a completed step with a "Failed:" output — Slack's plan
+        display documents no error status for its tasks."""
+        card = self._cards_by_tool_id.pop(result.tool_call_id, None)
+        if card is None:
             return None
+        card_id, title = card
+        if card_id == self._current_task_id:
+            # The outcome closed this step; the stop path must not complete it again.
+            self._current_task_id = None
+            self._current_task_title = None
+            self._current_task_details = None
+        output = result.output
         if result.failed:
-            self._burst.any_failed = True
-        if result.tool_call_id not in self._burst.line_tool_ids:
-            return None
-        self._burst.line_tool_ids.discard(result.tool_call_id)
-        preview = (result.output or "")[:_CARD_RESULT_LIMIT]
-        if result.failed:
-            delta = f" ✗ {preview}" if preview else " ✗ failed"
-        elif preview:
-            delta = f" → {preview}"
-        else:
-            return None
-        return self._burst_chunk("in_progress", delta)
-
-    def _close_burst_chunk(self) -> Optional[StreamChunk]:
-        """Close the open burst card — error when any call in it failed. Calls the
-        line cap suppressed surface as one trailing count line."""
-        if self._burst is None:
-            return None
-        overflow = self._burst.count - self._burst.lines
-        details_delta = f"\n…+{overflow} more" if overflow > 0 else None
-        chunk = self._burst_chunk("error" if self._burst.any_failed else "complete", details_delta)
-        self._burst = None
-        return chunk
+            output = f"Failed: {output}" if output else "Failed"
+        return StreamChunk(
+            task_update=TaskUpdateChunk(
+                id=card_id,
+                title=title,
+                status="complete",
+                output=output,
+            )
+        )
 
     def _collect_timeline_chunks(self, final: bool) -> list[StreamChunk]:
         """Consume unsent events into ordered chunks, advancing the consumed pointer.
@@ -391,17 +348,13 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
             if i == len(self._events) - 1 and not final:
                 split = split_incomplete_tag_suffix(text)
                 if split.sendable:
-                    _push_card(self._close_burst_chunk())
                     chunks.append(StreamChunk(markdown_text=split.sendable))
                     offset += len(split.sendable)
                 break
             if text:
-                _push_card(self._close_burst_chunk())
                 chunks.append(StreamChunk(markdown_text=text))
             i += 1
             offset = 0
-        if final:
-            _push_card(self._close_burst_chunk())
         self._consumed = i
         self._consumed_text_offset = offset
         return chunks
