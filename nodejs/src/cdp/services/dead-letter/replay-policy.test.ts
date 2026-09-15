@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 
+import { defaultConfig } from '../../../common/config/config'
 import { PluginsServerConfig } from '../../../types'
 import {
     DeadLetterRecord,
@@ -106,19 +107,12 @@ describe('replay-policy', () => {
     })
 
     describe('readReplayPolicy', () => {
-        const envConfig = (overrides: Partial<PluginsServerConfig> = {}): PluginsServerConfig =>
-            ({
-                CDP_DLQ_REPLAY_STEPS: '',
-                CDP_DLQ_REPLAY_FROM: '',
-                CDP_DLQ_REPLAY_TO: '',
-                CDP_DLQ_REPLAY_TEAM_IDS: '',
-                CDP_DLQ_REPLAY_SKIP_TEAM_IDS: '',
-                CDP_DLQ_REPLAY_HOG_FUNCTION_IDS: '',
-                CDP_DLQ_REPLAY_REASON_CONTAINS: '',
-                CDP_DLQ_REPLAY_MAX_REPLAYS: 2,
-                CDP_DLQ_REPLAY_MAX_AGE_HOURS: 720,
-                ...overrides,
-            }) as PluginsServerConfig
+        // Built from the real defaults rather than a cast partial, so a new required key or a
+        // changed default shows up here instead of being hidden behind the cast.
+        const envConfig = (overrides: Partial<PluginsServerConfig> = {}): PluginsServerConfig => ({
+            ...defaultConfig,
+            ...overrides,
+        })
 
         it('leaves every list empty when nothing is configured', () => {
             // `Number('')` is 0, so a list built without dropping empties reads as "team 0 only"
@@ -127,12 +121,12 @@ describe('replay-policy', () => {
                 steps: [],
                 from: null,
                 to: null,
-                maxAgeMs: 720 * 60 * 60 * 1000,
+                maxAgeMs: defaultConfig.CDP_DLQ_REPLAY_MAX_AGE_HOURS * 60 * 60 * 1000,
                 teamIds: [],
                 skipTeamIds: [],
                 hogFunctionIds: [],
                 reasonContains: '',
-                maxReplays: 2,
+                maxReplays: defaultConfig.CDP_DLQ_REPLAY_MAX_REPLAYS,
             })
         })
 

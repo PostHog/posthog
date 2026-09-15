@@ -21,7 +21,9 @@ import { HogFunctionType } from './types'
 const ActualKafkaProducerWrapper = jest.requireActual('~/common/kafka/producer').KafkaProducerWrapper
 
 // Truncated bytecode: resolving this input throws, the way a narrowed builtin arity did.
-const BROKEN_INPUTS = { url: { order: 0, value: 'https://example.com', bytecode: ['_H', 1, 2] } }
+const BROKEN_INPUTS: HogFunctionType['inputs'] = {
+    url: { order: 0, value: 'https://example.com', bytecode: ['_H', 1, 2] },
+}
 
 describe('CDP dead-letter replay', () => {
     jest.setTimeout(60000)
@@ -67,13 +69,23 @@ describe('CDP dead-letter replay', () => {
         )
     }
 
+    /** Stands in for the forward fix on the filter side. */
+    const repairFilters = async (fn: HogFunctionType): Promise<void> => {
+        await hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `UPDATE posthog_hogfunction SET filters = $1 WHERE id = $2`,
+            [JSON.stringify(HOG_FILTERS_EXAMPLES.no_filters.filters), fn.id],
+            'repair-hog-function-filters'
+        )
+    }
+
     it('parks an event that cannot build, then rebuilds only that function after the fix', async () => {
         const broken = await insertHogFunction(hub.postgres, team.id, {
             ...HOG_EXAMPLES.simple_fetch,
             ...HOG_FILTERS_EXAMPLES.no_filters,
             type: 'destination',
             inputs_schema: [{ key: 'url', type: 'string', label: 'Webhook URL', required: true }],
-            inputs: BROKEN_INPUTS as any,
+            inputs: BROKEN_INPUTS,
         })
         const healthy = await insertHogFunction(hub.postgres, team.id, {
             ...HOG_EXAMPLES.simple_fetch,
@@ -127,13 +139,69 @@ describe('CDP dead-letter replay', () => {
         expect(replayConsumer.counts.replayed).toBe(1)
     })
 
+    it('rebuilds each function once when one event is parked twice', async () => {
+        // A record is written per event and per step, so an event that fails the filter for one
+        // function and the inputs for another is parked twice. Both records name the same event.
+        const brokenFilter = await insertHogFunction(hub.postgres, team.id, {
+            ...HOG_EXAMPLES.simple_fetch,
+            ...HOG_INPUTS_EXAMPLES.simple_fetch,
+            ...HOG_FILTERS_EXAMPLES.broken_filters,
+            type: 'destination',
+        })
+        const brokenInputs = await insertHogFunction(hub.postgres, team.id, {
+            ...HOG_EXAMPLES.simple_fetch,
+            ...HOG_FILTERS_EXAMPLES.no_filters,
+            type: 'destination',
+            inputs_schema: [{ key: 'url', type: 'string', label: 'Webhook URL', required: true }],
+            inputs: BROKEN_INPUTS,
+        })
+
+        const sourceQueue = createMockJobQueue()
+        eventsConsumer = new CdpEventsConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
+            hogQueue: sourceQueue,
+            hogflowQueue: sourceQueue,
+        })
+        await eventsConsumer.start()
+
+        const event = createIncomingEvent(team.id, {})
+        const message = createKafkaMessage(event)
+        await eventsConsumer.processBatch(await eventsConsumer._parseKafkaBatch([message]))
+        await eventsConsumer['deadLetterService'].produceForBatch([message])
+        await kafkaProducer.flush()
+
+        await repairInputs(brokenInputs)
+        await repairFilters(brokenFilter)
+
+        hub.CDP_DLQ_REPLAY_TOPIC = dlqTopic
+        hub.CDP_DLQ_REPLAY_RUN_ID = `e2e-both-${event.uuid}`
+        hub.CDP_DLQ_REPLAY_DRY_RUN = false
+
+        const replayQueue = createMockJobQueue()
+        replayConsumer = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
+            hogQueue: replayQueue,
+            hogflowQueue: replayQueue,
+        })
+        await replayConsumer.start()
+
+        await waitForExpect(() => {
+            expect(replayConsumer!.counts.queued).toBe(2)
+        }, 30000)
+
+        // Both parked functions come back, each exactly once. Keying the targets by event UUID
+        // without merging would drop one and queue the other twice.
+        const replayed = replayQueue.queueInvocations.mock.calls.flatMap(([invocations]: [any[]]) => invocations)
+        expect(replayed.map((invocation: any) => invocation.functionId).sort()).toEqual(
+            [brokenFilter.id, brokenInputs.id].sort()
+        )
+    })
+
     it('counts what it would deliver without queueing anything in a dry run', async () => {
         const broken = await insertHogFunction(hub.postgres, team.id, {
             ...HOG_EXAMPLES.simple_fetch,
             ...HOG_FILTERS_EXAMPLES.no_filters,
             type: 'destination',
             inputs_schema: [{ key: 'url', type: 'string', label: 'Webhook URL', required: true }],
-            inputs: BROKEN_INPUTS as any,
+            inputs: BROKEN_INPUTS,
         })
 
         const sourceQueue = createMockJobQueue()

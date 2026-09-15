@@ -42,7 +42,17 @@ export interface CdpDlqReplayCounts {
     replayed: number
     queued: number
     skipped: Record<string, number>
-    /** Dry-run tally: how many deliveries a real run would produce, keyed `teamId|sourceId|step`. */
+    /**
+     * Parked deliveries in scope for this run, keyed `teamId|sourceId|step`.
+     *
+     * An upper bound on what a real run would deliver, not the exact figure. It counts what the
+     * records name, before the pipeline has a say, and the pipeline still drops a function that
+     * was deleted or disabled, or one whose team is quota limited or whose event is masked.
+     *
+     * Counting after the pipeline would be exact but would stop being a dry run: building
+     * invocations claims masks in Redis and reports billable invocations, so the count itself
+     * would change what a later real run delivers.
+     */
     byTarget: Record<string, number>
 }
 
@@ -157,6 +167,11 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
 
         // Which sources each event may rebuild, keyed by event UUID. `null` means every source of
         // the team, which is right only when nothing was built the first time.
+        //
+        // One event can be parked more than once, because a record is written per event and step:
+        // once at `filter` for one function, once at `inputs` for another. Their targets are merged
+        // and the event is rebuilt once. Overwriting instead would drop the first record's
+        // functions, and rebuilding the event twice would queue the survivors twice.
         const targetsByEvent = new Map<string, Set<string> | null>()
         const globalsList: HogFunctionInvocationGlobals[] = []
 
@@ -166,8 +181,18 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
                 this.countSkip('unreadable')
                 continue
             }
-            targetsByEvent.set(globals.event.uuid, replayTargetIds(record, this.policy))
-            globalsList.push(globals)
+            const targets = replayTargetIds(record, this.policy)
+            if (targetsByEvent.has(globals.event.uuid)) {
+                const existing = targetsByEvent.get(globals.event.uuid)!
+                // `null` is "every source", so a union with anything stays `null`.
+                targetsByEvent.set(
+                    globals.event.uuid,
+                    existing === null || targets === null ? null : new Set([...existing, ...targets])
+                )
+            } else {
+                targetsByEvent.set(globals.event.uuid, targets)
+                globalsList.push(globals)
+            }
             this.counts.replayed += 1
             this.countTarget(record)
         }
@@ -177,6 +202,8 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
         }
 
         if (this.dryRun) {
+            // Stops before the pipeline on purpose. See `byTarget` for what that costs in accuracy
+            // and why paying it is wrong here.
             counterReplayMessages.labels({ outcome: 'dry_run' }).inc(globalsList.length)
             return
         }
@@ -267,13 +294,26 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
         })
     }
 
-    private trackProgress(messages: Message[]): void {
+    /**
+     * Drops anything at or past the recorded end, and marks a partition drained once it arrives.
+     *
+     * The source consumers keep parking events while a run is in flight, so a fetched batch can
+     * hold records produced after the run started. Replaying those would make the run follow the
+     * stream rather than drain the backlog it was scaled up for.
+     */
+    private withinRecordedEnd(messages: Message[]): Message[] {
+        const bounded: Message[] = []
         for (const message of messages) {
             const end = this.endOffsets.get(message.partition)
-            if (end !== undefined && message.offset >= end - 1) {
+            if (end === undefined || message.offset >= end) {
+                continue
+            }
+            bounded.push(message)
+            if (message.offset === end - 1) {
                 this.drained.add(message.partition)
             }
         }
+        return bounded
     }
 
     private finish(): void {
@@ -310,8 +350,8 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
                 return
             }
             this.emptyPolls = 0
-            this.trackProgress(messages)
-            await instrumentFn('cdpDlqReplay.handleEachBatch', () => this.replayBatch(messages, Date.now()))
+            const bounded = this.withinRecordedEnd(messages)
+            await instrumentFn('cdpDlqReplay.handleEachBatch', () => this.replayBatch(bounded, Date.now()))
             logger.info('☠️', 'cdp_dlq_replay_progress', {
                 replayed: this.counts.replayed,
                 queued: this.counts.queued,
