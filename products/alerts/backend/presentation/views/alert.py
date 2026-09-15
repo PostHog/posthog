@@ -130,6 +130,13 @@ def _validate_interval_entitlement(
         raise ValidationError({"calculation_interval": [error]})
 
 
+def _reject_deleted_insight(insight: Insight) -> None:
+    # The insight lock holds a soft-deleted row too, and the scheduler never runs an alert on
+    # one, so a save that raced the deletion must not report success.
+    if insight.deleted:
+        raise ValidationError({"insight": ["This insight was deleted. Pick another insight."]})
+
+
 def _require_insight_viewer_access(context: dict[str, Any], insight: Insight) -> None:
     # Team scoping alone doesn't gate per-object insight access controls, so require viewer access
     # explicitly — alert write/simulate access must not expose a restricted insight's results.
@@ -817,6 +824,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             if not lock_insight_for_evaluation(team_id=team.id, insight_id=insight.id):
                 raise ValidationError({"insight": ["The insight no longer exists. Refresh the alert."]})
             insight.refresh_from_db()
+            _reject_deleted_insight(insight)
             validated_data = self.validate(validated_data)
         current_count = AlertConfiguration.objects.filter(team_id=team.id).count()
         check_count_limit(
@@ -870,6 +878,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             raise ValidationError({"insight": ["The alert's insight changed. Retry the update."]})
         if target_insight:
             target_insight.refresh_from_db()
+            _reject_deleted_insight(target_insight)
         # Recheck the combined configuration after concurrent updates have finished.
         self.instance = instance
         validated_data = self.validate(validated_data)

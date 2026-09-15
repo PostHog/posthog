@@ -45,6 +45,21 @@ def test_describes_what_the_alerted_series_counts(_name: str, expected: str) -> 
     assert expected in described
 
 
+def test_the_alerted_series_is_described_past_the_cap() -> None:
+    # Validation allows any in-range index, so the judge must still see the series it is asked about.
+    events = [f"event_{index}" for index in range(8)]
+    query = {
+        "kind": "TrendsQuery",
+        "series": [{"kind": "EventsNode", "event": event, "math": "total"} for event in events],
+    }
+
+    described = describe_metric_definition(query, series_index=7)
+
+    assert 'Alerted series (index 7): total event count of event "event_7"' in described
+    assert "event_5" not in described
+    assert "(2 further series omitted.)" in described
+
+
 def test_marks_the_alerted_series_by_index() -> None:
     query = {
         "kind": "TrendsQuery",

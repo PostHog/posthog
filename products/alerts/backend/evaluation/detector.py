@@ -193,7 +193,8 @@ class _ScoredSeries:
     """One series after the detector or judge has scored it, reduced to what the alert reads."""
 
     data: np.ndarray
-    detection: DetectionResult
+    # None when nothing scored the series: the judge had too few points to ask the model.
+    detection: DetectionResult | None
     # The slice of the score worth persisting on the check. A judgment's verdict fields; empty
     # for a statistical detector, whose metadata is fit state (means, thresholds) that nothing
     # downstream reads.
@@ -201,10 +202,10 @@ class _ScoredSeries:
     breach_suffix: str
 
 
-def _detection_from_judgment(judgment: SeriesJudgment | None) -> DetectionResult:
+def _detection_from_judgment(judgment: SeriesJudgment | None) -> DetectionResult | None:
     """The judgment on the shape the rest of the evaluation reads. None is a series too short to judge."""
     if judgment is None:
-        return DetectionResult(is_anomaly=False)
+        return None
     return DetectionResult(
         is_anomaly=judgment.fires,
         score=judgment.score,
@@ -272,7 +273,7 @@ _DETECTOR_DISPLAY_NAMES = {DetectorType.LLM.value: "AI"}
 
 def _anomaly_breach(label: str, scored: _ScoredSeries, detector_type_str: str) -> str:
     current_value = float(scored.data[-1])
-    score = scored.detection.score
+    score = scored.detection.score if scored.detection is not None else None
     # The model's number is its own stated confidence, not a calibrated probability, so
     # the message must not present it as one.
     score_label = "model confidence" if detector_type_str == DetectorType.LLM.value else "anomaly probability"
@@ -329,7 +330,7 @@ def evaluate_with_detector(
     if result.is_breakdown:
         for bd_index, s in enumerate(result.series):
             scored = score(s)
-            if scored.detection.is_anomaly:
+            if scored.detection is not None and scored.detection.is_anomaly:
                 return AlertEvaluationResult(
                     value=float(scored.data[-1]),
                     breaches=[_anomaly_breach(s.label, scored, detector_type_str)],
@@ -343,6 +344,10 @@ def evaluate_with_detector(
 
     s = result.series[0]
     scored = score(s)
+    if scored.detection is None:
+        # Nothing judged the series, so the check is uncomputed rather than a healthy value
+        # that never reached the model.
+        return AlertEvaluationResult(value=None, breaches=[], interval=interval_value)
 
     breaches: list[str] = []
     if scored.detection.is_anomaly:
@@ -355,7 +360,11 @@ def evaluate_with_detector(
         triggered_points=scored.detection.triggered_indices or None,
         triggered_dates=_triggered_dates(s, scored.detection.triggered_indices or []) or None,
         interval=interval_value,
-        triggered_metadata=scored.persisted_metadata or None,
+        # The series index rides along so an investigation that starts after the alert is
+        # repointed still reads the series this verdict was about.
+        triggered_metadata={"series_index": series_index, **scored.persisted_metadata}
+        if scored.persisted_metadata
+        else None,
     )
 
 
@@ -544,6 +553,8 @@ def _sim_from_series(
             ),
         ).detection
     else:
+        detection = None
+    if detection is None:
         detection = DetectionResult(is_anomaly=False)
     triggered = detection.triggered_indices or []
     scores = detection.all_scores if detection.all_scores else [None] * len(series.points)

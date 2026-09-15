@@ -197,15 +197,20 @@ def _describe_formulas(formulas: list[tuple[str, str | None]], series_index: int
 
 
 def _describe_series(series: list[Any], series_index: int | None) -> list[str]:
+    described = list(range(min(len(series), MAX_DESCRIBED_SERIES)))
+    if series_index is not None and MAX_DESCRIBED_SERIES <= series_index < len(series):
+        # The cap bounds the prompt, but the alerted series is what the judge is asked about,
+        # so it displaces the last capped one rather than being omitted.
+        described[-1] = series_index
     lines: list[str] = []
-    for index, node in enumerate(series[:MAX_DESCRIBED_SERIES]):
+    for index in described:
         if series_index is None:
             label = f"Input series {chr(ord('A') + index)}" if index < 26 else "Input series"
         else:
             label = "Alerted series" if index == series_index else "Other series in this insight"
-        lines.append(f"- {label} (index {index}): {_describe_series_node(node)}")
-    if len(series) > MAX_DESCRIBED_SERIES:
-        lines.append(f"- ({len(series) - MAX_DESCRIBED_SERIES} further series omitted.)")
+        lines.append(f"- {label} (index {index}): {_describe_series_node(series[index])}")
+    if len(series) > len(described):
+        lines.append(f"- ({len(series) - len(described)} further series omitted.)")
     return lines
 
 

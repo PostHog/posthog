@@ -27,6 +27,7 @@ class _RecordingJudge:
     """Captures what it is handed, and fires so the result shape is observable."""
 
     seen: list[tuple[SeriesContext, JudgeAttribution]] = []
+    judgment: SeriesJudgment | None = None
 
     def __init__(self, config: dict[str, Any]) -> None:
         self.config = config
@@ -35,17 +36,7 @@ class _RecordingJudge:
         self, data: np.ndarray, *, series: SeriesContext, attribution: JudgeAttribution
     ) -> SeriesJudgment | None:
         _RecordingJudge.seen.append((series, attribution))
-        return SeriesJudgment(
-            fires=True,
-            verdict_is_anomaly=True,
-            confidence=0.88,
-            kind="drop",
-            rationale="Signups fell to 12.",
-            model="claude-sonnet-5",
-            score=0.88,
-            triggered_indices=(len(data) - 1,),
-            all_scores=(0.88,),
-        )
+        return _RecordingJudge.judgment
 
     def judge_every_point(
         self, data: np.ndarray, *, series: SeriesContext, attribution: JudgeAttribution
@@ -80,8 +71,29 @@ def _extraction() -> ExtractionResult:
     )
 
 
-def _evaluate(detector_config: dict[str, Any], alert: Any = None) -> Any:
+def _judgment(**overrides: Any) -> SeriesJudgment:
+    defaults: dict[str, Any] = {
+        "fires": True,
+        "verdict_is_anomaly": True,
+        "confidence": 0.88,
+        "kind": "drop",
+        "rationale": "Signups fell to 12.",
+        "model": "claude-sonnet-5",
+        "score": 0.88,
+        "triggered_indices": (4,),
+        "all_scores": (0.88,),
+    }
+    return SeriesJudgment(**{**defaults, **overrides})
+
+
+FIRING_JUDGMENT = _judgment()
+
+
+def _evaluate(
+    detector_config: dict[str, Any], alert: Any = None, judgment: SeriesJudgment | None = FIRING_JUDGMENT
+) -> Any:
     _RecordingJudge.seen = []
+    _RecordingJudge.judgment = judgment
     with patch("products.alerts.backend.evaluation.detector.LLMSeriesJudge", _RecordingJudge):
         return evaluate_with_detector(
             _extraction(),
@@ -138,11 +150,20 @@ class TestLLMVerdictReachesTheCheck:
         assert "model confidence:" in result.breaches[0]
         assert "probability" not in result.breaches[0]
         assert result.triggered_metadata == {
+            "series_index": 0,
             "rationale": "Signups fell to 12.",
             "kind": "drop",
             "verdict_is_anomaly": True,
             "confidence": 0.88,
         }
+
+    def test_a_series_too_short_to_judge_leaves_the_check_uncomputed(self) -> None:
+        # No model call happened, so the check must not read as a healthy value with no score.
+        result = _evaluate({"type": "llm"}, judgment=None)
+
+        assert result.value is None
+        assert result.breaches == []
+        assert result.triggered_metadata is None
 
     def test_statistical_detector_metadata_stays_off_the_check(self) -> None:
         # The statistical detectors' metadata is fit state (means, thresholds); persisting it

@@ -3039,6 +3039,22 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
         mock_ask.assert_not_called()
 
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_create_refuses_an_insight_deleted_before_the_lock(self, _flag) -> None:
+        # The insight lock holds a soft-deleted row too, and the scheduler never runs such an alert.
+        lock = "products.alerts.backend.presentation.views.alert.lock_insight_for_evaluation"
+
+        def delete_then_lock(*, team_id: int, insight_id: int) -> bool:
+            Insight.objects.filter(id=insight_id).update(deleted=True)
+            return True
+
+        with mock.patch(lock, side_effect=delete_then_lock):
+            response = self._create({"type": "llm", "threshold": 0.7, "window": 90})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "was deleted" in response.json()["detail"]
+        assert not AlertConfiguration.objects.filter(insight_id=self.insight["id"]).exists()
+
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_created_with_instructions_stripped(self, _flag) -> None:
         response = self._create({"type": "llm", "threshold": 0.7, "window": 90, "instructions": "  only drops  "})
 

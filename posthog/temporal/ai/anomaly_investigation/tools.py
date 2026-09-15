@@ -98,10 +98,14 @@ def _run_detector_simulation(
     alert: AlertConfiguration,
     team: Team,
     date_from: str | None,
+    series_index: int | None = None,
 ) -> dict[str, Any] | str:
     """Thin wrapper around ``simulate_detector_on_insight`` that returns either the sim
     dict or a short error string. Kept as a sync helper so it can be pushed to a thread
     via ``sync_to_async`` from the async tool handlers.
+
+    ``series_index`` overrides the alert's current selection with the one a saved check
+    judged, so an investigation charts the series that fired.
 
     An AI-detector alert is never re-scored here: the verdict that fired is already on the
     check, and every extra scoring pass would be another billable model call that the agent
@@ -120,7 +124,7 @@ def _run_detector_simulation(
             # Mirror the alert-check path (TrendsDetectorExtractor.extract): the monitored series
             # is chosen by config.series_index. Without this the simulation defaults to series 0,
             # so the investigation analyzes a different series than the one that actually fired.
-            series_index=(alert.config or {}).get("series_index", 0),
+            series_index=series_index if series_index is not None else (alert.config or {}).get("series_index", 0),
             # Pass the full alert config too: HogQLDetectorExtractor.simulate reads config.column to
             # pick which numeric column to score. Without it a SQL insight with several numeric
             # columns fails with "more than one of them is numeric", so the investigation gets no

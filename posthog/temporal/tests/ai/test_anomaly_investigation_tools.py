@@ -15,9 +15,9 @@ from posthog.schema import (
 
 from posthog.caching.insight_result import InsightResult
 from posthog.temporal.ai.anomaly_investigation.tools import _run_detector_simulation
-from posthog.temporal.ai.anomaly_investigation.workflow import _build_multimodal_context
+from posthog.temporal.ai.anomaly_investigation.workflow import _build_multimodal_context, _evaluated_series_index
 
-from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -111,6 +111,20 @@ def test_run_detector_simulation_never_rescores_an_ai_alert(
     assert isinstance(context, list)
     assert render.call_args.kwargs["triggered_indices"] == expected_indices
     mock_ask.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "triggered_metadata,expected_index",
+    [({"series_index": 1, "kind": "drop"}, 1), ({"kind": "drop"}, 2), ({"series_index": True}, 2)],
+)
+def test_investigation_reads_the_series_the_check_judged(triggered_metadata: dict, expected_index: int) -> None:
+    # The alert can be repointed while the investigation waits, so the check's own record wins.
+    alert = MagicMock(spec=AlertConfiguration)
+    alert.config = {"type": "TrendsAlertConfig", "series_index": 2}
+    check = MagicMock(spec=AlertCheck)
+    check.triggered_metadata = triggered_metadata
+
+    assert _evaluated_series_index(alert, check) == expected_index
 
 
 @patch("products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight")

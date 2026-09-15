@@ -294,6 +294,7 @@ export interface alertFormLogicValues {
     isAlertFormValid: boolean
     showAlertFormErrors: boolean
     simulationDateFrom: string | null
+    simulationRequestId: number
     simulationResult: AlertSimulationResult | null
     simulationResultLoading: boolean
     thresholdBoundsFormError: string | undefined
@@ -488,6 +489,15 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 setSimulationDateFrom: (_, { dateFrom }) => dateFrom,
             },
         ],
+        // Counts every request and every clear, so a preview that resolves after the
+        // detector settings changed can be told apart from the one the user is waiting on.
+        simulationRequestId: [
+            0,
+            {
+                simulateAlert: (state) => state + 1,
+                clearSimulation: (state) => state + 1,
+            },
+        ],
         alertFormSubmitAttempted: [
             false,
             {
@@ -512,8 +522,9 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     if (!detectorConfig || !props.insightId) {
                         return null
                     }
+                    const requestId = values.simulationRequestId
                     const formConfig = values.alertForm.config
-                    return await api.alerts.simulate({
+                    const result = await api.alerts.simulate({
                         insight: props.insightId,
                         detector_config: detectorConfig,
                         series_index: isTrendsAlertConfig(formConfig) ? formConfig.series_index : 0,
@@ -524,6 +535,9 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         // and read direction so the preview matches what the alert will score.
                         config: formConfig,
                     })
+                    // A clear or a newer preview superseded this one while the model was judging;
+                    // its verdict would be shown against settings the model never saw.
+                    return values.simulationRequestId === requestId ? result : values.simulationResult
                 },
                 clearSimulation: () => null,
             },

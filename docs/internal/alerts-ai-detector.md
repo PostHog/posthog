@@ -25,6 +25,7 @@ person, and which points it flagged.
 
 Changing the detector configuration resets the alert state and schedules a new check.
 Metric metadata is escaped and marked as data in the prompt. The chart uses a fixed title.
+The prompt describes at most six series, and the alerted series is always one of them.
 SQL detector series preserve ISO date and timestamp labels from the selected label column.
 The labels follow the same row order and window as the values.
 If any label in the window is missing or invalid, the series has no dates and the model receives row positions.
@@ -46,6 +47,10 @@ History with both statistical and AI scores uses a neutral score label.
 ## When a check fires
 
 A live check fires only when the model names the latest point.
+A series with fewer than five points is never sent to the model, and the check stays uncomputed
+rather than recording a healthy value.
+The check also stores the index of the series it judged, so an investigation that starts after
+the alert is repointed still charts the series that fired.
 An anomaly verdict about older history records `latest_point_not_flagged` and does not fire, even below the confidence threshold.
 Lowering the threshold cannot make that historical check appear to fire for the latest point.
 Investigation charts mark the saved check's triggered dates that remain in the chart window.
@@ -105,6 +110,7 @@ refusal in its own error shape.
 
 The last of those is what makes the flag a real stop on spend.
 When access is removed, the next check records the cause, disables the alert, and notifies its subscribers.
+That notification says the alert was turned off and what to fix; it does not promise a retry.
 An unresolved rollout lookup is retryable and leaves the alert enabled.
 Evaluation-time disable emails use the notification activity's retries and a stable key for the saved check.
 This expected condition does not send an exception to Error tracking.

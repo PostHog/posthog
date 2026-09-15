@@ -602,12 +602,27 @@ def dispatch_alert_error_in_app_notifications(alert: AlertConfiguration, alert_c
     error_message = str(error.get("message") or "Unknown error").strip().rstrip(".")[:1000] or "Unknown error"
     alert_name = alert.name or "Alert"
     source_url = f"/project/{alert.team_id}/insights/{alert.insight.short_id}?alert_id={alert.id}"
-    next_check_at = next_scheduled_check_time(alert)
-    next_check_message = (
-        f"PostHog will try again on {next_check_at}."
-        if next_check_at
-        else "PostHog will try again at the next scheduled check."
-    )
+    if error.get("code") == "invalid_configuration":
+        # The check turned the alert off, so a promise to try again would be false.
+        title = f"{alert_name[:75]} was turned off"
+        body = (
+            f"PostHog turned this alert off because it could not be evaluated: {error_message}. "
+            "Fix the alert or insight settings, then turn the alert back on."
+        )
+    else:
+        next_check_at = next_scheduled_check_time(alert)
+        next_check_message = (
+            f"PostHog will try again on {next_check_at}."
+            if next_check_at
+            else "PostHog will try again at the next scheduled check."
+        )
+        title = f"{alert_name[:75]} could not be evaluated"
+        body = (
+            f"PostHog could not evaluate this alert: {error_message}. "
+            "This can happen when the insight or alert settings need attention, or when PostHog has a "
+            f"temporary problem. Review the alert settings. {next_check_message} If it fails again, "
+            "contact support."
+        )
 
     for user_id, _ in get_alert_error_notification_recipients(alert):
         try:
@@ -616,13 +631,8 @@ def dispatch_alert_error_in_app_notifications(alert: AlertConfiguration, alert_c
                     team_id=alert.team_id,
                     notification_type=NotificationType.PIPELINE_FAILURE,
                     priority=Priority.NORMAL,
-                    title=f"{alert_name[:75]} could not be evaluated",
-                    body=(
-                        f"PostHog could not evaluate this alert: {error_message}. "
-                        "This can happen when the insight or alert settings need attention, or when PostHog has a "
-                        f"temporary problem. Review the alert settings. {next_check_message} If it fails again, "
-                        "contact support."
-                    ),
+                    title=title,
+                    body=body,
                     target_type=TargetType.USER,
                     target_id=str(user_id),
                     resource_type="insight",

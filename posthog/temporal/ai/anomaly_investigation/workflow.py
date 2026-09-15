@@ -153,7 +153,7 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         if isinstance((alert_check.triggered_metadata or {}).get("verdict_is_anomaly"), bool)
         else (alert.detector_config or {}).get("type") or "threshold"
     )
-    series_index = (alert.config or {}).get("series_index", 0)
+    series_index = _evaluated_series_index(alert, alert_check)
 
     # Measured up front rather than left to a tool call: without it the agent has only the
     # event's name to go on, and an opaque name invites it to invent the machinery behind it.
@@ -184,6 +184,7 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         alert=alert,
         context_text=anomaly_context_text,
         triggered_dates=list(alert_check.triggered_dates or []),
+        series_index=series_index,
     )
 
     try:
@@ -712,7 +713,15 @@ async def _mark_failed(alert_check, reason: str) -> None:
     )
 
 
-def _build_multimodal_context(*, alert, context_text: str, triggered_dates: list[str]):
+def _evaluated_series_index(alert, alert_check) -> int:
+    """The series the check judged, which the alert can have been repointed away from since."""
+    saved = (alert_check.triggered_metadata or {}).get("series_index")
+    if isinstance(saved, int) and not isinstance(saved, bool):
+        return saved
+    return (alert.config or {}).get("series_index", 0)
+
+
+def _build_multimodal_context(*, alert, context_text: str, triggered_dates: list[str], series_index: int | None = None):
     """Return a LangChain HumanMessage content value — either a plain string or a
     list of content blocks with the text and a rendered chart PNG.
 
@@ -722,7 +731,7 @@ def _build_multimodal_context(*, alert, context_text: str, triggered_dates: list
     if alert.detector_config is None or alert.insight is None:
         return context_text
 
-    sim = _run_detector_simulation(alert=alert, team=alert.team, date_from=None)
+    sim = _run_detector_simulation(alert=alert, team=alert.team, date_from=None, series_index=series_index)
     if isinstance(sim, str) or not sim:
         logger.info("anomaly_investigation.chart_skipped", alert_id=str(alert.id), reason=str(sim)[:120])
         return context_text

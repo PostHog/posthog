@@ -1007,6 +1007,29 @@ class TestNotifyAlert:
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
         assert refreshed.targets_notified == {"users": ["alice@posthog.com"], "destinations": []}
 
+    async def test_disabled_alert_notification_does_not_promise_a_retry(self, alert_with_user) -> None:
+        check = await _create_alert_check(
+            alert_with_user,
+            state=AlertState.ERRORED,
+            error={"message": "Insight has a breakdown.", "code": "invalid_configuration"},
+        )
+
+        with (
+            patch("posthog.tasks.alerts.utils.send_notifications_for_disabled", return_value=[]),
+            patch("posthog.temporal.alerts.activities.create_notification") as mock_create_notification,
+        ):
+            env = ActivityEnvironment()
+            await env.run(
+                notify_alert,
+                NotifyAlertActivityInputs(alert_id=str(alert_with_user.id), alert_check_id=str(check.id)),
+            )
+
+        notification = mock_create_notification.call_args.args[0]
+        assert notification.title.endswith("was turned off")
+        assert "turned this alert off" in notification.body
+        assert "Insight has a breakdown." in notification.body
+        assert "try again" not in notification.body
+
     @pytest.mark.parametrize("message", [None, "", "   "])
     async def test_error_notification_uses_fallback_for_missing_reason(self, alert_with_user, message) -> None:
         check = await _create_alert_check(alert_with_user, state=AlertState.ERRORED, error={"message": message})
