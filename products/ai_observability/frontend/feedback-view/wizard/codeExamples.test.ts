@@ -37,9 +37,10 @@ function runSample({
 
 describe('getManualCaptureExample', () => {
     describe('with a follow-up question', () => {
-        // Results keeps one row per `$survey_submission_id` and drops a submission that has no
-        // completed event. So every path has to end on exactly one completed event, and that
-        // event has to carry every answer given so far.
+        // Results keeps one row per `$survey_submission_id`. Every path has to end on exactly one
+        // completed event, so the submission reads as completed rather than abandoned. That event
+        // also repeats every answer given so far, which is the pattern the manual-capture docs
+        // teach and which keeps a submission readable without cross-event merging.
         it.each([
             {
                 path: 'a thumbs up, which branches straight to the end',
