@@ -93,6 +93,8 @@ export const apiSurveyLogic: LogicWrapper<apiSurveyLogicType> = kea<apiSurveyLog
                     ...context,
                     $survey_id: survey?.id,
                     $survey_name: survey?.name,
+                    $survey_iteration: survey?.current_iteration,
+                    $survey_iteration_start_date: survey?.current_iteration_start_date,
                     $survey_submission_id: submissionId,
                     $survey_questions: survey?.questions.map(({ id, question }) => ({ id, question })),
                 }),
@@ -130,7 +132,9 @@ export const apiSurveyLogic: LogicWrapper<apiSurveyLogicType> = kea<apiSurveyLog
                 }
                 const metadata = structuredClone(
                     Object.fromEntries(
-                        Object.entries(props.context ?? {}).filter(([key]) => !key.startsWith('$survey_'))
+                        Object.entries(props.context ?? {}).filter(
+                            ([key]) => !key.startsWith('$survey_') && key !== 'sessionRecordingUrl'
+                        )
                     )
                 )
                 if (props.includeReplay) {
