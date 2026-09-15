@@ -247,13 +247,21 @@ class TestLLMDetectorFailureIsLoud:
         with pytest.raises(LLMDetectorMisconfiguredError, match="AI data processing is turned off"):
             LLMDetector({"type": "llm"}).detect_in_context(SERIES, _context(team=team))
 
-    def test_call_is_refused_once_the_rollout_is_revoked(self) -> None:
+    @parameterized.expand(
+        [
+            ("revoked", False, LLMDetectorMisconfiguredError, "not enabled for your account"),
+            ("unavailable", None, LLMDetectorUnavailableError, "could not check rollout access"),
+        ]
+    )
+    def test_call_is_refused_once_the_rollout_is_revoked(
+        self, _name: str, flag_value: bool | None, error_type: type[Exception], message: str
+    ) -> None:
         # The flag must stop spend on alerts created while it was on, not only new ones.
         with (
             patch(
-                "products.alerts.backend.llm_detector_limits.posthoganalytics.feature_enabled", return_value=False
+                "products.alerts.backend.llm_detector_limits.posthoganalytics.feature_enabled", return_value=flag_value
             ) as flag,
-            pytest.raises(LLMDetectorMisconfiguredError, match="not enabled for your account"),
+            pytest.raises(error_type, match=message),
         ):
             LLMDetector({"type": "llm"}).detect_in_context(SERIES, _context())
 

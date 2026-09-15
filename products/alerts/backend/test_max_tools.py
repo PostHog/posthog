@@ -443,12 +443,13 @@ class TestUpsertAlertTool(BaseTest):
         assert threshold is not None
         assert threshold.configuration["bounds"]["lower"] == 100.0
 
+    @parameterized.expand([("reenable", False), ("enabled_edit", True)])
     @pytest.mark.django_db
     @pytest.mark.asyncio
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
-    async def test_update_rejects_enabling_an_ai_alert_after_insight_gains_a_breakdown(self, _flag):
+    async def test_update_rejects_invalid_ai_configuration(self, _name, already_enabled, _flag):
         insight = await self._create_insight()
-        alert = await self._create_alert(insight, enabled=False)
+        alert = await self._create_alert(insight, enabled=already_enabled)
         await AlertConfiguration.objects.filter(team=self.team, id=alert.id).aupdate(
             detector_config={"type": "llm", "threshold": 0.7, "window": 90}
         )
@@ -457,16 +458,22 @@ class TestUpsertAlertTool(BaseTest):
 
         async def edit_after_read(_tool, *args, **kwargs):
             await check_access(*args, **kwargs)
-            assert insight.query is not None
-            insight.query["source"]["breakdownFilter"] = {"breakdown": "$browser", "breakdown_type": "event"}
-            await insight.asave(update_fields=["query"])
+            if not already_enabled:
+                assert insight.query is not None
+                insight.query["source"]["breakdownFilter"] = {"breakdown": "$browser", "breakdown_type": "event"}
+                await insight.asave(update_fields=["query"])
 
         with mock.patch.object(UpsertAlertTool, "check_object_access", new=edit_after_read):
-            content, artifact = await tool._arun_impl(action=UpdateAlertAction(alert_id=str(alert.id), enabled=True))
+            content, artifact = await tool._arun_impl(
+                action=UpdateAlertAction(
+                    alert_id=str(alert.id), enabled=True, series_index=99 if already_enabled else None
+                )
+            )
         assert artifact["error"] == "validation_failed"
-        assert "breakdown" in content
+        assert ("series" if already_enabled else "breakdown") in content
         await alert.arefresh_from_db()
-        assert alert.enabled is False
+        assert alert.enabled is already_enabled
+        assert (alert.config or {}).get("series_index", 0) == 0
 
     @pytest.mark.django_db
     @pytest.mark.asyncio

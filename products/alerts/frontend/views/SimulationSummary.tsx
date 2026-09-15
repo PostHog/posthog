@@ -98,7 +98,7 @@ function SimulationChart({
         : [
               {
                   key: 'score',
-                  label: 'Score',
+                  label: detectorConfig?.type === DetectorType.LLM ? 'Model confidence' : 'Score',
                   data: result.scores.map((s) => s ?? NaN),
                   points: detectorConfig?.type === DetectorType.LLM ? { radius: 3 } : undefined,
                   color: 'rgba(245, 158, 11, 0.8)',
@@ -133,8 +133,7 @@ function SimulationChart({
                             id: 'yScore',
                             position: 'right',
                             format: 'percentage_scaled',
-                            label: 'Anomaly score',
-                            // Scores are probabilities, so the axis is 0-100% whatever the data does.
+                            label: detectorConfig?.type === DetectorType.LLM ? 'Confidence' : 'Anomaly score',
                             // Floating it to the data max drops a threshold above every score: an
                             // off-plot reference line doesn't draw at all.
                             min: 0,

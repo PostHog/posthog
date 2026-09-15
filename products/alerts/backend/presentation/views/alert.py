@@ -65,7 +65,7 @@ from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
 from posthog.tasks.alerts.detectors.llm.detector import MAX_PROMPT_POINTS
-from posthog.tasks.alerts.detectors.llm.errors import LLMDetectorError
+from posthog.tasks.alerts.detectors.llm.errors import LLMDetectorError, LLMDetectorUnavailableError
 from posthog.tasks.alerts.schedule_restriction import validate_and_normalize_schedule_restriction
 from posthog.tasks.alerts.utils import (
     next_check_at_after_schedule_restriction_change,
@@ -242,9 +242,12 @@ def _enforce_llm_feature_access(context: dict[str, Any], detector_config: Any, *
         )
     # The detector refuses the call too, but an alert that errors on every check is a
     # worse way to learn this than a message at save time.
-    error = llm_detector_access_error(
-        distinct_id=str(evaluated_as.distinct_id), organization=context["get_organization"]()
-    )
+    try:
+        error = llm_detector_access_error(
+            distinct_id=str(evaluated_as.distinct_id), organization=context["get_organization"]()
+        )
+    except LLMDetectorUnavailableError as unavailable_error:
+        raise LLMDetectorUnavailable(str(unavailable_error)) from unavailable_error
     if error:
         raise ValidationError(error)
 
@@ -1268,7 +1271,11 @@ class AlertSimulateResponseSerializer(serializers.Serializer):
     dates = serializers.ListField(child=serializers.CharField(), help_text="Date labels for each point.")
     scores = serializers.ListField(
         child=serializers.FloatField(allow_null=True),
-        help_text="Anomaly score for each point (null if insufficient data).",
+        help_text=(
+            "Score for each point. Null can mean insufficient data or a valid unscored point. "
+            "AI previews report model confidence only for points flagged by an anomaly verdict; "
+            "all other points are null, including every point in a normal verdict."
+        ),
     )
     triggered_indices = serializers.ListField(
         child=serializers.IntegerField(), help_text="Indices of points flagged as anomalies."

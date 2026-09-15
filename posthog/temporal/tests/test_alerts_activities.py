@@ -667,23 +667,20 @@ class TestEvaluateAlert:
     async def test_evaluate_auto_disables_and_skips_error_tracking_on_configuration_error(
         self, alert_with_user, error_type
     ) -> None:
-        # A misconfigured query (wrong shape / bad config) fails loud with AlertExtractionError. That's
-        # a config problem, not a bug: it must auto-disable + email the owner, not hit error tracking.
-        # alert_with_user has a subscriber, so this also exercises the send_notifications_for_disabled
-        # branch — guarding against a silent regression where the owner isn't told their alert died.
         with (
             patch(
                 "posthog.temporal.alerts.activities.check_alert_for_insight",
                 side_effect=error_type("Alert configuration is invalid"),
             ),
             patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
-            patch("posthog.tasks.alerts.utils.send_notifications_for_disabled", return_value=[]) as mock_notify,
+            patch("posthog.tasks.alerts.utils.send_alert_email") as mock_email,
         ):
             env = ActivityEnvironment()
             result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert_with_user.id)))
+            mock_email.assert_not_called()
 
         assert result.new_state == AlertState.ERRORED
-        assert result.should_notify is False  # disable_invalid_alert already emailed subscribers
+        assert result.should_notify is True
         mock_capture.assert_not_called()
 
         check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
@@ -694,11 +691,24 @@ class TestEvaluateAlert:
         refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
         assert refreshed.enabled is False
 
-        mock_notify.assert_called_once()
-        notified_alert, reason, targets = mock_notify.call_args.args
-        assert notified_alert.id == alert_with_user.id
-        assert "Alert configuration is invalid" in reason
-        assert targets  # the subscribed owner's email
+        assert result.alert_check_id is not None
+        notify_inputs = NotifyAlertActivityInputs(
+            alert_id=str(alert_with_user.id), alert_check_id=result.alert_check_id
+        )
+        with patch(
+            "posthog.tasks.alerts.utils.send_alert_email", side_effect=[RuntimeError("Mail is unavailable"), None]
+        ) as mock_email:
+            with pytest.raises(RuntimeError, match="Mail is unavailable"):
+                await env.run(notify_alert, notify_inputs)
+            await env.run(notify_alert, notify_inputs)
+            await env.run(notify_alert, notify_inputs)
+        assert mock_email.call_count == 2
+        first, second = mock_email.call_args_list
+        assert first.kwargs["campaign_key"] == second.kwargs["campaign_key"]
+        assert second.kwargs["template_name"] == "alert_disabled"
+        assert second.kwargs["template_context"]["alert_error"] == "Alert configuration is invalid"
+        await sync_to_async(check.refresh_from_db)()
+        assert check.targets_notified
 
     # Transient CH errors bubble up so Temporal's retry policy handles them.
     # Capacity errors (codes 202/439) surface as ClickHouseAtCapacity, so that's what we simulate.

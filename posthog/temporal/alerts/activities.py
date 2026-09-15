@@ -24,7 +24,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.sync import database_sync_to_async
-from posthog.tasks.alerts import utils as alert_utils
 from posthog.tasks.alerts.detectors.llm.detector import MAX_CONCURRENT_MODEL_CALLS
 from posthog.tasks.alerts.detectors.llm.errors import LLMDetectorMisconfiguredError, LLMDetectorUnavailableError
 from posthog.tasks.alerts.investigation_notifications import run_investigation_notification_safety_net
@@ -378,17 +377,11 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                 )
             alert = current_alert
             if invalid_configuration is not None:
-                alert_check = disable_invalid_alert(alert, invalid_configuration, notify_subscribers=False)
-
-                def _notify_disabled() -> None:
-                    targets = alert.get_subscribed_users_emails()
-                    if targets:
-                        deliveries = alert_utils.send_notifications_for_disabled(alert, invalid_configuration, targets)
-                        record_alert_delivery(alert, alert_check, deliveries)
-
-                transaction.on_commit(_notify_disabled)
+                alert_check = disable_invalid_alert(
+                    alert, invalid_configuration, notify_subscribers=False, error_code="invalid_configuration"
+                )
                 return EvaluateAlertResult(
-                    alert_check_id=str(alert_check.id), should_notify=False, new_state=AlertState.ERRORED
+                    alert_check_id=str(alert_check.id), should_notify=True, new_state=AlertState.ERRORED
                 )
             if error is not None:
                 alert_check, should_notify = _write_errored_alert_check(alert, error)

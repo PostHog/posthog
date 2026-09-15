@@ -377,7 +377,7 @@ class UpsertAlertTool(MaxTool):
             is_llm_alert = is_llm_detector_config(alert.detector_config)
             if is_llm_alert and (error := llm_detector_interval_error(new_interval)):
                 return _SaveRefusal(message=error, error_code="validation_failed")
-            if is_llm_alert and new_enabled and not alert.enabled:
+            if is_llm_alert and new_enabled:
                 try:
                     with upgrade_insight(alert.insight):
                         validate_alert_config(
@@ -392,6 +392,7 @@ class UpsertAlertTool(MaxTool):
                         )
                 except ValueError as validation_error:
                     return _SaveRefusal(message=str(validation_error), error_code="validation_failed")
+            if is_llm_alert and new_enabled and not alert.enabled:
                 if error := self._llm_detector_access_error(principal=alert.created_by):
                     return _SaveRefusal(message=error, error_code="validation_failed")
                 lock_llm_alert_limit(team_id=alert.team_id)

@@ -49,13 +49,17 @@ def is_llm_detector_rolled_out(*, distinct_id: str, organization_id: Any) -> boo
     Scoped to the alert's organization, not the person's current one, so a member of several
     organizations cannot borrow a flag-on organization to use the detector in a flag-off one.
     """
-    return bool(
-        posthoganalytics.feature_enabled(
-            LLM_DETECTOR_FLAG,
-            distinct_id,
-            groups={"organization": str(organization_id)},
-        )
+    enabled = posthoganalytics.feature_enabled(
+        LLM_DETECTOR_FLAG,
+        distinct_id,
+        groups={"organization": str(organization_id)},
     )
+    if enabled is None:
+        # The detector imports this module through the alert facade.
+        from posthog.tasks.alerts.detectors.llm.errors import LLMDetectorUnavailableError
+
+        raise LLMDetectorUnavailableError("The AI detector could not check rollout access. Try again later.")
+    return enabled
 
 
 def llm_detector_access_error(*, distinct_id: str, organization: Any) -> str | None:

@@ -95,6 +95,8 @@ endpoint, and inside the detector on every scheduled check.
 
 The last of those is what makes the flag a real stop on spend.
 When access is removed, the next check records the cause, disables the alert, and notifies its subscribers.
+An unresolved rollout lookup is retryable and leaves the alert enabled.
+Evaluation-time disable emails use the notification activity's retries and a stable key for the saved check.
 This expected condition does not send an exception to Error tracking.
 Restore access and enable the alert to resume checks.
 
@@ -119,7 +121,7 @@ For the AI type it is a charged call, so it is throttled per project at 10 a min
 200 a day, and it refuses breakdown insights before making any call.
 The write-scope check runs before these shared limits. A read-only token cannot consume them.
 Staff impersonation previews are not billed. Scheduled checks remain billable.
-Max validates the current insight configuration before it re-enables a disabled AI alert.
+Max validates the current insight configuration for every update that leaves an AI alert enabled.
 API and Max updates lock the insight before the alert and validate the locked query definition.
 
 The preview judges the whole window in one call, which is not the same shape as a live check.
@@ -127,6 +129,7 @@ A live check judges only whether the latest point is anomalous.
 The preview describes the date range of the extracted points, including any added history.
 Below-threshold anomaly verdicts retain their scores but do not count as triggered anomalies.
 Negative verdicts ignore any reported indices. Unscored preview points appear as gaps.
+The preview labels AI scores as model confidence. Null scores can be valid unscored points in a completed evaluation.
 
 ## Where the code lives
 

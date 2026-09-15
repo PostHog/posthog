@@ -2854,12 +2854,18 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert expected in response.json()["detail"]
 
-    @mock.patch("posthoganalytics.feature_enabled", return_value=False)
-    def test_rejected_when_flag_is_off(self, _flag) -> None:
-        response = self._create({"type": "llm", "threshold": 0.7, "window": 90})
+    @parameterized.expand(
+        [
+            ("off", False, 400, "not enabled for your account"),
+            ("unavailable", None, 503, "could not check rollout access"),
+        ]
+    )
+    def test_rejected_when_flag_is_off(self, _name, flag_value, expected_status, expected_message) -> None:
+        with mock.patch("posthoganalytics.feature_enabled", return_value=flag_value):
+            response = self._create({"type": "llm", "threshold": 0.7, "window": 90})
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-        assert "not enabled for your account" in response.json()["detail"]
+        assert response.status_code == expected_status, response.content
+        assert expected_message in response.json()["detail"]
 
     @parameterized.expand(
         [

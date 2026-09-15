@@ -499,6 +499,13 @@ def dispatch_alert_notification(
                         alert_check_id=alert_check.id,
                     )
                     return None
+                if alert_check.error.get("code") == "invalid_configuration":
+                    targets = alert.get_subscribed_users_emails()
+                    if not targets:
+                        return []
+                    return send_notifications_for_disabled(
+                        alert, alert_check.error["message"], targets, idempotency_key=key
+                    )
                 return send_notifications_for_errors(alert, alert_check.error, idempotency_key=key)
             case AlertState.FIRING:
                 if not breaches:
@@ -665,11 +672,13 @@ def disable_invalid_alert(
     return alert_check
 
 
-def send_notifications_for_disabled(alert: AlertConfiguration, reason: str, targets: list[str]) -> list[AlertDelivery]:
+def send_notifications_for_disabled(
+    alert: AlertConfiguration, reason: str, targets: list[str], *, idempotency_key: str | None = None
+) -> list[AlertDelivery]:
     logger.info("Sending alert disabled notification", alert_id=alert.id, reason=reason)
 
     subject = f"PostHog alert {alert.name} for {alert.team.name} has been disabled"
-    campaign_key = f"alert-disabled-notification-{alert.id}-{timezone.now().timestamp()}"
+    campaign_key = f"alert-disabled-notification-{alert.id}-{idempotency_key or timezone.now().timestamp()}"
     insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
     alert_url = f"{insight_url}?alert_id={alert.id}"
     send_alert_email(

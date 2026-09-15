@@ -927,7 +927,7 @@ export interface AlertSimulateResponseApi {
     data: number[]
     /** Date labels for each point. */
     dates: string[]
-    /** Anomaly score for each point (null if insufficient data). */
+    /** Score for each point. Null can mean insufficient data or a valid unscored point. AI previews report model confidence only for points flagged by an anomaly verdict; all other points are null, including every point in a normal verdict. */
     scores: (number | null)[]
     /** Indices of points flagged as anomalies. */
     triggered_indices: number[]
