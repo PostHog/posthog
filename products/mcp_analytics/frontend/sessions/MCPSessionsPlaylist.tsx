@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { memo, useRef } from 'react'
 
-import { IconBolt, IconClock, IconRefresh, IconSearch, IconSparkles } from '@posthog/icons'
+import { IconBolt, IconClock, IconSearch, IconSparkles } from '@posthog/icons'
 import {
     Button,
     InputGroup,
@@ -143,9 +143,22 @@ function SessionsListPanel(): JSX.Element {
     return (
         <div className="flex flex-col h-full min-h-0 overflow-hidden rounded border border-primary bg-surface-primary">
             <div className="shrink-0 flex flex-col gap-2 border-b border-primary p-2">
+                <McpSharedFilters
+                    pageKey="mcp-sessions"
+                    dataAttrPrefix="mcp-sessions"
+                    onRefresh={() => loadSessions()}
+                    refreshing={sessionsLoading}
+                >
+                    <McpDateFilter
+                        dateFrom={dateFilter.dateFrom}
+                        dateTo={dateFilter.dateTo}
+                        onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
+                        dataAttr="mcp-sessions-date-filter"
+                    />
+                </McpSharedFilters>
                 <div className="flex flex-col gap-2" data-quill>
-                    <div className="flex items-center gap-2">
-                        <InputGroup className="flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <InputGroup className="min-w-40 flex-1">
                             <InputGroupAddon align="inline-start">
                                 <InputGroupText>
                                     <IconSearch />
@@ -158,24 +171,6 @@ function SessionsListPanel(): JSX.Element {
                                 value={filters.search}
                             />
                         </InputGroup>
-                        <Button
-                            variant="outline"
-                            size="icon"
-                            className="size-8"
-                            onClick={() => loadSessions()}
-                            disabled={sessionsLoading}
-                            title="Reload sessions"
-                        >
-                            {sessionsLoading ? <Spinner /> : <IconRefresh />}
-                        </Button>
-                    </div>
-                    <div className="flex items-center justify-between gap-1">
-                        <McpDateFilter
-                            dateFrom={dateFilter.dateFrom}
-                            dateTo={dateFilter.dateTo}
-                            onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
-                            dataAttr="mcp-sessions-date-filter"
-                        />
                         <Select
                             value={sortingToValue(sorting)}
                             onValueChange={(value) => setSorting(valueToSorting(value as MCPSessionOrderBy))}
@@ -197,7 +192,6 @@ function SessionsListPanel(): JSX.Element {
                         </Select>
                     </div>
                 </div>
-                <McpSharedFilters pageKey="mcp-sessions" dataAttrPrefix="mcp-sessions" />
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto" data-attr="mcp-sessions-list">
                 {sessionsLoading && sessions.length === 0 ? (

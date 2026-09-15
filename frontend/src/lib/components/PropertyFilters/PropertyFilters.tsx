@@ -19,6 +19,7 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { isOperatorFlag } from 'lib/utils/operators'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
@@ -85,6 +86,11 @@ export interface PropertyFiltersProps {
     addFilterSuffix?: ((addFilter: (property: AnyPropertyFilter) => void) => JSX.Element) | null
     addFilterDivider?: boolean
     framedRows?: boolean
+    renderControls?: (controls: {
+        addFilter: React.ReactNode
+        activeFilters: JSX.Element[]
+        clearFilters: () => void
+    }) => JSX.Element
 }
 
 export function PropertyFilters({
@@ -133,10 +139,11 @@ export function PropertyFilters({
     addFilterSuffix,
     addFilterDivider = false,
     framedRows = false,
+    renderControls,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew, filterIds, filterIdsWithNew } = useValues(propertyFilterLogic(logicProps))
-    const { remove, setFilter } = useActions(propertyFilterLogic(logicProps))
+    const { remove, setFilter, setFilters, update } = useActions(propertyFilterLogic(logicProps))
     const [allowOpenOnInsert, setAllowOpenOnInsert] = useState<boolean>(false)
 
     const showNewFilterRow = allowNew && editable
@@ -145,6 +152,116 @@ export function PropertyFilters({
 
     // do not open on initial render, only open if newly inserted
     useOnMountEffect(() => setAllowOpenOnInsert(true))
+
+    const rows = displayedFilters.map((item: AnyPropertyFilter, index: number) => {
+        // Moving a new property into a separate chip row remounts its value editor.
+        const openValueEditor =
+            !!renderControls &&
+            !!item.key &&
+            'operator' in item &&
+            (!item.operator || !isOperatorFlag(item.operator)) &&
+            (item.value === undefined || item.value === null || item.value === '')
+        return (
+            <React.Fragment key={displayedFilterIds[index]}>
+                {logicalRowDivider && index > 0 && index !== displayedFilters.length - 1 && (
+                    <LogicalRowDivider logicalOperator={propertyGroupType ?? FilterLogicalOperator.And} />
+                )}
+                {addFilterDivider &&
+                    showNewFilterRow &&
+                    index === displayedFilters.length - 1 &&
+                    filters.length > 0 && <LemonDivider className="my-1 w-full" />}
+                <FilterRow
+                    item={item}
+                    index={index}
+                    totalCount={displayedFilters.length - 1} // empty state
+                    filters={displayedFilters}
+                    pageKey={pageKey}
+                    showConditionBadge={showConditionBadge}
+                    disablePopover={disablePopover || orFiltering}
+                    label={buttonText}
+                    labelClassName={buttonClassName}
+                    size={buttonSize}
+                    onRemove={remove}
+                    showRemoveButton={showRemoveButton}
+                    orFiltering={orFiltering}
+                    editable={editable}
+                    filterComponent={(onComplete) =>
+                        isBehavioralPropertyFilter(item) ? (
+                            <div className="TaxonomicPropertyFilter__row w-full min-w-0">
+                                {hasRowOperator && (
+                                    <PropertyFilterRowOperator
+                                        index={index}
+                                        orFiltering={orFiltering}
+                                        propertyGroupType={propertyGroupType}
+                                        hasKey={!!item.key}
+                                    />
+                                )}
+                                <div
+                                    className={clsx(
+                                        'TaxonomicPropertyFilter__row-items',
+                                        framedRows && FILTER_ROW_FRAME_CLASSES
+                                    )}
+                                >
+                                    <BehavioralPropertyFilterRow
+                                        filter={item}
+                                        onChange={(filter) => setFilter(index, filter)}
+                                        editable={editable}
+                                        pageKey={`${pageKey}-behavioral-${displayedFilterIds[index]}`}
+                                        size={buttonSize}
+                                    />
+                                </div>
+                            </div>
+                        ) : (
+                            <TaxonomicPropertyFilter
+                                pageKey={pageKey}
+                                index={index}
+                                filters={filters}
+                                setFilter={setFilter}
+                                onComplete={onComplete}
+                                orFiltering={orFiltering}
+                                taxonomicGroupTypes={taxonomicGroupTypes}
+                                metadataSource={metadataSource}
+                                eventNames={eventNames}
+                                schemaColumns={schemaColumns}
+                                dataWarehouseTableName={dataWarehouseTableName}
+                                propertyGroupType={propertyGroupType}
+                                disablePopover={disablePopover || orFiltering}
+                                addText={addText}
+                                hasRowOperator={hasRowOperator}
+                                propertyAllowList={propertyAllowList}
+                                excludedProperties={excludedProperties}
+                                taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
+                                allowRelativeDateOptions={allowRelativeDateOptions}
+                                excludedOperators={excludedOperators}
+                                selectingKeyOnly={selectingKeyOnly}
+                                hideBehavioralCohorts={hideBehavioralCohorts}
+                                size={buttonSize}
+                                addFilterDocLink={addFilterDocLink}
+                                editable={editable}
+                                operatorAllowlist={operatorAllowlist}
+                                hogQLGlobals={hogQLGlobals}
+                                triggerVariant={triggerVariant}
+                                staticValueOptions={staticValueOptions}
+                                renderOperatorValueSelect={renderOperatorValueSelect}
+                                propertyDefinitionsOverride={propertyDefinitionsOverride}
+                                propertyKeyEditable={propertyKeyEditable}
+                                singleLine={singleLine}
+                                framedRows={framedRows}
+                            />
+                        )
+                    }
+                    errorMessage={errorMessages && errorMessages[index]}
+                    openOnInsert={allowOpenOnInsert && (openOnInsert || openValueEditor)}
+                    disabledReason={disabledReason}
+                    suffix={
+                        showNewFilterRow && index === displayedFilters.length - 1 && addFilterSuffix
+                            ? addFilterSuffix((property) => setFilter(filters.length, property))
+                            : null
+                    }
+                />
+            </React.Fragment>
+        )
+    })
 
     return (
         <div className="PropertyFilters">
@@ -155,110 +272,16 @@ export function PropertyFilters({
             )}
             <div className="PropertyFilters__content max-w-full">
                 <BindLogic logic={propertyFilterLogic} props={logicProps}>
-                    {displayedFilters.map((item: AnyPropertyFilter, index: number) => {
-                        return (
-                            <React.Fragment key={displayedFilterIds[index]}>
-                                {logicalRowDivider && index > 0 && index !== displayedFilters.length - 1 && (
-                                    <LogicalRowDivider
-                                        logicalOperator={propertyGroupType ?? FilterLogicalOperator.And}
-                                    />
-                                )}
-                                {addFilterDivider &&
-                                    showNewFilterRow &&
-                                    index === displayedFilters.length - 1 &&
-                                    filters.length > 0 && <LemonDivider className="my-1 w-full" />}
-                                <FilterRow
-                                    item={item}
-                                    index={index}
-                                    totalCount={displayedFilters.length - 1} // empty state
-                                    filters={displayedFilters}
-                                    pageKey={pageKey}
-                                    showConditionBadge={showConditionBadge}
-                                    disablePopover={disablePopover || orFiltering}
-                                    label={buttonText}
-                                    labelClassName={buttonClassName}
-                                    size={buttonSize}
-                                    onRemove={remove}
-                                    showRemoveButton={showRemoveButton}
-                                    orFiltering={orFiltering}
-                                    editable={editable}
-                                    filterComponent={(onComplete) =>
-                                        isBehavioralPropertyFilter(item) ? (
-                                            <div className="TaxonomicPropertyFilter__row w-full min-w-0">
-                                                {hasRowOperator && (
-                                                    <PropertyFilterRowOperator
-                                                        index={index}
-                                                        orFiltering={orFiltering}
-                                                        propertyGroupType={propertyGroupType}
-                                                        hasKey={!!item.key}
-                                                    />
-                                                )}
-                                                <div
-                                                    className={clsx(
-                                                        'TaxonomicPropertyFilter__row-items',
-                                                        framedRows && FILTER_ROW_FRAME_CLASSES
-                                                    )}
-                                                >
-                                                    <BehavioralPropertyFilterRow
-                                                        filter={item}
-                                                        onChange={(filter) => setFilter(index, filter)}
-                                                        editable={editable}
-                                                        pageKey={`${pageKey}-behavioral-${displayedFilterIds[index]}`}
-                                                        size={buttonSize}
-                                                    />
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <TaxonomicPropertyFilter
-                                                pageKey={pageKey}
-                                                index={index}
-                                                filters={filters}
-                                                setFilter={setFilter}
-                                                onComplete={onComplete}
-                                                orFiltering={orFiltering}
-                                                taxonomicGroupTypes={taxonomicGroupTypes}
-                                                metadataSource={metadataSource}
-                                                eventNames={eventNames}
-                                                schemaColumns={schemaColumns}
-                                                dataWarehouseTableName={dataWarehouseTableName}
-                                                propertyGroupType={propertyGroupType}
-                                                disablePopover={disablePopover || orFiltering}
-                                                addText={addText}
-                                                hasRowOperator={hasRowOperator}
-                                                propertyAllowList={propertyAllowList}
-                                                excludedProperties={excludedProperties}
-                                                taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
-                                                allowRelativeDateOptions={allowRelativeDateOptions}
-                                                excludedOperators={excludedOperators}
-                                                selectingKeyOnly={selectingKeyOnly}
-                                                hideBehavioralCohorts={hideBehavioralCohorts}
-                                                size={buttonSize}
-                                                addFilterDocLink={addFilterDocLink}
-                                                editable={editable}
-                                                operatorAllowlist={operatorAllowlist}
-                                                hogQLGlobals={hogQLGlobals}
-                                                triggerVariant={triggerVariant}
-                                                staticValueOptions={staticValueOptions}
-                                                renderOperatorValueSelect={renderOperatorValueSelect}
-                                                propertyDefinitionsOverride={propertyDefinitionsOverride}
-                                                propertyKeyEditable={propertyKeyEditable}
-                                                singleLine={singleLine}
-                                                framedRows={framedRows}
-                                            />
-                                        )
-                                    }
-                                    errorMessage={errorMessages && errorMessages[index]}
-                                    openOnInsert={allowOpenOnInsert && openOnInsert}
-                                    disabledReason={disabledReason}
-                                    suffix={
-                                        showNewFilterRow && index === displayedFilters.length - 1 && addFilterSuffix
-                                            ? addFilterSuffix((property) => setFilter(filters.length, property))
-                                            : null
-                                    }
-                                />
-                            </React.Fragment>
-                        )
-                    })}
+                    {renderControls
+                        ? renderControls({
+                              addFilter: showNewFilterRow ? rows[rows.length - 1] : null,
+                              activeFilters: showNewFilterRow ? rows.slice(0, -1) : rows,
+                              clearFilters: () => {
+                                  setFilters([])
+                                  update()
+                              },
+                          })
+                        : rows}
                 </BindLogic>
             </div>
         </div>
