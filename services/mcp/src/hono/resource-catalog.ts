@@ -185,7 +185,6 @@ export class ResourceCatalog {
                 uri: app.uri,
                 mimeType: RESOURCE_MIME_TYPE,
                 description: app.description,
-                _meta: meta,
             })
             this.uiAppReadEntries.set(app.uri, {
                 uri: app.uri,
