@@ -13,11 +13,13 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.autocomplete import get_hogql_autocomplete
+from posthog.hogql.autocomplete import convert_field_or_table_to_type_string, get_hogql_autocomplete
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import FloatDatabaseField, StringDatabaseField
+from posthog.hogql.database.models import FieldOrTable, FloatDatabaseField, StringDatabaseField, Table
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PERSONS_FIELDS
+from posthog.hogql.parser import parse_expr
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
@@ -507,6 +509,44 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         # `toDateTime` on a string prints to `parseDateTime64BestEffortOrNull`, so the result really
         # can be NULL. The detail flattened that away until completions started reading runtime types.
         assert suggestion.detail == "Nullable(DateTime)"
+
+    def test_autocomplete_types_an_expression_field_on_a_table_not_addressable_by_name(self):
+        # The type came from re-resolving the expression against the table's printed name, which is
+        # not always addressable as a top-level table. Every expression field of such a table fell
+        # back to the unknown label, and reported the failure once per field per keystroke.
+        class UnaddressableTable(Table):
+            fields: dict[str, FieldOrTable] = {
+                "score": FloatDatabaseField(name="score"),
+                "doubled_score": ast.ExpressionField(name="doubled_score", expr=parse_expr("score * 2")),
+            }
+
+            def to_printed_hogql(self) -> str:
+                return "not_a_top_level_table"
+
+        table = UnaddressableTable()
+        context = HogQLContext(team_id=self.team.pk, team=self.team, database=Database.create_for(team=self.team))
+
+        assert convert_field_or_table_to_type_string(table.fields["doubled_score"], table, context) == "Float64"
+
+    @parameterized.expand(
+        [
+            ("one subquery", "select  from (select expr_field from events)"),
+            ("two subqueries", "select  from (select expr_field from (select expr_field from events))"),
+        ]
+    )
+    def test_autocomplete_resolves_expression_field_inside_a_subquery(self, _name: str, query: str):
+        # A subquery narrows the table to the columns it selects. The expression reads a column the
+        # subquery leaves out, so it only resolves if the source table stays available. Every nesting
+        # level narrows the table again, and only the table at the bottom still holds that column.
+        database = Database.create_for(team=self.team)
+        database.get_table("events").fields["expr_field"] = ast.ExpressionField(
+            name="expr_field", expr=parse_expr("length(event)")
+        )
+
+        results = self._select(query=query, start=7, end=7, database=database)
+
+        details = {suggestion.label: suggestion.detail for suggestion in results.suggestions}
+        assert details["expr_field"] == "Int64"
 
     def test_autocomplete_template_strings(self):
         database = Database.create_for(team=self.team)

@@ -13,7 +13,7 @@ from posthog.hogql.constants import SQL_TARGET_DIALECTS, HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
-from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQuery, StringJSONDatabaseField
+from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQuery, StringJSONDatabaseField, Table
 from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
     S3Table,
@@ -235,6 +235,20 @@ def resolve_types_from_table(
     expr: ast.Expr, table_chain: list[str], context: HogQLContext, dialect: HogQLDialect
 ) -> ast.Expr:
     scope = resolve_table_scope(table_chain, context, dialect)
+    return resolve_types(expr, context, dialect, [scope])
+
+
+def resolve_types_in_table(expr: ast.Expr, table: Table, context: HogQLContext, dialect: HogQLDialect) -> ast.Expr:
+    """Resolve an expression against the columns of an already resolved table.
+
+    Unlike `resolve_types_from_table`, this takes no name and makes no database lookup. A table in
+    hand is not always addressable as a top-level table by its printed name, so a name round-trip
+    can fail for a table that resolves correctly.
+    """
+    table_type: ast.TableType | ast.LazyTableType = (
+        ast.LazyTableType(table=table) if isinstance(table, LazyTable) else ast.TableType(table=table)
+    )
+    scope = ast.SelectQueryType(tables={table.to_printed_hogql(): table_type})
     return resolve_types(expr, context, dialect, [scope])
 
 
