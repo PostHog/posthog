@@ -84,8 +84,11 @@ class TestResolveAIRunDefaults(APIBaseTest):
             "off",
         )
 
-    def test_thinking_level_pi_does_not_offer_is_dropped(self):
-        self._set_user({**PI_PREFS, "reasoning_effort": "ultracode"})
+    def test_a_stored_value_that_is_not_a_depth_is_dropped(self):
+        # The admin form writes the preferences dict whole, so a value no picker offers can
+        # reach a row. Resolving must not hand the agent a string that is not a depth at all.
+        # Whether the model offers the depth is a separate question this path cannot answer.
+        self._set_user({**PI_PREFS, "reasoning_effort": "deep"})
         with pi_harness():
             resolved = resolve_ai_run_defaults(self.team.id, self.user.id)
         assert (resolved.model, resolved.reasoning_effort) == ("gpt-5.6-terra", None)
@@ -428,9 +431,8 @@ class TestTasksConfigAPI(APIBaseTest):
             ),
             ("pi_with_an_adapter", {"runtime": "pi", "runtime_adapter": "codex", "model": "gpt-5.6-terra"}),
             ("pi_without_a_model", {"runtime": "pi", "reasoning_effort": "high"}),
-            ("pi_with_an_acp_only_depth", {"runtime": "pi", "model": "gpt-5.6-terra", "reasoning_effort": "ultracode"}),
             (
-                "acp_with_a_pi_only_depth",
+                "a_depth_the_paired_model_does_not_offer",
                 {"runtime_adapter": "codex", "model": "gpt-5.6-terra", "reasoning_effort": "off"},
             ),
         ]

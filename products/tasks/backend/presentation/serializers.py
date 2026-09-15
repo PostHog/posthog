@@ -50,11 +50,11 @@ from products.tasks.backend.facade.run_config import (
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
     CONTEXT_WINDOW_CHOICES,
     INITIAL_PERMISSION_MODE_CHOICES,
-    PI_THINKING_LEVEL_CHOICES,
-    PUBLIC_REASONING_EFFORTS,
+    REASONING_EFFORTS,
     WARMABLE_ORIGIN_PRODUCTS,
     LLMProvider,
     PrAuthorshipMode,
+    ReasoningEffort,
     RunSource,
     RuntimeAdapter,
     TaskArtifactAdapter,
@@ -67,11 +67,10 @@ from products.tasks.backend.facade.run_config import (
 
 logger = logging.getLogger(__name__)
 
-TASK_RUN_REASONING_EFFORT_CHOICES = [
-    "off",
-    "minimal",
-    *(effort.value for effort in PUBLIC_REASONING_EFFORTS),
-]
+# Every depth value that exists, for the fields either harness can reach. A depth is the same
+# kind of thing on both, so there is one list. Which of them a run may ask for depends on the
+# model it picked, and `get_reasoning_effort_error` answers that against the model's own ladder.
+TASK_RUN_REASONING_EFFORT_CHOICES = [effort.value for effort in ReasoningEffort]
 
 
 def _is_pi_task_run_request(context: dict[str, Any]) -> bool:
@@ -773,7 +772,7 @@ class TaskWriteSerializer(serializers.Serializer):
         help_text="Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.",
     )
     reasoning_effort = serializers.ChoiceField(
-        choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS],
+        choices=list(REASONING_EFFORTS),
         required=False,
         default=None,
         allow_null=True,
@@ -2893,7 +2892,7 @@ class ModelChoiceSerializer(DataclassSerializer):
         source="label", help_text="Display name for the model, such as 'Claude Opus 4.8'."
     )
     supported_efforts = serializers.ListField(
-        child=serializers.ChoiceField(choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS]),
+        child=serializers.ChoiceField(choices=list(REASONING_EFFORTS)),
         help_text="Reasoning efforts this model accepts, in ascending order. Empty for a model with no effort control.",
     )
 
@@ -3117,7 +3116,7 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
     PR_AUTHORSHIP_MODE_CHOICES = [mode.value for mode in PrAuthorshipMode]
     RUN_SOURCE_CHOICES = [source.value for source in RunSource]
     RUNTIME_ADAPTER_CHOICES = [adapter.value for adapter in RuntimeAdapter]
-    REASONING_EFFORT_CHOICES = [effort.value for effort in PUBLIC_REASONING_EFFORTS]
+    REASONING_EFFORT_CHOICES = list(REASONING_EFFORTS)
 
     mode = serializers.ChoiceField(
         choices=TaskExecutionMode.choices,
@@ -3492,10 +3491,6 @@ class TaskRunBootstrapCreateRequestSerializer(
                 if attrs.get(field) is not None:
                     errors[field] = "This field cannot be used with a Pi task."
 
-            reasoning_effort = attrs.get("reasoning_effort")
-            if reasoning_effort is not None and reasoning_effort not in PI_THINKING_LEVEL_CHOICES:
-                errors["reasoning_effort"] = "This thinking level is not supported by Pi."
-
             if errors:
                 raise serializers.ValidationError(errors)
             return attrs
@@ -3605,7 +3600,7 @@ class WarmTaskRequestSerializer(serializers.Serializer):
         help_text="LLM model identifier to warm the sandbox on. A submit selecting a different model won't reuse this warm Run.",
     )
     reasoning_effort = serializers.ChoiceField(
-        choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS],
+        choices=list(REASONING_EFFORTS),
         required=False,
         default=None,
         allow_null=True,
@@ -3707,7 +3702,7 @@ class WarmTaskResumeRequestSerializer(serializers.Serializer):
         help_text="LLM model to start before the next message is submitted.",
     )
     reasoning_effort = serializers.ChoiceField(
-        choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS],
+        choices=list(REASONING_EFFORTS),
         required=False,
         default=None,
         help_text="Reasoning effort to apply when the warmed successor receives its first message.",
@@ -4614,27 +4609,6 @@ class TasksAIRunPreferencesSerializer(serializers.Serializer):
             "stores a Pi thinking level here, which also allows 'off' and 'minimal'."
         ),
     )
-
-    def validate(self, attrs):
-        """Reject a depth the chosen harness does not offer.
-
-        The field lists every depth either harness offers, because one `ChoiceField` cannot
-        depend on another field's value. The harness owns the subset, so the pairing is
-        checked here. The storage rules themselves live in the run-defaults service, which
-        every write path goes through.
-        """
-        reasoning_effort = attrs.get("reasoning_effort")
-        if reasoning_effort is None:
-            return attrs
-
-        is_pi = attrs.get("runtime") == tasks_facade.TaskRuntime.PI
-        allowed = PI_THINKING_LEVEL_CHOICES if is_pi else [effort.value for effort in PUBLIC_REASONING_EFFORTS]
-        if reasoning_effort not in allowed:
-            label = "thinking level" if is_pi else "reasoning effort"
-            raise serializers.ValidationError(
-                {"reasoning_effort": f"This {label} is not supported by the '{attrs.get('runtime') or 'acp'}' harness."}
-            )
-        return attrs
 
 
 class TasksResolvedAIRunDefaultsSerializer(serializers.Serializer):

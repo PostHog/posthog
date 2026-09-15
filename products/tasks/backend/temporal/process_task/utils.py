@@ -108,14 +108,6 @@ class ReasoningEffort(StrEnum):
     ULTRACODE = "ultracode"
 
 
-# Derived, not restated: this is the tuple the run serializers build their effort choices
-# from, so a tier added to the catalog and not here would have every picker offering a
-# depth the API rejects.
-PUBLIC_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = tuple(
-    ReasoningEffort(effort) for effort in model_catalog.REASONING_EFFORTS
-)
-
-
 CONTEXT_WINDOW_CHOICES: tuple[str, ...] = ("200k", "1m")
 
 

@@ -2,12 +2,43 @@
 // products/tasks/backend/model_catalog.py.
 // Regenerate with `hogli build:task-model-catalog`. Do not edit.
 //
-// The single definition of a task agent run's triple: runtime adapter,
-// model, and reasoning effort. The backend validates a run against this
-// same data, so a picker built on this file can only offer a selection
-// the API will accept.
+// The single definition of how a task agent run is configured: harness,
+// runtime adapter, model, and reasoning effort. The backend validates a
+// run against this same data, so a picker built on this file can only
+// offer a selection the API will accept.
 
 export type RuntimeAdapter = 'claude' | 'codex'
+
+export type Runtime = 'acp' | 'pi'
+
+export const RUNTIMES: readonly Runtime[] = ['acp', 'pi']
+
+export interface RuntimeOption {
+    runtime: Runtime
+    /** Absent for Pi, which has no adapter. */
+    runtimeAdapter?: RuntimeAdapter
+    label: string
+}
+
+/** What a harness picker shows. The runtime says which agent program runs the
+    task; the adapter says which vendor protocol ACP speaks. A picker shows one
+    flat list, so the two choices become one set of entries here. */
+export const RUNTIME_OPTIONS: readonly RuntimeOption[] = [
+    {
+        runtime: 'acp',
+        runtimeAdapter: 'claude',
+        label: 'Claude Code',
+    },
+    {
+        runtime: 'acp',
+        runtimeAdapter: 'codex',
+        label: 'Codex',
+    },
+    {
+        runtime: 'pi',
+        label: 'Pi',
+    },
+]
 
 /** Thinking depths, shallowest first. */
 export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultracode'

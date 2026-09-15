@@ -3051,7 +3051,6 @@ class TestTaskAPI(BaseTaskAPITest):
             ("context_window", {"context_window": "1m"}),
             ("fast_mode", {"fast_mode": True}),
             ("initial_permission_mode", {"initial_permission_mode": "plan"}),
-            ("reasoning_effort", {"reasoning_effort": "ultracode"}),
             ("claude_model_access", {"claude_model_access": "own-subscription"}),
         ]
     )

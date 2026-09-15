@@ -178,5 +178,22 @@
       },
       "provider": "openai"
     }
-  }
+  },
+  "runtimes": [
+    {
+      "label": "Claude Code",
+      "runtime": "acp",
+      "runtime_adapter": "claude"
+    },
+    {
+      "label": "Codex",
+      "runtime": "acp",
+      "runtime_adapter": "codex"
+    },
+    {
+      "label": "Pi",
+      "runtime": "pi",
+      "runtime_adapter": null
+    }
+  ]
 }
