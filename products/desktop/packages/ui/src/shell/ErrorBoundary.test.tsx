@@ -67,21 +67,45 @@ describe("ErrorBoundary", () => {
     expect(screen.getByText("ok")).toBeInTheDocument();
   });
 
-  it("hides error details until requested and reports telemetry", async () => {
+  it("hides the stack until requested and reports telemetry", async () => {
     const user = userEvent.setup();
+    const error = new Error("boom");
+    error.stack = "Error: boom\n    at Thrower (test.tsx:1:1)";
     render(
       <Boundary>
-        <Thrower error={new Error("boom")} />
+        <Thrower error={error} />
       </Boundary>,
     );
-    expect(screen.getByText("PostHog ran into an error")).toBeInTheDocument();
-    expect(screen.queryByText(/Error: boom/)).not.toBeInTheDocument();
+    expect(screen.getByText("Something went wrong")).toBeInTheDocument();
+    expect(screen.getByText("Error: boom")).toBeInTheDocument();
+    expect(screen.queryByText(/at Thrower/)).not.toBeInTheDocument();
     expect(captureException).toHaveBeenCalledTimes(1);
 
     await user.click(
-      screen.getByRole("button", { name: /show error details/i }),
+      screen.getByRole("button", { name: /show technical details/i }),
     );
-    expect(screen.getByText(/Error: boom/)).toBeInTheDocument();
+    expect(screen.getByText(/at Thrower/)).toBeInTheDocument();
+  });
+
+  it("copies a report with the boundary name, stack and component stack", async () => {
+    const user = userEvent.setup();
+    const error = new Error("boom");
+    error.stack = "Error: boom\n    at Thrower (test.tsx:1:1)";
+    render(
+      <ErrorBoundary name="SessionView">
+        <Thrower error={error} />
+      </ErrorBoundary>,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /copy error details/i }),
+    );
+
+    const report = await navigator.clipboard.readText();
+    expect(report).toContain("Boundary: SessionView");
+    expect(report).toContain("at Thrower (test.tsx:1:1)");
+    expect(report).toMatch(/Component stack:\n\s*at Thrower/);
+    expect(screen.getByRole("button", { name: /copied/i })).toBeInTheDocument();
   });
 
   it("renders custom fallback when provided", () => {
@@ -99,9 +123,7 @@ describe("ErrorBoundary", () => {
         <Thrower error={new NotAuthenticatedError()} />
       </Boundary>,
     );
-    expect(
-      screen.queryByText("PostHog ran into an error"),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Something went wrong")).not.toBeInTheDocument();
     expect(screen.queryByText("ok")).not.toBeInTheDocument();
     expect(captureException).not.toHaveBeenCalled();
   });
@@ -112,7 +134,7 @@ describe("ErrorBoundary", () => {
         <Thrower error={new Error("other failure")} />
       </Boundary>,
     );
-    expect(screen.getByText("PostHog ran into an error")).toBeInTheDocument();
+    expect(screen.getByText("Something went wrong")).toBeInTheDocument();
     expect(captureException).toHaveBeenCalledTimes(1);
   });
 
@@ -122,16 +144,14 @@ describe("ErrorBoundary", () => {
         <Thrower error={new Error("boom")} />
       </Boundary>,
     );
-    expect(screen.getByText("PostHog ran into an error")).toBeInTheDocument();
+    expect(screen.getByText("Something went wrong")).toBeInTheDocument();
 
     rerender(
       <Boundary resetKey="b">
         <Thrower error={null} />
       </Boundary>,
     );
-    expect(
-      screen.queryByText("PostHog ran into an error"),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Something went wrong")).not.toBeInTheDocument();
     expect(screen.getByText("ok")).toBeInTheDocument();
   });
 
@@ -145,7 +165,7 @@ describe("ErrorBoundary", () => {
         <Thrower error={new Error("boom")} />
       </Boundary>,
     );
-    await user.click(screen.getByRole("button", { name: /^refresh$/i }));
+    await user.click(screen.getByRole("button", { name: /^refresh app$/i }));
 
     expect(reload).toHaveBeenCalledTimes(1);
   });

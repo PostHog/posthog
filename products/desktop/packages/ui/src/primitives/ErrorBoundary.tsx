@@ -1,16 +1,4 @@
-import { ArrowClockwise, Warning } from "@phosphor-icons/react";
-import {
-  Button,
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@posthog/quill";
+import { ErrorBoundaryFallback } from "@posthog/ui/primitives/ErrorBoundaryFallback";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
 export interface ErrorBoundaryProps {
@@ -40,11 +28,16 @@ export interface ErrorBoundaryProps {
 
 interface State {
   error: Error | null;
+  componentStack: string | null;
   lastResetKey: unknown;
 }
 
 export class ErrorBoundary extends Component<ErrorBoundaryProps, State> {
-  state: State = { error: null, lastResetKey: this.props.resetKey };
+  state: State = {
+    error: null,
+    componentStack: null,
+    lastResetKey: this.props.resetKey,
+  };
 
   static getDerivedStateFromError(error: Error): Partial<State> {
     return { error };
@@ -55,11 +48,12 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, State> {
     state: State,
   ): Partial<State> | null {
     if (props.resetKey === state.lastResetKey) return null;
-    return { error: null, lastResetKey: props.resetKey };
+    return { error: null, componentStack: null, lastResetKey: props.resetKey };
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     const suppressed = this.props.shouldSuppress?.(error) ?? false;
+    this.setState({ componentStack: errorInfo.componentStack ?? null });
     this.props.onError?.(error, {
       componentStack: errorInfo.componentStack,
       suppressed,
@@ -71,54 +65,18 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, State> {
   };
 
   render() {
-    const { error } = this.state;
+    const { error, componentStack } = this.state;
     if (!error) return this.props.children;
     if (this.props.shouldSuppress?.(error)) return null;
     if (this.props.fallback) return this.props.fallback;
 
-    const details =
-      error.stack || error.message || "No error details are available.";
-
     return (
-      <Empty
-        role="alert"
-        className="min-h-64 border-0 bg-transparent px-6 py-10"
-      >
-        <EmptyHeader>
-          <EmptyMedia variant="icon" className="text-destructive">
-            <Warning weight="fill" />
-          </EmptyMedia>
-          <EmptyTitle>PostHog ran into an error</EmptyTitle>
-          <EmptyDescription>
-            Refresh the app to continue. If the error comes back, show the
-            details and send them to an engineer.
-          </EmptyDescription>
-        </EmptyHeader>
-        <EmptyContent className="max-w-lg">
-          <Button
-            type="button"
-            variant="primary"
-            data-attr="error-boundary-refresh"
-            onClick={this.handleRefresh}
-          >
-            <ArrowClockwise />
-            Refresh
-          </Button>
-          <Collapsible className="w-full bg-transparent text-left hover:bg-transparent data-open:bg-transparent">
-            <CollapsibleTrigger
-              data-attr="error-boundary-details"
-              className="justify-center"
-            >
-              Show error details
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted p-3 font-mono text-muted-foreground text-xs">
-                {details}
-              </pre>
-            </CollapsibleContent>
-          </Collapsible>
-        </EmptyContent>
-      </Empty>
+      <ErrorBoundaryFallback
+        error={error}
+        componentStack={componentStack}
+        boundaryName={this.props.name}
+        onRefresh={this.handleRefresh}
+      />
     );
   }
 }
