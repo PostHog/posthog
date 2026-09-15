@@ -1375,6 +1375,15 @@ class TestNonRetryableErrors:
             f"Meta Ads error '{error_message}' does not match any non-retryable pattern"
         )
 
+    def test_missing_perms_has_reconnect_guidance(self) -> None:
+        # `error_message` isn't surfaced to the user as-is — the friendly value here is, so a
+        # blank or wrong one would leak the raw Graph API JSON instead of actionable guidance.
+        assert MetaAdsSource().get_non_retryable_errors()["Missing perms"] == (
+            "Meta blocked this request because the connected account is missing a permission "
+            "required to read your ads data. Please reconnect the Meta Ads integration and grant "
+            "all requested permissions."
+        )
+
     @pytest.mark.parametrize(
         "body,expected",
         [
