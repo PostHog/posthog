@@ -29,6 +29,7 @@ import { CdpCyclotronWorkerEmail } from './cdp/consumers/cdp-cyclotron-worker-em
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpDatawarehouseEventsConsumer } from './cdp/consumers/cdp-data-warehouse-events.consumer'
+import { CdpDlqReplayConsumer } from './cdp/consumers/cdp-dlq-replay.consumer'
 import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
 import { CdpHogflowSubscriptionMatcherConsumer } from './cdp/consumers/cdp-hogflow-subscription-matcher.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
@@ -102,7 +103,8 @@ export class PluginServer implements NodeServer {
             capabilities.cdpCohortMembership ||
             capabilities.cdpCyclotronWorkerBatchResolve ||
             capabilities.cdpHogflowSubscriptionMatcher ||
-            capabilities.cdpRerunWorker
+            capabilities.cdpRerunWorker ||
+            capabilities.cdpDlqReplay
         )
         // The janitor records poison-pill give-ups as failed invocation results,
         // so it needs the Kafka producer registry — but NOT createCdpSharedServices
@@ -312,6 +314,17 @@ export class PluginServer implements NodeServer {
                 const worker = new CdpRerunWorkerConsumer(this.config, cdpDeps!, {
                     hog_function: kafkaQueue,
                     hog_flow: postgresV2Queue,
+                })
+                await worker.start()
+                return worker.service
+            })
+        }
+
+        if (capabilities.cdpDlqReplay) {
+            serviceLoaders.push(async () => {
+                const worker = new CdpDlqReplayConsumer(this.config, cdpDeps!, {
+                    hogQueue: kafkaQueue,
+                    hogflowQueue: postgresV2Queue,
                 })
                 await worker.start()
                 return worker.service

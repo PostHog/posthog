@@ -131,6 +131,19 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_EVENTS_DLQ_PRODUCER: CdpProducerName
     CDP_INTERNAL_EVENTS_DLQ_TOPIC: string
     CDP_INTERNAL_EVENTS_DLQ_PRODUCER: CdpProducerName
+    // Replay worker. All read once at start; a run is one deployment scaled to one replica.
+    CDP_DLQ_REPLAY_TOPIC: string
+    CDP_DLQ_REPLAY_RUN_ID: string
+    CDP_DLQ_REPLAY_STEPS: string
+    CDP_DLQ_REPLAY_FROM: string
+    CDP_DLQ_REPLAY_TO: string
+    CDP_DLQ_REPLAY_TEAM_IDS: string
+    CDP_DLQ_REPLAY_SKIP_TEAM_IDS: string
+    CDP_DLQ_REPLAY_HOG_FUNCTION_IDS: string
+    CDP_DLQ_REPLAY_REASON_CONTAINS: string
+    CDP_DLQ_REPLAY_MAX_REPLAYS: number
+    CDP_DLQ_REPLAY_MAX_AGE_HOURS: number
+    CDP_DLQ_REPLAY_DRY_RUN: boolean
 
     CDP_EMAIL_TRACKING_URL: string
 
@@ -340,6 +353,22 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_EVENTS_DLQ_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
         CDP_INTERNAL_EVENTS_DLQ_TOPIC: KAFKA_CDP_INTERNAL_EVENTS_DLQ,
         CDP_INTERNAL_EVENTS_DLQ_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
+        CDP_DLQ_REPLAY_TOPIC: KAFKA_CDP_EVENTS_DLQ,
+        CDP_DLQ_REPLAY_RUN_ID: 'unset',
+        CDP_DLQ_REPLAY_STEPS: '',
+        CDP_DLQ_REPLAY_FROM: '',
+        CDP_DLQ_REPLAY_TO: '',
+        CDP_DLQ_REPLAY_TEAM_IDS: '',
+        CDP_DLQ_REPLAY_SKIP_TEAM_IDS: '',
+        CDP_DLQ_REPLAY_HOG_FUNCTION_IDS: '',
+        CDP_DLQ_REPLAY_REASON_CONTAINS: '',
+        // A record that fails to rebuild twice stays parked rather than cycling between the
+        // topics, so running a replay before the fix is deployed costs one pass, not a loop.
+        CDP_DLQ_REPLAY_MAX_REPLAYS: 2,
+        CDP_DLQ_REPLAY_MAX_AGE_HOURS: 24 * 30,
+        // Dry run by default: a replay run that was scaled up with a half-written policy counts
+        // what it would deliver instead of delivering it.
+        CDP_DLQ_REPLAY_DRY_RUN: true,
 
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',
 
