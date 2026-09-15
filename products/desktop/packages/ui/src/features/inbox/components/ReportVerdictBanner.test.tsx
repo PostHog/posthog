@@ -7,6 +7,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   createPrReport,
+  useCreatePrReport,
+  updateInboxReportCaches,
+  resolveInboxReportDetailCache,
   discussReport,
   invalidateQueries,
   openExternalUrl,
@@ -21,6 +24,9 @@ const {
   fireAction,
 } = vi.hoisted(() => ({
   createPrReport: vi.fn(),
+  useCreatePrReport: vi.fn(),
+  updateInboxReportCaches: vi.fn(),
+  resolveInboxReportDetailCache: vi.fn(),
   discussReport: vi.fn(),
   invalidateQueries: vi.fn(),
   openExternalUrl: vi.fn(),
@@ -33,6 +39,12 @@ const {
   openResolveDialog: vi.fn(),
   openDismissDialog: vi.fn(),
   fireAction: vi.fn(),
+}));
+
+vi.mock("@posthog/core/inbox/inboxQuery", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@posthog/core/inbox/inboxQuery")>()),
+  updateInboxReportCaches,
+  resolveInboxReportDetailCache,
 }));
 
 vi.mock("@tanstack/react-query", async (importOriginal) => {
@@ -55,7 +67,7 @@ vi.mock(
 );
 
 vi.mock("@posthog/ui/features/inbox/hooks/useCreatePrReport", () => ({
-  useCreatePrReport: () => ({ createPrReport, isCreatingPr: false }),
+  useCreatePrReport,
 }));
 
 vi.mock("@posthog/ui/features/inbox/hooks/useDiscussReport", () => ({
@@ -167,6 +179,7 @@ const repoArtefacts = {
 };
 
 describe("ReportVerdictBanner", () => {
+  let onImplementationCreated: ((task: Task) => void) | undefined;
   let onDiscussionCreated: ((task: Task) => void) | undefined;
 
   beforeEach(() => {
@@ -190,6 +203,15 @@ describe("ReportVerdictBanner", () => {
     fireAction.mockReset();
     setQueryData.mockReset();
     onDiscussionCreated = undefined;
+    onImplementationCreated = undefined;
+    updateInboxReportCaches.mockReset();
+    resolveInboxReportDetailCache.mockReset();
+    useCreatePrReport.mockImplementation(
+      (options: { onTaskCreated?: (task: Task) => void }) => {
+        onImplementationCreated = options.onTaskCreated;
+        return { createPrReport, isCreatingPr: false };
+      },
+    );
     useDiscussReport.mockImplementation(
       (options: { onTaskCreated?: (task: Task) => void }) => {
         onDiscussionCreated = options.onTaskCreated;
@@ -478,5 +500,86 @@ describe("ReportVerdictBanner", () => {
     expect(createPrReport).toHaveBeenCalledWith(
       "Start with the smallest safe change",
     );
+  });
+  it("hands implementation off without opening chat or navigating", () => {
+    const onEngaged = vi.fn();
+    render(
+      <ReportVerdictBanner
+        report={report}
+        variant="triage-actions"
+        surface="triage"
+        onEngaged={onEngaged}
+      />,
+    );
+    const task = {
+      id: "implementation-1",
+      latest_run: { status: "queued" },
+    } as Task;
+    act(() => onImplementationCreated?.(task));
+    expect(updateInboxReportCaches).toHaveBeenCalledWith(expect.anything(), [
+      expect.objectContaining({
+        id: report.id,
+        status: report.status,
+        work_state: "working",
+        assignee: { kind: "task", task_id: task.id },
+      }),
+    ]);
+    expect(useReportChatPanelStore.getState().open).toBe(false);
+    expect(openTask).not.toHaveBeenCalled();
+    expect(onEngaged).not.toHaveBeenCalled();
+  });
+
+  it("explains why a failed implementation returned to triage", () => {
+    const task = {
+      id: "implementation-1",
+      latest_run: { status: "failed" },
+    } as Task;
+    useReportTasks.mockReturnValue({
+      data: [{ task, purpose: "implementation" }],
+      isLoading: false,
+    });
+    render(
+      <ReportVerdictBanner
+        report={{ ...report, assignee: { kind: "task", task_id: task.id } }}
+        variant="triage-actions"
+        surface="triage"
+      />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "PR task failed. Open the report to continue.",
+    );
+  });
+  it("explains an assigned task the lookup can no longer find", () => {
+    useReportTasks.mockReturnValue({ data: [], isLoading: false });
+    render(
+      <ReportVerdictBanner
+        report={{
+          ...report,
+          assignee: { kind: "task", task_id: "implementation-gone" },
+        }}
+        variant="triage-actions"
+        surface="triage"
+      />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Task status unavailable. Open the report to continue.",
+    );
+  });
+  it("does not reopen a report dismissed while its task starts", () => {
+    render(
+      <ReportVerdictBanner
+        report={report}
+        variant="triage-actions"
+        surface="triage"
+      />,
+    );
+    resolveInboxReportDetailCache.mockReturnValue({
+      ...report,
+      status: "suppressed",
+    });
+    act(() => onImplementationCreated?.({ id: "implementation-1" } as Task));
+    expect(updateInboxReportCaches).toHaveBeenCalledWith(expect.anything(), [
+      expect.objectContaining({ status: "suppressed" }),
+    ]);
   });
 });
