@@ -3635,11 +3635,11 @@
             "label": "_kx"
         },
         "build": {
-            "description": "The build number for the app",
+            "description": "The build number for the app. Mobile SDKs send this on app lifecycle events only. Most events carry App build ($app_build) instead.",
             "examples": [
                 "1"
             ],
-            "label": "App build"
+            "label": "App build (app lifecycle)"
         },
         "currency": {
             "description": "The currency code associated with the event.",
@@ -8793,11 +8793,11 @@
             "label": "Latest _kx"
         },
         "build": {
-            "description": "The build number for the app",
+            "description": "The build number for the app. Mobile SDKs send this on app lifecycle events only. Most events carry App build ($app_build) instead.",
             "examples": [
                 "1"
             ],
-            "label": "App build"
+            "label": "App build (app lifecycle)"
         },
         "currency": {
             "description": "The currency code associated with the event.",
