@@ -2153,6 +2153,15 @@ async def test_run_blocked_on_a_missing_tool_fails_and_names_the_tool(ateam, aer
     bridge = await database_sync_to_async(SignalScoutRun.objects.get)(team=ateam)
     assert "no scout tools" in bridge.summary
 
+    # The linked TaskRun is what the run API, the `scout-runs-*` tools and the roster read a
+    # status from, and `session.end()` is the only writer of it. A bare `end()` here books the
+    # blocked run as `completed` for every one of those readers while the analytics above call it
+    # failed. The session is mocked, so these arguments are the only place that shows.
+    session.end.assert_awaited_once_with(
+        status=TaskRun.Status.FAILED.value,
+        error="Scout closed out without the tools it needed: skill-get, scout-project-profile-get",
+    )
+
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
@@ -2174,6 +2183,10 @@ async def test_quiet_run_still_completes(ateam, aerrors_skill):
         run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
     assert run_result.status == TaskRun.Status.COMPLETED.value
+    # The teardown carries a status, so a quiet run must not be the one that reports a failure.
+    # Asserted as a negative because `end()` treats a completion as its default, which makes
+    # passing it explicitly and leaving it out interchangeable.
+    assert session.end.await_args.kwargs.get("status") != TaskRun.Status.FAILED.value
 
 
 @parameterized.expand(

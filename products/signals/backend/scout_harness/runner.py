@@ -953,6 +953,14 @@ async def _spawn_and_run(
         # lost and the next run inherits a doubled scan delta.
         fallback_from_text=lambda text: SignalScoutRunSummary(summary=text),
     )
+    # `session.end()` writes the terminal `TaskRun` status, which is where the run API, the
+    # `scout-runs-*` tools, and the roster read a run's status and error from. Ending on the
+    # default would show a blocked run as `completed` to all of them while the breaker and
+    # `signals_scout_run_finished` book it `failed`, so the teardown carries what the body settled
+    # on. Only an `Exception` sets it, so a cancellation tears down on these defaults: the outer
+    # handler books that as `cancelled`, and wants nothing awaited while the loop collapses.
+    end_status = tasks_facade.TaskRunStatus.COMPLETED.value
+    end_error: str | None = None
     try:
         # Persist the agent's end-of-turn close-out so non-emitting runs leave a
         # discoverable trace for future-run dedupe. Failure paths skip this on
@@ -970,8 +978,12 @@ async def _spawn_and_run(
         if blocked_on:
             raise ScoutToolsUnavailable(blocked_on)
         return result.summary, str(session.task_run.id)
+    except Exception as exc:
+        end_status = tasks_facade.TaskRunStatus.FAILED.value
+        end_error = str(exc)
+        raise
     finally:
-        await session.end()
+        await session.end(status=end_status, error=end_error)
 
 
 def _get_team(team_id: int) -> Team:
