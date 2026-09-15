@@ -30,7 +30,10 @@ export function TracingDisplayBar(): JSX.Element {
 
     const facetRailEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_FACET_RAIL]
     const inTracesView = displayMode !== 'operations'
-    const showCount = inTracesView && !compareActive && totalMatchingFilters > 0
+    // The Operations view carries its own counts in table columns, and a comparison covers two
+    // windows while both indicators describe one.
+    const showsSingleWindowCounts = inTracesView && !compareActive
+    const showCount = showsSingleWindowCounts && totalMatchingFilters > 0
 
     // data-attrs keep the names from the two controls this one replaced, for analytics continuity.
     const displayModeOptions: LemonSegmentedButtonOption<TracingDisplayMode>[] = [
@@ -91,9 +94,8 @@ export function TracingDisplayBar(): JSX.Element {
                         matching filters
                     </span>
                 )}
-                {/* Gated here so the strip's logic (and its query) only mount when the flag is on.
-                    Hidden while comparing, because the impact query covers one window only. */}
-                {inTracesView && !compareActive && (
+                {/* Gated here so the strip's logic (and its query) only mount when the flag is on. */}
+                {showsSingleWindowCounts && (
                     <FlaggedFeature flag={FEATURE_FLAGS.TRACING_IMPACT_STRIP}>
                         <TracingImpactStrip id={TRACING_SCENE_VIEWER_ID} />
                     </FlaggedFeature>

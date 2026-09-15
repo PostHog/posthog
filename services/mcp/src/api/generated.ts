@@ -9591,14 +9591,11 @@ export namespace Schemas {
       p999_duration_nano: number;
       p99_duration_nano: number;
       service_name: string;
-      /** Estimated unique session IDs across this operation's spans. Only set when `includeImpact` is true. */
+      /** These four are estimates, set only when the query asked for `includeImpact`. */
       sessions?: number | null;
-      /** How many of this operation's spans carry a person distinct ID. Only set when `includeImpact` is true. */
       spans_with_distinct_id?: number | null;
-      /** How many of this operation's spans carry a session ID. Only set when `includeImpact` is true. */
       spans_with_session_id?: number | null;
       total_duration_nano: number;
-      /** Estimated unique person distinct IDs across this operation's spans. Only set when `includeImpact` is true. */
       users?: number | null;
     }
 
@@ -46001,7 +45998,7 @@ export namespace Schemas {
       compareFilter?: CompareFilter | null;
       dateRange: DateRange;
       filterGroup?: PropertyGroupFilter | null;
-      /** Also aggregate the sessions and people behind each operation. Off by default: it reads the span and resource attribute maps, which the rest of the aggregation never touches. */
+      /** Also aggregate sessions and people per operation. Off by default: it reads the attribute maps. */
       includeImpact?: boolean | null;
       kind?: 'TraceSpansAggregationQuery';
       /** Modifiers used when performing the query */
