@@ -24,17 +24,29 @@ const OUTLINE_BLEED = 4;
  */
 export function ComposerWidth({
   compact,
+  fill = false,
   children,
 }: {
   compact: boolean;
+  /**
+   * Passes the height the parent allows down to the content instead of sizing
+   * to it. The composer needs this so a docked plan or question set can cap at
+   * the chat column and scroll, rather than growing past the window.
+   */
+  fill?: boolean;
   children: React.ReactNode;
 }) {
   if (compact) {
-    return <div className="p-1">{children}</div>;
+    return (
+      <div className={fill ? "flex min-h-0 flex-col p-1" : "p-1"}>
+        {children}
+      </div>
+    );
   }
 
   return (
     <div
+      className={fill ? "flex min-h-0 flex-col" : undefined}
       style={{
         paddingInline: CHAT_CONTENT_PADDING_INLINE,
         overflow: "hidden",
@@ -48,7 +60,11 @@ export function ComposerWidth({
       }}
     >
       <div
-        className="mx-auto pb-2"
+        // `w-full` because `mx-auto` in a flex column overrides the stretch
+        // that would otherwise give this box its width.
+        className={
+          fill ? "mx-auto flex min-h-0 w-full flex-col pb-2" : "mx-auto pb-2"
+        }
         style={{ maxWidth: CHAT_CONTENT_MAX_WIDTH }}
       >
         {children}
