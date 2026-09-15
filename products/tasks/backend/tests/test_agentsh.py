@@ -587,6 +587,8 @@ class TestModalSandboxAgentShWrapping(TestCase):
                 return ExecutionResult(stdout="", stderr="", exit_code=0)
             if "chmod" in command:  # gh shim install
                 return ExecutionResult(stdout="", stderr="", exit_code=0)
+            if command.startswith("bash /tmp/posthog-launch-preparation-"):
+                return ExecutionResult(stdout="", stderr="", exit_code=0)
             if ENV_DISABLE_BUNDLED_SKILLS in command:  # bundled-skills clear
                 return ExecutionResult(stdout="", stderr="", exit_code=0)
             self.assertIn("grep", command)
