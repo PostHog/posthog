@@ -37,4 +37,4 @@ The status codes are the defaults.
 
 No product registers a Slack consumer yet.
 The conversations Slack endpoint moves to ingress in its own PR.
-See [`docs/internal/inbound-webhooks.md`](../../../docs/internal/inbound-webhooks.md).
+See the [Endpoints table](../README.md#endpoints).

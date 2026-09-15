@@ -34,4 +34,4 @@ A bad signature answers 404 instead of 403, so a prober cannot tell a wrong secr
 
 No product registers a PandaDoc consumer yet.
 The legal documents endpoint moves to ingress in its own PR.
-See [`docs/internal/inbound-webhooks.md`](../../../docs/internal/inbound-webhooks.md).
+See the [Endpoints table](../README.md#endpoints).

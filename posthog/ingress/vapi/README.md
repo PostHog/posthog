@@ -36,4 +36,4 @@ The public interview surface already relies on both codes.
 
 No product registers a Vapi consumer yet.
 The user interviews endpoint moves to ingress in its own PR.
-See [`docs/internal/inbound-webhooks.md`](../../../docs/internal/inbound-webhooks.md).
+See the [Endpoints table](../README.md#endpoints).

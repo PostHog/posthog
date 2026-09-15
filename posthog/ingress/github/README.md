@@ -39,4 +39,4 @@ The installation lifecycle is a core consumer rather than a product one, because
 - `products/stamphog/backend/webhook_consumers.py` registers `stamphog_review` on the `stamphog` app.
 
 The remaining GitHub consumers move to ingress one product at a time.
-[`docs/internal/inbound-webhooks.md`](../../../docs/internal/inbound-webhooks.md) holds the table.
+The [Endpoints table](../README.md#endpoints) lists them.

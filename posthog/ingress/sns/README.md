@@ -38,4 +38,4 @@ An unknown topic logs `ingress_sns_unknown_topic` and answers like a bad signatu
 
 No product registers an SNS consumer yet.
 The workflows SES events endpoint moves to ingress in its own PR.
-See [`docs/internal/inbound-webhooks.md`](../../../docs/internal/inbound-webhooks.md).
+See the [Endpoints table](../README.md#endpoints).

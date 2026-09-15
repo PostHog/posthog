@@ -1,7 +1,6 @@
 # Inbound ingress: verification, dispatch, transport
 
 General-purpose controls for the webhooks third parties send _in_ to PostHog.
-GitHub was the first provider and the others follow the same shape.
 A new inbound webhook that needs signature verification or fan-out belongs here as a `<provider>/` incarnation (see [Adding a provider](#adding-a-provider)), never hand-rolled around `hmac` in a view.
 Four lanes:
 
@@ -18,6 +17,24 @@ It is the sibling of `posthog/egress/`, which is what PostHog sends, and unrelat
 All four lanes are **provider-generic**; each third party is an incarnation under its own subpackage, supplying header names, a scheme, and how to read an event type and a delivery id off the request.
 Each provider has a `README.md` in its folder, which holds its headers, its scheme, its apps and secrets, its quirks and its consumers.
 Adding a provider is another `<provider>/` folder, not a change to the mechanisms.
+
+## Endpoints
+
+| Provider     | Path                                                    | App          | Consumers                                                                                                                                   | Product code                                                            |
+| ------------ | ------------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `github`     | `/webhooks/github`, `/webhooks/github/pr`               | `posthog`    | `installation_lifecycle`, `installation_repositories` (core), `conversations`, `loops`, `tasks_pr_backstop`, `tasks_pr_review`, `workflows` | `products/{tasks,conversations,workflows}/backend/webhook_consumers.py` |
+| `github`     | `/webhooks/stamphog/github`                             | `stamphog`   | `stamphog_review`                                                                                                                           | `products/stamphog/backend/webhook_consumers.py`                        |
+| `slack`      | `/api/conversations/v1/slack/events`                    | `supporthog` | `conversations_slack`                                                                                                                       | `products/conversations/backend/webhook_consumers.py`                   |
+| `pandadoc`   | `/api/legal_documents/pandadoc`                         | `default`    | `legal_documents_signatures`                                                                                                                | `products/legal_documents/backend/webhook_consumers.py`                 |
+| `vapi`       | `/api/user_interviews/vapi_webhook/`                    | `default`    | `user_interviews_vapi`                                                                                                                      | `products/user_interviews/backend/webhook_consumers.py`                 |
+| `sns`        | `/webhooks/workflows/ses-events`                        | `default`    | `workflows_ses_events`                                                                                                                      | `products/workflows/backend/webhook_consumers.py`                       |
+| `customerio` | `/api/projects/<team_id>/messaging/customerio/webhook/` | none         | none, it is the DRF adapter path                                                                                                            | `products/messaging/backend/api/customerio_webhook.py`                  |
+
+The GitHub endpoints and the SES one are declared in `posthog/urls.py`.
+The others are declared by the product that owns them.
+See [`url-routing.md`](../../docs/internal/url-routing.md) for the routing rules those declarations follow, and [`github-webhooks.md`](../../docs/internal/github-webhooks.md) for the GitHub specifics.
+
+The Vapi endpoint sits behind a per-IP throttle the product owns, because ingress has no throttle lane and the endpoint is public.
 
 ## Non-goals
 
@@ -96,6 +113,10 @@ The budget is a backstop, not a scheduler: it cannot interrupt a consumer that i
 A consumer that touches the database on this path wraps its reads in `bounded_statement_timeout(ms, models=...)`, which installs `SET LOCAL statement_timeout` on each alias those models route to.
 Pass the models rather than capping every configured alias: opening an alias is itself unbounded, so reaching for one the read never uses can stall the delivery on connection setup before the cap is even installed.
 
+Both controls exist because the incidents on the GitHub webhook path came from unbounded query cost against a shared connection pool, not from running consumers inside the request.
+The fixes that worked bounded the queries: [#83852](https://github.com/PostHog/posthog/pull/83852) scoped the run lookup to the installation's teams and put a statement timeout on the attribution lookup, and [#87779](https://github.com/PostHog/posthog/pull/87779) added the indexes it needed.
+Ingress carries both as general controls, so the next endpoint gets them without rediscovering the same failure.
+
 ## Adding a provider
 
 Add a `<provider>/` subpackage with a `provider.py` holding three things (see `github/` for the full shape, `vapi/` for a small one):
@@ -113,6 +134,8 @@ path("webhooks/github/", build_webhook_view(build_github_provider("posthog")))
 
 Secrets and verifiers that belong to a product are **passed into the builder**.
 Nothing under `posthog/ingress/` imports a product.
+
+A consumer no product owns is registered by the incarnation itself, in a `CORE_CONSUMERS` tuple next to `SPECS`.
 
 Last, write `<provider>/README.md` with the fixed sections every provider README carries: headers, signature scheme, delivery id and event type, apps and secrets, quirks, consumers.
 `posthog/ingress/test/test_provider_readme_sections.py` fails on a provider folder without one.
