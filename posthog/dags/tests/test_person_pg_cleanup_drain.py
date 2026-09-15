@@ -1,14 +1,18 @@
+import time
 import itertools
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import AbstractContextManager, contextmanager
 from datetime import UTC, datetime
 from functools import partial
 from uuid import uuid4
 
 import pytest
+from unittest.mock import patch
 
 import grpc
 import dagster
 import psycopg2
+from prometheus_client import CollectorRegistry
 
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.custom_metrics import MetricsClient
@@ -206,6 +210,7 @@ def test_deletes_tombstoned_persons_and_removes_their_queue_rows(cluster: Clickh
     totals = totals_of(result)
     assert (totals.persons_deleted, totals.rows_deleted, totals.queue_rows_deleted) == (3, 6, 3)
     assert (totals.requests_pending_resent, totals.stopped_reason) == (0, "drained")
+    assert result.output_for_node("publish_drain_metrics") == totals
 
 
 @pytest.mark.django_db
@@ -703,6 +708,86 @@ def test_pauses_after_every_request_by_pause_ms_plus_latency(cluster: Clickhouse
     assert len(pauses) == totals.rpc_calls == 3
     assert all(pause >= 0.25 for pause in pauses), pauses
     assert [round(pause - 0.25, 6) for pause in pauses] == [round(2.0 * rpc, 6) for rpc in totals.rpc_seconds]
+
+
+@contextmanager
+def _capturing_push(registry: CollectorRegistry) -> Iterator[CollectorRegistry]:
+    yield registry
+
+
+def publish(totals: DrainTotals) -> tuple[CollectorRegistry, list[str]]:
+    registry = CollectorRegistry()
+    pushed_jobs: list[str] = []
+
+    def fake_push(job: str) -> AbstractContextManager[CollectorRegistry]:
+        pushed_jobs.append(job)
+        return _capturing_push(registry)
+
+    with patch.object(drain, "pushed_metrics_registry", fake_push):
+        drain.publish_drain_metrics(dagster.build_op_context(), totals)
+    return registry, pushed_jobs
+
+
+def test_a_dry_run_publishes_no_metrics():
+    registry, pushed_jobs = publish(DrainTotals(dry_run=True, rows_read=5))
+
+    # The helper pushes with PUT, which replaces the whole job. Entering it with an empty
+    # registry would delete the last-success gauge, so not entering it at all is the assertion.
+    assert pushed_jobs == []
+    assert list(registry.collect()) == []
+
+
+def test_publishes_every_measurement_the_run_took():
+    totals = DrainTotals(
+        rows_read=5,
+        persons_deleted=3,
+        persons_blocked=1,
+        rows_deleted=40,
+        rows_stamped_blocked=1,
+        requests_pending_resent=4,
+        queue_rows_estimate_at_start=1000,
+        step_rows_min=250,
+        rpc_errors=2,
+        pg_reconnects=1,
+        rpc_seconds=[0.2, 1.5, 0.4],
+    )
+
+    registry, pushed_jobs = publish(totals)
+
+    assert pushed_jobs == [drain.DRAIN_METRICS_JOB]
+    prefix = "posthog_person_pg_cleanup_drain_"
+    assert {
+        name: registry.get_sample_value(f"{prefix}{name}")
+        for name in (
+            "queue_rows_estimate_at_start",
+            "rows_read",
+            "persons_deleted",
+            "persons_blocked",
+            "rows_deleted",
+            "rows_stamped_blocked",
+            "requests_pending_resent",
+            "step_rows_min",
+            "rpc_errors",
+            "pg_reconnects",
+            "rpc_seconds_max",
+        )
+    } == {
+        "queue_rows_estimate_at_start": 1000,
+        "rows_read": 5,
+        "persons_deleted": 3,
+        "persons_blocked": 1,
+        "rows_deleted": 40,
+        "rows_stamped_blocked": 1,
+        "requests_pending_resent": 4,
+        "step_rows_min": 250,
+        "rpc_errors": 2,
+        "pg_reconnects": 1,
+        "rpc_seconds_max": 1.5,
+    }
+    last_success = registry.get_sample_value(f"{prefix}last_success_timestamp_seconds")
+    # Wall clock, not the monotonic clock used elsewhere here: the alert subtracts it from time().
+    assert last_success is not None
+    assert abs(last_success - time.time()) < 60
 
 
 @pytest.mark.parametrize(
