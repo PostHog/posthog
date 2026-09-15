@@ -1403,22 +1403,19 @@
                 },
                 "sessions": {
                     "$ref": "#/definitions/integer",
-                    "description": "Estimated unique session IDs across this operation's spans. Only set when `includeImpact` is true."
+                    "description": "These four are estimates, set only when the query asked for `includeImpact`."
                 },
                 "spans_with_distinct_id": {
-                    "$ref": "#/definitions/integer",
-                    "description": "How many of this operation's spans carry a person distinct ID. Only set when `includeImpact` is true."
+                    "$ref": "#/definitions/integer"
                 },
                 "spans_with_session_id": {
-                    "$ref": "#/definitions/integer",
-                    "description": "How many of this operation's spans carry a session ID. Only set when `includeImpact` is true."
+                    "$ref": "#/definitions/integer"
                 },
                 "total_duration_nano": {
                     "type": "number"
                 },
                 "users": {
-                    "$ref": "#/definitions/integer",
-                    "description": "Estimated unique person distinct IDs across this operation's spans. Only set when `includeImpact` is true."
+                    "$ref": "#/definitions/integer"
                 }
             },
             "required": [
@@ -54072,7 +54069,7 @@
                     "$ref": "#/definitions/PropertyGroupFilter"
                 },
                 "includeImpact": {
-                    "description": "Also aggregate the sessions and people behind each operation. Off by default: it reads the span and resource attribute maps, which the rest of the aggregation never touches.",
+                    "description": "Also aggregate sessions and people per operation. Off by default: it reads the attribute maps.",
                     "type": "boolean"
                 },
                 "kind": {

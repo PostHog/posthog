@@ -4797,13 +4797,10 @@ export interface AggregatedSpanRow {
     p99_duration_nano: number
     p999_duration_nano: number
     error_count: integer
-    /** Estimated unique session IDs. These four are set only when the query asked for `includeImpact`. */
+    /** These four are estimates, set only when the query asked for `includeImpact`. */
     sessions?: integer
-    /** Estimated unique person distinct IDs. */
     users?: integer
-    /** How many of this operation's spans carry a session ID. */
     spans_with_session_id?: integer
-    /** How many of this operation's spans carry a person distinct ID. */
     spans_with_distinct_id?: integer
 }
 

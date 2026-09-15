@@ -61,8 +61,7 @@ DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS = [
     "posthog.distinct_id",
 ]
 
-# The session-ID counterpart, mirroring SESSION_ID_KEYS. Some pipelines emit `posthogSessionId`
-# even though no SDK sends it, so removing it breaks them.
+# The session-ID counterpart. Some pipelines emit `posthogSessionId` though no SDK sends it.
 SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS = [
     "session.id",
     "session_id",
