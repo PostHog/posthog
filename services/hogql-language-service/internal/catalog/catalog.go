@@ -4,6 +4,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -80,10 +81,14 @@ func Prepare(value *Catalog) *PreparedCatalog {
 		}
 		tableType := intern(types, table.Type)
 		preparedTable := PreparedTable{Name: name, Type: tableType, Fields: newIndex(fieldEntries[fieldStart:])}
-		foldedName := strings.ToLower(name)
+		foldedName := foldName(name)
+		if _, exists := prepared.tablesByName[foldedName]; exists {
+			prepared.valid = false
+			continue
+		}
 		prepared.tablesByName[foldedName] = len(prepared.tableValues)
 		prepared.tableValues = append(prepared.tableValues, preparedTable)
-		tableEntries = append(tableEntries, Entry{Name: name, Type: tableType})
+		tableEntries = append(tableEntries, newEntry(name, tableType))
 	}
 	prepared.tables = newIndex(tableEntries)
 	for namespace, properties := range value.Properties {
@@ -100,7 +105,7 @@ func Prepare(value *Catalog) *PreparedCatalog {
 }
 
 func (c *PreparedCatalog) Table(name string) (*PreparedTable, bool) {
-	index, ok := c.tablesByName[strings.ToLower(name)]
+	index, ok := c.tablesByName[foldName(name)]
 	if !ok {
 		return nil, false
 	}
@@ -131,11 +136,10 @@ func (i *Index) Exact(name string) (Entry, bool) {
 	if i == nil {
 		return Entry{}, false
 	}
-	foldedName := strings.ToLower(name)
 	position := sort.Search(len(i.entries), func(index int) bool {
-		return compareFold(i.entries[index].Name, foldedName) >= 0
+		return compareFold(i.entries[index].Name, name) >= 0
 	})
-	if position == len(i.entries) || !strings.EqualFold(i.entries[position].Name, name) {
+	if position == len(i.entries) || compareFold(i.entries[position].Name, name) != 0 {
 		return Entry{}, false
 	}
 	return i.entries[position], true
@@ -145,7 +149,7 @@ func (i *Index) Prefix(prefix string) []Entry {
 	if i == nil {
 		return nil
 	}
-	foldedPrefix := strings.ToLower(prefix)
+	foldedPrefix := foldName(prefix)
 	start := sort.Search(len(i.entries), func(index int) bool {
 		return compareFold(i.entries[index].Name, foldedPrefix) >= 0
 	})
@@ -196,7 +200,7 @@ func (c *PreparedCatalog) estimateSize() int64 {
 	var size int64
 	for _, entry := range c.tables.entries {
 		size += entrySize(entry) + 64
-		table := &c.tableValues[c.tablesByName[strings.ToLower(entry.Name)]]
+		table := &c.tableValues[c.tablesByName[foldName(entry.Name)]]
 		for _, field := range table.Fields.entries {
 			size += entrySize(field)
 		}
@@ -215,28 +219,50 @@ func entrySize(entry Entry) int64 {
 }
 
 func compareFold(left, right string) int {
-	index := 0
-	for index < len(left) && index < len(right) {
-		leftByte := left[index]
-		rightByte := right[index]
-		if leftByte >= 0x80 || rightByte >= 0x80 {
-			return strings.Compare(strings.ToLower(left[index:]), strings.ToLower(right[index:]))
-		}
-		if leftByte >= 'A' && leftByte <= 'Z' {
-			leftByte += 'a' - 'A'
-		}
-		if rightByte >= 'A' && rightByte <= 'Z' {
-			rightByte += 'a' - 'A'
-		}
-		if leftByte < rightByte {
+	for len(left) > 0 && len(right) > 0 {
+		leftRune, leftSize := utf8.DecodeRuneInString(left)
+		rightRune, rightSize := utf8.DecodeRuneInString(right)
+		leftRune = foldRune(leftRune)
+		rightRune = foldRune(rightRune)
+		if leftRune < rightRune {
 			return -1
 		}
-		if leftByte > rightByte {
+		if leftRune > rightRune {
 			return 1
 		}
-		index++
+		left = left[leftSize:]
+		right = right[rightSize:]
 	}
-	return len(left) - len(right)
+	if len(left) > 0 {
+		return 1
+	}
+	if len(right) > 0 {
+		return -1
+	}
+	return 0
+}
+
+func foldName(value string) string {
+	return strings.Map(foldRune, value)
+}
+
+func foldRune(value rune) rune {
+	if value >= 'A' && value <= 'Z' {
+		return value + 'a' - 'A'
+	}
+	if value >= 'a' && value <= 'z' {
+		return value
+	}
+	canonical := value
+	for candidate := unicode.SimpleFold(value); candidate != value; candidate = unicode.SimpleFold(candidate) {
+		if candidate >= 'a' && candidate <= 'z' {
+			return candidate
+		}
+		if candidate < canonical {
+			canonical = candidate
+		}
+	}
+	return canonical
 }
 
 func prefixUpperBound(prefix string) (string, bool) {

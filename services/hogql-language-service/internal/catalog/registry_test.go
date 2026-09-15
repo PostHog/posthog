@@ -1,11 +1,28 @@
 package catalog
 
 import (
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/serviceauth"
 )
+
+func TestRegistryRejectsCaseInsensitiveDuplicateTables(t *testing.T) {
+	registry := NewRegistry(1, 1<<20, time.Hour)
+	value := Prepare(&Catalog{
+		Tables: map[string]Table{
+			"Events": {Name: "Events"},
+			"events": {Name: "events"},
+		},
+		Properties: map[string][]Property{},
+	})
+
+	err := registry.Put(serviceauth.Authorization{TeamID: 1, UserID: 10}, "1", value)
+	if !errors.Is(err, ErrInvalidCatalog) {
+		t.Fatalf("Put() error = %v, want %v", err, ErrInvalidCatalog)
+	}
+}
 
 func TestRegistryIsolatesCatalogsAndReplacesRevisionAtomically(t *testing.T) {
 	now := time.Unix(100, 0)
