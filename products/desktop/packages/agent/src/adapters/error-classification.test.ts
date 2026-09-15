@@ -73,6 +73,15 @@ describe("classifyAgentError", () => {
     // failure-streak breaker instead of being exempted as an upstream refusal.
     ["agent exited while reading the rate limit dashboard", "agent_error"],
     ["the checked endpoint returns too many requests errors", "agent_error"],
+    // Something other than the model running out of capacity is not a provider refusal. These
+    // wordings come from services a run reaches through its own tools, so exempting them would
+    // hide a lane that fails every time it calls one.
+    ["ClickHouse is at capacity. Try again later.", "agent_error"],
+    [
+      "The query was deferred because the cluster is at capacity.",
+      "agent_error",
+    ],
+    ["local queue is at capacity", "agent_error"],
     // A rate-limited status keeps the provider-failure category it already had.
     ["API Error: 429 rate limit exceeded", "upstream_provider_failure"],
     // The spend limit quotes a rate limit but stops this run alone, so it stays permanent.

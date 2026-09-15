@@ -48,8 +48,12 @@ const CODEX_PROVIDER_ERROR_STATUS_PATTERN =
 // requests" also appears in an agent's own failure text when the run was reading about someone
 // else's rate limiting, and classifying that as upstream would exempt a real defect from the
 // failure-streak breaker. A false negative only costs the retry, so the narrower form wins.
+//
+// The capacity alternative names the model for the same reason. "<subject> is at capacity" is
+// also how this product's own throttles read, and a run can surface one of those through a tool
+// it called, which reports a failure of the service the run was reading, not of the provider.
 const UPSTREAM_RATE_LIMIT_PATTERN =
-  /\brate limit (?:exceeded|reached)\b|\bprocessing too many requests\b|\bis at capacity\b/i;
+  /\brate limit (?:exceeded|reached)\b|\bprocessing too many requests\b|\bmodel is at capacity\b/i;
 const SANDBOX_TASK_SPEND_LIMIT_PATTERN =
   /This agent run reached its spend limit/i;
 const TURN_ENDED_WITHOUT_RESPONSE_PATTERN =
