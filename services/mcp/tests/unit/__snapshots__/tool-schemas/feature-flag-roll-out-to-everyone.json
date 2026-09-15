@@ -17,9 +17,16 @@
             "description": "The variant every user gets. Required for a multivariate flag and rejected for any other flag, because a release condition decides who the flag serves and not which variant they get."
         },
         "version": {
-            "description": "The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version.",
-            "minimum": 0,
-            "type": "number"
+            "anyOf": [
+                {
+                    "minimum": 0,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0, so the value a read returns is always one this accepts."
         }
     },
     "required": ["id", "version"],
