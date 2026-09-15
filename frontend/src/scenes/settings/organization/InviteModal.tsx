@@ -394,7 +394,7 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
     const { invitesToSend, canSubmit, isInviting } = useValues(inviteLogic)
-    const { inviteTeamMembers } = useActions(inviteLogic)
+    const { resetInviteRows, inviteTeamMembers } = useActions(inviteLogic)
 
     const validInvitesCount = invitesToSend.filter((invite) => invite.isValid && invite.target_email).length
 
@@ -409,7 +409,10 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
         <div className="InviteModal">
             <LemonModal
                 isOpen={isOpen}
-                onClose={onClose}
+                onClose={() => {
+                    resetInviteRows()
+                    onClose()
+                }}
                 width={800}
                 title={<>Invite others to {user?.organization?.name || 'PostHog'}</>}
                 description={
@@ -442,7 +445,14 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                             </LemonButton>
                         ) : (
                             <>
-                                <LemonButton onClick={onClose} type="secondary" disabled={isInviting}>
+                                <LemonButton
+                                    onClick={() => {
+                                        resetInviteRows()
+                                        onClose()
+                                    }}
+                                    type="secondary"
+                                    disabled={isInviting}
+                                >
                                     Cancel
                                 </LemonButton>
                                 <LemonButton

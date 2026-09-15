@@ -1,4 +1,4 @@
-import { getCurrentOrganizationIdOrNone, getCurrentTeamId, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
+import { getCurrentTeamId, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
 
 interface TeamScopedPersistenceConfig {
     persist: true
@@ -36,15 +36,4 @@ export const buildTeamScopedStorageConfig = (storageKey: string): TeamScopedStor
 export const buildUserScopedPersistenceConfig = (prefix: string = ''): UserScopedPersistenceConfig => ({
     persist: true,
     prefix: `${getUserStoragePrefix()}${prefix}`,
-})
-
-/**
- * For state that belongs to the organization instead of to one project. The key carries the user ID
- * too, so one user of a shared browser profile never reads another user's value. This helper does
- * not throw when an ID is unknown, because logics that mount app-wide can run before the app knows
- * the current organization.
- */
-export const buildUserScopedOrganizationPersistenceConfig = (prefix: string = ''): UserScopedPersistenceConfig => ({
-    persist: true,
-    prefix: `${getCurrentUserIdOrNone() ?? 'anonymous'}__${getCurrentOrganizationIdOrNone() ?? 'no-organization'}__${prefix}`,
 })

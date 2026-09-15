@@ -53,7 +53,7 @@ export function GlobalModals(): JSX.Element {
     // Grace-extended so the modals' exit animations finish before the lazy subtree unmounts.
     const shouldRenderSessionPlayerModal = useKeepMountedWhileOpen(!!activeSessionRecording)
     const shouldRenderLogsViewerModal = useKeepMountedWhileOpen(isLogsViewerModalOpen)
-    const { isInviteModalShown } = useValues(inviteLogic)
+    const { isInviteModalVisible } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
     const { superpowersEnabled } = useValues(superpowersLogic)
     const { isConfigureHomeModalOpen } = useValues(navigationLogic)
@@ -61,7 +61,7 @@ export function GlobalModals(): JSX.Element {
 
     return (
         <>
-            <InviteModal isOpen={isInviteModalShown} onClose={hideInviteModal} />
+            <InviteModal isOpen={isInviteModalVisible} onClose={hideInviteModal} />
             <CreateOrganizationModal isVisible={isCreateOrganizationModalShown} onClose={hideCreateOrganizationModal} />
             <CreateProjectModal isVisible={isCreateProjectModalShown} onClose={hideCreateProjectModal} />
             <UpgradeModal />
