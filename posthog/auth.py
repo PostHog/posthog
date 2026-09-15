@@ -34,7 +34,7 @@ from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.helpers.verified_domain_enforcement import enforce_verified_domain
 from posthog.internal_api_secret import usable_internal_api_secrets
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt, get_oidc_verification_keys
-from posthog.models.activity_logging.utils import activity_storage
+from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_MAX_LENGTH, activity_storage
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import (
@@ -61,6 +61,7 @@ from posthog.synthetic_user import SyntheticUser
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.exports.backend.facade.auth import get_export_renderer_asset_context
+from products.signals.backend.facade.activity_client import resolve_scout_client_tag
 
 
 class WebAuthnAuthenticationResponse(TypedDict):
@@ -936,6 +937,7 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
                     # marker in the audit trail.
                     if access_token.impersonated_by_id is not None:
                         activity_storage.set_was_impersonated(True)
+                    self._set_scout_activity_client(access_token)
 
                 return access_token.user, None
 
@@ -943,6 +945,35 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
                 raise
             except Exception:
                 raise AuthenticationFailed(detail="Invalid access token.")
+
+    def _set_scout_activity_client(self, access_token: OAuthAccessToken) -> None:
+        """Name the scout behind a sandbox token's writes, in place of the self-reported client.
+
+        A scout acts as the person who owns its config, so the acting user alone cannot tell a
+        scout's edit from that person's own MCP edit. The task binding on the token is written
+        server-side at mint time, so it overrides the caller-settable `x-posthog-client` header
+        that `ActivityLoggingMiddleware` read earlier in the request.
+        """
+        if access_token.sandbox_task_id is None:
+            return
+        # Sandbox tokens are minted against exactly one team. Anything else cannot say which
+        # team's runs to look in, and attribution must not guess.
+        scoped_teams = access_token.scoped_teams or []
+        if len(scoped_teams) != 1:
+            return
+        try:
+            client = resolve_scout_client_tag(sandbox_task_id=access_token.sandbox_task_id, team_id=scoped_teams[0])
+        except Exception:
+            # Attribution is not an authorization decision, so a failed lookup leaves the
+            # header value in place rather than failing a request the caller is authorized for.
+            logger.warning(
+                "Failed to resolve the scout behind a sandbox OAuth token",
+                exc_info=True,
+                extra={"sandbox_task_id": str(access_token.sandbox_task_id)},
+            )
+            return
+        if client:
+            activity_storage.set_client(client[:ACTIVITY_LOG_CLIENT_MAX_LENGTH])
 
     def _extract_token(self, request: Union[HttpRequest, Request]) -> Optional[str]:
         if "authorization" in request.headers:

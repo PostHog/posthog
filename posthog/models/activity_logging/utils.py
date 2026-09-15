@@ -15,7 +15,9 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 ACTIVITY_LOG_CLIENT_HEADER = "x-posthog-client"
-ACTIVITY_LOG_CLIENT_MAX_LENGTH = 32
+# Wide enough for a server-derived tag as well as a header value: the `scout:<skill_name>` tag
+# written for a scout run needs room for a scout's whole name after the prefix.
+ACTIVITY_LOG_CLIENT_MAX_LENGTH = 100
 
 
 @frozen

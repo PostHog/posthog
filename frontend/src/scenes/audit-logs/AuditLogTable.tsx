@@ -1,7 +1,8 @@
 import { useState } from 'react'
 
-import { LemonTag, LemonTabs, Tooltip } from '@posthog/lemon-ui'
+import { LemonTabs } from '@posthog/lemon-ui'
 
+import { ActivityClientTag } from 'lib/components/ActivityLog/ActivityClientTag'
 import { HumanizedActivityLogItem, humanizeActivity, humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -47,13 +48,7 @@ const baseColumns: LemonTableColumns<HumanizedActivityLogItem> = [
                     type={logItem.isSystem ? 'system' : 'person'}
                     size="md"
                 />
-                {logItem.unprocessed?.client === 'mcp' && (
-                    <Tooltip title="This action was performed via the MCP (Model Context Protocol) integration">
-                        <LemonTag type="muted" size="small">
-                            mcp
-                        </LemonTag>
-                    </Tooltip>
-                )}
+                {logItem.unprocessed?.client && <ActivityClientTag client={logItem.unprocessed.client} />}
             </div>
         ),
         width: '20%',
