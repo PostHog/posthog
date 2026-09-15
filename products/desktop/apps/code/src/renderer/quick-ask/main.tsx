@@ -30,9 +30,7 @@ const hostTrpcClient = createTRPCClient<HostRouter>({
 
 async function openReport(reportId: string): Promise<void> {
   try {
-    await hostTrpcClient.deepLink.openAgentAction.mutate({
-      action: { kind: "open_inbox", report_id: reportId },
-    });
+    await hostTrpcClient.deepLink.openInboxReport.mutate({ reportId });
   } catch (error) {
     logger.scope("quick-ask").error("Failed to open report", error);
   }

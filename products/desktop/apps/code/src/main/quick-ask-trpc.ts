@@ -5,5 +5,5 @@ export const QUICK_ASK_TRPC_ROUTES: ReadonlySet<string> = new Set([
   "auth.refreshAccessToken",
   "os.openExternal",
   "customCloud.get",
-  "deepLink.openAgentAction",
+  "deepLink.openInboxReport",
 ]);
