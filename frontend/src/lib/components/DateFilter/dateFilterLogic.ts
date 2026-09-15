@@ -21,12 +21,8 @@ const RELATIVE_UNIT_LABEL: Record<string, string> = {
     y: 'year',
 }
 
-/**
- * A caller can narrow the preset list — replay offers six ranges — so a value stored from a shared
- * link or written by another product can match none of them. `dateFilterToText` falls back to the
- * placeholder there, which reads as though no range were set while the query still applies it. Name
- * the value instead: try the full preset mapping first, then the dates the value resolves to.
- */
+/** A caller can narrow the preset list, so a stored range can match none of its options. Name the
+ * range anyway, rather than let the placeholder read as though no range were set. */
 function labelForRangeOutsideOptions(
     dateFrom: string | Dayjs | null | undefined,
     dateTo: string | Dayjs | null | undefined

@@ -287,7 +287,7 @@ describe('dateFilterLogic', () => {
     )
 
     describe("a range outside the caller's preset list", () => {
-        // Replay narrows the presets to these six, so a range from a shared link can match none of them
+        // the six presets replay offers
         const narrowDateOptions = [
             { key: 'Custom', values: [] },
             { key: 'Last 24 hours', values: ['-24h'] },
