@@ -4046,7 +4046,11 @@ export class SessionService {
       return;
     }
 
-    if (this.respondedCloudPermissionRequestIds.has(update.requestId)) {
+    if (
+      this.respondedCloudPermissionRequestIds.has(
+        `${taskRunId}:${update.requestId}`,
+      )
+    ) {
       this.d.log.debug("Skipping already-answered cloud permission request", {
         taskRunId,
         requestId: update.requestId,
@@ -5808,7 +5812,7 @@ export class SessionService {
     optionId: string,
   ): Promise<void> {
     if (!requestId) return;
-    this.markCloudPermissionResponded(requestId);
+    this.markCloudPermissionResponded(taskRunId, requestId);
 
     const client = await this.d.getAuthenticatedClient();
     if (!client) return;
@@ -5833,8 +5837,11 @@ export class SessionService {
     }
   }
 
-  private markCloudPermissionResponded(requestId: string): void {
-    this.respondedCloudPermissionRequestIds.add(requestId);
+  private markCloudPermissionResponded(
+    taskRunId: string,
+    requestId: string,
+  ): void {
+    this.respondedCloudPermissionRequestIds.add(`${taskRunId}:${requestId}`);
     // add() grows the set by at most one, so one eviction restores the cap.
     if (
       this.respondedCloudPermissionRequestIds.size >
@@ -5863,6 +5870,43 @@ export class SessionService {
           (session.pausedDurationMs ?? 0) +
           (Date.now() - permission.receivedAt),
       });
+    }
+  }
+
+  private resolveCloudPermissionsFromEntries(
+    taskRunId: string,
+    entries: StoredLogEntry[],
+  ): void {
+    for (const entry of entriesScopedToTaskRun(entries, taskRunId)) {
+      if (
+        !isNotification(
+          entry.notification?.method,
+          POSTHOG_NOTIFICATIONS.PERMISSION_RESOLVED,
+        )
+      ) {
+        continue;
+      }
+      const params = entry.notification?.params as
+        | { requestId?: unknown; toolCallId?: unknown }
+        | undefined;
+      if (
+        typeof params?.requestId !== "string" ||
+        typeof params.toolCallId !== "string"
+      ) {
+        continue;
+      }
+
+      // A resolution can arrive before its request or a stale snapshot replays it.
+      this.markCloudPermissionResponded(taskRunId, params.requestId);
+      const session = this.d.store.getSessions()[taskRunId];
+      if (
+        session?.pendingPermissions.has(params.toolCallId) &&
+        this.cloudPermissionRequestIds.get(params.toolCallId) ===
+          params.requestId
+      ) {
+        this.cloudPermissionRequestIds.delete(params.toolCallId);
+        this.resolvePermission(session, params.toolCallId);
+      }
     }
   }
 
@@ -5945,7 +5989,7 @@ export class SessionService {
         // The live sandbox persists its own resolved marker; remember the
         // response locally so a snapshot fetched before that marker flushes
         // to storage cannot re-surface the question.
-        this.markCloudPermissionResponded(cloudRequestId);
+        this.markCloudPermissionResponded(session.taskRunId, cloudRequestId);
       } else {
         await this.d.trpc.agent.respondToPermission.mutate({
           taskRunId: session.taskRunId,
@@ -6016,7 +6060,7 @@ export class SessionService {
           optionId: "reject_with_feedback",
           customInput: "User cancelled the permission request.",
         });
-        this.markCloudPermissionResponded(cloudRequestId);
+        this.markCloudPermissionResponded(session.taskRunId, cloudRequestId);
       } else {
         await this.d.trpc.agent.cancelPermission.mutate({
           taskRunId: session.taskRunId,
@@ -8661,6 +8705,7 @@ export class SessionService {
       (update.kind === "logs" || update.kind === "snapshot") &&
       update.newEntries.length > 0
     ) {
+      this.resolveCloudPermissionsFromEntries(taskRunId, update.newEntries);
       // Cloud streams deliver `session/update` notifications as regular log
       // entries rather than live ACP messages. Without this, config changes
       // made mid-run (e.g. plan-approval switching to bypassPermissions) never

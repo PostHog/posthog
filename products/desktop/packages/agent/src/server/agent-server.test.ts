@@ -3024,40 +3024,115 @@ describe("AgentServer HTTP Mode", () => {
       });
     });
 
-    it("distinguishes unknown requests from unoffered options in permission_response errors", async () => {
-      const server = createServer();
-      const testServer = exposeCloudClient(server);
-      const commandServer = server as unknown as {
-        session: unknown;
-        executeCommand(
-          method: string,
-          params: Record<string, unknown>,
-        ): Promise<unknown>;
-      };
-      void testServer.relayPermissionToClient({
-        options: [{ optionId: "allow_once", kind: "allow_once" }],
-      });
-      const requestId = [...testServer.pendingPermissions.keys()][0] as string;
-      // Both error paths return before touching the session; the guard at the
-      // top of executeCommand only needs it to exist.
-      commandServer.session = {};
+    it.each([
+      { optionId: "allow_once", connected: true },
+      { optionId: "reject_once", connected: false },
+    ])(
+      "broadcasts and saves a $optionId resolution (connected=$connected)",
+      async ({ optionId, connected }) => {
+        const server = createServer();
+        const testServer = exposeCloudClient(server);
+        const commandServer = server as unknown as {
+          session: unknown;
+          eventStreamSender: {
+            enqueue: ReturnType<typeof vi.fn>;
+            stop: ReturnType<typeof vi.fn>;
+          };
+          pendingEvents: Record<string, unknown>[];
+          executeCommand(
+            method: string,
+            params: Record<string, unknown>,
+          ): Promise<unknown>;
+        };
+        const enqueue = vi.fn();
+        const send = vi.fn();
+        const appendRawLine = vi.fn();
+        commandServer.eventStreamSender = { enqueue, stop: vi.fn() };
+        commandServer.session = {
+          payload: { run_id: "test-run-id" },
+          logWriter: { appendRawLine, flush: vi.fn() },
+          acpConnection: { cleanup: vi.fn() },
+          ...(connected ? { sseController: { send, close: vi.fn() } } : {}),
+        };
+        const pending = testServer.relayPermissionToClient({
+          options: [
+            { optionId: "allow_once", kind: "allow_once" },
+            { optionId: "reject_once", kind: "reject_once" },
+          ],
+          toolCall: { toolCallId: "tool-1" },
+        });
+        const requestId = [
+          ...testServer.pendingPermissions.keys(),
+        ][0] as string;
+        enqueue.mockClear();
+        send.mockClear();
+        appendRawLine.mockClear();
 
-      await expect(
-        commandServer.executeCommand("permission_response", {
-          requestId: "missing",
-          optionId: "allow_once",
-        }),
-      ).rejects.toThrow("No pending permission request found for id: missing");
-      await expect(
-        commandServer.executeCommand("permission_response", {
-          requestId,
-          optionId: "allow_always",
-        }),
-      ).rejects.toThrow(
-        `Option "allow_always" was not offered for permission request ${requestId}`,
-      );
-      expect(testServer.pendingPermissions.has(requestId)).toBe(true);
-    });
+        await expect(
+          commandServer.executeCommand("permission_response", {
+            requestId: "missing",
+            optionId: "allow_once",
+          }),
+        ).rejects.toThrow(
+          "No pending permission request found for id: missing",
+        );
+        await expect(
+          commandServer.executeCommand("permission_response", {
+            requestId,
+            optionId: "allow_always",
+          }),
+        ).rejects.toThrow(
+          `Option "allow_always" was not offered for permission request ${requestId}`,
+        );
+        expect(testServer.pendingPermissions.has(requestId)).toBe(true);
+        expect(enqueue).not.toHaveBeenCalled();
+        expect(appendRawLine).not.toHaveBeenCalled();
+
+        await expect(
+          commandServer.executeCommand("permission_response", {
+            requestId,
+            optionId,
+          }),
+        ).resolves.toEqual({ resolved: true });
+        await expect(pending).resolves.toEqual({
+          outcome: { outcome: "selected", optionId },
+        });
+
+        const notification = {
+          jsonrpc: "2.0",
+          method: POSTHOG_NOTIFICATIONS.PERMISSION_RESOLVED,
+          params: { requestId, toolCallId: "tool-1", optionId },
+        };
+        expect(enqueue).toHaveBeenCalledExactlyOnceWith({
+          type: "notification",
+          timestamp: expect.any(String),
+          event_id: expect.any(String),
+          notification,
+        });
+        const event = enqueue.mock.calls[0]?.[0];
+        expect(appendRawLine).toHaveBeenCalledExactlyOnceWith(
+          "test-run-id",
+          JSON.stringify(notification),
+          event.event_id,
+        );
+        if (connected) {
+          expect(send).toHaveBeenCalledExactlyOnceWith(event);
+        } else {
+          expect(commandServer.pendingEvents).toContainEqual(event);
+        }
+
+        await expect(
+          commandServer.executeCommand("permission_response", {
+            requestId,
+            optionId,
+          }),
+        ).rejects.toThrow(
+          `No pending permission request found for id: ${requestId}`,
+        );
+        expect(enqueue).toHaveBeenCalledTimes(1);
+        expect(appendRawLine).toHaveBeenCalledTimes(1);
+      },
+    );
   });
 
   describe("refresh_session relay re-append", () => {
