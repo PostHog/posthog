@@ -312,6 +312,13 @@ export function useTaskCreation({
       const serializedContent = contentToXml(content).trim();
       const filePaths = extractFilePaths(content);
 
+      // Written before the pre-flight gates and the create call. Each of them
+      // can fail on a cloud error, and composers that clear on Send leave
+      // history as the only copy the person can recall and retry from. The
+      // text is always what the person typed: a wrapper that transforms the
+      // request passes the original as `promptContent`.
+      useTaskInputHistoryStore.getState().addPrompt(plainPromptText);
+
       // Held for the whole submit, pre-flight awaits included, so a second
       // Enter lands after `canSubmitBase` has already gone false.
       setIsCreatingTask(true);
@@ -436,12 +443,6 @@ export function useTaskCreation({
         };
 
         try {
-          if (!contentOverride) {
-            if (plainPromptText) {
-              useTaskInputHistoryStore.getState().addPrompt(plainPromptText);
-            }
-          }
-
           const settings = useSettingsStore.getState();
           const defaultedChannelId =
             bluebirdEnabled && !channelId && !channelName
