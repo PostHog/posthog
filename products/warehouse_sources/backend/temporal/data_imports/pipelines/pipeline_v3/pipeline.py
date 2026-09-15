@@ -258,9 +258,9 @@ class PipelineV3(Generic[ResumableData]):
         )
         self._batch_results = []
 
-    def _commit_resume_state(self) -> None:
+    async def _commit_resume_state(self) -> None:
         if self._resumable_source_manager is not None:
-            self._resumable_source_manager.commit()
+            await asyncio.to_thread(self._resumable_source_manager.commit)
 
     async def run(self) -> PipelineResult:
         pa_memory_pool = pa.default_memory_pool()
@@ -390,7 +390,7 @@ class PipelineV3(Generic[ResumableData]):
                 # A staged batch is what makes the cursor safe to persist: after a buffered-only item
                 # it would skip rows that never landed, and after the shutdown check it would never land.
                 if wrote_chunk:
-                    self._commit_resume_state()
+                    await self._commit_resume_state()
 
                 if should_check_shutdown(self._schema, self._resource, self._reset_pipeline, source_is_resumable):
                     self._shutdown_monitor.raise_if_is_worker_shutdown()
@@ -410,7 +410,7 @@ class PipelineV3(Generic[ResumableData]):
 
                 chunk_index += 1
             # Every yielded row is staged now, so whatever the source staged last is safe.
-            self._commit_resume_state()
+            await self._commit_resume_state()
 
             await self._finalize(row_count=row_count)
 
