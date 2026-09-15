@@ -484,8 +484,8 @@ Compilation success is not proof of target schema compatibility or equivalent re
 
 ## Dialect isolation
 
-The expanded function signatures, date aliases, lambda resolution, and return-type inference apply only to Trino.
-ClickHouse and the other dialects retain their existing function registry, validation, sorting behavior, and type inference.
+The expanded lambda resolution and return-type inference apply only to Trino.
+ClickHouse and the other dialects retain their existing type inference.
 `DATE`, `Date`, and `date` resolve to the date conversion in Trino.
 Trino's weighted median takes a value and weight, and its `If` form also takes a condition.
 Trino's `quantiles` and `quantilesIf` take percentile parameters separately from value arguments.
@@ -495,3 +495,14 @@ Saved-query table metadata is captured eagerly only for Trino's detached compila
 Trino set operations use a common type for each output position and can coerce mixed strings and numbers to strings.
 For example, `SELECT 'a' UNION ALL SELECT 1` returns strings on Trino, while ClickHouse rejects the incompatible types.
 Hidden aliases still project their underlying expressions, so UNION type alignment follows physical projection positions, including unnamed outputs.
+
+## Shared function compatibility
+
+The shared HogQL registry accepts `DATE`, `Date`, and `date` as aliases for `toDate`.
+`ifNotFinite(value, fallback)` takes two arguments.
+`medianExactWeighted(value, weight)` takes two arguments, and `medianExactWeightedIf(value, weight, condition)` takes three.
+`quantiles(level, ...)(value)` and `quantilesIf(level, ...)(value, condition)` accept multiple percentile parameters, separately from their value arguments.
+These signatures apply across dialects; each target engine still determines which functions it supports.
+
+On ClickHouse, `arrayReverseSort` emits the descending sort function.
+Existing queries that depended on ascending results must use `arraySort` explicitly.

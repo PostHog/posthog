@@ -6,10 +6,13 @@ import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest import mock
 
+from parameterized import parameterized
+
 from posthog.hogql import ast
 from posthog.hogql.ast import DateType, FloatType, IntegerType, StringLiteralType, StringType
 from posthog.hogql.base import UnknownType
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.aggregations import generate_combinator_suffix_combinations
 from posthog.hogql.functions.core import HogQLFunctionMeta, compare_types
 from posthog.hogql.functions.mapping import (
@@ -127,6 +130,34 @@ class TestMappings(ClickhouseTestMixin, BaseTest):
                 "clickhouse",
             )
         assert "overloadSuccess" in sql
+
+    @parameterized.expand(
+        [
+            ("descending_sort", "arrayReverseSort([3, 1, 2])", [3, 2, 1]),
+            ("descending_lambda_sort", "arrayReverseSort(x -> -x, [3, 1, 2])", [1, 2, 3]),
+            ("finite_fallback", "ifNotFinite(toFloat('NaN'), 7.0)", 7.0),
+            ("weighted_median", "medianExactWeighted(3, 2)", 3),
+            ("filtered_weighted_median", "medianExactWeightedIf(3, 2, true)", 3),
+            ("multiple_quantiles", "quantiles(0.25, 0.75)(3)", [3.0, 3.0]),
+            ("filtered_multiple_quantiles", "quantilesIf(0.25, 0.75)(3, true)", [3.0, 3.0]),
+            ("date_alias", "DaTe('2026-01-01')", date(2026, 1, 1)),
+        ]
+    )
+    def test_shared_function_results(self, _name: str, expression: str, expected: object) -> None:
+        response = execute_hogql_query(f"SELECT {expression} AS value", self.team)
+        assert response.results == [(expected,)]
+
+    @parameterized.expand(
+        [
+            ("ifNotFinite(1)",),
+            ("medianExactWeighted(3)",),
+            ("medianExactWeightedIf(3, true)",),
+            ("quantiles(0.5)(1, 2)",),
+        ]
+    )
+    def test_rejects_incorrect_shared_function_arity(self, expression: str) -> None:
+        with pytest.raises(QueryError, match="expects"):
+            prepare_and_print_ast(parse_expr(expression), HogQLContext(self.team.pk), "clickhouse")
 
     @time_machine.travel("2023-01-01T12:00:00Z", tick=False)
     def test_postgres_functions(self):

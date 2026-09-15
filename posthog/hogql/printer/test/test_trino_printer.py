@@ -845,11 +845,10 @@ def test_date_alias_is_case_insensitive(name: str, dialect: HogQLDialect) -> Non
     context = _context_with_trino_table()
     context.team_id = 1
     query = resolve_types(parse_select(f"SELECT {name}('2026-01-01') AS day"), context, dialect)
-    if dialect != "trino":
-        with pytest.raises(QueryError, match="Unsupported function call"):
-            print_prepared_ast(query, context, dialect)
-        return
     sql = print_prepared_ast(query, context, dialect)
+    if dialect == "hogql":
+        assert f"{name}(" in sql
+        return
     expected_context = _context_with_trino_table()
     expected_context.team_id = 1
     expected = print_prepared_ast(
@@ -1935,7 +1934,7 @@ def test_prints_live_parity_regressions(expression: str, expected: str) -> None:
     assert expected in sql
 
 
-def test_preserves_array_reverse_sort_for_clickhouse() -> None:
+def test_prints_array_reverse_sort_for_clickhouse() -> None:
     context = _context_with_trino_table()
     context.team_id = 1
     sql = print_prepared_ast(
@@ -1943,7 +1942,7 @@ def test_preserves_array_reverse_sort_for_clickhouse() -> None:
         context,
         "clickhouse",
     )
-    assert "arraySort([3, 1, 2])" in sql
+    assert "arrayReverseSort([3, 1, 2])" in sql
 
 
 @pytest.mark.parametrize(
@@ -2744,7 +2743,7 @@ def test_union_keeps_common_ctes_in_scope_for_every_branch() -> None:
     ],
 )
 @pytest.mark.parametrize("dialect", ["clickhouse", "hogql", "trino"])
-def test_trino_signatures_do_not_change_other_dialect_validation(expression: str, dialect: HogQLDialect) -> None:
+def test_shared_function_signatures(expression: str, dialect: HogQLDialect) -> None:
     context = _context_with_trino_table()
     context.team_id = 1
     query = parse_select(f"SELECT {expression}")
@@ -2752,5 +2751,5 @@ def test_trino_signatures_do_not_change_other_dialect_validation(expression: str
         sql, _ = prepare_and_print_ast(query, context, dialect)
         assert sql
     else:
-        with pytest.raises(QueryError, match="expects"):
-            print_prepared_ast(resolve_types(query, context, dialect), context, dialect)
+        sql = print_prepared_ast(resolve_types(query, context, dialect), context, dialect)
+        assert sql
