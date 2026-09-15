@@ -41,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     Table,
     TableProjection,
     ValidatedRowFilter,
+    check_filter_columns,
     compute_projected_columns,
     format_projected_select_clause,
     reconcile_enabled_columns,
@@ -911,19 +912,22 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
         def _resolve_projection(
             full_table: Table[MSSQLColumn], primary_keys: list[str] | None
         ) -> TableProjection[MSSQLColumn]:
+            available = {column.name for column in full_table.columns}
             reconciled = reconcile_enabled_columns(
                 enabled_columns,
-                {column.name for column in full_table.columns},
+                available,
                 incremental_field=incremental_field,
                 should_use_incremental_field=should_use_incremental_field,
                 table=f"{schema}.{table_name}",
                 logger=logger,
             )
+            check_filter_columns([f.column for f in row_filters or []], available, f"{schema}.{table_name}")
             return resolve_table_projection(
                 full_table,
-                enabled_columns=reconciled,
+                enabled_columns=reconciled.enabled_columns,
                 primary_keys=primary_keys,
                 incremental_field=incremental_field,
+                removed_columns=reconciled.removed,
             )
 
         with self.connect(config, team_id=inputs.team_id) as connection:
@@ -1016,6 +1020,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
             name=location.response_name,
             items=get_rows,
             primary_keys=primary_keys,
+            removed_columns=setup_projection.removed_columns,
             partition_count=partition_settings.partition_count if partition_settings else None,
             partition_size=partition_settings.partition_size if partition_settings else None,
             rows_to_sync=rows_to_sync,

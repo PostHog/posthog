@@ -15,12 +15,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     InvalidIdentifierError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
+    MissingFilterColumnError,
     MissingIncrementalFieldError,
+    PersistentMissingColumnError,
+    ProjectedColumnMissingError,
     PrunedColumns,
+    check_filter_columns,
     compute_projected_columns,
     filter_columns_by_enabled_columns,
     filter_dwh_columns_by_enabled_columns,
     format_projected_select_clause,
+    missing_column_error,
     project_arrow_columns,
     prune_enabled_columns,
     reconcile_enabled_columns,
@@ -269,10 +274,14 @@ class TestReconcileEnabledColumns:
         return reconcile_enabled_columns(enabled_columns, available, **kwargs)
 
     def test_drops_a_column_that_left_the_source(self) -> None:
-        assert self._reconcile(["id", "ghost"], {"id", "email"}) == ["id"]
+        reconciled = self._reconcile(["id", "ghost"], {"id", "email"})
+        assert reconciled.enabled_columns == ["id"]
+        # The caller persists `removed`, so the dropped column stops being exposed on the
+        # warehouse table with a refilled default value.
+        assert reconciled.removed == ["ghost"]
 
     def test_keeps_select_star_selections_untouched(self) -> None:
-        assert self._reconcile(None, {"id"}) is None
+        assert self._reconcile(None, {"id"}).enabled_columns is None
 
     @parameterized.expand(
         [
@@ -296,13 +305,43 @@ class TestReconcileEnabledColumns:
     def test_keeps_the_selection_when_the_catalog_read_is_empty(self) -> None:
         # An empty catalog says nothing about the table, so pruning against it would drop every
         # selected column and raise on an incremental field that is still there.
-        assert self._reconcile(["id"], set(), incremental_field="updated_at", should_use_incremental_field=True) == [
-            "id"
-        ]
+        reconciled = self._reconcile(["id"], set(), incremental_field="updated_at", should_use_incremental_field=True)
+        assert reconciled.enabled_columns == ["id"]
 
     def test_ignores_a_missing_incremental_field_on_a_full_refresh(self) -> None:
         # Full refresh never puts the field in a WHERE or ORDER BY, so it cannot break the query.
-        assert self._reconcile(["id"], {"id"}, incremental_field="updated_at") == ["id"]
+        assert self._reconcile(["id"], {"id"}, incremental_field="updated_at").enabled_columns == ["id"]
+
+
+class TestCheckFilterColumns:
+    def test_raises_when_a_filter_names_a_dropped_column(self) -> None:
+        # A stale selection is pruned, but a stale filter cannot be: dropping it would sync rows
+        # the customer excluded on purpose, so the sync has to stop and ask them to edit it.
+        with pytest.raises(MissingFilterColumnError, match="ghost"):
+            check_filter_columns(["id", "ghost"], {"id", "email"}, "public.users")
+
+    @parameterized.expand(
+        [
+            ("every_filter_column_still_exists", ["id"], {"id", "email"}),
+            ("empty_catalog_says_nothing", ["ghost"], set()),
+            ("no_filters", [], {"id"}),
+        ]
+    )
+    def test_allows(self, _name: str, filter_columns: list[str], available: set[str]) -> None:
+        check_filter_columns(filter_columns, available, "public.users")
+
+
+class TestMissingColumnError:
+    @parameterized.expand(
+        [
+            ("first_attempt_retries", 1, ProjectedColumnMissingError),
+            ("repeat_attempt_stops", 2, PersistentMissingColumnError),
+        ]
+    )
+    def test_picks_the_class_for_the_attempt(self, _name: str, attempt: int, expected: type[Exception]) -> None:
+        # A repeat proves the name is not coming from the stored selection, which is pruned before
+        # the first query. Keeping it retryable is what loops a broken view forever.
+        assert type(missing_column_error(attempt)) is expected
 
 
 class TestProjectArrowColumns:

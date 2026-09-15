@@ -38,11 +38,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
+    MISSING_FILTER_COLUMN_MATCH,
+    MISSING_FILTER_COLUMN_MESSAGE,
     MISSING_INCREMENTAL_FIELD_MATCH,
     MISSING_INCREMENTAL_FIELD_MESSAGE,
     MISSING_PROJECTED_COLUMN_MATCH,
     MISSING_PROJECTED_COLUMN_MESSAGE,
-    ProjectedColumnMissingError,
+    PERSISTENT_MISSING_COLUMN_MATCH,
+    PERSISTENT_MISSING_COLUMN_MESSAGE,
+    missing_column_error,
     resolve_detected_primary_keys,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
@@ -656,6 +660,12 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # in its WHERE and ORDER BY, so the sync cannot run until the customer picks another
             # one. Listed above the broad "does not exist" bucket so its wording wins.
             MISSING_INCREMENTAL_FIELD_MATCH: MISSING_INCREMENTAL_FIELD_MESSAGE,
+            # A saved row filter names a column the catalog read no longer has. The filter decides
+            # which rows sync, so dropping it would widen the sync instead of healing it.
+            MISSING_FILTER_COLUMN_MATCH: MISSING_FILTER_COLUMN_MESSAGE,
+            # A repeat attempt still named a missing column, so nothing this sync reconciles is
+            # responsible. Stop instead of replaying it for the whole retry budget every schedule.
+            PERSISTENT_MISSING_COLUMN_MATCH: PERSISTENT_MISSING_COLUMN_MESSAGE,
             # A relation the sync reads was dropped or renamed on the source, so the streaming
             # query fails with SQLSTATE 42P01 ("relation ... does not exist"). The stored
             # schema/query is fixed until the customer changes it, so every retry replays the same
@@ -1828,9 +1838,9 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # and the query. libpq words it "column ... does not exist", which the non-retryable
             # rules match on to catch a dropped relation, and that would disable a schema the next
             # run recovers on its own. Re-raise clear of that substring so it stays retryable.
-            raise ProjectedColumnMissingError(MISSING_PROJECTED_COLUMN_MESSAGE) from e
+            raise missing_column_error(inputs.activity_attempt) from e
 
-        response.items = reader_without_dropped_columns(response.items)
+        response.items = reader_without_dropped_columns(response.items, inputs.activity_attempt)
 
         # `SourceResponse.name` must match `DataWarehouseTable.url_pattern` (both derived from the
         # storage key when present, otherwise the row name) so HogQL reads from where we wrote.

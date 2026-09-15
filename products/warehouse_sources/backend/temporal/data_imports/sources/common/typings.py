@@ -59,6 +59,9 @@ class SourceResponse:
     """Override partition format at a source level"""
     sort_mode: Optional[SortMode] = "asc"
     """our source typically return data in ascending timestamp order, but some (eg Stripe) do not"""
+    removed_columns: Optional[list[str]] = None
+    """Stored column selections the catalog read no longer has. Persisted by `source_for_pipeline`
+    so the dropped column stops being exposed on the warehouse table."""
     rows_to_sync: Optional[int] = None
     has_duplicate_primary_keys: Optional[bool] = None
     """Whether incremental tables have non-unique primary keys"""

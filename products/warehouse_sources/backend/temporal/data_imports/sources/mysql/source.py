@@ -30,9 +30,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
+    MISSING_FILTER_COLUMN_MATCH,
+    MISSING_FILTER_COLUMN_MESSAGE,
     MISSING_INCREMENTAL_FIELD_MATCH,
     MISSING_INCREMENTAL_FIELD_MESSAGE,
     MISSING_PROJECTED_COLUMN_MESSAGE,
+    PERSISTENT_MISSING_COLUMN_MATCH,
+    PERSISTENT_MISSING_COLUMN_MESSAGE,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
@@ -333,6 +337,12 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # any other column the catalog read at the start of the next run picks up the new
             # column list, so disabling the schema would stop a sync that recovers on its own.
             MISSING_INCREMENTAL_FIELD_MATCH: MISSING_INCREMENTAL_FIELD_MESSAGE,
+            # A saved row filter names a column the catalog read no longer has. The filter decides
+            # which rows sync, so dropping it would widen the sync instead of healing it.
+            MISSING_FILTER_COLUMN_MATCH: MISSING_FILTER_COLUMN_MESSAGE,
+            # A repeat attempt still named a missing column, so nothing this sync reconciles is
+            # responsible. Stop instead of replaying it for the whole retry budget every schedule.
+            PERSISTENT_MISSING_COLUMN_MATCH: PERSISTENT_MISSING_COLUMN_MESSAGE,
             # MySQL/MariaDB error 1130 (ER_HOST_NOT_PRIVILEGED): the server has no grant permitting
             # PostHog's connecting host, so the handshake is rejected before any credentials are
             # checked. Only a DB admin can fix this server-side (GRANT for the host, or allow our

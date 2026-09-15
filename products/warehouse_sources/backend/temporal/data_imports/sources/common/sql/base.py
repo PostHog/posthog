@@ -155,7 +155,9 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
         return schemas
 
     def source_for_pipeline(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
-        return self.get_implementation.build_pipeline(config, inputs)
+        response = self.get_implementation.build_pipeline(config, inputs)
+        _persist_removed_columns(inputs.schema_id, response.removed_columns)
+        return response
 
     def reconcile_schema_metadata(
         self,
@@ -169,6 +171,37 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
         override to handle direct-query table cleanup).
         """
         return reconcile_source_schema_metadata(source, source_schemas, team_id)
+
+
+def _persist_removed_columns(schema_id: Any, removed: list[str] | None) -> None:
+    """Drop columns the source no longer has from the stored selection.
+
+    The read already skips them. Leaving them in `enabled_columns` keeps them on the warehouse
+    table, where the loader refills each absent column with a type default, so a query returns a
+    fabricated value that reads like real data. Removing them here hides the column the same way
+    deselecting it does, which is what `reconcile_source_schema_metadata` already does when a
+    person reloads the source.
+
+    Best-effort: the sync itself is unaffected if this write fails.
+    """
+    if not removed or schema_id is None:
+        return
+    try:
+        row = ExternalDataSchema.objects.get(id=schema_id)
+        if not row.enabled_columns:
+            return
+        kept = [column for column in row.enabled_columns if column not in set(removed)]
+        if kept == list(row.enabled_columns):
+            return
+        row.enabled_columns = kept
+        row.save(update_fields=["enabled_columns", "updated_at"])
+    except Exception as e:
+        log.warning(
+            "sql_source.persist_removed_columns_failed",
+            schema_id=str(schema_id),
+            removed_columns=removed,
+            exc_info=e,
+        )
 
 
 def reconcile_source_schema_metadata(

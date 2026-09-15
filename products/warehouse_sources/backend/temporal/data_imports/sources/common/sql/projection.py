@@ -12,6 +12,7 @@ Semantics:
 
 from __future__ import annotations
 
+from dataclasses import field
 from typing import Generic, TypeVar
 
 import structlog
@@ -175,10 +176,11 @@ def project_arrow_columns(
 
 @frozen
 class TableProjection(Generic[_ColumnT]):
-    """The columns a read projects, and the discovered table narrowed to them."""
+    """The columns a read projects, the discovered table narrowed to them, and what was dropped."""
 
     enabled_columns: list[str] | None
     table: Table[_ColumnT]
+    removed_columns: list[str] = field(default_factory=list)
 
 
 def resolve_table_projection(
@@ -188,6 +190,7 @@ def resolve_table_projection(
     primary_keys: list[str] | None = None,
     incremental_field: str | None = None,
     available_columns: list[str] | None = None,
+    removed_columns: list[str] | None = None,
 ) -> TableProjection[_ColumnT]:
     """Name the columns a read projects, and narrow `full_table` to them.
 
@@ -209,7 +212,11 @@ def resolve_table_projection(
         names = available_columns if available_columns is not None else [column.name for column in full_table.columns]
         enabled_columns = list(names) or None
     projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
-    return TableProjection(enabled_columns=enabled_columns, table=project_arrow_columns(full_table, projected))
+    return TableProjection(
+        enabled_columns=enabled_columns,
+        table=project_arrow_columns(full_table, projected),
+        removed_columns=list(removed_columns or []),
+    )
 
 
 @frozen
@@ -240,6 +247,8 @@ def prune_enabled_columns(
 # maps match on as a substring, so the fragments leave both out.
 MISSING_INCREMENTAL_FIELD_MATCH = "no longer exists in the source table"
 MISSING_PROJECTED_COLUMN_MATCH = "was dropped or renamed in the source table"
+MISSING_FILTER_COLUMN_MATCH = "is filtered on a column that no longer exists"
+PERSISTENT_MISSING_COLUMN_MATCH = "still names a column the source does not have"
 
 MISSING_INCREMENTAL_FIELD_MESSAGE = (
     "The incremental field this table syncs on no longer exists in your source table. It was "
@@ -248,8 +257,18 @@ MISSING_INCREMENTAL_FIELD_MESSAGE = (
 )
 MISSING_PROJECTED_COLUMN_MESSAGE = (
     f"A column this sync reads {MISSING_PROJECTED_COLUMN_MATCH}. PostHog reads the table's columns "
-    "again on every run, so the next sync uses the new column list. If the sync keeps failing, "
-    "check the columns selected for this table."
+    "again on every run, so the next sync uses the new column list."
+)
+MISSING_FILTER_COLUMN_MESSAGE = (
+    f"This table {MISSING_FILTER_COLUMN_MATCH} in your source. The filter decides which rows sync, "
+    "so PostHog cannot drop it and keep syncing the right rows. Edit the row filter in the table's "
+    "sync settings, then re-enable the sync."
+)
+PERSISTENT_MISSING_COLUMN_MESSAGE = (
+    f"This sync {PERSISTENT_MISSING_COLUMN_MATCH}, and it failed the same way on a repeat attempt. "
+    "PostHog already drops columns that disappear, so the name is coming from somewhere it cannot "
+    "reach: most often a view whose definition reads a dropped column. Fix the view or the row "
+    "filter at the source, then re-enable the sync."
 )
 
 
@@ -261,12 +280,62 @@ class ProjectedColumnMissingError(Exception):
     """A column the sync query names is absent from the source table."""
 
 
+class MissingFilterColumnError(Exception):
+    """A saved row filter names a column absent from the catalog read this run."""
+
+
+class PersistentMissingColumnError(Exception):
+    """A query still names a missing column on a repeat attempt, so nothing we prune fixes it."""
+
+
+def missing_column_error(activity_attempt: int) -> Exception:
+    """Pick the error for a query that named a column the source does not have.
+
+    A first attempt is treated as a column dropped between the catalog read and the query. That
+    recovers on its own, because the next run reads the catalog again, so it stays retryable.
+
+    A repeat attempt proves the name is not coming from anything this sync reconciles. The stored
+    column selection is pruned against the catalog before the first query, so what remains is a
+    source-side definition we cannot rewrite, such as a view body. Retrying replays it forever, so
+    stop and name the real fix.
+    """
+    if activity_attempt > 1:
+        return PersistentMissingColumnError(PERSISTENT_MISSING_COLUMN_MESSAGE)
+    return ProjectedColumnMissingError(MISSING_PROJECTED_COLUMN_MESSAGE)
+
+
+def check_filter_columns(
+    filter_columns: list[str],
+    available_column_names: set[str],
+    table: str,
+) -> None:
+    """Raise when a saved row filter names a column the catalog read no longer has.
+
+    A stale column selection is pruned, because reading fewer columns still returns the right
+    rows. A row filter cannot be pruned the same way: dropping it widens the sync to rows the
+    customer excluded on purpose, so the only safe answer is to stop and ask them to edit it.
+    """
+    if not available_column_names:
+        return
+    missing = [column for column in filter_columns if column not in available_column_names]
+    if missing:
+        raise MissingFilterColumnError(f"{table} {MISSING_FILTER_COLUMN_MATCH}: {', '.join(missing)}.")
+
+
 def missing_incremental_field_message(incremental_field: str, table: str) -> str:
     return (
         f'The incremental field "{incremental_field}" {MISSING_INCREMENTAL_FIELD_MATCH} {table}. '
         "It was renamed or dropped at the source. Pick a different incremental field in the table's "
         "sync settings, or switch the table to full table replication, then re-enable the sync."
     )
+
+
+@frozen
+class ReconciledColumns:
+    """A saved column selection after the stale names are dropped."""
+
+    enabled_columns: list[str] | None
+    removed: list[str]
 
 
 def reconcile_enabled_columns(
@@ -277,7 +346,7 @@ def reconcile_enabled_columns(
     should_use_incremental_field: bool,
     table: str,
     logger: FilteringBoundLogger,
-) -> list[str] | None:
+) -> ReconciledColumns:
     """Re-check a saved column selection against the catalog read this run.
 
     `enabled_columns` is only reconciled when the source is reloaded (see
@@ -291,7 +360,7 @@ def reconcile_enabled_columns(
     if not available_column_names:
         # A catalog read that came back empty says nothing about the table, so leave the stored
         # selection alone rather than pruning every column against it.
-        return enabled_columns
+        return ReconciledColumns(enabled_columns=enabled_columns, removed=[])
 
     if should_use_incremental_field and incremental_field and incremental_field not in available_column_names:
         raise MissingIncrementalFieldError(missing_incremental_field_message(incremental_field, table))
@@ -308,4 +377,4 @@ def reconcile_enabled_columns(
             f"Columns selected for {table} are no longer in the source table and were skipped for "
             f"this sync: {', '.join(pruned.removed)}"
         )
-    return pruned.kept
+    return ReconciledColumns(enabled_columns=pruned.kept, removed=pruned.removed)

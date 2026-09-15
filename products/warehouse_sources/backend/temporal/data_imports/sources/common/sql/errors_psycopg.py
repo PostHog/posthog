@@ -11,21 +11,19 @@ from typing import Any, cast
 
 from psycopg.errors import UndefinedColumn
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
-    MISSING_PROJECTED_COLUMN_MESSAGE,
-    ProjectedColumnMissingError,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import missing_column_error
 
 
 def reader_without_dropped_columns(
     items: Callable[[], Iterable[Any] | AsyncIterable[Any]],
+    activity_attempt: int = 1,
 ) -> Callable[[], Iterable[Any]]:
     """Wrap a source reader so a column dropped mid-read does not disable the schema.
 
     Both sources word SQLSTATE 42703 as "column ... does not exist", which their non-retryable
-    rules match on to catch a dropped relation. The stale column selection is dropped against the
-    catalog at the start of every run, so a column that reaches the reader vanished mid-run and
-    the next run recovers on its own. Re-raise clear of that substring so it stays retryable.
+    rules match on to catch a dropped relation. Re-raise clear of that substring, as the class
+    `missing_column_error` picks for this attempt: retryable the first time, and a stop once a
+    repeat proves nothing this sync reconciles is responsible.
 
     Both readers are synchronous generators; the async half of the `items` signature is there for
     the sources that stream from an API.
@@ -35,6 +33,6 @@ def reader_without_dropped_columns(
         try:
             yield from cast(Iterable[Any], items())
         except UndefinedColumn as e:
-            raise ProjectedColumnMissingError(MISSING_PROJECTED_COLUMN_MESSAGE) from e
+            raise missing_column_error(activity_attempt) from e
 
     return read

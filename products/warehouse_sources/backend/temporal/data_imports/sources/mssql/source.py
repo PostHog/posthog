@@ -23,9 +23,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
+    MISSING_FILTER_COLUMN_MATCH,
+    MISSING_FILTER_COLUMN_MESSAGE,
     MISSING_INCREMENTAL_FIELD_MATCH,
     MISSING_INCREMENTAL_FIELD_MESSAGE,
     MISSING_PROJECTED_COLUMN_MESSAGE,
+    PERSISTENT_MISSING_COLUMN_MATCH,
+    PERSISTENT_MISSING_COLUMN_MESSAGE,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mssql import MSSQLSourceConfig
@@ -128,6 +132,12 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # other column the catalog read at the start of the next run picks up the new column
             # list, so disabling the schema would stop a sync that recovers on its own.
             MISSING_INCREMENTAL_FIELD_MATCH: MISSING_INCREMENTAL_FIELD_MESSAGE,
+            # A saved row filter names a column the catalog read no longer has. The filter decides
+            # which rows sync, so dropping it would widen the sync instead of healing it.
+            MISSING_FILTER_COLUMN_MATCH: MISSING_FILTER_COLUMN_MESSAGE,
+            # A repeat attempt still named a missing column, so nothing this sync reconciles is
+            # responsible. Stop instead of replaying it for the whole retry budget every schedule.
+            PERSISTENT_MISSING_COLUMN_MATCH: PERSISTENT_MISSING_COLUMN_MESSAGE,
             # SQL Server error 209 — a name in the object we select from resolves to more than one
             # column. Our SELECT reads a single qualified object and only ever names columns
             # discovered from information_schema, so the ambiguity is inside a view body: most often
