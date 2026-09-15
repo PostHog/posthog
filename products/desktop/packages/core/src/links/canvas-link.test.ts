@@ -1,50 +1,10 @@
-import type {
-  DeepLinkHandler,
-  IDeepLinkRegistry,
-} from "@posthog/platform/deep-link";
-import type { IMainWindow } from "@posthog/platform/main-window";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CanvasLinkEvent, CanvasLinkService } from "./canvas-link";
-
-function makeLogger() {
-  const logger = {
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-    scope: vi.fn(() => logger),
-  };
-  return logger;
-}
-
-function makeDeepLinkService() {
-  const handlers = new Map<string, DeepLinkHandler>();
-  const service = {
-    registerHandler: vi.fn((key: string, handler: DeepLinkHandler) => {
-      handlers.set(key, handler);
-    }),
-    trigger: (key: string, path: string) => {
-      const handler = handlers.get(key);
-      if (!handler) throw new Error(`No handler for ${key}`);
-      return handler(path, new URLSearchParams());
-    },
-  };
-  return service as unknown as IDeepLinkRegistry & {
-    trigger: (key: string, path: string) => boolean;
-  };
-}
-
-function makeMainWindow() {
-  return {
-    focus: vi.fn(),
-    restore: vi.fn(),
-    isMinimized: vi.fn().mockReturnValue(false),
-  } as unknown as IMainWindow & {
-    focus: ReturnType<typeof vi.fn>;
-    restore: ReturnType<typeof vi.fn>;
-    isMinimized: ReturnType<typeof vi.fn>;
-  };
-}
+import {
+  makeDeepLinkService,
+  makeLogger,
+  makeMainWindow,
+} from "./link-test-helpers";
 
 describe("CanvasLinkService", () => {
   let deepLinkService: ReturnType<typeof makeDeepLinkService>;
@@ -74,6 +34,23 @@ describe("CanvasLinkService", () => {
     expect(listener).toHaveBeenCalledWith({
       channelId: "chan-1",
       dashboardId: "dash-2",
+    });
+  });
+
+  it.each([
+    ["fork=1", true],
+    ["fork=0", undefined],
+    ["", undefined],
+  ])("reads the copy flag from the query (%s)", (query, expected) => {
+    const listener = vi.fn();
+    service.on(CanvasLinkEvent.OpenCanvas, listener);
+
+    deepLinkService.trigger("canvas", "chan-1/dash-2", query);
+
+    expect(listener).toHaveBeenCalledWith({
+      channelId: "chan-1",
+      dashboardId: "dash-2",
+      ...(expected ? { fork: true } : {}),
     });
   });
 

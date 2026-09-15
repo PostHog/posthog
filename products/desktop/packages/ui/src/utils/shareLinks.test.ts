@@ -28,7 +28,7 @@ describe("handleShareLinkClick", () => {
     const event = { preventDefault: vi.fn() };
 
     const handled = handleShareLinkClick(
-      "https://us.posthog.com/code/canvas/chan1/dash1",
+      "https://us.posthog.com/desktop/canvas/chan1/dash1",
       event,
     );
 
@@ -59,7 +59,7 @@ describe("handleShareLinkClick", () => {
       const event = { preventDefault: vi.fn(), ...modifier };
 
       const handled = handleShareLinkClick(
-        "https://us.posthog.com/code/canvas/chan1/dash1",
+        "https://us.posthog.com/desktop/canvas/chan1/dash1",
         event,
       );
 
@@ -73,7 +73,7 @@ describe("handleShareLinkClick", () => {
     const event = { preventDefault: vi.fn() };
 
     const handled = handleShareLinkClick(
-      "https://eu.posthog.com/code/canvas/chan1/dash1",
+      "https://eu.posthog.com/desktop/canvas/chan1/dash1",
       event,
     );
 
@@ -86,7 +86,7 @@ describe("handleShareLinkClick", () => {
     const event = { preventDefault: vi.fn(), defaultPrevented: true };
 
     const handled = handleShareLinkClick(
-      "https://us.posthog.com/code/canvas/chan1/dash1",
+      "https://us.posthog.com/desktop/canvas/chan1/dash1",
       event,
     );
 
@@ -143,7 +143,7 @@ describe("interceptShareLinkClicks", () => {
 
   it("opens a canvas link the app rendered without asking the browser", () => {
     const notCancelled = clickAnchor(
-      "https://us.posthog.com/code/canvas/chan1/dash1",
+      "https://us.posthog.com/desktop/canvas/chan1/dash1",
     );
 
     expect(notCancelled).toBe(false);
@@ -161,7 +161,7 @@ describe("interceptShareLinkClicks", () => {
     uninstall();
 
     const notCancelled = clickAnchor(
-      "https://us.posthog.com/code/canvas/chan1/dash1",
+      "https://us.posthog.com/desktop/canvas/chan1/dash1",
     );
 
     expect(notCancelled).toBe(true);

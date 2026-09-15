@@ -111,6 +111,9 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
         return 'web analytics'
     } else if (resource === AccessControlResourceType.ActivityLog) {
         return 'activity logs'
+    } else if (resource === AccessControlResourceType.Canvas) {
+        // The default rule appends an "s", which would read "canvass"
+        return 'canvases'
     } else if (resource === AccessControlResourceType.ExternalDataSource) {
         return 'data warehouse sources'
     } else if (resource === AccessControlResourceType.ErrorTracking) {

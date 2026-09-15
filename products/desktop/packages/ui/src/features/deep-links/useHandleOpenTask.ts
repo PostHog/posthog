@@ -1,5 +1,8 @@
 import type { CommentTarget } from "@posthog/core/comments/anchors";
-import type { TaskLinkCommentAnchor } from "@posthog/core/links/task-link";
+import type {
+  TaskLinkArtifactAnchor,
+  TaskLinkCommentAnchor,
+} from "@posthog/core/links/task-link";
 import {
   TASK_SERVICE,
   type TaskService,
@@ -7,6 +10,7 @@ import {
 import { useService } from "@posthog/di/react";
 import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
+import { usePendingArtifactOpenStore } from "@posthog/ui/features/deep-links/pendingArtifactOpenStore";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
@@ -39,10 +43,15 @@ function commentTargetFromAnchor(
   return { scope: "task", itemId: taskId };
 }
 
+export interface OpenTaskAnchors {
+  comment?: TaskLinkCommentAnchor;
+  artifact?: TaskLinkArtifactAnchor;
+}
+
 export function useHandleOpenTask(): (
   taskId: string,
   taskRunId?: string,
-  comment?: TaskLinkCommentAnchor,
+  anchors?: OpenTaskAnchors,
 ) => Promise<void> {
   const taskService = useService<TaskService>(TASK_SERVICE);
   const { markAsViewed } = useTaskViewed();
@@ -54,11 +63,9 @@ export function useHandleOpenTask(): (
   );
 
   return useCallback(
-    async (
-      taskId: string,
-      taskRunId?: string,
-      comment?: TaskLinkCommentAnchor,
-    ) => {
+    async (taskId: string, taskRunId?: string, anchors?: OpenTaskAnchors) => {
+      const comment = anchors?.comment;
+      const artifact = anchors?.artifact;
       log.info(
         `Opening task from deep link: ${taskId}${taskRunId ? `, run: ${taskRunId}` : ""}`,
       );
@@ -102,6 +109,11 @@ export function useHandleOpenTask(): (
               commentTargetFromAnchor(taskId, comment),
               comment.threadId,
             );
+        }
+        if (artifact) {
+          usePendingArtifactOpenStore
+            .getState()
+            .requestArtifactOpen(taskId, artifact.itemId);
         }
         log.info(`Opened task from deep link: ${taskId}`);
       } catch (error) {

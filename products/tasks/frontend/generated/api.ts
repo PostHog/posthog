@@ -76,6 +76,7 @@ import type {
     TaskActivityMarkReadApi,
     TaskActivityMarkReadResponseApi,
     TaskActivityPageDTOApi,
+    TaskArtifactSharingConfigurationApi,
     TaskArtifactsResponseApi,
     TaskChannelsFeedListParams,
     TaskChannelsListParams,
@@ -1665,6 +1666,107 @@ export const tasksWarmResumeCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(warmTaskResumeRequestApi),
     })
+}
+
+export const getTasksArtifactsSharingListUrl = (projectId: string, taskId: string, artifactId: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/artifacts/${artifactId}/sharing/`
+}
+
+/**
+ * The sharing viewset mounted under a task artifact. Only the route differs: the parents are
+ * a task and an artifact rather than a field on the sharing model, which the schema generator
+ * could not type on its own.
+ */
+export const tasksArtifactsSharingList = async (
+    projectId: string,
+    taskId: string,
+    artifactId: string,
+    options?: RequestInit
+): Promise<TaskArtifactSharingConfigurationApi[]> => {
+    return apiMutator<TaskArtifactSharingConfigurationApi[]>(
+        getTasksArtifactsSharingListUrl(projectId, taskId, artifactId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getTasksArtifactsSharingPasswordsCreateUrl = (projectId: string, taskId: string, artifactId: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/artifacts/${artifactId}/sharing/passwords/`
+}
+
+/**
+ * Create a new password for the sharing configuration.
+ */
+export const tasksArtifactsSharingPasswordsCreate = async (
+    projectId: string,
+    taskId: string,
+    artifactId: string,
+    taskArtifactSharingConfigurationApi?: NonReadonly<TaskArtifactSharingConfigurationApi>,
+    options?: RequestInit
+): Promise<TaskArtifactSharingConfigurationApi> => {
+    return apiMutator<TaskArtifactSharingConfigurationApi>(
+        getTasksArtifactsSharingPasswordsCreateUrl(projectId, taskId, artifactId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskArtifactSharingConfigurationApi),
+        }
+    )
+}
+
+export const getTasksArtifactsSharingPasswordsDestroyUrl = (
+    projectId: string,
+    taskId: string,
+    artifactId: string,
+    passwordId: string
+) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/artifacts/${artifactId}/sharing/passwords/${passwordId}/`
+}
+
+/**
+ * Delete a password from the sharing configuration.
+ */
+export const tasksArtifactsSharingPasswordsDestroy = async (
+    projectId: string,
+    taskId: string,
+    artifactId: string,
+    passwordId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTasksArtifactsSharingPasswordsDestroyUrl(projectId, taskId, artifactId, passwordId), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getTasksArtifactsSharingRefreshCreateUrl = (projectId: string, taskId: string, artifactId: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/artifacts/${artifactId}/sharing/refresh/`
+}
+
+/**
+ * The sharing viewset mounted under a task artifact. Only the route differs: the parents are
+ * a task and an artifact rather than a field on the sharing model, which the schema generator
+ * could not type on its own.
+ */
+export const tasksArtifactsSharingRefreshCreate = async (
+    projectId: string,
+    taskId: string,
+    artifactId: string,
+    taskArtifactSharingConfigurationApi?: NonReadonly<TaskArtifactSharingConfigurationApi>,
+    options?: RequestInit
+): Promise<TaskArtifactSharingConfigurationApi> => {
+    return apiMutator<TaskArtifactSharingConfigurationApi>(
+        getTasksArtifactsSharingRefreshCreateUrl(projectId, taskId, artifactId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskArtifactSharingConfigurationApi),
+        }
+    )
 }
 
 export const getTasksRunsListUrl = (projectId: string, taskId: string, params?: TasksRunsListParams) => {
