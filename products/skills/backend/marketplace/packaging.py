@@ -365,7 +365,7 @@ def compute_plugin_version(latest_change_epoch_millis: int) -> str:
     """Content-derived, monotonic plugin version so auto-update fires on any change.
 
     Keyed off the most recent change time (in epoch milliseconds) across all of a team's skill
-    rows (see ``adapters._team_plugin_version``): publishes and file edits add/refresh a row's
+    rows (see ``skill_services.team_skills_version``): publishes and file edits add/refresh a row's
     ``updated_at``, and archive bumps it too, so this advances on every change and never
     regresses. Millisecond resolution keeps two edits within the same second distinct. Whether
     Claude Code re-pulls on any version *difference* vs. strictly-greater is the open question

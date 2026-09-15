@@ -110,6 +110,9 @@ derive it from team content (`compute_plugin_version` keyed on the latest skill 
 milliseconds) so any publish/archive bumps it forward monotonically with zero manual semver.
 The synthesized repo is cached on `team_id` + that version, so repeated clones and auto-update
 polls reuse one synthesis and the cache invalidates automatically on any change.
+The version itself lives in `api/skill_services.py` (`team_skills_version`), because the skills
+list endpoint stamps the same number on its responses. See
+`docs/internal/skills/skills-list-conditional-requests.md`.
 
 > **Open question (the spike answers it):** whether Claude Code re-pulls on any version
 > _difference_ or only strictly-greater, and whether background auto-update reliably re-auths

@@ -27,6 +27,7 @@ from posthog.models.utils import hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
 
+from ...api import skill_services
 from ...api.skill_serializers import validate_skill_file_path
 from ...api.skill_services import archive_skill, set_skill_owners
 from ...marketplace import adapters
@@ -755,7 +756,7 @@ class TestMarketplaceVersion(APIBaseTest):
             team=self.team, name="s", description="d", body="x", version=1, is_latest=True, created_by=self.user
         )
         cache.clear()
-        with patch.object(adapters, "_team_plugin_version", wraps=adapters._team_plugin_version) as spy:
+        with patch.object(skill_services, "team_skills_version", wraps=skill_services.team_skills_version) as spy:
             adapters.synthesize_team_marketplace_repo(self.team)
             adapters.synthesize_team_marketplace_repo(self.team)
         assert spy.call_count == 1

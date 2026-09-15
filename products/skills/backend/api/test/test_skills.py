@@ -39,6 +39,7 @@ from ...api.skill_services import (
     backfill_skill_digests,
     compute_spec_problems,
     create_skill,
+    create_skill_file,
     publish_skill_version,
     resolve_skill_owners,
     set_skill_owners,
@@ -422,6 +423,85 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["count"] == len(expected_names)
         assert sorted(r["name"] for r in response.json()["results"]) == sorted(expected_names)
+
+    def test_list_answers_304_without_querying_skills_when_nothing_changed(self):
+        self.create_skill(name="skill-a", description="Does A things.")
+        first = self.client.get(self._url())
+        assert first.status_code == status.HTTP_200_OK
+        assert first["ETag"]
+        assert first["Cache-Control"] == "private, no-cache"
+
+        with CaptureQueriesContext(connection) as revalidated:
+            second = self.client.get(self._url(), HTTP_IF_NONE_MATCH=first["ETag"])
+
+        assert second.status_code == status.HTTP_304_NOT_MODIFIED
+        assert second["ETag"] == first["ETag"]
+        assert second["X-Skills-Version"] == first["X-Skills-Version"]
+        assert not second.content
+        # The saving is the point: revalidation must not reach the skill or file rows at all.
+        assert not [
+            q
+            for q in revalidated.captured_queries
+            if "llm_analytics_llmskillfile" in q["sql"]
+            or ("llm_analytics_llmskill" in q["sql"] and "MAX" not in q["sql"].upper())
+        ]
+
+    @parameterized.expand(
+        [
+            (
+                "publish",
+                lambda self: publish_skill_version(
+                    self.team, user=self.user, skill_name="skill-a", description="Does B things.", base_version=1
+                ),
+            ),
+            (
+                "file_edit",
+                lambda self: create_skill_file(
+                    self.team, user=self.user, skill_name="skill-a", path="notes.md", content="x"
+                ),
+            ),
+            ("archive", lambda self: archive_skill(self.team, "skill-a")),
+            # Owners are keyed on the skill name, so an owner-only change touches no skill row. The
+            # skills version alone cannot see it, and the list serializes owners.
+            (
+                "owner_change",
+                lambda self: set_skill_owners(self.team, "skill-a", [self._create_user("newowner@example.com")]),
+            ),
+        ]
+    )
+    def test_list_etag_changes_after_a_store_change(self, _label, change):
+        # No clock control: every case lands inside the version cache TTL, so reading the version
+        # through its cached wrapper would answer 304 for a list that already changed.
+        self.create_skill(name="skill-a", description="Does A things.")
+        etag = self.client.get(self._url())["ETag"]
+
+        change(self)
+        response = self.client.get(self._url(), HTTP_IF_NONE_MATCH=etag)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response["ETag"] != etag
+
+    def test_list_etag_does_not_carry_between_filtered_pages(self):
+        self.create_skill(name="pdf-processing", description="Handles PDFs.")
+        self.create_skill(name="code-review", description="Reviews code.")
+        etag = self.client.get(self._url())["ETag"]
+
+        response = self.client.get(self._url() + "?search=pdf", HTTP_IF_NONE_MATCH=etag)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [r["name"] for r in response.json()["results"]] == ["pdf-processing"]
+
+    def test_list_etag_does_not_carry_between_users(self):
+        # Access filtering is per user, so one member's validator must never match another's list.
+        other = self._create_user("otherlister@example.com")
+        self.create_skill(name="skill-a", description="Does A things.")
+        etag = self.client.get(self._url())["ETag"]
+
+        self.client.force_login(other)
+        response = self.client.get(self._url(), HTTP_IF_NONE_MATCH=etag)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [r["name"] for r in response.json()["results"]] == ["skill-a"]
 
     # --- Search ---
 
