@@ -1459,6 +1459,35 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         assert endpoint.current_version == 1
         assert EndpointVersion.objects.filter(endpoint=endpoint).count() == 1
 
+    def test_inherited_invalid_bucket_override_still_rejects_a_query_change(self):
+        # The request omits bucket_overrides, so only the check inside
+        # _reconcile_materialization sees the value the new version inherits.
+        from products.endpoints.backend.models import EndpointVersion
+
+        self._create_endpoint_with_variables("inherit-bucket")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/inherit-bucket/",
+            {"is_materialized": True, "bucket_overrides": {"timestamp": "hour"}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        version = EndpointVersion.objects.get(endpoint__name="inherit-bucket", endpoint__team=self.team, version=1)
+        version.bucket_overrides = {"timestamp": "invalid_fn"}
+        version.save(update_fields=["bucket_overrides"])
+
+        new_query = {
+            **self.variable_query,
+            "query": "SELECT event, count() FROM events WHERE timestamp >= {variables.start_ts} AND timestamp < {variables.end_ts} GROUP BY event",
+        }
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/inherit-bucket/",
+            {"query": new_query},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_reenable_materialization_without_bucket_overrides_clears_old_value(self):
         from products.endpoints.backend.models import EndpointVersion
 
