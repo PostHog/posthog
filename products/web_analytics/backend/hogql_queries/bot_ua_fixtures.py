@@ -199,6 +199,11 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 (compatible; PolycoreSupabaseDetector/1.0; +https://www.polycore.ai/)",
         "UnboundCompute-PublicSnapshot/1.0 (+https://unboundcompute.com/)",
         "swissAItalentBot/1.0 (+https://swissaitalent.ch/bot)",
+        "JobsToInbox/1.0 (+https://www.jobstoinbox.com)",
+        "EtherdeckBot/1.0 (+https://servers.etherdeck.org/search/about)",
+        "VoryqeSearchBot/2.0 (+https://www.voryqe.com/)",
+        "Magdox-Archive/1.0 (+https://magdox.io/bot)",
+        "Georgia Tech README Security Research Crawler/1.0 (+https://forms.office.com/r/i1h9pFXbKA)",
     ],
     "seo_crawler": [
         "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.5359.128 Mobile Safari/537.36 (compatible; AhrefsSiteAudit/6.1; +http://ahrefs.com/robot/site-audit)",
@@ -246,6 +251,8 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "PagePilot-SiteAudit/1.0 (+https://pagepilot-ai-24.polsia.app)",
         "double-ats-customer-discoverer/0.1 (+https://double.fyi; respectful crawler)",
         "BenchRankBot/1.0 (+https://benchrank.app/bot)",
+        "PostletCompetitorWatch/1.0 (+https://postlet.com)",
+        "SurfoundBot/0.1 (+https://bridgewoodcreative.com/scan/bot; page inventory scan)",
     ],
     "social_crawler": [
         "Mozilla/5.0 (compatible; FacebookBot/1.0; +https://developers.facebook.com/docs/sharing/webmasters/crawler)",
@@ -332,6 +339,7 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "CurbCutScanner/0.2-spike (+https://github.com/devinxu0916/CurbCut) accessibility-audit-research",
         "VantageBot/0.1 (+https://github.com/morsela/webapp-monitor)",
         "NimbusBlocklistSync/1.0 (+https://nimbus.com)",
+        "Vivere-Monitor/1.0 (+https://vivere.dev)",
     ],
     "http_client": [
         "Chrome Privacy Preserving Prefetch Proxy",
