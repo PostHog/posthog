@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -410,7 +410,8 @@ class TestVisionAlertActivityLogging(_VisionAlertAPITestCase):
 
         logs = self._logs(alert_id)
         assert [log.activity for log in logs] == ["created", "updated", "deleted"]
-        assert {change["field"] for change in logs[1].detail["changes"]} == {"threshold"}
+        detail = cast(dict[str, Any], logs[1].detail)
+        assert {change["field"] for change in detail["changes"]} == {"threshold"}
 
     def test_evaluation_state_writes_are_not_audited(self) -> None:
         # The engine rewrites these on every check; logging them would bury the edits a person made.

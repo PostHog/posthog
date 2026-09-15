@@ -402,7 +402,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     },
 }
 
-# Machine-written; mirrors `ReplayScanner._MACHINE_OWNED_FIELDS`, which a test holds this list to.
+# Machine-written. A test asserts this covers `ReplayScanner._MACHINE_OWNED_FIELDS`, a narrower set.
 replay_scanner_machine_fields = [
     "scanner_version",
     "origin",
@@ -429,6 +429,7 @@ replay_scanner_machine_fields = [
     "admission_budget_refreshed_at",
     "admission_budget_period_start",
     "admission_credits_since_refresh",
+    "updated_at",
 ]
 
 # Rewritten on every check; an alert's firing history is read from its own event log instead.
@@ -439,6 +440,8 @@ vision_alert_machine_fields = [
     "last_notified_at",
     "next_check_at",
     "first_enabled_at",
+    # The engine passes this alongside next_check_at on every suppressed check.
+    "updated_at",
 ]
 
 # Fields that prevent activity signal triggering entirely when only these fields change
@@ -567,8 +570,10 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 ]
 
 field_exclusions: dict[AuditableScope, list[str]] = {
-    "ReplayScanner": replay_scanner_machine_fields,
-    "VisionAlertConfiguration": vision_alert_machine_fields,
+    # The reverse relations are listed because the diff reads each one in full; a scanner's
+    # observations run to millions of rows, and its alerts carry their own audit trail.
+    "ReplayScanner": [*replay_scanner_machine_fields, "observations", "backfills", "prompt_suggestions", "alerts"],
+    "VisionAlertConfiguration": [*vision_alert_machine_fields, "events", "matches"],
     "DataQualityCheckSchedule": ["subject_type", "subject_uuid", "next_run_at", "last_run_at", "last_suite_run"],
     "StamphogRepoConfig": [
         # Reverse relation to the repo's review history. The diff would read every pull request row

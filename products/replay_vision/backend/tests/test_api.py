@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
@@ -4947,7 +4947,8 @@ class TestScannerActivityLogging(_VisionAPITestCase):
         self.assertEqual([log.activity for log in logs], ["created", "updated", "deleted"])
         self.assertEqual(logs[0].user, self.user)
 
-        changed_fields = {change["field"] for change in logs[1].detail["changes"]}
+        detail = cast(dict[str, Any], logs[1].detail)
+        changed_fields = {change["field"] for change in detail["changes"]}
         self.assertEqual(changed_fields, {"scanner_config"})
 
     def test_machine_owned_writes_are_not_audited(self) -> None:
@@ -4963,6 +4964,29 @@ class TestScannerActivityLogging(_VisionAPITestCase):
         scanner = self._create_scanner(name="", origin=ScannerOrigin.INLINE, inline_key="fingerprint")
 
         self.assertEqual(self._logs(str(scanner.id)), [])
+
+    def test_editing_a_scanner_does_not_read_its_observations(self) -> None:
+        # changes_between walks reverse relations and reads each one in full, so an unexcluded
+        # `observations` would scan the whole table on every edit, under the save's row lock.
+        scanner = self._create_scanner()
+        ReplayObservation.objects.create(
+            scanner=scanner,
+            team=self.team,
+            session_id="sess-audit-diff",
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+            triggered_by=ObservationTrigger.SCHEDULE,
+        )
+
+        with CaptureQueriesContext(connection) as queries:
+            self.client.patch(
+                f"{self.scanners_url}{scanner.id}/",
+                data={"scanner_config": {"prompt": "did the user abandon the cart?"}},
+                format="json",
+            )
+
+        observation_reads = [q for q in queries.captured_queries if "replay_vision_replayobservation" in q["sql"]]
+        self.assertEqual(observation_reads, [])
 
     def test_every_machine_owned_field_is_excluded(self) -> None:
         # A machine-written column that misses the registry turns every sweep into an audit row.
