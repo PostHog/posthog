@@ -58,8 +58,13 @@ class TestEpisodeDecayHold(APIBaseTest):
             created_by=self.user,
         )
 
-    def _record_fire(self, hours_ago: float) -> None:
-        check = AlertCheck.objects.create(alert_configuration=self.alert, state=AlertState.FIRING)
+    def _record_fire(self, hours_ago: float, *, delivered: bool = True, swallowed: bool = False) -> None:
+        check = AlertCheck.objects.create(
+            alert_configuration=self.alert,
+            state=AlertState.FIRING,
+            targets_notified={"users": ["fleet@example.com"], "destinations": []} if delivered else {},
+            notification_suppressed_by_agent=swallowed,
+        )
         AlertCheck.objects.filter(id=check.id).update(created_at=NOW - timedelta(hours=hours_ago))
 
     @parameterized.expand(
@@ -124,6 +129,19 @@ class TestEpisodeDecayHold(APIBaseTest):
         result = hold_refire_within_episode_decay(self.alert, _extraction(BOUND_FLAP), _anomaly(BOUND_FLAP[-1]), NOW)
 
         assert result.breaches != []
+
+    @parameterized.expand(
+        [
+            ("a_fire_that_reached_nobody", False, False),
+            ("a_fire_the_investigation_agent_swallowed", True, True),
+        ]
+    )
+    def test_hold_needs_a_fire_the_alert_acted_on(self, _name: str, swallowed: bool, expected_held: bool) -> None:
+        self._record_fire(EPISODE_DECAY_BUCKETS, delivered=False, swallowed=swallowed)
+
+        result = hold_refire_within_episode_decay(self.alert, _extraction(DECAY_TAIL), _anomaly(DECAY_TAIL[-1]), NOW)
+
+        assert (result.breaches == []) is expected_held
 
     def test_breakdown_fire_is_not_held_by_another_breakdown(self) -> None:
         self._record_fire(EPISODE_DECAY_BUCKETS)

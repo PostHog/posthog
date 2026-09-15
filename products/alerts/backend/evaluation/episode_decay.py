@@ -19,6 +19,8 @@ from dataclasses import replace
 from datetime import datetime
 from typing import Any
 
+from django.db.models import Q
+
 import structlog
 
 from posthog.schema import AlertState, DetectorType, IntervalType
@@ -94,7 +96,13 @@ def _fired_within_decay_window(alert: AlertConfiguration, interval: IntervalType
     # One bucket of slack past the decay buckets, because the earlier fire can land anywhere
     # inside its own bucket and a scheduled check can run late.
     window = interval_spec(interval).period * (EPISODE_DECAY_BUCKETS + 1)
+    # Only a fire the alert acted on can be repeated. A failed delivery leaves ``targets_notified``
+    # empty, the same sentinel the notify activity and the investigation safety net read, so that
+    # fire reached nobody and must not hold the next one. A fire the investigation agent swallowed
+    # counts, because staying quiet about the episode was a deliberate decision.
+    acted_on = ~Q(targets_notified={}) | Q(notification_suppressed_by_agent=True)
     return AlertCheck.objects.filter(
+        acted_on,
         alert_configuration=alert,
         state=AlertState.FIRING,
         created_at__gte=now - window,
