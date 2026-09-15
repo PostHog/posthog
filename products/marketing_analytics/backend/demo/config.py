@@ -11,7 +11,6 @@ MARKETING_FEATURE_FLAGS = (
     "marketing-analytics",
     "marketing-analytics-utm-audit",
     "marketing-analytics-drill-down",
-    "marketing-analytics-extended-drill-down",
     "marketing-analytics-multi-touch-attribution",
     "marketing-analytics-ai",
     "advance-marketing-analytics-settings",

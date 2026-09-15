@@ -49,7 +49,6 @@ export const MarketingAnalyticsTable = ({
     const { showColumnConfigModal, setDrillDownLevel } = useActions(marketingAnalyticsLogic)
     const { drillDownLevel, nativeSourcesHierarchyStatus } = useValues(marketingAnalyticsLogic)
     const hasDrillDown = useFeatureFlag('MARKETING_ANALYTICS_DRILL_DOWN')
-    const hasExtendedDrillDown = useFeatureFlag('MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN')
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
 
     const [searchTerm, setSearchTerm] = useState('')
@@ -152,40 +151,36 @@ export const MarketingAnalyticsTable = ({
                                             },
                                         ],
                                     },
-                                    ...(hasExtendedDrillDown
-                                        ? [
-                                              {
-                                                  title: 'UTM',
-                                                  options: [
-                                                      {
-                                                          value: MarketingAnalyticsDrillDownLevel.Medium,
-                                                          label: 'Medium',
-                                                      },
-                                                      {
-                                                          value: MarketingAnalyticsDrillDownLevel.Content,
-                                                          label: 'Content',
-                                                      },
-                                                      {
-                                                          value: MarketingAnalyticsDrillDownLevel.Term,
-                                                          label: 'Term',
-                                                      },
-                                                  ],
-                                              },
-                                              {
-                                                  title: 'Ad level',
-                                                  options: [
-                                                      {
-                                                          value: MarketingAnalyticsDrillDownLevel.AdGroup,
-                                                          label: 'Ad group',
-                                                      },
-                                                      {
-                                                          value: MarketingAnalyticsDrillDownLevel.Ad,
-                                                          label: 'Ad',
-                                                      },
-                                                  ],
-                                              },
-                                          ]
-                                        : []),
+                                    {
+                                        title: 'UTM',
+                                        options: [
+                                            {
+                                                value: MarketingAnalyticsDrillDownLevel.Medium,
+                                                label: 'Medium',
+                                            },
+                                            {
+                                                value: MarketingAnalyticsDrillDownLevel.Content,
+                                                label: 'Content',
+                                            },
+                                            {
+                                                value: MarketingAnalyticsDrillDownLevel.Term,
+                                                label: 'Term',
+                                            },
+                                        ],
+                                    },
+                                    {
+                                        title: 'Ad level',
+                                        options: [
+                                            {
+                                                value: MarketingAnalyticsDrillDownLevel.AdGroup,
+                                                label: 'Ad group',
+                                            },
+                                            {
+                                                value: MarketingAnalyticsDrillDownLevel.Ad,
+                                                label: 'Ad',
+                                            },
+                                        ],
+                                    },
                                 ]}
                                 size="small"
                             />
