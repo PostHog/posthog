@@ -1,4 +1,3 @@
-import json
 import random
 from collections.abc import AsyncIterator, Sequence
 from typing import Any, Optional, cast
@@ -29,6 +28,17 @@ from products.posthog_ai.backend.models.assistant import (
 )
 
 
+def _remove_nulls(value: Any) -> Any:
+    # Postgres rejects NUL characters in JSONB, in values and in keys alike.
+    if isinstance(value, str):
+        return value.replace("\x00", "")
+    if isinstance(value, dict):
+        return {_remove_nulls(key): _remove_nulls(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_remove_nulls(item) for item in value]
+    return value
+
+
 class DjangoCheckpointer(BaseCheckpointSaver[str]):
     jsonplus_serde = JsonPlusSerializer()
 
@@ -55,10 +65,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         if type_ != "msgpack":
             raise ValueError(f"Expected msgpack serialization for JSON dump, got {type_}")
         jsonable = ormsgpack.unpackb(blob, ext_hook=_msgpack_ext_hook_to_json, option=ormsgpack.OPT_NON_STR_KEYS)
-        serialized = json.dumps(jsonable, ensure_ascii=False)
-        # NOTE: we're using JSON serializer (not msgpack), so we need to remove null characters before writing
-        nulls_removed = serialized.replace("\\u0000", "")
-        return json.loads(nulls_removed)
+        return cast(dict[str, Any], _remove_nulls(jsonable))
 
     def _get_checkpoint_qs(
         self,
