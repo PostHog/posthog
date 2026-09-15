@@ -32,6 +32,9 @@ tools:
     error-tracking-alerts-partial-update:
         operation: error_tracking_alerts_partial_update
         enabled: false
+    error-tracking-alerts-preview-retrieve:
+        operation: error_tracking_alerts_preview_retrieve
+        enabled: false
     error-tracking-alerts-retrieve:
         operation: error_tracking_alerts_retrieve
         enabled: false
