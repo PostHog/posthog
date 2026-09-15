@@ -1325,6 +1325,7 @@ class TestCalculateActivityCancellation:
         started = asyncio.Event()
         release = asyncio.Event()
         body_finished = asyncio.Event()
+        cancel_query = AsyncMock()
 
         async def _slow_body(*args: object, **kwargs: object) -> MetricRecalculationResult:
             started.set()
@@ -1333,7 +1334,7 @@ class TestCalculateActivityCancellation:
             return MetricRecalculationResult(metric_uuid="m1", success=True)
 
         with (
-            self._patched_boundaries(_slow_body, AsyncMock()),
+            self._patched_boundaries(_slow_body, cancel_query),
             patch(
                 "products.experiments.backend.temporal.recalculation_activities.METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS", 0
             ),
@@ -1345,6 +1346,7 @@ class TestCalculateActivityCancellation:
                 with pytest.raises(asyncio.CancelledError, match="original cancellation"):
                     await asyncio.wait_for(task, timeout=5)
                 assert not body_finished.is_set()
+                assert cancel_query.await_count == 1
             finally:
                 release.set()
                 await asyncio.wait_for(body_finished.wait(), timeout=5)
