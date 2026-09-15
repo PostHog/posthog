@@ -6,6 +6,7 @@ from unittest.mock import patch
 from posthog.models.scoping import team_scope
 
 from products.notebooks.backend.models import Notebook, NotebookNodeRun, NotebookRun
+from products.notebooks.backend.notebook_run import node_run_request_for
 
 _RUN_CELLS = (
     '<SQLV2 nodeId="s1" code="select 1" returnVariable="first" />\n\n'
@@ -76,6 +77,51 @@ class TestNotebookRunEndpoints(APIBaseTest):
         with team_scope(self.team.id):
             notebook_run = NotebookRun.objects.get(id=response.json()["run_id"])
         assert notebook_run.variables == self.notebook.variables
+
+    def test_a_refused_run_leaves_the_variables_alone(self, _start, _flag) -> None:
+        # Saving them first is what lets the plan bind the caller's values, but a 409 must not
+        # rewrite the notebook underneath the run already in flight.
+        self.client.post(self.runs_url, data={}, format="json")
+
+        response = self.client.post(
+            self.runs_url,
+            data={"variables": [{"name": "country", "type": "string", "value": "DE"}]},
+            format="json",
+        )
+
+        assert response.status_code == 409, response.json()
+        self.notebook.refresh_from_db()
+        assert self.notebook.variables is None
+
+    def test_the_plan_freezes_the_code_and_the_connection(self, _start, _flag) -> None:
+        # The plan is the run's authority, so a cell edited after the run starts must not
+        # change what it executes — notebook write and query access are separate grants.
+        notebook = Notebook.objects.create(
+            team=self.team,
+            short_id="nbrunconn",
+            content=markdown_content(
+                '<SQLV2 nodeId="s1" code="select 1" returnVariable="first" '
+                'connectionId="018e0e7a-9999-8888-7777-666666666666" sendRawQuery={true} />\n'
+            ),
+        )
+        run_id = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/runs/", data={}, format="json"
+        ).json()["run_id"]
+
+        notebook.content = markdown_content('<SQLV2 nodeId="s1" code="select 2" returnVariable="first" />\n')
+        notebook.save(update_fields=["content"])
+
+        with team_scope(self.team.id):
+            notebook_run = NotebookRun.objects.get(id=run_id)
+        planned = notebook_run.cell_plan[0]
+        assert planned["code"] == "select 1"
+        assert planned["connection_id"] == "018e0e7a-9999-8888-7777-666666666666"
+        assert planned["send_raw_query"] is True
+
+        request = node_run_request_for(notebook_run, 0)
+        assert request.code == "select 1"
+        assert str(request.connection_id) == "018e0e7a-9999-8888-7777-666666666666"
+        assert request.send_raw_query is True
 
     def test_status_reports_every_planned_cell_and_the_one_in_flight(self, _start, _flag) -> None:
         run_id = self.client.post(self.runs_url, data={}, format="json").json()["run_id"]
