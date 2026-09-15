@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 import { quickFiltersLogic } from 'lib/components/QuickFilters'
 
 import { QuickFilterContext } from '~/queries/schema/schema-general'
-import { PropertyFilterType, PropertyOperator, QuickFilterOption, QuickFilterPropertyType } from '~/types'
+import { PropertyOperator, QuickFilterOption, QuickFilterPropertyType } from '~/types'
 
 import type { QuickFilter } from '../../../types'
 import { QuickFiltersEvents } from './consts'
@@ -236,12 +236,7 @@ export const quickFiltersSectionLogic = kea<quickFiltersSectionLogicType>([
 
             const updatedOption = filter.options.find((o) => o.id === currentSelection.optionId)
             if (updatedOption) {
-                actions.setQuickFilterValue(
-                    filter.id,
-                    filter.property_name,
-                    filter.property_type ?? PropertyFilterType.Event,
-                    updatedOption
-                )
+                actions.setQuickFilterValue(filter.id, filter.property_name, filter.property_type, updatedOption)
             } else {
                 actions.clearQuickFilter(filter.id)
             }
@@ -284,12 +279,7 @@ export const quickFiltersSectionLogic = kea<quickFiltersSectionLogicType>([
 
                 const currentSelection = values.selectedQuickFilters[filterId]
                 if (!currentSelection || currentSelection.optionId !== optionId) {
-                    actions.restoreQuickFilterValue(
-                        filterId,
-                        filter.property_name,
-                        filter.property_type ?? PropertyFilterType.Event,
-                        option
-                    )
+                    actions.restoreQuickFilterValue(filterId, filter.property_name, filter.property_type, option)
                     didChange = true
                 }
             })

@@ -26,9 +26,8 @@ export function widgetTileFiltersSetupFromCatalog(
     )
     return {
         context: config.quickFilterContext,
-        // Widget filters resolve as event properties only, so a person-scoped quick filter never reaches a tile.
         isAllowed: (filter) =>
-            (filter.property_type ?? PropertyFilterType.Event) === PropertyFilterType.Event &&
+            filter.property_type === PropertyFilterType.Event &&
             allowedPropertyNames.has(filter.property_name.trim().toLowerCase()),
     }
 }

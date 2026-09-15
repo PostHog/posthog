@@ -8096,7 +8096,6 @@ export interface QuickFilterOption {
     operator: PropertyOperator
 }
 
-/** Scope of the property a quick filter reads. Matches the `property_type` column on the backend model. */
 export type QuickFilterPropertyType = PropertyFilterType.Event | PropertyFilterType.Person
 
 export interface QuickFilter {
