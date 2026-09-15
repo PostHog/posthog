@@ -2,6 +2,7 @@ import json
 from datetime import timedelta
 from typing import Any
 
+from django.http import HttpResponse
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -67,16 +68,22 @@ class CanvasSharingTestBase(CanvasAPIBaseTest):
 
         return fetch(self)
 
-    def _shared_payload(self, access_token: str) -> dict[str, Any]:
+    def _shared_page_response(self, access_token: str) -> HttpResponse:
+        """The public page itself. The built `exporter.html` is not in the test tree, so the
+        template is mocked; everything the view sets on the response still applies."""
+
         @mock_exporter_template
-        def fetch(test: "CanvasSharingTestBase") -> dict[str, Any]:
-            response = test.client.get(f"/shared/{access_token}")
-            assert response.status_code == status.HTTP_200_OK, response.content
-            body = response.content.decode()
-            start = body.index(EXPORTED_DATA_OPEN) + len(EXPORTED_DATA_OPEN)
-            return json.loads(body[start : body.index("</script>", start)])
+        def fetch(test: "CanvasSharingTestBase") -> HttpResponse:
+            return test.client.get(f"/shared/{access_token}")
 
         return fetch(self)
+
+    def _shared_payload(self, access_token: str) -> dict[str, Any]:
+        response = self._shared_page_response(access_token)
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.content.decode()
+        start = body.index(EXPORTED_DATA_OPEN) + len(EXPORTED_DATA_OPEN)
+        return json.loads(body[start : body.index("</script>", start)])
 
 
 class TestCanvasSharingApi(CanvasSharingTestBase):
@@ -220,7 +227,7 @@ class TestCanvasSharingApi(CanvasSharingTestBase):
 
         # The page names this member and the endpoint that turns the link back on, so no cache
         # may keep it for whoever loads the link next.
-        page = self.client.get(f"/shared/{access_token}")
+        page = self._shared_page_response(access_token)
         assert "no-store" in page["Cache-Control"]
 
         self.client.logout()
