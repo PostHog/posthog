@@ -111,6 +111,24 @@ export function buildPostHogCodeDeepLink(prompt: string, repository?: string): s
     return `posthog-code://new?prompt=${encodeURIComponent(prompt)}${repoParam}`
 }
 
+export function buildClaudeCodeDeepLink(prompt: string, repository?: string): string {
+    const query = withLimit(prompt, LIMIT_CLAUDE, (text) => encodeURIComponent(text))
+    const repoParam = repository ? `repo=${encodeURIComponent(repository)}&` : ''
+    return `claude-cli://open?${repoParam}q=${query}`
+}
+
+export function buildCursorDeepLink(prompt: string): string {
+    return withLimit(
+        prompt,
+        LIMIT_LONG,
+        (text) => `cursor://anysphere.cursor-deeplink/prompt?text=${encodeURIComponent(encodeURIComponent(text))}`
+    )
+}
+
+export function buildCodexDeepLink(prompt: string): string {
+    return withLimit(prompt, LIMIT_SHORT, (text) => `codex://new?prompt=${encodeURIComponent(text)}`)
+}
+
 const AGENTS: AgentDef[] = [
     {
         key: 'posthog-ai',
@@ -131,11 +149,7 @@ const AGENTS: AgentDef[] = [
         name: 'Claude Code',
         logo: claudeLogo,
         verb: 'Open',
-        open: (prompt, { repository }) => {
-            const query = withLimit(prompt, LIMIT_CLAUDE, (t) => encodeURIComponent(t))
-            const repoParam = repository ? `repo=${encodeURIComponent(repository)}&` : ''
-            window.open(`claude-cli://open?${repoParam}q=${query}`, '_blank')
-        },
+        open: (prompt, { repository }) => window.open(buildClaudeCodeDeepLink(prompt, repository), '_blank'),
     },
     {
         key: 'cursor',
@@ -144,21 +158,15 @@ const AGENTS: AgentDef[] = [
         // Cursor wordmark is solid black; invert in dark mode so it stays visible
         logoClassName: 'dark:invert',
         verb: 'Open',
-        open: openDeepLink((p) =>
-            // Cursor decodes the full deeplink before parsing query params, so reserved chars need an extra escape layer.
-            withLimit(
-                p,
-                LIMIT_LONG,
-                (t) => `cursor://anysphere.cursor-deeplink/prompt?text=${encodeURIComponent(encodeURIComponent(t))}`
-            )
-        ),
+        // Cursor decodes the full deeplink before parsing query params, so reserved chars need an extra escape layer.
+        open: openDeepLink(buildCursorDeepLink),
     },
     {
         key: 'codex',
         name: 'Codex',
         logo: openaiLogo,
         verb: 'Open',
-        open: openDeepLink((p) => withLimit(p, LIMIT_SHORT, (t) => `codex://new?prompt=${encodeURIComponent(t)}`)),
+        open: openDeepLink(buildCodexDeepLink),
     },
     {
         key: 'clipboard',
@@ -195,7 +203,6 @@ export function AgentPromptButton({
     const [open, setOpen] = useState(defaultOpen)
     const { askSidePanelMax } = useActions(maxGlobalLogic)
     const availableAgents = agentKeys ? AGENTS.filter((agent) => agentKeys.includes(agent.key)) : AGENTS
-    const buttonClassName = variant === 'outline' || variant === 'destructive-outline' ? undefined : 'border-0'
 
     if (actions.length === 0 || availableAgents.length === 0) {
         return null
@@ -249,7 +256,7 @@ export function AgentPromptButton({
                 <QuillButton
                     variant={variant}
                     size={size}
-                    className={buttonClassName}
+                    className="border-0"
                     onClick={handleMainClick}
                     data-attr={dataAttr}
                     title={`Run: ${buttonLabel}`}
@@ -262,7 +269,7 @@ export function AgentPromptButton({
                     <QuillButton
                         variant={variant}
                         size={size === 'default' ? 'icon' : `icon-${size}`}
-                        className={buttonClassName}
+                        className="border-0"
                         aria-label={
                             agentSelectionMode === 'run' ? 'Open prompt in an agent' : 'Choose prompt and destination'
                         }

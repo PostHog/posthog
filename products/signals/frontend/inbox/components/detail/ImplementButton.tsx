@@ -1,11 +1,19 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconPullRequest } from '@posthog/icons'
-import { LemonButton, lemonToast } from '@posthog/lemon-ui'
+import { IconCopy, IconLogomark, IconPullRequest } from '@posthog/icons'
+import { LemonButton, LemonMenuOverlay, lemonToast } from '@posthog/lemon-ui'
 
-import { AgentPromptButton } from 'lib/components/AgentPromptButton'
+import {
+    buildClaudeCodeDeepLink,
+    buildCodexDeepLink,
+    buildCursorDeepLink,
+    buildPostHogCodeDeepLink,
+} from 'lib/components/AgentPromptButton'
+import type { AgentPromptDestination } from 'lib/components/AgentPromptButton'
+import { AgentLogo, claudeLogo, cursorLogo, openaiLogo } from 'lib/components/AgentPromptButton/AgentLogo'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
@@ -19,6 +27,38 @@ const SLOT_CLAIM_DISABLED_REASON: Record<ImplementationSlotClaim, string> = {
     in_flight: 'A pull request run is already in progress for this report. Open it in the task log to follow it.',
     shipped_pr: 'This report already has a pull request. Open it in the task log to continue it.',
 }
+
+const IMPLEMENTATION_AGENTS: {
+    key: AgentPromptDestination
+    name: string
+    icon: JSX.Element
+    buildDeepLink: (prompt: string) => string
+}[] = [
+    {
+        key: 'posthog-code',
+        name: 'PostHog Desktop',
+        icon: <IconLogomark />,
+        buildDeepLink: buildPostHogCodeDeepLink,
+    },
+    {
+        key: 'claude-code',
+        name: 'Claude Code',
+        icon: <AgentLogo logo={claudeLogo} />,
+        buildDeepLink: buildClaudeCodeDeepLink,
+    },
+    {
+        key: 'cursor',
+        name: 'Cursor',
+        icon: <AgentLogo logo={cursorLogo} logoClassName="dark:invert" />,
+        buildDeepLink: buildCursorDeepLink,
+    },
+    {
+        key: 'codex',
+        name: 'Codex',
+        icon: <AgentLogo logo={openaiLogo} />,
+        buildDeepLink: buildCodexDeepLink,
+    },
+]
 
 export function ImplementButton({ report }: { report: SignalReport }): JSX.Element {
     const { isCreatingPr, isDiscussing, createPrDisabledReason } = useValues(inboxTaskKickoffLogic)
@@ -50,6 +90,17 @@ export function ImplementButton({ report }: { report: SignalReport }): JSX.Eleme
             extra: { has_feedback: trimmed.length > 0 },
         })
         createPrFromReport(report, trimmed || undefined)
+    }
+
+    const runImplementationPrompt = (agentKey: AgentPromptDestination, run: (prompt: string) => void): void => {
+        const prompt = buildReportImplementationPrompt(report, reportUrl)
+        captureInboxReportAction({
+            report,
+            actionType: 'copy_implementation_prompt',
+            surface: 'detail_pane',
+            extra: { agent: agentKey },
+        })
+        run(prompt)
     }
 
     if (reportTaskToOpen?.task.latest_run) {
@@ -91,7 +142,7 @@ export function ImplementButton({ report }: { report: SignalReport }): JSX.Eleme
                     placement: 'bottom-end',
                     closeOnClickInside: false,
                     overlay: (
-                        <div className="flex w-120 flex-col gap-2 p-2">
+                        <div className="flex w-128 flex-col gap-2 p-2">
                             <span className="text-xs font-semibold text-tertiary">
                                 Add instructions for the PostHog agent
                             </span>
@@ -110,30 +161,38 @@ export function ImplementButton({ report }: { report: SignalReport }): JSX.Eleme
                                 ]}
                             />
                             <div className="flex flex-wrap items-center justify-between gap-2">
-                                <AgentPromptButton
-                                    storageKey="inbox-report-implementation-prompt"
-                                    defaultAgentKey="clipboard"
-                                    agentKeys={['posthog-code', 'claude-code', 'cursor', 'codex', 'clipboard']}
-                                    agentSelectionMode="run"
-                                    size="sm"
-                                    variant="outline"
-                                    data-attr="inbox-report-copy-implementation-prompt"
-                                    actions={[
-                                        {
-                                            key: 'implementation',
-                                            label: 'prompt for your agent',
-                                            buildPrompt: () => buildReportImplementationPrompt(report, reportUrl),
-                                        },
-                                    ]}
-                                    onRun={({ agentKey }) =>
-                                        captureInboxReportAction({
-                                            report,
-                                            actionType: 'copy_implementation_prompt',
-                                            surface: 'detail_pane',
-                                            extra: { agent: agentKey },
+                                <LemonButton
+                                    type="secondary"
+                                    icon={<IconCopy />}
+                                    onClick={() =>
+                                        runImplementationPrompt('clipboard', (prompt) => {
+                                            void copyToClipboard(prompt, 'prompt for your agent')
                                         })
                                     }
-                                />
+                                    data-attr="inbox-report-copy-implementation-prompt"
+                                    sideAction={{
+                                        tooltip: 'Open prompt in an agent',
+                                        'aria-label': 'Open prompt in an agent',
+                                        dropdown: {
+                                            placement: 'bottom-start',
+                                            overlay: (
+                                                <LemonMenuOverlay
+                                                    items={IMPLEMENTATION_AGENTS.map((agent) => ({
+                                                        key: agent.key,
+                                                        label: agent.name,
+                                                        icon: agent.icon,
+                                                        onClick: () =>
+                                                            runImplementationPrompt(agent.key, (prompt) => {
+                                                                window.open(agent.buildDeepLink(prompt), '_blank')
+                                                            }),
+                                                    }))}
+                                                />
+                                            ),
+                                        },
+                                    }}
+                                >
+                                    Copy prompt for your agent
+                                </LemonButton>
                                 <LemonButton
                                     type="primary"
                                     icon={<IconPullRequest />}
