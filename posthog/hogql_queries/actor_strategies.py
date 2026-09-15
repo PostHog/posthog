@@ -52,6 +52,10 @@ class ActorStrategy:
     def filter_conditions(self) -> list[ast.Expr]:
         return []
 
+    def origin_join_conditions(self) -> list[ast.Expr]:
+        """Extra `ON` conditions for the join between the source query and the origin table."""
+        return []
+
     def order_by(self) -> Optional[list[ast.OrderExpr]]:
         return None
 
@@ -217,6 +221,17 @@ class GroupStrategy(ActorStrategy):
 
     def input_columns(self) -> list[str]:
         return ["group"]
+
+    def origin_join_conditions(self) -> list[ast.Expr]:
+        # `groups` holds every group type of the team, so a key alone matches the same key under
+        # another group type and returns one duplicate row per extra type.
+        return [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=[self.origin, "index"]),
+                right=ast.Constant(value=self.group_type_index),
+            )
+        ]
 
     def filter_conditions(self) -> list[ast.Expr]:
         where_exprs: list[ast.Expr] = []
