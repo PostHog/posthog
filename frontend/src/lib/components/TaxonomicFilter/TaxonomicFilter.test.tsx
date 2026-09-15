@@ -491,7 +491,7 @@ describe('TaxonomicFilter', () => {
                 expect.objectContaining({
                     surface: 'legacy-control',
                     groupType: TaxonomicFilterGroupType.EventProperties,
-                    destination: 'Explore',
+                    destination: 'explore',
                 })
             )
 
@@ -502,7 +502,7 @@ describe('TaxonomicFilter', () => {
                 expect.objectContaining({
                     surface: 'legacy-control',
                     groupType: TaxonomicFilterGroupType.EventProperties,
-                    destination: 'Explore',
+                    destination: 'explore',
                 })
             )
         })

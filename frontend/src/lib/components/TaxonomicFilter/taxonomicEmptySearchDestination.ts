@@ -12,27 +12,36 @@ import type { TaxonomicFilterGroup } from './types'
 
 export interface TaxonomicEmptySearchDestination {
     label: string
+    destination: 'explore' | 'persons' | 'groups'
     url: string
 }
 
-let returnedFromEmptySearchDestination = false
+/** Matches the recovery funnel window. A later selection has no link to the click, so it must not claim the return. */
+export const EMPTY_SEARCH_RETURN_WINDOW_MS = 15 * 60 * 1000
+
+let returnedAt: number | null = null
+let pendingReturnListener: (() => void) | null = null
 
 export function markEmptySearchDestinationOpened(onReturn: () => void): void {
-    returnedFromEmptySearchDestination = false
+    returnedAt = null
 
-    window.addEventListener(
-        'focus',
-        () => {
-            returnedFromEmptySearchDestination = true
-            onReturn()
-        },
-        { once: true }
-    )
+    if (pendingReturnListener) {
+        window.removeEventListener('focus', pendingReturnListener)
+    }
+
+    const listener = (): void => {
+        returnedAt = Date.now()
+        pendingReturnListener = null
+        onReturn()
+    }
+    pendingReturnListener = listener
+
+    window.addEventListener('focus', listener, { once: true })
 }
 
 export function consumeEmptySearchDestinationReturn(): boolean {
-    const returned = returnedFromEmptySearchDestination
-    returnedFromEmptySearchDestination = false
+    const returned = returnedAt !== null && Date.now() - returnedAt < EMPTY_SEARCH_RETURN_WINDOW_MS
+    returnedAt = null
     return returned
 }
 
@@ -67,6 +76,7 @@ export function taxonomicEmptySearchDestination(
     if (group && PERSON_GROUP_TYPES.has(group.type)) {
         return {
             label: 'persons',
+            destination: 'persons',
             url: urls.persons(),
         }
     }
@@ -74,6 +84,7 @@ export function taxonomicEmptySearchDestination(
     if (group?.groupTypeIndex !== undefined) {
         return {
             label: group.name,
+            destination: 'groups',
             url: urls.groups(group.groupTypeIndex),
         }
     }
@@ -85,11 +96,13 @@ export function taxonomicEmptySearchDestination(
             ...defaultQuery,
             source: {
                 ...defaultQuery.source,
+                after: '-7d',
                 ...eventNamesFilter(contextualEventNames),
             },
         }
         return {
             label: 'Explore',
+            destination: 'explore',
             url: combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: query }).url,
         }
     }

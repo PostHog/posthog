@@ -103,11 +103,13 @@ Shared events both surfaces emit (keep these comparable across arms):
 - `taxonomic filter item selected` — `surface`, `groupType`,
   `sourceGroupType`, `wasFromRecents`, `wasFromPinnedList`, `wasQuickFilter`,
   `hadSearchInput`, `position`, `query`, `wasStale`,
-  `returnedFromEmptySearchDestination` (only after the original tab regains focus)
+  `returnedFromEmptySearchDestination` (only on a selection within 15 minutes of the
+  original tab regaining focus)
 - `taxonomic filter empty search destination clicked` — `surface`, `groupType`,
-  `destination` (does not include the search query)
-- `taxonomic filter empty search destination returned` — `surface`, `groupType`,
-  `destination` (fires once when the source tab regains focus)
+  `destination` (`explore` / `persons` / `groups`, never the search query). The rebuild
+  sends `groupType: undefined` in its 'all', 'recent' and 'pinned' scopes.
+- `taxonomic filter empty search destination returned` — same properties; fires once
+  when the source tab regains focus
 
 Legacy-only: `taxonomic_filter_search_query`
 (`searchQuery`, `groupType`, `inputMode`, `pastedFraction`),

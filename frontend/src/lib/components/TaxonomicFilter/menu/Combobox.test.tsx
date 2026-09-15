@@ -1010,7 +1010,7 @@ describe('MenuFilterCombobox', () => {
             expect.objectContaining({
                 surface: 'rebuild-menu',
                 groupType: undefined,
-                destination: 'Explore',
+                destination: 'explore',
             })
         )
 
@@ -1021,7 +1021,7 @@ describe('MenuFilterCombobox', () => {
             expect.objectContaining({
                 surface: 'rebuild-menu',
                 groupType: undefined,
-                destination: 'Explore',
+                destination: 'explore',
             })
         )
     })

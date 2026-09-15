@@ -228,8 +228,10 @@ export function MenuFilterCombobox({
     // (drillTo='all'), otherwise the drilled-to category. Single source for the
     // telemetry group type, empty state, stale-toggle gating, and reset trigger.
     const activeScope: DrillCategory = drillTo === 'all' ? activeChip : drillTo
+    // In the "All" scope only a lone real group can stand in for the active one; several would make the pick arbitrary.
+    const realGroups = groups.filter((group) => !metaGroupTypes.has(group.type))
     const emptySearchDestination = taxonomicEmptySearchDestination(
-        groups.find((group) => group.type === activeScope) ?? groups.find((group) => !metaGroupTypes.has(group.type)),
+        groups.find((group) => group.type === activeScope) ?? (realGroups.length === 1 ? realGroups[0] : undefined),
         eventNames
     )
     const [itemsByType, setItemsByType] = useState<Record<string, TaxonomicDefinitionTypes[]>>({})
@@ -1129,7 +1131,7 @@ export function MenuFilterCombobox({
                                                                     {
                                                                         surface: TAXONOMIC_FILTER_SURFACE,
                                                                         groupType: telemetryGroupType,
-                                                                        destination: emptySearchDestination.label,
+                                                                        destination: emptySearchDestination.destination,
                                                                     }
                                                                 )
                                                             )
@@ -1138,7 +1140,7 @@ export function MenuFilterCombobox({
                                                                 {
                                                                     surface: TAXONOMIC_FILTER_SURFACE,
                                                                     groupType: telemetryGroupType,
-                                                                    destination: emptySearchDestination.label,
+                                                                    destination: emptySearchDestination.destination,
                                                                 }
                                                             )
                                                         }}

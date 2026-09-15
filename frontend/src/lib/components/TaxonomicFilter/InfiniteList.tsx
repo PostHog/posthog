@@ -867,7 +867,7 @@ function InfiniteListEmptyState(): JSX.Element {
                                             featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
                                         ),
                                         groupType: listGroupType,
-                                        destination: emptySearchDestination.label,
+                                        destination: emptySearchDestination.destination,
                                     })
                                 )
                                 posthog.capture('taxonomic filter empty search destination clicked', {
@@ -875,7 +875,7 @@ function InfiniteListEmptyState(): JSX.Element {
                                         featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
                                     ),
                                     groupType: listGroupType,
-                                    destination: emptySearchDestination.label,
+                                    destination: emptySearchDestination.destination,
                                 })
                             }}
                         >
