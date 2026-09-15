@@ -54,7 +54,10 @@ Prefer reusing existing insights over recreating them.
 - Existing dashboard: `dashboard-update`. Adding, replacing, or removing insights means sending the full intended set of
   tiles — insights you omit are removed, so include the ones you want to keep.
 - Layout: by default preserve existing tile placement. Only reflow (`dashboard-reorder-tiles`) when the user explicitly
-  asks to rearrange, reorder, or move tiles.
+  asks to rearrange, reorder, or move tiles. Its `layout` parameter also resizes every tile as it repacks, so use
+  `three_column` when the user asks for something more compact.
+- Tile sizes: to size or move one tile rather than the whole dashboard, send `tiles` through `dashboard-update` with
+  each tile's `id` and a `layouts` object. The desktop grid is 12 columns, so `layouts.sm.w` of 4 gives three per row.
 - Verify with `dashboard-insights-run` to confirm the tiles return data, then summarize what you built and invite the
   user to refine it.
 
