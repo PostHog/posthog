@@ -146,6 +146,12 @@
       "captureProduced": true
     },
     {
+      "type": "invalid_event_session_id",
+      "category": "event",
+      "severity": "warning",
+      "captureProduced": false
+    },
+    {
       "type": "invalid_event_timestamp",
       "category": "event",
       "severity": "error",

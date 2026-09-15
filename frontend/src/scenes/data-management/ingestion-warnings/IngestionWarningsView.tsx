@@ -29,6 +29,7 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     merge_move_limit_exceeded: 'A merge exceeded its distinct id move limit and was dropped',
     merge_settled_failure: 'A merge settled without merging and cannot be retried',
     skipping_event_invalid_uuid: 'Refused to process event with invalid uuid',
+    invalid_event_session_id: 'Event ingested with a $session_id that is not a valid UUID, so it is excluded from session analytics',
     ignored_invalid_timestamp: 'Ignored an invalid timestamp, event was still ingested',
     event_timestamp_in_future: 'An event was sent more than 23 hours in the future',
     ingestion_capacity_overflow: 'Event ingestion has overflowed capacity',
