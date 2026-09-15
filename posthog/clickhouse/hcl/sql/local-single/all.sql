@@ -2943,6 +2943,19 @@ CREATE TABLE posthog.sharded_web_bot_definition (
   keys Array(String),
   values Array(String)
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/posthog.sharded_web_bot_definition', '{replica}') ORDER BY (id) SETTINGS index_granularity = 8192;
+CREATE TABLE posthog.sharded_web_bots_preaggregated (
+  team_id Int64,
+  job_id UUID,
+  time_window_start DateTime64(6, 'UTC'),
+  bot_name String,
+  category String,
+  host Nullable(String),
+  pathname Nullable(String),
+  requests UInt64,
+  last_seen DateTime64(6, 'UTC'),
+  computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  expires_at DateTime64(6, 'UTC')
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.web_bots_preaggregated', '{replica}', computed_at) ORDER BY (team_id, job_id, time_window_start, bot_name, category, isNull(host), ifNull(host, ''), isNull(pathname), ifNull(pathname, '')) PARTITION BY toYYYYMMDD(expires_at) TTL toDateTime(expires_at) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_web_bounces_dimensional_preaggregated (
   team_id Int64,
   job_id UUID,
@@ -3270,6 +3283,19 @@ CREATE TABLE posthog.web_bot_definition (
   keys Array(String),
   values Array(String)
 ) ENGINE = Distributed('aux', 'posthog', 'sharded_web_bot_definition', sipHash64(id));
+CREATE TABLE posthog.web_bots_preaggregated (
+  team_id Int64,
+  job_id UUID,
+  time_window_start DateTime64(6, 'UTC'),
+  bot_name String,
+  category String,
+  host Nullable(String),
+  pathname Nullable(String),
+  requests UInt64,
+  last_seen DateTime64(6, 'UTC'),
+  computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  expires_at DateTime64(6, 'UTC')
+) ENGINE = Distributed('aux', 'posthog', 'sharded_web_bots_preaggregated', sipHash64(job_id));
 CREATE TABLE posthog.web_bounces_dimensional_preaggregated (
   team_id Int64,
   job_id UUID,
