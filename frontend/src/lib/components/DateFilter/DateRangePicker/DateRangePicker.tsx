@@ -1,7 +1,7 @@
 import './DateRangePicker.scss'
 
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { ReactNode, useState } from 'react'
 
 import { IconCalendar, IconClock } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, Popover } from '@posthog/lemon-ui'
@@ -88,6 +88,12 @@ export interface DateRangePickerProps {
     /** Both required to show the timezone selector; absent => hidden, parsing defaults to UTC. */
     timezone?: string
     onTimezoneChange?: (timezone: string) => void
+    /**
+     * Note about how far back this surface holds data, shown under the custom range. Pass a function to
+     * receive `closePicker`. A link in the notice has to call it: the panel is portaled to the document
+     * body, so it stays on screen over whatever the link navigates to.
+     */
+    dataAvailabilityNotice?: ReactNode | ((props: { closePicker: () => void }) => ReactNode)
 }
 
 export const DateRangePicker = ({
@@ -98,6 +104,7 @@ export const DateRangePicker = ({
     allowedRollingDateOptions = ['minutes', 'hours', 'days'],
     timezone,
     onTimezoneChange,
+    dataAvailabilityNotice,
 }: DateRangePickerProps): JSX.Element => {
     const logic = dateRangePickerLogic({ key: logicKey })
     const { popoverOpen, customFrom, customTo, history } = useValues(logic)
@@ -152,6 +159,11 @@ export const DateRangePicker = ({
     }
 
     const currentLabel = formatDateRangeLabel(dateRange, effectiveTimezone, dateOptions)
+
+    const availabilityNotice =
+        typeof dataAvailabilityNotice === 'function'
+            ? dataAvailabilityNotice({ closePicker: () => setPopoverOpen(false) })
+            : dataAvailabilityNotice
 
     return (
         <Popover
@@ -211,6 +223,13 @@ export const DateRangePicker = ({
                                 Apply
                             </LemonButton>
                         </div>
+
+                        {availabilityNotice && (
+                            <>
+                                <LemonDivider className="my-0" />
+                                <div className="text-xs text-secondary max-w-60">{availabilityNotice}</div>
+                            </>
+                        )}
 
                         {history.length > 0 && (
                             <>

@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
@@ -42,6 +42,23 @@ describe('DateRangePicker', () => {
         await userEvent.click(screen.getByText('5 minutes'))
 
         expect(setDateRange).toHaveBeenCalledWith({ date_from: '-5M', date_to: null })
+    })
+
+    // The panel is portaled to the document body, so a link inside it that navigates without closing
+    // the panel leaves it floating over the next screen.
+    it('closes the panel when the availability notice asks for it', async () => {
+        renderPicker({
+            dataAvailabilityNotice: ({ closePicker }) => (
+                <button type="button" onClick={closePicker}>
+                    Change retention
+                </button>
+            ),
+        })
+
+        await userEvent.click(screen.getByText('Last 1 hour'))
+        await userEvent.click(screen.getByText('Change retention'))
+
+        await waitFor(() => expect(screen.queryByText('Change retention')).not.toBeInTheDocument())
     })
 
     it.each<[string, string | undefined, boolean]>([
