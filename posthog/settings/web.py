@@ -205,8 +205,7 @@ MIDDLEWARE = [
     "axes.middleware.AxesMiddleware",
     "posthog.middleware.AutoProjectMiddleware",
     # Must stay after AutoProjectMiddleware, which switches the user into the organization a
-    # `/project/<id>` URL names. Ahead of it, the block check judges the organization the user is
-    # leaving and bounces a link into another organization they can reach.
+    # `/project/<id>` URL names. Ahead of it, the check judges the organization being left.
     "posthog.middleware.ActiveOrganizationMiddleware",
     "posthog.middleware.CHQueries",
     "django_prometheus.middleware.PrometheusAfterMiddleware",

@@ -19,10 +19,7 @@ import { AvailableFeature, OrganizationType } from '~/types'
 import { urls } from './urls'
 import { userLogic } from './userLogic'
 
-/**
- * Mirrors `ALLOWED_WHILE_BLOCKED` in `posthog/middleware.py`, which applies the same rule to full
- * page loads. Nothing imports across the two trees, so change one and change the other.
- */
+/** Mirrors `ALLOWED_WHILE_BLOCKED` in `posthog/middleware.py`. Change one and change the other. */
 const ALLOWED_WHILE_BLOCKED: Record<string, string[]> = {
     '/organization-pending-deletion': ['/organization-pending-deletion', '/signup/'],
     '/organization-deactivated': [
@@ -31,6 +28,19 @@ const ALLOWED_WHILE_BLOCKED: Record<string, string[]> = {
         '/organization/billing',
         '/billing/authorization_status',
     ],
+}
+
+/**
+ * A client-side push reaches no server, so `AutoProjectMiddleware` never resolves the destination's
+ * organization. Defer to the page load. False while the team list is unknown, which keeps the block on.
+ */
+function pathLeavesCurrentOrganization(organization: OrganizationType | null, pathname: string): boolean {
+    const teams = organization?.teams
+    if (!teams) {
+        return false
+    }
+    const projectId = pathname.match(/^\/project\/([^/]+)/)?.[1]
+    return projectId !== undefined && !teams.some((team) => String(team.id) === projectId)
 }
 
 function organizationBlockPage(organization: OrganizationType | null): string | null {
@@ -370,12 +380,11 @@ export const organizationLogic = kea<organizationLogicType>([
         },
         locationChanged: ({ pathname }) => {
             const blockPage = organizationBlockPage(values.currentOrganization)
-            if (blockPage === null) {
+            if (blockPage === null || pathLeavesCurrentOrganization(values.currentOrganization, pathname)) {
                 return
             }
-            // The pathname can carry the router's `/project/<id>` prefix while the allowed pages
-            // are routes, so compare on the route. Otherwise the replace below never matches its
-            // own destination and the two keep redirecting to each other.
+            // Compare on the route: the pathname can carry a `/project/<id>` prefix, and then the
+            // replace below never matches its own destination.
             const route = removeProjectIdIfPresent(pathname)
             if (ALLOWED_WHILE_BLOCKED[blockPage].some((allowed) => route.startsWith(allowed))) {
                 return

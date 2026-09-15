@@ -1834,7 +1834,9 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
             ),
         ]
     )
-    def test_blocked_organization_page_access(self, _name, blocking_field, path_template, expected_status):
+    def test_blocked_organization_page_access(
+        self, _name: str, blocking_field: str, path_template: str, expected_status: int
+    ) -> None:
         inviting_org = Organization.objects.create(name="Inviting Org")
         invite = OrganizationInvite.objects.create(organization=inviting_org, target_email=self.user.email)
 

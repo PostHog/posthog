@@ -1473,11 +1473,9 @@ class SocialAuthExceptionMiddleware:
         return error_detail
 
 
-# Page prefixes a blocked organization's members keep, keyed by the page that explains the block.
-# An invite targets the *inviting* organization, which this check never judges. Deactivation keeps
-# billing and the Stripe return route, because settling the balance is how a member lifts it; no
-# payment restores a pending deletion. `organizationLogic` holds the same table for client-side
-# navigation, and the prefixes track routes in `frontend/src/scenes/urls.ts`.
+# Page prefixes kept per block, keyed by the page that explains it. An invite targets the inviting
+# organization, which this check never judges. Settling the balance is how a member lifts a
+# deactivation; no payment restores a pending deletion. `organizationLogic` holds the same table.
 ALLOWED_WHILE_BLOCKED: dict[str, tuple[str, ...]] = {
     "/organization-pending-deletion": ("/organization-pending-deletion", "/signup/"),
     "/organization-deactivated": (
