@@ -144,6 +144,8 @@ func TestCompletesSQLSyntaxForCursorContext(t *testing.T) {
 		{name: "between unfinished interval", query: "SELECT * FROM orders WHERE amount BETWEEN INTERVAL ", position: len("SELECT * FROM orders WHERE amount BETWEEN INTERVAL "), label: "amount", kind: "field", excluded: []string{"AND"}},
 		{name: "between interval missing unit", query: "SELECT * FROM orders WHERE amount BETWEEN INTERVAL 1 ", position: len("SELECT * FROM orders WHERE amount BETWEEN INTERVAL 1 "), label: "amount", kind: "field", excluded: []string{"AND"}},
 		{name: "between complete interval", query: "SELECT * FROM orders WHERE amount BETWEEN INTERVAL 1 DAY ", position: len("SELECT * FROM orders WHERE amount BETWEEN INTERVAL 1 DAY "), label: "AND", kind: "keyword", insertText: "AND", total: 1},
+		{name: "between nested interval missing unit", query: "SELECT * FROM orders WHERE amount BETWEEN toDate(INTERVAL 1) ", position: len("SELECT * FROM orders WHERE amount BETWEEN toDate(INTERVAL 1) "), label: "amount", kind: "field", excluded: []string{"AND"}},
+		{name: "between complete nested interval", query: "SELECT * FROM orders WHERE amount BETWEEN toDate(INTERVAL 1 DAY) ", position: len("SELECT * FROM orders WHERE amount BETWEEN toDate(INTERVAL 1 DAY) "), label: "AND", kind: "keyword", insertText: "AND", total: 1},
 		{name: "between unfinished case", query: "SELECT * FROM orders WHERE amount BETWEEN CASE ", position: len("SELECT * FROM orders WHERE amount BETWEEN CASE "), label: "amount", kind: "field", excluded: []string{"AND"}},
 		{name: "between unfinished case conjunction", query: "SELECT * FROM orders WHERE amount BETWEEN CASE WHEN amount > 0 AND amo", position: len("SELECT * FROM orders WHERE amount BETWEEN CASE WHEN amount > 0 AND amo"), label: "amount", kind: "field", excluded: []string{"AND"}},
 		{name: "between complete case", query: "SELECT * FROM orders WHERE amount BETWEEN CASE WHEN amount > 0 THEN 1 ELSE 0 END ", position: len("SELECT * FROM orders WHERE amount BETWEEN CASE WHEN amount > 0 THEN 1 ELSE 0 END "), label: "AND", kind: "keyword", insertText: "AND", total: 1},
@@ -260,48 +262,59 @@ func TestCompleteContextualCatalogStaysWithinLatencyBudget(t *testing.T) {
 	}
 
 	const sampleCount = 20
-	const callsPerSample = 100
 	const maxAverage = 5 * time.Millisecond
 	const maxStandardDeviation = 5 * time.Millisecond
 
 	schema := largeContextualCatalog()
-	query := "SELECT countD FROM table_0500"
-	position := len("SELECT countD")
-	for range callsPerSample {
-		if _, err := Complete(schema, query, position, PositionEncodingUTF8, ""); err != nil {
-			t.Fatal(err)
-		}
-	}
-	durations := make([]float64, sampleCount)
-	for sample := range sampleCount {
-		startedAt := time.Now()
-		for range callsPerSample {
-			if _, err := Complete(schema, query, position, PositionEncodingUTF8, ""); err != nil {
-				t.Fatal(err)
+	intervalPrefix := "SELECT * FROM table_0500 WHERE column_10 BETWEEN "
+	intervalQuery := intervalPrefix + strings.Repeat("INTERVAL ", ((16<<10)-len(intervalPrefix)-len("1 DAY "))/len("INTERVAL ")) + "1 DAY "
+	for _, test := range []struct {
+		name           string
+		query          string
+		position       int
+		callsPerSample int
+	}{
+		{name: "contextual catalog", query: "SELECT countD FROM table_0500", position: len("SELECT countD"), callsPerSample: 100},
+		{name: "adversarial interval expression", query: intervalQuery, position: len(intervalQuery), callsPerSample: 20},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			for range test.callsPerSample {
+				if _, err := Complete(schema, test.query, test.position, PositionEncodingUTF8, ""); err != nil {
+					t.Fatal(err)
+				}
 			}
-		}
-		durations[sample] = float64(time.Since(startedAt)) / callsPerSample
-	}
+			durations := make([]float64, sampleCount)
+			for sample := range sampleCount {
+				startedAt := time.Now()
+				for range test.callsPerSample {
+					if _, err := Complete(schema, test.query, test.position, PositionEncodingUTF8, ""); err != nil {
+						t.Fatal(err)
+					}
+				}
+				durations[sample] = float64(time.Since(startedAt)) / float64(test.callsPerSample)
+			}
 
-	var total float64
-	for _, duration := range durations {
-		total += duration
-	}
-	average := total / sampleCount
-	var squaredDifferences float64
-	for _, duration := range durations {
-		difference := duration - average
-		squaredDifferences += difference * difference
-	}
-	standardDeviation := math.Sqrt(squaredDifferences / sampleCount)
-	if time.Duration(average) > maxAverage || time.Duration(standardDeviation) > maxStandardDeviation {
-		t.Fatalf(
-			"completion latency average = %s (max %s), standard deviation = %s (max %s)",
-			time.Duration(average),
-			maxAverage,
-			time.Duration(standardDeviation),
-			maxStandardDeviation,
-		)
+			var total float64
+			for _, duration := range durations {
+				total += duration
+			}
+			average := total / sampleCount
+			var squaredDifferences float64
+			for _, duration := range durations {
+				difference := duration - average
+				squaredDifferences += difference * difference
+			}
+			standardDeviation := math.Sqrt(squaredDifferences / sampleCount)
+			if time.Duration(average) > maxAverage || time.Duration(standardDeviation) > maxStandardDeviation {
+				t.Fatalf(
+					"completion latency average = %s (max %s), standard deviation = %s (max %s)",
+					time.Duration(average),
+					maxAverage,
+					time.Duration(standardDeviation),
+					maxStandardDeviation,
+				)
+			}
+		})
 	}
 }
 
@@ -314,6 +327,7 @@ func BenchmarkCompleteContextualCatalog(b *testing.B) {
 	}{
 		{name: "operator", query: "SELECT * FROM table_0500 WHERE column_10 ", position: len("SELECT * FROM table_0500 WHERE column_10 ")},
 		{name: "function prefix", query: "SELECT countD FROM table_0500", position: len("SELECT countD")},
+		{name: "repeated interval", query: "SELECT * FROM table_0500 WHERE column_10 BETWEEN " + strings.Repeat("INTERVAL ", 1000) + "1 DAY ", position: len("SELECT * FROM table_0500 WHERE column_10 BETWEEN ") + len("INTERVAL ")*1000 + len("1 DAY ")},
 	} {
 		b.Run(benchmark.name, func(b *testing.B) {
 			result, err := Complete(schema, benchmark.query, benchmark.position, PositionEncodingUTF8, "")

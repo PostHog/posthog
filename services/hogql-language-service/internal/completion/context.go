@@ -152,9 +152,23 @@ func predicateMode(tokens []sqlToken, depth int) completionMode {
 func betweenLowerBoundComplete(tokens []sqlToken, depth int) bool {
 	hasExpressionToken := false
 	openCases := 0
+	lastExpressionIndex := -1
+	pendingIntervals := make([]int, depth+1)
+	for index := range pendingIntervals {
+		pendingIntervals[index] = -1
+	}
 	for index, token := range tokens {
 		if token.depth < depth {
 			break
+		}
+		for len(pendingIntervals) > token.depth+1 {
+			if pendingIntervals[len(pendingIntervals)-1] >= 0 {
+				return false
+			}
+			pendingIntervals = pendingIntervals[:len(pendingIntervals)-1]
+		}
+		for len(pendingIntervals) <= token.depth {
+			pendingIntervals = append(pendingIntervals, -1)
 		}
 		if token.kind == sqlTokenWord {
 			switch token.text {
@@ -165,32 +179,26 @@ func betweenLowerBoundComplete(tokens []sqlToken, depth int) bool {
 					openCases--
 				}
 			case "INTERVAL":
-				if !completeIntervalExpression(tokens[index+1:], token.depth) {
-					return false
+				pendingIntervals[token.depth] = index
+			default:
+				if isIntervalUnit(token.text) && lastExpressionIndex > pendingIntervals[token.depth] {
+					pendingIntervals[token.depth] = -1
 				}
 			}
 		}
 		if token.text != "NOT" {
 			hasExpressionToken = true
 		}
+		if token.kind == sqlTokenWord || token.kind == sqlTokenValue {
+			lastExpressionIndex = index
+		}
+	}
+	for _, intervalIndex := range pendingIntervals {
+		if intervalIndex >= 0 {
+			return false
+		}
 	}
 	return hasExpressionToken && openCases == 0
-}
-
-func completeIntervalExpression(tokens []sqlToken, depth int) bool {
-	hasExpressionToken := false
-	for _, token := range tokens {
-		if token.depth < depth {
-			break
-		}
-		if token.depth == depth && token.kind == sqlTokenWord && isIntervalUnit(token.text) && hasExpressionToken {
-			return true
-		}
-		if token.kind == sqlTokenWord || token.kind == sqlTokenValue {
-			hasExpressionToken = true
-		}
-	}
-	return false
 }
 
 func isIntervalUnit(value string) bool {
