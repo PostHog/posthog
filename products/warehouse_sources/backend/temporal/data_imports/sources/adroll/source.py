@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.adroll.adroll import (
     AdRollResumeConfig,
     adroll_source,
@@ -54,7 +52,7 @@ class AdRollSource(ResumableSource[AdRollSourceConfig, AdRollResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.AD_ROLL,
+            name=ExternalDataSourceType.ADROLL,
             category=DataWarehouseSourceCategory.ADVERTISING,
             keywords=["nextroll"],
             label="AdRoll",

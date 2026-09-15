@@ -1,11 +1,6 @@
 from typing import cast
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    SourceConfig,
-)
-
+from products.warehouse_sources.backend.source_config import DataWarehouseSourceCategory, SourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.arxiv import ArxivSourceConfig
@@ -21,7 +16,7 @@ class ArxivSource(SimpleSource[ArxivSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ARXIV,
+            name=ExternalDataSourceType.ARXIV,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="arXiv (Cornell University)",
             iconPath="/static/services/arxiv.png",

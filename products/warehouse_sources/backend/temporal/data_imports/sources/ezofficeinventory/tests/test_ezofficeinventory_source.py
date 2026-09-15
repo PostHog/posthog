@@ -3,8 +3,7 @@ from typing import cast
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import SourceFieldInputConfig
-
+from products.warehouse_sources.backend.source_config import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.ezofficeinventory.settings import (
     ENDPOINTS,
     EZOFFICEINVENTORY_API_VERSION_V1,

@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.canny.canny import (
     CannyResumeConfig,
     canny_source,
@@ -51,7 +49,7 @@ class CannySource(ResumableSource[CannySourceConfig, CannyResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CANNY,
+            name=ExternalDataSourceType.CANNY,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Canny",
             releaseStatus=ReleaseStatus.ALPHA,

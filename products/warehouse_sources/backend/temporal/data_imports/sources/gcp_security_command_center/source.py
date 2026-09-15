@@ -1,11 +1,6 @@
 from typing import cast
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    SourceConfig,
-)
-
+from products.warehouse_sources.backend.source_config import DataWarehouseSourceCategory, SourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gcpsecuritycommandcenter import (
@@ -23,7 +18,7 @@ class GcpSecurityCommandCenterSource(SimpleSource[GcpSecurityCommandCenterSource
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GCP_SECURITY_COMMAND_CENTER,
+            name=ExternalDataSourceType.GCPSECURITYCOMMANDCENTER,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Google Cloud (Security Command Center)",
             iconPath="/static/services/gcp_security_command_center.png",

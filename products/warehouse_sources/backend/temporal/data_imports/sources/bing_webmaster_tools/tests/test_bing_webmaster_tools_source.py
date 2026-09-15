@@ -2,8 +2,7 @@ import pytest
 
 import structlog
 
-from posthog.schema import ReleaseStatus
-
+from products.warehouse_sources.backend.source_config import ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_webmaster_tools.settings import (
     ENDPOINT_CONFIGS,
     ENDPOINTS,

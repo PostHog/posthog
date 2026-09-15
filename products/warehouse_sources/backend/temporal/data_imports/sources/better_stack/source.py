@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack.better_stack import (
     BetterStackResumeConfig,
     better_stack_source,
@@ -52,7 +50,7 @@ class BetterStackSource(ResumableSource[BetterStackSourceConfig, BetterStackResu
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BETTER_STACK,
+            name=ExternalDataSourceType.BETTERSTACK,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Better Stack",
             releaseStatus=ReleaseStatus.ALPHA,

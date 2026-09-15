@@ -2,18 +2,16 @@ import re
 from dataclasses import field
 from typing import Optional, cast
 
-from posthog.schema import (
+from posthog.dataclasses import frozen
+
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSwitchGroupConfig,
 )
-
-from posthog.dataclasses import frozen
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.billomat.billomat import (
     BillomatResumeConfig,
     billomat_source,
@@ -153,7 +151,7 @@ class BillomatSource(ResumableSource[BillomatSourceConfig, BillomatResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BILLOMAT,
+            name=ExternalDataSourceType.BILLOMAT,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Billomat",
             caption="Sync clients, suppliers, invoices, estimates, credit notes and incoming supplier bills from Billomat.",

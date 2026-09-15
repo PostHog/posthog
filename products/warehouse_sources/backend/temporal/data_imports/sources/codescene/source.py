@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.codescene.codescene import (
     CodesceneResumeConfig,
     codescene_source,
@@ -54,7 +52,7 @@ class CodesceneSource(ResumableSource[CodesceneSourceConfig, CodesceneResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CODESCENE,
+            name=ExternalDataSourceType.CODESCENE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="CodeScene",
             releaseStatus=ReleaseStatus.ALPHA,

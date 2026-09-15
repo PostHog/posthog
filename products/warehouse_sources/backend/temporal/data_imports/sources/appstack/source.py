@@ -2,15 +2,13 @@ from typing import Optional, cast
 
 import requests
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.appstack.appstack import (
     AppstackResumeConfig,
     appstack_source,
@@ -50,7 +48,7 @@ class AppstackSource(ResumableSource[AppstackSourceConfig, AppstackResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.APPSTACK,
+            name=ExternalDataSourceType.APPSTACK,
             category=DataWarehouseSourceCategory.ADVERTISING,
             keywords=["mobile attribution", "mmp", "ad attribution"],
             label="Appstack",

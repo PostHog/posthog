@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -46,7 +44,7 @@ class NebiusAISource(ResumableSource[NebiusAISourceConfig, NebiusAIResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.NEBIUS_AI,
+            name=ExternalDataSourceType.NEBIUSAI,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Nebius AI",
             releaseStatus=ReleaseStatus.ALPHA,

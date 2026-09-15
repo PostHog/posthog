@@ -1,15 +1,13 @@
 from datetime import date
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.apple_search_ads.apple_search_ads import (
     AppleSearchAdsCredentials,
     AppleSearchAdsResumeConfig,
@@ -107,7 +105,7 @@ class AppleSearchAdsSource(ResumableSource[AppleSearchAdsSourceConfig, AppleSear
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.APPLE_SEARCH_ADS,
+            name=ExternalDataSourceType.APPLESEARCHADS,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="Apple Ads",
             # Two actors, in this order, because Apple splits the job: an account admin grants the

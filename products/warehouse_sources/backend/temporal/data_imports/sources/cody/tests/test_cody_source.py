@@ -3,17 +3,14 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from posthog.schema import (
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    SourceFieldInputConfig,
-)
-
+from products.warehouse_sources.backend.source_config import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.cody.cody import (
     CodyCredentialsError,
     CodyRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cody.source import CodySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cody import CodySourceConfig
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 ALL_ENDPOINTS = [
     "usage_by_user",
@@ -33,7 +30,7 @@ class TestCodySource:
     def test_get_source_config(self):
         config = self.source.get_source_config
 
-        assert config.name == SchemaExternalDataSourceType.CODY
+        assert config.name == ExternalDataSourceType.CODY
         assert config.label == "Cody"
         assert len(config.fields) == 2
         instance_url, access_token = config.fields

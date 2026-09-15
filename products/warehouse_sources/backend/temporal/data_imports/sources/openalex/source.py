@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -121,7 +119,7 @@ class OpenalexSource(ResumableSource[OpenalexSourceConfig, OpenAlexResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.OPENALEX,
+            name=ExternalDataSourceType.OPENALEX,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="OpenAlex",
             caption="""Enter your OpenAlex API key to pull scholarly metadata into the PostHog Data warehouse.

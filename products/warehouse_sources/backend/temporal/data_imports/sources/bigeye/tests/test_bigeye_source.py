@@ -3,8 +3,11 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
+from products.warehouse_sources.backend.source_config import (
+    ReleaseStatus,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigeye.bigeye import BigeyeResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigeye.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigeye.source import BigeyeSource

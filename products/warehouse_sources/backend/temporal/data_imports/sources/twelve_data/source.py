@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -122,7 +120,7 @@ class TwelveDataSource(ResumableSource[TwelveDataSourceConfig, TwelveDataResumeC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.TWELVE_DATA,
+            name=ExternalDataSourceType.TWELVEDATA,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Twelve Data",
             caption="Import market data from Twelve Data: instrument catalogs, historical prices, quotes, dividends, splits, and earnings.",

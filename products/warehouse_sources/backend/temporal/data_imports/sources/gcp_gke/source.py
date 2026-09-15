@@ -1,11 +1,6 @@
 from typing import cast
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    SourceConfig,
-)
-
+from products.warehouse_sources.backend.source_config import DataWarehouseSourceCategory, SourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gcpgke import GcpGkeSourceConfig
@@ -21,7 +16,7 @@ class GcpGkeSource(SimpleSource[GcpGkeSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GCP_GKE,
+            name=ExternalDataSourceType.GCPGKE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Google Cloud (Google Kubernetes Engine)",
             iconPath="/static/services/gcp_gke.png",

@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.beamer.beamer import (
     BeamerResumeConfig,
     beamer_source,
@@ -48,7 +46,7 @@ class BeamerSource(ResumableSource[BeamerSourceConfig, BeamerResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BEAMER,
+            name=ExternalDataSourceType.BEAMER,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Beamer",
             releaseStatus=ReleaseStatus.ALPHA,

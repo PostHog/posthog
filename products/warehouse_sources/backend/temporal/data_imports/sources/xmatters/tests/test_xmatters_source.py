@@ -1,7 +1,10 @@
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
+from products.warehouse_sources.backend.source_config import (
+    ReleaseStatus,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.xmatters.source import XmattersSource
 
 XMATTERS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.xmatters"

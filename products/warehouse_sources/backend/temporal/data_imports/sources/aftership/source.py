@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.aftership.aftership import (
     AftershipResumeConfig,
     aftership_source,
@@ -52,7 +50,7 @@ class AftershipSource(ResumableSource[AftershipSourceConfig, AftershipResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.AFTERSHIP,
+            name=ExternalDataSourceType.AFTERSHIP,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="AfterShip",
             releaseStatus=ReleaseStatus.ALPHA,

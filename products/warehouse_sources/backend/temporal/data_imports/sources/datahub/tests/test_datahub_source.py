@@ -3,8 +3,7 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig
-
+from products.warehouse_sources.backend.source_config import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.source import DatahubSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.datahub import (

@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.coinmarketcap.coinmarketcap import (
     CoinMarketCapResumeConfig,
     coinmarketcap_source,
@@ -45,7 +43,7 @@ class CoinMarketCapSource(ResumableSource[CoinMarketCapSourceConfig, CoinMarketC
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.COIN_MARKET_CAP,
+            name=ExternalDataSourceType.COINMARKETCAP,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="CoinMarketCap",
             releaseStatus=ReleaseStatus.ALPHA,

@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.asaas.asaas import (
     AsaasResumeConfig,
     asaas_source,
@@ -115,7 +113,7 @@ class AsaasSource(ResumableSource[AsaasSourceConfig, AsaasResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ASAAS,
+            name=ExternalDataSourceType.ASAAS,
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Asaas",
             caption=(

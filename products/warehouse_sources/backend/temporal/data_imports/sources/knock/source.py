@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -95,7 +93,7 @@ class KnockSource(ResumableSource[KnockSourceConfig, KnockResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.KNOCK,
+            name=ExternalDataSourceType.KNOCK,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Knock",
             caption="Use the secret API key (starts with `sk_`) for the environment you want to import from. You can find it in the Knock dashboard under **Developers → API keys**. Knock API keys are scoped to a single environment.",

@@ -1,8 +1,7 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -10,7 +9,6 @@ from posthog.schema import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.commercetools.commercetools import (
     CommercetoolsResumeConfig,
     commercetools_source,
@@ -72,7 +70,7 @@ class CommercetoolsSource(ResumableSource[CommercetoolsSourceConfig, Commercetoo
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.COMMERCETOOLS,
+            name=ExternalDataSourceType.COMMERCETOOLS,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="commercetools",
             caption="""Enter your commercetools API client credentials to pull your commerce data into the PostHog Data warehouse.

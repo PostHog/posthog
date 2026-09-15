@@ -4,14 +4,10 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-)
-
+from products.warehouse_sources.backend.source_config import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.uppromote.source import UpPromoteSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.uppromote.source"
 
@@ -41,7 +37,7 @@ class TestUpPromoteSource:
 
     def test_source_config_is_released_with_api_key_field(self) -> None:
         config = self.source.get_source_config
-        assert config.name == SchemaExternalDataSourceType.UP_PROMOTE
+        assert config.name == ExternalDataSourceType.UPPROMOTE
         # unreleasedSource hides the connector from every user; a finished source must not carry it.
         assert not config.unreleasedSource
         assert config.releaseStatus == ReleaseStatus.ALPHA

@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -147,7 +145,7 @@ class MercurySource(ResumableSource[MercurySourceConfig, MercuryResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.MERCURY,
+            name=ExternalDataSourceType.MERCURY,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Mercury",
             caption="Sync your Mercury business banking data, including accounts, transactions, cards, and invoices.\n\nCreate an API token with Read Only access in Mercury under [Settings > API tokens](https://app.mercury.com/settings/tokens). Read Only tokens do not require an IP allowlist.",

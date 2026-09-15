@@ -3,8 +3,7 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig
-
+from products.warehouse_sources.backend.source_config import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.formbricks import (
     FORMBRICKS_API_VERSION_V1,
     FORMBRICKS_API_VERSION_V2,

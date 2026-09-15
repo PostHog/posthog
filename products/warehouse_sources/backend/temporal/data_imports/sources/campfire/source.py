@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.campfire.campfire import (
     CampfireResumeConfig,
     campfire_source,
@@ -48,7 +46,7 @@ class CampfireSource(ResumableSource[CampfireSourceConfig, CampfireResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CAMPFIRE,
+            name=ExternalDataSourceType.CAMPFIRE,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Campfire",
             releaseStatus=ReleaseStatus.ALPHA,

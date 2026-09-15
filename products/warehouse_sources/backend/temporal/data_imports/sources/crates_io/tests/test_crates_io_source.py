@@ -1,7 +1,6 @@
 import pytest
 
-from posthog.schema import ReleaseStatus
-
+from products.warehouse_sources.backend.source_config import ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.crates_io.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.crates_io.source import CratesIOSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cratesio import (

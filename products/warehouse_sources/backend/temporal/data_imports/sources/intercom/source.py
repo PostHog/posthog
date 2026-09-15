@@ -1,13 +1,11 @@
 from typing import cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldOauthConfig,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -82,7 +80,7 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.INTERCOM,
+            name=ExternalDataSourceType.INTERCOM,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             caption="Select an existing Intercom workspace to link to PostHog or create a new connection",
             iconPath="/static/services/intercom.png",

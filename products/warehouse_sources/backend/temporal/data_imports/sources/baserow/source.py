@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.baserow.baserow import (
     BaserowResumeConfig,
     baserow_rows_source,
@@ -50,7 +48,7 @@ class BaserowSource(ResumableSource[BaserowSourceConfig, BaserowResumeConfig], V
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BASEROW,
+            name=ExternalDataSourceType.BASEROW,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Baserow",
             caption="""Sync the tables from your Baserow databases into the PostHog Data warehouse — each Baserow table becomes its own warehouse table.

@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.beehiiv.beehiiv import (
     BeehiivResumeConfig,
     beehiiv_source,
@@ -49,7 +47,7 @@ class BeehiivSource(ResumableSource[BeehiivSourceConfig, BeehiivResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BEEHIIV,
+            name=ExternalDataSourceType.BEEHIIV,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="beehiiv",
             caption=(

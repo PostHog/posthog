@@ -5,8 +5,7 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig
-
+from products.warehouse_sources.backend.source_config import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.fleetio import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.fleetio.source import FleetioSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fleetio import (

@@ -4,8 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
-
+from products.warehouse_sources.backend.source_config import DataWarehouseSourceCategory, ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.docuseal import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.docuseal.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.docuseal.source import DocusealSource

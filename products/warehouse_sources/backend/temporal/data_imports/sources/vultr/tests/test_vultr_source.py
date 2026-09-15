@@ -3,13 +3,12 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vultr import VultrSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.vultr.canonical_descriptions import (

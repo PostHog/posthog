@@ -4,12 +4,9 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    ReleaseStatus,
-)
-
+from products.warehouse_sources.backend.source_config import ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.newsdata.source import NewsDataSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _source_inputs(**overrides: Any) -> MagicMock:
@@ -23,7 +20,7 @@ def _source_inputs(**overrides: Any) -> MagicMock:
 class TestSourceConfig:
     def test_config_identity_and_release_contract(self) -> None:
         config = NewsDataSource().get_source_config
-        assert config.name == SchemaExternalDataSourceType.NEWS_DATA
+        assert config.name == ExternalDataSourceType.NEWSDATA
         # Alpha but released: the finished source must be reachable, so unreleasedSource stays off.
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert not config.unreleasedSource

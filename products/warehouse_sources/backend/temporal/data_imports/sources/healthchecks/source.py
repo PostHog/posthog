@@ -1,16 +1,14 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from posthog.cloud_utils import is_cloud
+
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
-from posthog.cloud_utils import is_cloud
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -60,7 +58,7 @@ class HealthchecksSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.HEALTHCHECKS,
+            name=ExternalDataSourceType.HEALTHCHECKS,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             keywords=["healthchecks.io", "cron monitoring", "uptime"],
             label="Healthchecks.io",

@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.browserbase.browserbase import (
     browserbase_source,
     validate_credentials as validate_browserbase_credentials,
@@ -48,7 +46,7 @@ class BrowserbaseSource(SimpleSource[BrowserbaseSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.BROWSERBASE,
+            name=ExternalDataSourceType.BROWSERBASE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Browserbase",
             releaseStatus=ReleaseStatus.ALPHA,

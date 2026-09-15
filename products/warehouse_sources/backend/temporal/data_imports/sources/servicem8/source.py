@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -117,7 +115,7 @@ class Servicem8Source(ResumableSource[Servicem8SourceConfig, ServiceM8ResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SERVICEM8,
+            name=ExternalDataSourceType.SERVICEM8,
             category=DataWarehouseSourceCategory.CRM,
             label="ServiceM8",
             caption="Enter an API key from your ServiceM8 account (Settings -> API Keys) to sync jobs, clients, staff, and job activity into the PostHog Data warehouse.",

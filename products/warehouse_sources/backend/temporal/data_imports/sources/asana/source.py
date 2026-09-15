@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.asana.asana import (
     AsanaResumeConfig,
     asana_source,
@@ -48,7 +46,7 @@ class AsanaSource(ResumableSource[AsanaSourceConfig, AsanaResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ASANA,
+            name=ExternalDataSourceType.ASANA,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Asana",
             releaseStatus=ReleaseStatus.ALPHA,
