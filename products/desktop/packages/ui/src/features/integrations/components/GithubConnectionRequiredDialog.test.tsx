@@ -43,7 +43,7 @@ describe("GithubConnectionRequiredDialog", () => {
 
     await user.click(screen.getByText("Why do I need this?"));
     const request =
-      "PostHog needs read access to diagnose product changes using code context and keep investigations current.";
+      "PostHog needs read access to diagnose product changes using code context and keep investigations current. When a task changes code, it also needs permission to create branches and open pull requests for review.";
     expect(screen.getByText(request)).toBeInTheDocument();
 
     await user.click(screen.getByLabelText("Copy access request"));
@@ -66,7 +66,7 @@ describe("GithubConnectionRequiredDialog", () => {
 
     expect(
       screen.getByText(
-        "PostHog needs read access to diagnose product changes using code context and keep investigations current.",
+        "PostHog needs read access to diagnose product changes using code context and keep investigations current. When a task changes code, it also needs permission to create branches and open pull requests for review.",
       ),
     ).toBeInTheDocument();
   });

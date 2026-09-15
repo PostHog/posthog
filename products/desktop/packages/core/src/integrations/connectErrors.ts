@@ -22,7 +22,7 @@ export const GITHUB_CODE_CONTEXT_MESSAGE =
   "PostHog reads the GitHub repositories you authorize so agents can use their latest code. Code changes are sent in a pull request for your review.";
 
 export const GITHUB_ADMIN_ACCESS_REQUEST =
-  "PostHog needs read access to diagnose product changes using code context and keep investigations current.";
+  "PostHog needs read access to diagnose product changes using code context and keep investigations current. When a task changes code, it also needs permission to create branches and open pull requests for review.";
 
 const GITHUB_CONNECTION_REQUIRED_PATTERNS = [
   /github_authorization_required/i,
