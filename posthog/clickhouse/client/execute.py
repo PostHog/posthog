@@ -1,3 +1,4 @@
+import re
 import sys
 import time
 import types
@@ -16,6 +17,7 @@ from django.conf import settings as app_settings
 import sqlparse
 import structlog
 from clickhouse_driver import Client as SyncClient
+from clickhouse_driver.errors import ServerException
 from opentelemetry import trace
 from prometheus_client import Counter
 
@@ -40,7 +42,12 @@ from posthog.clickhouse.query_tagging import (
     is_api_key_access_method,
 )
 from posthog.dataclasses import frozen
-from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
+from posthog.errors import (
+    clickhouse_error_type,
+    extract_unknown_setting_name,
+    look_up_clickhouse_error_code_meta,
+    wrap_clickhouse_query_error,
+)
 from posthog.exceptions_capture import capture_exception
 from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, DEBUG, TEST
 from posthog.utils import generate_short_id, patchable
@@ -61,6 +68,12 @@ QUERY_ERROR_COUNTER = Counter(
     "clickhouse_query_failure",
     "Query execution failure signal is dispatched when a query fails.",
     labelnames=["exception_type", "query_type", "workload", "chargeable"],
+)
+
+UNKNOWN_SETTING_RETRY_COUNTER = Counter(
+    "posthog_clickhouse_unknown_setting_retry",
+    "Queries retried after a ClickHouse node rejected a setting PostHog sent.",
+    labelnames=["setting"],
 )
 
 InsertParams = Union[list, tuple, types.GeneratorType]
@@ -270,6 +283,53 @@ def default_settings() -> dict:
         # https://clickhouse.com/docs/en/operations/settings/settings#max_query_size
         "max_query_size": 1048576,
     }
+
+
+SETTINGS_KEYWORD_PATTERN = re.compile(r"(\bSETTINGS\b)", re.IGNORECASE)
+EMPTY_SETTINGS_CLAUSE_PATTERN = re.compile(r"^\s*(?:\)|$)")
+
+
+def drop_setting_from_query(query: str, setting: str) -> str:
+    """Remove one `name=value` pair from every SETTINGS clause of a query, keeping the rest."""
+    if not setting.isidentifier():
+        return query
+    pair = re.compile(rf"(?:,\s*)?\b{setting}\s*=\s*(?:'(?:[^'\\]|\\.)*'|[^\s,)]+)", re.IGNORECASE)
+    pieces = SETTINGS_KEYWORD_PATTERN.split(query)
+    rebuilt = [pieces[0]]
+    for keyword, clause in zip(pieces[1::2], pieces[2::2]):
+        stripped = pair.sub("", clause)
+        # The pair may have been the clause's first, which leaves its separator behind.
+        stripped = re.sub(r"^(\s*),\s*", r"\1", stripped)
+        if not EMPTY_SETTINGS_CLAUSE_PATTERN.match(stripped):
+            rebuilt.append(keyword)
+        rebuilt.append(stripped)
+    return "".join(rebuilt)
+
+
+@frozen
+class RejectedSettingRetry:
+    setting: str
+    query: str
+    settings: dict[str, Any]
+
+
+def without_rejected_setting(error: Exception, query: str, settings: dict[str, Any]) -> Optional[RejectedSettingRetry]:
+    """
+    How to run the query again after a node rejected one of its settings.
+
+    None means there is nothing to degrade: either the error is not an UNKNOWN_SETTING rejection,
+    or it names something this query never sent, so a retry would fail the same way.
+    """
+    if not isinstance(error, ServerException) or look_up_clickhouse_error_code_meta(error).name != "UNKNOWN_SETTING":
+        return None
+    setting = extract_unknown_setting_name(str(error.message))
+    if setting is None:
+        return None
+    retry_query = drop_setting_from_query(query, setting)
+    retry_settings = {key: value for key, value in settings.items() if key.lower() != setting.lower()}
+    if retry_query == query and len(retry_settings) == len(settings):
+        return None
+    return RejectedSettingRetry(setting=setting, query=retry_query, settings=retry_settings)
 
 
 @lru_cache(maxsize=1)
@@ -547,15 +607,35 @@ def sync_execute(
             sync_client or get_client_from_pool(workload, team_id, readonly, ch_user) as client,
         ):
             query_info_before = getattr(client, "last_query", None)
-            try:
-                result = client.execute(
-                    prepared_sql,
+
+            def execute(query_sql: str, query_settings: dict[str, Any]) -> Any:
+                return client.execute(
+                    query_sql,
                     params=prepared_args,
-                    settings=settings,
+                    settings=query_settings,
                     with_column_types=with_column_types,
                     query_id=query_id,
                     external_tables=external_tables,
                 )
+
+            try:
+                try:
+                    result = execute(prepared_sql, settings)
+                except ServerException as e:
+                    # A node that doesn't know one of the settings we inject rejects the whole
+                    # query, which breaks every product sharing the query path. Degrade to a
+                    # logged retry without that setting instead of failing the user.
+                    retry = without_rejected_setting(e, prepared_sql, settings)
+                    if retry is None:
+                        raise
+                    UNKNOWN_SETTING_RETRY_COUNTER.labels(setting=retry.setting).inc()
+                    logger.warning(
+                        "clickhouse rejected a query setting, retrying without it",
+                        setting=retry.setting,
+                        query_type=query_type,
+                        workload=workload.value,
+                    )
+                    result = execute(retry.query, retry.settings)
             finally:
                 # A query killed mid-scan (timeout, memory limit) has already cost the read, so
                 # keep the progress the server reported before it died. The Redis write happens
