@@ -418,8 +418,6 @@ class TestHandleGithubEventForLoops(TestCase):
     @patch(f"{LOOP_GITHUB_EVENTS_MODULE}.logger")
     @patch(FIRE_LOOP_PATCH_TARGET, autospec=True)
     def test_one_teams_trigger_lookup_timing_out_still_fires_the_other_teams(self, mock_fire_loop, mock_logger):
-        # Teams share an installation, so bounding them as one block let a slow team suppress the
-        # matches the teams before it already produced. Each team's cap has to stand on its own.
         team_b = Team.objects.create(organization=self.organization, name="Team B")
         Integration.objects.create(team=team_b, kind="github", integration_id="998877", config={})
 
