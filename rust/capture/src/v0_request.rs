@@ -371,10 +371,13 @@ mod tests {
 
     use super::{CaptureError, Compression, DataType, RawRequest};
 
-    /// Mirrors v1's `destination_for_event_name` mapping tests: the
-    /// dedicated-name lanes always win, an allowlisted AI name diverts on every deployment
-    /// (beating historical), and everything else falls through to
-    /// main/historical per the batch flag.
+    /// v0 lane assignment: the dedicated-name lanes always win, an allowlisted
+    /// AI name diverts on every deployment (beating historical), and everything
+    /// else falls through to main/historical per the batch flag.
+    ///
+    /// The prefixed-but-unlisted rows deliberately differ from the v1 mapping
+    /// test. Do not align them until the AI ingestion pipeline admits the
+    /// prefix, because today it drops names outside the allowlist.
     #[rstest::rstest]
     // Dedicated-name lanes are unaffected by the historical flag.
     #[case("$exception", false, DataType::ExceptionErrorTracking)]

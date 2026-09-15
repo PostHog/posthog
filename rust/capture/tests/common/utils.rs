@@ -310,6 +310,10 @@ impl ServerHandle {
         let mut config = DEFAULT_CONFIG.clone();
         config.capture_v1_sinks = "msk".to_string();
         config.ai_gateway_signing_secret = Some(secret.to_string());
+        // Gateway provenance is AI-lane behaviour, and on v1 the AI lane is
+        // reachable only from an AI-mode deployment: the analytics endpoint
+        // refuses AI-lane event names outright.
+        config.capture_mode = CaptureMode::Ai;
         // The gateway tests send AI events, which route to the AI topic;
         // point it at the same ephemeral topic so the consumer sees them.
         config.kafka.capture_analytics_ai_events_topic = topic.topic_name().to_string();
@@ -415,7 +419,31 @@ impl ServerHandle {
             .expect("failed to send request")
     }
 
-    /// Like `capture_v1`, plus the AI-gateway provenance headers.
+    /// `capture_v1` against the AI lane's endpoint, for AI-mode deployments.
+    /// Same envelope and headers -- only the path differs.
+    pub async fn capture_v1_ai<T: Into<reqwest::Body>>(
+        &self,
+        token: &str,
+        body: T,
+    ) -> reqwest::Response {
+        self.client
+            .post(format!("http://{:?}/i/v1/ai/events", self.addr))
+            .header("authorization", format!("Bearer {token}"))
+            .header("PostHog-Sdk-Info", "posthog-rs/1.0.0")
+            .header("PostHog-Attempt", "1")
+            .header("PostHog-Request-Id", uuid::Uuid::new_v4().to_string())
+            .header("PostHog-Request-Timestamp", "2026-03-19T14:30:00.000Z")
+            .header("content-type", "application/json")
+            .header("user-agent", "test-client/1.0")
+            .body(body)
+            .send()
+            .await
+            .expect("failed to send request")
+    }
+
+    /// Like `capture_v1`, plus the AI-gateway provenance headers. Posts to the
+    /// AI endpoint: gateway-signed events are AI-lane events, which v1 accepts
+    /// only there.
     #[allow(clippy::too_many_arguments)]
     pub async fn capture_v1_with_gateway_headers<T: Into<reqwest::Body>>(
         &self,
@@ -426,7 +454,7 @@ impl ServerHandle {
         request_id: &str,
     ) -> reqwest::Response {
         self.client
-            .post(format!("http://{:?}/i/v1/analytics/events", self.addr))
+            .post(format!("http://{:?}/i/v1/ai/events", self.addr))
             .header("authorization", format!("Bearer {token}"))
             .header("PostHog-Sdk-Info", "posthog-rs/1.0.0")
             .header("PostHog-Attempt", "1")

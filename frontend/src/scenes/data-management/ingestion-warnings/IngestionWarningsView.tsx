@@ -58,6 +58,8 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     high_volume_distinct_id: 'Skipped person profile processing for a high-volume distinct ID',
     // Emitted by the capture service for its AI endpoints
     invalid_ai_event: 'Discarded an AI event with an unsupported event name or no $ai_model',
+    misrouted_event:
+        'Discarded an event sent to the wrong capture endpoint. Send events named $ai_* to the AI endpoint, and everything else to the analytics endpoint',
     invalid_ai_payload: 'Rejected a malformed AI or OpenTelemetry request',
     no_ai_spans_ingested: 'Accepted an OpenTelemetry export with no AI spans, so nothing was ingested',
     // Emitted by the capture service for its session replay endpoint
