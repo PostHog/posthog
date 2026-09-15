@@ -10,7 +10,12 @@ PROJECT_DELETION_DELAY = timedelta(hours=48)
 
 
 def start_delete_project_data_workflow(
-    *, team_ids: list[int], project_id: int | None, user_id: int, project_name: str
+    *,
+    team_ids: list[int],
+    project_id: int | None,
+    user_id: int,
+    project_name: str,
+    start_delay: timedelta | None = PROJECT_DELETION_DELAY,
 ) -> None:
     inputs = DeleteProjectDataWorkflowInputs(
         team_ids=team_ids, project_id=project_id, user_id=user_id, project_name=project_name
@@ -24,7 +29,7 @@ def start_delete_project_data_workflow(
             inputs,
             id=workflow_id,
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
-            start_delay=PROJECT_DELETION_DELAY if project_id is not None else None,
+            start_delay=start_delay if project_id is not None else None,
         )
 
     asyncio.run(_start())

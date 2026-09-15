@@ -22,7 +22,7 @@ export const scene: SceneExport = {
 }
 
 export function ProjectPendingDeletion(): JSX.Element {
-    const { currentProject, currentProjectLoading, deleteProjectNowLoading } = useValues(projectLogic)
+    const { currentProject, currentProjectLoading } = useValues(projectLogic)
     const { cancelProjectDeletion, deleteProjectNow } = useActions(projectLogic)
     const { user, otherOrganizations } = useValues(userLogic)
     const { isProjectSwitcherOpen, isOrgSwitcherOpen } = useValues(newAccountMenuLogic)
@@ -118,13 +118,13 @@ export function ProjectPendingDeletion(): JSX.Element {
             <LemonModal
                 isOpen={deleteNowModalVisible}
                 title="Delete this project now?"
-                onClose={deleteProjectNowLoading ? undefined : () => setDeleteNowModalVisible(false)}
+                onClose={currentProjectLoading ? undefined : () => setDeleteNowModalVisible(false)}
                 footer={
                     <>
                         <LemonButton
                             type="secondary"
                             onClick={() => setDeleteNowModalVisible(false)}
-                            disabled={deleteProjectNowLoading}
+                            disabled={currentProjectLoading}
                         >
                             Cancel
                         </LemonButton>
@@ -132,7 +132,8 @@ export function ProjectPendingDeletion(): JSX.Element {
                             type="primary"
                             status="danger"
                             onClick={() => deleteProjectNow()}
-                            loading={deleteProjectNowLoading}
+                            loading={currentProjectLoading}
+                            disabled={currentProjectLoading}
                             data-attr="delete-project-now-confirm"
                         >
                             Delete now

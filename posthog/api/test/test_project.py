@@ -596,6 +596,42 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertIsNone(self.project.deletion_scheduled_at)
         mock_cancel_delete_task.assert_called_once_with(project_id=self.project.id)
 
+    @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
+    def test_project_pending_deletion_can_be_deleted_now(self, mock_start_delete_task, mock_cancel_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.client.delete(f"/api/projects/{self.project.id}")
+
+        response = self.client.post(f"/api/projects/{self.project.id}/delete-now/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.project.refresh_from_db()
+        self.assertTrue(self.project.is_pending_deletion)
+        self.assertAlmostEqual(self.project.deletion_scheduled_at.timestamp(), timezone.now().timestamp(), delta=5)
+        mock_cancel_delete_task.assert_called_once_with(project_id=self.project.id)
+        # One call from the original scheduling, one immediate restart from delete-now.
+        self.assertEqual(mock_start_delete_task.call_count, 2)
+        self.assertIsNone(mock_start_delete_task.call_args_list[-1].kwargs["start_delay"])
+
+    @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
+    def test_project_deletion_now_rejected_when_deletion_already_started(
+        self, mock_start_delete_task, mock_cancel_delete_task
+    ):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.client.delete(f"/api/projects/{self.project.id}")
+        Project.objects.filter(id=self.project.id).update(deletion_scheduled_at=timezone.now() - timedelta(hours=1))
+        scheduling_calls = mock_start_delete_task.call_count
+
+        response = self.client.post(f"/api/projects/{self.project.id}/delete-now/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("already started", response.json()["detail"])
+        mock_cancel_delete_task.assert_not_called()
+        self.assertEqual(mock_start_delete_task.call_count, scheduling_calls)
+
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
     def test_project_deletion_returns_pending_deletion_in_api(self, mock_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
