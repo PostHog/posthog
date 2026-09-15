@@ -3,9 +3,15 @@ from uuid import UUID
 
 import pytest
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from posthog.schema import ErrorTrackingIssueStatus
 
-from posthog.temporal.weekly_digest.queries import query_new_error_issues
+from posthog.constants import AvailableFeature
+from posthog.models.organization import Organization
+from posthog.models.team import Team
+from posthog.temporal.weekly_digest.queries import query_new_error_issues, query_teams_for_digest
 
 from products.error_tracking.backend.facade.testing import create_issue
 
@@ -40,3 +46,23 @@ def test_query_new_error_issues_window_boundaries_and_status(team):
     # Only active issues created within the window, newest first
     assert [r["id"] for r in results] == [at_period_end, in_window]
     assert all(r["team_id"] == team.id for r in results)
+
+
+@pytest.mark.parametrize("with_organization", [False, True])
+def test_query_teams_for_digest_pages_a_batch_in_one_query(organization, with_organization):
+    internal_organization = Organization.objects.create(name="internal metrics", for_internal_metrics=True)
+    Team.objects.create(organization=internal_organization, name="internal metrics team")
+    Team.objects.create(organization=organization, name="demo team", is_demo=True)
+    digest_teams = [Team.objects.create(organization=organization, name=f"digest team {i}") for i in range(3)]
+
+    with CaptureQueriesContext(connection) as queries:
+        paged = []
+        for team in query_teams_for_digest(with_organization=with_organization):
+            # The fields the digest activities read off a paged team. Any one of them missing
+            # from the query would be lazily loaded here, one extra query per team.
+            paged.append((team.id, team.project_id, team.organization_id))
+            if with_organization:
+                team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
+
+    assert [team_id for team_id, _, _ in paged] == [team.id for team in digest_teams]
+    assert len(queries) == 1
