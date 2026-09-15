@@ -80,7 +80,8 @@ Only `is_dead` with high confidence becomes `dead`; everything else is `alive` o
 
 - One PR per cluster, `MAX_OPEN_REAPER_PRS` open at a time, size-capped by file count.
 - The deletion runs as a Tasks coding-agent run with `create_pr=True`, the same path the experiments flag cleanup uses.
-- The PR body is the evidence: scout numbers, the verifier's searches and argumentation, open questions, and an "archive the flag after merge" checklist.
+- The PR body is the evidence: the scout findings, the verifier's searches and argumentation, open questions, and an "archive the flag after merge" checklist.
+- The target repository can be public, so an allowlist (`logic/redaction.py`) decides which evidence fields the body carries. Event counts, internal ids, experiment names and the commit author stay in the tenant-scoped artefact and in the verification context.
 - A sync step maps the task run and the PR into `reaped`, then `buried` (merged) or `declined` (closed).
 
 ## Build phases
