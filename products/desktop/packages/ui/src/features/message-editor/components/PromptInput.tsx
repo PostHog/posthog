@@ -97,6 +97,13 @@ interface PromptInputProps {
    * rather than a separate widget attached outside it.
    */
   headerAddon?: React.ReactNode;
+  /**
+   * Folds the toolbar row away without unmounting it, for a surface that puts
+   * something else in the composer's chrome for as long as it lasts (a plan or
+   * a set of choices docked above the input). The row comes back the moment
+   * that clears.
+   */
+  toolbarCollapsed?: boolean;
   // Drop the toolbar row's own controls (attach/mode/model/reasoning/history).
   // The row itself is omitted unless a caller slot still needs it, and send
   // stays put — it lives in the box, not the row. Used by surfaces that want
@@ -160,6 +167,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
       submitAdornment,
       toolbarEndSlot,
       headerAddon,
+      toolbarCollapsed = false,
       hideDefaultToolbar = false,
       getPromptHistory,
       onPromptRecall,
@@ -483,7 +491,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
     const toolbar = (!hideDefaultToolbar ||
       toolbarEndSlot ||
       messagingModeToggle) && (
-      <div className="flex select-none items-center gap-1 whitespace-nowrap px-1 text-muted-foreground">
+      <div className="flex select-none items-center gap-1 whitespace-nowrap px-1 pt-1 text-muted-foreground">
         {!hideDefaultToolbar && (
           <>
             <AttachmentMenu
@@ -611,10 +619,23 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
     );
 
     return (
-      <Flex direction="column" gap="1">
+      <div className="flex flex-col">
         {composerRow}
-        {toolbar}
-      </Flex>
+        {toolbar && (
+          <div
+            className={clsx(
+              "grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none",
+              toolbarCollapsed ? "grid-rows-[0fr]" : "grid-rows-[1fr]",
+            )}
+          >
+            {/* Clipped to no height the row still holds focus and takes
+                clicks, so it is made inert for as long as it is folded. */}
+            <div className="overflow-hidden" inert={toolbarCollapsed}>
+              {toolbar}
+            </div>
+          </div>
+        )}
+      </div>
     );
   },
 );

@@ -6,6 +6,7 @@ import {
   ListChecks,
   X,
 } from "@phosphor-icons/react";
+import { cn } from "@posthog/quill";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { Box, Flex, IconButton, Text } from "@radix-ui/themes";
 import { useEffect, useRef, useState } from "react";
@@ -18,9 +19,19 @@ const planScrollPosition = new Map<string, number>();
 interface PlanContentProps {
   id: string;
   plan: string;
+  /**
+   * `clamped` stands on its own in the thread and caps at half the window.
+   * `fill` takes the height its flex parent gives it, for the composer panel
+   * that already caps how tall the plan can get.
+   */
+  height?: "clamped" | "fill";
 }
 
-export function PlanContent({ id, plan }: PlanContentProps) {
+export function PlanContent({
+  id,
+  plan,
+  height = "clamped",
+}: PlanContentProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -143,9 +154,12 @@ export function PlanContent({ id, plan }: PlanContentProps) {
   }
 
   return (
-    <Box
+    <div
       ref={scrollRef}
-      className="relative max-h-[50vh] max-w-[750px] overflow-y-auto rounded-lg border-2 border-blue-6 bg-blue-2 p-4"
+      className={cn(
+        "relative overflow-y-auto rounded-lg border-2 border-blue-6 bg-blue-2 p-4",
+        height === "fill" ? "min-h-0 grow" : "max-h-[50vh] max-w-[750px]",
+      )}
     >
       <Flex gap="2" className="sticky top-0 z-10 float-right">
         <Tooltip
@@ -175,7 +189,7 @@ export function PlanContent({ id, plan }: PlanContentProps) {
         </Tooltip>
       </Flex>
 
-      <Box className="plan-markdown text-blue-12">{markdown}</Box>
-    </Box>
+      <div className="plan-markdown text-blue-12">{markdown}</div>
+    </div>
   );
 }

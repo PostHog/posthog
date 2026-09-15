@@ -29,7 +29,13 @@ import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { useAutoFocusOnTyping } from "@posthog/ui/features/message-editor/useAutoFocusOnTyping";
 import { resolveAndAttachDroppedFiles } from "@posthog/ui/features/message-editor/utils/persistFile";
 import { PermissionSelector } from "@posthog/ui/features/permissions/PermissionSelector";
+import { isComposerPanelPermission } from "@posthog/ui/features/permissions/permissionKind";
 import { CloudStreamDisconnectedBanner } from "@posthog/ui/features/sessions/components/CloudSessionLifecycle";
+import { ComposerCard } from "@posthog/ui/features/sessions/components/ComposerCard";
+import {
+  ComposerPanelReopenChip,
+  ComposerPermissionPanel,
+} from "@posthog/ui/features/sessions/components/ComposerPermissionPanel";
 import { ComposerWidth } from "@posthog/ui/features/sessions/components/ComposerWidth";
 import { ContextUsageIndicator } from "@posthog/ui/features/sessions/components/ContextUsageIndicator";
 import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
@@ -54,6 +60,10 @@ import {
 } from "@posthog/ui/features/sessions/components/submitComposerPrompt";
 import { ThreadView } from "@posthog/ui/features/sessions/components/ThreadView";
 import { usePendingModelSwitch } from "@posthog/ui/features/sessions/components/usePendingModelSwitch";
+import {
+  useComposerPanelCollapsed,
+  useSetComposerPanelCollapsed,
+} from "@posthog/ui/features/sessions/composerPanelStore";
 import { CHAT_CONTENT_MAX_WIDTH } from "@posthog/ui/features/sessions/constants";
 import { useAutoCompact } from "@posthog/ui/features/sessions/hooks/useAutoCompact";
 import { useContextUsage } from "@posthog/ui/features/sessions/hooks/useContextUsage";
@@ -481,6 +491,25 @@ export function SessionView({
     return { ...permission, toolCallId };
   }, [pendingPermissions]);
 
+  // A plan or a question set is read before it is answered, so it docks in the
+  // composer card with the thread a click behind it. Everything else is a short
+  // yes or no and stays in the dock below the thread.
+  // Memoized because the check parses the tool call's metadata, and this
+  // renders again on every streamed token while the request is pending.
+  const panelPermission = useMemo(
+    () =>
+      firstPendingPermission &&
+      isComposerPanelPermission(firstPendingPermission.toolCall)
+        ? firstPendingPermission
+        : null,
+    [firstPendingPermission],
+  );
+  const dockPermission = panelPermission ? null : firstPendingPermission;
+  const panelToolCallId = panelPermission?.toolCall.toolCallId;
+  const isPanelCollapsed = useComposerPanelCollapsed(panelToolCallId);
+  const setPanelCollapsed = useSetComposerPanelCollapsed();
+  const isPanelOpen = !!panelPermission && !isPanelCollapsed;
+
   const handlePermissionSelect = useCallback(
     async (
       optionId: string,
@@ -678,25 +707,43 @@ export function SessionView({
                     onRetry={onRetry}
                   />
                 )}
-                <ThreadView
-                  events={events}
-                  isPromptPending={isPromptPending}
-                  promptStartedAt={promptStartedAt}
-                  repoPath={repoPath}
-                  taskId={taskId}
-                  task={task}
-                  slackThreadUrl={slackThreadUrl}
-                  compact={compact}
-                  scrollX={false}
-                  promptRecallRef={promptRecallRef}
-                  olderHistoryCursor={olderHistoryCursor}
-                  isLoadingOlderHistory={isLoadingOlderHistory}
-                  onLoadOlderHistory={handleLoadOlderHistory}
-                />
+                {/* The thread and its bars are grouped so the group is what
+                    gives way when the composer grows: it shrinks to nothing
+                    and clips, which puts the composer's ceiling at the top of
+                    the thread rather than past the window. The group is also
+                    what the panel's overlay covers. */}
+                <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+                  <ThreadView
+                    events={events}
+                    isPromptPending={isPromptPending}
+                    promptStartedAt={promptStartedAt}
+                    repoPath={repoPath}
+                    taskId={taskId}
+                    task={task}
+                    slackThreadUrl={slackThreadUrl}
+                    compact={compact}
+                    scrollX={false}
+                    promptRecallRef={promptRecallRef}
+                    olderHistoryCursor={olderHistoryCursor}
+                    isLoadingOlderHistory={isLoadingOlderHistory}
+                    onLoadOlderHistory={handleLoadOlderHistory}
+                  />
 
-                <PlanStatusBar plan={latestPlan} />
+                  <PlanStatusBar plan={latestPlan} />
 
-                {threadActions}
+                  {threadActions}
+
+                  {isPanelOpen && panelToolCallId && (
+                    // A click anywhere on the conversation closes the panel
+                    // instead of reaching what is behind it. The panel's own
+                    // close button carries the keyboard path.
+                    <div
+                      aria-hidden="true"
+                      onClick={() => setPanelCollapsed(panelToolCallId, true)}
+                      className="absolute inset-0 bg-background/60"
+                    />
+                  )}
+                </div>
 
                 {hasError && !showInlineBanner ? (
                   <Flex
@@ -741,114 +788,146 @@ export function SessionView({
                       )}
                     </Flex>
                   </Flex>
-                ) : hideInput ? null : firstPendingPermission ? (
+                ) : hideInput ? null : dockPermission ? (
                   // Keyed on when the prompt arrived, not just which tool call
                   // it belongs to, so a re-asked permission for the same call
                   // arrives shown rather than inheriting the last one's hidden
                   // state.
                   <PermissionDock
-                    key={`${firstPendingPermission.toolCall.toolCallId}-${firstPendingPermission.receivedAt}`}
+                    key={`${dockPermission.toolCall.toolCallId}-${dockPermission.receivedAt}`}
                     compact={compact}
                   >
                     <PermissionSelector
-                      toolCall={firstPendingPermission.toolCall}
-                      options={firstPendingPermission.options}
+                      toolCall={dockPermission.toolCall}
+                      options={dockPermission.options}
                       onSelect={handlePermissionSelect}
                       onCancel={handlePermissionCancel}
                     />
                   </PermissionDock>
                 ) : (
-                  <Box className="shrink-0">
-                    <ComposerWidth compact={compact}>
-                      {taskId && (
-                        <SessionSummaryPanel
-                          taskId={taskId}
-                          taskRunId={activeTaskRunId}
-                        />
-                      )}
-                      {taskId && (
-                        <SideQuestionCard
-                          taskId={taskId}
-                          taskRunId={activeTaskRunId}
-                        />
-                      )}
-                      {taskId && <QueuedMessagesDock taskId={taskId} />}
-                      <PromptInput
-                        ref={editorRef}
-                        sessionId={sessionId}
-                        placeholder={
-                          isRunning
-                            ? "Type a message... ! for bash mode, / for skills"
-                            : "Waiting for the agent..."
-                        }
-                        disabled={!isRunning}
-                        submitDisabledExternal={
-                          !isOnline ||
-                          attachmentsUploading ||
-                          attachmentUploadFailed ||
-                          spendStop !== null
-                        }
-                        clearOnSubmit={false}
-                        submitTooltipOverride={
-                          !isOnline
-                            ? "No internet connection"
-                            : attachmentsUploading
-                              ? "Uploading attachments…"
-                              : attachmentUploadFailed
-                                ? "Attachment upload failed"
-                                : spendStop
-                                  ? spendStopMessage(spendStop)
-                                  : undefined
-                        }
-                        isLoading={!!isPromptPending}
-                        isActiveSession={isActiveSession}
-                        taskId={taskId}
-                        repoPath={repoPath}
-                        modeOption={modeOption}
-                        onModeChange={modeOption ? handleModeChange : undefined}
-                        allowBypassPermissions={allowBypassPermissions}
-                        enableBashMode={!isCloudRun}
-                        modelSelector={null}
-                        reasoningSelector={
-                          thoughtOption || sessionModelOption ? (
-                            <ReasoningLevelSelector
-                              thoughtOption={thoughtOption}
-                              modelOption={sessionModelOption}
-                              adapter={adapter}
-                              contextWindowOption={contextWindowOption}
-                              fastModeOption={fastModeOption}
-                              onChange={handleThoughtChange}
-                              onConfigOptionChange={handleConfigOptionChange}
-                              disabled={!isRunning}
+                  <div className="flex max-h-full shrink-0 flex-col">
+                    <ComposerWidth compact={compact} fill>
+                      <ComposerCard
+                        panel={
+                          isPanelOpen && panelPermission && panelToolCallId ? (
+                            <ComposerPermissionPanel
+                              key={`${panelToolCallId}-${panelPermission.receivedAt}`}
+                              toolCall={panelPermission.toolCall}
+                              options={panelPermission.options}
+                              onSelect={handlePermissionSelect}
+                              onCancel={handlePermissionCancel}
+                              onClose={() =>
+                                setPanelCollapsed(panelToolCallId, true)
+                              }
                             />
-                          ) : null
-                        }
-                        messagingModeToggle={
-                          taskId ? (
-                            <SteerQueueToggle taskId={taskId} />
                           ) : undefined
                         }
-                        toolbarEndSlot={
-                          <ContextUsageIndicator
-                            usage={contextUsage}
-                            taskId={taskId}
-                            originProduct={task?.origin_product}
-                            focused={isActiveSession !== false}
-                          />
+                        controls={
+                          taskId ? (
+                            <>
+                              <SessionSummaryPanel
+                                taskId={taskId}
+                                taskRunId={activeTaskRunId}
+                              />
+                              <SideQuestionCard
+                                taskId={taskId}
+                                taskRunId={activeTaskRunId}
+                              />
+                              <QueuedMessagesDock taskId={taskId} />
+                            </>
+                          ) : undefined
                         }
-                        onToggleMessagingMode={toggleMessagingMode}
-                        onAttachmentsChange={handleAttachmentsChange}
-                        attachmentUploadStatuses={attachmentUploadStatuses}
-                        onPromptRecall={handlePromptRecall}
-                        onBeforeSubmit={handleBeforeSubmit}
-                        onSubmit={handleSubmit}
-                        onBashCommand={onBashCommand}
-                        onCancel={onCancelPrompt}
-                        isEditingQueued={isEditingQueued}
-                        onCancelEdit={cancelQueuedEdit}
-                      />
+                        controlsEnd={
+                          panelPermission && panelToolCallId && !isPanelOpen ? (
+                            <ComposerPanelReopenChip
+                              toolCall={panelPermission.toolCall}
+                              onOpen={() =>
+                                setPanelCollapsed(panelToolCallId, false)
+                              }
+                            />
+                          ) : undefined
+                        }
+                      >
+                        <PromptInput
+                          ref={editorRef}
+                          sessionId={sessionId}
+                          placeholder={
+                            isRunning
+                              ? "Type a message... ! for bash mode, / for skills"
+                              : "Waiting for the agent..."
+                          }
+                          disabled={!isRunning}
+                          submitDisabledExternal={
+                            !isOnline ||
+                            attachmentsUploading ||
+                            attachmentUploadFailed ||
+                            spendStop !== null
+                          }
+                          clearOnSubmit={false}
+                          submitTooltipOverride={
+                            !isOnline
+                              ? "No internet connection"
+                              : attachmentsUploading
+                                ? "Uploading attachments…"
+                                : attachmentUploadFailed
+                                  ? "Attachment upload failed"
+                                  : spendStop
+                                    ? spendStopMessage(spendStop)
+                                    : undefined
+                          }
+                          isLoading={!!isPromptPending}
+                          isActiveSession={isActiveSession}
+                          taskId={taskId}
+                          repoPath={repoPath}
+                          modeOption={modeOption}
+                          onModeChange={
+                            modeOption ? handleModeChange : undefined
+                          }
+                          allowBypassPermissions={allowBypassPermissions}
+                          enableBashMode={!isCloudRun}
+                          modelSelector={null}
+                          reasoningSelector={
+                            thoughtOption || sessionModelOption ? (
+                              <ReasoningLevelSelector
+                                thoughtOption={thoughtOption}
+                                modelOption={sessionModelOption}
+                                adapter={adapter}
+                                contextWindowOption={contextWindowOption}
+                                fastModeOption={fastModeOption}
+                                onChange={handleThoughtChange}
+                                onConfigOptionChange={handleConfigOptionChange}
+                                disabled={!isRunning}
+                              />
+                            ) : null
+                          }
+                          messagingModeToggle={
+                            taskId ? (
+                              <SteerQueueToggle taskId={taskId} />
+                            ) : undefined
+                          }
+                          toolbarEndSlot={
+                            <ContextUsageIndicator
+                              usage={contextUsage}
+                              taskId={taskId}
+                              originProduct={task?.origin_product}
+                              focused={isActiveSession !== false}
+                            />
+                          }
+                          onToggleMessagingMode={toggleMessagingMode}
+                          onAttachmentsChange={handleAttachmentsChange}
+                          attachmentUploadStatuses={attachmentUploadStatuses}
+                          onPromptRecall={handlePromptRecall}
+                          onBeforeSubmit={handleBeforeSubmit}
+                          onSubmit={handleSubmit}
+                          onBashCommand={onBashCommand}
+                          onCancel={onCancelPrompt}
+                          isEditingQueued={isEditingQueued}
+                          onCancelEdit={cancelQueuedEdit}
+                          toolbarCollapsed={isPanelOpen}
+                        />
+                      </ComposerCard>
                     </ComposerWidth>
-                  </Box>
+                  </div>
                 )}
               </>
             )}
