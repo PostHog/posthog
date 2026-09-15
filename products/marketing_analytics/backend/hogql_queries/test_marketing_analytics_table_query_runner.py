@@ -135,6 +135,29 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         assert response.results == []
         assert response.dataComputedAt is None
 
+    @patch(f"{_BASE_RUNNER}.handle_not_ready")
+    def test_compare_read_warms_the_period_that_missed(self, handle_not_ready):
+        # A compare read builds the previous period through a second runner with a shifted date range, and
+        # that runner is the one that goes not-ready first. Warming the requested window instead would
+        # leave the previous period cold, so every retry reports not-ready again.
+        query = MarketingAnalyticsTableQuery(
+            dateRange=self.default_date_range,
+            limit=DEFAULT_LIMIT,
+            offset=0,
+            properties=[],
+            compareFilter=CompareFilter(compare=True),
+            draftConversionGoal=self._create_test_conversion_goal("warm_me"),
+        )
+        runner = self._create_query_runner(query)
+        runner.config.conversion_goal_precomputation_enabled = True
+
+        response = runner.calculate()
+
+        assert response.precomputeNotReady is True
+        warmed = handle_not_ready.call_args.kwargs["query"]
+        assert warmed.dateRange.date_from < self.default_date_range.date_from
+        assert warmed.dateRange.date_to < self.default_date_range.date_to
+
     def test_initialization_basic(self):
         runner = self._create_query_runner()
 

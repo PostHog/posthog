@@ -19,6 +19,8 @@ import {
     MarketingAnalyticsTableQuery,
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn } from '~/queries/types'
+import { MarketingAnalyticsNotReady } from '~/scenes/marketing-analytics/MarketingAnalyticsNotReady'
+import { useMarketingAnalyticsNotReady } from '~/scenes/marketing-analytics/useMarketingAnalyticsNotReady'
 import { webAnalyticsDataTableQueryContext } from '~/scenes/web-analytics/tiles/WebAnalyticsTile'
 import { InsightLogicProps } from '~/types'
 
@@ -51,6 +53,7 @@ export const MarketingAnalyticsTable = ({
     const hasDrillDown = useFeatureFlag('MARKETING_ANALYTICS_DRILL_DOWN')
     const hasExtendedDrillDown = useFeatureFlag('MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN')
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
+    const precomputeNotReady = useMarketingAnalyticsNotReady(query.source, insightProps)
 
     const [searchTerm, setSearchTerm] = useState('')
 
@@ -213,15 +216,21 @@ export const MarketingAnalyticsTable = ({
                     />
                 </div>
             )}
-            <div className="relative marketing-analytics-table-container">
-                <Query
-                    attachTo={attachTo}
-                    query={query}
-                    readOnly={false}
-                    context={marketingAnalyticsContext}
-                    setQuery={setQuery}
-                />
-            </div>
+            {precomputeNotReady ? (
+                <div className="p-4">
+                    <MarketingAnalyticsNotReady />
+                </div>
+            ) : (
+                <div className="relative marketing-analytics-table-container">
+                    <Query
+                        attachTo={attachTo}
+                        query={query}
+                        readOnly={false}
+                        context={marketingAnalyticsContext}
+                        setQuery={setQuery}
+                    />
+                </div>
+            )}
             <MarketingAnalyticsColumnConfigModal query={query} />
         </div>
     )

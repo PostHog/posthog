@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 from functools import cached_property
-from typing import Generic, Optional, TypeVar
+from typing import Generic, Optional, Protocol, TypeVar, cast
 
 import structlog
 import posthoganalytics
@@ -80,6 +80,18 @@ class SkippedConversionGoal:
 logger = structlog.get_logger(__name__)
 
 ResponseType = TypeVar("ResponseType", bound=AnalyticsQueryResponseProtocol)
+
+
+class PrecomputeMetadataResponse(Protocol):
+    """The precompute-serving fields the conversion-goal responses carry.
+
+    Only the table, aggregated and non-integrated responses declare them; retention and
+    session-breakdown responses don't, and pydantic rejects unknown attributes.
+    """
+
+    precomputeNotReady: Optional[bool]
+    dataComputedAt: Optional[str]
+
 
 # Discriminator column tagging each row in the compare UNION ALL with its period.
 COMPARE_PERIOD_FIELD = "_period"
@@ -191,16 +203,15 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                 # A precomputable goal has no warm window: serve an explicit not-ready response rather than
                 # scan events live. Enqueue a one-off background warm so a cold team outside the rolling warm
                 # set is served on its next visit; the UI shows a "computing" state meanwhile.
-                handle_not_ready(team=self.team, query=self.query)
+                handle_not_ready(team=self.team, query=not_ready.query or self.query)
                 self._capture_query_event("marketing analytics query not ready", start, error=not_ready)
                 return self._build_not_ready_response()
             if self.limit_context == LimitContext.EXPORT:
                 strip_infinity_sentinels(response)
-            # Only the conversion-goal responses (table, aggregated, non-integrated) carry these; retention
-            # and session-breakdown responses don't, and pydantic rejects unknown attributes.
             if "precomputeNotReady" in getattr(type(response), "model_fields", {}):
-                response.precomputeNotReady = False
-                response.dataComputedAt = (
+                precompute_metadata = cast(PrecomputeMetadataResponse, response)
+                precompute_metadata.precomputeNotReady = False
+                precompute_metadata.dataComputedAt = (
                     self._precompute_computed_at.isoformat() if self._precompute_computed_at else None
                 )
             self._capture_query_event("marketing analytics query performed", start)
@@ -1186,6 +1197,17 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             self.config.drill_down_level = level
 
     def to_query(self) -> ast.SelectQuery:
+        try:
+            return self._build_query()
+        except MarketingPrecomputeNotReady as not_ready:
+            # Stamp the query this runner was building, so the read path warms the window that actually
+            # missed. A compare read builds the previous period through a second runner whose date range
+            # is shifted, and the first stamp wins because the raise unwinds straight out of that runner.
+            if not_ready.query is None:
+                not_ready.query = self.query
+            raise
+
+    def _build_query(self) -> ast.SelectQuery:
         """Generate the HogQL query using the new adapter architecture"""
         with self.timings.measure("marketing_analytics_base_query"):
             # Reset per build. Any read-path ensure served from expired-within-grace rows flips this, and

@@ -18,5 +18,5 @@ export const Fresh: Story = { args: { computedAt: dayjs().subtract(20, 'minute')
 // Older than the refresh window (warmer behind): warning badge.
 export const Behind: Story = { args: { computedAt: dayjs().subtract(5, 'hour').toISOString() } }
 
-// No precompute freshness known: renders nothing.
-export const Unknown: Story = { args: { computedAt: null } }
+// No precompute freshness known: renders nothing, so there is nothing to snapshot.
+export const Unknown: Story = { args: { computedAt: null }, tags: ['test-skip'] }
