@@ -2,7 +2,7 @@ from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Literal, Optional, Union, get_args
 
 from django.db import models
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
@@ -71,7 +71,16 @@ class Action(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Mode
     last_calculated_at = models.DateTimeField(default=timezone.now, blank=True)
 
     class Meta:
-        indexes = [models.Index(fields=["team_id", "-updated_at"])]
+        indexes = [
+            models.Index(fields=["team_id", "-updated_at"]),
+            # The legacy webhook consumers reload every webhook action on a timer. Almost no action
+            # has `post_to_slack` set, so this partial index keeps that reload off a sequential scan.
+            models.Index(
+                fields=["team_id", "id"],
+                name="posthog_action_webhook_idx",
+                condition=Q(post_to_slack=True, deleted=False),
+            ),
+        ]
         db_table = "posthog_action"
 
     def __str__(self) -> str:
