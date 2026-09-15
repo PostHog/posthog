@@ -1462,8 +1462,7 @@ export const billingLogic = kea<billingLogicType>([
                 const planName = capitalizeFirstLetter(trial.target)
 
                 // An autosubscribe trial becomes a paid subscription when it ends, but only when the
-                // organization has a subscription to add it to. A standard trial always just expires,
-                // so the charge warning belongs to the autosubscribe case and not to the standard one.
+                // organization has a subscription to add it to. A standard trial always just expires.
                 if (trial.type === 'autosubscribe' && values.billing.has_active_subscription) {
                     actions.setBillingAlert({
                         kind: 'trial',

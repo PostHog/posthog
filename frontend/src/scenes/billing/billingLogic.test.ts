@@ -5,6 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -54,7 +55,7 @@ const billingWithProducts = (
     custom_limits_usd: customLimitsUsd,
 })
 
-const hoursFromNow = (hours: number): string => new Date(Date.now() + hours * 60 * 60 * 1000).toISOString()
+const hoursFromNow = (hours: number): string => dayjs().add(hours, 'hour').toISOString()
 
 const billingWithTrial = (
     trial: NonNullable<BillingType['trial']>,
@@ -253,8 +254,9 @@ describe('billingLogic', () => {
         }).toFinishAllListeners()
 
         const alert = billingLogic.values.billingAlert
+        const bannerText = `${alert?.title} ${alert?.message}`
         expect(alert).toMatchObject({ kind: 'trial', status })
-        expect(`${alert?.title} ${alert?.message}`.includes('charged')).toBe(warnsAboutCharge)
+        expect(bannerText.includes('charged')).toBe(warnsAboutCharge)
     })
 
     it('stays quiet until an autosubscribe trial is within 72 hours of ending', async () => {
