@@ -2394,7 +2394,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 self._raise_if_breaker_forbids(cache_manager)
                 flight = None
         try:
-            return self._calculate_and_cache_blocking(
+            response = self._calculate_and_cache_blocking(
                 cache_key=cache_key,
                 cache_manager=cache_manager,
                 execution_mode=execution_mode,
@@ -2405,6 +2405,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 start_time=start_time,
                 analytics_props=analytics_props,
             )
+            if flight is not None:
+                flight.release(last_refresh=last_refresh_from_cached_result(response))
+                flight = None
+            return response
         finally:
             if flight is not None:
                 flight.release()
@@ -2422,27 +2426,24 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         user: Optional[User],
         analytics_props: Optional["AnalyticsProps"],
     ) -> Optional[CR]:
-        # Only an entry written during this flight can be the leader's. An entry that predates
-        # the wait means the leader failed or vanished, and the follower must run the query
-        # itself so that failure is not masked by earlier data, even data still fresh for this
-        # request.
-        before = cache_manager.freshness()
-        refreshed_before_wait = (
-            datetime.fromisoformat(before.last_refresh) if before is not None and before.last_refresh else None
-        )
-        outcome = flight.wait(FLIGHT_WAIT_SECONDS)
-        served = self.handle_cache_and_async_logic(
-            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-            cache_manager=cache_manager,
-            user=user,
-            analytics_props=analytics_props,
-        )
-        if isinstance(served, self.cached_response_type):
-            last_refresh = last_refresh_from_cached_result(served)
-            if last_refresh is not None and (refreshed_before_wait is None or last_refresh > refreshed_before_wait):
+        wait = flight.wait(FLIGHT_WAIT_SECONDS)
+        # The follower serves the entry the leader published and nothing else. Any other entry
+        # means the leader's write did not land, and the follower must run the query itself so
+        # that failure is not masked by earlier data, even data still fresh for this request.
+        if wait.outcome == "done":
+            served = self.handle_cache_and_async_logic(
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                cache_manager=cache_manager,
+                user=user,
+                analytics_props=analytics_props,
+            )
+            if (
+                isinstance(served, self.cached_response_type)
+                and last_refresh_from_cached_result(served) == wait.last_refresh
+            ):
                 QUERY_SINGLE_FLIGHT_COUNTER.labels(action="follower_served_cache").inc()
                 return served
-        QUERY_SINGLE_FLIGHT_COUNTER.labels(action=f"follower_fallback_{outcome}").inc()
+        QUERY_SINGLE_FLIGHT_COUNTER.labels(action=f"follower_fallback_{wait.outcome}").inc()
         return None
 
     def _report_result_from_cache(

@@ -92,7 +92,7 @@ from posthog.query_cache.failures import (
     QUERY_FAILURE_CACHING_FLAG,
     QueryFailureCache,
 )
-from posthog.query_cache.single_flight import QUERY_SINGLE_FLIGHT_FLAG, QuerySingleFlight
+from posthog.query_cache.single_flight import QUERY_SINGLE_FLIGHT_FLAG, FlightWait, QuerySingleFlight
 from posthog.query_cache.storage import entry_redis_key
 from posthog.shared_link_user import SharedLinkUser
 from posthog.slo.types import SloOutcome
@@ -1972,7 +1972,9 @@ class TestQuerySingleFlightRunner(BaseTest):
         super().tearDown()
         cache.clear()
 
-    def _become_follower(self, wait_result: Any = "released") -> None:
+    def _become_follower(self, wait_result: Any = None) -> None:
+        if wait_result is None:
+            wait_result = FlightWait(outcome="released")
         wait_kwargs = {"side_effect": wait_result} if callable(wait_result) else {"return_value": wait_result}
         for name, kwargs in (("acquire", {"return_value": False}), ("wait", wait_kwargs)):
             patcher = mock.patch.object(QuerySingleFlight, name, autospec=True, **kwargs)
@@ -1993,11 +1995,17 @@ class TestQuerySingleFlightRunner(BaseTest):
 
         assert QuerySingleFlight(runner.get_cache_key()).acquire() is True
 
-    @parameterized.expand([("leader_left_no_result", "released"), ("wait_timed_out", "timeout")])
-    def test_follower_runs_the_query_itself_when_the_leader_leaves_nothing(self, _name, wait_outcome):
+    @parameterized.expand(
+        [
+            ("leader_left_no_result", FlightWait(outcome="released")),
+            ("wait_timed_out", FlightWait(outcome="timeout")),
+            ("published_entry_never_landed", FlightWait(outcome="done", last_refresh=datetime(2026, 1, 1, tzinfo=UTC))),
+        ]
+    )
+    def test_follower_runs_the_query_itself_when_the_leader_leaves_nothing(self, _name, wait_result):
         runner_class = setup_test_query_runner_class()
         runner = runner_class(query={"some_attr": "bla"}, team=self.team)
-        self._become_follower(wait_outcome)
+        self._become_follower(wait_result)
         with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_flag):
             response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         assert response.is_cached is False
@@ -2006,9 +2014,9 @@ class TestQuerySingleFlightRunner(BaseTest):
         runner_class = setup_test_query_runner_class()
         runner = runner_class(query={"some_attr": "bla"}, team=self.team)
 
-        def leader_fails_while_we_wait(*args: Any, **kwargs: Any) -> str:
+        def leader_fails_while_we_wait(*args: Any, **kwargs: Any) -> FlightWait:
             QueryFailureCache(runner.get_cache_key()).record_failure("memory_limit", "oom")
-            return "released"
+            return FlightWait(outcome="released")
 
         self._become_follower(leader_fails_while_we_wait)
         with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_and_failure_caching_flags):
@@ -2025,13 +2033,13 @@ class TestQuerySingleFlightRunner(BaseTest):
                 execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
             )  # an earlier entry, still fresh for this request
 
-            def leader_writes_while_we_wait(*args: Any, **kwargs: Any) -> str:
+            def leader_writes_while_we_wait(*args: Any, **kwargs: Any) -> FlightWait:
                 frozen.shift(timedelta(seconds=1))
                 with mock.patch("posthoganalytics.feature_enabled", return_value=False):
-                    runner_class(query={"some_attr": "bla"}, team=self.team).run(
+                    leader_response = runner_class(query={"some_attr": "bla"}, team=self.team).run(
                         execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
                     )
-                return "released"
+                return FlightWait(outcome="done", last_refresh=leader_response.last_refresh)
 
             runner = runner_class(query={"some_attr": "bla"}, team=self.team)
             self._become_follower(leader_writes_while_we_wait)
