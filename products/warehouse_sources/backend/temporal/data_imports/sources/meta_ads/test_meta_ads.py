@@ -1343,6 +1343,8 @@ class TestNonRetryableErrors:
             'Meta API request failed: 400 - {"error":{"message":"(#200) Ad account owner has NOT granted ads_management or ads_read permission.","type":"OAuthException","code":200}}',
             # 400 when a specific endpoint cannot be accessed with the granted permissions.
             'Meta API request failed: 400 - {"error":{"message":"(#100) This endpoint cannot be loaded due to missing permissions."}}',
+            # 400 with the shorter, generic sibling message for the same missing-permission condition.
+            'Meta API request failed: 400 - {"error":{"message":"(#100) Missing perms","type":"OAuthException","code":100}}',
             # 400 when a business_management-gated field is requested without that scope.
             'Meta API request failed: 400 - {"error":{"message":"(#200) Requires business_management permission to manage the object.","type":"OAuthException","code":200}}',
             # 400 when the source's configured attribution windows include a value Meta's
