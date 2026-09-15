@@ -137,8 +137,9 @@ A run that re-checks a live report has a different job from a run that finds a n
 
 ## Estimate the net saving
 
-- Cacheable tokens equal the measured prefix length times the calls that read it back. The first call in each cache window writes and does not read.
-- The gross saving equals cacheable tokens times the input rate times the discount: 0.9 for Claude, 0.5 for the auto-cache families.
+- Cacheable tokens equal the measured prefix length times the calls that would read it back after the fix: the calls after the first write inside each cache window. Derive the count from the call spacing, not from observed `cache_read`, which stays zero until the fix ships.
+- The gross saving equals cacheable tokens times the gap between the standard and the cached input rate.
+- Look up the cached rate per provider and model. Claude bills cache reads at 0.1 times the input rate. OpenAI bills 0.25 to 0.5, and Gemini bills 0.1 plus an hourly storage fee. Do not assume one discount across families.
 - Subtract the write surcharge for providers that charge for writes. Count only the surcharge above the input rate, not the full write price: the write replaces input the call already pays for. The surcharge depends on the cache TTL: Anthropic bills five-minute writes at 1.25 times the input rate and one-hour writes at 2 times. Price the surcharge at the TTL the fix would use. A path that mostly writes and rarely reads still gets more expensive, not cheaper.
 - Report the net figure in dollars. State a percentage only against the workload's full cost, output and per-request fees included, or label it as a share of input token cost.
 - Never scale a saving by the total tokens of the calls that share a prefix. Only the shared part is cacheable. That mistake turns a short system prompt into a large fake number.
