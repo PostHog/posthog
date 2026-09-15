@@ -230,11 +230,19 @@ def _iter_all_pages(
     url: str,
     headers: dict[str, str],
     logger: FilteringBoundLogger,
+    tolerated_statuses: tuple[int, ...] = (),
     paginate_by_offset: bool = False,
 ) -> Iterator[dict[str, Any]]:
     """Yield every item across all pages of a list endpoint, following its next-page cursor."""
     while True:
-        items, next_url = _fetch_list_page(session, url, headers, logger, paginate_by_offset=paginate_by_offset)
+        items, next_url = _fetch_list_page(
+            session,
+            url,
+            headers,
+            logger,
+            tolerated_statuses=tolerated_statuses,
+            paginate_by_offset=paginate_by_offset,
+        )
         yield from items
         if not next_url:
             return
@@ -308,12 +316,23 @@ def _project_span_group_ids(
     project_id: str,
     logger: FilteringBoundLogger,
 ) -> list[str]:
-    """The project's span groups, in name order, capped for per-group fan-out."""
+    """The project's span groups, in name order, capped for per-group fan-out.
+
+    The listing carries the endpoint's tolerated statuses because a project that never enabled
+    BugSnag Performance answers here, not on the child path. Without them one such project fails
+    the whole table instead of contributing no parents."""
     url = _build_url(
         f"{BUGSNAG_BASE_URL}/projects/{project_id}/span_groups",
         {"per_page": PAGE_SIZE, "sort": "name", "direction": "asc"},
     )
-    pages = _iter_all_pages(session, url, headers, logger, paginate_by_offset=True)
+    pages = _iter_all_pages(
+        session,
+        url,
+        headers,
+        logger,
+        tolerated_statuses=config.missing_data_statuses,
+        paginate_by_offset=True,
+    )
     groups = _take_capped(pages, config.max_parents_per_project, "span groups", project_id, logger)
     return [group["id"] for group in groups]
 

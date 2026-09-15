@@ -889,3 +889,25 @@ class TestSpanGroupSpans:
         }
         rows, _requested = _collect_via_responses("span_group_spans", responses, _FakeResumableManager(), monkeypatch)
         assert [row["span_group_id"] for row in rows] == ["1.app_start.Cold"]
+
+    def test_project_without_performance_contributes_no_parents(self, monkeypatch: Any) -> None:
+        # A project that never enabled BugSnag Performance answers on the span group listing, which
+        # is the parent enumeration rather than the child path. The 404 must leave that project with
+        # no parents instead of failing the whole table for every other project.
+        spans_url = (
+            "https://api.bugsnag.com/projects/p2/span_groups/1.app_start.Cold"
+            "/spans?per_page=100&sort=timestamp&direction=desc"
+        )
+        responses = {
+            _ORGS_URL: _make_response(200, body=[{"id": "o1"}]),
+            _PROJECTS_URL: _make_response(200, body=[{"id": "p1"}, {"id": "p2"}], link=None),
+            "https://api.bugsnag.com/projects/p1/span_groups?per_page=100&sort=name&direction=asc": _make_response(
+                404, body={"errors": ["Project not found"]}
+            ),
+            "https://api.bugsnag.com/projects/p2/span_groups?per_page=100&sort=name&direction=asc": _make_response(
+                200, body=[{"id": "1.app_start.Cold"}]
+            ),
+            spans_url: _make_response(200, body=[{"id": "s1"}]),
+        }
+        rows, _requested = _collect_via_responses("span_group_spans", responses, _FakeResumableManager(), monkeypatch)
+        assert [row["project_id"] for row in rows] == ["p2"]
