@@ -14,6 +14,7 @@ from posthog.models.team.team import Team
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig
 from products.tasks.backend.logic.services.sandbox_pricing import ComputeRateCard, ComputeRateCardConfigurationError
 from products.tasks.backend.logic.services.sandbox_usage import (
+    SandboxDestroyOutcome,
     close_sandbox_session,
     get_billable_sandbox_compute_usage_by_team,
     get_task_sandbox_usage_by_team,
@@ -211,17 +212,23 @@ class TestSandboxSessionWrites(SandboxUsageBase):
 
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_close_captures_analytics_once(self, mock_capture):
-        run = self._run()
+        run = self._run(state={"sandbox_backend": "hogland"})
         open_sandbox_session(run_id=run.id, sandbox_id="sb-analytics", config=_config())
         record_task_run_user_activity(run.id, self.team.id)
 
-        close_sandbox_session("sb-analytics", reason=SandboxSession.EndedReason.CLEANUP)
+        close_sandbox_session(
+            "sb-analytics",
+            reason=SandboxSession.EndedReason.CLEANUP,
+            destroy_outcome=SandboxDestroyOutcome.FAILED,
+        )
         close_sandbox_session("sb-analytics", reason=SandboxSession.EndedReason.REAPED)
 
         captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "sandbox_session_closed"]
         assert len(captured) == 1
         props = captured[0].kwargs["properties"]
         assert props["ended_reason"] == SandboxSession.EndedReason.CLEANUP
+        assert props["destroy_outcome"] == SandboxDestroyOutcome.FAILED
+        assert props["sandbox_backend"] == "hogland"
         assert props["runtime_seconds"] >= 0
         assert props["idle_seconds"] >= 0
         assert props["prewarmed"] is False

@@ -24,6 +24,7 @@ from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
 from products.tasks.backend.logic.services.sandbox_usage import (
+    SandboxDestroyOutcome,
     close_sandbox_session,
     measure_sandbox_billed_cpu_usage,
     measure_sandbox_cpu_usage,
@@ -87,6 +88,7 @@ def reap_orphaned_sandbox(input: ReapOrphanedSandboxInput) -> ReapOrphanedSandbo
         close_sandbox_session(
             sandbox_id,
             reason=SandboxSession.EndedReason.REAPED,
+            destroy_outcome=(SandboxDestroyOutcome.SUCCEEDED if destroy_succeeded else SandboxDestroyOutcome.FAILED),
             cpu_usage_usec=cpu_usage_usec,
             billed_cpu_usage_usec=billed_cpu_usage_usec,
             cpu_usage_measured_at=cpu_usage_measured_at,

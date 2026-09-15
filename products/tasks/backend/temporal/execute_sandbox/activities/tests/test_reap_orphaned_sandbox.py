@@ -5,6 +5,7 @@ from unittest.mock import ANY, Mock, patch
 
 from asgiref.sync import async_to_sync
 
+from products.tasks.backend.logic.services.sandbox_usage import SandboxDestroyOutcome
 from products.tasks.backend.temporal.execute_sandbox.activities.reap_orphaned_sandbox import (
     ReapOrphanedSandboxInput,
     reap_orphaned_sandbox,
@@ -107,6 +108,7 @@ class TestReapOrphanedSandbox:
         close_session.assert_called_once_with(
             "sb-orphan",
             reason="reaped",
+            destroy_outcome=SandboxDestroyOutcome.SUCCEEDED,
             cpu_usage_usec=12_345_678,
             billed_cpu_usage_usec=15_000_000,
             cpu_usage_measured_at=ANY,
