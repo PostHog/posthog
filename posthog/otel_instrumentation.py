@@ -145,7 +145,7 @@ def initialize_otel():
         # shutdown_on_exit=False: the SDK's own atexit hook calls provider.shutdown(),
         # which joins the BatchSpanProcessor export thread WITHOUT a timeout. If the
         # OTLP collector is unreachable, that thread sits in the gRPC exporter's
-        # retry/backoff loop (~63s of sleeps per batch, and the exporter's shutdown
+        # retry/backoff loop (up to OTEL_EXPORTER_OTLP_TIMEOUT, 10s by default, per batch, and the exporter's shutdown
         # flag is only set after the join returns), so every process exit hangs until
         # SIGKILL — under granian this turns each worker stop into a
         # "refused to gracefully stop" hard kill. A bounded force_flush gives spans
