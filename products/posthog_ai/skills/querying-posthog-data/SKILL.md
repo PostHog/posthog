@@ -74,7 +74,7 @@ Don't try to reconstruct the entity from SQL — `execute-sql` is for discovery,
 
 ### Querying analytics data
 
-When the user wants analytics data and no typed query tool can express the request:
+When SQL is the selected method for an analytics request:
 
 1. Look for a matching example under Analytics Query Examples. The list is not exhaustive — there may not be an example for every scenario. If one is a close fit (same domain, similar aggregation), read it; otherwise skip this step.
 2. Adapt the example query (if one was found) to the user's request and run it via `posthog:execute-sql`. If no example fit, compose the query from scratch using the Data Schema and HogQL References.
