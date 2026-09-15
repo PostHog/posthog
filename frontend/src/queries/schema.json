@@ -2592,11 +2592,11 @@
             "description": "This filter only works with absolute dates. A bound without a UTC offset is read in the project timezone.",
             "properties": {
                 "date_from": {
-                    "description": "ISO8601 date string. A calendar day without a time (`2026-09-01`) starts at the first moment of that day.",
+                    "description": "ISO8601 date string.",
                     "type": "string"
                 },
                 "date_to": {
-                    "description": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive: the window ends at the last moment of that day, so events on that day are in the results.",
+                    "description": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
                     "type": ["string", "null"]
                 }
             },
@@ -20653,7 +20653,7 @@
                     "type": ["string", "null"]
                 },
                 "date_to": {
-                    "description": "End of the date range. Same format as date_from. Omit or null for \"now\".",
+                    "description": "End of the date range. Same format as date_from. Omit or null for \"now\". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set.",
                     "type": ["string", "null"]
                 },
                 "daysOfWeek": {

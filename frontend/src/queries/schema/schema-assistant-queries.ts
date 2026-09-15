@@ -41,13 +41,11 @@ import { integer, positive_integer } from './type-utils'
  */
 export interface AssistantDateRange {
     /**
-     * ISO8601 date string. A calendar day without a time (`2026-09-01`) starts at the first moment of that day.
+     * ISO8601 date string.
      */
     date_from: string
     /**
-     * ISO8601 date string.
-     * A calendar day without a time (`2026-09-01`) is inclusive: the window ends at the last moment of that day,
-     * so events on that day are in the results.
+     * ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.
      */
     date_to?: string | null
 }

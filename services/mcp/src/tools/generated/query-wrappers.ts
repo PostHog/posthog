@@ -65,16 +65,12 @@ const CompareFilter = z.object({
 })
 
 const AssistantDateRange = z.object({
-    date_from: z
-        .string()
-        .describe(
-            'ISO8601 date string. A calendar day without a time (`2026-09-01`) starts at the first moment of that day.'
-        ),
+    date_from: z.string().describe('ISO8601 date string.'),
     date_to: z
         .string()
         .nullable()
         .describe(
-            'ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive: the window ends at the last moment of that day, so events on that day are in the results.'
+            'ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.'
         )
         .optional(),
 })

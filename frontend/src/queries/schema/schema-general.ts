@@ -6320,7 +6320,10 @@ export interface DateRange {
      * -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year).
      */
     date_from?: string | null
-    /** End of the date range. Same format as date_from. Omit or null for "now". */
+    /** End of the date range. Same format as date_from. Omit or null for "now".
+     * A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment
+     * of that day in the project timezone, unless explicitDate is set.
+     */
     date_to?: string | null
     /** Whether the date_from and date_to should be used verbatim. Disables
      * rounding to the start and end of period.

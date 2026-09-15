@@ -89,12 +89,11 @@ You should not filter events by time using property filters. Instead, use the `d
 ### Date boundaries
 
 A `date_to` with no time is an inclusive calendar day.
-The window ends at the last moment of that day in the project timezone, so events on that day are in the results.
-Give a full timestamp to end the window at an exact instant instead.
+Give a full timestamp instead to end the window at an exact instant.
+Both forms below cover all of August and nothing in September.
 
-- All of August: `{ "date_from": "2026-08-01", "date_to": "2026-08-31" }`.
-- The same window written as exact instants: `{ "date_from": "2026-08-01T00:00:00Z", "date_to": "2026-09-01T00:00:00Z" }`.
-- 1 September only: `{ "date_from": "2026-09-01", "date_to": "2026-09-01" }`.
+- `{ "date_from": "2026-08-01", "date_to": "2026-08-31" }`
+- `{ "date_from": "2026-08-01T00:00:00Z", "date_to": "2026-09-01T00:00:00Z" }`
 
 # Funnel guidelines
 
