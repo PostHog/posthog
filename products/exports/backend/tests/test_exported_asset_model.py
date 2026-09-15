@@ -12,7 +12,7 @@ from posthog.storage.object_storage import ObjectStorageError
 from products.exports.backend.models.exported_asset import (
     SEVEN_DAYS,
     SIX_MONTHS,
-    TWELVE_MONTHS,
+    THIRTY_DAYS,
     ExportedAsset,
     get_content_response,
     save_content_from_file,
@@ -117,9 +117,9 @@ class TestExportedAssetExpiresAfter(APIBaseTest):
             (ExportedAsset.ExportFormat.PDF, SIX_MONTHS),
             (ExportedAsset.ExportFormat.CSV, SEVEN_DAYS),
             (ExportedAsset.ExportFormat.XLSX, SEVEN_DAYS),
-            (ExportedAsset.ExportFormat.MP4, TWELVE_MONTHS),
-            (ExportedAsset.ExportFormat.WEBM, TWELVE_MONTHS),
-            (ExportedAsset.ExportFormat.GIF, TWELVE_MONTHS),
+            (ExportedAsset.ExportFormat.MP4, THIRTY_DAYS),
+            (ExportedAsset.ExportFormat.WEBM, THIRTY_DAYS),
+            (ExportedAsset.ExportFormat.GIF, THIRTY_DAYS),
             (ExportedAsset.ExportFormat.JSON, SIX_MONTHS),
             (ExportedAsset.ExportFormat.JSONL, SEVEN_DAYS),
         ]

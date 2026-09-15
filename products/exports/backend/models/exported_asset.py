@@ -33,8 +33,8 @@ EXPORTED_ASSET_PURPOSE_SUBSCRIPTION_DELIVERY = "subscription_delivery"
 DATASET_EXPORT_KIND = "dataset"
 
 SEVEN_DAYS = timedelta(days=7)
+THIRTY_DAYS = timedelta(days=30)
 SIX_MONTHS = timedelta(days=180)
-TWELVE_MONTHS = timedelta(days=365)
 
 
 # The rasterizer interpolates this id into an internal recording API path, so anything that could
@@ -166,7 +166,9 @@ class ExportedAsset(models.Model):
         if export_format in (cls.ExportFormat.CSV, cls.ExportFormat.XLSX, cls.ExportFormat.JSONL):
             return SEVEN_DAYS
         elif export_format in (cls.ExportFormat.MP4, cls.ExportFormat.WEBM, cls.ExportFormat.GIF):
-            return TWELVE_MONTHS
+            # The bucket's `exports-video` lifecycle rule drops the file at 30 days, so a longer row
+            # would outlive what it points at.
+            return THIRTY_DAYS
         return SIX_MONTHS
 
     @classmethod
