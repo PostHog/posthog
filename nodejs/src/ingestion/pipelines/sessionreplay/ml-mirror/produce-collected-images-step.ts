@@ -6,10 +6,10 @@ import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/ml
 import { ML_IMAGE_SCRUB_OUTPUT, MlImageScrubOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-dedup-cache'
 
+import { MlKeyBatchController } from './keys/batch-controller'
+import { encryptedKafkaValue, mlWireVersion, validateImageOwner } from './keys/transport'
 import { MlMirrorMetrics } from './metrics'
 import { CollectedImage } from './parse-and-anonymize-step'
-import { MlPrivacyBatchController } from './privacy/batch-controller'
-import { encryptedKafkaValue, mlWireVersion, validateImageOwner } from './privacy/transport'
 import { usesRawSessionIdentifiers } from './session-identifier-format'
 
 /**
@@ -39,7 +39,7 @@ export function createProduceCollectedImagesStep<
 >(
     outputs: IngestionOutputs<MlImageScrubOutput>,
     producedRefCacheMax: number = PRODUCED_REF_CACHE_MAX,
-    privacy?: MlPrivacyBatchController
+    keyManager?: MlKeyBatchController
 ): ProcessingStep<T, T> {
     const producedRefs = new RefDedupCache('image_scrub_producer', producedRefCacheMax)
 
@@ -47,7 +47,7 @@ export function createProduceCollectedImagesStep<
         const sessionId = input.headers?.session_id
         const key =
             sessionId && usesRawSessionIdentifiers(sessionId) && input.team
-                ? privacy?.keys(input.team.teamId, sessionId)?.session
+                ? keyManager?.keys(input.team.teamId, sessionId)?.session
                 : undefined
         const images = input.collectedImages
         if (!images?.length) {

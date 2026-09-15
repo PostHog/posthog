@@ -16,9 +16,9 @@ import { BlockMetadataParquetStore } from '~/ingestion/pipelines/sessionreplay/m
 import { toBlockMetadataRow } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-row'
 import { createNoopBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 
-import { MlPrivacyBatchController } from './batch-controller'
+import { MlKeyBatchController } from './batch-controller'
 import { MlKeyEncryption } from './crypto'
-import { DynamoItem, MlPrivacyDynamoDB, encodeKey } from './dynamodb'
+import { DynamoItem, MlKeyDynamoDB, encodeKey } from './dynamodb'
 import { MlSessionKeyStore } from './key-store'
 import { MlKeyReader } from './reader'
 import { MlSessionIdentity, imageKeyId, monthKeyIndexId, sessionKeyId, tableKeyString, teamBlockId } from './schema'
@@ -97,7 +97,7 @@ describe('ML session key batches', () => {
             1_000_000_000
         )
         await encryption.start()
-        const db = new MlPrivacyDynamoDB(boundary as unknown as DynamoDBClient, table)
+        const db = new MlKeyDynamoDB(boundary as unknown as DynamoDBClient, table)
         store = new MlSessionKeyStore(db, encryption)
         reader = new MlKeyReader(db, encryption)
     })
@@ -333,9 +333,9 @@ describe('ML session key batches', () => {
         expect(generated).toBe(2)
     })
 
-    it('publishes a bounded concurrent batch only after privacy writes commit', async () => {
+    it('publishes a bounded concurrent batch only after key writes commit', async () => {
         const identity = { ...session, sessionId: '01a0a4f0-3200-7000-8000-000000000001' }
-        const controller = new MlPrivacyBatchController(store, encryption)
+        const controller = new MlKeyBatchController(store, encryption)
         await controller.prepare([identity])
         let release!: () => void
         const delivery = new Promise<void>((resolve) => {

@@ -27,14 +27,14 @@ import {
 } from '~/ingestion/pipelines/sessionreplay/session-replay-pipeline-stages'
 import { MlImageFetchOutput, MlImageScrubOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 
+import { MlKeyBatchController } from './keys/batch-controller'
 import { createParseAndAnonymizeMessageStep } from './parse-and-anonymize-step'
-import { MlPrivacyBatchController } from './privacy/batch-controller'
 import { mlSessionIdDropReason } from './session-identifier-format'
 
 export interface MlMirrorPipelineOptions {
     /** Cap on sessions scrubbed concurrently; each in-flight scrub occupies a libuv threadpool thread. */
     anonymizeMaxConcurrency: number
-    privacy?: MlPrivacyBatchController
+    keyManager?: MlKeyBatchController
     nowMs?: () => number
 }
 
@@ -92,7 +92,7 @@ export function createMlMirrorReplayPipeline(
     function deferPublication<T extends RecordSessionEventStepInput & { headers: { session_id: string } }>(
         step: ProcessingStep<T, T>
     ): ProcessingStep<T, T> {
-        return mlOptions.privacy ? (input) => mlOptions.privacy!.defer(input, step) : step
+        return mlOptions.keyManager ? (input) => mlOptions.keyManager!.defer(input, step) : step
     }
 
     return newBatchingPipeline<
@@ -105,7 +105,7 @@ export function createMlMirrorReplayPipeline(
     >(
         (beforeBatch) =>
             beforeBatch.pipe(function passThroughBeforeBatch(input) {
-                mlOptions.privacy?.reset()
+                mlOptions.keyManager?.reset()
                 return Promise.resolve(ok(input))
             }),
         (batch) =>
@@ -120,12 +120,12 @@ export function createMlMirrorReplayPipeline(
                                     .pipe(createAiTrainingOptInFilterStep())
                             )
                             .gather()
-                            .pipeChunk(async function readMlPrivacyBatch(values) {
-                                if (mlOptions.privacy) {
-                                    await mlOptions.privacy.prepare(
+                            .pipeChunk(async function readMlKeyBatch(values) {
+                                if (mlOptions.keyManager) {
+                                    await mlOptions.keyManager.prepare(
                                         values.map((value) => {
                                             if (!value.team.organizationId) {
-                                                throw new Error('ML privacy requires organization ownership')
+                                                throw new Error('ML key manager requires organization ownership')
                                             }
                                             return {
                                                 teamId: value.team.teamId,
@@ -161,7 +161,7 @@ export function createMlMirrorReplayPipeline(
                                                             collection?.collectImages || collection?.collectUrls
                                                                 ? collection
                                                                 : undefined,
-                                                            mlOptions.privacy
+                                                            mlOptions.keyManager
                                                         ),
                                                         [
                                                             timer('parse_time_ms_by_session_id', (input) => ({
@@ -177,7 +177,7 @@ export function createMlMirrorReplayPipeline(
                                                               createProduceCollectedImagesStep(
                                                                   imageScrub.outputs,
                                                                   imageScrub.producedRefCacheMax,
-                                                                  mlOptions.privacy
+                                                                  mlOptions.keyManager
                                                               )
                                                           )
                                                       )
@@ -190,7 +190,7 @@ export function createMlMirrorReplayPipeline(
                                                                   producedRefCacheWindowMs:
                                                                       urlFetch.producedRefCacheWindowMs,
                                                                   crawlHistory: urlFetch.crawlHistory,
-                                                                  privacy: mlOptions.privacy,
+                                                                  keyManager: mlOptions.keyManager,
                                                               })
                                                           )
                                                       )
@@ -218,7 +218,7 @@ export function createMlMirrorReplayPipeline(
                 .gather(),
         (afterBatch) =>
             afterBatch.pipe(async function passThroughAfterBatch(input) {
-                await mlOptions.privacy?.commit()
+                await mlOptions.keyManager?.commit()
                 return ok(input)
             }),
         // One batch in flight at a time (also the framework default): each feed tags the manager's

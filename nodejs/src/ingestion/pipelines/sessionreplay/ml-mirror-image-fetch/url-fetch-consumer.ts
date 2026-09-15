@@ -6,7 +6,7 @@ import {
     MlKafkaEncryption,
     ingestionVersion,
     validateImageOwner,
-} from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/transport'
+} from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/transport'
 
 import { fetchCandidateHistoryKey } from './collected-urls-record'
 import {
@@ -56,7 +56,7 @@ export class UrlFetchConsumer {
         private readonly runner?: FetchPass,
         private readonly deadLetters: FrontierDeadLetterSink | null = null,
         private readonly topHogMetrics?: ImageFetchTopHogMetrics,
-        private readonly privacy?: MlKafkaEncryption
+        private readonly keyManager?: MlKafkaEncryption
     ) {
         if (!Number.isInteger(options.seenTtlSeconds) || options.seenTtlSeconds < 60 * 60) {
             throw new Error('AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS must be at least 3600')
@@ -68,8 +68,8 @@ export class UrlFetchConsumer {
     }
 
     public async handleBatch(messages: Message[], nowMs: number): Promise<void> {
-        const decoded = this.privacy
-            ? await this.privacy.read(messages, 'image-frontier')
+        const decoded = this.keyManager
+            ? await this.keyManager.read(messages, 'image-frontier')
             : messages.map((message) => {
                   let version: 1 | 2
                   try {
@@ -81,7 +81,7 @@ export class UrlFetchConsumer {
                       throw error
                   }
                   if (version === 2) {
-                      throw new Error('ML v2 frontier requires privacy configuration')
+                      throw new Error('ML v2 frontier requires key manager configuration')
                   }
                   return { message, original: message, key: undefined, invalid: undefined }
               })

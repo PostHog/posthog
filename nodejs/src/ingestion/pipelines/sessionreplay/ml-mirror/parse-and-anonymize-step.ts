@@ -24,8 +24,8 @@ import {
 } from '~/ingestion/pipelines/sessionreplay/parse-message-step'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
+import { MlKeyBatchController } from './keys/batch-controller'
 import { MlMirrorMetrics } from './metrics'
-import { MlPrivacyBatchController } from './privacy/batch-controller'
 import {
     PSEUDONYM_IMAGE_CONTENT_KEY,
     PSEUDONYM_IMAGE_URL_GLOBAL_VALUE,
@@ -113,7 +113,7 @@ export interface ImageCollectionConfig {
  */
 export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInput & { team: TeamForReplay }>(
     imageCollection?: ImageCollectionConfig,
-    privacy?: MlPrivacyBatchController
+    keyManager?: MlKeyBatchController
 ): ProcessingStep<T, T & ParseAndAnonymizeStepOutput> {
     const globalUrlKey =
         imageCollection?.collectUrls === true
@@ -173,7 +173,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
         )
 
         const teamKeys = teamKeysFor(input.team.teamId, headers.session_id)
-        const privacyKeys = privacy?.keys(input.team.teamId, headers.session_id)
+        const privacyKeys = keyManager?.keys(input.team.teamId, headers.session_id)
         let referenceNamespace: string | undefined
         let imageTeamId: string | undefined
         const t0 = performance.now()

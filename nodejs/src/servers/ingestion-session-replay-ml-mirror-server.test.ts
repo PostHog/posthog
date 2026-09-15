@@ -28,14 +28,14 @@ describe('buildMlMirrorServerConfig', () => {
         ['', ''],
         ['privacy-table', ''],
         ['', 'kms-key'],
-    ])('rejects missing privacy configuration before starting services (%s, %s)', (table, kmsKey) => {
+    ])('rejects missing key manager configuration before starting services (%s, %s)', (table, kmsKey) => {
         expect(
             () =>
                 new IngestionSessionReplayMlMirrorServer({
                     AI_RESEARCH_REPLAY_KEY_TABLE: table,
                     AI_RESEARCH_REPLAY_KMS_KEY_ARN: kmsKey,
                 })
-        ).toThrow('ML privacy requires a DynamoDB table and a KMS key ARN')
+        ).toThrow('ML key manager requires a DynamoDB table and a KMS key ARN')
     })
 
     it('defaults the mirror to its own consumer group, distinct from the primary ingester', () => {
