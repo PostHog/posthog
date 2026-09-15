@@ -109,19 +109,35 @@ class TestReportMetricAccessPolicy(APIBaseTest):
 
         assert not self._policy(["query:read", "event_definition:read"]).may_read_snapshot(metric)
 
-    def test_requires_scope_and_object_access_for_conversion_action(self) -> None:
-        metric = self._metric(conversionGoal={"actionId": 42})
+    def test_requires_scope_and_object_access_for_actions_in_each_location(self) -> None:
+        unscoped = ["query:read", "event_definition:read"]
+        scoped = [*unscoped, "action:read"]
 
-        assert not self._policy(["query:read", "event_definition:read"]).may_read_query(metric)
-        assert not self._policy(
-            ["query:read", "event_definition:read", "action:read"], allowed={"action": {41}}
-        ).may_read_query(metric)
-        assert not self._policy(
-            ["query:read", "event_definition:read", "action:read"], blocked={"action": {42}}
-        ).may_read_query(metric)
-        assert self._policy(
-            ["query:read", "event_definition:read", "action:read"], allowed={"action": {42}}
-        ).may_read_query(metric)
+        for location, metric in (
+            ("conversion_goal", self._metric(conversionGoal={"actionId": 42})),
+            ("series", self._metric(series=[{"kind": "ActionsNode", "id": 42, "math": "dau"}])),
+        ):
+            with self.subTest(location=location):
+                assert not self._policy(unscoped).may_read_query(metric)
+                assert not self._policy(scoped, allowed={"action": {41}}).may_read_query(metric)
+                assert not self._policy(scoped, blocked={"action": {42}}).may_read_query(metric)
+                assert self._policy(scoped, allowed={"action": {42}}).may_read_query(metric)
+
+    def test_requires_scope_and_a_usable_name_for_a_conversion_event_goal(self) -> None:
+        policy = self._policy(["query:read", "event_definition:read"])
+
+        assert policy.may_read_query(self._metric(conversionGoal={"customEventName": "purchase"}))
+        assert not policy.may_read_query(self._metric(conversionGoal={"customEventName": ""}))
+
+        # The default event series also needs event_definition. An action-only series makes the
+        # conversion goal the only reason for that scope.
+        action_series = [{"kind": "ActionsNode", "id": 42, "math": "dau"}]
+        assert not self._policy(["query:read", "action:read"], allowed={"action": {42}}).may_read_query(
+            self._metric(series=action_series, conversionGoal={"customEventName": "purchase"})
+        )
+        assert self._policy(["query:read", "action:read"], allowed={"action": {42}}).may_read_query(
+            self._metric(series=action_series)
+        )
 
     def test_rejects_unknown_filter_and_resource_shapes(self) -> None:
         invalid_filters = [
