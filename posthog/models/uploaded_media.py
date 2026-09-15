@@ -132,6 +132,21 @@ class UploadedMedia(UUIDTModel, RootTeamMixin):
                 exception=ose,
                 exc_info=True,
             )
+            object_path = cls.build_media_location(media.team_id, media.pk)
+            media.media_location = object_path
+            media.pending = True
+            media.save(update_fields=["media_location", "pending"])
+            try:
+                object_storage.delete(object_path)
+            except ObjectStorageError:
+                logger.warning(
+                    "uploaded_media.failed_save_cleanup_failed",
+                    media_id=str(media.pk),
+                    team_id=media.team_id,
+                    exc_info=True,
+                )
+            else:
+                media.delete()
             return None
 
 

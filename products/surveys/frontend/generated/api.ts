@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    DesktopFeedbackRequestApi,
+    DesktopFeedbackResponseApi,
     GenerateSurveyTranslationsRequestApi,
     GenerateSurveyTranslationsResponseApi,
     PaginatedSurveyListApi,
@@ -44,6 +46,54 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getDesktopFeedbackCreateUrl = () => {
+    return `/api/desktop_feedback/`
+}
+
+/**
+ * Stores selected attachments and submits one response to the PostHog Desktop feedback survey.
+ * @summary Submit Desktop feedback
+ */
+export const desktopFeedbackCreate = async (
+    desktopFeedbackRequestApi: DesktopFeedbackRequestApi,
+    options?: RequestInit
+): Promise<DesktopFeedbackResponseApi> => {
+    const formData = new FormData()
+    formData.append(`response`, desktopFeedbackRequestApi.response)
+    formData.append(`source`, desktopFeedbackRequestApi.source)
+    formData.append(`feedback_view`, desktopFeedbackRequestApi.feedback_view)
+    if (desktopFeedbackRequestApi.feedback_task_id !== undefined) {
+        formData.append(`feedback_task_id`, desktopFeedbackRequestApi.feedback_task_id)
+    }
+    if (desktopFeedbackRequestApi.feedback_folder_id !== undefined) {
+        formData.append(`feedback_folder_id`, desktopFeedbackRequestApi.feedback_folder_id)
+    }
+    if (desktopFeedbackRequestApi.feedback_app_logs !== undefined) {
+        formData.append(`feedback_app_logs`, desktopFeedbackRequestApi.feedback_app_logs)
+    }
+    if (desktopFeedbackRequestApi.app_version !== undefined) {
+        formData.append(`app_version`, desktopFeedbackRequestApi.app_version)
+    }
+    if (desktopFeedbackRequestApi.session_id !== undefined) {
+        formData.append(`session_id`, desktopFeedbackRequestApi.session_id)
+    }
+    if (desktopFeedbackRequestApi.screenshot !== undefined) {
+        formData.append(`screenshot`, desktopFeedbackRequestApi.screenshot)
+    }
+    if (desktopFeedbackRequestApi.image_1 !== undefined) {
+        formData.append(`image_1`, desktopFeedbackRequestApi.image_1)
+    }
+    if (desktopFeedbackRequestApi.image_2 !== undefined) {
+        formData.append(`image_2`, desktopFeedbackRequestApi.image_2)
+    }
+
+    return apiMutator<DesktopFeedbackResponseApi>(getDesktopFeedbackCreateUrl(), {
+        ...options,
+        method: 'POST',
+        body: formData,
+    })
+}
 
 export const getSurveysListUrl = (projectId: string, params?: SurveysListParams) => {
     const normalizedParams = new URLSearchParams()

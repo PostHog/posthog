@@ -8,6 +8,85 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `Generic (Leave feedback button)` - Leave Feedback
+ * * `Visiting PostHog web` - Posthog Web
+ */
+export type DesktopFeedbackSourceEnumApi =
+    (typeof DesktopFeedbackSourceEnumApi)[keyof typeof DesktopFeedbackSourceEnumApi]
+
+export const DesktopFeedbackSourceEnumApi = {
+    GenericLeaveFeedbackButton: 'Generic (Leave feedback button)',
+    VisitingPostHogWeb: 'Visiting PostHog web',
+} as const
+
+export interface DesktopFeedbackRequestApi {
+    /**
+     * Feedback text entered by the user.
+     * @maxLength 4000
+     */
+    response: string
+    /** Desktop surface that opened the feedback form.
+     *
+     * * `Generic (Leave feedback button)` - Leave Feedback
+     * * `Visiting PostHog web` - Posthog Web */
+    source: DesktopFeedbackSourceEnumApi
+    /**
+     * Desktop view that was active when the feedback form opened.
+     * @maxLength 100
+     */
+    feedback_view: string
+    /**
+     * Task that was active when the feedback form opened.
+     * @maxLength 100
+     */
+    feedback_task_id?: string
+    /**
+     * Folder that was active when the feedback form opened.
+     * @maxLength 100
+     */
+    feedback_folder_id?: string
+    /**
+     * Recent Desktop logs that the user chose to include.
+     * @maxLength 20000
+     */
+    feedback_app_logs?: string
+    /**
+     * Version of PostHog Desktop that submitted the feedback.
+     * @maxLength 100
+     */
+    app_version?: string
+    /** PostHog session recording identifier for the Desktop session. */
+    session_id?: string
+    /** Screenshot that the user chose to include. */
+    screenshot?: Blob
+    /** First image that the user attached. */
+    image_1?: Blob
+    /** Second image that the user attached. */
+    image_2?: Blob
+}
+
+export interface DesktopFeedbackResponseApi {
+    /** Whether the feedback response was accepted. */
+    accepted: boolean
+    /** Identifier of the survey response event. */
+    response_id: string
+}
+
+export interface DesktopFeedbackErrorApi {
+    /** Error category. */
+    type: string
+    /** Machine-readable error code. */
+    code: string
+    /** Human-readable error detail. */
+    detail: string
+    /**
+     * Request field associated with the error, if any.
+     * @nullable
+     */
+    attr: string | null
+}
+
+/**
  * * `popover` - popover
  * * `widget` - widget
  * * `external_survey` - external survey
