@@ -415,6 +415,11 @@ class ErrorTrackingSymbolSet(UUIDTModel):
                 models.F("id"),
                 name="et_symset_bucket_cleanup_idx",
             ),
+            # The list API pages within one team by `created_at` or `last_used`, with `id` as the
+            # tiebreak. Both orderings flip every column together, so one ascending index serves
+            # each pair through a backward scan.
+            models.Index(fields=["team", "created_at", "id"], name="et_symset_team_created_idx"),
+            models.Index(fields=["team", "last_used", "id"], name="et_symset_team_used_idx"),
         ]
 
         constraints = [
