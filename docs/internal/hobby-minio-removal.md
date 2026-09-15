@@ -23,18 +23,25 @@ Events, persons, insights, dashboards, feature flags and experiments all survive
 This is the usual path.
 `bin/upgrade-hobby` asks you to acknowledge the change before it pulls the new version, and it keeps the old volume.
 
-Upgrade first, wait for the stack to come up, then run:
+Upgrade first, wait for the stack to come up, then run this from the directory that holds your `docker-compose.yml`:
 
 ```bash
-./bin/migrate-storage-hobby --dry-run   # see what would be copied
-./bin/migrate-storage-hobby             # copy it
+./posthog/bin/migrate-storage-hobby --dry-run   # see what would be copied
+./posthog/bin/migrate-storage-hobby             # copy it
 ```
 
 The script starts a temporary MinIO container on the stack's network, mounted on the old volume, and copies bucket contents through the running services.
-It sends exports, uploaded media and symbol sets to `objectstorage`, and session recordings to `seaweedfs`, because that is where the stack reads each of them.
-Query cache is skipped, since PostHog rebuilds it.
+It copies:
+
+- the whole `posthog` bucket into `objectstorage`, so a prefix that no list here mentions still comes across
+- the `ai-blobs` bucket into `objectstorage`
+- session recordings into `seaweedfs`
+- symbol sets into `seaweedfs` as well, because cymbal reads them there while Django reads them from `objectstorage`
+
+The query cache is the one thing left behind, because PostHog rebuilds it.
 
 The copy skips objects that already exist in the destination, so it is safe to run again after a failure.
+It exits non-zero if any object failed, and it only suggests deleting the old volume after a complete run.
 
 Check your data in PostHog before you free the disk space:
 
@@ -43,6 +50,13 @@ docker volume rm <project>_objectstorage
 ```
 
 The script prints the volume name it read.
+It picks that volume by name (`<project>_objectstorage`) and refuses to guess when a host holds more than one, so pass `--volume <id>` if you run several installs on one machine.
+
+## Upgrading through the installer instead
+
+`bin/hobby-installer` does not run `bin/upgrade-hobby`, so it cannot show that prompt.
+Its preflight checks warn instead, whenever the legacy volume is still on the host, and ask you to confirm before the upgrade continues.
+The warning clears once you copy the objects across and delete the old volume.
 
 ## Option 2: stay on your current version
 
