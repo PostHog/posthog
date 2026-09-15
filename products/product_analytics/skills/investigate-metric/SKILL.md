@@ -28,7 +28,7 @@ Targets PostHog MCP v2. Typed query tools accept the query body directly — pas
 | `posthog:query-lifecycle`        | Lifecycle (new/returning/resurrecting/dormant)   |
 | `posthog:query-paths`            | Paths (navigation flow)                          |
 | `posthog:query-trends-actors`    | Users behind a trend bucket (trends source only) |
-| `posthog:execute-sql`            | HogQL — when no typed tool fits                  |
+| `posthog:execute-sql`            | Existing SQL insights and custom analysis        |
 | `posthog:read-data-schema`       | Discover events, properties, sample values       |
 | `posthog:insight-get` / `-query` | Fetch a saved insight's metadata / data          |
 

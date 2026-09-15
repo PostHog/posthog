@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -70,6 +70,15 @@ class TestDataDeletionRequestAdminApprovalFlow(BaseTest):
         context = response.context_data
         self.assertTrue(context["supports_deferred"])
         self.assertEqual(context["default_execution_mode"], ExecutionMode.DEFERRED)
+
+    def test_approve_view_rejects_query_backed_request_until_execution_is_available(self):
+        request = self._pending_request(request_type=RequestType.HOGQL_EVENT_REMOVAL)
+
+        response = self._call_approve("POST", request)
+
+        self.assertEqual(response.status_code, 302)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.PENDING)
 
     def test_approve_view_get_hides_picker_for_property_removal(self):
         request = self._pending_request(request_type=RequestType.PROPERTY_REMOVAL, properties=["$ip"])
@@ -184,6 +193,17 @@ class TestDataDeletionRequestAdminRetry(BaseTest):
         self.assertEqual(request.approved_at, original_approved_at)
         self.assertTrue(request.approved)
         self.assertEqual(request.attempt_count, 2)
+
+    def test_retry_view_rejects_query_backed_request(self):
+        request = self._failed_request()
+        request.request_type = RequestType.HOGQL_EVENT_REMOVAL
+        request.save(update_fields=["request_type"])
+
+        response = self._call_retry("POST", request)
+
+        self.assertEqual(response.status_code, 302)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.FAILED)
 
     def test_retry_view_get_does_not_change_status(self):
         request = self._failed_request()
@@ -417,7 +437,7 @@ class TestDataDeletionRequestAdminSubmitView(BaseTest):
         self.assertFalse(self._call_submit(property_removal, method="GET").context_data["auto_approve_candidate"])
 
 
-@freeze_time("2025-01-15 12:00:00")
+@time_machine.travel("2025-01-15 12:00:00", tick=False)
 @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
 class TestDataDeletionRequestAdminSaveModel(BaseTest):
     def setUp(self):
@@ -517,7 +537,7 @@ class TestDataDeletionRequestAdminSaveModel(BaseTest):
         self.assertIsNone(obj.property_removal_marker)
 
 
-@freeze_time("2025-01-15 12:00:00")
+@time_machine.travel("2025-01-15 12:00:00", tick=False)
 class TestDataDeletionRequestModelValidation(BaseTest):
     def test_person_removal_rejects_person_properties_field(self):
         from django.core.exceptions import ValidationError
@@ -876,9 +896,15 @@ class TestDataDeletionRequestAdminVerify(BaseTest):
         request.refresh_from_db()
         self.assertEqual(request.status, RequestStatus.COMPLETED)
 
-    def test_verify_view_reports_person_removal_unsupported(self):
+    @parameterized.expand(
+        [
+            ("person_removal", RequestType.PERSON_REMOVAL),
+            ("query_backed_event_removal", RequestType.HOGQL_EVENT_REMOVAL),
+        ]
+    )
+    def test_verify_view_reports_unsupported_request_type(self, _name, request_type):
         request = self._queued_request()
-        request.request_type = RequestType.PERSON_REMOVAL
+        request.request_type = request_type
         request.status = RequestStatus.FAILED
         request.save(update_fields=["request_type", "status"])
         with patch("posthog.admin.admins.data_deletion_request_admin.count_remaining_for_request") as counted:
@@ -917,7 +943,7 @@ class TestDataDeletionRequestAdminDuplicate(BaseTest):
             ("without_notes", ""),
         ]
     )
-    @freeze_time("2026-01-15")
+    @time_machine.travel("2026-01-15", tick=False)
     def test_duplicate_copies_criteria_into_a_fresh_draft_with_link_note(self, _name, original_notes):
         original = DataDeletionRequest.objects.create(
             team_id=self.team.id,
@@ -950,6 +976,22 @@ class TestDataDeletionRequestAdminDuplicate(BaseTest):
         else:
             # No original notes — the copy note stands alone, no trailing separator.
             self.assertFalse(copy.notes.endswith("\n"))
+
+    def test_duplicate_preserves_query_snapshot(self):
+        original = DataDeletionRequest.objects.create(
+            team_id=self.team.id,
+            request_type=RequestType.HOGQL_EVENT_REMOVAL,
+            hogql_query="SELECT uuid FROM events WHERE event = {event}",
+            hogql_variables={"event": "$pageview"},
+            execution_mode=ExecutionMode.DEFERRED,
+        )
+
+        self._call_duplicate(DataDeletionRequest.objects.filter(pk=original.pk))
+
+        copy = DataDeletionRequest.objects.exclude(pk=original.pk).get()
+        self.assertEqual(copy.hogql_query, original.hogql_query)
+        self.assertEqual(copy.hogql_variables, original.hogql_variables)
+        self.assertEqual(copy.execution_mode, ExecutionMode.DEFERRED)
 
 
 class TestDagsterRunLink(SimpleTestCase):
@@ -1007,7 +1049,13 @@ class TestDataDeletionRequestFormHidesUnsupportedTypes(SimpleTestCase):
         for field in PERSON_REMOVAL_FIELDS:
             self.assertNotIn(field, form.fields)
 
-    @parameterized.expand([(RequestType.PROPERTY_REMOVAL,), (RequestType.PERSON_REMOVAL,)])
+    @parameterized.expand(
+        [
+            (RequestType.HOGQL_EVENT_REMOVAL,),
+            (RequestType.PROPERTY_REMOVAL,),
+            (RequestType.PERSON_REMOVAL,),
+        ]
+    )
     def test_existing_request_keeps_its_own_type_selectable(self, request_type):
         from posthog.admin.admins.data_deletion_request_admin import DataDeletionRequestForm
 

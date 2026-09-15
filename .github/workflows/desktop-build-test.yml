@@ -253,6 +253,12 @@ jobs:
             VITE_POSTHOG_API_HOST: ${{ vars.VITE_POSTHOG_API_HOST }}
             VITE_POSTHOG_UI_HOST: ${{ vars.VITE_POSTHOG_UI_HOST }}
             VITE_POSTHOG_BUILD_CHANNEL: test
+            # Signing credentials reach manual runs only. A label persists across
+            # later pushes, so a labeled PR build would hand the production
+            # signing secret to code nobody re-approved.
+            AZURE_TENANT_ID: ${{ github.event_name == 'workflow_dispatch' && secrets.DESKTOP_AZURE_CODESIGN_TENANT_ID || '' }}
+            AZURE_CLIENT_ID: ${{ github.event_name == 'workflow_dispatch' && secrets.DESKTOP_AZURE_CODESIGN_CLIENT_ID || '' }}
+            AZURE_CLIENT_SECRET: ${{ github.event_name == 'workflow_dispatch' && secrets.DESKTOP_AZURE_CODESIGN_CLIENT_SECRET || '' }}
         steps:
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -321,6 +327,12 @@ jobs:
                     exit 1
                   }
                   echo "OK: renderer bundle"
+
+            - name: Verify signatures
+              if: github.event_name == 'workflow_dispatch'
+              shell: pwsh
+              run: |
+                  & "$env:GITHUB_WORKSPACE/.github/scripts/desktop/verify-windows-signatures.ps1" -OutDir apps/code/out
 
             - name: Upload artifacts
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

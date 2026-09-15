@@ -535,7 +535,7 @@ export interface AccountNotebookApi {
      * @nullable
      */
     title?: string | null
-    /** Notebook content as a ProseMirror JSON document structure. */
+    /** Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook. */
     content?: unknown
     /**
      * Plain text representation of the notebook content for search.
@@ -1405,7 +1405,7 @@ export interface HogQLQueryModifiersApi {
     bounceRateDurationSeconds?: number | null
     bounceRatePageViewMode?: BounceRatePageViewModeApi | null
     convertToProjectTimezone?: boolean | null
-    /** Classify cookieless-mode events as regular traffic instead of automation. Cookieless ingestion strips the user agent the bot classifier reads, so without this every cookieless event is reported as a bot. Resolved server-side; not intended to be set by clients. */
+    /** Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients. */
     cookielessTrafficIsRegular?: boolean | null
     customBotDefinitions?: CustomBotRuleApi[] | null
     customChannelTypeRules?: CustomChannelRuleApi[] | null

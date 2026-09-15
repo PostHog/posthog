@@ -1759,13 +1759,13 @@ database "posthog" {
       type = "SimpleAggregateFunction(sum, Int64)"
     }
     column "snapshot_source" {
-      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
     column "snapshot_library" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
-    column "snapshot_mode" {
-      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+    column "snapshot_mode_v2" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
     column "_timestamp" {
       type = "SimpleAggregateFunction(max, DateTime)"
@@ -2654,7 +2654,7 @@ SELECT
   sum(size) AS size,
   sum(message_count) AS message_count,
   sum(event_count) AS event_count,
-  argMinState(snapshot_source, first_timestamp) AS snapshot_source,
+  argMinState(replay.snapshot_source, first_timestamp) AS snapshot_source,
   argMinState(snapshot_library, first_timestamp) AS snapshot_library,
   max(_timestamp) AS _timestamp,
   max(retention_period_days) AS retention_period_days,
@@ -2663,8 +2663,8 @@ SELECT
   groupUniqArrayArray(ai_tags_freeform) AS ai_tags_freeform,
   max(ai_highlighted) AS ai_highlighted,
   max(surfacing_score) AS surfacing_score,
-  argMinState(snapshot_mode, first_timestamp) AS snapshot_mode
-FROM posthog.kafka_session_replay_events
+  argMinState(replay.snapshot_mode, first_timestamp) AS snapshot_mode_v2
+FROM posthog.kafka_session_replay_events AS replay
 GROUP BY
   session_id, team_id
 SQL
@@ -2730,13 +2730,13 @@ SQL
       type = "Int64"
     }
     column "snapshot_source" {
-      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
     column "snapshot_library" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
-    column "snapshot_mode" {
-      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+    column "snapshot_mode_v2" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
     column "_timestamp" {
       type = "Nullable(DateTime)"

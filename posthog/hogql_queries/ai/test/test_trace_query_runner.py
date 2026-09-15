@@ -4,7 +4,7 @@ from typing import Any, Literal, TypedDict
 from uuid import UUID
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, snapshot_clickhouse_queries
 from unittest.mock import patch
 
@@ -445,7 +445,7 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
             response.results[0].events[0].properties.items(),
         )
 
-    @freeze_time("2025-01-01T00:00:00Z")
+    @time_machine.travel("2025-01-01T00:00:00Z", tick=False)
     def test_person_properties(self):
         """Test that person data is not loaded server-side (frontend handles it via lazy loader)."""
         _create_person(distinct_ids=["person1"], team=self.team, properties={"email": "test@posthog.com"})
@@ -462,7 +462,7 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(response.results[0].distinctId, "person1")
         self.assertIsNone(response.results[0].person)
 
-    @freeze_time("2025-01-01T00:00:00Z")
+    @time_machine.travel("2025-01-01T00:00:00Z", tick=False)
     def test_distinct_id_prefers_trace_event(self):
         """When a $ai_trace event exists, its distinct_id should be used even if
         other events in the trace have an earlier timestamp with a different distinct_id."""
@@ -492,7 +492,7 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].distinctId, "real-user-id")
 
-    @freeze_time("2025-01-01T00:00:00Z")
+    @time_machine.travel("2025-01-01T00:00:00Z", tick=False)
     def test_distinct_id_falls_back_without_trace_event(self):
         """When no $ai_trace event exists, the distinct_id from the earliest event should be used."""
         _create_person(distinct_ids=["person1"], team=self.team)
@@ -511,7 +511,7 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].distinctId, "person1")
 
-    @freeze_time("2025-01-16T00:00:00Z")
+    @time_machine.travel("2025-01-16T00:00:00Z", tick=False)
     def test_date_range(self):
         """Test that date range filtering works correctly."""
         _create_person(distinct_ids=["person1"], team=self.team)
@@ -1852,7 +1852,7 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         # Should sum: Span A (100) + Generation B (200) = 300, exclude Generation A1
         self.assertEqual(response.results[0].totalLatency, 300.0)
 
-    @freeze_time("2025-01-15T12:00:00Z")
+    @time_machine.travel("2025-01-15T12:00:00Z", tick=False)
     def test_fallback_to_events_when_ai_events_empty(self):
         """When ai_events has no data, the fallback to events returns correct results with proper numeric types."""
         trace_id = "fallback-test-trace"

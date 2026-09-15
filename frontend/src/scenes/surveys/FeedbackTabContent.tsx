@@ -10,10 +10,11 @@ import { SurveyStatusTag } from 'scenes/surveys/components/SurveyStatusTag'
 import { QuickSurveyContext } from 'scenes/surveys/quick-create/types'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
-import { SurveyResult } from 'scenes/surveys/SurveyView'
 import { urls } from 'scenes/urls'
 
 import { Survey } from '~/types'
+
+import { SurveyResult } from 'products/surveys/frontend/SurveyResult'
 
 import { QuickSurveyForm } from './QuickSurveyModal'
 

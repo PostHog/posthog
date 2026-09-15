@@ -30,6 +30,9 @@ _MASKED_BLOBS: dict[str, frozenset[str]] = {
         f"events.group{index}_properties (EventsGroupSubTable)": frozenset({_GROUP_KEYS[index]})
         for index in range(GROUP_TYPES_LIMIT)
     },
+    # The one blob flag_evaluations stores. It carries event properties, so it masks the event class alone:
+    # the table keeps no person or group blob to mask, only a person id and the group keys.
+    "flag_evaluations.properties (FlagEvaluationsTable)": frozenset({_EVENT_KEY}),
     "persons.properties (PersonsTable)": frozenset({_PERSON_KEY}),
     "raw_persons.properties (RawPersonsTable)": frozenset({_PERSON_KEY}),
     # The groups tables hold every group type, with the index in a column rather than in the blob's name, so

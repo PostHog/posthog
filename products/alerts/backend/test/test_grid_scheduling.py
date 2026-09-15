@@ -12,7 +12,7 @@ from hypothesis import (
 )
 from parameterized import parameterized
 
-from products.alerts.backend.scheduling import (
+from products.alerts.backend.facade.scheduling import (
     DEFAULT_SCHEDULE_INTERVAL_SECONDS,
     advance_next_check_at,
     compute_shard_offset_seconds,

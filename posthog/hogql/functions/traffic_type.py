@@ -104,19 +104,31 @@ def _property_expr(key: str, args: list[ast.Expr]) -> Optional[ast.Expr]:
     return None
 
 
-def _cookieless_condition(args: list[ast.Expr], modifiers: Optional["HogQLQueryModifiers"]) -> Optional[ast.Expr]:
+def _cookieless_missing_user_agent(
+    args: list[ast.Expr], modifiers: Optional["HogQLQueryModifiers"]
+) -> Optional[ast.Expr]:
     if modifiers is None or not modifiers.cookielessTrafficIsRegular:
         return None
     cookieless_expr = _property_expr(COOKIELESS_MODE_FIELD, args)
     if cookieless_expr is None:
         return None
-    return ast.CompareOperation(
+    cookieless = ast.CompareOperation(
         op=ast.CompareOperationOp.Eq,
         left=ast.Call(
             name="ifNull",
             args=[ast.Call(name="toString", args=[cookieless_expr]), ast.Constant(value="")],
         ),
         right=ast.Constant(value="true"),
+    )
+    return ast.And(
+        exprs=[
+            cookieless,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Call(name="ifNull", args=[args[0], ast.Constant(value="")]),
+                right=ast.Constant(value=""),
+            ),
+        ]
     )
 
 
@@ -300,7 +312,7 @@ def _build_bot_array_lookup(
 
     builtin_labels = [getattr(bot_def, attr) for bot_def in BOT_DEFINITIONS.values()]
     groups = _custom_groups(modifiers)
-    cookieless = _cookieless_condition(args, modifiers)
+    cookieless = _cookieless_missing_user_agent(args, modifiers)
 
     if not groups:
         # No project rules: one pass over the built-in patterns plus the empty-user-agent sentinel.
@@ -317,13 +329,12 @@ def _build_bot_array_lookup(
         )
         if cookieless is None:
             return lookup
-        return ast.Call(name="if", args=[cookieless, ast.Constant(value=default), lookup])
+        return ast.Call(name="if", args=[cookieless, fallback, lookup])
 
     # With project rules the checks become an ordered chain, in this order: the project's own
-    # rules, then the cookieless check, then the built-ins, then the empty user agent, then the
-    # built-in IP ranges. A rule someone wrote by hand says more about what they want counted
-    # than a default we shipped, so it wins — that also makes the setting predictable, since a
-    # rule that matches always names the event.
+    # rules, then the cookieless missing-UA fallback, then the built-ins, then the empty user
+    # agent, then the built-in IP ranges. A rule someone wrote by hand says more about what
+    # they want counted than a default we shipped, so a matching project rule always wins.
     #
     # It has to be a branch per group rather than one shared pattern array: multiMatchAnyIndex
     # reports whichever pattern matches earliest in the string rather than earliest in the array,
@@ -334,7 +345,7 @@ def _build_bot_array_lookup(
         if branch is not None:
             branches.extend([branch.matched, branch.label])
     if cookieless is not None:
-        branches.extend([cookieless, ast.Constant(value=default)])
+        branches.extend([cookieless, fallback])
     builtin_index = ast.Call(
         name="multiMatchAnyIndex", args=[safe_user_agent, _string_array(list(BOT_DEFINITIONS.keys()))]
     )
@@ -428,7 +439,7 @@ def is_bot(node: ast.Call, args: list[ast.Expr], modifiers: Optional["HogQLQuery
     index_call = ast.Call(name="multiMatchAnyIndex", args=[safe_user_agent, patterns_array])
 
     builtin_matched: ast.Expr = _matched(index_call)
-    cookieless = _cookieless_condition(args, modifiers)
+    cookieless = _cookieless_missing_user_agent(args, modifiers)
     if cookieless is not None:
         builtin_matched = ast.And(exprs=[ast.Not(expr=cookieless), builtin_matched])
 

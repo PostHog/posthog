@@ -8,14 +8,14 @@ It is a property of every table that stores rows attributable to a person.
 
 ## The sweeps
 
-| Sweep                    | Entry point                      | Predicate columns                          |
-| ------------------------ | -------------------------------- | ------------------------------------------ |
-| Person deletion (async)  | `deletes_job` → `delete_events`  | `team_id`, `person_id`, `timestamp`        |
-| Team deletion            | `deletes_job` → `delete_events`  | `team_id`                                  |
-| Queued uuid drain        | `deletes_job` → `delete_events`  | `team_id`, `uuid`                          |
-| Person removal request   | `delete_person_events_op`        | `team_id`, `person_id`, `timestamp`        |
-| Event removal request    | `execute_event_deletion`         | `team_id`, `timestamp`, `event`, + HogQL   |
-| Property removal request | `process_property_removal_shard` | `properties`, `person_properties`, + HogQL |
+| Sweep                    | Entry point                      | Predicate columns                                  |
+| ------------------------ | -------------------------------- | -------------------------------------------------- |
+| Person deletion (async)  | `deletes_job` → `delete_events`  | `team_id`, `person_id`, `timestamp`, `inserted_at` |
+| Team deletion            | `deletes_job` → `delete_events`  | `team_id`                                          |
+| Queued uuid drain        | `deletes_job` → `delete_events`  | `team_id`, `uuid`, `inserted_at`                   |
+| Person removal request   | `delete_person_events_op`        | `team_id`, `person_id`, `timestamp`                |
+| Event removal request    | `execute_event_deletion`         | `team_id`, `timestamp`, `event`, + HogQL           |
+| Property removal request | `process_property_removal_shard` | `properties`, `person_properties`, + HogQL         |
 
 The first four use only columns every target declares, so they apply unchanged to any registered table.
 The last two need more, which is what the capability fields on `DeletionTarget` express.
@@ -39,7 +39,7 @@ Two gates keep that from passing silently.
 
 - `placement_for` refuses a registered target whose storage table is on no data node of any cluster reachable from here while its Distributed proxy still returns rows (`UnreachableTargetError`). Absent from everywhere and empty is still treated as not yet migrated, which is the ordinary pre-rollout state.
 - `assert_sweep_complete` runs after the immediate person-removal and event-removal sweeps and counts survivors through the proxy, so rows a mutation never reached fail the request instead of completing it (`UnsweptRowsError`).
-- `deletes_job` counts the same way after its own sweep, but only logs what survived and still marks the requests verified. Its mutations have already run by then, and failing the op would strand the run without undoing anything. Proving zero survivors is a full scan, so the count is time-bounded and reports unknown rather than zero when it runs out.
+- `deletes_job` counts the same way after its own sweep, and refuses to mark the requests verified unless every count completed and came back zero. Proving zero survivors is a full scan, so each count is time-bounded and retried; a count that completes no attempt reports unknown, and unknown blocks the marking the same as a survivor does. The failed run leaves the requests pending, which the next run sweeps again. The delete predicate itself scopes the person and adhoc arms to rows with `inserted_at` no later than the request's own `created_at` (NULL counting as old), and the count shares that predicate, so what gets verified is exactly what got deleted. The bound encodes the deletion contract: a request can only name rows that were already ingested when it was made, and a row cannot be ingested before its event happened, so both `timestamp` and `inserted_at` sit at or before `created_at` for every row a request covers. A row ingested after the request is outside its scope and takes a new request to remove; without the bound, one tenant continuously ingesting backdated events for a pending deletion would block verification for all tenants. `inserted_at` is stamped server-side (`writable_events` does not expose the column), so the bound cannot be forged the way the event `timestamp` can. The team arm stays unbounded: ingestion for a deleted team stops with its token, so late rows there are stragglers the next run converges on.
 - A proxy only reads the cluster its engine names, and `sql.py` builds the `events_json` proxy against `CLICKHOUSE_CLUSTER`. So a target stored on another cluster is counted twice: once through the proxy, and once on its storage table through the handle that holds it. Without the second count, a deployment whose storage moved without the proxy following it would report a clean sweep off an empty table.
 
 Both gates probe hosts rather than compare cluster names.
@@ -153,7 +153,12 @@ Doing nothing means the first affected GDPR request becomes an escalation.
 
 ### Event removal with a HogQL predicate does not reach `flag_evaluations`
 
-`compile_hogql_predicate` resolves against the events HogQL table and emits events-specific physical columns. There is no HogQL table definition for `flag_evaluations`, so the fragment cannot run against it. Requests without a predicate are swept normally; requests with one are refused if the table holds matching rows.
+`compile_hogql_predicate` resolves every predicate against the events HogQL table and emits events-specific physical columns.
+Its only axis of variation is legacy vs native-JSON events, so while the dag does compile one fragment per target, no target selects a different table root.
+Whether a given fragment would run against `flag_evaluations` depends on the predicate and the team's modifiers: one naming only `event` or `distinct_id` would, one reaching a `mat_*` column or a property-group map would not, and nothing validates which.
+The dag refuses rather than guessing.
+A HogQL table definition for `flag_evaluations` does not change that, because nothing routes compilation to a table.
+Requests without a predicate are swept normally; requests with one are refused if the table holds matching rows.
 
 ## Producer prerequisite: person_id parity
 
@@ -164,6 +169,12 @@ The shadow-routing producer (`posthog-code/flag-evaluations-shadow-routing`) for
 If a future producer emitted rows before person resolution, leaving `person_id` unset, a person deletion would strand them.
 The fix would belong to the producer, not the scanner.
 Keeping the fork downstream of person resolution is the contract, tracked on #81002.
+
+Write-time parity is not sufficient on its own, because a later merge moves the person the sweep looks for.
+`squash_person_overrides` rewrites `person_id` on `EVENTS_TARGETS` only, so after person A merges into B the events rows carry B while the flag-evaluation rows still carry A.
+A deletion of B is queued under B's uuid, so it misses those rows and they survive, with their event `properties` and their stale `person_id`, until the TTL drops the part.
+The squash deletes the overrides right after applying them, so nothing can reconcile the divergence afterwards.
+Extending the squash to `FLAG_EVALUATIONS` is the fix, and it belongs to `posthog/dags/person_overrides.py` rather than to this table. Tracked on #93035.
 
 ## Related, and deliberately unchanged
 

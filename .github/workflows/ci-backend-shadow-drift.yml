@@ -1,12 +1,13 @@
 name: Backend CI shadow drift check
 
-# Fails when the canonical backend workflow or its paths-filter action changes
+# Fails when the canonical backend workflow or a mirrored local action changes
 # without a matching update to the Depot shadow. The workflow is hand-maintained
-# (see its header comment for intentional deltas), while the action is vendored;
+# (see its header comment for intentional deltas), while the actions are vendored;
 # without this check, canonical drifts silently and the Depot timing trial stops
-# measuring the same work.
+# measuring the same work. The check lives in depot_mirrors.py, which
+# `hogli ci:preflight` also runs before a push.
 #
-# Cheap to run — only triggers when one of the mirrored paths changes, so it costs ~nothing.
+# Cheap to run: it triggers only on changes to the backend workflow, local actions, Depot files, or the check itself.
 # Always enforced (no variable gate): keeping the depot mirror in sync with canonical is
 # a structural invariant worth holding whether or not the shadow is currently sampling —
 # you want them already in sync the moment the shadow is switched on. The sampling rate
@@ -16,10 +17,11 @@ name: Backend CI shadow drift check
 on:
     pull_request:
         paths:
+            - .github/workflows/ci-backend-shadow-drift.yml
             - .github/workflows/ci-backend.yml
-            - .depot/workflows/ci-backend.yml
-            - .github/actions/paths-filter/**
-            - .depot/actions/paths-filter/**
+            - .github/actions/**
+            - .depot/**
+            - tools/hogli-commands/hogli_commands/depot_mirrors.py
 
 permissions:
     contents: read
@@ -47,30 +49,4 @@ jobs:
                   # is the merge commit — diffing BASE_SHA..HEAD gives the PR's effective
                   # changes. We only need to fetch BASE_SHA (HEAD is already local).
                   git fetch --no-tags --depth=100 origin "$BASE_SHA"
-                  changed=$(git diff --name-only "$BASE_SHA" HEAD -- \
-                      .github/workflows/ci-backend.yml \
-                      .depot/workflows/ci-backend.yml \
-                      .github/actions/paths-filter \
-                      .depot/actions/paths-filter)
-                  if echo "$changed" | grep -Fxq '.github/workflows/ci-backend.yml' && \
-                     ! echo "$changed" | grep -Fxq '.depot/workflows/ci-backend.yml'; then
-                      echo "::error::Canonical .github/workflows/ci-backend.yml changed without a matching update to .depot/workflows/ci-backend.yml."
-                      echo "The depot shadow must stay apples-to-apples with canonical. Mirror the change into the depot file"
-                      echo "(or, if the change is one of the intentional deltas listed in the depot file header, document why it is depot-exempt)."
-                      exit 1
-                  fi
-                  if echo "$changed" | grep -Fxq '.depot/workflows/ci-backend.yml' && \
-                     ! echo "$changed" | grep -Fxq '.github/workflows/ci-backend.yml'; then
-                      echo "::notice::Only the depot shadow changed. That is allowed (e.g. tuning a depot-only knob), but worth a glance from the reviewer."
-                  fi
-                  if echo "$changed" | grep -q '^\.github/actions/paths-filter/' && \
-                     ! echo "$changed" | grep -q '^\.depot/actions/paths-filter/'; then
-                      echo "::error::Canonical .github/actions/paths-filter changed without a matching update to .depot/actions/paths-filter."
-                      echo "Mirror the action change so the Depot workflow evaluates the same path filters."
-                      exit 1
-                  fi
-                  if ! diff -qr .github/actions/paths-filter .depot/actions/paths-filter; then
-                      echo "::error::The Depot paths-filter action differs from its canonical copy."
-                      exit 1
-                  fi
-                  echo "Shadow drift check passed."
+                  python3 tools/hogli-commands/hogli_commands/depot_mirrors.py "$BASE_SHA"

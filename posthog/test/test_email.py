@@ -7,7 +7,7 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -85,7 +85,7 @@ class TestEmail(BaseTest):
         add_test_distinct_id(person=person, distinct_id=base_distinct_id)
         return person
 
-    @freeze_time("2020-09-21")
+    @time_machine.travel("2020-09-21", tick=False)
     def setUp(self):
         super().setUp()
         self.organization = Organization.objects.create()

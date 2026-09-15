@@ -1,6 +1,6 @@
 from typing import Optional
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -50,7 +50,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         )
 
         s1 = str(uuid7("2020-01-02T13:01:01Z", 1))
-        with freeze_time("2020-01-02T13:01:01Z"):
+        with time_machine.travel("2020-01-02T13:01:01Z", tick=False):
             _create_event(
                 team=self.team,
                 event="session start",
@@ -85,7 +85,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                     "$group_0": "org:5",
                 },
             )
-        with freeze_time("2020-01-03T13:01:01Z"):
+        with time_machine.travel("2020-01-03T13:01:01Z", tick=False):
             _create_event(
                 team=self.team,
                 event="session start",
@@ -97,7 +97,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                     "$group_0": "org:5",
                 },
             )
-        with freeze_time("2020-01-03T13:04:01Z"):
+        with time_machine.travel("2020-01-03T13:04:01Z", tick=False):
             _create_event(
                 team=self.team,
                 event="session start",
@@ -166,7 +166,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         }
         if extra:
             query_dict.update(extra)
-        with freeze_time(run_at or "2020-01-04T13:01:01Z"):
+        with time_machine.travel(run_at or "2020-01-04T13:01:01Z", tick=False):
             trend_query = TrendsQuery(**query_dict)
             tqr = TrendsQueryRunner(team=self.team, query=trend_query)
             return tqr.calculate().results
@@ -301,7 +301,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_formula_with_unique_sessions(self):
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             action_response = self._run(
                 {
                     "series": [
@@ -317,7 +317,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_regression_formula_with_unique_sessions_2x_and_duration_filter(self):
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             action_response = self._run(
                 {
                     "series": [
@@ -346,7 +346,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_regression_formula_with_unique_sessions_2x_and_duration_filter_2x(self):
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             action_response = self._run(
                 {
                     "series": [
@@ -387,7 +387,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_regression_formula_with_session_duration_aggregation(self):
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             action_response = self._run(
                 {
                     "series": [
@@ -415,7 +415,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_aggregated_one_without_events(self):
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             response = self._run(
                 {
                     "trendsFilter": {
@@ -513,7 +513,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[3]["breakdown_value"], "$$_posthog_breakdown_null_$$")
 
     def test_breakdown_counts_of_different_events_one_without_events(self):
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             response = self._run(
                 {
                     "trendsFilter": {"display": "ActionsLineGraph", "formula": "B / A"},
@@ -915,7 +915,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
     def test_formula_with_hogql_math_no_matching_events(self):
         # Regression test: formula with HogQL math should not crash when one series has no matching events
         # (math="hogql" has no ifNull wrapper, so NULL values can propagate into FormulaAST)
-        with freeze_time("2020-01-04T13:01:01Z"):
+        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
             response = self._run(
                 {
                     "trendsFilter": {

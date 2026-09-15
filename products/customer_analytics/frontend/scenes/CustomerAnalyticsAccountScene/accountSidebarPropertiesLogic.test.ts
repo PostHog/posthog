@@ -242,27 +242,33 @@ describe('accountSidebarPropertiesLogic', () => {
         })
     })
 
-    it('reports saved values and assignments as account product events', async () => {
-        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
-        await mount()
-        await expectLogic(logic, () =>
-            logic.actions.saveCustomProperty('custom:property-1', 'Growth')
-        ).toFinishAllListeners()
-        expect(capture).toHaveBeenCalledWith(AccountsEvents.CustomPropertyUpdated, {
-            display_type: 'text',
-            workflow_reference: false,
-            source: 'account_sidebar',
-        })
-        await expectLogic(logic, () =>
-            logic.actions.saveRelationship('relationship:relationship-1', [2])
-        ).toFinishAllListeners()
-        expect(capture).toHaveBeenCalledWith(AccountsEvents.RoleAssigned, {
-            role: relationshipDefinition.name,
-            is_assigned: true,
-            assigned_user_id: 2,
-            source: 'account_sidebar',
-        })
-    })
+    it.each([
+        { source: undefined, expectedSource: 'account_sidebar' },
+        { source: 'list_expansion', expectedSource: 'list_expansion' },
+    ] as const)(
+        'reports saved values and assignments with $expectedSource attribution',
+        async ({ source, expectedSource }) => {
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+            await mount()
+            await expectLogic(logic, () =>
+                logic.actions.saveCustomProperty('custom:property-1', 'Growth', source)
+            ).toFinishAllListeners()
+            expect(capture).toHaveBeenCalledWith(AccountsEvents.CustomPropertyUpdated, {
+                display_type: 'text',
+                workflow_reference: false,
+                source: expectedSource,
+            })
+            await expectLogic(logic, () =>
+                logic.actions.saveRelationship('relationship:relationship-1', [2], source)
+            ).toFinishAllListeners()
+            expect(capture).toHaveBeenCalledWith(AccountsEvents.RoleAssigned, {
+                role: relationshipDefinition.name,
+                is_assigned: true,
+                assigned_user_id: 2,
+                source: expectedSource,
+            })
+        }
+    )
 
     it('keeps the editor and existing value after a failed save', async () => {
         silenceKeaLoadersErrors()

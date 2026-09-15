@@ -525,7 +525,7 @@ export interface HogQLQueryModifiers {
     useMaterializedViews?: boolean
     customChannelTypeRules?: CustomChannelRule[]
     customBotDefinitions?: CustomBotRule[]
-    /** Classify cookieless-mode events as regular traffic instead of automation. Cookieless ingestion strips the user agent the bot classifier reads, so without this every cookieless event is reported as a bot. Resolved server-side; not intended to be set by clients. */
+    /** Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients. */
     cookielessTrafficIsRegular?: boolean
     useWebAnalyticsPreAggregatedTables?: boolean
     /** Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients. */
@@ -2921,6 +2921,8 @@ export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     assignedToUserIds?: integer[]
     /** Match accounts with no active relationship of any definition. */
     allRolesUnassigned?: boolean
+    /** Match accounts with at least one active relationship of any definition. */
+    assignedOnly?: boolean
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: HogQLExpression
     /** Include ignored accounts. Ignored accounts are hidden by default. */
@@ -3246,9 +3248,11 @@ export type WebAnalyticsPropertyFilter =
     | CohortPropertyFilter
 export type WebAnalyticsPropertyFilters = WebAnalyticsPropertyFilter[]
 export type ActionConversionGoal = {
+    properties?: WebAnalyticsPropertyFilters
     actionId: integer
 }
 export type CustomEventConversionGoal = {
+    properties?: WebAnalyticsPropertyFilters
     customEventName: string
 }
 export type WebAnalyticsConversionGoal = ActionConversionGoal | CustomEventConversionGoal
@@ -3425,6 +3429,8 @@ export interface MCPModelBreakdownItem {
 }
 
 export interface MCPModelBreakdownQueryResponse extends AnalyticsQueryResponseBase {
+    /** Whether another page of individual model identifiers is available. */
+    hasMore?: boolean
     results: MCPModelBreakdownItem[]
 }
 
@@ -3434,6 +3440,19 @@ export interface MCPModelBreakdownQuery extends DataNode<MCPModelBreakdownQueryR
     dateRange?: DateRange
     properties?: AnyPropertyFilter[]
     filterTestAccounts?: boolean
+    /** Return individual reported models, excluding Unknown, instead of the top-six grouping. */
+    includeAllModels?: boolean
+    /**
+     * Page size when includeAllModels is enabled.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: integer
+    /**
+     * Number of individual models to skip when includeAllModels is enabled.
+     * @minimum 0
+     */
+    offset?: integer
 }
 
 export type CachedMCPModelBreakdownQueryResponse = CachedQueryResponse<MCPModelBreakdownQueryResponse>
@@ -3858,6 +3877,7 @@ export enum WebStatsBreakdown {
     FrustrationMetrics = 'FrustrationMetrics',
 }
 export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQueryResponse> {
+    includeTrafficMetrics?: boolean
     kind: NodeKind.WebStatsTableQuery
     breakdownBy: WebStatsBreakdown
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
@@ -9580,6 +9600,9 @@ export const externalDataSources = [
     'GoogleAdSense',
     'Sequenzy',
     'Skio',
+    'Smartlead',
+    'Substack',
+    'ElectricityMaps',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -9832,6 +9855,11 @@ export enum SubscriptionFreeTierLimit {
 /** Maximum length, in characters, of an AI subscription prompt. */
 export enum SubscriptionAIPromptMaxLength {
     CHARACTERS = 4000,
+}
+
+/** Maximum number of dashboards and insights an AI subscription may use as context. */
+export enum SubscriptionAIContextLimit {
+    COUNT = 3,
 }
 
 export type UsageMetricFormat = 'numeric' | 'currency'
@@ -10183,11 +10211,20 @@ export enum ProductIntentContext {
     SESSION_REPLAY_EXPERIMENT_LINK_CLICKED = 'session_replay_experiment_link_clicked',
     SESSION_REPLAY_SAVE_FILTERS_AS_SCANNER = 'session_replay_save_filters_as_scanner',
 
+    // Replay Vision
+    // Shallow: dwelled on the scanner list long enough to have read it. Deliberately not a bare
+    // pageview — a mount-and-bounce must not start the activation clock for the team.
+    REPLAY_VISION_VIEWED = 'replay_vision_viewed',
+    // Deep, both registered server-side so agent/API callers count too, not just the app.
+    REPLAY_VISION_SCANNER_CREATED = 'replay_vision_scanner_created',
+    REPLAY_VISION_SCAN_TRIGGERED = 'replay_vision_scan_triggered',
+
     // Error Tracking
     ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED = 'error_tracking_exception_autocapture_enabled',
     ERROR_TRACKING_ISSUE_SORTING = 'error_tracking_issue_sorting',
     ERROR_TRACKING_DOCS_VIEWED = 'error_tracking_docs_viewed',
     ERROR_TRACKING_ISSUE_EXPLAINED = 'error_tracking_issue_explained',
+    ERROR_TRACKING_SCAN_WITH_VISION = 'error_tracking_scan_with_vision',
 
     // LLM Analytics
     LLM_ANALYTICS_VIEWED = 'llm_analytics_viewed',

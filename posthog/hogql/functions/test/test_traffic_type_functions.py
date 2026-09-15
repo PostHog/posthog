@@ -971,15 +971,43 @@ class TestCookielessClassification(ClickhouseTestMixin, BaseTest):
 
         response = execute_hogql_query(
             "SELECT `$virt_is_bot`, `$virt_traffic_type`, `$virt_traffic_category`, `$virt_bot_name`, "
-            "`$virt_bot_operator`, getBotType(properties.`$raw_user_agent`) "
+            "`$virt_bot_operator`, getBotType(properties.`$raw_user_agent`, properties.`$ip`) "
             f"FROM events WHERE properties._test_tag = '{tag}'",
             self.team,
         )
         assert response.results is not None
         return response.results[0]
 
-    def test_a_cookieless_event_is_regular_traffic(self):
-        assert self._classify({"$cookieless_mode": True}) == (False, "Regular", "regular", "", "", "")
+    @parameterized.expand(
+        [("missing", {}), ("empty", {"$raw_user_agent": ""}), ("string_flag", {"$cookieless_mode": "true"})]
+    )
+    def test_a_cookieless_event_is_regular_traffic(self, _name: str, properties: dict) -> None:
+        assert self._classify({"$cookieless_mode": True, **properties}) == (False, "Regular", "regular", "", "", "")
+
+    @parameterized.expand(
+        [
+            ("user_agent", {"$raw_user_agent": "Googlebot/2.1"}, False),
+            ("ip", {"$ip": "66.249.66.1"}, False),
+            ("user_agent_with_project_rules", {"$raw_user_agent": "Googlebot/2.1"}, True),
+            ("ip_with_project_rules", {"$ip": "66.249.66.1"}, True),
+        ]
+    )
+    def test_positive_bot_signals_still_classify_cookieless_events(
+        self, _name: str, properties: dict, with_project_rules: bool
+    ) -> None:
+        definitions = (
+            [_custom_bot(name="Staging checker", key=CustomBotField.FIELD_HOST, pattern="staging")]
+            if with_project_rules
+            else None
+        )
+        assert self._classify({"$cookieless_mode": True, **properties}, definitions=definitions) == (
+            True,
+            "Bot",
+            "search_crawler",
+            "Googlebot",
+            "Google",
+            "search_crawler",
+        )
 
     def test_a_cookieless_event_is_still_automation_while_the_rollout_is_off(self):
         assert self._classify({"$cookieless_mode": True}, cookieless_traffic_is_regular=False) == (
@@ -1001,9 +1029,12 @@ class TestCookielessClassification(ClickhouseTestMixin, BaseTest):
 
         assert (is_bot, traffic_type) == (True, "Bot")
 
-    def test_a_project_rule_still_names_a_cookieless_event(self):
+    @parameterized.expand(
+        [("no_builtin", {}), ("user_agent", {"$raw_user_agent": "Googlebot/2.1"}), ("ip", {"$ip": "66.249.66.1"})]
+    )
+    def test_a_project_rule_still_names_a_cookieless_event(self, _name: str, properties: dict) -> None:
         is_bot, traffic_type, category, name, _operator, bot_type = self._classify(
-            {"$cookieless_mode": True, "$host": "staging.example.com"},
+            {"$cookieless_mode": True, "$host": "staging.example.com", **properties},
             definitions=[
                 _custom_bot(
                     name="Staging checker", key=CustomBotField.FIELD_HOST, pattern="staging", category="monitoring"
@@ -1024,23 +1055,6 @@ COOKIELESS_ON = HogQLQueryModifiers(cookielessTrafficIsRegular=True)
 
 
 class TestCookielessOverrideExpression:
-    def test_the_flag_is_normalized_so_both_events_schemas_match(self):
-        result = get_traffic_type(
-            node=ast.Call(name="getTrafficType", args=[]),
-            args=[ast.Field(chain=["properties", "$raw_user_agent"])],
-            modifiers=COOKIELESS_ON,
-        )
-
-        assert isinstance(result, ast.Call)
-        condition = result.args[0]
-        assert isinstance(condition, ast.CompareOperation)
-        assert condition.right == ast.Constant(value="true")
-        if_null = condition.left
-        assert isinstance(if_null, ast.Call) and if_null.name == "ifNull"
-        to_string = if_null.args[0]
-        assert isinstance(to_string, ast.Call) and to_string.name == "toString"
-        assert to_string.args[0] == ast.Field(chain=["properties", "$cookieless_mode"])
-
     @parameterized.expand(
         [
             ("getTrafficType", get_traffic_type, "if"),

@@ -7,9 +7,16 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
-import type { MockResolverInfo } from '~/mocks/utils'
+import type { MockResolverInfo, Mocks } from '~/mocks/utils'
 
-import type { PaginatedAccountEmailThreadListApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+import type {
+    CustomPropertyDefinitionApi,
+    CustomPropertyValueApi,
+    PaginatedAccountEmailThreadListApi,
+    UserCustomerAnalyticsConfigApi,
+} from 'products/customer_analytics/frontend/generated/api.schemas'
+
+import { ACCOUNTS_DEFAULT_COLUMNS, customPropertyAlias } from './accountsColumnConfigLogic'
 
 const QUERY_ENDPOINT = '/api/projects/:team_id/accounts_table_query/'
 const ACCOUNT_RETRIEVE_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/'
@@ -19,6 +26,9 @@ const ACCOUNT_EMAIL_THREAD_DETAIL_ENDPOINT = 'api/projects/:team_id/accounts/:ac
 const ACCOUNT_SUMMARIES_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/summaries/'
 const ACCOUNT_SUPPORT_TICKETS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/support_tickets/'
 const ACCOUNT_RELATIONSHIPS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/relationships/'
+const ACCOUNT_PROPERTY_VALUES_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/custom_property_values/'
+const ACCOUNT_SIDEBAR_CONFIG_ENDPOINT = 'api/projects/:team_id/user_customer_analytics_config/@me/'
+const CUSTOM_PROPERTY_DEFINITIONS_ENDPOINT = 'api/projects/:team_id/custom_property_definitions/'
 const FEATURE_REQUESTS_ENDPOINT = 'api/projects/:team_id/feature_requests/'
 const RELATIONSHIP_DEFINITIONS_ENDPOINT = 'api/projects/:team_id/account_relationship_definitions/'
 const ORGANIZATION_MEMBERS_ENDPOINT = 'api/projects/:team_id/organization_members/'
@@ -65,7 +75,10 @@ const RELATIONSHIP_DEFINITIONS = {
     ],
 }
 
-function buildAccountsTableQueryResponse(rows: AccountRow[]): Record<string, unknown> {
+function buildAccountsTableQueryResponse(
+    rows: AccountRow[],
+    customProperties: Record<string, string> = {}
+): Record<string, unknown> {
     return {
         kind: 'AccountsTableQuery',
         results: rows.map(([account, tags, noteCount, csm, accountExecutive, accountOwner]) => ({
@@ -81,7 +94,7 @@ function buildAccountsTableQueryResponse(rows: AccountRow[]): Record<string, unk
                 '66666666-7777-8888-9999-aaaaaaaaaaaa': accountExecutive,
                 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff': accountOwner,
             },
-            customProperties: {},
+            customProperties,
             customPropertyHistory: {},
         })),
         hasMore: false,
@@ -266,7 +279,8 @@ const EXPANDED_ROW_TEST_OPTIONS = {
 }
 
 function mockAccountsTableQuery(
-    rows: AccountRow[]
+    rows: AccountRow[],
+    customProperties: Record<string, string> = {}
 ): (info: MockResolverInfo) => Promise<[number, unknown] | undefined> {
     return async ({ request }) => {
         const body = (await request.json()) as { query?: { kind?: string; metrics?: unknown[] } }
@@ -284,7 +298,7 @@ function mockAccountsTableQuery(
                           metricsResults: [rows.length],
                       },
                   ]
-                : [200, buildAccountsTableQueryResponse(rows)]
+                : [200, buildAccountsTableQueryResponse(rows, customProperties)]
         }
         return undefined
     }
@@ -349,6 +363,109 @@ export const Default: Story = {
     ],
 }
 
+const ADDITIONAL_COLUMN_DEFINITIONS: CustomPropertyDefinitionApi[] = (
+    [
+        { name: 'Subscription cost', display_type: 'currency' },
+        { name: 'Onboarding progress', display_type: 'percent' },
+        { name: 'Seats', display_type: 'number' },
+        { name: 'Deployment region', display_type: 'text' },
+        { name: 'Plan', display_type: 'text' },
+        { name: 'Account description', display_type: 'text' },
+    ] satisfies Pick<CustomPropertyDefinitionApi, 'name' | 'display_type'>[]
+).map((definition, index) => ({
+    ...definition,
+    id: `00000000-0000-0000-0000-00000000000${index}`,
+    is_canonical: false,
+    source: null,
+    has_workflow_reference: false,
+    created_at: '2026-05-01T00:00:00Z',
+    created_by: null,
+    updated_at: null,
+    references: [],
+}))
+
+const ADDITIONAL_COLUMN_VALUES = Object.fromEntries(
+    [
+        '12345.67',
+        '0.75',
+        '250',
+        'Europe',
+        'Enterprise',
+        'A long account description that needs more than one column width',
+    ].map((value, index) => [ADDITIONAL_COLUMN_DEFINITIONS[index].id, value])
+)
+
+export const ManyColumns: Story = {
+    render: () => <App />,
+    parameters: {
+        pageUrl: `${urls.customerAnalyticsAccounts()}#view=${encodeURIComponent(
+            JSON.stringify({
+                columns: [
+                    ...ACCOUNTS_DEFAULT_COLUMNS,
+                    'csm',
+                    'external_id',
+                    ...ADDITIONAL_COLUMN_DEFINITIONS.map(
+                        ({ id }) => `accounts.custom_properties.values.\`${id}\` AS ${customPropertyAlias(id)}`
+                    ),
+                ],
+            })
+        )}`,
+        testOptions: {
+            waitForSelector: `[data-attr="accounts-table-sort-${customPropertyAlias(ADDITIONAL_COLUMN_DEFINITIONS[5].id)}"]`,
+            viewport: { width: 1280, height: 960 },
+        },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/column_configurations/': { count: 0, next: null, results: [] },
+                'api/environments/:team_id/customer_journeys/': { count: 0, next: null, results: [] },
+                'api/projects/:team_id/custom_property_definitions/': {
+                    count: ADDITIONAL_COLUMN_DEFINITIONS.length,
+                    next: null,
+                    previous: null,
+                    results: ADDITIONAL_COLUMN_DEFINITIONS,
+                },
+            },
+            post: {
+                [QUERY_ENDPOINT]: mockAccountsTableQuery(SAMPLE_ROWS, ADDITIONAL_COLUMN_VALUES),
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findAllByText('Enterprise', {}, { timeout: 15000 })
+        await waitFor(() => {
+            const widths: number[] = []
+            for (const definition of ADDITIONAL_COLUMN_DEFINITIONS) {
+                const header = canvasElement
+                    .querySelector(`[data-attr="accounts-table-sort-${customPropertyAlias(definition.id)}"]`)
+                    ?.closest('th')
+                const width = header?.getBoundingClientRect().width ?? 0
+                if (width < 80 || width > 200) {
+                    throw new Error('New account columns must size between 80px and 200px')
+                }
+                widths.push(width)
+            }
+            if (widths[4] <= widths[2] || widths.at(-1) !== 200) {
+                throw new Error('Column sizes must account for values wider than the header and cap long content')
+            }
+            const expansionToggle = canvasElement.querySelector('.DataTable .LemonTable__toggle')
+            if (!expansionToggle || expansionToggle.getBoundingClientRect().width === 0) {
+                throw new Error('Automatic column widths must leave the row expansion control visible')
+            }
+            const scrollContainer = canvasElement.querySelector<HTMLElement>('.DataTable .ScrollableShadows__inner')
+            if (!scrollContainer || scrollContainer.scrollWidth <= scrollContainer.clientWidth) {
+                throw new Error('Account columns must scroll inside the table when they do not fit')
+            }
+            scrollContainer.scrollLeft = scrollContainer.scrollWidth
+            if (scrollContainer.scrollLeft === 0) {
+                throw new Error('The last account column must be reachable by scrolling')
+            }
+            scrollContainer.scrollLeft = 0
+        })
+    },
+}
+
 export const Empty: Story = {
     render: () => <App />,
     decorators: [
@@ -377,6 +494,218 @@ export const FeatureGateOff: Story = {
             },
         }),
     ],
+}
+
+const PINNED_PROPERTY_FIXTURES = [
+    {
+        id: 'summary',
+        name: 'Account summary',
+        display_type: 'text' as const,
+        value: 'Evaluating the new dashboard with the customer success and implementation teams',
+    },
+    { id: 'active', name: 'Active', display_type: 'boolean' as const, value: false },
+    { id: 'seats', name: 'Seats', display_type: 'number' as const, value: 42 },
+    { id: 'unpinned', name: 'Unpinned property', display_type: 'text' as const, value: 'This value is not pinned' },
+]
+const PINNED_PROPERTY_DEFINITIONS: CustomPropertyDefinitionApi[] = PINNED_PROPERTY_FIXTURES.map(
+    ({ id, name, display_type }) => ({
+        id,
+        name,
+        display_type,
+        target_type: 'account',
+        is_canonical: false,
+        source: null,
+        references: [],
+        has_workflow_reference: false,
+        created_at: '2026-05-10T10:00:00Z',
+        created_by: 1,
+        updated_at: null,
+    })
+)
+const PINNED_PROPERTY_VALUES: CustomPropertyValueApi[] = PINNED_PROPERTY_FIXTURES.map(({ id, value }) => ({
+    id: `value-${id}`,
+    definition_id: id,
+    account_id: 'acc-1',
+    value,
+    created_at: '2026-05-10T10:00:00Z',
+    created_by_id: 1,
+}))
+const PINNED_PROPERTIES_CONFIG: UserCustomerAnalyticsConfigApi = {
+    pinned_properties: [
+        { kind: 'custom_property', id: 'seats' },
+        { kind: 'relationship', id: RELATIONSHIP_DEFINITIONS.results[0].id },
+        { kind: 'custom_property', id: 'summary' },
+        { kind: 'custom_property', id: 'active' },
+    ],
+}
+const PINNED_EXPANSION_SELECTOR = '[data-attr="account-pinned-properties-expansion"]'
+const PINNED_FIELD_SELECTOR = '[data-attr="account-property-row"]'
+const PINNED_ROW_PARAMETERS = {
+    featureFlags: [
+        FEATURE_FLAGS.CUSTOMER_ANALYTICS,
+        FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP,
+        FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE,
+    ],
+    testOptions: {
+        waitForSelector: `${PINNED_EXPANSION_SELECTOR} ${PINNED_FIELD_SELECTOR}`,
+        viewport: { width: 1440, height: 900 },
+    },
+}
+
+function pinnedRowDecorators(overrides: Mocks['get'] = {}): ReturnType<typeof mswDecorator>[] {
+    return [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/column_configurations/': { count: 0, next: null, previous: null, results: [] },
+                'api/environments/:team_id/customer_journeys/': { count: 0, next: null, previous: null, results: [] },
+                [ACCOUNT_SIDEBAR_CONFIG_ENDPOINT]: PINNED_PROPERTIES_CONFIG,
+                [CUSTOM_PROPERTY_DEFINITIONS_ENDPOINT]: {
+                    count: PINNED_PROPERTY_DEFINITIONS.length,
+                    next: null,
+                    previous: null,
+                    results: PINNED_PROPERTY_DEFINITIONS,
+                },
+                [ACCOUNT_PROPERTY_VALUES_ENDPOINT]: PINNED_PROPERTY_VALUES,
+                [ACCOUNT_RELATIONSHIPS_ENDPOINT]: [
+                    {
+                        id: 'assignment-csm',
+                        definition: RELATIONSHIP_DEFINITIONS.results[0],
+                        user: { id: 178, email: 'alex@example.com' },
+                        started_at: '2026-05-10T10:00:00Z',
+                        ended_at: null,
+                    },
+                ],
+                ...overrides,
+            },
+            post: {
+                [QUERY_ENDPOINT]: mockAccountsTableQuery(SINGLE_ROW),
+            },
+        }),
+    ]
+}
+
+async function expandPinnedRow(canvasElement: HTMLElement): Promise<HTMLElement> {
+    const canvas = within(canvasElement)
+    await canvas.findByText('Acme Inc', {}, { timeout: 15000 })
+    await userEvent.click(await canvas.findByTitle('Show more'))
+    return await waitFor(() => {
+        const expansion = canvasElement.querySelector<HTMLElement>(PINNED_EXPANSION_SELECTOR)
+        if (!expansion) {
+            throw new Error('Pinned properties did not expand')
+        }
+        if (
+            canvasElement.querySelector('[data-attr="account-expansion"]') ||
+            within(expansion).queryByRole('tablist')
+        ) {
+            throw new Error('Pinned expansion must not render account detail tabs')
+        }
+        return expansion
+    })
+}
+
+async function assertPinnedValues(expansion: HTMLElement): Promise<void> {
+    const expected = [
+        ['Seats', '42'],
+        ['CSM', 'alex@example.com'],
+        ['Account summary', 'Evaluating the new dashboard with the customer success and implementation teams'],
+        ['Active', 'No'],
+    ]
+    await waitFor(() => {
+        const fields = expansion.querySelectorAll<HTMLElement>(PINNED_FIELD_SELECTOR)
+        if (fields.length !== expected.length) {
+            throw new Error('Expansion must show only pinned properties')
+        }
+        for (const [index, [label, value]] of expected.entries()) {
+            const field = within(fields[index])
+            field.getByText(label)
+            field.getByText(value)
+        }
+    })
+    if (
+        within(expansion).queryByText('Unpinned property') ||
+        within(expansion).queryByText('This value is not pinned')
+    ) {
+        throw new Error('Pinned properties must exclude unpinned content')
+    }
+}
+
+export const RowExpandedPinnedProperties: Story = {
+    render: () => <App />,
+    parameters: PINNED_ROW_PARAMETERS,
+    decorators: pinnedRowDecorators(),
+    play: async ({ canvasElement }) => {
+        await assertPinnedValues(await expandPinnedRow(canvasElement))
+        await userEvent.click(within(canvasElement).getByTitle('Show less'))
+        await waitFor(() => {
+            if (canvasElement.querySelector(PINNED_EXPANSION_SELECTOR)) {
+                throw new Error('Pinned properties did not collapse')
+            }
+        })
+        await assertPinnedValues(await expandPinnedRow(canvasElement))
+    },
+}
+
+export const RowExpandedPinnedPropertiesNarrow: Story = {
+    ...RowExpandedPinnedProperties,
+    parameters: {
+        ...PINNED_ROW_PARAMETERS,
+        pageUrl: `${urls.customerAnalyticsAccounts()}#view=${encodeURIComponent(JSON.stringify({ columns: ['name'] }))}`,
+        testOptions: {
+            ...PINNED_ROW_PARAMETERS.testOptions,
+            viewport: { width: 800, height: 900 },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        await assertPinnedValues(await expandPinnedRow(canvasElement))
+    },
+}
+
+export const RowExpandedNoPinnedProperties: Story = {
+    render: () => <App />,
+    parameters: {
+        ...PINNED_ROW_PARAMETERS,
+        testOptions: {
+            waitForSelector: `${PINNED_EXPANSION_SELECTOR} [data-attr="account-pin-properties-empty"]`,
+        },
+    },
+    decorators: pinnedRowDecorators({ [ACCOUNT_SIDEBAR_CONFIG_ENDPOINT]: { pinned_properties: [] } }),
+    play: async ({ canvasElement }) => {
+        const expansion = await expandPinnedRow(canvasElement)
+        await within(expansion).findByRole('button', { name: 'Pin properties' })
+        within(expansion).getByText('Pin the account details you use most.')
+        within(expansion).getByText('Properties')
+        if (
+            within(expansion).queryByLabelText('Configure pinned properties') ||
+            within(expansion).queryByRole('link')
+        ) {
+            throw new Error('Empty expansion must offer the Pin properties button without a gear or link')
+        }
+        if (expansion.querySelector(PINNED_FIELD_SELECTOR)) {
+            throw new Error('Empty expansion must not show unpinned properties')
+        }
+    },
+}
+
+export const RowExpandedPinnedPropertiesError: Story = {
+    render: () => <App />,
+    parameters: {
+        ...PINNED_ROW_PARAMETERS,
+        testOptions: { waitForSelector: `${PINNED_EXPANSION_SELECTOR} button` },
+    },
+    decorators: pinnedRowDecorators({
+        [ACCOUNT_PROPERTY_VALUES_ENDPOINT]: [500, { detail: 'Could not load pinned properties.' }],
+    }),
+    play: async ({ canvasElement }) => {
+        const expansion = await expandPinnedRow(canvasElement)
+        await within(expansion).findByText('Could not load pinned properties.')
+        await within(expansion).findAllByRole('button', { name: 'Try again' })
+        if (
+            expansion.querySelector('[data-attr="account-pin-properties-empty"]') ||
+            expansion.querySelector(PINNED_FIELD_SELECTOR)
+        ) {
+            throw new Error('A failed property request must not render empty or partial values')
+        }
+    },
 }
 
 export const RowExpandedEmpty: Story = {

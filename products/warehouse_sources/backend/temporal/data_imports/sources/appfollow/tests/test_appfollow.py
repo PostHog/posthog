@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Any, Protocol
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -143,16 +143,16 @@ class TestDateFormatting:
 
 
 class TestClampFutureValueToNow:
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_future_datetime_is_clamped(self):
         assert _clamp_future_value_to_now(datetime(2027, 1, 1, tzinfo=UTC)) == datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_past_datetime_is_unchanged(self):
         value = datetime(2024, 3, 4, tzinfo=UTC)
         assert _clamp_future_value_to_now(value) == value
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_future_date_is_clamped(self):
         assert _clamp_future_value_to_now(date(2027, 1, 1)) == date(2026, 6, 15)
 
@@ -440,7 +440,7 @@ class TestResolveCountry:
 
 
 class TestSnapshotFanOut:
-    @freeze_time("2026-06-15T09:00:00Z")
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
     def test_rankings_requests_today_once_per_app_and_stamps_the_key_fields(self, monkeypatch):
         # `/meta/rankings` has no pagination and no date range, so one request per app is the whole
         # walk. `ext_id` and `date` are stamped because the primary key and partition key need them.
@@ -451,7 +451,7 @@ class TestSnapshotFanOut:
         assert len(params) == 1
         assert params[0] == {"ext_id": "111", "date": "2026-06-15"}
 
-    @freeze_time("2026-06-15T09:00:00Z")
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
     def test_a_row_that_carries_its_own_date_is_not_overwritten(self, monkeypatch):
         api = _fanout_api([[{"keyword": "photos", "date": "2026-06-14"}]], envelope="keywords")
         rows = _collect("keywords", _FakeManager(), monkeypatch, api)
@@ -520,7 +520,7 @@ class TestCountryScopedFanOut:
 
 
 class TestWindowedFanOut:
-    @freeze_time("2026-06-15T09:00:00Z")
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
     def test_full_refresh_opens_the_whole_window(self, monkeypatch):
         api = _fanout_api([[{"date": "2026-06-01", "reviews": 4}]], envelope="stats")
         _collect(
@@ -534,7 +534,7 @@ class TestWindowedFanOut:
         params = _calls_to(api, "/reviews/stats")[0]
         assert params == {"ext_id": "111", "from": DEFAULT_START_DATE, "to": "2026-06-15"}
 
-    @freeze_time("2026-06-15T09:00:00Z")
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
     def test_incremental_sync_moves_from_to_the_watermark(self, monkeypatch):
         api = _fanout_api([[{"date": "2026-06-11", "reviews": 4}]], envelope="stats")
         _collect(
@@ -547,7 +547,7 @@ class TestWindowedFanOut:
         )
         assert _calls_to(api, "/reviews/stats")[0]["from"] == "2026-06-10"
 
-    @freeze_time("2026-06-15T09:00:00Z")
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
     def test_a_future_watermark_is_clamped_so_the_table_cannot_freeze(self, monkeypatch):
         api = _fanout_api([[{"date": "2026-06-11"}]], envelope="stats")
         _collect(

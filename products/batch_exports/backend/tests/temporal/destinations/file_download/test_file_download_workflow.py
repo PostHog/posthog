@@ -30,10 +30,7 @@ from products.batch_exports.backend.tests.temporal.utils.workflow import fail_on
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
-requires_aws_credentials = pytest.mark.skipif(
-    not has_valid_credentials(),
-    reason="AWS credentials not set in environment",
-)
+requires_aws_credentials = pytest.mark.requires_vendor_credentials(check=has_valid_credentials)
 
 
 @pytest_asyncio.fixture

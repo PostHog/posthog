@@ -1328,12 +1328,53 @@ export interface CompareFilterApi {
     compare_to?: string | null
 }
 
+export interface EventPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator?: PropertyOperatorApi | null
+    /** Event properties */
+    type?: 'event'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface PersonPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Person properties */
+    type?: 'person'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface SessionPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'session'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface CohortPropertyFilterApi {
+    cohort_name?: string | null
+    key?: 'id'
+    label?: string | null
+    operator?: PropertyOperatorApi | null
+    type?: 'cohort'
+    value: number
+}
+
 export interface ActionConversionGoalApi {
     actionId: number
+    properties?:
+        | (EventPropertyFilterApi | PersonPropertyFilterApi | SessionPropertyFilterApi | CohortPropertyFilterApi)[]
+        | null
 }
 
 export interface CustomEventConversionGoalApi {
     customEventName: string
+    properties?:
+        | (EventPropertyFilterApi | PersonPropertyFilterApi | SessionPropertyFilterApi | CohortPropertyFilterApi)[]
+        | null
 }
 
 export type DaysOfWeekEnumApi = (typeof DaysOfWeekEnumApi)[keyof typeof DaysOfWeekEnumApi]
@@ -1582,7 +1623,7 @@ export interface HogQLQueryModifiersApi {
     bounceRateDurationSeconds?: number | null
     bounceRatePageViewMode?: BounceRatePageViewModeApi | null
     convertToProjectTimezone?: boolean | null
-    /** Classify cookieless-mode events as regular traffic instead of automation. Cookieless ingestion strips the user agent the bot classifier reads, so without this every cookieless event is reported as a bot. Resolved server-side; not intended to be set by clients. */
+    /** Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients. */
     cookielessTrafficIsRegular?: boolean | null
     customBotDefinitions?: CustomBotRuleApi[] | null
     customChannelTypeRules?: CustomChannelRuleApi[] | null
@@ -1625,24 +1666,6 @@ export interface HogQLQueryModifiersApi {
     webAnalyticsFirstPageviewFilters?: boolean | null
 }
 
-export interface EventPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator?: PropertyOperatorApi | null
-    /** Event properties */
-    type?: 'event'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface PersonPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    /** Person properties */
-    type?: 'person'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
 export interface PersonMetadataPropertyFilterApi {
     key: string
     label?: string | null
@@ -1675,23 +1698,6 @@ export interface EventMetadataPropertyFilterApi {
     operator: PropertyOperatorApi
     type?: 'event_metadata'
     value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface SessionPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    type?: 'session'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface CohortPropertyFilterApi {
-    cohort_name?: string | null
-    key?: 'id'
-    label?: string | null
-    operator?: PropertyOperatorApi | null
-    type?: 'cohort'
-    value: number
 }
 
 export type DurationTypeApi = (typeof DurationTypeApi)[keyof typeof DurationTypeApi]
@@ -4457,6 +4463,7 @@ export interface WebStatsTableQueryApi {
     includeHost?: boolean | null
     includeRevenue?: boolean | null
     includeScrollDepth?: boolean | null
+    includeTrafficMetrics?: boolean | null
     /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
     interval?: IntervalTypeApi | null
     kind?: 'WebStatsTableQuery'
@@ -5179,6 +5186,7 @@ export const IntegrationKindApi = {
     Linear: 'linear',
     Github: 'github',
     Gitlab: 'gitlab',
+    Helpscout: 'helpscout',
     MetaAds: 'meta-ads',
     Instagram: 'instagram',
     Clickup: 'clickup',
@@ -8384,6 +8392,8 @@ export interface AccountsQueryResponseApi {
 export interface AccountsQueryApi {
     /** Match accounts with no active relationship of any definition. */
     allRolesUnassigned?: boolean | null
+    /** Match accounts with at least one active relationship of any definition. */
+    assignedOnly?: boolean | null
     /** Match accounts where any of these user ids actively holds any relationship (CSM, Account executive, or a custom definition). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
     assignedToUserIds?: number[] | null
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */

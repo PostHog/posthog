@@ -5,6 +5,7 @@ import {
   inboxReportUrl,
   parseShareLink,
   sessionRecordingUrl,
+  supportTicketUrl,
 } from "@posthog/ui/utils/posthogLinks";
 import { describe, expect, it, vi } from "vitest";
 
@@ -25,6 +26,32 @@ describe("inboxReportUrl", () => {
     expect(
       inboxReportUrl("report/id", { projectId: 123, cloudRegion: "us" }),
     ).toBe("https://us.posthog.com/project/123/inbox/report%2Fid");
+  });
+});
+
+describe("supportTicketUrl", () => {
+  it.each([
+    [
+      "a ticket number",
+      4821,
+      "https://us.posthog.com/project/123/support/tickets/4821",
+    ],
+    [
+      "a ticket uuid",
+      "0197-uuid",
+      "https://us.posthog.com/project/123/support/tickets/0197-uuid",
+    ],
+  ])(
+    "links the source project's ticket page by %s",
+    (_label, ref, expected) => {
+      expect(supportTicketUrl(ref, { projectId: 123, cloudRegion: "us" })).toBe(
+        expected,
+      );
+    },
+  );
+
+  it("has no destination without a project to resolve the ticket against", () => {
+    expect(supportTicketUrl(4821, { projectId: null })).toBeNull();
   });
 });
 

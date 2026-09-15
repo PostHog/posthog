@@ -42,7 +42,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
-from products.experiments.backend.temporal.metric_resolution import build_metric, find_metric_dict
+from products.experiments.backend.temporal.metric_resolution import build_metric, find_metric_dict, is_scheduled_metric
 from products.experiments.backend.temporal.models import (
     CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS,
     MAX_METRIC_ATTEMPTS,
@@ -62,6 +62,10 @@ logger = structlog.get_logger(__name__)
 
 # Cap stored/returned error messages so a pathological traceback can't bloat the Temporal payload (~2 MiB cap).
 _MAX_ERROR_MESSAGE_LENGTH = 2000
+
+_TERMINAL_RECALC_STATUSES = frozenset(
+    {ExperimentMetricsRecalculation.Status.COMPLETED, ExperimentMetricsRecalculation.Status.FAILED}
+)
 
 
 # ---------------------------------------------------------------------------
@@ -134,15 +138,17 @@ def discover_experiment_metrics(experiment: Experiment) -> list[ExperimentMetric
     # Inline metrics carry their uuid directly on the dict; the metric_type is the source list.
     for source, metric_type in [(experiment.metrics, "primary"), (experiment.metrics_secondary, "secondary")]:
         for metric in source or []:
-            _add(metric.get("uuid"), metric_type)
+            if is_scheduled_metric(metric):
+                _add(metric.get("uuid"), metric_type)
 
     # Saved (shared) metrics live in the M2M through-model: uuid is on saved_metric.query["uuid"], and
     # primary/secondary is recorded on the link's metadata["type"] (default "primary").
     for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
         saved_query = link.saved_metric.query
-        metric_uuid = saved_query.get("uuid") if saved_query else None
+        if not is_scheduled_metric(saved_query):
+            continue
         metric_type = link.metadata.get("type", "primary") if link.metadata else "primary"
-        _add(metric_uuid, metric_type)
+        _add(saved_query.get("uuid"), metric_type)
 
     return metrics_to_recalculate
 
@@ -482,6 +488,7 @@ def _clear_retry(recalculation_id: str, metric_uuid: str) -> None:
 
 def _store_result(
     *,
+    recalculation_id: str,
     experiment_id: int,
     metric_uuid: str,
     recalc_fp: str,
@@ -492,23 +499,41 @@ def _store_result(
     error_message: str | None,
     query_id: str | None = None,
 ) -> None:
-    # Upsert on the true unique key (experiment, metric_uuid, query_to); fingerprint goes in defaults so a row
-    # already occupying that key under a different fingerprint is updated in place, not inserted as a colliding
-    # duplicate. This heals rows written under the old per-run fingerprint scheme.
-    ExperimentMetricResult.objects.update_or_create(
-        experiment_id=experiment_id,
-        metric_uuid=metric_uuid,
-        query_to=query_to,
-        defaults={
-            "fingerprint": recalc_fp,
-            "query_from": query_from,
-            "status": status,
-            "result": result,
-            "query_id": query_id,
-            "completed_at": timezone.now() if status == ExperimentMetricResult.Status.COMPLETED else None,
-            "error_message": error_message,
-        },
-    )
+    with transaction.atomic():
+        # Match request_recalculation's lock order; result inserts also take an experiment FK lock.
+        Experiment.objects.select_for_update(no_key=True).filter(id=experiment_id).exists()
+        current_status = (
+            ExperimentMetricsRecalculation.objects.select_for_update()
+            .filter(id=recalculation_id, experiment_id=experiment_id)
+            .values_list("status", flat=True)
+            .first()
+        )
+        if current_status is None or current_status in _TERMINAL_RECALC_STATUSES:
+            logger.warning(
+                "Skipping experiment metric result write for a terminal or missing recalculation",
+                recalculation_id=recalculation_id,
+                metric_uuid=metric_uuid,
+                recalculation_status=current_status,
+            )
+            return
+
+        # Upsert on the true unique key (experiment, metric_uuid, query_to); fingerprint goes in defaults so a row
+        # already occupying that key under a different fingerprint is updated in place, not inserted as a colliding
+        # duplicate. This heals rows written under the old per-run fingerprint scheme.
+        ExperimentMetricResult.objects.update_or_create(
+            experiment_id=experiment_id,
+            metric_uuid=metric_uuid,
+            query_to=query_to,
+            defaults={
+                "fingerprint": recalc_fp,
+                "query_from": query_from,
+                "status": status,
+                "result": result,
+                "query_id": query_id,
+                "completed_at": timezone.now() if status == ExperimentMetricResult.Status.COMPLETED else None,
+                "error_message": error_message,
+            },
+        )
 
 
 def _fail(recalculation_id: str, metric_uuid: str, step: str, message: str) -> MetricRecalculationResult:
@@ -683,6 +708,36 @@ def _calculate_experiment_metric_for_recalculation_sync(
         client_query_id = f"experiment_metric_recalc_{recalculation_id}_{metric_uuid}"
 
         calc_started_at = time.perf_counter()
+        query_from = experiment.start_date
+
+        def record_terminal_error(message: str, error_type: str) -> None:
+            _store_result(
+                recalculation_id=recalculation_id,
+                experiment_id=experiment_id,
+                metric_uuid=metric_uuid,
+                recalc_fp=recalc_fp,
+                query_from=query_from,
+                query_to=query_to_dt,
+                status=ExperimentMetricResult.Status.FAILED,
+                result=None,
+                error_message=message,
+                query_id=client_query_id,
+            )
+            _record_failure(recalculation_id, metric_uuid, "calculation", message)
+            _capture_experiment_metric_event(
+                experiment,
+                metric_uuid,
+                metric_type,
+                metric_dict,
+                "experiment metric error",
+                {
+                    "duration_ms": round((time.perf_counter() - calc_started_at) * 1000),
+                    "error_type": error_type,
+                    "error_message": message,
+                },
+                trigger=state.trigger,
+            )
+
         try:
             runner = ExperimentQueryRunner(
                 query=ExperimentQuery(experiment_id=experiment_id, metric=build_metric(metric_dict)),
@@ -714,6 +769,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
             result_dict = sanitize_non_finite(result.model_dump(mode="json"))
 
             _store_result(
+                recalculation_id=recalculation_id,
                 experiment_id=experiment_id,
                 metric_uuid=metric_uuid,
                 recalc_fp=recalc_fp,
@@ -740,6 +796,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
             # Expected "not enough data" style failures — warn, no exception capture.
             message = str(e)[:_MAX_ERROR_MESSAGE_LENGTH]
             _store_result(
+                recalculation_id=recalculation_id,
                 experiment_id=experiment_id,
                 metric_uuid=metric_uuid,
                 recalc_fp=recalc_fp,
@@ -774,31 +831,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
         except (ConcurrencyLimitExceeded, ClickHouseAtCapacity) as e:
             message = str(e)[:_MAX_ERROR_MESSAGE_LENGTH]
             if is_final_attempt:
-                _store_result(
-                    experiment_id=experiment_id,
-                    metric_uuid=metric_uuid,
-                    recalc_fp=recalc_fp,
-                    query_from=experiment.start_date,
-                    query_to=query_to_dt,
-                    status=ExperimentMetricResult.Status.FAILED,
-                    result=None,
-                    error_message=message,
-                    query_id=client_query_id,
-                )
-                _record_failure(recalculation_id, metric_uuid, "calculation", message)
-                _capture_experiment_metric_event(
-                    experiment,
-                    metric_uuid,
-                    metric_type,
-                    metric_dict,
-                    "experiment metric error",
-                    {
-                        "duration_ms": round((time.perf_counter() - calc_started_at) * 1000),
-                        "error_type": classify_experiment_query_error(e),
-                        "error_message": message,
-                    },
-                    trigger=state.trigger,
-                )
+                record_terminal_error(message, classify_experiment_query_error(e))
             logger.warning(
                 "Experiment metric recalculation deferred by ClickHouse backpressure",
                 experiment_id=experiment_id,
@@ -858,31 +891,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                     },
                 )
             if is_final_attempt or is_permanent:
-                _store_result(
-                    experiment_id=experiment_id,
-                    metric_uuid=metric_uuid,
-                    recalc_fp=recalc_fp,
-                    query_from=experiment.start_date,
-                    query_to=query_to_dt,
-                    status=ExperimentMetricResult.Status.FAILED,
-                    result=None,
-                    error_message=message,
-                    query_id=client_query_id,
-                )
-                _record_failure(recalculation_id, metric_uuid, "calculation", message)
-                _capture_experiment_metric_event(
-                    experiment,
-                    metric_uuid,
-                    metric_type,
-                    metric_dict,
-                    "experiment metric error",
-                    {
-                        "duration_ms": round((time.perf_counter() - calc_started_at) * 1000),
-                        "error_type": error_type,
-                        "error_message": message,
-                    },
-                    trigger=state.trigger,
-                )
+                record_terminal_error(message, error_type)
             logger.exception(
                 "Experiment metric recalculation failed",
                 experiment_id=experiment_id,

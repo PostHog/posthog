@@ -4,6 +4,10 @@ import { type ChartTheme } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 
+import { mswDecorator } from '~/mocks/browser'
+import { MCPModelBreakdownQuery } from '~/queries/schema/schema-general'
+
+import { MCPAnalyticsDashboardOverview } from '../MCPAnalyticsDashboardOverview'
 import {
     type DailyActivity,
     type HarnessRow,
@@ -15,7 +19,7 @@ import {
     type ToolRow,
 } from '../mcpDashboardOverviewLogic'
 import { ActivityChart } from './ActivityChart'
-import { HarnessDonut } from './HarnessDonut'
+import { HarnessBarChart } from './HarnessBarChart'
 import { KpiTiles } from './KpiTiles'
 import { ModelBarChart } from './ModelBarChart'
 import { NotableSessionsTable } from './NotableSessionsTable'
@@ -58,11 +62,13 @@ const TOOL_ROWS: ToolRow[] = [
 ]
 
 const HARNESS_ROWS: HarnessRow[] = [
-    { category: 'Claude Code', total_calls: 6200, errors: 240, error_rate_pct: 3.9, sessions: 820 },
-    { category: 'Cursor', total_calls: 2100, errors: 96, error_rate_pct: 4.6, sessions: 410 },
-    { category: 'OpenAI Codex', total_calls: 980, errors: 71, error_rate_pct: 7.2, sessions: 180 },
-    { category: 'Claude.ai', total_calls: 760, errors: 22, error_rate_pct: 2.9, sessions: 240 },
-    { category: 'VS Code', total_calls: 540, errors: 12, error_rate_pct: 2.2, sessions: 120 },
+    { category: 'OpenAI Codex', total_calls: 4200, errors: 84, error_rate_pct: 2, sessions: 600 },
+    { category: 'Claude Code', total_calls: 2800, errors: 112, error_rate_pct: 4, sessions: 400 },
+    { category: 'Claude Agent SDK', total_calls: 1600, errors: 48, error_rate_pct: 3, sessions: 200 },
+    { category: 'Cursor', total_calls: 1200, errors: 24, error_rate_pct: 2, sessions: 180 },
+    { category: 'Cowork', total_calls: 800, errors: 8, error_rate_pct: 1, sessions: 120 },
+    { category: 'Claude.ai', total_calls: 400, errors: 12, error_rate_pct: 3, sessions: 80 },
+    { category: 'Other', total_calls: 200, errors: 10, error_rate_pct: 5, sessions: 50 },
 ]
 
 const MODEL_ROWS: ModelRow[] = [
@@ -75,6 +81,31 @@ const MODEL_ROWS: ModelRow[] = [
     { model: 'Other', total_calls: 580 },
     { model: 'grok-3', total_calls: 320 },
 ]
+
+const ALL_MODEL_ROWS: ModelRow[] = [
+    ...MODEL_ROWS.filter((row) => row.model !== 'Unknown' && row.model !== 'Other'),
+    ...Array.from({ length: 58 }, (_, index) => ({
+        model: `example-provider/model-with-a-long-version-name-${String(index + 1).padStart(2, '0')}`,
+        total_calls: 10,
+    })),
+]
+
+const modelPagesDecorator = mswDecorator({
+    post: {
+        '/api/environments/:team_id/query/:kind': async ({ request }) => {
+            const { query } = (await request.json()) as { query: MCPModelBreakdownQuery }
+            const offset = query.offset ?? 0
+            const limit = query.limit ?? 50
+            return [
+                200,
+                {
+                    results: ALL_MODEL_ROWS.slice(offset, offset + limit),
+                    hasMore: offset + limit < ALL_MODEL_ROWS.length,
+                },
+            ]
+        },
+    },
+})
 
 const NOTABLE_SESSIONS: NotableSession[] = [
     {
@@ -221,10 +252,72 @@ export const DailyCallsAndErrorsInProgressBucket: Story = {
 }
 
 export const ShareByHarness: Story = {
-    render: withTheme((theme) => <HarnessDonut rows={HARNESS_ROWS} loading={false} theme={theme} />),
+    render: withTheme((theme) => <HarnessBarChart rows={HARNESS_ROWS} loading={false} theme={theme} />),
+}
+
+export const ShareByHarnessNarrow: Story = {
+    render: () => (
+        <div className="w-80">
+            <HarnessBarChart
+                rows={[
+                    {
+                        category: 'Example custom client with a very long name',
+                        total_calls: 1,
+                        errors: 0,
+                        error_rate_pct: 0,
+                        sessions: 1,
+                    },
+                    ...HARNESS_ROWS.toReversed(),
+                    { category: 'Claude Code (VS Code)', total_calls: 140, errors: 7, error_rate_pct: 5, sessions: 20 },
+                    { category: 'opencode', total_calls: 80, errors: 0, error_rate_pct: 0, sessions: 16 },
+                    { category: 'Antigravity', total_calls: 40, errors: 0, error_rate_pct: 0, sessions: 8 },
+                    { category: 'Grok', total_calls: 20, errors: 1, error_rate_pct: 5, sessions: 4 },
+                ]}
+                loading={false}
+                theme={buildTheme()}
+            />
+        </div>
+    ),
+}
+
+export const ShareByHarnessLoading: Story = {
+    render: withTheme((theme) => <HarnessBarChart rows={[]} loading theme={theme} />),
+}
+
+export const ShareByHarnessEmpty: Story = {
+    render: withTheme((theme) => <HarnessBarChart rows={[]} loading={false} theme={theme} />),
+}
+
+export const ShareByHarnessOtherOnly: Story = {
+    render: withTheme((theme) => (
+        <HarnessBarChart
+            rows={[{ category: 'Other', total_calls: 15, errors: 0, error_rate_pct: 0, sessions: 3 }]}
+            loading={false}
+            theme={theme}
+        />
+    )),
 }
 
 export const ShareByModel: Story = {
+    decorators: [modelPagesDecorator],
+    render: withTheme((theme) => <ModelBarChart rows={MODEL_ROWS} theme={theme} />),
+}
+
+export const ShareByModelExpandedNarrow: Story = {
+    decorators: [modelPagesDecorator],
+    render: () => (
+        <div className="w-80">
+            <ModelBarChart rows={MODEL_ROWS} theme={buildTheme()} />
+        </div>
+    ),
+}
+
+export const ShareByModelLoadError: Story = {
+    decorators: [
+        mswDecorator({
+            post: { '/api/environments/:team_id/query/:kind': [500, { detail: 'Could not load models' }] },
+        }),
+    ],
     render: withTheme((theme) => <ModelBarChart rows={MODEL_ROWS} theme={theme} />),
 }
 
@@ -248,6 +341,31 @@ export const ShareByModelNarrow: Story = {
     ),
 }
 
+export const ShareByModelLowCoverage: Story = {
+    render: withTheme((theme) => (
+        <ModelBarChart
+            rows={[
+                { model: 'Unknown', total_calls: 900 },
+                { model: 'example-model', total_calls: 70 },
+                { model: 'Other', total_calls: 30 },
+            ]}
+            theme={theme}
+        />
+    )),
+}
+
+export const ShareByModelFullCoverage: Story = {
+    render: withTheme((theme) => <ModelBarChart rows={[{ model: 'example-model', total_calls: 100 }]} theme={theme} />),
+}
+
+export const ShareByModelUnknownOnly: Story = {
+    render: withTheme((theme) => <ModelBarChart rows={[{ model: 'Unknown', total_calls: 100 }]} theme={theme} />),
+}
+
+export const ShareByModelEmpty: Story = {
+    render: withTheme((theme) => <ModelBarChart rows={[]} theme={theme} />),
+}
+
 export const ErrorRateByTool: Story = {
     render: withTheme((theme) => <ToolErrorRateChart rows={TOOL_ROWS} loading={false} theme={theme} />),
 }
@@ -264,4 +382,24 @@ export const FlaggedSessions: Story = {
             <NotableSessionsTable sessions={NOTABLE_SESSIONS} loading={false} />
         </div>
     ),
+}
+
+export const OverviewUnknownModels: Story = {
+    decorators: [
+        mswDecorator({
+            post: {
+                '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                    const { query } = (await request.json()) as { query: { kind: string } }
+                    return [
+                        200,
+                        {
+                            results:
+                                query.kind === 'MCPModelBreakdownQuery' ? [{ model: 'Unknown', total_calls: 100 }] : [],
+                        },
+                    ]
+                },
+            },
+        }),
+    ],
+    render: () => <MCPAnalyticsDashboardOverview />,
 }

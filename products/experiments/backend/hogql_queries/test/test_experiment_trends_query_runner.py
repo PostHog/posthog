@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Any, cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -142,7 +142,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(feature_flag_filter.value, [original_key])
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     def test_query_runner(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
@@ -201,7 +201,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(control_result.absolute_exposure, 7)
         self.assertEqual(test_result.absolute_exposure, 9)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     def test_query_runner_with_custom_exposure(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
@@ -356,7 +356,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(control_result.absolute_exposure, 2)
         self.assertEqual(test_result.absolute_exposure, 3)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     def test_query_runner_with_custom_exposure_sum_math(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
@@ -491,7 +491,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(control_result.absolute_exposure, 2)
         self.assertEqual(test_result.absolute_exposure, 2)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     def test_query_runner_with_default_exposure(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
@@ -583,7 +583,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(control_result.absolute_exposure, 2)
         self.assertEqual(test_result.absolute_exposure, 2)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     @snapshot_clickhouse_queries
     def test_query_runner_with_action(self):
         feature_flag = self.create_feature_flag()
@@ -679,7 +679,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(control_result.absolute_exposure, 2)
         self.assertEqual(test_result.absolute_exposure, 2)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     def test_query_runner_with_holdout(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
@@ -1008,7 +1008,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(test_result.absolute_exposure, 16)
 
     # Uses mirrored values for easy comparison with the avg-math scenario
-    @freeze_time("2020-01-01T00:00:00Z")
+    @time_machine.travel("2020-01-01T00:00:00Z", tick=False)
     def test_query_runner_with_avg_math_v2_stats(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
@@ -1119,7 +1119,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
     @pytest.mark.flaky(reruns=9)
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     def test_query_runner_standard_flow_v2_stats(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
@@ -1239,7 +1239,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(test_variant.count, 5.0)
         self.assertEqual(test_variant.exposure, 1.0)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     def test_validate_event_variants_no_control(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
@@ -1276,7 +1276,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     def test_validate_event_variants_no_test(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
@@ -1321,7 +1321,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
 
-    @freeze_time("2020-01-01T12:00:00Z")
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
     def test_validate_event_variants_no_exposure(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)

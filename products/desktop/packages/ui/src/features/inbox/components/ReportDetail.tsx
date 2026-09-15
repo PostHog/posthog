@@ -15,7 +15,7 @@ import { ReportRunsSection } from "@posthog/ui/features/inbox/components/ReportR
 import { ReportVerdictBanner } from "@posthog/ui/features/inbox/components/ReportVerdictBanner";
 import { ReportTrackerIssueLink } from "@posthog/ui/features/inbox/components/utils/ReportTrackerIssueLink";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
-import { useCallback, useEffect, useRef } from "react";
+import { type ReactNode, useCallback, useEffect, useRef } from "react";
 
 interface ReportDetailProps {
   reportId: string;
@@ -25,6 +25,7 @@ interface ReportDetailProps {
   backLabel?: string;
   /** Off when hosted on the in-space route, which has no per-status URLs. */
   statusRedirect?: boolean;
+  headerTrailingAction?: ReactNode;
 }
 
 export function ReportDetail({
@@ -33,6 +34,7 @@ export function ReportDetail({
   backTo = "/inbox/reports",
   backLabel = "Back to reports",
   statusRedirect = true,
+  headerTrailingAction,
 }: ReportDetailProps) {
   return (
     <InboxReportDetailGate
@@ -42,12 +44,12 @@ export function ReportDetail({
       backLabel={backLabel}
       statusRedirect={statusRedirect}
       missingCopy="This report couldn't be found. It may have been deleted."
+      fallbackAction={headerTrailingAction}
     >
       {(report) => (
         <ReportDetailContent
           report={report}
-          backTo={backTo}
-          backLabel={backLabel}
+          headerTrailingAction={headerTrailingAction}
         />
       )}
     </InboxReportDetailGate>
@@ -66,13 +68,52 @@ export function ReportDetail({
  */
 export function ReportDetailContent({
   report,
-  backTo,
-  backLabel,
+  headerTrailingAction,
 }: {
   report: SignalReport;
-  backTo: string;
-  backLabel: string;
+  headerTrailingAction?: ReactNode;
 }) {
+  return (
+    <ReportChatLayout report={report}>
+      <InboxDetailFrame
+        report={report}
+        fallbackTitle="Untitled report"
+        primaryAction={
+          <>
+            <ReportDetailActions report={report} placement="header" />
+            {headerTrailingAction}
+          </>
+        }
+        belowSummary={
+          <>
+            <ReportVerdictBanner
+              key={report.id}
+              report={report}
+              initialEngagementOnly
+            />
+            <ReportTrackerIssueLink report={report} />
+          </>
+        }
+        summarySection={{ Icon: FileTextIcon, title: "Summary" }}
+        footer={<ReportFeedbackFooter report={report} />}
+        evidenceSection={{ Icon: MagnifyingGlassIcon, title: "Evidence" }}
+        showDismiss={false}
+      >
+        <ReportReviewersSection report={report} />
+        <ReportRunsSection report={report} />
+        <ReportActivitySection reportId={report.id} />
+      </InboxDetailFrame>
+    </ReportChatLayout>
+  );
+}
+
+export function ReportChatLayout({
+  report,
+  children,
+}: {
+  report: SignalReport;
+  children: ReactNode;
+}): React.JSX.Element {
   const chatOpen = useReportChatPanelStore((s) => s.open);
   const setChatOpen = useReportChatPanelStore((s) => s.setOpen);
   const setPendingQuote = useReportChatPanelStore((s) => s.setPendingQuote);
@@ -95,34 +136,7 @@ export function ReportDetailContent({
   return (
     <div className="flex h-full min-h-0">
       <div ref={contentRef} className="min-w-0 flex-1 overflow-y-auto">
-        <InboxDetailFrame
-          report={report}
-          backTo={backTo}
-          backLabel={backLabel}
-          fallbackTitle="Untitled report"
-          primaryAction={
-            <ReportDetailActions report={report} placement="header" />
-          }
-          belowSummary={
-            <>
-              <ReportVerdictBanner
-                key={report.id}
-                report={report}
-                initialEngagementOnly
-              />
-              <ReportTrackerIssueLink report={report} />
-            </>
-          }
-          summarySection={{ Icon: FileTextIcon, title: "Report summary" }}
-          footer={<ReportFeedbackFooter report={report} />}
-          evidenceSection={{ Icon: MagnifyingGlassIcon, title: "Evidence" }}
-          showDismiss={false}
-          showMetadata={false}
-        >
-          <ReportReviewersSection report={report} />
-          <ReportRunsSection report={report} />
-          <ReportActivitySection reportId={report.id} />
-        </InboxDetailFrame>
+        {children}
       </div>
       <AskAboutSelection containerRef={contentRef} onAsk={handleAsk} />
       {chatOpen && <ReportChatSidebar report={report} />}

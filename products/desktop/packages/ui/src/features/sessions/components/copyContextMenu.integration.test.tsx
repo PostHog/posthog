@@ -73,7 +73,7 @@ describe("conversation context-menu copy (integration)", () => {
     render(<Harness />);
 
     // Right-click the chip label, exactly as a user would.
-    const label = screen.getByText("PostHog/posthog#63995");
+    const label = screen.getByText("#63995");
     fireEvent.contextMenu(label);
 
     const copyItem = await screen.findByText("Copy");
