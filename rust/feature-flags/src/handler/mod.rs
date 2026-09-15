@@ -133,7 +133,7 @@ fn record_metrics(
 async fn process_request_inner(
     context: RequestContext,
 ) -> (Result<FlagsResponse, FlagError>, MetricsData) {
-    let library = Library::from_headers(&context.headers);
+    let library = Library::from_request(&context.headers, &context.meta);
 
     let mut metrics_data = MetricsData {
         team_id: None,
