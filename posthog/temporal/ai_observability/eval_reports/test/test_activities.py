@@ -126,8 +126,6 @@ async def test_run_agent_activity_loads_target_and_forwards_output_type(
         period_start="2026-07-01T00:00:00+00:00",
         period_end="2026-07-02T00:00:00+00:00",
         previous_period_start="2026-06-30T00:00:00+00:00",
-        trace_id="report-run-id",
-        session_id="report-session-id",
     )
 
     with (

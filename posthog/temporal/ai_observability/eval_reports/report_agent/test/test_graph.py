@@ -1,5 +1,7 @@
 """Tests for the v2 graph helpers: _fallback_content and _validate_agent_output."""
 
+from uuid import UUID
+
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
@@ -395,6 +397,21 @@ class TestAppendReferencesSection(SimpleTestCase):
         self.assertEqual(content.sections[-1].title, "References")
 
 
+_ATTEMPT_UUID = UUID("11111111-1111-4111-8111-111111111111")
+_AGENT_INPUTS = RunEvalReportAgentInput(
+    team_id=1,
+    report_id="report-1",
+    evaluation_id="eval-1",
+    evaluation_name="Relevance",
+    evaluation_description="",
+    evaluation_prompt="",
+    evaluation_type="llm_judge",
+    period_start="2026-04-08T14:00:00+00:00",
+    period_end="2026-04-08T15:00:00+00:00",
+    previous_period_start="2026-04-08T13:00:00+00:00",
+)
+
+
 class TestRunEvalReportAgentRouting(SimpleTestCase):
     """The report agent builds its LLM client via the shared ai-gateway helper.
 
@@ -425,34 +442,46 @@ class TestRunEvalReportAgentRouting(SimpleTestCase):
         }
         mock_create_agent.return_value = mock_agent
 
-        graph.run_eval_report_agent(
-            RunEvalReportAgentInput(
-                team_id=1,
-                report_id="report-1",
-                trace_id="report-run-1",
-                session_id="report-session-1",
-                evaluation_id="eval-1",
-                evaluation_name="Relevance",
-                evaluation_description="",
-                evaluation_prompt="",
-                evaluation_type="llm_judge",
-                period_start="2026-04-08T14:00:00+00:00",
-                period_end="2026-04-08T15:00:00+00:00",
-                previous_period_start="2026-04-08T13:00:00+00:00",
-            )
-        )
+        with patch.object(graph.uuid, "uuid4", return_value=_ATTEMPT_UUID):
+            graph.run_eval_report_agent(_AGENT_INPUTS)
 
         mock_build_llm.assert_called_once_with(
             EVAL_REPORT_AGENT_MODEL,
             EVAL_REPORT_AGENT_TIMEOUT,
             ai_product="aio_eval_reports",
-            trace_id="report-run-1",
-            session_id="report-session-1",
+            trace_id=str(_ATTEMPT_UUID),
+            session_id=str(_ATTEMPT_UUID),
             properties={"team_id": "1", "evaluation_id": "eval-1", "report_id": "report-1"},
             distinct_id="team-1",
         )
         # the agent is built with the gateway-helper client, not a directly-constructed one
         self.assertIs(mock_create_agent.call_args.kwargs["model"], mock_build_llm.return_value)
+
+    @patch.object(graph, "build_langchain_callbacks", return_value=[])
+    @patch.object(graph, "create_react_agent")
+    @patch.object(graph, "build_flex_first_chat_client")
+    @patch.object(graph, "_compute_metrics")
+    def test_each_attempt_gets_its_own_trace_and_session(
+        self, mock_metrics, mock_build_llm, mock_create_agent, _mock_build_callbacks
+    ):
+        # The agent activity retries on the same inputs. An ID derived from them puts a
+        # failed attempt and the report that shipped in one session, so anything grading the
+        # session reads the failure as the report's own.
+        mock_metrics.return_value = EvalReportMetrics()
+        mock_create_agent.return_value.invoke.return_value = {
+            "report": EvalReportContent(
+                title="A report",
+                sections=[ReportSection(title="Summary", content="A finding.")],
+                metrics=EvalReportMetrics(),
+            )
+        }
+
+        graph.run_eval_report_agent(_AGENT_INPUTS)
+        graph.run_eval_report_agent(_AGENT_INPUTS)
+
+        first, second = (call.kwargs for call in mock_build_llm.call_args_list)
+        self.assertNotEqual(first["session_id"], second["session_id"])
+        self.assertNotEqual(first["trace_id"], second["trace_id"])
 
 
 class TestRunEvalReportAgentDeadIdGuard(SimpleTestCase):
@@ -484,20 +513,7 @@ class TestRunEvalReportAgentDeadIdGuard(SimpleTestCase):
         }
         mock_create_agent.return_value = mock_agent
 
-        content = graph.run_eval_report_agent(
-            RunEvalReportAgentInput(
-                team_id=1,
-                report_id="report-1",
-                evaluation_id="eval-1",
-                evaluation_name="Relevance",
-                evaluation_description="",
-                evaluation_prompt="",
-                evaluation_type="llm_judge",
-                period_start="2026-04-08T14:00:00+00:00",
-                period_end="2026-04-08T15:00:00+00:00",
-                previous_period_start="2026-04-08T13:00:00+00:00",
-            )
-        )
+        content = graph.run_eval_report_agent(_AGENT_INPUTS)
 
         self.assertEqual(content.title, "Automated fallback report for Relevance")
         self.assertIn(session_id, content.sections[0].content)
@@ -518,20 +534,7 @@ class TestRunEvalReportAgentMetricsUnavailable(SimpleTestCase):
                 "posthog.temporal.ai_observability.eval_reports.metrics.increment_report_generated"
             ) as mock_increment_generated,
         ):
-            content = graph.run_eval_report_agent(
-                RunEvalReportAgentInput(
-                    team_id=1,
-                    report_id="report-1",
-                    evaluation_id="eval-1",
-                    evaluation_name="Relevance",
-                    evaluation_description="",
-                    evaluation_prompt="",
-                    evaluation_type="llm_judge",
-                    period_start="2026-04-08T14:00:00+00:00",
-                    period_end="2026-04-08T15:00:00+00:00",
-                    previous_period_start="2026-04-08T13:00:00+00:00",
-                )
-            )
+            content = graph.run_eval_report_agent(_AGENT_INPUTS)
 
         mock_create_agent.assert_not_called()
         mock_build_llm.assert_not_called()
@@ -550,7 +553,7 @@ class TestRunEvalReportAgentInstrumentation(SimpleTestCase):
     @patch.object(graph, "build_flex_first_chat_client")
     @patch.object(graph, "_compute_metrics")
     def test_uses_one_trace_and_session_for_the_report_run(
-        self, mock_metrics, mock_build_llm, mock_create_agent, mock_build_callbacks, mock_logger_info
+        self, mock_metrics, _mock_build_llm, mock_create_agent, mock_build_callbacks, mock_logger_info
     ):
         mock_metrics.return_value = EvalReportMetrics()
         callbacks = [MagicMock()]
@@ -564,28 +567,14 @@ class TestRunEvalReportAgentInstrumentation(SimpleTestCase):
             )
         }
         mock_create_agent.return_value = mock_agent
-        graph.run_eval_report_agent(
-            RunEvalReportAgentInput(
-                team_id=1,
-                report_id="report-1",
-                trace_id="report-run-1",
-                session_id="report-session-1",
-                evaluation_id="eval-1",
-                evaluation_name="Relevance",
-                evaluation_description="",
-                evaluation_prompt="",
-                evaluation_type="llm_judge",
-                period_start="2026-04-08T14:00:00+00:00",
-                period_end="2026-04-08T15:00:00+00:00",
-                previous_period_start="2026-04-08T13:00:00+00:00",
-            )
-        )
+        with patch.object(graph.uuid, "uuid4", return_value=_ATTEMPT_UUID):
+            graph.run_eval_report_agent(_AGENT_INPUTS)
 
         expected_properties = {"team_id": "1", "evaluation_id": "eval-1", "report_id": "report-1"}
         mock_build_callbacks.assert_called_once_with(
             distinct_id="team-1",
-            trace_id="report-run-1",
-            session_id="report-session-1",
+            trace_id=str(_ATTEMPT_UUID),
+            session_id=str(_ATTEMPT_UUID),
             ai_product="aio_eval_reports",
             properties=expected_properties,
         )
@@ -598,8 +587,8 @@ class TestRunEvalReportAgentInstrumentation(SimpleTestCase):
             section_count=1,
             citation_count=0,
             metrics=EvalReportMetrics().to_dict(),
-            trace_id="report-run-1",
-            session_id="report-session-1",
+            trace_id=str(_ATTEMPT_UUID),
+            session_id=str(_ATTEMPT_UUID),
         )
 
     @patch.object(graph.logger, "exception")
@@ -613,22 +602,8 @@ class TestRunEvalReportAgentInstrumentation(SimpleTestCase):
         mock_metrics.return_value = EvalReportMetrics()
         mock_create_agent.return_value.invoke.side_effect = RuntimeError("agent failed")
 
-        graph.run_eval_report_agent(
-            RunEvalReportAgentInput(
-                team_id=1,
-                report_id="report-1",
-                trace_id="report-run-1",
-                session_id="report-session-1",
-                evaluation_id="eval-1",
-                evaluation_name="Relevance",
-                evaluation_description="",
-                evaluation_prompt="",
-                evaluation_type="llm_judge",
-                period_start="2026-04-08T14:00:00+00:00",
-                period_end="2026-04-08T15:00:00+00:00",
-                previous_period_start="2026-04-08T13:00:00+00:00",
-            )
-        )
+        with patch.object(graph.uuid, "uuid4", return_value=_ATTEMPT_UUID):
+            graph.run_eval_report_agent(_AGENT_INPUTS)
 
         mock_logger_exception.assert_called_once_with(
             "llma_eval_reports_agent_error",
@@ -636,6 +611,6 @@ class TestRunEvalReportAgentInstrumentation(SimpleTestCase):
             error_type="RuntimeError",
             team_id=1,
             evaluation_id="eval-1",
-            trace_id="report-run-1",
-            session_id="report-session-1",
+            trace_id=str(_ATTEMPT_UUID),
+            session_id=str(_ATTEMPT_UUID),
         )

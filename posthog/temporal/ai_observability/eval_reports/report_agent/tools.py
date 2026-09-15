@@ -14,6 +14,7 @@ import random
 from collections.abc import Callable, Container, Iterable, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Annotated, Literal, TypeVar
+from uuid import UUID
 
 from django.db.models import Q
 
@@ -1278,6 +1279,37 @@ def get_session_detail(
     return json.dumps(_fetch_session_detail(state, session_id, _MAX_SESSION_DETAIL_TRACES), indent=2)
 
 
+_RUN_REF_PREFIX = "run-"
+
+_BACKTICKED_UUID_RE = re.compile(rf"`+\s*({_UUID_SHAPE_RE.pattern})\s*`+", re.IGNORECASE)
+
+
+def _run_ref(run_id: UUID) -> str:
+    """Return a past run's lookup handle.
+
+    Deliberately not a bare UUID: the report guard treats any backticked UUID as an
+    identifier that must render as a citation link, and a past run can never be cited.
+    """
+    return f"{_RUN_REF_PREFIX}{run_id}"
+
+
+def _run_id_from_ref(run_ref: str) -> str | None:
+    """Resolve a run handle back to its UUID, or None when it is not one."""
+    candidate = (run_ref or "").strip().removeprefix(_RUN_REF_PREFIX)
+    return candidate if _UUID_RE.fullmatch(candidate) else None
+
+
+def _unwrap_backticked_ids(payload: str) -> str:
+    """Take the backticks off every UUID a prior report wrapped, anywhere in `payload`.
+
+    A prior report backticks the IDs it cited, in its section bodies and in its generated
+    References list. Those IDs belong to that period and this report cannot cite them, so
+    handing them back wrapped invites the agent to copy one and get the section rejected.
+    Unwrapping keeps the IDs readable as prose and needs no knowledge of the stored shape.
+    """
+    return _BACKTICKED_UUID_RE.sub(r"\1", payload)
+
+
 @tool
 def list_recent_report_runs(
     state: Annotated[dict, InjectedState],
@@ -1286,11 +1318,13 @@ def list_recent_report_runs(
 ) -> str:
     """List metadata for previous report runs of this evaluation.
 
-    Returns a compact index: run_id, period, title, outcome rates, total runs.
+    Returns a compact index: run_ref, period, title, outcome rates, total runs.
     No full content — use this to discover which past runs look interesting,
-    then call `get_report_run(run_id)` to pull the full narrative for the ones
+    then call `get_report_run(run_ref)` to pull the full narrative for the ones
     worth reading. This two-step pattern keeps context small when scanning a
     long history.
+
+    A run_ref is a lookup handle, not a citable ID. Name a prior run by its period.
 
     Args:
         since_days: Only include runs whose period ends within the last N days (default 30, max 365)
@@ -1333,7 +1367,7 @@ def list_recent_report_runs(
         normalized_metrics = normalize_metrics_payload({**metadata, **metrics})
         output_type = normalized_metrics["output_type"]
         entry = {
-            "run_id": str(run.id),
+            "run_ref": _run_ref(run.id),
             "period_start": str(run.period_start),
             "period_end": str(run.period_end),
             "title": content.get("title", ""),
@@ -1353,21 +1387,23 @@ def list_recent_report_runs(
 @tool
 def get_report_run(
     state: Annotated[dict, InjectedState],
-    run_id: str,
+    run_ref: str,
 ) -> str:
     """Fetch the full content + metadata for a single past report run.
 
     Use after `list_recent_report_runs` to drill into a specific run that looks
-    relevant for delta analysis. Returns the full serialized report (title,
-    sections, citations, metrics).
+    relevant for delta analysis. Returns the full serialized report (title, sections,
+    citations, metrics). Its IDs belong to that period and this report cannot cite them,
+    so they come back as plain text. Name a prior run by its period.
 
     Args:
-        run_id: The report run UUID, from list_recent_report_runs.
+        run_ref: The run handle, from list_recent_report_runs.
     """
     from products.ai_observability.backend.models.evaluation_reports import EvaluationReportRun
 
-    if not _UUID_RE.fullmatch(run_id or ""):
-        return json.dumps({"error": "Invalid run_id format"})
+    run_id = _run_id_from_ref(run_ref)
+    if run_id is None:
+        return json.dumps({"error": "Invalid run_ref format"})
 
     # Scope to the current evaluation so the agent can't read runs from another eval.
     evaluation_id = state["evaluation_id"]
@@ -1378,22 +1414,24 @@ def get_report_run(
     try:
         run = runs.get()
     except EvaluationReportRun.DoesNotExist:
-        return json.dumps({"error": f"Run {run_id} not found for this evaluation"})
+        return json.dumps({"error": f"Run {run_ref} not found for this evaluation"})
 
     content = normalize_report_content_payload(run.content) if isinstance(run.content, dict) else run.content
     metadata = normalize_metrics_payload(run.metadata) if isinstance(run.metadata, dict) else run.metadata
 
-    return json.dumps(
-        {
-            "run_id": str(run.id),
-            "period_start": str(run.period_start),
-            "period_end": str(run.period_end),
-            "content": content,
-            "metadata": metadata,
-            "delivery_status": run.delivery_status,
-        },
-        indent=2,
-        default=str,
+    return _unwrap_backticked_ids(
+        json.dumps(
+            {
+                "run_ref": _run_ref(run.id),
+                "period_start": str(run.period_start),
+                "period_end": str(run.period_end),
+                "content": content,
+                "metadata": metadata,
+                "delivery_status": run.delivery_status,
+            },
+            indent=2,
+            default=str,
+        )
     )
 
 
@@ -1533,11 +1571,19 @@ def _dead_backticked_ids_in_report(
     return dead
 
 
+def _dead_id_preview(dead: list[str]) -> str:
+    """Name the first few dead IDs for a rejection message, never in backticks.
+
+    A rejection that re-emits the token in backticks reads, to anything grading the whole
+    session transcript rather than the delivered report, as the defect the guard blocked.
+    """
+    return ", ".join(dead[:3])
+
+
 def _plain_text_id_error(surface: str, dead: list[str]) -> str:
     """Explain to the agent that an ID in a plain-text surface can never become a link."""
-    preview = ", ".join(f"`{token}`" for token in dead[:3])
     return (
-        f"Error: the {surface} renders as plain text, so these backticked IDs stay dead: {preview}. "
+        f"Error: the {surface} renders as plain text, so these backticked IDs stay dead: {_dead_id_preview(dead)}. "
         f"Take the backticks off the {surface} and discuss the ID in a section body instead."
     )
 
@@ -1584,11 +1630,9 @@ def add_section(
         return _plain_text_id_error("section title", dead_in_title)
     dead = _dead_backticked_ids(clean_content, state["report"].citations, handled_ids)
     if dead:
-        preview = ", ".join(f"`{token}`" for token in dead[:3])
         return (
-            f"Error: the following backticked IDs will not render as citation links: {preview}. "
-            "Cite each generation, trace, or session with add_citation, then use one pair of backticks around the exact cited ID. "
-            "Run IDs from list_recent_report_runs cannot be cited. Name a prior run by its period and remove the backticks."
+            f"Error: the following backticked IDs will not render as citation links: {_dead_id_preview(dead)}. "
+            "Cite each generation, trace, or session with add_citation, then use one pair of backticks around the exact cited ID."
         )
     state["report"].sections.append(ReportSection(title=clean_title, content=clean_content))
     return f"Section {len(state['report'].sections)}/{MAX_REPORT_SECTIONS} added: {clean_title!r} ({len(clean_content)} chars)"
