@@ -1,4 +1,8 @@
-/** Written by the backend from the authenticated scout run, so a caller cannot set it. */
+/**
+ * Reserved for the backend, which derives it from the authenticated scout run. The API drops
+ * an `x-posthog-client` header that claims this prefix, so a stored tag that carries it came
+ * from the server.
+ */
 export const SCOUT_CLIENT_PREFIX = 'scout:'
 
 export function isScoutClient(client: string): boolean {

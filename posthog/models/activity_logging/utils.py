@@ -18,6 +18,24 @@ ACTIVITY_LOG_CLIENT_HEADER = "x-posthog-client"
 # Wide enough for a server-derived tag as well as a header value: the `scout:<skill_name>` tag
 # written for a scout run needs room for a scout's whole name after the prefix.
 ACTIVITY_LOG_CLIENT_MAX_LENGTH = 100
+# Set by `OAuthAccessTokenAuthentication` from the scout run bound to a sandbox token.
+SCOUT_CLIENT_PREFIX = "scout:"
+# Prefixes only the server may write. The activity log tells a reader that a tag carrying one of
+# them comes from the authenticated request rather than from the client, so the two kinds of tag
+# must not share a name.
+SERVER_DERIVED_CLIENT_PREFIXES = (SCOUT_CLIENT_PREFIX,)
+
+
+def client_from_header(value: str) -> Optional[str]:
+    """The client to store for a self-reported header, or None when the value cannot be stored.
+
+    A header that claims a server-derived prefix is dropped whole rather than trimmed down,
+    because a trimmed value would still read as the client that made the change.
+    """
+    client = value.strip()[:ACTIVITY_LOG_CLIENT_MAX_LENGTH]
+    if not client or client.lower().startswith(SERVER_DERIVED_CLIENT_PREFIXES):
+        return None
+    return client
 
 
 @frozen
