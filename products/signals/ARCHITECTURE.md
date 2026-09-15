@@ -191,10 +191,16 @@ Before running the agentic research, the workflow calls `select_repository_activ
 Keeping repository selection in its own activity gives it independent retry / timeout behavior and makes it reusable across re-promotions.
 
 - **Re-promoted report:** loads and reuses the latest `repo_selection` artefact if it contains a repository
-- **0 repos connected:** returns `None` → workflow transitions to `pending_input`
+- **0 repos connected:** returns `None` → workflow transitions to `pending_input`. A team with no GitHub source reaches this on every report, so the ask is raised once and later promotions are held — see Repository availability gate
 - **1 repo connected:** returns it directly
 - **N repos connected:** runs a sandbox repo-discovery agent using `PostHog/.github` as a lightweight dummy clone; the agent uses `gh` CLI to inspect candidate repositories and choose the best match
 - The activity runs in a sandbox environment restricted to GitHub-related domains
+
+##### Repository availability gate
+
+`repo_ask_holds_promotion()` (`backend/repo_availability.py`) runs at promotion, beside the quota and daily-limit gates in `assign_and_emit_signal_activity`. It answers the standing half of repository selection: is the repo-selection ask open for this team, and does a GitHub source still fail to resolve? It resolves the same source selection does, including the organization-owner fallback, so it holds a report only where selection would have found nothing to choose from. A team with no open ask pays one indexed read and never resolves the source.
+
+A team with no source answers every report the same way, so asking per report turns the whole inbox into one repeated question. The first such report still promotes and raises the ask; `SignalTeamConfig.repo_selection_ask_raised_at` records it, and later promotions are held with the report's status untouched. `signal_report_repo_ask_held` measures the withheld volume. The stamp is written by `mark_report_pending_input_activity` only when the pending reason is the repo-selection dead end and no source resolves, and it is cleared the first time the gate sees a source again, so a team that disconnects later is asked afresh. Any error fails open.
 
 ##### Repository heavy cache
 
@@ -543,14 +549,15 @@ Notes:
 
 Per-team singleton config for Signals settings, including the default autonomy priority threshold.
 
-| Field                            | Type            | Description                                                                  |
-| -------------------------------- | --------------- | ---------------------------------------------------------------------------- |
-| `id`                             | UUID (PK)       | Primary key (UUIDModel)                                                      |
-| `team`                           | OneToOne → Team | Owning team (`related_name="signal_team_config"`)                            |
-| `default_autostart_priority`     | CharField       | Default severity threshold for auto-start (`P0`–`P4`, where `P0` is highest) |
-| `github_issue_writeback_enabled` | Boolean         | Opt-in public comments on source GitHub issues. Defaults to `false`.         |
-| `created_at`                     | DateTime        | Auto-set on creation                                                         |
-| `updated_at`                     | DateTime        | Auto-set on save                                                             |
+| Field                            | Type                | Description                                                                                                                           |
+| -------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                             | UUID (PK)           | Primary key (UUIDModel)                                                                                                               |
+| `team`                           | OneToOne → Team     | Owning team (`related_name="signal_team_config"`)                                                                                     |
+| `default_autostart_priority`     | CharField           | Default severity threshold for auto-start (`P0`–`P4`, where `P0` is highest)                                                          |
+| `github_issue_writeback_enabled` | Boolean             | Opt-in public comments on source GitHub issues. Defaults to `false`.                                                                  |
+| `repo_selection_ask_raised_at`   | DateTime (nullable) | When the pipeline last asked the team to connect a repository. Pipeline bookkeeping, not a setting — see Repository availability gate |
+| `created_at`                     | DateTime            | Auto-set on creation                                                                                                                  |
+| `updated_at`                     | DateTime            | Auto-set on save                                                                                                                      |
 
 Notes:
 
@@ -1089,6 +1096,7 @@ All events use `distinct_id = team.uuid` and `groups(organization, team)`. Per-s
 - `signal_report_reresearch_skipped` — signal hit an already-researched report past the re-research cap, so no new run spawned (+ `report_id`, `signal_count`, `status`, `threshold`). Fires per suppressed signal
 - `signal_report_quota_paused` — a quota gate observed the team's org over its self-driving credits limit (+ `stage`: `promotion` | `summary_entry` | `pre_repo_selection` | `pre_research` | `autostart` | `manual_create` | `task_create` | `implementation_run`, `enforced`, `report_id`). See Billing limit enforcement
 - `signal_report_daily_limit_paused` — a gate paused work because the team hit its `max_reports_per_day` (+ `stage`: `ingestion` | `scout_run` | `promotion` | `summary_entry` | `pre_repo_selection` | `pre_research`, `limit`, `reports_today`, `report_id` nullable). See Per-team daily report limit
+- `signal_report_repo_ask_held` — promotion was held because the team has no GitHub source and already carries the repo-selection ask (+ `report_id` nullable). See Repository availability gate
 - `signal_report_free_trial_paused` — a gate held back a pull request because the team's org is on a Self-driving free trial (+ `stage`: `autostart` | `manual_create` | `task_create` | `task_run`, `report_id` nullable). See Self-driving free trial
 - `signal_report_started` — report run began (+ `report_id`, `signal_count`, `run_count`, `source_products`)
 - `signals_repo_research_started` / `signals_repo_research_completed` — repo selection stage (+ `report_id`, `result`: `reused` | `selected` | `no_repo` | `failed`, optional `failure_reason`: `no_github_integration` | `agentic_activity_error`)
@@ -1549,6 +1557,7 @@ products/signals/
 │   ├── admin.py                     # Django admin for SignalReport + SignalReportArtefact
 │   ├── api.py                       # emit_signal() entry point + source/org guards
 │   ├── daily_limit.py               # Per-team daily report limit gate (max_reports_per_day)
+│   ├── repo_availability.py         # Promotion gate for teams with no resolvable GitHub source
 │   ├── apps.py                      # Django app config
 │   ├── models.py                    # SignalReport, SignalReportArtefact, SignalTeamConfig, SignalUserAutonomyConfig, SignalReportTask, SignalSourceConfig, SignalScoutConfig, SignalScoutRun, SignalScratchpad, SignalProjectProfile, SignalEmissionRecord
 │   ├── serializers.py               # DRF serializers for source configs, reports, artefacts, team config, user autonomy config

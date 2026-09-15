@@ -36,6 +36,7 @@ from products.signals.backend.billing import BILLING_EXEMPT_SOURCE_PRODUCTS
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
+from products.signals.backend.repo_availability import capture_signal_report_repo_ask_held, repo_ask_holds_promotion
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
@@ -826,11 +827,12 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 )
             ):
                 if suppress_promotion:
-                    # The team's org is over its self-driving credits quota with enforcement on, or
-                    # the team hit its daily report limit: the signal is still assigned, weighted,
-                    # and emitted, but no summary run spawns. The status is left untouched, so the
-                    # first matching signal after the limit lifts re-evaluates promotion under the
-                    # same rules.
+                    # The team's org is over its self-driving credits quota with enforcement on,
+                    # the team hit its daily report limit, or the team has no GitHub source and was
+                    # already asked for one: the signal is still assigned, weighted, and emitted,
+                    # but no summary run spawns. The status is left untouched, so the first matching
+                    # signal after the limit lifts, or after a repository is connected, re-evaluates
+                    # promotion under the same rules.
                     promotion_suppressed = True
                 # If candidate got here - it usually means CH issue down the way
                 # (e.g. CH wait raised before start_child_workflow)
@@ -888,9 +890,10 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
         # that must not run while holding the report row lock.
         quota_gate = await database_sync_to_async(self_driving_quota_gate, thread_sensitive=False)(team)
         daily_gate = await database_sync_to_async(daily_report_limit_gate, thread_sensitive=False)(team)
+        repo_ask_holds = await database_sync_to_async(repo_ask_holds_promotion, thread_sensitive=False)(team)
 
         db_result = await database_sync_to_async(do_assign_and_emit, thread_sensitive=False)(
-            quota_gate.enforced or daily_gate.limited
+            quota_gate.enforced or daily_gate.limited or repo_ask_holds
         )
 
         # If we matched a deleted report, soft-delete all its stale signals in ClickHouse.
@@ -996,6 +999,8 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 capture_signal_report_daily_limit_paused(
                     team, report_id=db_result.report_id, stage="promotion", gate=daily_gate
                 )
+            if repo_ask_holds and (db_result.promoted or db_result.promotion_suppressed):
+                capture_signal_report_repo_ask_held(team, report_id=db_result.report_id)
 
         if not db_result.matched_deleted_report:
             metrics.increment_funnel(metrics.FUNNEL_STAGE_GROUPED, input.source_product)
