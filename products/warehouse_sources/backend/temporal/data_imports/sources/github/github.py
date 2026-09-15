@@ -414,7 +414,7 @@ def validate_credentials(
             installation_id=egress_identity.installation_id if egress_identity is not None else None,
             priority=Priority.NORMAL,
             timeout=10,
-            session=make_tracked_session(),
+            session=make_tracked_session(retry=_NO_ADAPTER_RETRY),
         )
         raise_if_github_rate_limited(response)
 
@@ -487,7 +487,7 @@ def check_org_endpoint_permission(
             installation_id=installation_id,
             priority=Priority.NORMAL,
             timeout=10,
-            session=make_tracked_session(),
+            session=make_tracked_session(retry=_NO_ADAPTER_RETRY),
         )
         # A rate-limited 403 carries limit markers; without this check it would read as a missing grant.
         raise_if_github_rate_limited(response)
@@ -742,6 +742,8 @@ _github_backoff_wait = wait_exponential_jitter(initial=1, max=30)
 # would defeat the 300s cap below and stack a second, untested retry layer. With
 # adapter retries off, _fetch_page sees every response/exception and our tenacity
 # layer is the single, rate-limit-aware retry authority.
+# Every gated GET uses it too: an adapter retry happens after egress admission, so one admitted
+# call could send several GitHub requests that the installation budget never counts.
 _NO_ADAPTER_RETRY = Retry(total=0)
 
 
@@ -1824,7 +1826,7 @@ def _list_repo_hooks(
             installation_id=installation_id,
             priority=Priority.NORMAL,
             timeout=30,
-            session=make_tracked_session(),
+            session=make_tracked_session(retry=_NO_ADAPTER_RETRY),
         )
         raise_if_github_rate_limited(response)
     except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
