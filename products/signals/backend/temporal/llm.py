@@ -180,7 +180,10 @@ async def call_llm(
 
     create_kwargs: dict = {
         "model": model,
-        "system": system_prompt,
+        # One cache breakpoint at the end of the system prompt. Every call site keeps the per-call
+        # data in the user message, so the prefix is byte-stable and reads from cache instead of
+        # being re-billed. A prompt below the model's minimum cacheable length is unaffected.
+        "system": [{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
         "messages": messages,
         "max_tokens": MAX_RESPONSE_TOKENS,
         "timeout": TIMEOUT,
