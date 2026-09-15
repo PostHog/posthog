@@ -88,6 +88,17 @@ class TestLLMDetectorVerdictMapping:
         assert result.metadata["below_threshold"] is True
         assert result.metadata["rationale"].startswith("Pageviews fell")
 
+    @parameterized.expand([("missing", {}), ("null", {"threshold": None})])
+    def test_missing_threshold_uses_default(self, _name: str, config: dict[str, Any]) -> None:
+        result = _detect(LLMDetector({"type": "llm", **config}), _verdict(confidence=0.69))
+
+        assert result.is_anomaly is False
+
+    def test_zero_threshold_is_preserved(self) -> None:
+        result = _detect(LLMDetector({"type": "llm", "threshold": 0}), _verdict(confidence=0))
+
+        assert result.is_anomaly is True
+
     def test_live_check_only_ever_triggers_the_latest_point(self) -> None:
         # The model listed historical points; a live check judges the latest one, so an
         # old index must not become the alert's triggered point (and its date).
@@ -111,6 +122,18 @@ class TestLLMDetectorVerdictMapping:
         result = _detect(LLMDetector({"type": "llm"}), _verdict(triggered_indices=[6]), batch=True)
 
         assert result.all_scores == [None] * 6 + [0.9]
+
+    def test_batch_offsets_indices_from_the_truncated_prompt(self) -> None:
+        data = np.arange(10, dtype=float)
+        result = _detect(
+            LLMDetector({"type": "llm", "window": 5}),
+            _verdict(triggered_indices=[0, 4]),
+            batch=True,
+            data=data,
+        )
+
+        assert result.triggered_indices == [5, 9]
+        assert result.all_scores == [None] * 5 + [0.9, None, None, None, 0.9]
 
     def test_metadata_carries_the_verdict_for_the_notification(self) -> None:
         result = _detect(LLMDetector({"type": "llm"}), _verdict(kind="drop"))

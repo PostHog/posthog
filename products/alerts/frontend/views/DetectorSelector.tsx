@@ -12,6 +12,7 @@ import {
     ECODDetectorConfig,
     EnsembleDetectorConfig,
     EnsembleOperator,
+    EnsembleSubDetectorConfig,
     HBOSDetectorConfig,
     IQRDetectorConfig,
     IsolationForestDetectorConfig,
@@ -29,6 +30,7 @@ import {
 import {
     DEFAULT_ANOMALY_DETECTION_THRESHOLD,
     DEFAULT_LLM_DETECTION_CONFIDENCE,
+    MAX_LLM_DETECTOR_WINDOW,
     getDefaultLLMDetectorConfig,
     getDefaultZScoreDetectorConfig,
     getDefaultWindow,
@@ -235,8 +237,9 @@ export function DetectorSelector({
     const defaultConfigs = getDefaultSingleConfigs(defaultWindow)
     // An alert already saved with the AI detector keeps showing it even if the flag is turned
     // off, so its own type never disappears from the picker it is selected in.
+    const llmAllowed = llmDetectorEnabled && calculationInterval !== AlertCalculationInterval.REAL_TIME
     const detectorOptions = DETECTOR_OPTIONS.filter(
-        (o) => o.value !== DetectorType.LLM || llmDetectorEnabled || selectedType === DetectorType.LLM
+        (o) => o.value !== DetectorType.LLM || llmAllowed || selectedType === DetectorType.LLM
     )
 
     const handleTypeChange = (type: string | null): void => {
@@ -303,11 +306,18 @@ function EnsembleConfig({
     const { operator, detectors } = config
     const defaults = getDefaultSingleConfigs(getDefaultWindow(calculationInterval))
 
+    const getEnsembleDefault = (type: string): EnsembleSubDetectorConfig => {
+        const defaultConfig = defaults[type]
+        return defaultConfig && defaultConfig.type !== DetectorType.LLM
+            ? defaultConfig
+            : getDefaultZScoreDetectorConfig(getDefaultWindow(calculationInterval))
+    }
+
     const handleOperatorChange = (newOperator: string): void => {
         onChange({ ...config, operator: newOperator as EnsembleOperator })
     }
 
-    const handleDetectorChange = (index: number, updated: SingleDetectorConfig): void => {
+    const handleDetectorChange = (index: number, updated: EnsembleSubDetectorConfig): void => {
         const newDetectors = [...detectors]
         newDetectors[index] = updated
         onChange({ ...config, detectors: newDetectors })
@@ -315,16 +325,16 @@ function EnsembleConfig({
 
     const handleDetectorTypeChange = (index: number, type: string): void => {
         const newDetectors = [...detectors]
-        newDetectors[index] = defaults[type] ?? defaults.zscore
+        newDetectors[index] = getEnsembleDefault(type)
         onChange({ ...config, detectors: newDetectors })
     }
 
     const handleAddDetector = (): void => {
         const usedTypes = new Set(detectors.map((d) => d.type))
         const nextType =
-            ENSEMBLE_SUB_DETECTOR_OPTIONS.find((o) => !usedTypes.has(o.value as SingleDetectorConfig['type']))?.value ??
-            'zscore'
-        onChange({ ...config, detectors: [...detectors, defaults[nextType]] })
+            ENSEMBLE_SUB_DETECTOR_OPTIONS.find((o) => !usedTypes.has(o.value as EnsembleSubDetectorConfig['type']))
+                ?.value ?? 'zscore'
+        onChange({ ...config, detectors: [...detectors, getEnsembleDefault(nextType)] })
     }
 
     const handleRemoveDetector = (index: number): void => {
@@ -386,7 +396,11 @@ function EnsembleConfig({
                     </div>
                     <SingleDetectorConfigSection
                         config={detector}
-                        onChange={(updated) => handleDetectorChange(index, updated)}
+                        onChange={(updated) => {
+                            if (updated.type !== DetectorType.LLM) {
+                                handleDetectorChange(index, updated)
+                            }
+                        }}
                         calculationInterval={calculationInterval}
                     />
                 </div>
@@ -552,7 +566,7 @@ function LLMConfig({
                     onChange={(val) =>
                         onChange({
                             ...config,
-                            threshold: val ? parseFloat(String(val)) : DEFAULT_LLM_DETECTION_CONFIDENCE,
+                            threshold: val == null ? DEFAULT_LLM_DETECTION_CONFIDENCE : parseFloat(String(val)),
                         })
                     }
                 />
@@ -561,6 +575,8 @@ function LLMConfig({
                 config={config}
                 onChange={onChange}
                 calculationInterval={calculationInterval}
+                max={MAX_LLM_DETECTOR_WINDOW}
+                defaultWindow={Math.min(getDefaultWindow(calculationInterval), MAX_LLM_DETECTOR_WINDOW)}
                 tooltip="How many recent data points the model is shown. Larger gives it more history to compare against, and costs more per check."
             />
             <p className="text-xs text-muted">
@@ -875,22 +891,26 @@ function WindowSizeInput({
     config,
     onChange,
     calculationInterval,
+    max = 1000,
+    defaultWindow,
     tooltip = 'Number of historical data points used to calculate the baseline. Larger = more stable, smaller = more responsive.',
 }: {
     config: { window?: number }
     onChange: (config: SingleDetectorConfig) => void
     calculationInterval?: AlertCalculationInterval
+    max?: number
+    defaultWindow?: number
     /** Override when the window does not describe a training baseline (the AI detector reads the points). */
     tooltip?: string
 }): JSX.Element {
-    const defWindow = getDefaultWindow(calculationInterval)
+    const defWindow = defaultWindow ?? getDefaultWindow(calculationInterval)
     return (
         <div>
             <Label text="Window size" tooltip={tooltip} />
             <LemonInput
                 type="number"
                 min={5}
-                max={1000}
+                max={max}
                 step={5}
                 value={config.window ?? defWindow}
                 onChange={(val) =>

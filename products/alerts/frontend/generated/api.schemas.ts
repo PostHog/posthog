@@ -525,22 +525,6 @@ export interface PCADetectorConfigApi {
     window?: number | null
 }
 
-export type LLMDetectorConfigApiType = (typeof LLMDetectorConfigApiType)[keyof typeof LLMDetectorConfigApiType]
-
-export const LLMDetectorConfigApiType = {
-    Llm: 'llm',
-} as const
-
-export interface LLMDetectorConfigApi {
-    /** What counts as unusual or interesting for this metric, in your own words. Optional. */
-    instructions?: string | null
-    /** Minimum confidence [0-1] the model must report before the alert fires (default: 0.7) */
-    threshold?: number | null
-    type: LLMDetectorConfigApiType
-    /** How many recent points the model is shown (default: based on calculation interval) */
-    window?: number | null
-}
-
 export type EnsembleOperatorApi = (typeof EnsembleOperatorApi)[keyof typeof EnsembleOperatorApi]
 
 export const EnsembleOperatorApi = {
@@ -570,11 +554,26 @@ export interface EnsembleDetectorConfigApi {
         | LOFDetectorConfigApi
         | OCSVMDetectorConfigApi
         | PCADetectorConfigApi
-        | LLMDetectorConfigApi
     )[]
     /** How to combine sub-detector results */
     operator: EnsembleOperatorApi
     type: EnsembleDetectorConfigApiType
+}
+
+export type LLMDetectorConfigApiType = (typeof LLMDetectorConfigApiType)[keyof typeof LLMDetectorConfigApiType]
+
+export const LLMDetectorConfigApiType = {
+    Llm: 'llm',
+} as const
+
+export interface LLMDetectorConfigApi {
+    /** What counts as unusual or interesting for this metric, in your own words. Optional. */
+    instructions?: string | null
+    /** Minimum confidence [0-1] the model must report before the alert fires (default: 0.7) */
+    threshold?: number | null
+    type: LLMDetectorConfigApiType
+    /** How many recent points the model is shown (default: based on calculation interval) */
+    window?: number | null
 }
 
 /**

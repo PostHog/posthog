@@ -34,6 +34,7 @@ from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
 from posthog.utils import get_from_dict_or_attr, relative_date_parse
 
 from products.alerts.backend.evaluation.contract import (
+    AlertExtractionError,
     ComparableSeries,
     ExtractionResult,
     SeriesPoint,
@@ -217,6 +218,8 @@ def evaluate_with_detector(
     context-aware detectors read; the statistical detectors score identically without them.
     """
     detector_type_str = detector_config.get("type", "zscore")
+    if result.is_breakdown and detector_type_str == DetectorType.LLM.value:
+        raise AlertExtractionError("The AI detector does not support breakdown insights yet.")
     interval_value = result.interval_type.value if result.interval_type else None
     series_index = ((alert.config if alert is not None else None) or {}).get("series_index", 0)
 

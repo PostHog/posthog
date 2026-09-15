@@ -9,10 +9,12 @@ same points, a plain-English description of what the insight measures, and the a
 author's own notes on what counts as strange.
 """
 
+import uuid
 from typing import Any
 
 import numpy as np
 import structlog
+import posthoganalytics
 
 from posthog.schema import DetectorType
 
@@ -81,7 +83,7 @@ class LLMDetector(BaseDetector):
 
         window = min(int(self.config.get("window") or DEFAULT_WINDOW), MAX_PROMPT_POINTS)
         verdict = self._ask_model(data=data, context=context, window=window, judge_every_point=judge_every_point)
-        return self._to_result(verdict, data=data, judge_every_point=judge_every_point)
+        return self._to_result(verdict, data=data, window=window, judge_every_point=judge_every_point)
 
     def _ask_model(
         self,
@@ -101,8 +103,10 @@ class LLMDetector(BaseDetector):
         # Deferred so importing the detector registry does not pull langchain into every
         # process that touches an alert.
         from langchain_core.messages import HumanMessage, SystemMessage  # noqa: PLC0415
+        from posthoganalytics.ai.langchain.callbacks import CallbackHandler  # noqa: PLC0415
 
         from ee.hogai.llm import MaxChatAnthropic  # noqa: PLC0415
+        from ee.hogai.utils.exceptions import LLM_API_EXCEPTIONS, LLM_TRANSIENT_EXCEPTIONS  # noqa: PLC0415
 
         instructions_present = bool(context.instructions)
         # No temperature: Sonnet 5 rejects non-default sampling params with a 400.
@@ -134,10 +138,27 @@ class LLMDetector(BaseDetector):
             ),
         ]
 
+        callbacks = []
+        if posthoganalytics.default_client is not None:
+            callbacks.append(
+                CallbackHandler(
+                    posthoganalytics.default_client,
+                    distinct_id=str(context.team.id),
+                    trace_id=f"alert-llm-detector-{uuid.uuid4()}",
+                    properties={"ai_product": LLM_DETECTOR_AI_PRODUCT, "team_id": context.team.id},
+                )
+            )
+
         try:
-            verdict = model.invoke(messages)
-        except Exception as error:
+            verdict = model.invoke(messages, config={"callbacks": callbacks})
+        except LLM_TRANSIENT_EXCEPTIONS as error:
             raise LLMDetectorUnavailableError(f"The AI detector could not reach the model: {error}") from error
+        except LLM_API_EXCEPTIONS as error:
+            raise LLMDetectorMisconfiguredError(
+                f"The AI detector request was rejected by the model: {error}"
+            ) from error
+        except Exception as error:
+            raise LLMDetectorUnavailableError(f"The AI detector could not read the model response: {error}") from error
 
         if not isinstance(verdict, LLMDetectionVerdict):
             raise LLMDetectorUnavailableError(
@@ -155,12 +176,17 @@ class LLMDetector(BaseDetector):
         )
         return verdict
 
-    def _to_result(self, verdict: LLMDetectionVerdict, *, data: np.ndarray, judge_every_point: bool) -> DetectionResult:
-        threshold = float(self.config.get("threshold", DEFAULT_CONFIDENCE_THRESHOLD))
+    def _to_result(
+        self, verdict: LLMDetectionVerdict, *, data: np.ndarray, window: int, judge_every_point: bool
+    ) -> DetectionResult:
+        configured_threshold = self.config.get("threshold")
+        threshold = float(configured_threshold if configured_threshold is not None else DEFAULT_CONFIDENCE_THRESHOLD)
         confident = verdict.confidence >= threshold
         is_anomaly = verdict.is_anomaly and confident
 
-        indices = self._clamp_indices(verdict.triggered_indices, length=len(data))
+        index_offset = max(0, len(data) - window)
+        reported_indices = [index + index_offset for index in verdict.triggered_indices] if judge_every_point else []
+        indices = self._clamp_indices(reported_indices, length=len(data))
         if not judge_every_point:
             # A live check judges one point, so a verdict about the latest point is the only
             # trigger that can fire — whatever else the model listed is history.
