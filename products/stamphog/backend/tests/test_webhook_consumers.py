@@ -11,8 +11,7 @@ from django.test import RequestFactory, SimpleTestCase, override_settings
 from parameterized import parameterized
 
 from posthog.ingress.dispatch.loading import reset_consumer_registry
-
-from products.stamphog.backend.facade.webhooks import stamphog_github_webhook
+from posthog.urls import stamphog_github_webhook
 
 WEBHOOK_SECRET = "test-webhook-secret"
 WEBHOOK_PATH = "/webhooks/stamphog/github"

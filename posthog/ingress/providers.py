@@ -40,6 +40,11 @@ class WebhookProvider(ABC):
     invalid_signature_status: int = 403
     unconfigured_status: int = 500
     success_status: int = 202
+    # Answered instead of the receipt when the forward to the owning region fails, so a provider
+    # that redelivers on a non-2xx tries again (Slack does, GitHub does not). `None` keeps the
+    # receipt. This is the one documented exception to "consumers never decide the response": the
+    # decision is the transport's, not a consumer's.
+    forward_failure_status: int | None = None
 
     @abstractmethod
     def scheme(self) -> SignatureScheme:
@@ -53,10 +58,12 @@ class WebhookProvider(ABC):
         return self.scheme().verify(body=request.body, headers=request.headers)
 
     def pre_dispatch_response(self, request: HttpRequest, payload: Any) -> HttpResponse | None:
-        """A response the provider's protocol demands before any consumer runs.
+        """A handshake the protocol demands, answered before any consumer runs.
 
-        Only handshakes belong here (Slack's `url_verification` challenge), never anything a
-        consumer's outcome decides.
+        Only that: Slack's `url_verification` challenge is the case. Never a side effect, and
+        never anything a consumer's outcome decides. Regional forwarding used to live here and
+        does not any more -- a consumer declares `ownership` and the view forwards.
+        Returning `None` lets dispatch continue.
         """
         return None
 

@@ -32,7 +32,6 @@ Adding a provider is another `<provider>/` folder, not a change to the mechanism
 
 The GitHub endpoints and the SES one are declared in `posthog/urls.py`.
 The others are declared by the product that owns them.
-See [`url-routing.md`](../../docs/internal/url-routing.md) for the routing rules those declarations follow, and [`github-webhooks.md`](../../docs/internal/github-webhooks.md) for the GitHub specifics.
 
 The Vapi endpoint sits behind a per-IP throttle the product owns, because ingress has no throttle lane and the endpoint is public.
 
@@ -55,6 +54,7 @@ A consumer that wants asynchronous work enqueues its own task and answers immedi
 The HTTP response is a transport receipt: the verification result, the method, and the payload decide the status, and consumer return values are ignored.
 A consumer that fails must not turn a verified delivery into a 500 the provider will replay against every other consumer too.
 If a provider's protocol needs the response body to say something, the incarnation answers that handshake before dispatch.
+The one exception is a failed forward to the owning region, which is a transport failure rather than a consumer outcome — see [Regional forwarding](#regional-forwarding).
 
 **Ingress does not promise an order.**
 Consumers are independent by construction; anything that depends on another consumer's result belongs in one consumer.
@@ -117,6 +117,30 @@ Both controls exist because the incidents on the GitHub webhook path came from u
 The fixes that worked bounded the queries: [#83852](https://github.com/PostHog/posthog/pull/83852) scoped the run lookup to the installation's teams and put a statement timeout on the attribution lookup, and [#87779](https://github.com/PostHog/posthog/pull/87779) added the indexes it needed.
 Ingress carries both as general controls, so the next endpoint gets them without rediscovering the same failure.
 
+## Regional forwarding
+
+A third party holds one callback URL, which points at the primary region (EU), so a delivery about a resource the other region (US) owns still arrives here first.
+Ingress owns the forward, because what is replayed is the signed body — a consumer only ever sees the parsed mapping.
+
+A consumer whose resources are split by region declares `ownership`, a callable that takes the delivery and answers a `DeliveryOwnership`:
+
+- `LOCAL` — this region holds the resource. Nothing changes: local dispatch always runs.
+- `ELSEWHERE` — the other region holds it. The request is forwarded.
+- `UNDECIDED` — nothing in the delivery says, so nothing is forwarded.
+
+Every delivery in the request is assessed first, and the request is then forwarded **once**, when any consumer answered `ELSEWHERE`.
+One forward per request rather than per delivery, because the unit being replayed is the HTTP request.
+Local dispatch runs either way: a consumer that answered `ELSEWHERE` no-ops on its own, and the other consumers on the endpoint are unaffected.
+Only the primary region forwards; on the secondary region an `ELSEWHERE` answer is logged as `ingress_delivery_unowned_here`, because a local miss there is that consumer's unresolved routing rather than proof that no region owns the delivery.
+
+The ownership lookup runs inside the request, before dispatch, and inside the same wall-clock budget.
+A lookup that reads the database must be bounded with `bounded_statement_timeout(ms, models=...)`.
+A lookup that raises is logged, captured, counted as `failed` and treated as `UNDECIDED`, so one consumer cannot cost the delivery the receipt it earned by signing.
+
+A failed forward keeps the receipt by default.
+A provider that redelivers on a non-2xx (Slack does, GitHub does not) sets `forward_failure_status` on its incarnation, and the view answers that status with outcome `forward_failed` instead — so the provider sends the delivery again rather than losing it.
+That is the transport deciding the response, not a consumer.
+
 ## Adding a provider
 
 Add a `<provider>/` subpackage with a `provider.py` holding three things (see `github/` for the full shape, `vapi/` for a small one):
@@ -156,8 +180,10 @@ A provider that sends no delivery id skips dedup entirely, and its own README sa
 
 ## Observability
 
-- **`posthog_ingress_deliveries_total{provider,app,outcome}`** — what the transport answered: `accepted`, `method_not_allowed`, `not_configured`, `invalid_signature`, `invalid_payload`. A consumer failure is not here, because a failing consumer still gets a 2xx receipt.
+- **`posthog_ingress_deliveries_total{provider,app,outcome}`** — what the transport answered: `accepted`, `method_not_allowed`, `not_configured`, `invalid_signature`, `invalid_payload`, `forward_failed`. A consumer failure is not here, because a failing consumer still gets a 2xx receipt.
 - **`posthog_ingress_consumer_runs_total{provider,consumer,outcome}`** — `succeeded`, `failed`, `deduped`, `budget_exceeded`.
 - **`posthog_ingress_consumer_duration_seconds{provider,consumer}`** — where a delivery's budget actually went.
+- **`posthog_ingress_ownership_total{provider,consumer,outcome}`** — what a consumer answered when asked which region owns the delivery: `local`, `elsewhere`, `undecided`, `failed`.
+- **`posthog_ingress_forwards_total{provider,app,outcome}`** — what the owning region answered a forwarded request: `forwarded`, `rejected`, `failed`.
 
 A secret in a URL or header is the credential and never becomes a metric label.
