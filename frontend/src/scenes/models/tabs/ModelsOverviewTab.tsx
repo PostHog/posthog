@@ -18,6 +18,8 @@ import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overvie
 
 import { AttentionModel, modelsSceneLogic } from '../modelsSceneLogic'
 
+const PAGINATED_TABLE_CLASS = String.raw`[&_.LemonTable\_\_content]:flex [&_.LemonTable\_\_content]:h-[36rem] [&_.LemonTable\_\_content]:flex-col [&_.LemonTable\_\_content]:overflow-y-auto [&_table]:shrink-0 [&_.PaginationControl]:sticky [&_.PaginationControl]:bottom-0 [&_.PaginationControl]:mt-auto [&_.PaginationControl]:shrink-0 [&_.PaginationControl]:bg-surface-primary`
+
 function Section({
     title,
     description,
@@ -217,6 +219,9 @@ function OverviewBody({
                     <LemonTable
                         columns={ATTENTION_COLUMNS}
                         dataSource={attentionModels}
+                        className={attentionModels.length > 10 ? PAGINATED_TABLE_CLASS : undefined}
+                        scrollToTopOnPageChange={false}
+                        pagination={{ pageSize: 10, useUrl: false }}
                         loading={nodesLoading}
                         rowKey={(row) => row.node.id}
                         size="small"
@@ -231,7 +236,11 @@ function OverviewBody({
                 >
                     <LemonTable
                         columns={BEHIND_COLUMNS}
+                        maxHeaderWidth="7rem"
                         dataSource={behindSchedule}
+                        className={behindSchedule.length > 10 ? PAGINATED_TABLE_CLASS : undefined}
+                        scrollToTopOnPageChange={false}
+                        pagination={{ pageSize: 10, useUrl: false }}
                         rowKey={(row) => row.node.id}
                         size="small"
                         data-attr="models-overview-behind"
@@ -260,6 +269,9 @@ function OverviewBody({
                     <LemonTable
                         columns={CHECK_COLUMNS}
                         dataSource={failingChecks}
+                        className={failingChecks.length > 10 ? PAGINATED_TABLE_CLASS : undefined}
+                        scrollToTopOnPageChange={false}
+                        pagination={{ pageSize: 10, useUrl: false }}
                         loading={checksLoading}
                         rowKey={(check) => check.id}
                         size="small"

@@ -1,5 +1,10 @@
 # Managing models
 
+The Models overview shows ten rows per page in each section: models needing attention, models behind schedule, and failing data quality checks.
+Each section has independent previous and next controls when it has more than ten rows.
+Paginated tables keep a fixed height, including on a partial last page, so other sections stay in place.
+Skipped runs describe upstream models stopped after repeated failures as suspended.
+
 Open a saved view from Models to inspect its query, refresh schedule, and run history.
 The actions menu offers **Delete view** for a saved view and **Delete materialized view** for a materialized view.
 Deletion asks for confirmation, removes the saved view and its materialized data, and returns to Models after success.
