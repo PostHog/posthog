@@ -1347,13 +1347,26 @@ const CONFLICT_UNPRESERVABLE_KEYS = new Set([
     'original_experiment',
     'update_feature_flag_params',
     'feature_flag',
+    // A date is a label plus a picker, not a form the user is part-way through, and it sets the
+    // window that every metric is computed over. A rejected date kept here makes this tab disagree
+    // with the experiments list and with the metric results until the page reloads, which reads as
+    // one experiment with two start dates.
+    'start_date',
+    'end_date',
 ])
 
 /** The fields of a 409-rejected update worth keeping in local state: the user's scalar edits.
  * Collection and bookkeeping fields are dropped — re-applying a stale metric array over the
- * fresh state would reintroduce exactly the clobbering the conflict prevented. */
+ * fresh state would reintroduce exactly the clobbering the conflict prevented. The dates are
+ * dropped for a different reason: every surface must show the window the server stored. */
 export function conflictPreservedFields(payload: ExperimentUpdatePayload): Partial<Experiment> {
     return Object.fromEntries(Object.entries(payload).filter(([key]) => !CONFLICT_UNPRESERVABLE_KEYS.has(key)))
+}
+
+/** True when the server stored the date that the UI sent. The stored string can use another format
+ * or another offset, so compare the instants and not the strings. */
+export function storedDateMatches(stored: string | null | undefined, sent: string): boolean {
+    return !!stored && dayjs(stored).isSame(dayjs(sent))
 }
 
 /** Maps UI variants to the flag's write shape, dropping null names the generated type disallows. */
