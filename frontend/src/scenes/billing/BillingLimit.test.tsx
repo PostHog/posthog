@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import '@testing-library/jest-dom'
 
@@ -5,6 +7,8 @@ import { act, cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
+
+import { userLogic } from 'scenes/userLogic'
 
 import { billingJson } from '~/mocks/fixtures/_billing'
 import { useMocks } from '~/mocks/jest'
@@ -90,6 +94,38 @@ describe('BillingLimit', () => {
         }
     )
 
+    // A limit covers one organization, so someone in several can cap one and be invoiced by another.
+    it.each([
+        { label: 'one organization', otherOrganizationName: null, expectedNote: null },
+        {
+            label: 'more than one organization',
+            otherOrganizationName: 'Other MockHog',
+            expectedNote: 'Billing limits apply to one organization. Set limits separately in Other MockHog.',
+        },
+    ])('names the other organizations for a member of $label', async ({ otherOrganizationName, expectedNote }) => {
+        await seedBilling({})
+        userLogic.mount()
+        userLogic.actions.loadUserSuccess({
+            ...MOCK_DEFAULT_USER,
+            organizations: otherOrganizationName
+                ? [
+                      ...MOCK_DEFAULT_USER.organizations,
+                      { ...MOCK_DEFAULT_USER.organizations[0], id: 'other-id', name: otherOrganizationName },
+                  ]
+                : MOCK_DEFAULT_USER.organizations,
+        })
+        render(
+            <Provider>
+                <BillingLimit product={makeProduct()} />
+            </Provider>
+        )
+
+        await screen.findByTestId('billing-limit-input-wrapper-product_analytics')
+        expect(screen.queryByTestId('billing-limit-other-organizations-note')?.textContent ?? null).toEqual(
+            expectedNote
+        )
+    })
+
     it('removing an existing limit PATCHes a null limit and re-renders as unset', async () => {
         await seedBilling({ product_analytics: 500 })
         render(
@@ -102,7 +138,7 @@ describe('BillingLimit', () => {
         await userEvent.click(screen.getByTestId('remove-billing-limit-product_analytics'))
 
         expect(await screen.findByTestId('billing-limit-not-set-product_analytics')).toHaveTextContent(
-            'You do not have a billing limit set for PostHog Desktop (usage-based).'
+            'You do not have a billing limit set for PostHog Desktop (usage-based). Spend in this organization is uncapped.'
         )
         expect(patchedBody).toEqual({ custom_limits_usd: { product_analytics: null } })
     })
