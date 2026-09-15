@@ -1,9 +1,9 @@
 """The scan slot: one query's analysis, keyed by its cache key and the flag's thresholds.
 
 Claimed by the trigger, written once by the job, read by every response for that cache key, in the
-query cache's Redis. The thresholds ride in the key, so an analysis run under other gates lives under
-another key and reads as absent here. A read returns None on any Redis or JSON failure, and a write
-logs and swallows.
+query cache's Redis. The thresholds and the slot version ride in the key, so an analysis run under
+other gates, or written by older code, lives under another key and expires on its own instead of
+blocking the claim. A read returns None on any Redis or JSON failure, and a write logs and swallows.
 """
 
 from __future__ import annotations
@@ -20,8 +20,9 @@ from posthog.query_cache.storage import query_cache_raw_client
 
 logger = structlog.get_logger(__name__)
 
-# Bumped when a stored slot can no longer be read by this code. An older version reads as
-# "no slot", so the next slow run re-analyzes instead of serving a value we cannot parse.
+# Bumped when a stored slot can no longer be read by this code. It is part of the key: a claim
+# cannot replace an existing key, so an old slot left under the same key would block re-analysis
+# for its whole TTL while reading as absent.
 SLOT_VERSION = 2
 
 PENDING_TTL_SECONDS = 10 * 60
@@ -41,7 +42,7 @@ class QueryScanSlot:
 
 
 def slot_key(team_id: int, cache_key: str, thresholds: str) -> str:
-    return f"query_scan:{team_id}:{cache_key}:{thresholds}"
+    return f"query_scan:v{SLOT_VERSION}:{team_id}:{cache_key}:{thresholds}"
 
 
 def enqueue_counter_key(team_id: int) -> str:
@@ -107,7 +108,7 @@ def _write(
     team_id: int, cache_key: str, value: dict[str, Any], ttl_seconds: int, *, thresholds: str, nx: bool = False
 ) -> bool:
     try:
-        payload = json.dumps({"version": SLOT_VERSION, **value})
+        payload = json.dumps(value)
         key = slot_key(team_id, cache_key, thresholds)
         return bool(query_cache_raw_client().set(key, payload, ex=ttl_seconds, nx=nx))
     except Exception:
@@ -116,7 +117,7 @@ def _write(
 
 
 def _deserialize(value: Any) -> QueryScanSlot | None:
-    if not isinstance(value, dict) or value.get("version") != SLOT_VERSION:
+    if not isinstance(value, dict):
         return None
     analysis = value.get("analysis")
     if isinstance(analysis, dict):
