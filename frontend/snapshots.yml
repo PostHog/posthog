@@ -5052,6 +5052,30 @@ snapshots:
         hash: v1.k794b7964.1d690c0916c6cb0e1cd9682b2c2ceaf072907faf864eb9c60708f20b54491d01.CSbDUiLNw1wFHNsYIjr6gY5pqrWGWK_ka7wav_H_zwo
     logs-logsfiltervolumesparkline--with-rate-limit-threshold--light:
         hash: v1.k794b7964.90511b5879e111bf4d4b3f7b31f5d24159de7590de35e110bc4d510f763cfa1a.l4VDaP9QZZgd9RbT-nWeHb00FGgojPia3OHP-Bq-pfU
+    marketing-analytics-customer-acquisition-cards--configuration-loading--dark:
+        hash: v1.k794b7964.4e3295796230b8ccc9ce5cb239d9ffe000af9d00324d31584d3fa6fde8550fe9.04jR2iHz7Mn5n3Z6KmK4yt-R520UGYL9im_4Icykhxk
+    marketing-analytics-customer-acquisition-cards--configuration-loading--light:
+        hash: v1.k794b7964.e0621c392648364dcfd76d6aa207ef3cf5990d9509dd05641e0280e83dbe7f9c.bicYg7JvUWNQ92J9Gge8euSuSBODkAA4EuzwfBFJ1Uk
+    marketing-analytics-customer-acquisition-cards--configured--dark:
+        hash: v1.k794b7964.1c9446a4d817e8c7835338860f5eb7a237bf7aaed99495dd06ffe6d823ce6b77.6zptp7eX0J7T-Jvx3km58UA6mC7KUhbOXqYKXHKbs60
+    marketing-analytics-customer-acquisition-cards--configured--light:
+        hash: v1.k794b7964.aa4c113316faef65e68956fbe7f75f8140c552d91cd72e1146561f0105499ee9.-Mpkaw0Y5jpKzByOaiM9Q5NkCg9WapChfdL2GjHyZng
+    marketing-analytics-customer-acquisition-cards--error--dark:
+        hash: v1.k794b7964.dc409831738ce2b25d5a5fa4b7b31d3310108e0335670f5e93de50b80b9e4d02.aRmpYSiDd_AMCnBTDyRzKgt4Hn1kcX5u-C7wSKMzZYY
+    marketing-analytics-customer-acquisition-cards--error--light:
+        hash: v1.k794b7964.e80f2eb9c01b27aa8297e6f8644941db5f5dd9665044c4f562418988ebde43a0.-bjEtmLDqxX0XU_k8CZDaZ02knZpPTrijQ44mDhEKEE
+    marketing-analytics-customer-acquisition-cards--loading--dark:
+        hash: v1.k794b7964.9c7937c5eeebaab82299b1eab7c64e567045df1d8342efabb006f55234f853e7.t1KXV9kOCbgn8aYOuJ0eEJFrAF-bs1Z3VYyADYdHDwM
+    marketing-analytics-customer-acquisition-cards--loading--light:
+        hash: v1.k794b7964.885cc20f71571a703d9d91afeabf622ca654b97908e4cc3adfd4a9d7d3809185.tXMt6YqMYkUigQXZZyKan4j_hEeb7YL8UDaO4H09u2A
+    marketing-analytics-customer-acquisition-cards--no-customers--dark:
+        hash: v1.k794b7964.d373fc20fdafc0d07ec36de7a05ae9a67503dea118d04cad304647c25fd3a404.HiqYRZCwBEdtfwWgfgiv5KS5G9Q8fDgue9xC5gxxP_c
+    marketing-analytics-customer-acquisition-cards--no-customers--light:
+        hash: v1.k794b7964.2c6caa70fd61247a739d507f8d9b57f67e0262165c0fa5ed42ceb1213f2484ad.qshFf-kF2oLF5w2RLB29ntSYfArxj0CvRo8cd0uRqrA
+    marketing-analytics-customer-acquisition-cards--unconfigured--dark:
+        hash: v1.k794b7964.fda088b86665fa1e7f42ac158d9c5acf12b2afc030a90ad385d3d0fe16170d46.WqmQ9-wSSHQj0J-kUbJKkFI8DhDljOP6queW3e6jxDQ
+    marketing-analytics-customer-acquisition-cards--unconfigured--light:
+        hash: v1.k794b7964.40240d162f715f3da0d8363e08797fb8a9c131852a5d6356c892424e25dfa35c.yeHaH7ecKHVh7IOwmerxuVPzSGclQrUDBwWnoPV0rmw
     mcp-apps-actions--list--light:
         hash: v1.k794b7964.1404bf36ee039ef64d978fb4ff825a04ebe55ea2bc4c04ba6bc2a4252d5b8657.eOwPJ0UYuP-Cwmz1wqPf0gbtNVQx6r-6JTyhx75dhZ8
     mcp-apps-actions--multi-step--light:
