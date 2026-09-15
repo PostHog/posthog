@@ -131,6 +131,17 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_EVENTS_DLQ_PRODUCER: CdpProducerName
     CDP_INTERNAL_EVENTS_DLQ_TOPIC: string
     CDP_INTERNAL_EVENTS_DLQ_PRODUCER: CdpProducerName
+    // Replay worker. All read once at start; a run is one deployment scaled to one replica.
+    CDP_DLQ_REPLAY_TOPIC: string
+    CDP_DLQ_REPLAY_RUN_ID: string
+    CDP_DLQ_REPLAY_STEPS: string
+    CDP_DLQ_REPLAY_FROM: string
+    CDP_DLQ_REPLAY_TO: string
+    CDP_DLQ_REPLAY_TEAM_IDS: string
+    CDP_DLQ_REPLAY_SKIP_TEAM_IDS: string
+    CDP_DLQ_REPLAY_HOG_FUNCTION_IDS: string
+    CDP_DLQ_REPLAY_REASON_CONTAINS: string
+    CDP_DLQ_REPLAY_MAX_AGE_HOURS: number
 
     CDP_EMAIL_TRACKING_URL: string
 
@@ -340,6 +351,17 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_EVENTS_DLQ_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
         CDP_INTERNAL_EVENTS_DLQ_TOPIC: KAFKA_CDP_INTERNAL_EVENTS_DLQ,
         CDP_INTERNAL_EVENTS_DLQ_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
+        CDP_DLQ_REPLAY_TOPIC: KAFKA_CDP_EVENTS_DLQ,
+        // Not a usable value: the worker refuses to start until an operator names the run.
+        CDP_DLQ_REPLAY_RUN_ID: 'unset',
+        CDP_DLQ_REPLAY_STEPS: '',
+        CDP_DLQ_REPLAY_FROM: '',
+        CDP_DLQ_REPLAY_TO: '',
+        CDP_DLQ_REPLAY_TEAM_IDS: '',
+        CDP_DLQ_REPLAY_SKIP_TEAM_IDS: '',
+        CDP_DLQ_REPLAY_HOG_FUNCTION_IDS: '',
+        CDP_DLQ_REPLAY_REASON_CONTAINS: '',
+        CDP_DLQ_REPLAY_MAX_AGE_HOURS: 24 * 30,
 
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',
 

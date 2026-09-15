@@ -1,0 +1,417 @@
+import { Message } from 'node-rdkafka'
+import { Counter } from 'prom-client'
+
+import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
+import type { RdKafkaConsumerConfig } from '~/common/kafka/consumer/consumer-v1'
+import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
+import { killGracefully } from '~/common/utils/utils'
+
+import { HealthCheckResult, PluginsServerConfig, RawClickHouseEvent } from '../../types'
+import {
+    DeadLetterRecord,
+    ReplayPolicy,
+    ReplaySkipReason,
+    readDeadLetterRecord,
+    readReplayPolicy,
+    replayTargetIds,
+    shouldReplay,
+} from '../services/dead-letter/replay-policy'
+import { HogFlowInvocationPipeline } from '../services/hog-flow-invocation-pipeline.service'
+import { HogFunctionInvocationPipeline } from '../services/hog-function-invocation-pipeline.service'
+import { JobQueue } from '../services/job-queue/job-queue.interface'
+import { HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
+import { convertToHogFunctionInvocationGlobals } from '../utils'
+import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
+
+const counterReplayRecords = new Counter({
+    name: 'cdp_dlq_replay_records_total',
+    help: 'A dead-letter record was considered by a replay run',
+    labelNames: ['outcome'],
+})
+
+const counterReplayInvocations = new Counter({
+    name: 'cdp_dlq_replay_invocations_total',
+    help: 'An invocation was rebuilt and queued by a replay run',
+})
+
+/** Refused at start: a replay has to be configured deliberately, because it delivers events. */
+export const UNSET_RUN_ID = 'unset'
+
+/**
+ * Backstop for a partition that never delivers its last record, so a run cannot hang forever.
+ *
+ * Polls time out after 500ms, so this is roughly 30 seconds of nothing arriving. It has to clear
+ * the time a fresh consumer group spends joining and being assigned, because those polls come back
+ * empty too, and ending the run on them would finish before reading anything.
+ */
+const EMPTY_POLLS_BEFORE_STOP = 60
+
+export interface CdpDlqReplayCounts {
+    replayed: number
+    queued: number
+    skipped: Record<string, number>
+}
+
+/**
+ * Rebuilds invocations for events parked on a dead-letter topic.
+ *
+ * The run is deliberately bounded. An operator scales it to one replica after the bug that parked
+ * the records is fixed and deployed; it reads to the end of the topic and exits. Something watching
+ * the topic continuously would push events back at code that has not been fixed yet, and each round
+ * trip spends a record's two replays.
+ *
+ * Two rules the rest of this class exists to keep:
+ *
+ * It never produces to the source topic. ClickHouse consumes `clickhouse_events_json`, so putting
+ * an event back there would duplicate it in the events table. The worker rebuilds invocations and
+ * queues those instead, which is also why the generic DLQ replay tooling does not fit here.
+ *
+ * It rebuilds only the functions a record names. An event that failed for one function out of five
+ * already reached the other four, and rebuilding all five would deliver to them twice.
+ */
+export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
+    protected name = 'CdpDlqReplayConsumer'
+    protected hogTypes: HogFunctionTypeType[] = ['destination']
+
+    private kafkaConsumer: KafkaConsumerInterface
+    private hogFunctionPipeline: HogFunctionInvocationPipeline
+    private hogFlowPipeline: HogFlowInvocationPipeline
+    private emptyPolls = 0
+    private endOffsetsRecorded = false
+    /** High watermark per partition, read once at start. The run ends when it reaches all of them. */
+    private endOffsets = new Map<number, number>()
+    private drained = new Set<number>()
+
+    public readonly counts: CdpDlqReplayCounts = { replayed: 0, queued: 0, skipped: {} }
+
+    constructor(
+        config: PluginsServerConfig,
+        deps: CdpConsumerBaseDeps,
+        private jobQueues: { hogQueue: JobQueue; hogflowQueue: JobQueue },
+        private policy: ReplayPolicy = readReplayPolicy(config),
+        /** Ends the process when the run is done. A bounded job that keeps running gets restarted. */
+        private onComplete: () => void = killGracefully
+    ) {
+        super(config, deps)
+
+        // Its own group per run, so a replay never moves the source consumer's offsets, and a later
+        // run with a different policy reads the same records again from the beginning.
+        // Set rather than inherited. KAFKA_CONSUMER_AUTO_OFFSET_RESET applies to every consumer in
+        // the deployment, and a `latest` value would make a fresh replay group skip the entire
+        // backlog it was scaled up to drain, reporting a clean run having done nothing.
+        this.kafkaConsumer = createKafkaConsumer(
+            {
+                groupId: `cdp-dlq-replay-${config.CDP_DLQ_REPLAY_RUN_ID}`,
+                topic: config.CDP_DLQ_REPLAY_TOPIC,
+                callEachBatchWhenEmpty: true,
+            },
+            { 'auto.offset.reset': 'earliest' } as RdKafkaConsumerConfig
+        )
+
+        this.hogFunctionPipeline = new HogFunctionInvocationPipeline(config, {
+            hogFunctionManager: this.hogFunctionManager,
+            hogInputsService: this.hogInputsService,
+            hogWatcher: this.hogWatcher,
+            hogWatcherMirror: this.hogWatcherMirror,
+            hogMasker: this.hogMasker,
+            hogFunctionMonitoringService: this.hogFunctionMonitoringService,
+            cdpUsageReporter: this.cdpUsageReporter,
+            quotaLimiting: deps.quotaLimiting,
+            redis: this.redis,
+            valkeyShadow: this.valkeyShadow,
+            // No dead-letter service: a record that fails to rebuild again is left on the topic
+            // with its offsets uncommitted rather than parked a second time.
+        })
+        this.hogFlowPipeline = new HogFlowInvocationPipeline(config, {
+            hogFlowManager: this.hogFlowManager,
+            hogFlowExecutor: this.hogFlowExecutor,
+            hogWatcher: this.hogWatcher,
+            hogWatcherMirror: this.hogWatcherMirror,
+            hogMasker: this.hogMasker,
+            hogFunctionMonitoringService: this.hogFunctionMonitoringService,
+            quotaLimiting: deps.quotaLimiting,
+            redis: this.redis,
+            valkeyShadow: this.valkeyShadow,
+        })
+    }
+
+    private countSkip(reason: ReplaySkipReason): void {
+        this.counts.skipped[reason] = (this.counts.skipped[reason] ?? 0) + 1
+        counterReplayRecords.labels({ outcome: `skipped_${reason}` }).inc()
+    }
+
+    /**
+     * Selects the records this run wants, reading headers only.
+     *
+     * Skipping before the payload is parsed is what lets a narrow policy scan a topic holding
+     * millions of records without paying to deserialize the ones it does not want.
+     */
+    public selectRecords(messages: Message[], now: number): { message: Message; record: DeadLetterRecord }[] {
+        const selected: { message: Message; record: DeadLetterRecord }[] = []
+        for (const message of messages) {
+            const record = readDeadLetterRecord(message)
+            const verdict = shouldReplay(record, this.policy, now)
+            if (!verdict.replay) {
+                this.countSkip(verdict.skipReason)
+                continue
+            }
+            selected.push({ message, record: record! })
+        }
+        return selected
+    }
+
+    public async replayBatch(messages: Message[], now: number): Promise<void> {
+        const selected = this.selectRecords(messages, now)
+        if (!selected.length) {
+            return
+        }
+
+        // Which sources each event may rebuild, keyed by event UUID. `null` means every source of
+        // the team, which is right only when nothing was built the first time.
+        //
+        // One event can be parked more than once, because a record is written per event and step:
+        // once at `filter` for one function, once at `inputs` for another. Their targets are merged
+        // and the event is rebuilt once. Overwriting instead would drop the first record's
+        // functions, and rebuilding the event twice would queue the survivors twice.
+        // Keyed by team as well as event UUID, for the same reason the producer is: a UUID comes
+        // from the client, so two teams can send the same one. Merging on the UUID alone would drop
+        // one team's replay and rebuild the other's from the wrong event.
+        const eventKey = (globals: HogFunctionInvocationGlobals): string =>
+            `${globals.project.id}:${globals.event.uuid}`
+        const targetsByEvent = new Map<string, Set<string> | null>()
+        const globalsList: HogFunctionInvocationGlobals[] = []
+
+        // Resolved together rather than one at a time, so the team and person LazyLoaders batch
+        // their misses. A cold batch can hold hundreds of distinct teams.
+        const resolved = await Promise.all(selected.map(({ message }) => this.toGlobals(message)))
+
+        for (const [index, { record }] of selected.entries()) {
+            const globals = resolved[index]
+            if (!globals) {
+                this.countSkip('unreadable')
+                continue
+            }
+            const targets = replayTargetIds(record, this.policy)
+            const key = eventKey(globals)
+            if (targetsByEvent.has(key)) {
+                const existing = targetsByEvent.get(key)!
+                // `null` is "every source", so a union with anything stays `null`.
+                targetsByEvent.set(
+                    key,
+                    existing === null || targets === null ? null : new Set([...existing, ...targets])
+                )
+            } else {
+                targetsByEvent.set(key, targets)
+                globalsList.push(globals)
+            }
+            this.counts.replayed += 1
+        }
+
+        if (!globalsList.length) {
+            return
+        }
+
+        await this.groupsManager.addGroupsToGlobalsList(globalsList)
+
+        const allows = (id: string, globals: HogFunctionInvocationGlobals): boolean => {
+            const targets = targetsByEvent.get(eventKey(globals))
+            return targets === null || targets === undefined ? targets === null : targets.has(id)
+        }
+
+        const [hogInvocations, hogflowInvocations] = await Promise.all([
+            this.hogFunctionPipeline.buildInvocations(globalsList, {
+                hogTypes: this.hogTypes,
+                filterFn: (fn) => (fn.filters?.source ?? 'events') === 'events',
+                invocationFilterFn: (fn, globals) => allows(fn.id, globals),
+            }),
+            this.hogFlowPipeline.buildInvocations(globalsList, {
+                eligibilityFn: (flow, globals) => flow.trigger.type === 'event' && allows(flow.id, globals),
+            }),
+        ])
+
+        for (const invocation of [...hogInvocations, ...hogflowInvocations]) {
+            // Marks the invocation as recovered so a `replayed` app metric can be added later
+            // without changing the queue payload format.
+            invocation.queueMetadata = { ...(invocation.queueMetadata as object), replayed_from_dlq: true }
+            this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
+        }
+
+        this.counts.queued += hogInvocations.length + hogflowInvocations.length
+        // Records and invocations are different things: one record can rebuild several invocations
+        // or none. Counting invocations under a record-shaped label made every outcome rate wrong.
+        counterReplayRecords.labels({ outcome: 'rebuilt' }).inc(globalsList.length)
+        counterReplayInvocations.inc(hogInvocations.length + hogflowInvocations.length)
+
+        await Promise.all([
+            this.jobQueues.hogQueue.queueInvocations(hogInvocations),
+            this.jobQueues.hogflowQueue.queueInvocations(hogflowInvocations),
+            this.hogFunctionMonitoringService.flush(),
+            this.invocationResultsService.invocationResultsRowsService.flush(),
+        ])
+    }
+
+    /**
+     * Rebuilds the globals from the parked bytes, resolving everything around the event fresh.
+     *
+     * The event body is replayed exactly as it arrived, but everything the pipeline reads around it
+     * is read again now: the team, the groups, and the person. `convertToHogFunctionInvocationGlobals`
+     * would otherwise hand the destination the person snapshot frozen into the event at capture,
+     * which can be months stale by the time a replay runs, while groups were already being resolved
+     * fresh. A destination receiving a delivery today should see today's person.
+     */
+    private async toGlobals(message: Message): Promise<HogFunctionInvocationGlobals | null> {
+        try {
+            const event = parseJSON(message.value!.toString()) as RawClickHouseEvent
+            const team = await this.deps.teamManager.getTeam(event.team_id)
+            if (!team) {
+                return null
+            }
+            const globals = convertToHogFunctionInvocationGlobals(event, team, this.config.SITE_URL)
+            const person = await this.personsManager.getCyclotronPerson(
+                event.team_id,
+                event.distinct_id,
+                'distinct_id',
+                { forceFresh: true }
+            )
+            // Keep the frozen snapshot when the person cannot be resolved: deleted, merged away, or
+            // never written. Sending the destination nothing would be a bigger change than sending
+            // it what the event carried.
+            return person ? { ...globals, person } : globals
+        } catch (error) {
+            if (error?.isRetriable === true) {
+                throw error
+            }
+            logger.error('[CdpDlqReplayConsumer] Could not rebuild globals from a parked record', { error })
+            return null
+        }
+    }
+
+    /**
+     * Records where the topic ends before reading any of it.
+     *
+     * This is what bounds the run. A record this run re-parks lands past the recorded end, so one
+     * run can never read its own output, and a run started against a topic that is still filling
+     * stops at the backlog it was scaled up for rather than following the stream.
+     */
+    private async recordEndOffsets(): Promise<void> {
+        const topic = this.config.CDP_DLQ_REPLAY_TOPIC
+        const partitions = await this.kafkaConsumer.getPartitionsForTopic(topic)
+        // No partitions means the topic is missing or its metadata did not arrive, which is not the
+        // same as a drained topic. Reporting the first as the second turns a typo in the topic name
+        // into a run that logs success and replays nothing.
+        if (!partitions.length) {
+            throw new Error(
+                `No partitions found for ${topic} — refusing to report an empty replay, because a ` +
+                    'missing topic and a drained one are not the same thing'
+            )
+        }
+        for (const partition of partitions) {
+            const [low, high] = await this.kafkaConsumer.queryWatermarkOffsets(topic, partition.id)
+            if (high > low) {
+                this.endOffsets.set(partition.id, high)
+            }
+        }
+        this.endOffsetsRecorded = true
+        logger.info('☠️', 'cdp_dlq_replay_end_offsets', {
+            topic,
+            partitionsWithRecords: this.endOffsets.size,
+        })
+    }
+
+    /**
+     * Drops anything at or past the recorded end, and marks a partition drained once it arrives.
+     *
+     * The source consumers keep parking events while a run is in flight, so a fetched batch can
+     * hold records produced after the run started. Replaying those would make the run follow the
+     * stream rather than drain the backlog it was scaled up for.
+     */
+    private withinRecordedEnd(messages: Message[]): Message[] {
+        const bounded: Message[] = []
+        for (const message of messages) {
+            const end = this.endOffsets.get(message.partition)
+            if (end === undefined || message.offset >= end) {
+                continue
+            }
+            bounded.push(message)
+            if (message.offset === end - 1) {
+                this.drained.add(message.partition)
+            }
+        }
+        return bounded
+    }
+
+    private finish(): void {
+        logger.info('☠️', 'cdp_dlq_replay_complete', this.counts)
+        // Stopping only this consumer leaves the server up with a disconnected Kafka client, so its
+        // health check goes red and Kubernetes restarts the pod. The restart re-reads the end
+        // offsets and replays past the boundary the run was given. A finished run has to end the
+        // process.
+        void this.stop().finally(() => this.onComplete())
+    }
+
+    public override async start(): Promise<void> {
+        // A replay delivers events. Refusing to start without an explicit run id means a replica
+        // scaled up before its policy was written stops, rather than replaying everything the
+        // default open policy matches.
+        if (!this.config.CDP_DLQ_REPLAY_RUN_ID || this.config.CDP_DLQ_REPLAY_RUN_ID === UNSET_RUN_ID) {
+            throw new Error(
+                'CDP_DLQ_REPLAY_RUN_ID must be set to a value identifying this run — refusing to start. ' +
+                    'It names the consumer group, so reusing one resumes that run rather than starting over.'
+            )
+        }
+
+        await super.start()
+        await Promise.all([this.jobQueues.hogQueue.startAsProducer(), this.jobQueues.hogflowQueue.startAsProducer()])
+
+        logger.info('☠️', 'cdp_dlq_replay_start', {
+            topic: this.config.CDP_DLQ_REPLAY_TOPIC,
+            runId: this.config.CDP_DLQ_REPLAY_RUN_ID,
+            policy: this.policy,
+        })
+
+        await this.kafkaConsumer.connect(async (messages) => {
+            // Reading broker metadata needs a connected consumer, so the end offsets are recorded on
+            // the first poll rather than before connecting.
+            if (!this.endOffsetsRecorded) {
+                await this.recordEndOffsets()
+                if (!this.endOffsets.size) {
+                    this.finish()
+                    return
+                }
+            }
+
+            if (!messages.length) {
+                if (++this.emptyPolls >= EMPTY_POLLS_BEFORE_STOP) {
+                    this.finish()
+                }
+                return
+            }
+            this.emptyPolls = 0
+            const bounded = this.withinRecordedEnd(messages)
+            await instrumentFn('cdpDlqReplay.handleEachBatch', () => this.replayBatch(bounded, Date.now()))
+            logger.info('☠️', 'cdp_dlq_replay_progress', {
+                replayed: this.counts.replayed,
+                queued: this.counts.queued,
+                skipped: this.counts.skipped,
+            })
+            if (this.drained.size >= this.endOffsets.size) {
+                this.finish()
+            }
+        })
+    }
+
+    public override async stop(): Promise<void> {
+        await this.kafkaConsumer.disconnect()
+        await Promise.all([this.jobQueues.hogQueue.stopProducer(), this.jobQueues.hogflowQueue.stopProducer()])
+        await super.stop()
+    }
+
+    public isHealthy(): HealthCheckResult {
+        return this.kafkaConsumer.isHealthy()
+    }
+}
+
+// `Number('')` is 0 and `Number.isFinite(0)` is true, so an unset env var has to be dropped before
+// the conversion. Otherwise an empty allow list reads as "team 0 only" and filters out everything.
