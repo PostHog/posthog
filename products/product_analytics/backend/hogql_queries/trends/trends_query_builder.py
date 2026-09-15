@@ -873,6 +873,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             modifiers=self.modifiers,
             date_range=self.query_date_range,
             timings=self.timings,
+            cohort_via_distinct_id=isinstance(self.series, DataWarehouseNode),
         )
 
     def _event_or_action_where_expr(self) -> ast.Expr | None:
