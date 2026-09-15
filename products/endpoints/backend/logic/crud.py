@@ -419,13 +419,15 @@ class EndpointCrudService:
                 raise
             # A user-fixable request problem, not a system fault. The service layer already
             # counted it as a validation error, so report the message without capturing it.
+            message = _validation_error_message(e)
             logger.warning(
                 "Materialization rejected after version creation",
                 endpoint_name=endpoint.name,
                 version=target_version.version,
                 team_id=self.team.pk,
+                reason=message,
             )
-            return _validation_error_message(e)
+            return message
         except Exception as e:
             if not version_was_created:
                 raise
