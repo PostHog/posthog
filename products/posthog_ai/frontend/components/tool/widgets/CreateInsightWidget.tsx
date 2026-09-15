@@ -1,7 +1,10 @@
+import { ArtifactSource } from '~/queries/schema/schema-assistant-messages'
+
 import { DataToolRow } from '../DataToolRow'
 import { GenericMcpToolRenderer } from '../GenericMcpToolRenderer'
 import type { ToolRendererProps } from '../toolRegistry'
 import { extractVisualizationArtifact } from './extractors'
+import { VisualizationArtifactActions } from './VisualizationArtifactActions'
 import { VisualizationWidget, getArtifactOpenTarget } from './VisualizationWidget'
 
 /**
@@ -18,10 +21,24 @@ export function CreateInsightWidget(props: ToolRendererProps): JSX.Element {
     }
 
     const target = getArtifactOpenTarget(artifact.envelope, artifact.content)
+    const insightShortId =
+        artifact.envelope.source === ArtifactSource.Insight ? artifact.envelope.artifact_id : undefined
 
     return (
         <DataToolRow {...props}>
-            <VisualizationWidget content={artifact.content} openUrl={target.url} openTooltip={target.tooltip} />
+            <VisualizationWidget
+                content={artifact.content}
+                openUrl={target.url}
+                openTooltip={target.tooltip}
+                extraActions={
+                    <VisualizationArtifactActions
+                        content={artifact.content}
+                        toolName={message.resolvedKey}
+                        toolCallId={message.id}
+                        insightShortId={insightShortId}
+                    />
+                }
+            />
         </DataToolRow>
     )
 }

@@ -42,6 +42,11 @@ export type { UseWelcomeOverrideOptions } from '../hooks/useWelcomeOverride'
 // run — the prompt-side half of `useMcpToolApplyBack` (hidden from chips, deduped once per task).
 export { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM, wrapWithPosthogContext } from '../utils/posthogContextBlock'
 
+// --- Visualization artifact actions (headless) ---
+// The way out of a run: a host registers an action (e.g. "Add to notebook") that every visualization
+// card in the thread renders, and the action runs in the browser rather than through an MCP write.
+export { artifactActionsLogic } from '../logics/artifactActionsLogic'
+
 // --- User-picked context (the composer's @-affordance, headless half) ---
 // `contextPickerLogic` owns explicit user picks and registers them as the `user-picker` provider;
 // the `AttachedContextBar` component (Tier 2 `api/primitives`) is its prepackaged UI.
