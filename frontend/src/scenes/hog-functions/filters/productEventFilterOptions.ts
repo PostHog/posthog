@@ -103,6 +103,13 @@ export const getProductEventFilterOptions = (contextId: HogFunctionConfiguration
                     value: '$batch_export_run_failed',
                 },
             ]
+        case 'warehouse-source-alerts':
+            return [
+                {
+                    label: 'Source sync failed',
+                    value: '$warehouse_source_sync_failed',
+                },
+            ]
         default:
             return [
                 {
