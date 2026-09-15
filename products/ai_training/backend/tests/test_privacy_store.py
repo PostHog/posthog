@@ -18,7 +18,7 @@ class TestAITrainingPrivacyStore(SimpleTestCase):
         self, _name: str, table: str, enabled: bool
     ) -> None:
         with (
-            self.settings(AI_RESEARCH_REPLAY_PRIVACY_TABLE=table),
+            self.settings(AI_RESEARCH_REPLAY_KEY_TABLE=table),
             patch("products.ai_training.backend.tasks.tasks.AITrainingPrivacyStore.from_settings") as store,
         ):
             signature = process_ai_training_privacy_requests.signature()

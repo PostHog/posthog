@@ -58,6 +58,9 @@ function createMockTopHog(): TopHogRegistry {
 }
 
 describe('ml-mirror-pipeline', () => {
+    const V2_SESSION_ID = '01a0a4f0-3200-7000-8000-000000000001'
+    const V2_SESSION_ID_2 = '01a0a4f0-3200-7000-8000-000000000002'
+    const V2_SESSION_ID_3 = '01a0a4f0-3200-7000-8000-000000000003'
     let recordMock: jest.Mock
     let mockBatchRecorder: jest.Mocked<SessionBatchRecorder>
     let mockTeamService: TeamService
@@ -266,7 +269,7 @@ describe('ml-mirror-pipeline', () => {
             getRetentionPeriodByTeamId: jest.fn().mockResolvedValue(30),
         } as unknown as TeamService
 
-        await runSessionReplayPipeline(buildPipeline(), [message('sess-1')], mockBatchRecorder, promiseScheduler)
+        await runSessionReplayPipeline(buildPipeline(), [message(V2_SESSION_ID)], mockBatchRecorder, promiseScheduler)
 
         expect(recordMock).toHaveBeenCalledTimes(1)
         const [windowId, event] = recordedEvents()[0]
@@ -297,8 +300,25 @@ describe('ml-mirror-pipeline', () => {
             getRetentionPeriodByTeamId: jest.fn().mockResolvedValue(30),
         } as unknown as TeamService
 
-        await runSessionReplayPipeline(buildPipeline(), [message('sess-2')], mockBatchRecorder, promiseScheduler)
+        await runSessionReplayPipeline(buildPipeline(), [message(V2_SESSION_ID_2)], mockBatchRecorder, promiseScheduler)
 
+        expect(recordMock).not.toHaveBeenCalled()
+    })
+
+    it('drops sessions whose ID is not UUIDv7 before session resolution', async () => {
+        mockTeamService = {
+            getTeamByToken: jest.fn().mockResolvedValue(team(true)),
+            getRetentionPeriodByTeamId: jest.fn().mockResolvedValue(30),
+        } as unknown as TeamService
+
+        await runSessionReplayPipeline(
+            buildPipeline(),
+            [message('legacy-session-id')],
+            mockBatchRecorder,
+            promiseScheduler
+        )
+
+        expect(retentionService.resolveSessionRetentions).not.toHaveBeenCalled()
         expect(recordMock).not.toHaveBeenCalled()
     })
 
@@ -310,7 +330,7 @@ describe('ml-mirror-pipeline', () => {
 
         await runSessionReplayPipeline(
             buildPipeline(),
-            [fullSnapshotMessage('sess-3')],
+            [fullSnapshotMessage(V2_SESSION_ID_3)],
             mockBatchRecorder,
             promiseScheduler
         )
