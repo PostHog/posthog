@@ -293,20 +293,21 @@
     /* =========================================================================
        Sizes — height/width/padding/gap/font-size + icon-child size
        ========================================================================= */
+
+    /* `--quill-control-text` is the text size every control shares (buttons, list
+       rows, inputs, select items, tabs, toggles). Set it on an ancestor to rescale them together. */
     .quill-button--size-default,
     .quill-button--size-row {
         gap: 0.5rem;
         height: 1.75rem;
         padding-inline: 0.5rem;
-        font-size: 0.8125rem;
+        font-size: var(--quill-control-text, 0.8125rem);
         line-height: 1.625;
     }
 
-    /* A list row (menu, combobox and autocomplete items) keeps the default
-       metrics but list-sized type, so rows do not follow the default button. */
+    /* A list row (menu, combobox and autocomplete items, empty messages): default metrics, full width, regular weight. */
     .quill-button--size-row {
         width: 100%;
-        font-size: var(--text-xs, 0.75rem);
         font-weight: 400;
     }
 
