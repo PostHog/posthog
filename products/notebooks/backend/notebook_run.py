@@ -24,7 +24,13 @@ from posthog.models import Team, User
 from products.notebooks.backend.models import Notebook, NotebookNodeRun, NotebookRun
 from products.notebooks.backend.sql_v2 import SQLV2KernelNotRunning, interrupt_sql_v2_run
 from products.notebooks.backend.sql_v2_direct import cancel_direct_run
-from products.notebooks.backend.sql_v2_dispatch import NodeRunRequest, RefSpec, sandbox_disclosure
+from products.notebooks.backend.sql_v2_dispatch import (
+    NodeRunRequest,
+    RefSpec,
+    resolve_team_notebook,
+    resolve_user,
+    sandbox_disclosure,
+)
 from products.notebooks.backend.sql_v2_metrics import (
     OUTCOME_TIMED_OUT,
     outcome_for_status,
@@ -100,7 +106,7 @@ def plan_notebook_cells(notebook: Notebook) -> list[PlannedCell]:
     ]
 
 
-def start_notebook_run(
+def _create_notebook_run(
     notebook: Notebook,
     user: User | None,
     team: Team,
@@ -145,6 +151,75 @@ def start_notebook_run(
         starts_sandbox=starts_sandbox,
         sandbox_hourly_price=hourly_price,
     )
+
+
+@frozen
+class NotebookRunStarted:
+    """What a caller needs once the run record exists, without handing over the row.
+
+    `node_ids` is the frozen plan's order, which is what the workflow input carries.
+    """
+
+    run_id: UUID
+    node_ids: list[str]
+    cell_count: int
+    starts_sandbox: bool
+    sandbox_hourly_price: float | None
+
+
+def start_notebook_run(
+    *, team_id: int, notebook_short_id: str, user_id: int | None, trigger: str
+) -> NotebookRunStarted:
+    """Create the run record for a notebook addressed by id, and price the sandbox it may start.
+
+    Raises `NotebookRunNothingToRun` when the notebook holds no runnable cell, and
+    `NotebookRunAlreadyRunning` when one is already in flight.
+    """
+    notebook = resolve_team_notebook(team_id, notebook_short_id)
+    start = _create_notebook_run(notebook, resolve_user(user_id), notebook.team, trigger=trigger)
+    return NotebookRunStarted(
+        run_id=start.notebook_run.id,
+        node_ids=[cell["node_id"] for cell in start.notebook_run.cell_plan],
+        cell_count=start.cell_count,
+        starts_sandbox=start.starts_sandbox,
+        sandbox_hourly_price=start.sandbox_hourly_price,
+    )
+
+
+def read_notebook_run(*, team_id: int, notebook_short_id: str, run_id: str | UUID) -> dict[str, Any] | None:
+    """One run as a client reads it, or None when this notebook has no such run."""
+    notebook = resolve_team_notebook(team_id, notebook_short_id)
+    notebook_run = get_notebook_run(team_id, notebook, run_id)
+    return notebook_run_status(notebook_run) if notebook_run is not None else None
+
+
+@frozen
+class NotebookRunStopped:
+    """The outcome of a stop request: whether it stopped the run, and where the run landed."""
+
+    interrupted: bool
+    status: str
+
+
+def stop_notebook_run(*, team_id: int, notebook_short_id: str, run_id: str | UUID) -> NotebookRunStopped | None:
+    """Stop a run. `interrupted` is False when it had already finished, which is not an error.
+
+    None means this notebook has no such run, which the caller reports as a 404.
+    """
+    notebook = resolve_team_notebook(team_id, notebook_short_id)
+    notebook_run = get_notebook_run(team_id, notebook, run_id)
+    if notebook_run is None:
+        return None
+    interrupted = interrupt_notebook_run(notebook, notebook_run)
+    notebook_run.refresh_from_db(fields=["status"])
+    return NotebookRunStopped(interrupted=interrupted, status=notebook_run.status)
+
+
+def fail_notebook_run(*, team_id: int, run_id: str | UUID, error: str) -> None:
+    """Close out a run nothing will ever drive, so the notebook is not left blocked."""
+    notebook_run = NotebookRun.objects.for_team(team_id).filter(id=run_id).first()
+    if notebook_run is not None:
+        finish_notebook_run(notebook_run, NotebookRun.Status.FAILED, error=error)
 
 
 def node_run_request_for(notebook_run: NotebookRun, index: int) -> NodeRunRequest:

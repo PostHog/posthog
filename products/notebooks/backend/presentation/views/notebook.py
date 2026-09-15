@@ -75,12 +75,11 @@ from products.notebooks.backend.facade.notebook_run import (
     NotebookRunAlreadyRunning,
     NotebookRunInput,
     NotebookRunNothingToRun,
-    finish_notebook_run,
-    get_notebook_run,
-    interrupt_notebook_run,
-    notebook_run_status,
+    fail_notebook_run,
+    read_notebook_run,
     start_notebook_run,
     start_notebook_run_workflow,
+    stop_notebook_run,
 )
 from products.notebooks.backend.facade.sql_v2 import (
     NodeRunDispatchFailed,
@@ -106,7 +105,7 @@ from products.notebooks.backend.facade.widgets import (
     start_widget_generation,
 )
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
-from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun, NotebookRun
+from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 from products.notebooks.backend.presentation.widget_serializers import (
     WidgetCancelRequestSerializer,
     WidgetErrorSerializer,
@@ -1680,9 +1679,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     notebook = variables_update.save()
 
                 start = start_notebook_run(
-                    notebook,
-                    user if isinstance(user, User) else None,
-                    self.team,
+                    team_id=self.team_id,
+                    notebook_short_id=notebook.short_id,
+                    user_id=user.id if isinstance(user, User) else None,
                     # A session cookie is the editor; anything else is a programmatic client.
                     trigger=classify_request_source(request)[0],
                 )
@@ -1696,22 +1695,22 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         try:
             start_notebook_run_workflow(
                 NotebookRunInput(
-                    notebook_run_id=str(start.notebook_run.id),
+                    notebook_run_id=str(start.run_id),
                     team_id=self.team_id,
-                    node_ids=[cell["node_id"] for cell in start.notebook_run.cell_plan],
+                    node_ids=start.node_ids,
                 )
             )
         except Exception:
             logger.exception("notebook_run_start_failed", notebook_short_id=notebook.short_id)
             # Nothing will ever drive this record, so close it here rather than leave the
             # notebook blocked by a run that never began.
-            finish_notebook_run(start.notebook_run, NotebookRun.Status.FAILED, error="Failed to start the run.")
+            fail_notebook_run(team_id=self.team_id, run_id=start.run_id, error="Failed to start the run.")
             return Response({"detail": "Failed to start the run."}, status=503)
 
         return Response(
             NotebookRunStartResponseSerializer(
                 {
-                    "run_id": str(start.notebook_run.id),
+                    "run_id": str(start.run_id),
                     "cell_count": start.cell_count,
                     "starts_sandbox": start.starts_sandbox,
                     "sandbox_hourly_price": start.sandbox_hourly_price,
@@ -1752,13 +1751,12 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # endpoint does.
         self._require_query_access()
         try:
-            notebook_run = get_notebook_run(self.team_id, notebook, run_id)
+            status = read_notebook_run(team_id=self.team_id, notebook_short_id=notebook.short_id, run_id=run_id)
         except DjangoValidationError:  # malformed run_id (not a UUID)
             raise Http404()
-        if notebook_run is None:
+        if status is None:
             raise Http404()
 
-        status = notebook_run_status(notebook_run)
         self._redact_inaccessible_cell_errors(status["cells"], user)
         return Response(NotebookRunStatusResponseSerializer(status).data)
 
@@ -1817,15 +1815,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         notebook = self._get_notebook_for_kernel()
         try:
-            notebook_run = get_notebook_run(self.team_id, notebook, run_id)
+            stopped = stop_notebook_run(team_id=self.team_id, notebook_short_id=notebook.short_id, run_id=run_id)
         except DjangoValidationError:  # malformed run_id (not a UUID)
             raise Http404()
-        if notebook_run is None:
+        if stopped is None:
             raise Http404()
 
-        interrupted = interrupt_notebook_run(notebook, notebook_run)
         return Response(
-            NotebookRunInterruptResponseSerializer({"interrupted": interrupted, "status": notebook_run.status}).data
+            NotebookRunInterruptResponseSerializer({"interrupted": stopped.interrupted, "status": stopped.status}).data
         )
 
     @extend_schema(
