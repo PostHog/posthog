@@ -1,5 +1,7 @@
 import asyncio
+import tempfile
 from datetime import timedelta
+from pathlib import Path
 from typing import cast
 
 from unittest.mock import AsyncMock, Mock, patch
@@ -40,6 +42,7 @@ from products.tasks.backend.logic.services.workflow_dispatch import (
 )
 from products.tasks.backend.management.commands.run_task_workflow_dispatcher import (
     Command,
+    DispatcherSentinels,
     _user_can_dispatch,
     restart_attempt_already_started,
 )
@@ -47,6 +50,14 @@ from products.tasks.backend.metrics import WORKFLOW_DISPATCH_ATTEMPT_TOTAL
 from products.tasks.backend.models import Task, TaskRun, TaskWorkflowDispatch
 from products.tasks.backend.temporal.client import execute_task_processing_workflow
 from products.tasks.backend.temporal.process_task.workflow import PendingFollowup
+
+_DISPATCHER = "products.tasks.backend.management.commands.run_task_workflow_dispatcher"
+
+
+async def _wait_for_file(path: Path, timeout: float = 5.0) -> None:
+    async with asyncio.timeout(timeout):
+        while not path.exists():
+            await asyncio.sleep(0.01)
 
 
 class TestWorkflowDispatchPayload(SimpleTestCase):
@@ -448,3 +459,67 @@ class TestDispatcherCompletionCallback(SimpleTestCase):
         self.assertEqual(failed_total() - before, expected_delta)
         self.assertNotIn(task, in_flight)
         self.assertNotIn(dispatch.id, in_flight_ids)
+
+
+class TestDispatcherSentinels(SimpleTestCase):
+    def test_heartbeat_starts_before_the_client_connects_and_ready_waits_for_it(self) -> None:
+        # The readiness alert fires on a pod that is only connecting or saturated, so the
+        # heartbeat must report a live process from startup while readiness still means
+        # "connected and polling".
+        with tempfile.TemporaryDirectory() as directory:
+            heartbeat = Path(directory) / "heartbeat"
+            ready_file = Path(directory) / "ready"
+
+            async def scenario() -> None:
+                stop = asyncio.Event()
+                sentinels = DispatcherSentinels()
+                refresher = asyncio.create_task(sentinels.refresh_until(stop))
+                try:
+                    await _wait_for_file(heartbeat)
+                    self.assertFalse(ready_file.exists())
+                    sentinels.mark_ready()
+                    await _wait_for_file(ready_file)
+                finally:
+                    stop.set()
+                    await refresher
+
+            with patch.multiple(
+                _DISPATCHER,
+                HEARTBEAT_SENTINEL=heartbeat,
+                READY_SENTINEL=ready_file,
+                SENTINEL_REFRESH_SECONDS=0.01,
+            ):
+                asyncio.run(scenario())
+
+    def test_a_loop_that_stops_iterating_stops_the_heartbeat(self) -> None:
+        # The heartbeat still has to mean "the poll loop is coming round", or a permanently
+        # wedged dispatcher would keep reporting itself healthy and never be replaced.
+        with tempfile.TemporaryDirectory() as directory:
+            heartbeat = Path(directory) / "heartbeat"
+            ready_file = Path(directory) / "ready"
+
+            async def scenario() -> None:
+                stop = asyncio.Event()
+                sentinels = DispatcherSentinels()
+                sentinels.mark_ready()
+                refresher = asyncio.create_task(sentinels.refresh_until(stop))
+                try:
+                    await _wait_for_file(heartbeat)
+                    await _wait_for_file(ready_file)
+                    heartbeat.unlink()
+                    ready_file.unlink()
+                    with patch.object(sentinels, "stall_threshold_seconds", return_value=0.0):
+                        await asyncio.sleep(0.05)
+                        self.assertFalse(heartbeat.exists())
+                        self.assertFalse(ready_file.exists())
+                finally:
+                    stop.set()
+                    await refresher
+
+            with patch.multiple(
+                _DISPATCHER,
+                HEARTBEAT_SENTINEL=heartbeat,
+                READY_SENTINEL=ready_file,
+                SENTINEL_REFRESH_SECONDS=0.01,
+            ):
+                asyncio.run(scenario())

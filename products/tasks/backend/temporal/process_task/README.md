@@ -81,6 +81,21 @@ detector (`[TMPRL1101]`). Two mechanisms bound this:
   force-enables it (local E2E / emergency on). The enable decision is captured at workflow start,
   so in-flight runs and the trigger stay deterministic across replay.
 
+#### Replay compatibility
+
+A deploy replays every in-flight run's recorded history against the new code.
+A change that adds, removes, or reorders a command — an activity, a timer, a child workflow — fails those runs with `[TMPRL1100]`.
+Put such a change behind a `workflow.patched` gate, next to the existing `_PATCH_ID_*` gates, and follow the two-step deprecate-then-delete cleanup documented there.
+A changed timer duration replays cleanly, but keep it on the same gate as the state it reads, so an in-flight run does not adopt half of the new behavior.
+
+`tests/test_replay.py` replays saved histories from `tests/histories/` against the current definition.
+One of them is recorded with no patch markers, which is the shape an in-flight run holds while a deploy lands.
+Re-record them only for an intentional, gated change, and review the diff:
+
+```bash
+TASKS_REPLAY_HISTORY_REGENERATE=1 hogli test products/tasks/backend/temporal/process_task/tests/test_replay.py
+```
+
 ### Temporal client
 
 `backend/temporal/client.py` — `execute_task_processing_workflow()` (sync) and `execute_task_processing_workflow_async()` check the `tasks` feature flag, then fire-and-forget the workflow. Workflow IDs follow the pattern `task-processing-{task_id}-{run_id}`.
