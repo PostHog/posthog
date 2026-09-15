@@ -1,13 +1,17 @@
+import re
 import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+from freezegun import freeze_time
 from unittest import mock
 
 import pyarrow as pa
 import requests
 from parameterized import parameterized
+
+from posthog.egress.github.transport import GitHubRateLimitError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.github import github
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.settings import GITHUB_ENDPOINTS
@@ -456,3 +460,98 @@ class TestCommitFanOut:
         assert rows == [{"id": 21, "name": "lint", "started_at": "2026-01-20T10:00:00Z"}]
         # filter=all is what surfaces re-runs rather than only the latest run per check name.
         assert any("filter=all" in call for call in calls)
+
+
+class TestMergeCommitSha:
+    @staticmethod
+    def _pull_request(number: int, merged: bool, **extra: Any) -> dict[str, Any]:
+        # The 2026-03-10 pull request object: no merge_commit_sha key at all.
+        return {
+            "id": 500 + number,
+            "number": number,
+            "state": "closed" if merged else "open",
+            "created_at": "2026-09-01T09:00:00Z",
+            "updated_at": "2026-09-01T10:00:00Z",
+            "merged_at": "2026-09-01T10:00:00Z" if merged else None,
+            **extra,
+        }
+
+    def test_merged_pull_requests_get_their_merge_commit_from_graphql(self) -> None:
+        graphql = mock.Mock()
+        graphql.status_code = 200
+        graphql.headers = {}
+        graphql.json.return_value = {"data": {"repository": {"pr7": {"mergeCommit": {"oid": "sha-seven"}}}}}
+        page = _response(
+            [
+                self._pull_request(7, merged=True),
+                self._pull_request(8, merged=False),
+                self._pull_request(9, merged=True, merge_commit_sha="sha-nine"),
+            ]
+        )
+
+        with mock.patch.object(github, "github_request", return_value=graphql) as github_request:
+            rows, _calls = _run("pull_requests", {"api.github.com": page})
+
+        assert [row["merge_commit_sha"] for row in rows] == ["sha-seven", None, "sha-nine"]
+        # Only the merged row that arrived without a SHA is asked for: an open pull request has no
+        # merge commit, and a row that already carries one costs nothing.
+        github_request.assert_called_once()
+        payload = github_request.call_args.kwargs["json"]
+        assert re.findall(r"pr(\d+): pullRequest", payload["query"]) == ["7"]
+        assert payload["variables"] == {"owner": "acme", "name": "widgets"}
+
+    def test_an_alias_error_costs_only_its_own_pull_request(self) -> None:
+        # GraphQL nulls the alias whose resolver failed and still answers for the rest of the batch,
+        # so the good rows must survive a body that carries `errors` beside its data.
+        graphql = mock.Mock()
+        graphql.status_code = 200
+        graphql.headers = {}
+        graphql.json.return_value = {
+            "data": {"repository": {"pr7": {"mergeCommit": {"oid": "sha-seven"}}, "pr8": None}},
+            "errors": [{"message": "Something went wrong", "path": ["repository", "pr8"]}],
+        }
+        page = _response([self._pull_request(7, merged=True), self._pull_request(8, merged=True)])
+
+        with mock.patch.object(github, "github_request", return_value=graphql):
+            rows, _calls = _run("pull_requests", {"api.github.com": page})
+
+        assert [row["merge_commit_sha"] for row in rows] == ["sha-seven", None]
+
+    @parameterized.expand([("advertised reset", 900, 900), ("no reset header", None, 60)])
+    def test_graphql_rate_limit_carries_a_wait_that_outlasts_the_window(
+        self, _name: str, reset_in: int | None, expected_retry_after: int
+    ) -> None:
+        now = datetime(2026, 9, 1, 10, 0, 0, tzinfo=UTC)
+        rate_limited = mock.Mock()
+        rate_limited.status_code = 200
+        rate_limited.headers = (
+            {"x-ratelimit-reset": str(int((now + timedelta(seconds=reset_in)).timestamp()))}
+            if reset_in is not None
+            else {}
+        )
+        rate_limited.json.return_value = {
+            "data": None,
+            "errors": [{"type": "RATE_LIMITED", "message": "API rate limit exceeded"}],
+        }
+
+        with freeze_time(now), mock.patch.object(github, "github_request", return_value=rate_limited):
+            with pytest.raises(GitHubRateLimitError) as raised:
+                # Called past the retry decorator, so the assertion does not wait out the reset it
+                # is asserting on.
+                github._fetch_merge_commit_shas.__wrapped__("acme/widgets", [7], "tok", mock.Mock())
+
+        # A GithubRetryableError here would fall to the backoff capped at 30s, which the hourly
+        # GraphQL window outlasts.
+        assert raised.value.retry_after == expected_retry_after
+
+    def test_pull_requests_still_sync_when_graphql_is_unavailable(self) -> None:
+        # The rest of the row is good, so a denied or unreachable GraphQL call must not fail the
+        # whole table.
+        page = _response([self._pull_request(7, merged=True)])
+        with (
+            mock.patch.object(github, "github_request", side_effect=requests.ConnectionError("boom")),
+            mock.patch.object(github, "_github_backoff_wait", return_value=0.0),
+        ):
+            rows, _calls = _run("pull_requests", {"api.github.com": page})
+
+        assert [(row["number"], row.get("merge_commit_sha")) for row in rows] == [(7, None)]
