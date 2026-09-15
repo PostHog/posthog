@@ -1,4 +1,4 @@
-import { registerApiBaseHost } from "@posthog/ui/shell/posthogAnalyticsImpl";
+import { registerApiBaseHost } from "@posthog/ui/shell/apiBaseHostRegistry";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createAuthenticatedClient } from "./authClient";
 import { ANONYMOUS_AUTH_STATE } from "./store";
@@ -9,7 +9,7 @@ vi.mock("@posthog/api-client/posthog-client", () => ({
   }),
 }));
 
-vi.mock("@posthog/ui/shell/posthogAnalyticsImpl", () => ({
+vi.mock("@posthog/ui/shell/apiBaseHostRegistry", () => ({
   registerApiBaseHost: vi.fn(),
 }));
 

@@ -22,6 +22,9 @@ import type {
   AnalyticsUserGroups,
 } from "@posthog/ui/shell/analytics";
 import { logger } from "@posthog/ui/shell/logger";
+import {
+  getApiBaseHost,
+} from "./apiBaseHostRegistry";
 
 const log = logger.scope("analytics");
 
@@ -44,12 +47,6 @@ export type AdapterSubscriptionState = {
 let registeredAppVersion: string | null = null;
 let registeredHostInfo: HostInfoProperties | null = null;
 const registeredSubscriptions = new Map<Adapter, AdapterSubscriptionState>();
-
-let registeredApiBaseHost: string | null = null;
-
-export function registerApiBaseHost(host: string | null): void {
-  registeredApiBaseHost = host;
-}
 
 // posthog.reset() wipes super properties, so these are re-registered after each reset.
 function registerPersistentSuperProperties(): void {
@@ -184,7 +181,7 @@ export function initializePostHog(sessionId?: string) {
       // attribution to this app's own backend — see `networkMetricPath`.
       network: {
         attributes: (request) => {
-          const path = networkMetricPath(request, registeredApiBaseHost);
+          const path = networkMetricPath(request, getApiBaseHost());
           return path === undefined ? undefined : { path };
         },
       },
@@ -616,3 +613,6 @@ export const posthogAnalyticsService: IAnalytics = {
   flush: () => Promise.resolve(),
   shutdown: () => Promise.resolve(),
 };
+
+// Re-export registerApiBaseHost for backward compatibility with existing callers
+export { registerApiBaseHost } from "./apiBaseHostRegistry";
