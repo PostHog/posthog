@@ -45,7 +45,12 @@ IMPORTED_TASK_ORIGIN_KEY_PREFIX = "phai-conversation:"
 # The task thread and the agent-server both recognize a PostHog tool call by this Claude Code tool
 # name; the inner tool is parsed out of the exec command. Legacy tool calls are written in the same
 # shape so the product widgets (insight, recordings, ...) render them.
-_EXEC_TOOL_META: dict[str, Any] = {"claudeCode": {"toolName": "mcp__posthog__exec"}}
+_EXEC_TOOL_NAME = "mcp__posthog__exec"
+
+
+def _tool_meta(tool_call_id: str, **claude_code: Any) -> dict[str, Any]:
+    # The sandbox resume parser rebuilds tool history only from _meta.claudeCode, not the ACP top-level fields.
+    return {"claudeCode": {"toolName": _EXEC_TOOL_NAME, "toolCallId": tool_call_id, **claude_code}, "imported": True}
 
 
 @frozen
@@ -173,7 +178,7 @@ def project_legacy_messages(
                 call_args_by_id[tool_call["id"]] = args
                 command = f"call {tool_call['name']} {json.dumps(args)}"
                 base = {
-                    "_meta": {**_EXEC_TOOL_META, "imported": True},
+                    "_meta": _tool_meta(tool_call["id"], toolInput={"command": command}),
                     "toolCallId": tool_call["id"],
                     "title": "exec",
                     "kind": "other",
@@ -203,7 +208,7 @@ def project_legacy_messages(
                 _session_update(
                     session_id,
                     {
-                        "_meta": {**_EXEC_TOOL_META, "imported": True},
+                        "_meta": _tool_meta(tool_call_id, toolResponse=output),
                         "toolCallId": tool_call_id,
                         "sessionUpdate": "tool_call_update",
                         "status": "completed",

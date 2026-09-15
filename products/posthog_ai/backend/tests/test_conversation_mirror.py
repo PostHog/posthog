@@ -133,6 +133,11 @@ class TestProjectLegacyMessages(APIBaseTest):
         assert result["status"] == "completed"
         assert result["rawOutput"]["artifact_id"] == "Ab12"
         assert result["rawOutput"]["query"] == {"kind": "TrendsQuery"}
+        # The sandbox resume parser reads tool history only from _meta.claudeCode.
+        for frame in (call, call_input, result):
+            assert frame["_meta"]["claudeCode"]["toolCallId"] == "toolu_1"
+        assert call["_meta"]["claudeCode"]["toolInput"] == {"command": call_input["rawInput"]["command"]}
+        assert result["_meta"]["claudeCode"]["toolResponse"] == result["rawOutput"]
         assert result["content"][0]["content"]["text"].startswith("Name: Pageviews")
 
     def test_recordings_filters_ride_the_tool_result(self) -> None:
