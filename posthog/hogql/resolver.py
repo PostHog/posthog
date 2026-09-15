@@ -2391,6 +2391,12 @@ class Resolver(CloningVisitor):
                     message=f"Unable to resolve field: {name}{suggestion_suffix}",
                     fix=fix,
                 )
+                if self.dialect == "hogql":
+                    # Only `hogql` keeps the whole chain soft. The other dialects must walk into
+                    # `get_child` and raise, or a printer sends `x.y` to a real database as one
+                    # quoted identifier.
+                    node.type = ast.UnresolvedFieldType(name=".".join(str(part) for part in node.chain))
+                    return node
 
         # Recursively resolve the rest of the chain until we can point to the deepest node.
         field_name = str(node.chain[-1])

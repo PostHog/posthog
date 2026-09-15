@@ -34,6 +34,7 @@ class RevenueViewSyncInput:
 class RevenueSourceTable:
     id: UUID
     name: str
+    columns: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
