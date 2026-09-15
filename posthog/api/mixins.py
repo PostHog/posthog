@@ -217,7 +217,14 @@ def validated_request(
             if strict_response_validation or settings.DEBUG:
                 if response_config is None:
                     return result
-                response_serializer = response_config.response
+                # drf-spectacular accepts either a bare serializer or an OpenApiResponse
+                # wrapping one, and `responses` is passed straight through to it. Reading
+                # `.response` unconditionally raised AttributeError on the bare form, so an
+                # endpoint that declared one 500ed here under DEBUG while passing every test,
+                # because this block does not run with DEBUG off.
+                response_serializer = (
+                    response_config.response if isinstance(response_config, OpenApiResponse) else response_config
+                )
                 # A PolymorphicProxySerializer only describes the schema; it cannot validate data.
                 # `many=True` wraps one in a plain ListSerializer, so the child needs the same check.
                 declares_polymorphic_proxy = isinstance(response_serializer, PolymorphicProxySerializer) or isinstance(

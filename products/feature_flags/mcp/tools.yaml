@@ -485,6 +485,12 @@ tools:
     feature-flags-remote-config-retrieve:
         operation: feature_flags_remote_config_retrieve
         enabled: false
+    feature-flags-roll-out-to-everyone-create:
+        operation: feature_flags_roll_out_to_everyone_create
+        enabled: false
+    feature-flags-set-release-condition-rollout-create:
+        operation: feature_flags_set_release_condition_rollout_create
+        enabled: false
     feature-flags-staff-cache-clear-create:
         operation: feature_flags_staff_cache_clear_create
         enabled: false
