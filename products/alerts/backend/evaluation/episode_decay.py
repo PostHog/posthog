@@ -5,21 +5,23 @@ already fired on can score anomalous again hours later, even when that bucket is
 next to the buckets around it. Every firing transition mints its own notification and its
 own investigation, so one incident reaches the user more than once.
 
-The hold is deliberately narrow. It applies only to an alert that is not firing now and
-that fired inside the decay window, and it releases as soon as the newest bucket leaves
-the range of the buckets just before it. A larger excursion, an excursion in the other
-direction, and an excursion after the window all still fire. An alert that stays firing is
-untouched, so a sustained incident keeps its current behavior.
+The hold is deliberately narrow. It applies only to a detector that scores against a
+baseline, for an alert that is not firing now and that fired inside the decay window, and
+it releases as soon as the newest bucket leaves the range of the buckets just before it. A
+larger excursion, an excursion in the other direction, and an excursion after the window
+all still fire. An alert that stays firing is untouched, so a sustained incident keeps its
+current behavior.
 """
 
 from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime
+from typing import Any
 
 import structlog
 
-from posthog.schema import AlertState, IntervalType
+from posthog.schema import AlertState, DetectorType, IntervalType
 
 from posthog.interval_specs import interval_spec
 from posthog.tasks.alerts.utils import AlertEvaluationResult
@@ -49,6 +51,8 @@ def hold_refire_within_episode_decay(
         return evaluation
     if alert.state == AlertState.FIRING:
         return evaluation
+    if _fires_on_a_fixed_bound(alert.detector_config or {}):
+        return evaluation
 
     # The range test is arithmetic over values already in memory, so it runs before the
     # query that reads the alert's earlier checks.
@@ -64,6 +68,19 @@ def hold_refire_within_episode_decay(
         value=evaluation.value,
     )
     return replace(evaluation, breaches=[])
+
+
+def _fires_on_a_fixed_bound(detector_config: dict[str, Any]) -> bool:
+    """True when the fire can come from a bound the user set rather than from a baseline.
+
+    A threshold detector reads only ``lower_bound`` and ``upper_bound``, so a breach of it is a
+    real bound crossing however ordinary the buckets around it look. An ensemble that holds a
+    threshold member can fire on that member alone, and the evaluation does not record which
+    member fired, so the hold releases for the whole ensemble.
+    """
+    if detector_config.get("type") == DetectorType.THRESHOLD.value:
+        return True
+    return any(_fires_on_a_fixed_bound(member) for member in detector_config.get("detectors") or [])
 
 
 def _fired_within_decay_window(alert: AlertConfiguration, interval: IntervalType | None, now: datetime) -> bool:

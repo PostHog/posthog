@@ -19,6 +19,10 @@ NOW = datetime(2026, 5, 4, 11, 0, 0, tzinfo=UTC)
 # detector still scores it against the long baseline the burst has not left yet.
 DECAY_TAIL = [400.0, 420.0, 393.0, 410.0, 405.0, 1800.0, 564.0, 393.0, 510.0]
 
+# The same shape against a fixed bound of 100. The last bucket crosses the bound the user set,
+# and it still sits inside the range of the buckets before it.
+BOUND_FLAP = [50.0, 50.0, 50.0, 50.0, 50.0, 150.0, 50.0, 120.0]
+
 
 def _series(values: list[float]) -> ComparableSeries:
     return ComparableSeries(
@@ -90,6 +94,30 @@ class TestEpisodeDecayHold(APIBaseTest):
         self._record_fire(1)
 
         result = hold_refire_within_episode_decay(self.alert, _extraction(DECAY_TAIL), _anomaly(DECAY_TAIL[-1]), NOW)
+
+        assert result.breaches != []
+
+    @parameterized.expand(
+        [
+            ("single_threshold_detector", {"type": "threshold", "upper_bound": 100.0}),
+            (
+                "ensemble_holding_a_threshold_member",
+                {
+                    "type": "ensemble",
+                    "operator": "or",
+                    "detectors": [
+                        {"type": "threshold", "upper_bound": 100.0},
+                        {"type": "zscore", "threshold": 0.95, "window": 30},
+                    ],
+                },
+            ),
+        ]
+    )
+    def test_fire_on_a_fixed_bound_is_never_held(self, _name: str, detector_config: dict) -> None:
+        self.alert.detector_config = detector_config
+        self._record_fire(EPISODE_DECAY_BUCKETS)
+
+        result = hold_refire_within_episode_decay(self.alert, _extraction(BOUND_FLAP), _anomaly(BOUND_FLAP[-1]), NOW)
 
         assert result.breaches != []
 
