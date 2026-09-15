@@ -428,7 +428,7 @@ class LoginPrecheckSerializer(serializers.Serializer):
         return {
             "sso_enforcement": OrganizationDomain.objects.get_sso_enforcement_for_email_address(email),
             "saml_available": saml_available,
-            **({"oidc_available": True} if oidc_available else {}),
+            "oidc_available": oidc_available,
             "webauthn_credentials": webauthn_credentials,
             **self._available_local_methods(email, saml_available=saml_available, oidc_available=oidc_available),
         }
