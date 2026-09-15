@@ -251,7 +251,9 @@ class BrazeDetailsConfig:
     parent_id_column: str
     # Response fields whose keys or member shapes vary per row — the variation map keyed by API
     # identifier, and the step/variant/behavior lists. JSON-encoded so the column keeps one type.
-    json_fields: tuple[str, ...] = ()
+    # Split by shape so a field Braze omits still reads as its own empty value.
+    json_object_fields: tuple[str, ...] = ()
+    json_array_fields: tuple[str, ...] = ()
     # `created_at` never moves once the campaign or Canvas exists.
     partition_key: Optional[str] = None
 
@@ -264,7 +266,8 @@ BRAZE_DETAILS_ENDPOINTS: dict[str, BrazeDetailsConfig] = {
         parent_id_field="id",
         parent_id_param="campaign_id",
         parent_id_column="campaign_id",
-        json_fields=("messages", "conversion_behaviors"),
+        json_object_fields=("messages",),
+        json_array_fields=("conversion_behaviors",),
         partition_key="created_at",
     ),
     "canvas_details": BrazeDetailsConfig(
@@ -274,7 +277,7 @@ BRAZE_DETAILS_ENDPOINTS: dict[str, BrazeDetailsConfig] = {
         parent_id_field="id",
         parent_id_param="canvas_id",
         parent_id_column="canvas_id",
-        json_fields=("variants", "steps"),
+        json_array_fields=("variants", "steps"),
         partition_key="created_at",
     ),
 }

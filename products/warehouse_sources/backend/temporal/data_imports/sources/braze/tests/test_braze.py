@@ -736,17 +736,21 @@ class TestDetailsRows:
     def test_varying_shapes_are_encoded_as_json(self, config):
         # The variation map is keyed by API identifier and the step/variant lists differ per row,
         # so the column has to hold one type across every row.
-        row = _details_row(config, "p1", dict.fromkeys(config.json_fields, [{"id": "x"}]))
+        fields = (*config.json_object_fields, *config.json_array_fields)
+        row = _details_row(config, "p1", dict.fromkeys(fields, [{"id": "x"}]))
 
-        for name in config.json_fields:
+        for name in fields:
             assert row[name] == '[{"id": "x"}]'
 
     @pytest.mark.parametrize("config", list(BRAZE_DETAILS_ENDPOINTS.values()))
-    def test_missing_json_field_still_gets_a_column(self, config):
+    def test_missing_json_field_keeps_its_own_empty_shape(self, config):
+        # An omitted array must not read as an object, or the column's JSON type flips per row.
         row = _details_row(config, "p1", {"name": "Welcome"})
 
-        for name in config.json_fields:
+        for name in config.json_object_fields:
             assert row[name] == "{}"
+        for name in config.json_array_fields:
+            assert row[name] == "[]"
 
 
 class TestDetailsRequests:
@@ -767,14 +771,14 @@ class TestDetailsRequests:
                 "name": "Welcome",
                 "channels": ["email"],
                 "messages": "{}",
-                "conversion_behaviors": "{}",
+                "conversion_behaviors": "[]",
             },
             {
                 "campaign_id": "c2",
                 "name": "Winback",
                 "channels": ["sms"],
                 "messages": "{}",
-                "conversion_behaviors": "{}",
+                "conversion_behaviors": "[]",
             },
         ]
         assert [call.args[0] for call in session.get.call_args_list] == [f"{BASE_URL}/campaigns/details"] * 2

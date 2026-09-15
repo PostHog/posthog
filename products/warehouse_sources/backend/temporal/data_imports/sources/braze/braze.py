@@ -408,7 +408,11 @@ def _details_row(config: BrazeDetailsConfig, parent_id: str, body: dict[str, Any
     # `message` only carries the request's own status ("success"), so it is not part of the object.
     row = {key: value for key, value in body.items() if key != "message"}
     row[config.parent_id_column] = parent_id
-    return _encode_json_fields(row, config.json_fields)
+    _encode_json_fields(row, config.json_object_fields)
+    for name in config.json_array_fields:
+        # Braze documents these as arrays, so an omitted one has to read as an empty array.
+        row[name] = json.dumps(row.get(name) or [])
+    return row
 
 
 def _details_rows(
