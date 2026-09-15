@@ -72,11 +72,10 @@ describe('tableViewLogic', () => {
         expect(setQuery).not.toHaveBeenCalled()
     })
 
-    it.each<[string, string[], boolean]>([
-        ['the untouched default query', defaultSelect, true],
-        ['the default query of a team that tracks last seen at', lastSeenAtSelect, true],
-        ['a query the user already changed', [...defaultSelect, 'properties.email'], false],
-    ])('reapplies the picked view on mount with %s', async (_label, select, shouldApply) => {
+    it.each<[string, string[]]>([
+        ['the untouched default query', defaultSelect],
+        ['the default query of a team that tracks last seen at', lastSeenAtSelect],
+    ])('reapplies the picked view on mount with %s', async (_label, select) => {
         persistSelection(SHARED_VIEW)
         const { logic, setQuery } = mountLogic(select)
 
@@ -85,12 +84,20 @@ describe('tableViewLogic', () => {
         }).toFinishAllListeners()
 
         expect(logic.values.currentView?.id).toEqual(SHARED_VIEW.id)
-        if (shouldApply) {
-            expect(setQuery).toHaveBeenCalledTimes(1)
-            expect(setQuery.mock.calls[0][0].select).toEqual(SHARED_VIEW.columns)
-        } else {
-            expect(setQuery).not.toHaveBeenCalled()
-        }
+        expect(setQuery).toHaveBeenCalledTimes(1)
+        expect(setQuery.mock.calls[0][0].select).toEqual(SHARED_VIEW.columns)
+    })
+
+    it('keeps the picked view but leaves a query the user already changed', async () => {
+        persistSelection(SHARED_VIEW)
+        const { logic, setQuery } = mountLogic([...defaultSelect, 'properties.email'])
+
+        await expectLogic(logic, () => {
+            logic.actions.loadViews()
+        }).toFinishAllListeners()
+
+        expect(logic.values.currentView?.id).toEqual(SHARED_VIEW.id)
+        expect(setQuery).not.toHaveBeenCalled()
     })
 
     it('clears a picked view that the list no longer returns', async () => {
