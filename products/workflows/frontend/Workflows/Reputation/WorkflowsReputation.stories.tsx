@@ -13,7 +13,30 @@ const reputationEndpoint = '/api/projects/:team_id/hog_flows/reputation'
 const baseResponse: TeamEmailReputationResponseApi = {
     aws: { health: 'healthy', sending_status: 'ENABLED', findings: [] },
     reputation: { bounce_rate: 0.0062, complaint_rate: 0.0001, emails_sent: 115025 },
-    workflows: [],
+    workflows: [
+        {
+            hog_flow_id: '0199c0de-0000-7000-8000-000000000001',
+            hog_flow_name: 'Weekly digest',
+            emails_sent: 42000,
+            bounce_rate: 0.006,
+            complaint_rate: 0.0012,
+            email_sending_paused: false,
+            email_sending_paused_at: null,
+            email_sending_paused_reason: '',
+        },
+        {
+            // Under the complaint floor: 0.56% here is one complaint in 180 sends, so the rate
+            // shows without a verdict. The bounce rate clears its own, much lower, floor.
+            hog_flow_id: '0199c0de-0000-7000-8000-000000000002',
+            hog_flow_name: 'Trial nudge',
+            emails_sent: 180,
+            bounce_rate: 0.011,
+            complaint_rate: 0.0056,
+            email_sending_paused: false,
+            email_sending_paused_at: null,
+            email_sending_paused_reason: '',
+        },
+    ],
     isps: [
         {
             isp: 'Gmail',

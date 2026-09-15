@@ -95,11 +95,11 @@ function RateCell({
 }: {
     rate: number
     kind: 'bounce' | 'complaint'
-    volume?: number
+    volume: number
 }): JSX.Element {
     const label = kind === 'bounce' ? 'bounce rate' : 'spam complaint rate'
     const minimumVolume = minimumVolumeToClassify(kind)
-    if (volume !== undefined && volume < minimumVolume) {
+    if (volume < minimumVolume) {
         const noun = kind === 'bounce' ? 'emails sent' : 'deliveries this provider reports complaints for'
         return (
             <Tooltip
@@ -562,7 +562,7 @@ export function WorkflowsReputation(): JSX.Element {
                         key: 'bounce_rate',
                         align: 'right',
                         render: (_, snapshot: WorkflowEmailSendingRatesApi) => (
-                            <RateCell rate={snapshot.bounce_rate} kind="bounce" />
+                            <RateCell rate={snapshot.bounce_rate} kind="bounce" volume={snapshot.emails_sent} />
                         ),
                     },
                     {
@@ -570,7 +570,7 @@ export function WorkflowsReputation(): JSX.Element {
                         key: 'complaint_rate',
                         align: 'right',
                         render: (_, snapshot: WorkflowEmailSendingRatesApi) => (
-                            <RateCell rate={snapshot.complaint_rate} kind="complaint" />
+                            <RateCell rate={snapshot.complaint_rate} kind="complaint" volume={snapshot.emails_sent} />
                         ),
                     },
                     {
