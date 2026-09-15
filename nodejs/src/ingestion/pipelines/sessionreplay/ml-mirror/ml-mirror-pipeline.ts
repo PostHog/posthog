@@ -5,7 +5,7 @@ import { newBatchingPipeline } from '~/ingestion/framework/builders'
 import { createTopHogWrapper, timer } from '~/ingestion/framework/extensions/tophog'
 import { aggregateKafkaDebugContexts } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
-import { ok } from '~/ingestion/framework/results'
+import { drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import {
     SessionReplayPipeline,
@@ -17,7 +17,7 @@ import { createAiTrainingOptInFilterStep } from '~/ingestion/pipelines/sessionre
 import type { CrawlHistoryStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history'
 import { createProduceCollectedImagesStep } from '~/ingestion/pipelines/sessionreplay/ml-mirror/produce-collected-images-step'
 import { createProduceCollectedUrlsStep } from '~/ingestion/pipelines/sessionreplay/ml-mirror/produce-collected-urls-step'
-import { MessageContext } from '~/ingestion/pipelines/sessionreplay/pipeline-types'
+import { MessageContext, SessionReplayHeaders } from '~/ingestion/pipelines/sessionreplay/pipeline-types'
 import { createRecordSessionEventStep } from '~/ingestion/pipelines/sessionreplay/record-session-event-step'
 import { RecordSessionEventStepInput } from '~/ingestion/pipelines/sessionreplay/record-session-event-step'
 import {
@@ -29,6 +29,7 @@ import { MlImageFetchOutput, MlImageScrubOutput } from '~/ingestion/pipelines/se
 
 import { createParseAndAnonymizeMessageStep } from './parse-and-anonymize-step'
 import { MlPrivacyBatchController } from './privacy/batch-controller'
+import { isSupportedMlSessionId } from './session-identifier-format'
 
 export interface MlMirrorPipelineOptions {
     /** Cap on sessions scrubbed concurrently; each in-flight scrub occupies a libuv threadpool thread. */
@@ -65,6 +66,14 @@ export interface MlMirrorCollection {
     pseudonymSecret: string | Buffer
     collectImages: boolean
     collectUrls: boolean
+}
+
+function createMlSessionIdFilterStep<T extends { headers: SessionReplayHeaders }>(): ProcessingStep<T, T> {
+    return function filterMlSessionId(input) {
+        return Promise.resolve(
+            isSupportedMlSessionId(input.headers.session_id) ? ok(input) : drop('session_id_not_uuid_v7')
+        )
+    }
 }
 
 export function createMlMirrorReplayPipeline(
@@ -104,6 +113,7 @@ export function createMlMirrorReplayPipeline(
                         b
                             .sequentially((b) =>
                                 addSessionReplayPreprocessing(b, config)
+                                    .pipe(createMlSessionIdFilterStep())
                                     // Mirror only data from orgs that opted into AI training.
                                     .pipe(createAiTrainingOptInFilterStep())
                             )

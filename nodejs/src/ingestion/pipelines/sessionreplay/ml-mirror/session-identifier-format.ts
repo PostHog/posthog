@@ -13,6 +13,11 @@ export function usesRawSessionIdentifiers(sessionId: string): boolean {
     return startedAt !== null && startedAt >= RAW_SESSION_IDENTIFIERS_START_MS && startedAt < Date.UTC(10000, 0, 1)
 }
 
+export function isSupportedMlSessionId(sessionId: string): boolean {
+    const startedAt = sessionStartTimestampFromUuidV7(sessionId)
+    return startedAt !== null && startedAt < Date.UTC(10000, 0, 1)
+}
+
 export function sessionStartMonth(sessionId: string): string {
     const timestamp = sessionStartTimestampFromUuidV7(sessionId)
     if (timestamp === null) {
