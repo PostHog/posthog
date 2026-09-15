@@ -9,7 +9,7 @@ import posthog.uuidt
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("tasks", "0123_alter_sandboxsnapshot_integration"),
+        ("tasks", "0124_drop_retired_code_home_tables"),
         ("posthog", "1333_uploaded_media_library_index"),
     ]
 
