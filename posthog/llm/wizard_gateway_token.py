@@ -3,7 +3,7 @@
 Django mints a `phe_` off the PostHog-owned wizard team's `phs_`
 (WIZARD_GATEWAY_MINT_KEY) rather than sending the user's OAuth token to the
 gateway. The mint pins what the caller must not control (product=wizard, obo=the
-customer organization, the acting user) plus a per-run cap and an expiry, and the
+customer's team id, the acting user) plus a per-run cap and an expiry, and the
 debit lands on the wizard team, never the customer's wallet. Kept separate from
 products/tasks' sandbox mint (ai_gateway_token.py): the wizard needs
 `expires_at` back for CLI-side refresh, and an interactive mint answers one
@@ -46,6 +46,51 @@ _MAX_CAP_USD = Decimal("30")
 _CAP_QUANTUM = Decimal("0.000001")
 
 WIZARD_PRODUCT = "wizard"
+
+# The gateway's effort vocabulary, in order; the pin sent at mint is a subset.
+WIZARD_EFFORT_LEVELS: tuple[str, ...] = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
+
+# What the CLI can ask for, not what it was measured asking for: a flag payload
+# or a remote prompt's frontmatter can name any of these with no deploy here,
+# while widening this needs one. "none" is a call with no effort parameter,
+# which is also the CLI's "off". "max" is absent because the CLI cannot send it,
+# so the pin refuses it and the escalation stays out of reach.
+WIZARD_DECLARABLE_EFFORTS: tuple[str, ...] = ("none", "minimal", "low", "medium", "high", "xhigh")
+
+# Every (model, effort) pair the wizard CLI dispatches; "none" is a request with
+# no effort parameter. Wizard-wide rather than per program: the CLI picks models
+# per switchboard flag. The keys mirror the CLI's own model constants (wizard
+# src/lib/constants.ts, the *_MODEL exports), so widen here when one is added.
+WIZARD_MODEL_ALLOWLIST: dict[str, tuple[str, ...]] = {
+    "claude-sonnet-5": ("none", "high"),
+    "claude-haiku-4-5": ("none",),
+    "gpt-5.6-luna": ("low",),
+    "gpt-5.6-sol": ("medium",),
+    "gpt-5.6-terra": ("low", "medium", "high"),
+}
+
+# pi sends the provider-prefixed id for OpenAI models; the gateway pins the bare model.
+_STRIPPED_MODEL_PREFIXES = ("openai/",)
+
+
+def normalize_model(model: str) -> str:
+    normalized = model.strip().lower()
+    for prefix in _STRIPPED_MODEL_PREFIXES:
+        if normalized.startswith(prefix):
+            return normalized[len(prefix) :]
+    return normalized
+
+
+def allowed_models() -> list[str]:
+    """The allowlist's models as the gateway spells them, deduplicated, in table order."""
+    return list(dict.fromkeys(normalize_model(model) for model in WIZARD_MODEL_ALLOWLIST))
+
+
+def allowed_efforts() -> list[str]:
+    """Every effort the CLI can declare, in vocabulary order. Flat per token: a
+    per-model pin is a gateway follow-up."""
+    return [level for level in WIZARD_EFFORT_LEVELS if level in WIZARD_DECLARABLE_EFFORTS]
+
 
 # An organization's standing at mint time, which picks its tier of limits.
 WizardPosture = Literal["new", "active", "paid"]
@@ -148,23 +193,26 @@ NO_TIER_LIMITS = WizardTierLimits()
 
 # In code so a malformed WIZARD_GATEWAY_TIERS degrades toward the tier the
 # operator meant, not toward the flat setting, whose cap is wider than all three.
+# Caps do not pool across a run's tokens and the mint throttle is one bucket per
+# account, so mints_per_week is the hard per-account ceiling: keep the counts
+# low, since the weekly window can be spent in a day.
 _TIER_FLOORS: dict[str, WizardTierLimits] = {
     "new": WizardTierLimits(
         cap_usd=Decimal("6").quantize(_CAP_QUANTUM),
         max_cap_usd=Decimal("6").quantize(_CAP_QUANTUM),
-        mints_per_week=5,
+        mints_per_week=3,
         ttl_seconds=_MAX_TTL_SECONDS,
     ),
     "active": WizardTierLimits(
         cap_usd=Decimal("7").quantize(_CAP_QUANTUM),
         max_cap_usd=Decimal("12").quantize(_CAP_QUANTUM),
-        mints_per_week=15,
+        mints_per_week=6,
         ttl_seconds=_MAX_TTL_SECONDS,
     ),
     "paid": WizardTierLimits(
         cap_usd=Decimal("10").quantize(_CAP_QUANTUM),
         max_cap_usd=Decimal("12").quantize(_CAP_QUANTUM),
-        mints_per_week=30,
+        mints_per_week=12,
         ttl_seconds=_MAX_TTL_SECONDS,
     ),
 }
@@ -361,6 +409,9 @@ def mint_wizard_gateway_token(
         "product": product,
         "obo": obo,
         "user": user,
+        # A gateway that predates either field ignores it and mints unpinned.
+        "allowed_models": allowed_models(),
+        "allowed_efforts": allowed_efforts(),
     }
     try:
         response = requests.post(

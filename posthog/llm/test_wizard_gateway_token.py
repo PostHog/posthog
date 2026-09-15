@@ -12,11 +12,17 @@ import requests
 from posthog.llm.wizard_gateway_token import (
     _TIER_FLOORS,
     NO_OVERRIDE,
+    WIZARD_DECLARABLE_EFFORTS,
+    WIZARD_EFFORT_LEVELS,
     WIZARD_GATEWAY_CONFIG_REJECTS,
+    WIZARD_MODEL_ALLOWLIST,
     WizardGatewayMintError,
     WizardLimitOverride,
     WizardTierLimits,
+    allowed_efforts,
+    allowed_models,
     mint_wizard_gateway_token,
+    normalize_model,
     parse_limit_override,
     wizard_gateway_base_url,
     wizard_gateway_configured,
@@ -63,18 +69,52 @@ class TestMintWizardGatewayToken:
     def test_posts_pinned_attribution_and_bearer(self):
         minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z", "cap_usd": "25"}
         with patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post:
-            assert mint_wizard_gateway_token(obo="org_1", user="user_1") == minted
+            assert mint_wizard_gateway_token(obo="7", user="user_1") == minted
 
         assert post.call_args[0][0] == "https://ai-gateway.us.posthog.com/v1/tokens"
         assert post.call_args.kwargs["json"] == {
             "cap_usd": "25.000000",
             "ttl_seconds": 86400,
             "product": "wizard",
-            "obo": "org_1",
+            "obo": "7",
             "user": "user_1",
+            # Derived: this case pins that the mint carries the pins, not which
+            # models are on the table. TestWizardModelAllowlist owns the contents.
+            "allowed_models": allowed_models(),
+            "allowed_efforts": allowed_efforts(),
         }
         assert post.call_args.kwargs["headers"] == {"Authorization": "Bearer phs_wizard_secret"}
         assert post.call_args.kwargs["timeout"] > 0
+
+
+class TestWizardModelAllowlist:
+    def test_the_allowlist_is_never_empty(self):
+        # The gateway refuses an explicit [] at mint, so an empty table would
+        # refuse every wizard run rather than pin nothing.
+        assert allowed_models()
+        assert allowed_efforts()
+        assert all(efforts for efforts in WIZARD_MODEL_ALLOWLIST.values())
+
+    def test_models_are_sent_lowercased_and_stripped_of_the_openai_prefix(self):
+        table = {"OpenAI/GPT-5.6-Luna": ("low",), "gpt-5.6-luna": ("medium",), " Claude-Sonnet-5 ": ("none",)}
+        with patch("posthog.llm.wizard_gateway_token.WIZARD_MODEL_ALLOWLIST", table):
+            assert allowed_models() == ["gpt-5.6-luna", "claude-sonnet-5"]
+
+    def test_efforts_cover_what_the_cli_can_declare_not_what_the_table_measured(self):
+        # A flag payload or a remote prompt can name any declarable level with
+        # no deploy here, so a pin built from the table would refuse those runs.
+        table = {"a": ("high", "none")}
+        with patch("posthog.llm.wizard_gateway_token.WIZARD_MODEL_ALLOWLIST", table):
+            assert allowed_efforts() == ["none", "minimal", "low", "medium", "high", "xhigh"]
+
+    def test_the_effort_pin_withholds_the_level_the_cli_cannot_send(self):
+        assert "max" not in allowed_efforts()
+        assert set(WIZARD_DECLARABLE_EFFORTS) <= set(WIZARD_EFFORT_LEVELS)
+
+    def test_every_effort_in_the_table_is_gateway_vocabulary(self):
+        for model, efforts in WIZARD_MODEL_ALLOWLIST.items():
+            assert set(efforts) <= set(WIZARD_EFFORT_LEVELS), model
+            assert normalize_model(model) == model, model
 
     @override_settings(WIZARD_GATEWAY_URL="https://ai-gateway.us.posthog.com/v1/")
     def test_version_suffixed_setting_does_not_double_up(self):
@@ -83,21 +123,21 @@ class TestMintWizardGatewayToken:
         assert wizard_gateway_base_url() == "https://ai-gateway.us.posthog.com"
         minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
         with patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post:
-            mint_wizard_gateway_token(obo="org_1", user="user_1")
+            mint_wizard_gateway_token(obo="7", user="user_1")
         assert post.call_args[0][0] == "https://ai-gateway.us.posthog.com/v1/tokens"
 
     @override_settings(WIZARD_GATEWAY_TOKEN_TTL_SECONDS=172800)
     def test_ttl_clamped_to_gateway_ceiling(self):
         minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
         with patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post:
-            mint_wizard_gateway_token(obo="org_1", user="user_1")
+            mint_wizard_gateway_token(obo="7", user="user_1")
         assert post.call_args.kwargs["json"]["ttl_seconds"] == 86400
 
     @override_settings(WIZARD_GATEWAY_TOKEN_TTL_SECONDS=5)
     def test_ttl_clamped_to_a_ttl_that_outlives_a_run(self):
         minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
         with patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post:
-            mint_wizard_gateway_token(obo="org_1", user="user_1")
+            mint_wizard_gateway_token(obo="7", user="user_1")
         assert post.call_args.kwargs["json"]["ttl_seconds"] == 1800
 
     @pytest.mark.parametrize(
@@ -111,7 +151,7 @@ class TestMintWizardGatewayToken:
     def test_non_201_raises(self, response):
         with patch("posthog.llm.wizard_gateway_token.requests.post", return_value=response):
             with pytest.raises(WizardGatewayMintError):
-                mint_wizard_gateway_token(obo="org_1", user="user_1")
+                mint_wizard_gateway_token(obo="7", user="user_1")
 
     def test_transport_failure_raises(self):
         with patch(
@@ -119,7 +159,7 @@ class TestMintWizardGatewayToken:
             side_effect=requests.RequestException("connection reset"),
         ):
             with pytest.raises(WizardGatewayMintError):
-                mint_wizard_gateway_token(obo="org_1", user="user_1")
+                mint_wizard_gateway_token(obo="7", user="user_1")
 
     def test_non_json_body_raises(self):
         with patch(
@@ -127,7 +167,7 @@ class TestMintWizardGatewayToken:
             return_value=_Response(201, raise_on_json=True),
         ):
             with pytest.raises(WizardGatewayMintError):
-                mint_wizard_gateway_token(obo="org_1", user="user_1")
+                mint_wizard_gateway_token(obo="7", user="user_1")
 
     @pytest.mark.parametrize(
         "payload",
@@ -140,7 +180,7 @@ class TestMintWizardGatewayToken:
     def test_incomplete_payload_raises(self, payload):
         with patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, payload)):
             with pytest.raises(WizardGatewayMintError):
-                mint_wizard_gateway_token(obo="org_1", user="user_1")
+                mint_wizard_gateway_token(obo="7", user="user_1")
 
     @pytest.mark.parametrize(
         "configured",
@@ -169,7 +209,7 @@ class TestMintWizardGatewayToken:
                 "posthog.llm.wizard_gateway_token.requests.post",
                 return_value=_Response(201, minted),
             ) as post:
-                mint_wizard_gateway_token(obo="org_1", user="user_1")
+                mint_wizard_gateway_token(obo="7", user="user_1")
         assert post.call_args.kwargs["json"]["cap_usd"] == "7.000000"
 
     @pytest.mark.parametrize(
@@ -185,7 +225,7 @@ class TestMintWizardGatewayToken:
     def test_transport_failures_report_whether_a_token_may_exist(self, raised, token_may_exist):
         with patch("posthog.llm.wizard_gateway_token.requests.post", side_effect=raised):
             with pytest.raises(WizardGatewayMintError) as excinfo:
-                mint_wizard_gateway_token(obo="org_1", user="user_1")
+                mint_wizard_gateway_token(obo="7", user="user_1")
         assert excinfo.value.token_may_exist is token_may_exist
 
     def test_a_refusal_reports_that_no_token_exists(self):
@@ -194,7 +234,7 @@ class TestMintWizardGatewayToken:
             return_value=_Response(400, {"error": "bad request"}),
         ):
             with pytest.raises(WizardGatewayMintError) as excinfo:
-                mint_wizard_gateway_token(obo="org_1", user="user_1")
+                mint_wizard_gateway_token(obo="7", user="user_1")
         assert excinfo.value.token_may_exist is False
 
     def test_an_unreadable_201_reports_that_a_token_may_exist(self):
@@ -205,7 +245,7 @@ class TestMintWizardGatewayToken:
             return_value=_Response(201, {"not": "a token"}),
         ):
             with pytest.raises(WizardGatewayMintError) as excinfo:
-                mint_wizard_gateway_token(obo="org_1", user="user_1")
+                mint_wizard_gateway_token(obo="7", user="user_1")
         assert excinfo.value.token_may_exist is True
 
     @override_settings(WIZARD_GATEWAY_TOKEN_CAP_USD="12.5")
@@ -215,19 +255,19 @@ class TestMintWizardGatewayToken:
             "posthog.llm.wizard_gateway_token.requests.post",
             return_value=_Response(201, minted),
         ) as post:
-            mint_wizard_gateway_token(obo="org_1", user="user_1")
+            mint_wizard_gateway_token(obo="7", user="user_1")
         assert post.call_args.kwargs["json"]["cap_usd"] == "12.500000"
 
     def test_an_override_cap_replaces_the_setting(self):
         minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
         with patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post:
-            mint_wizard_gateway_token(obo="org_1", user="user_1", cap_usd=Decimal("30"))
+            mint_wizard_gateway_token(obo="7", user="user_1", cap_usd=Decimal("30"))
         assert post.call_args.kwargs["json"]["cap_usd"] == "30.000000"
 
     def test_secret_never_appears_in_the_error(self):
         with patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(403)):
             with pytest.raises(WizardGatewayMintError) as raised:
-                mint_wizard_gateway_token(obo="org_1", user="user_1")
+                mint_wizard_gateway_token(obo="7", user="user_1")
         assert "phs_wizard_secret" not in str(raised.value)
 
 
@@ -327,7 +367,7 @@ class TestTieredMint:
     def _mint(self, **kwargs):
         minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
         with patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post:
-            mint_wizard_gateway_token(obo="org_1", user="user_1", **kwargs)
+            mint_wizard_gateway_token(obo="7", user="user_1", **kwargs)
         return post.call_args.kwargs["json"]
 
     def test_the_tier_cap_and_ttl_apply(self):

@@ -31,6 +31,7 @@ import {
     recentTaxonomicFiltersLogic,
     stripRecentContext,
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
+import { taxonomicFilterCategoryLayoutLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterCategoryLayoutLogic'
 import { hasPinnedContext } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import { legacyTaxonomicSurface } from 'lib/components/TaxonomicFilter/taxonomicFilterSurface'
 import {
@@ -50,6 +51,7 @@ import {
     TaxonomicFilterValue,
     isQuickFilterItem,
 } from 'lib/components/TaxonomicFilter/types'
+import { hiddenEventNames } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
 import {
     MCP_TOOL_CALL_EVENT,
     MCP_TOOL_CALL_SUGGESTED_PROPERTIES,
@@ -84,7 +86,6 @@ import {
 } from 'scenes/hog-functions/filters/HogFunctionFiltersInternal'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { NotebookType } from 'scenes/notebooks/types'
-import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { projectLogic } from 'scenes/projectLogic'
 import { SavedFiltersTaxonomicGroup } from 'scenes/session-recordings/filters/SavedFiltersTaxonomicGroup'
 import { teamLogic } from 'scenes/teamLogic'
@@ -119,6 +120,7 @@ import {
 
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 import { experimentsLogic } from 'products/experiments/frontend/scenes/experimentsLogic'
+import { groupDisplayId } from 'products/persons/frontend/components/GroupActorDisplay'
 import { HogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/HogFlowTaxonomicFilters'
 
 import type { Noun } from '../../../models/groupsModel'
@@ -187,20 +189,10 @@ export function resolveAvailableGroupTypes(
     return groupTypes.filter((groupType) => !excluded.has(groupType) && availableGroupTypes.has(groupType))
 }
 
-/** In the pill variant the SuggestedFilters ("All") tab is the default cross-group landing spot
- *  whenever there's more than one substantive group to aggregate. It stays opt-in for the control
- *  variant, so the control arm only shows it where a call site explicitly requests it. The rebuild
- *  path (useTaxonomicFilter.ts) injects unconditionally because it has no per-variant arm to protect.
- *
- *  With one real group there's nothing for "All" to aggregate, so drop it (a call site may have
- *  prepended SuggestedFilters — see TaxonomicPropertyFilter). Recent/Pinned then follow the group
- *  instead of leading, and the group's own list floats recent/pinned items to the top (see
- *  infiniteListLogic `items`). */
 function resolveSuggestedFiltersGroup(
     groupTypes: TaxonomicFilterGroupType[],
     availableGroupTypes: Set<TaxonomicFilterGroupType>,
-    substantiveGroupCount: number,
-    isPillVariant: boolean
+    substantiveGroupCount: number
 ): TaxonomicFilterGroupType[] {
     if (substantiveGroupCount === 1) {
         const suggestedIdx = groupTypes.indexOf(TaxonomicFilterGroupType.SuggestedFilters)
@@ -211,7 +203,6 @@ function resolveSuggestedFiltersGroup(
     }
 
     const shouldLeadWithSuggested =
-        isPillVariant &&
         substantiveGroupCount >= 2 &&
         availableGroupTypes.has(TaxonomicFilterGroupType.SuggestedFilters) &&
         !groupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters)
@@ -516,6 +507,7 @@ export interface taxonomicFilterLogicValues {
     currentProjectId: number | null // projectLogic
     eventMetadataPropertyDefinitions: PropertyDefinition[] // propertyDefinitionsModel
     personMetadataPropertyDefinitions: PropertyDefinition[] // propertyDefinitionsModel
+    categoryRailPinned: boolean // taxonomicFilterCategoryLayoutLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentTeamId: number | null // teamLogic
     activeTab: TaxonomicFilterGroupType
@@ -563,6 +555,7 @@ export interface taxonomicFilterLogicValues {
     propertyAllowList: TaxonomicFilterGroupValueMap | undefined
     propertyFilters: {
         excludedProperties: TaxonomicFilterGroupValueMap
+        includeHiddenEvents: boolean | undefined
         propertyAllowList: TaxonomicFilterGroupValueMap | undefined
     }
     redistributedTopMatchItems: TopMatchItem[]
@@ -682,9 +675,11 @@ export interface taxonomicFilterLogicMeta {
         propertyAllowList: (arg: any) => TaxonomicFilterGroupValueMap | undefined
         propertyFilters: (
             excludedProperties: TaxonomicFilterGroupValueMap,
-            propertyAllowList: TaxonomicFilterGroupValueMap | undefined
+            propertyAllowList: TaxonomicFilterGroupValueMap | undefined,
+            arg: any
         ) => {
             excludedProperties: TaxonomicFilterGroupValueMap
+            includeHiddenEvents: boolean | undefined
             propertyAllowList: TaxonomicFilterGroupValueMap | undefined
         }
         allowNonCapturedEvents: (arg: any) => boolean
@@ -720,6 +715,7 @@ export interface taxonomicFilterLogicMeta {
             suggestedFiltersLabel: any,
             propertyFilters: {
                 excludedProperties: TaxonomicFilterGroupValueMap
+                includeHiddenEvents: boolean | undefined
                 propertyAllowList: TaxonomicFilterGroupValueMap | undefined
             },
             metadataPropertyDefinitionsByType: {
@@ -743,8 +739,7 @@ export interface taxonomicFilterLogicMeta {
         taxonomicGroupTypes: (
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
             taxonomicGroups: TaxonomicFilterGroup[],
-            eventNames: any,
-            featureFlags: FeatureFlagsSet
+            eventNames: any
         ) => TaxonomicFilterGroupType[]
         groupAnalyticsTaxonomicGroupNames: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
@@ -833,6 +828,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['eventMetadataPropertyDefinitions', 'personMetadataPropertyDefinitions'],
             featureFlagLogic,
             ['featureFlags'],
+            taxonomicFilterCategoryLayoutLogic,
+            ['categoryRailPinned'],
             primaryEventPropertiesModel,
             ['primaryProperties'],
         ],
@@ -1048,14 +1045,16 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             (propertyAllowList) => propertyAllowList as TaxonomicFilterLogicProps['propertyAllowList'],
             { resultEqualityCheck: objectsEqual },
         ],
+        // Combined so `taxonomicGroups` stays under kea's 16-dep tuple type limit.
         propertyFilters: [
-            (s) => [s.excludedProperties, s.propertyAllowList],
+            (s) => [s.excludedProperties, s.propertyAllowList, (_, props) => props.includeHiddenEvents],
             (
                 excludedProperties: import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap,
                 propertyAllowList:
                     | import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap
-                    | undefined
-            ) => ({ excludedProperties, propertyAllowList }),
+                    | undefined,
+                includeHiddenEvents: boolean | undefined
+            ) => ({ excludedProperties, propertyAllowList, includeHiddenEvents }),
             { resultEqualityCheck: objectsEqual },
         ],
         allowNonCapturedEvents: [
@@ -1129,6 +1128,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     propertyAllowList:
                         | import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap
                         | undefined
+                    includeHiddenEvents: boolean | undefined
                 },
                 {
                     event: eventMetadataPropertyDefinitions,
@@ -1149,7 +1149,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 const { eventNames, primaryPropertiesForContextEvents, mcpExcludedEventProperties } =
                     eventNamesWithPrimaryProperties
                 const { id: teamId } = currentTeam
-                const { excludedProperties, propertyAllowList } = propertyFilters
+                const { excludedProperties, propertyAllowList, includeHiddenEvents } = propertyFilters
                 const groups: TaxonomicFilterGroup[] = [
                     {
                         name: 'Events',
@@ -1162,8 +1162,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             event_type: EventDefinitionType.Event,
                             exclude_hidden: true,
                         }).url,
-                        excludedProperties:
-                            excludedProperties?.[TaxonomicFilterGroupType.Events]?.filter(isString) ?? [],
+                        excludedProperties: [
+                            ...(excludedProperties?.[TaxonomicFilterGroupType.Events]?.filter(isString) ?? []),
+                            ...hiddenEventNames(featureFlags, includeHiddenEvents),
+                        ],
                         ...withKeywordShortcuts<Record<string, any>>(
                             {
                                 getName: (eventDefinition) => eventDefinition.name,
@@ -2163,12 +2165,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 new Set(taxonomicGroups.filter((g) => g.isMetaGroup).map((g) => g.type)),
         ],
         taxonomicGroupTypes: [
-            (s, p) => [p.taxonomicGroupTypes, s.taxonomicGroups, s.eventNames, s.featureFlags],
+            (s, p) => [p.taxonomicGroupTypes, s.taxonomicGroups, s.eventNames],
             (
                 groupTypes: TaxonomicFilterGroupType[],
                 taxonomicGroups: TaxonomicFilterGroup[],
-                eventNames,
-                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
+                eventNames
             ): TaxonomicFilterGroupType[] => {
                 const availableGroupTypes = new Set(taxonomicGroups.map((group) => group.type))
                 const resolvedGroupTypes: TaxonomicFilterGroupType[] =
@@ -2176,16 +2177,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
 
                 const filtered = resolveAvailableGroupTypes(resolvedGroupTypes, availableGroupTypes)
 
-                const pillVariant = featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN] === 'pill'
                 const substantiveGroupCount = filtered.filter((t) => !META_GROUP_TYPES.has(t)).length
                 const singleSubstantiveGroup = substantiveGroupCount === 1
 
-                const withSuggested = resolveSuggestedFiltersGroup(
-                    filtered,
-                    availableGroupTypes,
-                    substantiveGroupCount,
-                    pillVariant
-                )
+                const withSuggested = resolveSuggestedFiltersGroup(filtered, availableGroupTypes, substantiveGroupCount)
                 const withMetaGroups = injectAutoMetaGroups(withSuggested, availableGroupTypes, singleSubstantiveGroup)
 
                 // With a single substantive group there's nothing to reorder above it, and promoting
@@ -2512,10 +2507,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         // and inflates the abandonment metric (top sessions hit 100+ closes pre-gate).
         if (values.hadInteraction) {
             posthog.capture('taxonomic filter closed', {
-                surface: legacyTaxonomicSurface(values.featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]),
+                surface: legacyTaxonomicSurface(),
                 dwellMs: Date.now() - (cache.openedAt ?? Date.now()),
                 hadSelection: !!cache.hadSelection,
                 groupType: values.activeTab,
+                categoryRailDocked: values.categoryRailPinned,
             })
         }
     }),
@@ -2544,9 +2540,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         : undefined
 
                 posthog.capture('taxonomic filter item selected', {
-                    surface: legacyTaxonomicSurface(
-                        values.featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
-                    ),
+                    surface: legacyTaxonomicSurface(),
                     groupType: values.activeTab,
                     sourceGroupType,
                     wasFromPinnedList,
@@ -2703,9 +2697,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 const inputMode: 'pasted' | 'mixed' | 'typed' =
                     pastedChars >= totalLength && pastedChars > 0 ? 'pasted' : pastedChars > 0 ? 'mixed' : 'typed'
                 posthog.capture('taxonomic_filter_search_query', {
-                    surface: legacyTaxonomicSurface(
-                        values.featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
-                    ),
+                    surface: legacyTaxonomicSurface(),
                     searchQuery,
                     groupType: activeTaxonomicGroup?.type,
                     inputMode,
@@ -2736,9 +2728,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 results.searchQuery === values.searchQuery
             ) {
                 posthog.capture('taxonomic filter search latency', {
-                    surface: legacyTaxonomicSurface(
-                        values.featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
-                    ),
+                    surface: legacyTaxonomicSurface(),
                     groupType,
                     searchQuery: values.searchQuery,
                     time_to_see_data_ms: results.loadDurationMs,

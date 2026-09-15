@@ -52,6 +52,9 @@ class ProductConfig:
     # unaffected (they reach the gateway only with an explicit, feature-gated
     # llm_gateway:read scope, not the wildcard a consent token uses).
     requires_server_credential: bool = False
+    # Set on a retired product: every caller is refused with this message, whatever
+    # the auth method, so the entry can stay (aliases, cost keys) while nothing routes.
+    denial_message: str | None = None
 
 
 BEDROCK_MODELS = BEDROCK_MODEL_IDS
@@ -65,6 +68,8 @@ TWIG_US_APP_ID = POSTHOG_CODE_US_APP_ID
 TWIG_EU_APP_ID = POSTHOG_CODE_EU_APP_ID
 WIZARD_US_APP_ID = "019a0c79-b69d-0000-f31b-b41345208c9d"
 WIZARD_EU_APP_ID = "019a12d0-6edd-0000-0458-86616af3a3db"
+# What a retired wizard product answers every caller with.
+WIZARD_RETIRED_MESSAGE = "The wizard now runs on the PostHog AI gateway. Upgrade with: npx @posthog/wizard@latest"
 POSTHOG_AI_US_APP_ID = "019ee060-3a0e-0000-7e9c-4e6b48dfae66"
 POSTHOG_AI_EU_APP_ID = "019ee061-5620-0000-1a0d-ab1160fceeb1"
 POSTHOG_AI_DEV_APP_ID = "019edb1a-cce4-0000-1f6d-682061862da9"
@@ -213,10 +218,13 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=True,
         credit_bucket=None,
     ),
+    # Retired: the wizard mints per-run scoped tokens on the ai-gateway instead. The
+    # entry stays so the product name still resolves and answers with the upgrade path.
     "wizard": ProductConfig(
-        allowed_application_ids=frozenset({WIZARD_US_APP_ID, WIZARD_EU_APP_ID}),
+        allowed_application_ids=frozenset(),
         allowed_models=None,
-        allow_api_keys=True,
+        allow_api_keys=False,
+        denial_message=WIZARD_RETIRED_MESSAGE,
     ),
     "llma_labeling": ProductConfig(
         allowed_application_ids=None,
@@ -453,6 +461,10 @@ INTERNAL_RUN_SCOPE: Final[str] = "internal_run:read"
 # it can't be self-granted. Used to pick the budget, never to grant access.
 INTERACTIVE_RUN_SCOPE: Final[str] = "interactive_run:read"
 
+# Server-minted Slack task marker. Used to keep its cost key fixed when the sandbox selects
+# another product route that accepts the same OAuth application.
+SLACK_RUN_SCOPE: Final[str] = "slack_run:read"
+
 # Not a product: no caller can declare it, and it never appears in PRODUCTS. It only names a
 # budget in product_cost_limits / user_cost_limits, resolved from the token by resolve_cost_key.
 SIGNALS_INTERACTIVE_COST_KEY: Final[str] = "signals_interactive"
@@ -522,17 +534,17 @@ def is_model_restricted_for_product(model: str, product: str) -> bool:
 def resolve_cost_key(product: str, scopes: list[str] | None) -> str:
     """The budget a request meters against, which is not always its product.
 
-    Signals runs a scheduled pipeline and a set of buttons in the Inbox through one product.
-    Their volume has different owners — ours and the customer's — so they get separate budgets,
-    resolved from the token's own provenance marker rather than from the product the caller
-    declared, which a sandbox is free to choose.
+    Provenance markers pin budgets that cannot safely depend on the product the caller declares,
+    which a sandbox is free to choose. Slack tokens always resolve to `slack_app`; Signals uses a
+    separate key only for runs a person started.
 
-    The marker decides alone, without also requiring the declared product to be `signals`: a run
-    whose token still comes from the Array app (the fallback while a region has no Signals app
-    row) can declare `posthog_code` or `background_agents` instead, and pairing the two would let
-    that choice move the run off the interactive budget and out of the per-run spend ceiling.
-    Only interactive Signals runs are ever minted with the scope, so keying on it is sufficient.
+    Each marker decides alone, without also requiring its matching declared product. Pairing the
+    two would let a sandbox choose another allowed route and leave its per-run spend limit. Only
+    Slack tasks receive `slack_run`, and only interactive Signals runs receive `interactive_run`,
+    so either scope is sufficient provenance for its budget.
     """
+    if SLACK_RUN_SCOPE in (scopes or []):
+        return "slack_app"
     if INTERACTIVE_RUN_SCOPE in (scopes or []):
         return SIGNALS_INTERACTIVE_COST_KEY
     return resolve_product_alias(product)
@@ -554,6 +566,10 @@ def check_product_access(
     config = PRODUCTS.get(resolved_product)
     if config is None:
         return False, f"Unknown product: {product}"
+    # Before the auth-method checks: debug mode skips the application-id check, and
+    # a retired product must refuse there too.
+    if config.denial_message is not None:
+        return False, config.denial_message
 
     settings = get_settings()
     is_api_key = auth_method == "personal_api_key"

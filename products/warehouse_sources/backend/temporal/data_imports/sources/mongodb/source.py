@@ -1,4 +1,4 @@
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 from posthog.schema import (
     DataWarehouseSourceCategory,
@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
     get_collection_names,
     get_leading_index_keys,
     get_schemas as get_mongo_schemas,
+    get_server_metadata as get_mongo_server_metadata,
     mongo_client,
     mongo_source,
 )
@@ -202,13 +203,23 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         # fixed "connection pool paused" phrase pymongo always uses for this state, not the
         # surrounding host/timeout values.
         #
+        # A cluster that is rotating its signing keys fails a command with OperationFailure code 211
+        # (KeyNotFound), which it clears on its own, so Temporal retrying the activity recovers.
+        # mongo.py rewrites that failure to MONGO_KEYS_UNAVAILABLE_ERROR, so match our own stable
+        # phrase — pymongo's text appends the whole server response instead.
+        #
         # pymongo raises NotPrimaryError when an in-flight read is killed because the server node
         # is shutting down or stepping down (OperationFailure codeName 'InterruptedAtShutdown',
         # code 11600) — a routine replica-set failover such as a rolling restart or managed-cluster
         # maintenance. The driver reconnects to the newly-elected primary, so Temporal retrying the
         # whole activity is self-recovering. Match the stable errmsg phrase, not the volatile
         # topologyVersion/clusterTime blob pymongo appends.
-        return {"The resolution lifetime expired", "connection pool paused", "interrupted at shutdown"}
+        return {
+            "The resolution lifetime expired",
+            "connection pool paused",
+            "the cluster's signing keys were briefly unavailable",
+            "interrupted at shutdown",
+        }
 
     def get_schemas(
         self,
@@ -337,6 +348,9 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             return False, _MONGO_CONNECT_FAILED_MESSAGE
 
         return True, None
+
+    def get_server_metadata(self, config: MongoDBSourceConfig, team_id: int) -> dict[str, Any]:
+        return get_mongo_server_metadata(config.connection_string, team_id)
 
     def source_for_pipeline(self, config: MongoDBSourceConfig, inputs: SourceInputs) -> SourceResponse:
         return mongo_source(

@@ -30,7 +30,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import type { RecordingsQuery } from '~/queries/schema/schema-general'
+import { NodeKind, type RecordingsQuery } from '~/queries/schema/schema-general'
 
 import {
     visionScannersAffectedCohortCreate,
@@ -56,6 +56,8 @@ import type { ScannerCreationMethodEnumApi, ScannerTypeEnumApi } from '../genera
 import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations } from '../logics/observationPolling'
 import { requestObservationRetry } from '../logics/observationRetry'
 import { refreshVisionQuota } from '../logics/visionQuotaLogic'
+import { neighborFilterParams } from '../observations/replayObservationLogic'
+import { lastObservationsPage } from '../observations/replayObservationSceneLogic'
 import { observationClipboardText } from '../utils/observation'
 import {
     type UrlSorting,
@@ -84,6 +86,7 @@ import {
     scannerStepUrlWithParams,
     UNVALIDATED_SCANNER_STEPS,
 } from './scannerEditorSceneLogic'
+import { consumeScannerHandoffIntent } from './scannerHandoffIntent'
 import type { ObservationStatusStats } from './scannerStats'
 import { availableTagsFromStats, daysFromDateRange, deriveObservationStatusStats } from './scannerStats'
 import { findScannerTemplate, newScanner } from './scannerTemplates'
@@ -123,6 +126,46 @@ const COPY_ALL_OBSERVATIONS_LIMIT = 500
 function currentTemplateKey(): string | null {
     const value = router.values.searchParams.template
     return typeof value === 'string' ? value : null
+}
+
+// The filter UI spreads each of these straight into its list of filter values, so a string here
+// renders one filter per character instead of failing.
+const PREFILL_QUERY_LIST_FIELDS = [
+    'events',
+    'actions',
+    'properties',
+    'console_log_filters',
+    'having_predicates',
+] as const
+
+function isValidPrefillQuery(parsed: unknown): parsed is RecordingsQuery {
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return false
+    }
+    const query = parsed as Record<string, unknown>
+    if ('kind' in query && query.kind !== NodeKind.RecordingsQuery) {
+        return false
+    }
+    return PREFILL_QUERY_LIST_FIELDS.every((field) => !(field in query) || Array.isArray(query[field]))
+}
+
+/**
+ * A `RecordingsQuery` handed to the new-scanner wizard via `?filters=<url-encoded JSON>`, used by
+ * cross-sell entry points (e.g. "save these filters as a scanner" in the replay playlist) to seed
+ * the scanner's query. Returns null on a missing, unparseable, or wrong-shaped param so a malformed
+ * link just opens the blank wizard rather than throwing or rendering nonsense filters.
+ */
+function prefillQueryFromUrl(): RecordingsQuery | null {
+    const value = router.values.searchParams.filters
+    if (typeof value !== 'string' || !value) {
+        return null
+    }
+    try {
+        const parsed = JSON.parse(value)
+        return isValidPrefillQuery(parsed) ? parsed : null
+    } catch {
+        return null
+    }
 }
 
 function defaultConfigForType(scannerType: ScannerType): ScannerConfig {
@@ -348,6 +391,7 @@ export interface replayScannerLogicValues {
     observationTriggeredByFilter: ObservationTriggeredByValue[]
     observationVerdictFilter: ObservationVerdictValue[]
     observations: ReplayObservationApi[]
+    observationsActive: boolean
     observationsLoading: boolean
     observationsPage: number
     observationsSort: ObservationsSorting | null
@@ -623,6 +667,9 @@ export interface replayScannerLogicActions {
     setObservationVerdictFilter: (values: ObservationVerdictValue[]) => {
         values: ObservationVerdictValue[]
     }
+    setObservationsActive: (active: boolean) => {
+        active: boolean
+    }
     setObservationsPage: (page: number) => {
         page: number
     }
@@ -749,6 +796,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
     key((props) => props.id),
 
     actions({
+        setObservationsActive: (active: boolean) => ({ active }),
         loadScanner: true,
         loadScannerSuccess: (scanner: ScannerFormValues) => ({ scanner }),
         loadScannerFailure: true,
@@ -1026,6 +1074,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
     })),
 
     reducers({
+        observationsActive: [false, { setObservationsActive: (_, { active }) => active }],
         scannerDraftSavedAt: [
             null as number | null,
             {
@@ -1524,7 +1573,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             )
         }
         const reloadObservationsAndStats = (background = false): void => {
-            actions.loadObservations(background)
+            if (values.observationsActive) {
+                actions.loadObservations(background)
+            }
             actions.loadObservationStats()
         }
         const persistDraft = (): void => {
@@ -1552,6 +1603,15 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             actions.setScannerDraftSavedAt(savedAt)
         }
         return {
+            loadObservationsSuccess: ({ observations, total }) => {
+                lastObservationsPage.current = {
+                    rows: observations,
+                    number: values.observationsPage,
+                    pageSize: OBSERVATIONS_PAGE_SIZE,
+                    total,
+                    filterParams: neighborFilterParams(values.observationDetailLinkParams),
+                }
+            },
             // kea-forms' exact rejection for failed client-side validation. API failures toast in submit's catch.
             submitScannerFailure: async ({ error }) => {
                 if (error?.message !== 'Validation Failed') {
@@ -1602,15 +1662,22 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     // the tab session, where a later ?goal= link would auto-start a draft and
                     // spend the user's AI allowance without fresh intent.
                     const handedOffGoal = consumeGoalDraftIntent()?.trim() ?? ''
-                    // Prefill precedence: an experiment deep link, then an explicit ?filters=
-                    // query (both carry fully built state), then a saved draft, then the
-                    // free-text goal. A URL carrying both ?filters= and ?goal= deterministically
-                    // takes the filters and drops the goal.
+                    // Consumed unconditionally for the same reason: a cross-product hand-off must
+                    // not stay armed for the rest of the tab session and prefill a later,
+                    // unrelated wizard visit.
+                    const handoff = consumeScannerHandoffIntent()
+                    // Prefill precedence: a cross-product hand-off (a whole scanner, armed by an
+                    // in-tab click moments before navigation), then an experiment deep link, then
+                    // an explicit ?filters= query (both carry fully built state), then a saved
+                    // draft, then the free-text goal. A URL carrying both ?filters= and ?goal=
+                    // deterministically takes the filters and drops the goal.
                     const hasFiltersPrefill = 'filters' in router.values.searchParams
+                    const prefillQuery = prefillQueryFromUrl()
                     // Strip the params the wizard has now consumed so a reload doesn't re-run the prefill
                     // over the user's edits: an unknown template that fell back to from-scratch (a valid
-                    // template stays), the experiment deep-link params, and the goal param. One replace
-                    // covers all of them and preserves the URL hash, which a second back-to-back replace
+                    // template stays), the experiment deep-link params, the goal param, and the
+                    // `?filters=` prefill. One replace covers all of them and preserves the URL hash,
+                    // which a second back-to-back replace
                     // would drop.
                     const nextParams = { ...router.values.searchParams }
                     if (urlTemplateKey && !templateKey) {
@@ -1623,10 +1690,38 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     if (nextParams.goal !== undefined) {
                         delete nextParams.goal
                     }
+                    if ('filters' in nextParams) {
+                        delete nextParams.filters
+                    }
                     if (Object.keys(nextParams).length !== Object.keys(router.values.searchParams).length) {
                         router.actions.replace(router.values.location.pathname, nextParams, router.values.hashParams)
                     }
+                    if (handoff) {
+                        posthog.capture('replay_vision_scanner_creation_started', {
+                            creation_method: 'handoff',
+                            template_key: null,
+                            source: handoff.source,
+                        })
+                        // Same fresh-intent rule as the experiment deep link: the hand-off was
+                        // armed by a click moments before navigation, so it outranks a saved
+                        // draft; restoringDraft guards persistDraft so the prefill can't clobber
+                        // that draft.
+                        cache.restoringDraft = true
+                        try {
+                            actions.loadScannerSuccess(newScanner(null, teamName))
+                            actions.setScannerValues(handoff.scanner)
+                        } finally {
+                            cache.restoringDraft = false
+                        }
+                        return
+                    }
                     if (experimentParams) {
+                        // The two deep links combine rather than compete: the replay filters entry
+                        // point sends targeting and filters together, because exposure can't ride
+                        // inside `query` and dropping either one silently rescopes the scanner.
+                        const experimentBase = prefillQuery
+                            ? { ...newScanner(templateKey, teamName), query: prefillQuery }
+                            : newScanner(templateKey, teamName)
                         // An experiment deep link expresses fresh intent, so it outranks a saved
                         // draft; restoringDraft guards persistDraft so the prefill can't clobber the
                         // draft this user may already have for the next plain entry.
@@ -1637,7 +1732,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                                 experiment,
                                 variantKey: reconcileVariantKey(experiment, experimentParams.variantKey),
                             }
-                            const prefilled = prefillScannerForExperiment(newScanner(templateKey, teamName), context)
+                            const prefilled = prefillScannerForExperiment(experimentBase, context)
                             // Set the context only after the prefill is built, so a throw inside it
                             // doesn't leave a dangling context that the next startFromTemplate re-applies.
                             actions.setExperimentContext(context)
@@ -1646,7 +1741,21 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                             // Clear any context a partial run left set before surfacing the failure.
                             actions.setExperimentContext(null)
                             lemonToast.error("Couldn't load the experiment. Set recording filters manually instead.")
-                            actions.loadScannerSuccess(newScanner(templateKey, teamName))
+                            // Keep the filters that came with the link: they're the part of the
+                            // hand-off that survived, and re-entering them by hand is the fallback.
+                            actions.loadScannerSuccess(experimentBase)
+                        } finally {
+                            cache.restoringDraft = false
+                        }
+                        return
+                    }
+                    // A `?filters=` deep link expresses fresh intent (e.g. "save these playlist
+                    // filters as a scanner"), so it seeds the query and outranks a saved draft;
+                    // restoringDraft guards persistDraft so the prefill can't delete that draft.
+                    if (prefillQuery) {
+                        cache.restoringDraft = true
+                        try {
+                            actions.loadScannerSuccess({ ...newScanner(templateKey, teamName), query: prefillQuery })
                         } finally {
                             cache.restoringDraft = false
                         }
@@ -1700,7 +1809,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             loadScannerSuccess: ({ scanner }) => {
                 actions.setScannerValues(scanner)
                 // A `?sort=result` deep-link can't resolve order_by until the scanner type is known — refire now.
-                if (values.observationsSort?.columnKey === 'result' && scanner.scanner_type) {
+                if (
+                    values.observationsActive &&
+                    values.observationsSort?.columnKey === 'result' &&
+                    scanner.scanner_type
+                ) {
                     actions.loadObservations()
                     actions.loadObservationStats()
                 }
@@ -2121,6 +2234,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
             },
 
+            setObservationsActive: ({ active }) => {
+                if (active) {
+                    actions.loadObservations()
+                }
+            },
+
             loadObservations: async (_, breakpoint) => {
                 if (props.id === 'new') {
                     actions.loadObservationsSuccess([], 0)
@@ -2328,7 +2447,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         cache.draftTouched = false
         actions.loadScanner()
         if (props.id !== 'new') {
-            actions.loadObservations()
             actions.loadObservationStats()
         }
         // Setup re-runs when the tab becomes visible

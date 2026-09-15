@@ -26,14 +26,17 @@ Not for changing rules. The read tools cannot write, and the settings page is wh
 
 ## Plan availability
 
-- Free and pay-as-you-go plans have no access control. Every level resolves to the PostHog default with
-  `source` `system_default`, and any rule the tools return has no effect. Say so, and stop.
+- Free and pay-as-you-go plans have no access control, and the access control tools are not offered to
+  them. If the tools are missing from the catalog, say that the plan does not include access control and
+  suggest upgrading to the Boost plan. Link the plan comparison: https://posthog.com/platform-packages.
 - Boost and Scale include the default levels and rules for single members on the project, on tools, on
   objects and on properties.
-- Roles exist on every plan, but role rules count for access only on Enterprise. On other plans a role
-  rule the tools return has no effect, and a member's roles never change the enforced level.
+- Roles exist on every plan, but role rules are an Enterprise feature: they can be set and are enforced
+  only there, and the three role access tools are offered only there. If the tools are missing, say that
+  role-based access control needs the Enterprise plan, with the same link. On other plans a member's
+  roles never change the enforced level.
 - The tools do not say which plan the organization is on. A `source_subject` of `role` anywhere in a
-  `members-list` result proves that role rules count. Without that, ask the user whether the organization
+  `members-list` result proves that role rules are enforced. Without that, ask the user whether the organization
   is on Enterprise before walking roles in step 4 of the workflow.
 
 ## How access resolves

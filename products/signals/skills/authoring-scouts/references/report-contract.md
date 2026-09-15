@@ -34,7 +34,7 @@ Judges the report for safety, then persists it at the judged status.
 | `summary`                   | string                  | The report body prose — one tight passage a busy human can act on: a **quantified hook** (what's happening, with numbers), the **pattern** that makes it signal rather than noise, the suspected-cause **hypothesis**, and the **recommendation**. Cite entities inline as markdown links so the reader pivots straight to source (see below). |
 | `evidence`                  | list, 1–50              | Each `{description, source_id}`. Becomes a bound signal row backing the report. `source_id` is the citable entity id. Hard cap of **50** — summarize/trim before calling; a longer list fails validation before the report is judged or persisted.                                                                                             |
 | `actionability_explanation` | string                  | One sentence justifying the actionability call below.                                                                                                                                                                                                                                                                                          |
-| `actionability`             | enum                    | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make this call — the channel does not re-research it.                                                                                                                                                                                                                |
+| `actionability`             | enum                    | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make this call — the channel does not re-research it. See _Choosing actionability_ below.                                                                                                                                                                            |
 | `already_addressed`         | bool, default `false`   | Set when the underlying issue is already handled and you're filing for the record.                                                                                                                                                                                                                                                             |
 | `charts`                    | list, ≤20, optional     | Queries the inbox draws on the report — the report's full set, replacing any it already had. Each `{chart_id, title, query, caption?, size?}`. See _Attaching charts_ below.                                                                                                                                                                   |
 | `suggested_prompts`         | list, ≤3, optional      | Follow-up prompts the inbox offers above the report's `Ask AI` box (questions to ask, or next-step actions to request), each ≤200 characters and all distinct. See _Suggesting follow-up prompts_ below.                                                                                                                                       |
@@ -58,6 +58,17 @@ Leave a blank line above each label, since a label the line above runs onto is p
 | safe         | `requires_human_input`   | `PENDING_INPUT`  | yes                |
 | safe         | `not_actionable`         | `SUPPRESSED`     | no                 |
 | unsafe       | (any)                    | `SUPPRESSED`     | no                 |
+
+**Choosing actionability.** The harness prompt carries the full criteria; the call comes down to what a person would have to supply.
+
+1. `immediately_actionable` — a coding agent could take concrete, useful action right now: a bug fix, an experiment reaction, a flag cleanup, a UX fix, or a deep investigation with a clear jumping-off point.
+   An unknown root cause does not disqualify a report. When you name the evidence, the code surface, or a failure path someone can reproduce, the investigation is the action.
+2. `requires_human_input` — a code change is plausible, but a person must first make a call only a person can make: a product decision, a trade-off between valid approaches, business context that is not in the data or the code.
+   Name that decision in `actionability_explanation`. If you cannot name it, the report is not waiting on a human.
+3. `not_actionable` — no answer would lead to code work.
+
+In doubt between the first two, pick `immediately_actionable`; in doubt between the last two, pick `not_actionable`.
+It is not a free hedge: autostart only considers an immediately-actionable report, so parking one costs it the draft PR a person then has to start by hand.
 
 The result tells you what happened: `report_id` (always set when a report was persisted — **even when suppressed**, so you can edit or dedup against it), `report_status` (the birth status — `ready` / `pending_input` / `suppressed` — the field is named `report_status` in the response, not `status`), `emitted` (true only when it actually surfaced — `READY` / `PENDING_INPUT`), `safety_explanation`, and `skipped_reason` (set only when a preflight gate stopped the call before any report was created — the AI-data-processing / source-enabled gates that govern every scout write).
 
@@ -203,9 +214,9 @@ Each entry identifies one reviewer by **`github_login`**, **`user_uuid`**, or bo
 - **`github_login`** — a **bare, lowercase GitHub login** (e.g. `octocat`, not `@OctoCat`).
   Internal assignment matches it against each user's linked GitHub login by exact, lowercased comparison, so a mis-cased handle, an `@`-prefix, a display name, a CODEOWNERS **team** slug, or an email won't set `is_suggested_reviewer` for anyone (autostart's PR-selection path is more lenient, but the assignment path is not).
 - **`user_uuid`** — a **PostHog user UUID**.
-  The server resolves it to that org member's linked GitHub login for you (and it wins if you also pass a `github_login`).
-  Use this whenever your evidence already names a PostHog user — an account owner, an entity's `created_by`, a CSM — so you can route to them without ever looking up their handle.
-  A `user_uuid` that isn't an org member of this team **with a linked GitHub identity** is rejected (the whole call fails), so it never silently drops.
+  The server resolves it to that org member. It wins if you also pass a `github_login`.
+  Use this whenever your evidence already names a PostHog user. It works without a linked GitHub account.
+  A `user_uuid` that is not an org member of this team is rejected, so it never silently drops.
 
 So you have two routes to a reviewer.
 If you already hold a PostHog user UUID, prefer passing it as `user_uuid` — it's the most reliable.
@@ -219,7 +230,7 @@ Otherwise resolve a `github_login`, cheapest source first:
    `.github/CODEOWNERS` for the owning path, or the last `git log` author for the file.
    Neither usually hands you a usable login directly: CODEOWNERS entries are often **team** slugs (`@your-org/team-name`) and `git log` gives a name + email — both must be resolved to an **individual** GitHub login before you write the reviewer (a team slug or an email won't match any user).
 4. **`scout-members-list`** — the in-run roster lookup, for the cold-start case where the cheaper paths above don't resolve an owner.
-   It returns this project's members, each with `user_uuid`, `email`, name, and a resolved `github_login` (pass `search=` to narrow); match the owner and route to their `github_login`, or hand the `user_uuid` straight through and let the server resolve it.
+   It returns this project's members, each with `user_uuid`, email, name, and a resolved `github_login`. Pass `search=` to narrow the result. Match the owner and route with `user_uuid`.
    The org-scoped `org-members-list` / `org-member-get-github-login` tools are **not available in a scout run** — a scoped-team token can't reach the org-nested endpoint, so don't build a scout's reviewer recipe around them.
 
 **If you can't confidently identify a reviewer, leave `suggested_reviewers` empty** — the report still surfaces for a human to grab.
@@ -261,11 +272,14 @@ Before authoring, list the team's existing reports so you reconcile against one 
 - `inbox-reports-list` — filter by title/summary free-text (`search`), `status`, `source_product`, or your own `task_id`; newest-updated first.
 - `inbox-reports-retrieve` — fetch a single report by id (use the `report_id` you stashed in the scratchpad last run).
 
-## Dedup: the channel is NOT idempotent
+## Dedup: the retry is covered, the near-duplicate is not
 
-`emit_report` is **not idempotent** — a retried call authors a _second_ report.
-There is no server-side dedup key.
-The dedup story is two-sided and the scout owns it:
+`emit_report` carries an emit key, so resending a call that timed out returns the report the first one authored (`idempotent_replay` true) rather than a twin.
+The key is the `idempotency_key` you pass, or the report's own content when you pass none, and it is scoped to your run.
+Pass one when a retry might reword the report, since a reworded report is a different content key.
+
+That barrier covers the transport failure and nothing else.
+A report on a topic an earlier run already filed is a fresh emission with a fresh key, so the cross-run dedup is still two-sided and the scout owns it:
 
 1. **Before authoring**, `inbox-reports-list` for a prior report on the same topic.
    Found one?
@@ -273,8 +287,8 @@ The dedup story is two-sided and the scout owns it:
 2. **After authoring**, write a `report:<domain>:<entity>` scratchpad entry recording the `report_id` so the next run finds it (via `inbox-reports-retrieve`) without a title-search guess.
    (This is the report-channel member of the scratchpad key-prefix vocabulary — see [`dedupe-and-memory.md`](dedupe-and-memory.md).)
 
-**Never retry an `emit_report` / `edit_report` call that may have succeeded** — a transport error after the write commits, retried, double-files.
-If you're unsure whether a call landed, `inbox-reports-list` to check before retrying.
+`edit_report` has no such barrier: **never retry an `edit_report` call that may have succeeded**, since a transport error after the write commits, retried, appends a second note.
+If you're unsure whether an edit landed, `inbox-reports-retrieve` to check before retrying.
 
 ## The pipeline may rewrite what you authored (accepted)
 

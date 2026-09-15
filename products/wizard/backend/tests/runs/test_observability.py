@@ -446,8 +446,11 @@ def test_reliability_metrics_record_artifacts_cleanup_and_deadlines() -> None:
 
 
 @pytest.mark.parametrize("user_distinct_id", ["example-user", None])
-def test_stage_event_has_deterministic_identity_and_run_properties(user_distinct_id: str | None) -> None:
-    run = replace(_cloud_run(), stage=WizardRunStage.PROVISIONING)
+@pytest.mark.parametrize("environment", [WizardRunEnvironment.CLOUD, WizardRunEnvironment.LOCAL])
+def test_stage_event_has_deterministic_identity_and_run_properties(
+    user_distinct_id: str | None, environment: WizardRunEnvironment
+) -> None:
+    run = replace(_cloud_run(), stage=WizardRunStage.PROVISIONING, environment=environment)
 
     with (
         patch.object(events, "ph_background_capture") as background_capture,
@@ -465,9 +468,15 @@ def test_stage_event_has_deterministic_identity_and_run_properties(user_distinct
     assert first_args["properties"] == {
         "team_id": run.team_id,
         "wizard_run_id": str(run.id),
-        "environment": "cloud",
+        "event_source": "wizard_run_service",
+        "project_id": str(run.team_id),
+        "environment": environment.value,
+        "run_surface": environment.value,
         "workspace_type": "git_repository",
         "program_id": "posthog-integration",
         "wizard_version": POSTHOG_INTEGRATION_PROGRAM.wizard_version,
+        "version": POSTHOG_INTEGRATION_PROGRAM.wizard_version,
+        "command": "default",
+        **({"task_run_id": str(run.id)} if environment == WizardRunEnvironment.CLOUD else {}),
         "stage": "provisioning",
     }

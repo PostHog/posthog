@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.18.2 — 2026-09-11
+
+### Patch changes
+
+- [342f1f1c551](https://github.com/PostHog/posthog/commit/342f1f1c551caeb5883ec191fd5400240f5683e0) Ask the server which chunks it still needs before starting upload batches. A build whose chunks are mostly already uploaded now makes a few API calls instead of two per batch of 50. — Thanks @ablaszkiewicz!
+
 ## 0.18.1 — 2026-09-07
 
 ### Patch changes

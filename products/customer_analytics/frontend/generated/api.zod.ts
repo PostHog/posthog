@@ -264,7 +264,12 @@ export const AccountsNotebooksCreateBody = /* @__PURE__ */ zod.object({
         .max(accountsNotebooksCreateBodyTitleMax)
         .nullish()
         .describe('Human-readable title of the account notebook.'),
-    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
+    content: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook.'
+        ),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
 })
 
@@ -423,6 +428,16 @@ export const AnnouncementsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Slack channel IDs to send to. Each must be a channel the SupportHog bot is a member of; names are resolved server-side.'
         ),
+})
+
+/**
+ * Start an admin-only Gmail and Google Calendar backfill for an inclusive UTC date range.
+ * @summary Backfill a connected Google account
+ */
+export const CalendarSyncBackfillCreateBody = /* @__PURE__ */ zod.object({
+    integration_id: zod.number().describe('Id of the Google account integration to backfill.'),
+    start_date: zod.iso.date().describe('First UTC date to include. Must be within the last 365 days.'),
+    end_date: zod.iso.date().describe('Final UTC date to include. Cannot be after today.'),
 })
 
 /**

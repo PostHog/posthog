@@ -3,11 +3,12 @@ import Papa from 'papaparse'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { asDisplay } from 'scenes/persons/person-utils'
 
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode } from '~/queries/schema/schema-general'
 import { isEventsQuery, isHogQLQuery, isMarketingAnalyticsTableQuery, isPersonsNode } from '~/queries/utils'
+
+import { asDisplay } from 'products/persons/frontend/person-utils'
 
 import { DataTableRow } from './dataTableLogic'
 

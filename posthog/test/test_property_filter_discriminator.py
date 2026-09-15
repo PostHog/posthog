@@ -5,8 +5,10 @@ from pydantic import ValidationError
 
 from posthog.schema import (
     AccountCustomPropertyFilter,
+    ActionConversionGoal,
     BehavioralPropertyFilter,
     CohortPropertyFilter,
+    CustomEventConversionGoal,
     DashboardFilter,
     DataWarehousePersonPropertyFilter,
     DataWarehousePropertyFilter,
@@ -24,6 +26,7 @@ from posthog.schema import (
     LogEntryPropertyFilter,
     LogPropertyFilter,
     LogPropertyFilterType,
+    MCPModelBreakdownQuery,
     MetricPropertyFilter,
     PersonMetadataPropertyFilter,
     PersonPropertyFilter,
@@ -54,6 +57,18 @@ class TestPropertyFilterDiscriminator(SimpleTestCase):
     # also preserves legacy tolerance: filters without `type`, `{}` rows, multi-value
     # log/span tags, and the AND/OR-tagged recursive group. These tests pin both the
     # routing and the tolerance so a schema regeneration that drops either fails here.
+
+    @parameterized.expand([("action", {"actionId": 1}), ("event", {"customEventName": "customer_created"})])
+    def test_conversion_goal_properties(self, kind: str, fields: dict[str, object]) -> None:
+        model = ActionConversionGoal if kind == "action" else CustomEventConversionGoal
+        goal = model.model_validate({**fields, "properties": [{"type": "event", "key": "plan", "value": "paid"}]})
+        assert goal.properties is not None
+        assert isinstance(goal.properties[0], EventPropertyFilter)
+        for property_type in ["account_custom_property", "revenue_analytics", "recording"]:
+            with self.assertRaises(ValidationError):
+                model.model_validate(
+                    {**fields, "properties": [{"type": property_type, "key": "plan", "value": "paid"}]}
+                )
 
     @parameterized.expand(
         [
@@ -270,6 +285,17 @@ class TestPropertyFilterDiscriminator(SimpleTestCase):
             {"kind": "TrendsQuery", "series": [], "properties": [{"type": "event", "key": "k", "operator": "exact"}]}
         )
         assert isinstance(query.properties, list)
+        assert type(query.properties[0]) is EventPropertyFilter
+
+    def test_mcp_model_breakdown_properties_use_the_discriminated_filter(self) -> None:
+        query = MCPModelBreakdownQuery.model_validate(
+            {
+                "kind": "MCPModelBreakdownQuery",
+                "properties": [{"type": "event", "key": "$mcp_llm_model", "operator": "exact"}],
+            }
+        )
+
+        assert query.properties is not None
         assert type(query.properties[0]) is EventPropertyFilter
 
     def test_serialization_round_trip_is_stable(self) -> None:

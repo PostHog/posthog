@@ -31,6 +31,7 @@ from hogli_commands.workflow_lint.checks.mcp_filter_coverage import McpFilterCov
 from hogli_commands.workflow_lint.checks.pr_concurrency import PrConcurrencyCheck
 from hogli_commands.workflow_lint.checks.pr_event_fanout import PrEventFanoutCheck
 from hogli_commands.workflow_lint.checks.required_gates import RequiredGateCheck
+from hogli_commands.workflow_lint.checks.reusable_secret_passthrough import ReusableSecretPassthroughCheck
 from hogli_commands.workflow_lint.checks.semgrep_services_coverage import SemgrepServicesCoverageCheck
 from hogli_commands.workflow_lint.cli import cmd_lint_workflows
 from hogli_commands.workflow_lint.model import PR_TRIGGERS, Workflow, WorkflowParseError, read_workflows
@@ -1422,6 +1423,52 @@ def _nested_allow_marker_gate() -> str:
     )
 
 
+_CHAIN_GUARD = """
+    if [[ "${{ needs.DEP.result }}" != "success" && "${{ needs.DEP.result }}" != "skipped" ]]; then
+      exit 1
+    fi
+"""
+
+
+def _chained_gate(*dependencies: str, build_if: str | None = None) -> str:
+    """A gate over `build`, which itself needs `detect`.
+
+    GitHub skips `build` when `detect` fails, and the gate reads that skip as a
+    pass, so `detect` has to be a dependency of the gate too. `build_if` sets the
+    condition on `build`, which is what decides whether the skip travels: a job that
+    runs past a failed `detect` recovers, and the gate must not demand it.
+    """
+    body = "".join(_CHAIN_GUARD.replace("DEP", dep) for dep in dependencies)
+    build_condition = f"        if: {build_if}\n" if build_if else ""
+    return (
+        """
+    name: ci-thing
+    on: pull_request
+    jobs:
+      detect:
+        timeout-minutes: 5
+        steps:
+          - run: echo detect
+      build:
+        needs: [detect]
+"""
+        + build_condition
+        + """        timeout-minutes: 5
+        steps:
+          - run: echo build
+      thing_tests:
+        name: Thing Tests Pass
+        needs: [DEPENDENCIES]
+        timeout-minutes: 5
+        if: ${{ !cancelled() }}
+        steps:
+          - run: |
+""".replace("DEPENDENCIES", ", ".join(dependencies))
+        + textwrap.indent(textwrap.dedent(body).strip(), " " * 14)
+        + "\n"
+    )
+
+
 class TestRequiredGateCheck:
     @pytest.mark.parametrize(
         "content",
@@ -1525,6 +1572,39 @@ class TestRequiredGateCheck:
         issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
         assert [i.message.split("'")[1] for i in issues] == ["lint"]
         assert "never reaches" in issues[0].message
+
+    # Each row is a shape our workflows really use: a worker with no condition, a gate
+    # that names the whole chain, a suite that runs past a failed selector, a job held
+    # behind success(), a recovery job that reads the failure, and a consumer that
+    # demands a detector's output.
+    @pytest.mark.parametrize(
+        "dependencies,build_if,expected_missing",
+        [
+            (("build",), None, ["detect"]),
+            (("detect", "build"), None, []),
+            (("build",), "${{ !cancelled() }}", []),
+            (("build",), "${{ success() }}", ["detect"]),
+            (("build",), "${{ failure() && needs.detect.result == 'failure' }}", []),
+            (("build",), "${{ !cancelled() && success() }}", ["detect"]),
+            (("build",), "${{ !cancelled() && needs.detect.outputs.mode == 'go' }}", ["detect"]),
+        ],
+        ids=[
+            "upstream-of-a-dependency-unnamed",
+            "whole-chain-named",
+            "dependency-recovers-from-upstream",
+            "dependency-held-behind-success",
+            "dependency-recovers-on-the-failure-itself",
+            "dependency-mixes-a-surviving-and-a-skipping-status-call",
+            "dependency-demands-an-upstream-output",
+        ],
+    )
+    def test_flags_upstream_of_a_dependency_that_the_gate_never_tests(
+        self, tmp_path: Path, dependencies: tuple[str, ...], build_if: str | None, expected_missing: list[str]
+    ) -> None:
+        _write(tmp_path, "ci-thing.yml", _chained_gate(*dependencies, build_if=build_if))
+        issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
+        assert [i.message.split("'")[1] for i in issues] == expected_missing
+        assert all("is not a dependency of this gate" in i.message for i in issues)
 
     def test_ignores_non_gate_jobs(self, tmp_path: Path) -> None:
         # Worker jobs share the !cancelled() condition, but they gate nothing,
@@ -1806,3 +1886,121 @@ class TestLiveTreeSmoke:
         workflows = list(read_workflows(workflows_dir))
         for check in CHECKS:
             assert isinstance(check.run(workflows), CheckResult)
+
+
+class TestReusableSecretPassthroughCheck:
+    @staticmethod
+    def _callee(required: bool, reads: bool = True) -> str:
+        env = "T: ${{ secrets.NEEDED }}" if reads else "T: static"
+        return f"""
+        name: R
+        on:
+          workflow_call:
+            secrets:
+              NEEDED:
+                required: {str(required).lower()}
+        jobs:
+          build:
+            runs-on: ubuntu-latest
+            timeout-minutes: 5
+            steps:
+              - run: echo
+                env:
+                  {env}
+        """
+
+    @pytest.mark.parametrize(
+        "on_block",
+        ["on:\n  workflow_call:", "on: workflow_call", "on: [workflow_call, push]"],
+        ids=["empty-mapping", "scalar", "list"],
+    )
+    def test_flags_a_read_the_callee_never_declares(self, tmp_path: Path, on_block: str) -> None:
+        _write(
+            tmp_path,
+            "_callee.yml",
+            "name: R\n"
+            + on_block
+            + "\njobs:\n  build:\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n"
+            + "    steps:\n      - run: echo\n        env:\n          T: ${{ secrets.NEVER_ARRIVES }}\n",
+        )
+        issues = ReusableSecretPassthroughCheck().run(_read_all(tmp_path)).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+        assert "does not declare it" in issues[0].message
+
+    def test_reads_come_only_from_expressions(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "_callee.yml",
+            """
+            name: R
+            # Needs secrets.COMMENTED_ONLY to be configured in the repo.
+            on:
+              workflow_call:
+            jobs:
+              build:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - run: echo secrets.SHELL_LITERAL_ONLY
+                    env:
+                      T: ${{ secrets['BRACKETED'] }}
+            """,
+        )
+        issues = ReusableSecretPassthroughCheck().run(_read_all(tmp_path)).issues
+        assert [i.message.split(" ")[1] for i in issues] == ["secrets.BRACKETED"], [i.render() for i in issues]
+
+    @pytest.mark.parametrize("reads", [True, False], ids=["read", "declared-only"])
+    def test_flags_a_caller_omitting_a_required_secret(self, tmp_path: Path, reads: bool) -> None:
+        _write(tmp_path, "_callee.yml", self._callee(required=True, reads=reads))
+        _write(
+            tmp_path,
+            "caller.yml",
+            """
+            name: C
+            on: [push]
+            jobs:
+              call:
+                uses: ./.github/workflows/_callee.yml
+            """,
+        )
+        issues = ReusableSecretPassthroughCheck().run(_read_all(tmp_path)).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+        assert issues[0].job == "call"
+        assert "does not pass it" in issues[0].message
+
+    def test_allows_a_caller_omitting_an_optional_secret(self, tmp_path: Path) -> None:
+        # `required: false` is the callee sanctioning absence, which callers rely on
+        # to withhold a publish credential from a dry-run build.
+        _write(tmp_path, "_callee.yml", self._callee(required=False))
+        _write(
+            tmp_path,
+            "caller.yml",
+            """
+            name: C
+            on: [push]
+            jobs:
+              call:
+                uses: ./.github/workflows/_callee.yml
+            """,
+        )
+        assert ReusableSecretPassthroughCheck().run(_read_all(tmp_path)).issues == []
+
+    @pytest.mark.parametrize(
+        "secrets_block",
+        [
+            "        secrets: inherit",
+            "        secrets:\n            NEEDED: ${{ secrets.SOME_OTHER_NAME }}",
+        ],
+        ids=["inherit", "renamed-passthrough"],
+    )
+    def test_satisfied_by_inherit_or_a_renamed_passthrough(self, tmp_path: Path, secrets_block: str) -> None:
+        _write(tmp_path, "_callee.yml", self._callee(required=True))
+        _write(
+            tmp_path,
+            "caller.yml",
+            "name: C\non: [push]\njobs:\n    call:\n        uses: ./.github/workflows/_callee.yml\n"
+            + secrets_block
+            + "\n",
+        )
+        issues = ReusableSecretPassthroughCheck().run(_read_all(tmp_path)).issues
+        assert issues == [], [i.render() for i in issues]

@@ -2,7 +2,7 @@ import uuid
 import base64
 import datetime
 import contextlib
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from typing import Any, cast
 
 from unittest.mock import MagicMock, patch
@@ -13,11 +13,13 @@ from bson import Binary, DatetimeMS, ObjectId
 from bson.binary import UUID_SUBTYPE
 from parameterized import parameterized
 from pymongo.errors import CursorNotFound, OperationFailure, ServerSelectionTimeoutError
+from pymongo.hello import Hello
 from pymongo.server_description import ServerDescription
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
     MONGO_DOCUMENT_MISSING_ID_ERROR,
+    MONGO_KEYS_UNAVAILABLE_ERROR,
     MONGO_MAX_CHUNK_ROWS,
     MONGO_MIN_CHUNK_ROWS,
     _adaptive_chunk_size,
@@ -28,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
     _process_doc_with_field_logging,
     _process_nested_value,
     get_leading_index_keys,
+    get_server_metadata,
     mongo_source,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
@@ -515,6 +518,14 @@ class TestGetRetryableErrors(SimpleTestCase):
             f"MongoDB connection pool paused should be classified retryable: {error_msg}"
         )
 
+    def test_signing_keys_unavailable_is_classified_retryable(self):
+        # mongo.py rewrites OperationFailure code 211 (KeyNotFound) to this message, so it is the
+        # text that reaches classification. Without a match the run reports as a bug nobody can act
+        # on, because the cluster clears a key rotation on its own.
+        assert any(pattern in MONGO_KEYS_UNAVAILABLE_ERROR for pattern in self.retryable), (
+            f"MongoDB signing keys unavailable should be classified retryable: {MONGO_KEYS_UNAVAILABLE_ERROR}"
+        )
+
     def test_interrupted_at_shutdown_is_classified_retryable(self):
         # NotPrimaryError raised when a read is killed by a routine replica-set failover (the
         # primary shutting down or stepping down); the next retry hits the new primary.
@@ -792,6 +803,25 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
         assert collection.cursors[0].closed is True
         assert collection.cursors[1].closed is True
 
+    def test_key_rotation_failure_reports_a_message_without_the_server_response(self):
+        # A cluster mid key rotation fails a getMore with code 211 part way through the read, and
+        # pymongo's str() appends the whole server response, which must not reach the customer's
+        # sync error. The rewrite must also come before the no_cursor_timeout fallback check, which
+        # re-raises everything once a document was read.
+        raw_error = OperationFailure(
+            "No keys found for HMAC that is valid for time: { ts: Timestamp(1756713600, 4) } with id: "
+            "7300000000000000001, full error: {'ok': 0.0, 'errmsg': 'No keys found for HMAC', 'code': 211, "
+            "'codeName': 'KeyNotFound'}",
+            211,
+        )
+        collection = _FakeCollection([{"_id": "1"}, {"_id": "2"}], error=raw_error, error_after=1)
+
+        with self.assertRaises(OperationFailure) as ctx:
+            self._run_get_rows(collection)
+
+        assert str(ctx.exception) == MONGO_KEYS_UNAVAILABLE_ERROR
+        assert ctx.exception.__cause__ is raw_error
+
     def test_other_operation_failures_are_not_retried(self):
         # The fallback must be scoped to the specific tier-limitation error, not OperationFailure
         # in general, or it would silently mask unrelated server errors.
@@ -848,3 +878,63 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
             self._run_get_rows(collection)
 
         assert len(collection.find_calls) == 2
+
+
+class TestGetServerMetadata(SimpleTestCase):
+    @staticmethod
+    def _server(host: str, max_wire_version: int | None) -> ServerDescription:
+        # A ServerDescription built without a hello response is the state pymongo holds for a node
+        # it has not handshaked with, which is what the probe has to leave out.
+        if max_wire_version is None:
+            return ServerDescription((host, 27017))
+        return ServerDescription(
+            (host, 27017),
+            Hello({"ok": 1, "isWritablePrimary": True, "minWireVersion": 0, "maxWireVersion": max_wire_version}),
+        )
+
+    @contextlib.contextmanager
+    def _patched_client(self, server_version: str, servers: list[ServerDescription]) -> Iterator[None]:
+        client = MagicMock()
+        client.server_info.return_value = {"version": server_version}
+        client.topology_description.server_descriptions.return_value = {server.address: server for server in servers}
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo.mongo_client"
+        ) as client_factory:
+            client_factory.return_value.__enter__.return_value = client
+            yield
+
+    @parameterized.expand(
+        [
+            ("single_node", "7.0.14", [("a.example.com", 21)], 21, 1, 1),
+            # The driver refuses the whole topology over one node below its floor, so reporting
+            # anything but the weakest node would mark this source safe to upgrade when it is not.
+            ("replica_set_reports_weakest_node", "4.0.28", [("a.example.com", 21), ("b.example.com", 7)], 7, 2, 2),
+            # Server selection returns on the first usable node, so the wire version here comes
+            # from a partial view. The counts have to disagree, or the reading passes as complete
+            # and an older secondary the probe never saw goes uncounted.
+            ("unhandshaked_node_is_ignored", "6.0.1", [("a.example.com", 13), ("b.example.com", None)], 13, 1, 2),
+            ("no_handshaked_node_reports_no_wire_version", "", [("a.example.com", None)], None, 0, 1),
+        ]
+    )
+    def test_wire_version_comes_from_the_weakest_handshaked_node(
+        self,
+        _name: str,
+        server_version: str,
+        nodes: list[tuple[str, int | None]],
+        expected_wire_version: int | None,
+        expected_handshaked_nodes: int,
+        expected_topology_nodes: int,
+    ) -> None:
+        servers = [self._server(host, max_wire_version) for host, max_wire_version in nodes]
+
+        with self._patched_client(server_version, servers):
+            metadata = get_server_metadata("mongodb://user:pass@a.example.com/db?tls=true", team_id=1)
+
+        assert metadata["engine"] == "mongodb"
+        assert metadata["server_version"] == server_version
+        assert metadata["handshaked_nodes"] == expected_handshaked_nodes
+        assert metadata["topology_nodes"] == expected_topology_nodes
+        if expected_wire_version is None:
+            assert "wire_version" not in metadata
+        else:
+            assert metadata["wire_version"] == expected_wire_version

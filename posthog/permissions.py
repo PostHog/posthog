@@ -729,6 +729,22 @@ def get_authenticator_scopes(authenticator) -> list[str] | None:
     return None
 
 
+SCOUT_SANDBOX_SCOPE_PREFIX = "signal_scout_internal:"
+
+
+def is_scout_sandbox_request(request: Request) -> bool:
+    """Whether a request is authenticated with a Signals scout sandbox token.
+
+    The scout harness is the only issuer of `signal_scout_internal:*`, so those scopes identify a
+    scout run. The scope object is internal, so session auth and ordinary API keys never carry
+    them. Shared rather than reimplemented per product: a viewset that restricts what a scout may
+    do has to read the same signal as every other one, or a rule holds on one surface and not the
+    next.
+    """
+    scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    return scopes is not None and any(scope.startswith(SCOUT_SANDBOX_SCOPE_PREFIX) for scope in scopes)
+
+
 def get_authenticator_scoped_organization_ids(authenticator) -> list[str] | None:
     """The organizations a scoped token is confined to, or None when the credential carries no
     organization restriction (session auth, or a token scoped to every organization).
@@ -1213,6 +1229,13 @@ def posthog_feature_flag_enabled(
     )
 
 
+# DRF error code for a flag-gated 403, so a client can tell "not on this alpha yet" apart from a
+# plain access-control denial. Early access enrollment reaches the server as an ingested person
+# property, so a user who has just turned a feature preview on keeps getting denied for a few
+# seconds - the frontend treats this code as "access on its way", not as an error.
+FEATURE_FLAG_REQUIRED_ERROR_CODE = "feature_flag_required"
+
+
 class PostHogFeatureFlagPermission(BasePermission):
     def has_permission(self, request, view) -> bool:
         user = cast(User, request.user)
@@ -1250,6 +1273,7 @@ class PostHogFeatureFlagPermission(BasePermission):
                 self.message = (
                     f"This action requires feature flag {required_flag!r} to be enabled for your organization."
                 )
+                self.code = FEATURE_FLAG_REQUIRED_ERROR_CODE
                 return False
 
         return True

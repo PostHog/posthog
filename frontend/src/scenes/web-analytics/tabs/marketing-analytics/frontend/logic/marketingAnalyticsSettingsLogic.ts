@@ -286,6 +286,10 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         marketingAnalyticsConfig: [
             null as MarketingAnalyticsConfig | null,
             {
+                [teamLogic.actionTypes.loadCurrentTeamSuccess]: (
+                    _,
+                    { currentTeam }: { currentTeam: TeamType | TeamPublicType | null }
+                ) => currentTeam?.marketing_analytics_config || createEmptyConfig(),
                 updateConversionGoals: (state: MarketingAnalyticsConfig | null, { conversionGoals }) => {
                     if (!state) {
                         return { ...createEmptyConfig(), conversion_goals: conversionGoals }
@@ -404,6 +408,10 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         savedMarketingAnalyticsConfig: [
             values.currentTeam?.marketing_analytics_config || createEmptyConfig(),
             {
+                [teamLogic.actionTypes.loadCurrentTeamSuccess]: (
+                    _,
+                    { currentTeam }: { currentTeam: TeamType | TeamPublicType | null }
+                ) => currentTeam?.marketing_analytics_config || createEmptyConfig(),
                 updateCurrentTeam: (_, { marketing_analytics_config }) => {
                     return marketing_analytics_config || createEmptyConfig()
                 },
@@ -544,23 +552,23 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         ],
     }),
     listeners(({ actions, values }) => {
-        const updateCurrentTeam = (): void => {
+        const updateCurrentTeam = (field: keyof MarketingAnalyticsConfig): void => {
             if (values.marketingAnalyticsConfig) {
-                const payload = { marketing_analytics_config: values.marketingAnalyticsConfig }
+                const payload = { marketing_analytics_config: { [field]: values.marketingAnalyticsConfig[field] } }
                 actions.updateCurrentTeam(payload)
             }
         }
 
         const trackSourceConfigured = (): void => {
-            updateCurrentTeam()
+            updateCurrentTeam('sources_map')
             actions.addProductIntent({
                 product_type: ProductKey.MARKETING_ANALYTICS,
                 intent_context: ProductIntentContext.MARKETING_ANALYTICS_SOURCE_CONFIGURED,
             })
         }
 
-        const trackSettingsUpdated = (): void => {
-            updateCurrentTeam()
+        const trackSettingsUpdated = (field: keyof MarketingAnalyticsConfig): void => {
+            updateCurrentTeam(field)
             actions.addProductIntent({
                 product_type: ProductKey.MARKETING_ANALYTICS,
                 intent_context: ProductIntentContext.MARKETING_ANALYTICS_SETTINGS_UPDATED,
@@ -569,16 +577,16 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
 
         return {
             updateSourceMapping: trackSourceConfigured,
-            updateConversionGoals: trackSettingsUpdated,
-            addOrUpdateConversionGoal: trackSettingsUpdated,
-            removeConversionGoal: trackSettingsUpdated,
-            updateAttributionWindowDays: trackSettingsUpdated,
-            updateAttributionMode: trackSettingsUpdated,
+            updateConversionGoals: () => trackSettingsUpdated('conversion_goals'),
+            addOrUpdateConversionGoal: () => trackSettingsUpdated('conversion_goals'),
+            removeConversionGoal: () => trackSettingsUpdated('conversion_goals'),
+            updateAttributionWindowDays: () => trackSettingsUpdated('attribution_window_days'),
+            updateAttributionMode: () => trackSettingsUpdated('attribution_mode'),
             // Persist only: this one is a dashboard filter, not a trip to the settings screen.
-            updateFilterTestAccounts: () => updateCurrentTeam(),
-            updateCampaignNameMappings: trackSettingsUpdated,
-            updateCustomSourceMappings: trackSettingsUpdated,
-            updateCampaignFieldPreferences: trackSettingsUpdated,
+            updateFilterTestAccounts: () => updateCurrentTeam('filter_test_accounts'),
+            updateCampaignNameMappings: () => trackSettingsUpdated('campaign_name_mappings'),
+            updateCustomSourceMappings: () => trackSettingsUpdated('custom_source_mappings'),
+            updateCampaignFieldPreferences: () => trackSettingsUpdated('campaign_field_preferences'),
             testMapping: async ({ tableId, sourceMap }) => {
                 try {
                     const response = await api.create(

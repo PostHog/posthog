@@ -2134,21 +2134,6 @@ export interface ErrorTrackingSymbolSetFinishUploadApi {
     content_hash: string
 }
 
-export interface ErrorTrackingSymbolSetBulkDeleteApi {
-    /** Symbol set IDs to delete. */
-    ids: string[]
-}
-
-/**
- * Map of symbol set ID to uploaded content hash.
- */
-export type ErrorTrackingSymbolSetBulkFinishUploadApiContentHashes = { [key: string]: string }
-
-export interface ErrorTrackingSymbolSetBulkFinishUploadApi {
-    /** Map of symbol set ID to uploaded content hash. */
-    content_hashes: ErrorTrackingSymbolSetBulkFinishUploadApiContentHashes
-}
-
 export interface ErrorTrackingSymbolSetUploadApi {
     /** Symbol set reference to upload. */
     chunk_id: string
@@ -2164,7 +2149,42 @@ export interface ErrorTrackingSymbolSetUploadApi {
     content_hash?: string | null
 }
 
+export interface ErrorTrackingSymbolSetBulkCheckUploadApi {
+    /** Symbol sets the client intends to upload, with per-symbol release IDs and content hashes. Send at most 1000 per request. */
+    symbol_sets: ErrorTrackingSymbolSetUploadApi[]
+    /** Whether to overwrite uploaded symbol sets whose content hash changed. */
+    force?: boolean
+    /** Whether to skip uploaded symbol sets whose content hash changed instead of failing. */
+    skip_on_conflict?: boolean
+}
+
+export interface ErrorTrackingSymbolSetBulkCheckUploadResponseApi {
+    /** Chunk IDs to send to `bulk_start_upload`: the symbol set is missing, its upload never completed, its content differs, or it still needs the release bound. The other chunks are already uploaded with identical content and were marked as still in use. */
+    chunk_ids_to_upload: string[]
+}
+
+export interface ErrorTrackingSymbolSetBulkDeleteApi {
+    /** Symbol set IDs to delete. */
+    ids: string[]
+}
+
+/**
+ * Map of symbol set ID to uploaded content hash.
+ */
+export type ErrorTrackingSymbolSetBulkFinishUploadApiContentHashes = { [key: string]: string }
+
+export interface ErrorTrackingSymbolSetBulkFinishUploadApi {
+    /** Map of symbol set ID to uploaded content hash. */
+    content_hashes: ErrorTrackingSymbolSetBulkFinishUploadApiContentHashes
+}
+
 export interface ErrorTrackingSymbolSetBulkStartUploadApi {
+    /** Symbol sets to upload with per-symbol release IDs and content hashes. */
+    symbol_sets?: ErrorTrackingSymbolSetUploadApi[]
+    /** Whether to overwrite uploaded symbol sets whose content hash changed. */
+    force?: boolean
+    /** Whether to skip uploaded symbol sets whose content hash changed instead of failing. */
+    skip_on_conflict?: boolean
     /** Legacy list of symbol set references to upload, all associated with `release_id`. */
     chunk_ids?: string[]
     /**
@@ -2172,12 +2192,6 @@ export interface ErrorTrackingSymbolSetBulkStartUploadApi {
      * @nullable
      */
     release_id?: string | null
-    /** Symbol sets to upload with per-symbol release IDs and content hashes. */
-    symbol_sets?: ErrorTrackingSymbolSetUploadApi[]
-    /** Whether to overwrite uploaded symbol sets whose content hash changed. */
-    force?: boolean
-    /** Whether to skip uploaded symbol sets whose content hash changed instead of failing. */
-    skip_on_conflict?: boolean
 }
 
 /**

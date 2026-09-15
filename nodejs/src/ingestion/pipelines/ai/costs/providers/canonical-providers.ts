@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-09-08 20:01:53 UTC
+// Generated at: 2026-09-15 10:05:49 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -30,6 +30,7 @@ export type CanonicalProvider =
     | 'azure-global'
     | 'azure-swedencentral'
     | 'azure-us'
+    | 'baidu-fast'
     | 'baidu-fp4'
     | 'baidu-fp8'
     | 'baseten-fast'
@@ -56,6 +57,7 @@ export type CanonicalProvider =
     | 'darkbloom'
     | 'darkbloom-fp4'
     | 'darkbloom-fp8'
+    | 'darkbloom-int4'
     | 'decart-fast'
     | 'decart-fp4'
     | 'deepinfra'
@@ -67,6 +69,9 @@ export type CanonicalProvider =
     | 'deepinfra-turbo'
     | 'deepinfra-ultra'
     | 'deepseek'
+    | 'dekallm'
+    | 'dekallm-bf16'
+    | 'dekallm-fp8'
     | 'digitalocean'
     | 'fireworks'
     | 'fireworks-fast'
@@ -95,9 +100,10 @@ export type CanonicalProvider =
     | 'inception'
     | 'inceptron-fp4'
     | 'inceptron-int4'
+    | 'inference-net'
     | 'io-net-fp16'
     | 'io-net-fp8'
-    | 'ionstream-fp4'
+    | 'ionstream'
     | 'ionstream-fp8'
     | 'liquid-fp8'
     | 'makora'
@@ -122,7 +128,6 @@ export type CanonicalProvider =
     | 'morph'
     | 'morph-bf16'
     | 'morph-fast'
-    | 'morph-fp4'
     | 'morph-fp8'
     | 'nebius-fp4'
     | 'nebius-fp8'
@@ -158,6 +163,7 @@ export type CanonicalProvider =
     | 'reka-bf16'
     | 'reka-fp4'
     | 'reka-fp8'
+    | 'relace'
     | 'relace-bf16'
     | 'relace-fp4'
     | 'relace-fp8'

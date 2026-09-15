@@ -13,7 +13,8 @@ import type {
     ConversationsListParams,
     DocsSearchRequestApi,
     DocsSearchResponseApi,
-    McpToolsCreate200,
+    MCPToolRequestApi,
+    MCPToolResponseApi,
     MessageApi,
     MessageMinimalApi,
     PaginatedConversationMinimalListApi,
@@ -288,11 +289,14 @@ export const getMcpToolsCreateUrl = (projectId: string, toolName: string) => {
 export const mcpToolsCreate = async (
     projectId: string,
     toolName: string,
+    mCPToolRequestApi?: MCPToolRequestApi,
     options?: RequestInit
-): Promise<McpToolsCreate200> => {
-    return apiMutator<McpToolsCreate200>(getMcpToolsCreateUrl(projectId, toolName), {
+): Promise<MCPToolResponseApi> => {
+    return apiMutator<MCPToolResponseApi>(getMcpToolsCreateUrl(projectId, toolName), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(mCPToolRequestApi),
     })
 }
 

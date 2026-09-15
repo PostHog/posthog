@@ -45,7 +45,7 @@ from posthog.api.services.flags_service import (
     batch_evaluate_flag_for_team,
 )
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
-from posthog.api.utils import action
+from posthog.api.utils import action, parse_actor_property_filters
 from posthog.cdp.filters import build_behavioral_event_expr
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import LIMIT, OFFSET
@@ -73,7 +73,7 @@ from posthog.models.activity_logging.activity_log import (
     load_activity,
     log_activity,
 )
-from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.utils import earliest_timestamp_func
@@ -1743,7 +1743,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                 # Avoid circular import: feature_flag imports cohort models
                 from products.feature_flags.backend.api.feature_flag import _is_realtime_cohort_flag_targeting_enabled
 
-                allow_realtime_backfilled = _is_realtime_cohort_flag_targeting_enabled(self.request)
+                allow_realtime_backfilled = _is_realtime_cohort_flag_targeting_enabled(self.request, team=self.team)
                 # The flag's cohort typeahead hits this endpoint on every keystroke, so the
                 # behavioral set is computed once per team and cached (invalidated on cohort
                 # writes); see get_flag_excluded_behavioral_cohort_ids.
@@ -1847,14 +1847,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
         cohort_properties: list[dict] = [{"type": "cohort", "key": "id", "value": cohort.pk}]
-        request_properties = request.GET.get("properties")
-        if request_properties:
-            for prop in json.loads(request_properties):
-                # Legacy person filters default to the "exact" operator when none is given;
-                # ActorsQuery's PersonPropertyFilter requires it explicitly.
-                if prop.get("type") != "cohort":
-                    prop.setdefault("operator", "exact")
-                cohort_properties.append(prop)
+        cohort_properties.extend(parse_actor_property_filters(request.GET.get("properties")))
 
         actors_query = ActorsQuery(
             select=["id"],
@@ -1996,17 +1989,17 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         required_scopes=["activity_log:read"],
     )
     def all_activity(self, request: request.Request, **kwargs):
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        page_params = parse_activity_page_params(request)
 
-        activity_page = load_activity(scope="Cohort", team_id=self.team_id, limit=limit, page=page)
+        activity_page = load_activity(
+            scope="Cohort", team_id=self.team_id, limit=page_params.limit, page=page_params.page
+        )
 
-        return activity_page_response(activity_page, limit, page, request)
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, **kwargs):
-        limit = int(request.query_params.get("limit", "10"))
-        page = int(request.query_params.get("page", "1"))
+        page_params = parse_activity_page_params(request)
 
         item_id = kwargs["pk"]
         if not Cohort.objects.filter(id=item_id, team__project_id=self.project_id).exists():
@@ -2016,10 +2009,10 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             scope="Cohort",
             team_id=self.team_id,
             item_ids=[str(item_id)],
-            limit=limit,
-            page=page,
+            limit=page_params.limit,
+            page=page_params.page,
         )
-        return activity_page_response(activity_page, limit, page, request)
+        return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
     @action(methods=["GET"], detail=True, required_scopes=["cohort:read"])
     def calculation_history(self, request: request.Request, **kwargs):

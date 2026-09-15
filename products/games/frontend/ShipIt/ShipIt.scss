@@ -1,0 +1,110 @@
+.ShipIt {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    max-width: 48rem;
+    margin-inline: auto;
+
+    &__board {
+        position: relative;
+        overflow: hidden;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+    }
+
+    &__board:focus-visible {
+        outline: 2px solid var(--color-border-primary);
+        outline-offset: 2px;
+    }
+
+    &__track {
+        position: relative;
+        height: 16rem;
+    }
+
+    &__lane {
+        height: calc(100% / var(--ship-it-lanes));
+        border-bottom: 1px dashed var(--color-border-primary);
+
+        &:last-child {
+            border-bottom: none;
+        }
+    }
+
+    &__pr,
+    &__item {
+        position: absolute;
+        padding: 0.125rem 0.5rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        white-space: nowrap;
+        border: 1px solid;
+        border-radius: var(--radius);
+
+        // Both are centred on their own coordinate, so a tile reaches the pull request exactly when
+        // the rules collect it, at every board width rather than only at the widest one.
+        transform: translate(-50%, -50%);
+    }
+
+    &__pr {
+        left: calc(var(--ship-it-hit) * 100%);
+
+        // An arriving tile overlaps the pull request all the way in, so it has to pass underneath.
+        // Without this the tile paints last and the pull request is unreadable as it is collected.
+        z-index: 1;
+        color: var(--color-text-primary);
+        background: var(--color-bg-fill-primary);
+        border-color: var(--color-border-primary);
+    }
+
+    // The pull request only advances while it is mergeable, so the player needs to see that state at a glance.
+    &__pr[data-mergeable='true'] {
+        color: var(--success);
+        background: var(--success-highlight);
+        border-color: var(--success);
+    }
+
+    &__item[data-kind='good'] {
+        color: var(--success);
+        background: var(--success-highlight);
+        border-color: var(--success);
+    }
+
+    &__item[data-kind='bad'] {
+        color: var(--danger);
+        background: var(--danger-highlight);
+        border-color: var(--danger);
+    }
+
+    &__overlay {
+        position: absolute;
+        inset: 0;
+
+        // The pull request is lifted above the track, so the overlay has to clear it as well.
+        // Without this the pull request paints over the copy the overlay is there to show.
+        z-index: 2;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        align-items: center;
+        justify-content: center;
+        padding: 1.5rem;
+        text-align: center;
+        background: var(--color-bg-surface-primary);
+
+        p {
+            max-width: 28rem;
+            margin: 0;
+        }
+    }
+
+    &__hint {
+        color: var(--color-text-secondary);
+    }
+
+    &__event {
+        font-size: 0.875rem;
+        color: var(--color-text-secondary);
+    }
+}
