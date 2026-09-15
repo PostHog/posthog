@@ -45,6 +45,8 @@ class RunAttempt:
     workflow_name: str
     head_sha: str
     attempt: int
+    # When the run was created, which is when its commit arrived. A queued run starts later.
+    pushed_at: datetime
     started_at: datetime
     # None while the attempt is still running.
     completed_at: datetime | None
@@ -98,6 +100,7 @@ class PRTimelineInput:
     # The merge, or now for an open PR.
     ended_at: datetime
     is_open: bool
+    is_merged: bool
     is_draft: bool
     attempts: list[RunAttempt]
     gate_attempts: list[GateAttempt]
@@ -144,13 +147,13 @@ class PRTimelineBuilder:
             by_workflow: dict[str, list[RunAttempt]] = defaultdict(list)
             for attempt in sorted(sha_attempts, key=lambda a: (a.started_at, a.attempt)):
                 by_workflow[attempt.workflow_name].append(attempt)
-            pushed_at = min(attempt.started_at for attempt in sha_attempts)
+            pushed_at = min(attempt.pushed_at for attempt in sha_attempts)
             pushes.append(_Push(head_sha=head_sha, pushed_at=pushed_at, attempts_by_workflow=dict(by_workflow)))
         return sorted(pushes, key=lambda push: push.pushed_at)
 
     def _queue_span(self) -> _QueueSpan:
         """The continuous queue stretch: from the first gate attempt after the last push to the merge
-        (merged PR) or to the end of the last gate attempt (open PR, None while one still runs)."""
+        (merged PR), or to the end of the last gate attempt (open or closed PR; the end while one still runs)."""
         last_push_at = self._push_times[-1] if self._push_times else None
         after_last_push = [
             gate for gate in self._pr.gate_attempts if last_push_at is None or gate.started_at >= last_push_at
@@ -158,7 +161,7 @@ class PRTimelineBuilder:
         if not after_last_push:
             return _QueueSpan(started_at=None, ended_at=None)
         queue_from = min(gate.started_at for gate in after_last_push)
-        if not self._pr.is_open or any(gate.completed_at is None for gate in after_last_push):
+        if self._pr.is_merged or any(gate.completed_at is None for gate in after_last_push):
             return _QueueSpan(started_at=queue_from, ended_at=self._pr.ended_at)
         return _QueueSpan(
             started_at=queue_from,

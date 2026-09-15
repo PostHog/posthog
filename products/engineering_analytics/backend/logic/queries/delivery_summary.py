@@ -78,10 +78,11 @@ _APPROVALS_SELECT = f"""
 """
 
 # A push is a distinct head commit that triggered CI; gate runs are the queue's rebases, not pushes.
+# The run's creation time is when the commit arrived: a queued run starts later.
 _PUSHES_SELECT = f"""
     SELECT pr_number, groupArray(pushed_at) AS pushed_at
     FROM (
-        SELECT pr_number, head_sha, min(run_started_at) AS pushed_at
+        SELECT pr_number, head_sha, min(created_at) AS pushed_at
         FROM __RUNS_SOURCE__ AS r
         WHERE pr_number IN {{pr_numbers}} AND NOT is_merge_queue AND run_started_at >= {{run_from}}
         GROUP BY pr_number, head_sha

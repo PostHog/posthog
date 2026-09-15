@@ -37,7 +37,9 @@ def build_pull_request_timelines(
     date_from: str | None = None,
     date_to: str | None = None,
 ) -> PullRequestTimelines:
-    # A single pull request is shown whatever its age, so its window never needs the span cap.
-    window_from = None if scope.kind == DeliveryScopeKind.PULL_REQUEST else date_from
-    parsed_from, parsed_to = _parse_window(curated.team, window_from, date_to, default=_DEFAULT_WINDOW)
+    # A single pull request is shown whatever its age, so neither end of the window applies to it.
+    single_pr = scope.kind == DeliveryScopeKind.PULL_REQUEST
+    window_from = None if single_pr else date_from
+    window_to = None if single_pr else date_to
+    parsed_from, parsed_to = _parse_window(curated.team, window_from, window_to, default=_DEFAULT_WINDOW)
     return query_pull_request_timelines(curated=curated, scope=scope, date_from=parsed_from, date_to=parsed_to)

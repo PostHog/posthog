@@ -84,7 +84,8 @@ _REVIEWS_SELECT = """
 # A skipped run never executes, so it adds no red or running time. HogQL caps a result at 50k rows,
 # and skipped and merge-queue runs are a third of a busy team's runs, so both stay out of this list.
 _RUNS_SELECT = """
-    SELECT id, pr_number, workflow_name, head_sha, status, conclusion, run_started_at, updated_at, run_attempt
+    SELECT
+        id, pr_number, workflow_name, head_sha, status, conclusion, run_started_at, updated_at, run_attempt, created_at
     FROM __RUNS_SOURCE__ AS r
     WHERE pr_number IN {pr_numbers} AND run_started_at >= {run_from}
         AND NOT is_merge_queue AND ifNull(conclusion, '') != 'skipped'
@@ -129,7 +130,7 @@ _MASTER_FAILURES_SELECT = f"""
         AND r.run_started_at >= {{run_from}}
         AND j.conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})
         AND j.completed_at IS NOT NULL
-        AND j.name IN {{job_names}}
+        AND j.workflow_name IN {{workflow_names}}
     LIMIT 200000
 """
 
@@ -233,6 +234,7 @@ class PullRequestTimelinesQuery:
                     started_at=started_at,
                     ended_at=ended_at,
                     is_open=is_open,
+                    is_merged=merged_at is not None,
                     is_draft=bool(is_draft) and is_open,
                     attempts=pr_attempts,
                     gate_attempts=[gate for gate in gates.get(number, []) if gate.started_at <= ended_at],
@@ -346,22 +348,37 @@ class PullRequestTimelinesQuery:
         )
 
         attempts: dict[int, list[RunAttempt]] = defaultdict(list)
-        for run_id, number, workflow_name, head_sha, status, conclusion, started_at, updated_at, attempt in runs:
-            run_attempts = job_attempts.get(int(run_id))
-            if run_attempts:
-                attempts[int(number)].extend(
-                    RunAttempt(
-                        run_id=int(run_id),
-                        workflow_name=workflow_name or "",
-                        head_sha=head_sha or "",
-                        attempt=job_attempt.attempt,
-                        started_at=job_attempt.started_at,
-                        completed_at=job_attempt.completed_at,
-                        failed=bool(job_attempt.failed_jobs),
-                        failed_jobs=job_attempt.failed_jobs,
-                    )
-                    for job_attempt in run_attempts
+        for (
+            run_id,
+            number,
+            workflow_name,
+            head_sha,
+            status,
+            conclusion,
+            started_at,
+            updated_at,
+            attempt,
+            created,
+        ) in runs:
+            run_attempts = job_attempts.get(int(run_id), [])
+            pushed_at = created or started_at
+            attempts[int(number)].extend(
+                RunAttempt(
+                    run_id=int(run_id),
+                    workflow_name=workflow_name or "",
+                    head_sha=head_sha or "",
+                    attempt=job_attempt.attempt,
+                    pushed_at=pushed_at,
+                    started_at=job_attempt.started_at,
+                    completed_at=job_attempt.completed_at,
+                    failed=bool(job_attempt.failed_jobs),
+                    failed_jobs=job_attempt.failed_jobs,
                 )
+                for job_attempt in run_attempts
+            )
+            # The jobs sync can lag behind the run row, so the run's newest attempt comes from the run
+            # row whenever the jobs have not reported it yet.
+            if run_attempts and int(attempt or 1) <= max(job_attempt.attempt for job_attempt in run_attempts):
                 continue
             completed = status == "completed"
             attempts[int(number)].append(
@@ -370,6 +387,7 @@ class PullRequestTimelinesQuery:
                     workflow_name=workflow_name or "",
                     head_sha=head_sha or "",
                     attempt=int(attempt or 1),
+                    pushed_at=pushed_at,
                     started_at=started_at,
                     completed_at=updated_at if completed else None,
                     failed=completed and conclusion in DECISIVE_FAILURE_CONCLUSIONS,
@@ -421,9 +439,18 @@ class PullRequestTimelinesQuery:
     def _query_master_failures(
         self, attempts: dict[int, list[RunAttempt]], default_branch: str, run_from: datetime
     ) -> MasterFailureIndex:
-        job_names = sorted({job for pr_attempts in attempts.values() for a in pr_attempts for job in a.failed_jobs})
+        # Filtered by workflow, not by job name: the index compares job names without their shard
+        # suffix, and an exact-name filter would drop the other shards of the same job.
+        workflow_names = sorted(
+            {
+                attempt.workflow_name
+                for pr_attempts in attempts.values()
+                for attempt in pr_attempts
+                if attempt.failed_jobs
+            }
+        )
         jobs_source = self._curated.jobs_source(created_floor=True)
-        if not job_names or not default_branch or jobs_source is None:
+        if not workflow_names or not default_branch or jobs_source is None:
             return MasterFailureIndex([])
         response = self._curated.run(
             _MASTER_FAILURES_SELECT.replace("__JOBS_SOURCE__", jobs_source).replace(
@@ -432,7 +459,7 @@ class PullRequestTimelinesQuery:
             query_type="engineering_analytics.pull_request_timelines_master_failures",
             placeholders={
                 "default_branch": ast.Constant(value=default_branch),
-                "job_names": ast.Constant(value=job_names),
+                "workflow_names": ast.Constant(value=workflow_names),
                 "run_from": ast.Constant(value=run_from),
                 "run_started_floor": run_started_floor_constant(run_from),
                 "job_created_floor": run_windowed_job_created_floor_constant(run_from),

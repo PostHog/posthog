@@ -19,15 +19,13 @@ export function PullRequestCountsCard({
                   'Deployed to production',
                   summary.lead_time.deploy_data_available ? String(summary.lead_time.deployed_merged_pr_count) : '—',
               ],
-              ['Open now', String(summary.open_pr_count)],
-              ['Drafts now', String(summary.draft_pr_count)],
           ]
         : []
 
     return (
         <LemonCard hoverEffect={false} className="flex flex-col p-4">
             <h3 className="mb-1 text-xs font-semibold text-secondary">
-                <Tooltip title="Counts only, with no repo figure: how many pull requests someone ships is not friction, and comparing it would rank people. Merged and deployed count bots and drafts out. Open and draft counts are right now, not the window.">
+                <Tooltip title="Counts only, with no repo figure: how many pull requests someone ships is not friction, and comparing it would rank people. Merged and deployed count bots and drafts out.">
                     <span className="cursor-default">Pull requests in the window</span>
                 </Tooltip>
             </h3>

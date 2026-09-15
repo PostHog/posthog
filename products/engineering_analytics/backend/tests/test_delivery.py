@@ -59,6 +59,7 @@ def _attempt(
         workflow_name="CI",
         head_sha=sha,
         attempt=attempt,
+        pushed_at=_at(start),
         started_at=_at(start),
         completed_at=_at(end) if end is not None else None,
         failed=failed,
@@ -73,6 +74,7 @@ def _pr(
     reviews: list[ReviewVerdict] | None = None,
     gates: list[GateAttempt] | None = None,
     is_open: bool = False,
+    is_merged: bool | None = None,
     is_draft: bool = False,
     trunk_out: bool = False,
 ) -> PRTimelineInput:
@@ -80,6 +82,7 @@ def _pr(
         started_at=_at(0),
         ended_at=_at(end),
         is_open=is_open,
+        is_merged=not is_open if is_merged is None else is_merged,
         is_draft=is_draft,
         attempts=attempts,
         gate_attempts=gates or [],
@@ -182,6 +185,23 @@ class TestPRTimelineBuilder(SimpleTestCase):
                     (Kind.APPROVED_NOT_ENQUEUED, 1, 2),
                     (Kind.MERGE_QUEUE, 2, 3),
                     (Kind.OUT_OF_MERGE_QUEUE, 3, 10),
+                ],
+            ),
+            (
+                "closed_pr_queue_stops_at_the_gate_end",
+                _pr(
+                    10,
+                    [_attempt("a", 0, 1)],
+                    reviews=[ReviewVerdict(reviewer="ada", state="APPROVED", submitted_at=_at(1))],
+                    gates=[GateAttempt(started_at=_at(2), completed_at=_at(3))],
+                    is_merged=False,
+                ),
+                [],
+                [
+                    (Kind.CI_RUNNING, 0, 1),
+                    (Kind.APPROVED_NOT_ENQUEUED, 1, 2),
+                    (Kind.MERGE_QUEUE, 2, 3),
+                    (Kind.APPROVED_NOT_ENQUEUED, 3, 10),
                 ],
             ),
             (
