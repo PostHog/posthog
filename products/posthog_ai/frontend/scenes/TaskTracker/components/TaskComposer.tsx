@@ -157,7 +157,10 @@ export function TaskComposer(): JSX.Element {
                                     />
                                 </Composer.Footer>
                             </Composer.Frame>
-                            <Suggestions.Dropdown />
+                            {/* Gated with the button row below, because the open-group value is shared with
+                                the side panel's composer: a group left expanded there would list generic
+                                prompts on this host, and a click on one starts an unexpected run. */}
+                            {!composerOverride?.hideSuggestions && <Suggestions.Dropdown />}
                             <AIConsentPopoverWrapper
                                 placement="bottom-end"
                                 showArrow
