@@ -43,6 +43,8 @@ export interface InboxSectionedReports {
   triageReports: SignalReport[];
   triageReportCount: number;
   triageLoading: boolean;
+  /** Another page of decisions is in flight, or autopaging will ask for one. */
+  triagePagePending: boolean;
   implementationStates: Map<string, ReportImplementationState | null>;
   reportCount: number;
   isLoading: boolean;
@@ -60,7 +62,8 @@ export interface InboxSectionedReports {
   priorityFilter: SignalReportPriority[];
 }
 
-function useAutoPage(query: InboxQuery, enabled: boolean): void {
+/** Returns true while another page is in flight or still to come. */
+function useAutoPage(query: InboxQuery, enabled: boolean): boolean {
   const shouldPage =
     enabled &&
     query.hasNextPage &&
@@ -72,6 +75,8 @@ function useAutoPage(query: InboxQuery, enabled: boolean): void {
   useEffect(() => {
     if (shouldPage) void fetchNextPage();
   }, [shouldPage, fetchNextPage]);
+
+  return shouldPage || (enabled && query.isFetchingNextPage);
 }
 
 /**
@@ -134,7 +139,10 @@ export function useInboxSectionedReports(options?: {
   });
 
   useAutoPage(reviewAndMergeQuery, autoPage && showReviewAndMerge);
-  useAutoPage(needsDecisionQuery, autoPage && showNeedsDecision);
+  const decisionPagePending = useAutoPage(
+    needsDecisionQuery,
+    autoPage && showNeedsDecision,
+  );
   useAutoPage(terminalQuery, autoPage && showTerminal);
 
   const { searchQuery, scope, sourceProductFilter, priorityFilter } =
@@ -192,6 +200,7 @@ export function useInboxSectionedReports(options?: {
     implementationStates: implementations.states,
     reportCount,
     triageLoading: implementations.isLoading,
+    triagePagePending: decisionPagePending,
     isLoading: selected.some((query) => query.isPending),
     isSuccess,
     isError:

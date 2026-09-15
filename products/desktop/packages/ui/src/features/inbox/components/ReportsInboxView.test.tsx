@@ -1,3 +1,4 @@
+import { INBOX_ACTIONABLE_REPORT_STATUS_FILTER } from "@posthog/core/inbox/reportFiltering";
 import type { ReportImplementationState } from "@posthog/core/inbox/reportImplementation";
 import type { SignalReport } from "@posthog/shared/types";
 import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
@@ -28,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   fetchNextPage: vi.fn(),
   pagedStatus: null as string | null,
+  pagedCount: 400,
   totalCount: null as number | null,
   allReportsOptions: [] as {
     applySourceFilter?: boolean;
@@ -94,7 +96,9 @@ vi.mock("@posthog/ui/features/inbox/hooks/useInboxAllReports", () => ({
       scopedReports: reports,
       allReports:
         options.statusFilter === mocks.pagedStatus
-          ? Array.from({ length: 400 }, () => reports[0]).filter(Boolean)
+          ? Array.from({ length: mocks.pagedCount }, () => reports[0]).filter(
+              Boolean,
+            )
           : reports,
       isLoading: false,
       isPending: false,
@@ -247,6 +251,7 @@ describe("ReportsInboxView", () => {
     mocks.locationState = {};
     mocks.allReportsOptions = [];
     mocks.pagedStatus = null;
+    mocks.pagedCount = 400;
     mocks.totalCount = null;
     useInboxSignalsFilterStore.setState({
       searchQuery: "checkout",
@@ -442,5 +447,18 @@ describe("ReportsInboxView", () => {
     expect(mocks.triageProps?.reports.map((report) => report.id)).toEqual([
       "failed",
     ]);
+  });
+
+  it("waits for the next decision page before triage runs out of reports", () => {
+    mocks.activeReports = [activeReport("working", "Working report")];
+    mocks.implementationStates = new Map([["working", "working"]]);
+    mocks.searchQuery = "";
+    mocks.triageFocusEnabled = true;
+    mocks.pagedStatus = INBOX_ACTIONABLE_REPORT_STATUS_FILTER;
+    mocks.pagedCount = 50;
+
+    render(<InboxTriagePane />);
+
+    expect(mocks.triageProps).toBeNull();
   });
 });

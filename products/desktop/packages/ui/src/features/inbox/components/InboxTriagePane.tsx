@@ -17,7 +17,14 @@ export function InboxTriagePane(): ReactElement {
   );
   const navigate = useNavigate();
 
-  if (inbox.isLoading || inbox.triageLoading) {
+  // The queue is filtered by task state, so a loaded page can hold no decision
+  // while a later page still does. Handing that page to triage would end the
+  // session and record a triage that was never done.
+  if (
+    inbox.isLoading ||
+    inbox.triageLoading ||
+    (inbox.triageReports.length === 0 && inbox.triagePagePending)
+  ) {
     return <LoadingState className="h-full" />;
   }
 
