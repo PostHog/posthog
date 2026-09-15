@@ -12,7 +12,7 @@ export interface LogDetailsTabContentProps {
 export function LogDetailsTabContent({ log }: LogDetailsTabContentProps): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
-            <h3 className="text-sm font-semibold text-muted">Log Message</h3>
+            <h3 className="text-sm font-semibold text-secondary">Log Message</h3>
             <div className="p-3 bg-bg-light rounded border border-border">
                 {log.parsedBody && typeof log.parsedBody === 'object' ? (
                     <JSONViewer src={log.parsedBody as object} collapsed={2} />

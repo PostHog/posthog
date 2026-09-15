@@ -116,7 +116,7 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-6">
                             <div className="flex items-center gap-2">
-                                <span className="text-muted text-xs font-semibold uppercase">Timestamp</span>
+                                <span className="text-secondary text-xs font-semibold uppercase">Timestamp</span>
                                 <span className="text-xs font-mono">
                                     <TZLabel
                                         time={selectedLog.timestamp}
@@ -128,7 +128,7 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
                                 </span>
                             </div>
                             <div className="flex items-center gap-2">
-                                <span className="text-muted text-xs font-semibold uppercase">Severity</span>
+                                <span className="text-secondary text-xs font-semibold uppercase">Severity</span>
                                 <div className="flex items-center gap-1.5">
                                     <div className={`w-2 h-2 rounded-full ${severityColor}`} />
                                     <span className="font-mono text-xs">{selectedLog.severity_text.toUpperCase()}</span>
