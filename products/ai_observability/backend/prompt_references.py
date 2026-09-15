@@ -9,10 +9,14 @@ from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPr
 # validate_prompt_label_name_value in posthog/api/llm_prompt_serializers.py),
 # so a tag can always be parsed without escaping. Widening either charset
 # requires revisiting this grammar.
+# The length bounds mirror the LLMPromptDependency columns (name varchar(255),
+# label varchar(128)) and the int4 range for version, so an oversized value
+# makes the tag plain text instead of failing the row insert and rolling back
+# the write that carried it.
 PROMPT_REFERENCE_REGEX = re.compile(
     r"@@@prompt:"
-    r"name=(?P<name>[A-Za-z0-9_-]+)\|"
-    r"(?:version=(?P<version>[0-9]+)|label=(?P<label>[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?))"
+    r"name=(?P<name>[A-Za-z0-9_-]{1,255})\|"
+    r"(?:version=(?P<version>[0-9]{1,9})|label=(?P<label>[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?))"
     r"@@@"
 )
 

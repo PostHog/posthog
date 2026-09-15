@@ -33,6 +33,24 @@ class TestParsePromptReferences(SimpleTestCase):
             ("uppercase_label_not_a_reference", "@@@prompt:name=guardrails|label=Production@@@", []),
             ("name_with_invalid_chars_not_a_reference", "@@@prompt:name=guard.rails|version=1@@@", []),
             ("unterminated_not_a_reference", "@@@prompt:name=guardrails|version=1", []),
+            (
+                "name_at_column_limit",
+                f"@@@prompt:name={'a' * 255}|version=1@@@",
+                [PromptReference(name="a" * 255, version=1, label=None)],
+            ),
+            ("name_over_column_limit_not_a_reference", f"@@@prompt:name={'a' * 256}|version=1@@@", []),
+            (
+                "label_at_column_limit",
+                f"@@@prompt:name=guardrails|label={'b' * 128}@@@",
+                [PromptReference(name="guardrails", version=None, label="b" * 128)],
+            ),
+            ("label_over_column_limit_not_a_reference", f"@@@prompt:name=guardrails|label={'b' * 129}@@@", []),
+            (
+                "version_at_digit_limit",
+                "@@@prompt:name=guardrails|version=999999999@@@",
+                [PromptReference(name="guardrails", version=999_999_999, label=None)],
+            ),
+            ("version_over_digit_limit_not_a_reference", "@@@prompt:name=guardrails|version=9999999999@@@", []),
         ]
     )
     def test_parse(self, _name: str, text: str, expected: list[PromptReference]) -> None:
