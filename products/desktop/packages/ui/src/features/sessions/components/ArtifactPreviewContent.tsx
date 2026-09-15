@@ -72,7 +72,6 @@ export function ArtifactPreviewContent({
   name,
   versionNav,
   taskId,
-  runId,
   artifactId,
   commentTarget,
   canEdit,
@@ -100,8 +99,7 @@ export function ArtifactPreviewContent({
   name: string;
   versionNav?: ReactNode;
   taskId: string;
-  /** The run and manifest id of the version on screen, which the share dialog addresses. */
-  runId: string;
+  /** The manifest id of the version on screen, which the share dialog addresses. */
   artifactId: string;
   commentTarget: CommentTarget;
   canEdit: boolean;
@@ -131,12 +129,7 @@ export function ArtifactPreviewContent({
   artifactResult: ArtifactPreviewResult | undefined;
 }): ReactElement {
   const shareAction = (
-    <ArtifactShareAction
-      taskId={taskId}
-      runId={runId}
-      artifactId={artifactId}
-      name={name}
-    />
+    <ArtifactShareAction taskId={taskId} artifactId={artifactId} name={name} />
   );
   const documentActions = (
     <div className="flex shrink-0 items-center gap-1">
