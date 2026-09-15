@@ -86,6 +86,7 @@ def _capture_report_event(
     failure_reason: str | None = None,
     pending_reason: str | None = None,
     chart_count: int | None = None,
+    charts_enabled: bool | None = None,
 ) -> None:
     properties: dict = {
         "report_id": report_id,
@@ -97,9 +98,14 @@ def _capture_report_event(
         properties["result"] = result
     # Only the two outcomes that write prose carry a chart set, so the property is absent rather
     # than zero on the others — a `failed` run charting nothing is not the same observation as a
-    # report that landed without a chart.
+    # report that landed without a chart. The count is the report's stored set after the
+    # transition, which a run that authored nothing leaves standing from the run before it.
     if chart_count is not None:
         properties["chart_count"] = chart_count
+    # Chart rate is only readable within the population that could chart, so the rollout state this
+    # run saw rides along with the count. Absent when no research ran to ask.
+    if charts_enabled is not None:
+        properties["charts_enabled"] = charts_enabled
     if failure_reason is not None:
         properties["failure_reason"] = failure_reason
     if pending_reason is not None:
@@ -137,6 +143,9 @@ class ReportDecision:
     charts: list[dict[str, Any]] | None = None
     # Resolved metric payload with the same preserve/replace/clear semantics as charts.
     metrics: list[dict[str, Any]] | None = None
+    # The chart rollout state the research run saw (see `RunAgenticReportOutput.charts_enabled`).
+    # `None` for the no-repo branch, which does no research and so never asks.
+    charts_enabled: bool | None = None
     # Suggested prompts to store with the title/summary. Always `[]`, because every decision carries
     # a freshly written title and summary, and the pipeline does not author prompts yet: whatever a
     # scout suggested was written against the prose this decision replaces, so leaving it would put
@@ -439,6 +448,7 @@ class SignalReportSummaryWorkflow:
                     explanation=agentic_result.explanation,
                     charts=agentic_result.charts,
                     metrics=agentic_result.metrics,
+                    charts_enabled=agentic_result.charts_enabled,
                     pending_reason="agent_requested",
                 )
             if decision.choice == ActionabilityChoice.NOT_ACTIONABLE:
@@ -478,6 +488,7 @@ class SignalReportSummaryWorkflow:
                         charts=decision.charts,
                         metrics=decision.metrics,
                         suggested_prompts=decision.suggested_prompts,
+                        charts_enabled=decision.charts_enabled,
                         pending_reason=decision.pending_reason,
                     ),
                     start_to_close_timeout=timedelta(minutes=1),
@@ -499,6 +510,7 @@ class SignalReportSummaryWorkflow:
                     charts=decision.charts,
                     metrics=decision.metrics,
                     suggested_prompts=decision.suggested_prompts,
+                    charts_enabled=decision.charts_enabled,
                 ),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
@@ -801,6 +813,8 @@ class MarkReportReadyInput:
     # default. The research pipeline passes `[]`: it doesn't author prompts yet, and the ones a
     # scout wrote were written against the summary this transition is replacing.
     suggested_prompts: list[str] | None = None
+    # The chart rollout state the research run saw, for the completion event. Not persisted.
+    charts_enabled: bool | None = None
 
 
 @temporalio.activity.defn
@@ -882,6 +896,7 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
         source_products=input.source_products,
         result="ready",
         chart_count=transition.chart_count,
+        charts_enabled=input.charts_enabled,
     )
     logger.debug(
         f"Marked report {input.report_id} as ready",
@@ -1036,6 +1051,8 @@ class MarkReportPendingInput:
     metrics: list[dict[str, Any]] | None = None
     # See MarkReportReadyInput.suggested_prompts — same transaction, same three states.
     suggested_prompts: list[str] | None = None
+    # See MarkReportReadyInput.charts_enabled — reported, never stored.
+    charts_enabled: bool | None = None
     # Coarse cause of the transition ("repo_selection_required" / "agent_requested"), see
     # ReportDecision.pending_reason.
     pending_reason: str | None = None
@@ -1100,6 +1117,7 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
         result="pending_input",
         pending_reason=input.pending_reason,
         chart_count=transition.chart_count,
+        charts_enabled=input.charts_enabled,
     )
     logger.debug(
         f"Marked report {input.report_id} as pending_input",
