@@ -42,6 +42,7 @@ import { MultiVariantBiasWarning } from './MultiVariantBiasWarning'
 import { PageHeaderCustom } from './PageHeader'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
 import { ResultsNotificationBanner } from './ResultsNotificationBanner'
+import { RetiredMetricsPanel } from './RetiredMetricsPanel'
 import { SettingsTab } from './SettingsTab'
 
 const MetricsTab = (): JSX.Element => {
@@ -51,6 +52,11 @@ const MetricsTab = (): JSX.Element => {
 
     const hasMetrics = orderedPrimaryMetricsWithResults.length > 0 || orderedSecondaryMetricsWithResults.length > 0
     const showRecalculationStatus = !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION] && hasMetrics
+
+    // None of the components below can read the retired query kinds a legacy metric carries.
+    if (isLegacyExperiment(experiment)) {
+        return <RetiredMetricsPanel />
+    }
 
     return (
         <>
@@ -116,12 +122,17 @@ export function ExperimentView(): JSX.Element {
 
     const { activeTabKey, availableTabs } = useValues(experimentSceneLogic)
     const { setActiveTabKey } = useActions(experimentSceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
 
     // Branch to legacy view for legacy experiments
-    if (!experimentLoading && isLegacyExperiment(experiment)) {
+    if (
+        !experimentLoading &&
+        !featureFlags[FEATURE_FLAGS.EXPERIMENTS_LEGACY_VIEW_REMOVED] &&
+        isLegacyExperiment(experiment)
+    ) {
         return <LegacyExperimentView />
     }
 

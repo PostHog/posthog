@@ -2542,6 +2542,14 @@ export const experimentLogic = kea<experimentLogicType>([
                 return
             }
 
+            // A retired metric format has no results view left to fill.
+            if (
+                values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_LEGACY_VIEW_REMOVED] &&
+                isLegacyExperiment(values.experiment)
+            ) {
+                return
+            }
+
             // The setFeatureFlags listener re-runs this refresh if a later flag update contradicts this value.
             cache.branchFlagValue = !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
             cache.lastRefreshArgs = { forceRefresh, triggeredBy, refreshIfStale }
