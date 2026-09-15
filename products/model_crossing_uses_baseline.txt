@@ -671,6 +671,7 @@ product_analytics:backend/hogql_queries/ products.web_analytics.backend.hogql_qu
 product_analytics:backend/hogql_queries/ products.web_analytics.backend.hogql_queries.test.test_first_pageview_attribution_trends drives(TrendsQueryRunner) 2
 product_analytics:backend/hogql_queries/ products.web_analytics.backend.hogql_queries.test.test_page_reports_avg_time drives(TrendsQueryRunner) 1
 product_analytics:backend/hogql_queries/ products.web_analytics.backend.hogql_queries.test.test_sample_web_analytics_queries drives(TrendsQueryRunner) 3
+product_analytics:backend/hogql_queries/ products.web_analytics.backend.hogql_queries.test.test_web_bots_trends_lazy_precompute drives(TrendsQueryRunner) 3
 product_analytics:backend/hogql_queries/ products.web_analytics.backend.hogql_queries.test.test_web_calendar_heatmap_lazy_precompute drives(CalendarHeatmapTrendsQueryRunner) 3
 product_analytics:backend/hogql_queries/ products.web_analytics.backend.hogql_queries.test.test_web_calendar_heatmap_lazy_precompute drives(TrendsQuery) 1
 product_analytics:backend/hogql_queries/ products.web_analytics.backend.hogql_queries.test.test_web_trends_lazy_precompute drives(TrendsQuery) 1
