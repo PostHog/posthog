@@ -47,7 +47,10 @@ def parse_duration(value: Any) -> Optional[ParsedDuration]:
     Returns the parts rather than a total because each caller bounds them differently: a fixed delay
     clamps the amount per unit, an offset keeps its sign, and a conversion window takes the value whole.
     """
-    if not isinstance(value, str) or not _SIGNED_DURATION_REGEX.match(value):
+    # fullmatch, not match: Python's `$` also matches before a final newline, so `match` would accept
+    # "1d\n" and hand "1d" to float() below. The pattern keeps `$` because it is also the OpenAPI
+    # pattern for the `window` field, where `\Z` is not a regex the generated clients can read.
+    if not isinstance(value, str) or not _SIGNED_DURATION_REGEX.fullmatch(value):
         return None
     negative = value.startswith("-")
     body = value[1:] if negative else value
@@ -65,9 +68,12 @@ def is_signed_duration(value: Any) -> bool:
     return parse_duration(value) is not None
 
 
-def duration_minutes(value: str) -> float:
-    """Minutes for a value that has already matched DURATION_PATTERN."""
-    return float(value[:-1]) * MINUTES_PER_DURATION_UNIT[value[-1]]
+def duration_minutes(value: str) -> Optional[float]:
+    """Minutes for an unsigned duration string, or None when it is not one."""
+    parsed = parse_duration(value)
+    if parsed is None or parsed.negative:
+        return None
+    return parsed.amount * MINUTES_PER_DURATION_UNIT[parsed.unit]
 
 
 def duration_error(field: str) -> str:

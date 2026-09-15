@@ -1983,7 +1983,7 @@ class HogFlowConversionSerializer(serializers.Serializer):
         minutes = duration_minutes(value)
         # A zero window measures nothing. The worker cannot honor it either, so it would fall back to
         # the default and give the workflow a 90-day window nobody asked for.
-        if minutes <= 0:
+        if minutes is None or minutes <= 0:
             raise serializers.ValidationError("The conversion window must be longer than zero.")
         if minutes > MAX_CONVERSION_WINDOW_MINUTES:
             raise serializers.ValidationError("The conversion window cannot be longer than 365d.")

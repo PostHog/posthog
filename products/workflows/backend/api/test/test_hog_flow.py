@@ -776,6 +776,8 @@ class TestHogFlowAPI(APIBaseTest):
             # The worker's parser is ASCII-only, so a value Python's `\d` would accept throws on the run.
             ("unicode_digits", {"delay_duration": "\u0665d"}),
             ("negative", {"delay_duration": "-5d"}),
+            # `$` matches before a final newline, so this reached float() and 500ed.
+            ("trailing_newline", {"delay_duration": "1d\n"}),
         ]
     )
     def test_hog_flow_delay_validation_rejects_malformed_config(self, _name, bad_config):
