@@ -363,6 +363,9 @@ def team_skills_version(team: Team) -> str:
 
     Owner rows are deliberately out of scope, so an owner-only PATCH cannot invalidate the
     marketplace repo this version keys. `skills_list_version` covers them for the list endpoint.
+
+    `updated_at` is `auto_now`, which `QuerySet.update()` skips, so any writer changing a
+    list-visible column in place must stamp `updated_at` itself or this version cannot see it.
     """
     latest = LLMSkill.objects.filter(team=team).aggregate(latest=Max("updated_at"))["latest"]
     return compute_plugin_version(_epoch_millis(latest)) if latest is not None else "1.0.0"

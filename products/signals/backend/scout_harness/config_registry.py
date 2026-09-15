@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from django.utils import timezone
+
 import structlog
 from croniter import CroniterError, croniter
 
@@ -90,7 +92,10 @@ def ensure_scout_category(team_id: int, skill_name: str | None = None) -> None:
         rows = rows.filter(name=skill_name)
     else:
         rows = rows.filter(name__in=SignalScoutConfig.objects.for_team(team_id).values_list("skill_name", flat=True))
-    rows.update(category=SCOUT_SKILL_CATEGORY)
+    # `updated_at` is `auto_now`, which `QuerySet.update()` skips. Stamp it explicitly: the skills
+    # list answers conditional requests off `Max(updated_at)`, so without it a client revalidates
+    # onto a cached list that still omits the scout from the Scouts tab.
+    rows.update(category=SCOUT_SKILL_CATEGORY, updated_at=timezone.now())
 
 
 def enabled_scout_count(team_id: int, *, exclude_skill: str | None = None) -> int:

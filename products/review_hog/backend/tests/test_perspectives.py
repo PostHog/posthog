@@ -92,10 +92,15 @@ class TestSyncCanonicalPerspectives(BaseTest):
         # category was renamed) must be re-stamped, or it strands under no Skills-UI tab.
         sync_canonical_perspectives(self.team)
         LLMSkill.objects.filter(team=self.team, name=_LOGIC).update(category="stale_category")
+        stamped_before = LLMSkill.objects.get(team=self.team, name=_LOGIC, is_latest=True).updated_at
 
         sync_canonical_perspectives(self.team)
 
-        assert LLMSkill.objects.get(team=self.team, name=_LOGIC, is_latest=True).category == REVIEW_HOG_SKILL_CATEGORY
+        restamped = LLMSkill.objects.get(team=self.team, name=_LOGIC, is_latest=True)
+        assert restamped.category == REVIEW_HOG_SKILL_CATEGORY
+        # The skills list serves conditional requests off Max(updated_at), so the re-stamp has to
+        # move it. QuerySet.update() skips auto_now, and a revalidated tab would keep the drift.
+        assert restamped.updated_at > stamped_before
 
     def test_leaves_team_edited_row_alone(self) -> None:
         sync_canonical_perspectives(self.team)
