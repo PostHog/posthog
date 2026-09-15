@@ -184,7 +184,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     # other
     "isFinite": HogQLFunctionMeta("isFinite", 1, 1),
     "isInfinite": HogQLFunctionMeta("isInfinite", 1, 1),
-    "ifNotFinite": HogQLFunctionMeta("ifNotFinite", 1, 1),
+    "ifNotFinite": HogQLFunctionMeta("ifNotFinite", 2, 2),
     "isNaN": HogQLFunctionMeta("isNaN", 1, 1),
     "bar": HogQLFunctionMeta("bar", 4, 4),
     "transform": HogQLFunctionMeta("transform", 3, 4),
