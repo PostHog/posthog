@@ -480,6 +480,7 @@
                                 },
                                 "json_parse_logs_attribute_key": {
                                     "description": "Literal log attribute key to parse as JSON, at most 200 characters after trimming whitespace. An empty string disables parsing.",
+                                    "pattern": "^\\s*[\\s\\S]{0,200}\\s*$",
                                     "type": "string"
                                 },
                                 "pii_scrub_logs": {
@@ -489,7 +490,19 @@
                                 "retention_days": {
                                     "anyOf": [
                                         {
-                                            "type": "number"
+                                            "anyOf": [
+                                                {
+                                                    "const": 14,
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "const": 30,
+                                                    "type": "number"
+                                                }
+                                            ]
+                                        },
+                                        {
+                                            "type": "null"
                                         },
                                         {
                                             "type": "null"

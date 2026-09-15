@@ -1207,6 +1207,8 @@ def _get_organization_for_logs_settings_check(serializer: serializers.BaseSerial
                     "json_parse_logs": {"type": "boolean", "description": "Extract JSON fields from new log bodies."},
                     "json_parse_logs_attribute_key": {
                         "type": "string",
+                        # OpenAPI cannot trim input; allow padding outside the normalized length limit.
+                        "pattern": r"^\s*[\s\S]{0,200}\s*$",
                         "description": "Literal log attribute key to parse as JSON, at most 200 characters after trimming whitespace. An empty string disables parsing.",
                     },
                     "pii_scrub_logs": {
@@ -1215,6 +1217,7 @@ def _get_organization_for_logs_settings_check(serializer: serializers.BaseSerial
                     },
                     "retention_days": {
                         "type": "integer",
+                        "enum": [14, 30, None],
                         "nullable": True,
                         "description": "Log retention in days: 14 or 30. Paid retention requires the matching entitlement.",
                     },

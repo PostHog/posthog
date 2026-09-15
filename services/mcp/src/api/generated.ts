@@ -51298,20 +51298,28 @@ export namespace Schemas {
       series: LogsSeriesBandSeries[];
     }
 
+    export type RetentionDaysEnum = typeof RetentionDaysEnum[keyof typeof RetentionDaysEnum];
+
+
+    export const RetentionDaysEnum = {
+      Number14: 14,
+      Number30: 30,
+    } as const;
+
     export type LogsSettings = { [key: string]: unknown } & ({
       /** Capture browser console logs through the PostHog SDK. */
       capture_console_logs?: boolean;
       /** Extract JSON fields from new log bodies. */
       json_parse_logs?: boolean;
-      /** Literal log attribute key to parse as JSON, at most 200 characters after trimming whitespace. An empty string disables parsing. */
+      /**
+         * Literal log attribute key to parse as JSON, at most 200 characters after trimming whitespace. An empty string disables parsing.
+         * @pattern ^\s*[\s\S]{0,200}\s*$
+         */
       json_parse_logs_attribute_key?: string;
       /** Redact supported PII patterns before storing new logs. */
       pii_scrub_logs?: boolean;
-      /**
-         * Log retention in days: 14 or 30. Paid retention requires the matching entitlement.
-         * @nullable
-         */
-      retention_days?: number | null;
+      /** Log retention in days: 14 or 30. Paid retention requires the matching entitlement. */
+      retention_days?: RetentionDaysEnum | null;
       /**
          * Timestamp of the last retention change, used to limit how often retention can change.
          * @nullable

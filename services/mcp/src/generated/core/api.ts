@@ -66,6 +66,9 @@ export const organizationsProjectsPartialUpdateBodySessionRecordingTriggerMatchT
 
 export const organizationsProjectsPartialUpdateBodyRecordingDomainsItemMax = 200
 
+export const organizationsProjectsPartialUpdateBodyLogsSettingsOneTwoJsonParseLogsAttributeKeyRegExp = new RegExp(
+    '^\\s\*[\\s\\S]{0,200}\\s\*$'
+)
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemOneOperatorDefault = `exact`
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemOneTypeDefault = `event`
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemTwoTypeDefault = `person`
@@ -287,6 +290,9 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                         json_parse_logs: zod.boolean().optional().describe('Extract JSON fields from new log bodies.'),
                         json_parse_logs_attribute_key: zod
                             .string()
+                            .regex(
+                                organizationsProjectsPartialUpdateBodyLogsSettingsOneTwoJsonParseLogsAttributeKeyRegExp
+                            )
                             .optional()
                             .describe(
                                 'Literal log attribute key to parse as JSON, at most 200 characters after trimming whitespace. An empty string disables parsing.'
@@ -296,8 +302,8 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                             .optional()
                             .describe('Redact supported PII patterns before storing new logs.'),
                         retention_days: zod
-                            .number()
-                            .nullish()
+                            .union([zod.union([zod.literal(14), zod.literal(30)]), zod.null(), zod.null()])
+                            .optional()
                             .describe(
                                 'Log retention in days: 14 or 30. Paid retention requires the matching entitlement.'
                             ),
