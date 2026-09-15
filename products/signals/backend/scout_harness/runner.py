@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import time
 import asyncio
 import logging
@@ -118,11 +119,24 @@ _CRON_WINDOW_DST_SLACK_MINUTES = 120
 # runner, prompt builder, and viewset all resolve the same opt-in set.
 
 
-# `blocked_on` reaches an exception message and an analytics property, so the model's list is
-# bounded here rather than trusted — an unbounded one would push the run-finished event over its
-# property budget.
+# `blocked_on` reaches an exception message, a worker log, and an analytics property, so the
+# model's list is bounded and shape-checked here rather than trusted. An unbounded list would push
+# the run-finished event over its property budget, and free prose in it would carry text the model
+# read inside the project out into fleet telemetry. `normalize_tags` holds an agent's tags to a
+# grammar for the same reason before they become a queryable value.
 MAX_BLOCKED_ON_TOOLS = 10
 MAX_BLOCKED_ON_TOOL_LENGTH = 80
+
+# What a tool name looks like on the interfaces a run reaches: kebab-case harness and PostHog tools
+# (`scout-runs-list`), snake_case sandbox tools (`emit_signal`), the `mcp__<server>__<tool>` form,
+# and the `posthog:<tool>` namespaced spelling. The grammar holds no whitespace, so no sentence can
+# pass it.
+_BLOCKED_ON_TOOL_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]*")
+
+# A model that writes a name into a list wraps it in markdown emphasis, or in the punctuation of the
+# sentence it lifted the name out of. That is still a name the run reported, so it is unwrapped
+# before the grammar test rather than dropped.
+_BLOCKED_ON_TOOL_WRAPPERS = " \t\r\n`'\"*()[]{}<>,.;:!?"
 
 # The stable `error_category` a tools-unavailable run is booked under. Named apart from the agent's
 # own categories (`_failure_properties`) because no agent turn failed: the turn succeeded and the
@@ -146,12 +160,19 @@ class ScoutToolsUnavailable(Exception):
 
 
 def _blocked_on_tools(raw: list[str]) -> list[str]:
-    """The tools a close-out reported it could not call, trimmed of the shapes a model produces.
+    """The tools a close-out reported it could not call, held to the shape of a tool name.
 
-    A blank or whitespace-only entry resolves away rather than booking a failure whose message names
-    nothing, so a close-out that carries only those finishes the run as it would have.
+    An entry that names no tool resolves away rather than booking a failure whose message names
+    nothing the fleet can count, so a close-out that carries only those finishes the run as it would
+    have. That covers a blank entry and prose alike: the value is model output written after the run
+    read project content, and it reaches the run-finished event, so an entry the harness cannot read
+    as one tool name must not ride out on it.
     """
-    tools = [tool.strip()[:MAX_BLOCKED_ON_TOOL_LENGTH] for tool in raw if tool.strip()]
+    tools: list[str] = []
+    for entry in raw:
+        name = entry.strip(_BLOCKED_ON_TOOL_WRAPPERS)
+        if _BLOCKED_ON_TOOL_NAME.fullmatch(name):
+            tools.append(name[:MAX_BLOCKED_ON_TOOL_LENGTH])
     return tools[:MAX_BLOCKED_ON_TOOLS]
 
 

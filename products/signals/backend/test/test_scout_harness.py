@@ -2176,11 +2176,38 @@ async def test_quiet_run_still_completes(ateam, aerrors_skill):
     assert run_result.status == TaskRun.Status.COMPLETED.value
 
 
-@parameterized.expand([("empty", []), ("blank_entries", ["  ", "\t\n"])])
-def test_blocked_on_tools_drops_entries_that_name_nothing(_name: str, raw: list[str]) -> None:
+@parameterized.expand(
+    [
+        ("empty", []),
+        ("blank_entries", ["  ", "\t\n"]),
+        ("prose", ["the exec interface exposed no scout tools"]),
+        ("name_with_a_prose_tail", ["skill-get (and every other scout tool)"]),
+        ("comma_joined_names", ["skill-get, scout-project-profile-get"]),
+    ]
+)
+def test_blocked_on_tools_drops_entries_that_name_no_tool(_name: str, raw: list[str]) -> None:
     # A close-out naming nothing usable must let the run finish as it would have, rather than book a
-    # failure whose message names no tool.
+    # failure whose message names no tool. Prose counts as unusable: the value is model output
+    # written after the run read project content, and it rides onto the run-finished event.
     assert _blocked_on_tools(raw) == []
+
+
+@parameterized.expand(
+    [
+        ("kebab_case", "scout-runs-list", "scout-runs-list"),
+        ("snake_case", "emit_signal", "emit_signal"),
+        ("mcp_interface", "mcp__posthog__exec", "mcp__posthog__exec"),
+        ("namespaced", "posthog:skill-get", "posthog:skill-get"),
+        ("backticked", "`skill-get`", "skill-get"),
+        ("markdown_emphasis", "**skill-get**", "skill-get"),
+        ("trailing_punctuation", "skill-get.", "skill-get"),
+    ]
+)
+def test_blocked_on_tools_keeps_a_reported_tool_name(_name: str, raw: str, expected: str) -> None:
+    # The other half of the grammar: every name a run can legitimately report has to survive it,
+    # including the wrappers a model puts around a name it writes into a list. A name dropped here
+    # is a blocked run booked as a quiet one, which is the regression this run shape exists to fix.
+    assert _blocked_on_tools([raw]) == [expected]
 
 
 def test_blocked_on_tools_caps_a_runaway_list() -> None:
