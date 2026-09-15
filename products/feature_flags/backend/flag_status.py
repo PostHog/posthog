@@ -67,7 +67,7 @@ def exclude_archived_unless_requested(queryset: QuerySet, *, requested: bool) ->
     return queryset
 
 
-def filter_stale_flags(queryset: QuerySet) -> QuerySet:
+def filter_stale_flags(queryset: QuerySet, *, stale_threshold: datetime | None = None) -> QuerySet:
     """
     Narrow a FeatureFlag queryset to the flags that count as stale.
 
@@ -78,14 +78,18 @@ def filter_stale_flags(queryset: QuerySet) -> QuerySet:
     They do not agree yet, on two shapes. First, the checker calls a flag with no release
     conditions fully rolled out, so `filters` of `{"groups": []}` (the model default) is STALE
     to the checker and not stale here; the config branch below matches an empty `filters` only
-    as `NULL` or `{}`. Second, the checker reads a group that omits the `properties` key, e.g.
-    `{"groups": [{"rollout_percentage": 100}]}`, as an empty targeting list and calls it STALE,
-    while the config branch requires a literal `[]` and Postgres `->` returns NULL for the
-    absent key, so no branch matches. The editor and the filters serializer now write
-    `properties: []`, so only unedited legacy rows hold the second shape.
+    as `NULL` or `{}`. Second, the checker reads a group whose `properties` key is absent or
+    stored as JSON null, e.g. `{"groups": [{"rollout_percentage": 100}]}`, as an empty targeting
+    list and calls it STALE, while the config branch requires a literal `[]` and matches neither
+    shape. The editor and the filters serializer now write `properties: []`, so only unedited
+    legacy rows hold the second shape.
     `test_stale_filter_agrees_with_status_checker` covers the shapes where the two do agree.
 
     The caller supplies the scope, so pass a queryset already narrowed to the team.
+
+    Pass `stale_threshold` to hold one detection run to one cutoff, the same way
+    `filter_effectively_full_rollout_flags` takes it. Without it the function reads the clock
+    itself, which is what the `active=STALE` filter wants.
 
     The config branch's raw SQL rides on `.extra(where=...)`, and that clause stays on that
     branch when the two querysets are OR-combined below. Applied to the combined query, it
@@ -105,7 +109,8 @@ def filter_stale_flags(queryset: QuerySet) -> QuerySet:
     # Get stale flags using the best available signal:
     # 1. If last_called_at exists: flag hasn't been called in 30+ days
     # 2. If last_called_at is NULL: flag is 100% rolled out and 30+ days old
-    stale_threshold = stale_flag_threshold()
+    if stale_threshold is None:
+        stale_threshold = stale_flag_threshold()
     usage_based_stale = Q(last_called_at__lt=stale_threshold, active=True)
     # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
     config_based_queryset = queryset.filter(
@@ -155,6 +160,74 @@ def filter_stale_flags(queryset: QuerySet) -> QuerySet:
         ]
     )
     return queryset.filter(usage_based_stale) | config_based_queryset
+
+
+def filter_effectively_full_rollout_flags(queryset: QuerySet, *, stale_threshold: datetime | None = None) -> QuerySet:
+    """
+    Narrow a FeatureFlag queryset to the flags whose configuration can only serve one result.
+
+    Rollout completeness is not staleness. `filter_stale_flags` keeps that job and nothing
+    user-visible reads this.
+
+    The predicate also filters on flag age and call recency. Both narrow the result to what the
+    only caller wants rather than to what the name says: a flag younger than the threshold is not
+    a cleanup candidate, and a flag that went cold is already a `filter_stale_flags` row. A caller
+    that wants rollout completeness on its own must not reuse this filter unchanged.
+
+    This is a prefilter, not a verdict. The SQL matches a release condition at an explicit 100%
+    with no properties, which every branch of `FeatureFlagStatusChecker.is_flag_fully_rolled_out`
+    needs, boolean and multivariate alike. A multivariate flag also needs a winning variant or a
+    variant override on that condition, which this does not test, so the caller must confirm each
+    row with `is_flag_fully_rolled_out` before it treats the flag as fully rolled out.
+
+    A group that omits the `properties` key, or stores it as JSON null, counts as having no
+    properties, because `is_group_fully_rolled_out` reads both that way. Postgres `->` returns
+    SQL NULL for the absent key and the jsonb scalar `null` for the stored null, so the predicate
+    tests for each separately. The `filter_stale_flags` configuration branch requires a literal
+    `[]` and therefore misses both legacy rows; matching them here lets the confirmation step
+    decide.
+
+    `jsonb_array_elements` raises on a value that is not an array, and the error aborts the whole
+    statement, so a single legacy row storing `groups` as a scalar would take down the batch for
+    every team in it. The `jsonb_typeof` test runs first and keeps that row out instead.
+
+    Flags with no release conditions at all (`filters` NULL, `{}`, or `{"groups": []}`) stay out,
+    although the checker calls them fully rolled out. `{"groups": []}` is the model default, so
+    matching it would report every flag in a project that nobody has configured.
+
+    Pass `stale_threshold` to hold one detection run to one cutoff. Without it the function reads
+    the clock itself, and a caller that reads the clock again later can classify a flag on the
+    boundary against a different instant than the one that selected it.
+
+    See `filter_stale_flags` for the `.extra(where=...)` composition trap, which applies here too.
+    """
+    if stale_threshold is None:
+        stale_threshold = stale_flag_threshold()
+    # A flag that is fully rolled out and cold is already a `filter_stale_flags` candidate, so
+    # leave those rows to that query rather than fetch and discard them once per batch. Spelled
+    # as a positive filter because `exclude(last_called_at__lt=...)` on a nullable column is a
+    # known footgun, and a flag with no call data must stay in.
+    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
+    return queryset.filter(
+        Q(last_called_at__isnull=True) | Q(last_called_at__gte=stale_threshold),
+        active=True,
+        created_at__lt=stale_threshold,
+    ).extra(
+        where=[
+            """
+            jsonb_typeof(posthog_featureflag.filters->'groups') = 'array'
+            AND EXISTS (
+                SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
+                WHERE elem->>'rollout_percentage' = '100'
+                AND (
+                    (elem->'properties')::text = '[]'::text
+                    OR elem->'properties' IS NULL
+                    OR jsonb_typeof(elem->'properties') = 'null'
+                )
+            )
+            """
+        ]
+    )
 
 
 def filter_flags_by_active_param(queryset: QuerySet, value: str | bool) -> QuerySet:
@@ -371,7 +444,10 @@ class FeatureFlagStatusChecker:
 
     def is_group_fully_rolled_out(self, group: dict) -> bool:
         rollout_percentage = group.get("rollout_percentage")
-        properties = group.get("properties", [])
+        # A `properties` key stored as JSON null means no targeting, the same as an absent key.
+        # The matcher's field is `Option<Vec<PropertyFilter>>` and the filters serializer
+        # normalizes null to `[]`, so only legacy rows still hold the null.
+        properties = group.get("properties") or []
         return rollout_percentage == 100 and len(properties) == 0
 
     def is_boolean_flag_fully_rolled_out(self, flag: FeatureFlag) -> bool:
@@ -387,7 +463,7 @@ class FeatureFlagStatusChecker:
         # The fully rolled out release condition must have no properties set.
         for release_condition in release_conditions:
             rollout_percentage = release_condition.get("rollout_percentage")
-            properties = release_condition.get("properties", [])
+            properties = release_condition.get("properties") or []
             if rollout_percentage == 100 and len(properties) == 0:
                 logger.debug(f"Boolean flag {flag.id} has a release conditions rolled out to 100%")
                 return True
