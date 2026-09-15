@@ -7,7 +7,7 @@ use metrics::histogram;
 use uuid::Uuid;
 
 use super::constants::{
-    CAPTURE_V1_DISTINCT_ID_MAX_SIZE, CAPTURE_V1_EVENTS_DROPPED,
+    AI_LANE_NAME_PREFIX, CAPTURE_V1_DISTINCT_ID_MAX_SIZE, CAPTURE_V1_EVENTS_DROPPED,
     CAPTURE_V1_EVENTS_REROUTED_HISTORICAL, CAPTURE_V1_EVENTS_RESTRICTED,
     CAPTURE_V1_EVENT_ADJUSTMENTS_APPLIED, CAPTURE_V1_MAX_EVENT_NAME_LENGTH,
     CAPTURE_V1_OVERFLOW_ROUTED, CAPTURE_V1_PARSED_EVENTS, CAPTURE_V1_PROCESSING_DURATION_SECONDS,
@@ -21,7 +21,7 @@ use super::types::{Batch, Event, EventResult, Options, WrappedEvent};
 use crate::event_restrictions::{EventContext, EventRestrictionService};
 use crate::events::ai_byte_limit::charge_ai_bytes;
 use crate::global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter};
-use crate::v0_request::{exceeds_max_ai_event_bytes, is_ai_event};
+use crate::v0_request::exceeds_max_ai_event_bytes;
 use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
 use tracing::Level;
 
@@ -46,16 +46,30 @@ use common_ingestion_warnings::{
 /// (extractHeatmapDataStep) handles extraction when `skip_heatmap_processing` is unset
 /// in Kafka headers — removing that fallback would break scroll-depth heatmaps for v1.
 ///
-/// AI events (per [`is_ai_event`]) are diverted to `Destination::AiEvents` on
-/// every deployment.
+/// AI events (per [`is_ai_lane_name`]) are diverted to `Destination::AiEvents`
+/// on every deployment.
 fn destination_for_event_name(name: &str) -> Destination {
     match name {
         "$exception" => Destination::ExceptionErrorTracking,
         "$$heatmap" => Destination::HeatmapMain,
         "$$client_ingestion_warning" => Destination::ClientIngestionWarning,
-        _ if is_ai_event(name) => Destination::AiEvents,
+        _ if is_ai_lane_name(name) => Destination::AiEvents,
         _ => Destination::AnalyticsMain,
     }
+}
+
+/// Whether an event name belongs to the AI lane.
+///
+/// The prefix rather than v0's [`is_ai_event`] allowlist, because
+/// `quota_limiters::is_llm_event` already charges every `$ai_`-prefixed name to
+/// the LLM meter, and a v1 client picking an endpoint per event cannot hold a
+/// copy of the allowlist without drifting from it.
+///
+/// v0 keeps the allowlist, so the two disagree for a prefixed name off it. The
+/// AI ingestion pipeline drops what that allowlist does not cover, so it must
+/// admit the prefix before a client sends such a name to `/i/v1/ai/events`.
+fn is_ai_lane_name(name: &str) -> bool {
+    name.starts_with(AI_LANE_NAME_PREFIX)
 }
 
 /// Run the batch through the pipeline, then report its drops and build the
@@ -856,33 +870,24 @@ async fn apply_restrictions(
     }
 }
 
-/// Drop every event an AI-mode deployment was sent that is not on the AI lane.
-///
-/// capture-ai loads only the AI restriction slice (`Pipeline::for_capture_mode`),
-/// so an analytics, exception, or heatmap event reaching it would ingest
-/// governed by nothing. Refusing it is what keeps "which restrictions apply"
-/// answerable from the event name alone, on every deployment. Only the
-/// offenders drop, since v1 reports per-event outcomes; the v0 path on this
-/// deployment rejects the whole request (`CaptureError::NonAiEventOnAiLane`)
-/// because its contract has no way to say less. The gate runs before quota and
 /// Drop events posted to the wrong lane's endpoint, in whichever direction
 /// this deployment can be wrong about.
 ///
-/// `serves_ai_lane` is the lane this deployment exists to serve, so an event
-/// is misrouted exactly when `on_ai_lane` disagrees with it. capture-ai drops
-/// analytics events; capture-analytics drops AI-lane events. Neither can
-/// forward to the other -- they produce to different Kafka clusters -- so a
-/// drop with a customer-visible warning is the whole remedy available here.
+/// `serves_ai_lane` is the lane this deployment exists to serve, so an event is
+/// misrouted exactly when `on_ai_lane` disagrees with it. The two deployments
+/// produce to different Kafka clusters and cannot forward to each other, so a
+/// drop with a customer-visible warning is the whole remedy available here. The
+/// v0 path on an AI deployment rejects the whole request instead
+/// (`CaptureError::NonAiEventOnAiLane`), because its contract has no way to say
+/// less.
 ///
-/// The gate on capture-ai also carries a governance reason: that deployment
-/// loads only the AI restriction slice, so an analytics event surviving there
+/// capture-ai also needs this for governance: it loads only the AI restriction
+/// slice (`Pipeline::for_capture_mode`), so an analytics event surviving there
 /// would ingest governed by nothing.
 ///
-/// Gate on the event name, not the destination: `on_ai_lane` documents why the
-/// destination is the wrong question. `should_publish` rather than
-/// `result == Ok` so a Warning event -- which also publishes -- cannot ride the
-/// wrong lane out. Neither case is reachable at this point today; both make the
-/// gate correct on its own terms rather than on its position in the pipeline.
+/// The gate runs before quota and restrictions, so a refused event spends
+/// neither. It tests `should_publish` rather than `result == Ok` so a Warning
+/// event, which also publishes, cannot ride the wrong lane out.
 fn drop_misrouted_events(
     state: &router::State,
     context: &Context,
@@ -916,11 +921,10 @@ fn drop_misrouted_events(
     // One reason for both directions: the emitting deployment already
     // distinguishes them on every metric series.
     metrics::counter!(CAPTURE_V1_EVENTS_DROPPED, "reason" => "misrouted_event").increment(dropped);
-    // DEBUG, not WARN: a client posting to the wrong endpoint is not an
-    // operator problem, and the SDKs route on the `$ai_` prefix while the lane
-    // is the narrower name allowlist, so it is expected to fire at client
-    // volume. The counter above carries the alerting signal and the warning
-    // below tells the project owner.
+    // DEBUG, not WARN: a client posting to the wrong endpoint is a client
+    // problem, not an operator one, and it is expected to fire at client volume
+    // while callers migrate onto the per-lane endpoints. The counter above
+    // carries the alerting signal and the warning below tells the project owner.
     crate::ctx_log!(
         Level::DEBUG,
         context,
@@ -956,10 +960,13 @@ fn drop_misrouted_events(
 /// operator redirected: `force_overflow` retargets an AI event to
 /// `AiEventsOverflow`, which is still the AI lane, and a `redirect_to_topic`
 /// or DLQ restriction moves it off `AiEvents` without taking it off the wire.
-/// The allowlist is the same source v0 stamps `DataType::AiEvents` from, so
-/// both pipelines charge and measure the same set.
+/// The name is the stable answer, so the gate, the size ceiling and the byte
+/// budget all charge and measure the same set no matter where an operator
+/// pointed an event.
+///
+/// See [`is_ai_lane_name`] for why membership is the `$ai_` prefix on v1.
 fn on_ai_lane(event: &WrappedEvent) -> bool {
-    is_ai_event(&event.event.event)
+    is_ai_lane_name(&event.event.event)
 }
 
 /// Drop AI-lane events past the deployment's per-event size ceiling.
@@ -2377,16 +2384,18 @@ mod tests {
     #[case("$pageview", Destination::AnalyticsMain)]
     #[case("custom_event", Destination::AnalyticsMain)]
     #[case("$autocapture", Destination::AnalyticsMain)]
-    // Allowlisted AI events divert on every deployment.
+    // Every $ai_ prefixed name diverts, listed by v0 or not. The v0 mapping
+    // test asserts the unlisted three stay on Main there.
     #[case("$ai_generation", Destination::AiEvents)]
     #[case("$ai_span", Destination::AiEvents)]
     #[case("$ai_trace", Destination::AiEvents)]
     #[case("$ai_generation_summary", Destination::AiEvents)]
-    // $ai_ prefixed names absent from the allowlist stay on Main so the
-    // ingestion AI pipeline doesn't DLQ them.
-    #[case("$ai_call", Destination::AnalyticsMain)]
-    #[case("$ai_generation_enriched", Destination::AnalyticsMain)]
-    #[case("$ai_model_failover", Destination::AnalyticsMain)]
+    #[case("$ai_call", Destination::AiEvents)]
+    #[case("$ai_generation_enriched", Destination::AiEvents)]
+    #[case("$ai_model_failover", Destination::AiEvents)]
+    #[case("ai_generation", Destination::AnalyticsMain)]
+    #[case("$ainotcounted", Destination::AnalyticsMain)]
+    #[case("my$ai_event", Destination::AnalyticsMain)]
     fn destination_for_event_name_mapping(#[case] event_name: &str, #[case] expected: Destination) {
         assert_eq!(destination_for_event_name(event_name), expected);
     }
@@ -4486,18 +4495,18 @@ mod tests {
         });
     }
 
-    /// Lane membership is the `AI_EVENT_NAMES` allowlist, so an `$ai_`-prefixed
-    /// name that is not on it is dropped like any other non-AI event; the Node
-    /// AI pipeline would DLQ it anyway.
+    /// Lane membership is the `$ai_` prefix, so a prefixed name v0 does not
+    /// list is accepted here like any other AI event.
     #[rstest::rstest]
-    #[case::allowlisted("$ai_generation", EventResult::Ok)]
-    #[case::allowlisted_span("$ai_span", EventResult::Ok)]
-    #[case::prefixed_but_unlisted("$ai_not_a_real_event", EventResult::Drop)]
+    #[case::listed_by_v0("$ai_generation", EventResult::Ok)]
+    #[case::listed_by_v0_span("$ai_span", EventResult::Ok)]
+    #[case::prefixed_but_unlisted("$ai_not_a_real_event", EventResult::Ok)]
     #[case::analytics("$pageview", EventResult::Drop)]
     #[case::exception("$exception", EventResult::Drop)]
     #[case::heatmap("$$heatmap", EventResult::Drop)]
+    #[case::prefix_is_not_a_substring("my$ai_event", EventResult::Drop)]
     #[tokio::test]
-    async fn ai_mode_gates_on_the_ai_event_allowlist(
+    async fn ai_mode_gates_on_the_ai_name_prefix(
         #[case] event_name: &str,
         #[case] expected: EventResult,
     ) {
@@ -4520,32 +4529,33 @@ mod tests {
     /// `process_batch`: an AI-lane name is refused, everything else publishes,
     /// and the refusal does not take the rest of the batch with it.
     ///
-    /// `$ai_cache_usage` is the case that keeps this honest. It is `$ai_`
-    /// prefixed but off the allowlist, so it is an ordinary analytics event and
-    /// must publish -- roughly 309K events/day across production carry names
-    /// like it. A gate keyed on the prefix rather than the allowlist would drop
-    /// them all.
+    /// `$ai_cache_usage` is prefixed but absent from v0's list, so refusing it
+    /// alongside `$ai_generation` is what distinguishes a prefix gate from an
+    /// allowlist gate.
     #[tokio::test]
     async fn events_mode_refuses_ai_lane_events_and_publishes_the_rest() {
         let ts = TestStateBuilder::new().build();
         let mut ctx = test_utils::test_analytics_context();
         let ai_event = named_event("$ai_generation");
         let ai_uuid = ai_event.uuid.clone();
+        let prefixed_unlisted = named_event("$ai_cache_usage");
+        let prefixed_unlisted_uuid = prefixed_unlisted.uuid.clone();
         let batch = valid_batch(vec![
             ai_event,
             named_event("$pageview"),
             named_event("$exception"),
-            named_event("$ai_cache_usage"),
+            prefixed_unlisted,
         ]);
 
         let resp = process_batch(&ts.state, &mut ctx, batch).await.unwrap();
 
         for (uuid, entry) in resp.entries() {
-            if uuid.to_string() == ai_uuid {
+            let uuid = uuid.to_string();
+            if uuid == ai_uuid || uuid == prefixed_unlisted_uuid {
                 assert_eq!(
                     entry.result,
                     EventResult::Drop,
-                    "an AI-lane name does not belong on the analytics endpoint"
+                    "no $ai_ name belongs on the analytics endpoint"
                 );
                 assert_eq!(entry.details, Some(DETAIL_MISROUTED_EVENT));
             } else {
@@ -4558,7 +4568,7 @@ mod tests {
             }
         }
         ts.mock_producer.with_records(|records| {
-            assert_eq!(records.len(), 3, "only the AI-lane event is withheld");
+            assert_eq!(records.len(), 2, "both $ai_ names are withheld");
             assert!(
                 records.iter().all(|r| r.topic != "ai_events"),
                 "the analytics deployment publishes nothing to the AI topic on v1"
@@ -4580,7 +4590,7 @@ mod tests {
         let batch = valid_batch(vec![
             named_event("$pageview"),
             named_event("$exception"),
-            named_event("$ai_not_a_real_event"),
+            named_event("$$heatmap"),
         ]);
 
         let resp = process_batch(&ts.state, &mut ctx, batch).await.unwrap();
@@ -4651,15 +4661,13 @@ mod tests {
         EventResult::Drop,
         Some(DETAIL_MISROUTED_EVENT)
     )]
-    // Prefixed but off the allowlist: an ordinary analytics event on both
-    // lanes, so the AI lane refuses it and the analytics lane keeps it.
-    #[case::ai_lane_drops_prefixed_unlisted(
-        true,
+    #[case::ai_lane_keeps_prefixed_unlisted(true, "$ai_cache_usage", EventResult::Ok, None)]
+    #[case::analytics_lane_drops_prefixed_unlisted(
+        false,
         "$ai_cache_usage",
         EventResult::Drop,
         Some(DETAIL_MISROUTED_EVENT)
     )]
-    #[case::analytics_lane_keeps_prefixed_unlisted(false, "$ai_cache_usage", EventResult::Ok, None)]
     #[tokio::test]
     async fn the_gate_drops_only_the_other_lane_s_events(
         #[case] serves_ai_lane: bool,

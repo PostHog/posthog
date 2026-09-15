@@ -70,6 +70,10 @@ pub(super) const DETAIL_EVENT_RESTRICTION_DROP: &str = "event_restriction_drop";
 /// were not flagged `historical_migration: true`.
 pub(super) const DETAIL_NON_HISTORICAL_DROP: &str = "non_historical_import_drop";
 
+/// Name prefix that puts an event on the AI lane. `process::is_ai_lane_name`
+/// documents why v1 gates on the prefix while v0 keeps its name allowlist.
+pub(super) const AI_LANE_NAME_PREFIX: &str = "$ai_";
+
 /// Detail tag for an event posted to the wrong capture endpoint, in either
 /// direction: an AI-lane event name on `/i/v1/analytics/events`, or a
 /// non-AI-lane name on `/i/v1/ai/events`. One tag covers both because the

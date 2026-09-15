@@ -109,9 +109,8 @@ async fn v1_http_single_event_to_kafka() -> Result<()> {
 /// per-event, while the rest of the batch still publishes.
 ///
 /// `$ai_cache_usage` is deliberately in the batch: `$ai_`-prefixed but off the
-/// allowlist, so it is an ordinary analytics event and must survive. Production
-/// carries roughly 309K events/day under names like it, so a gate keyed on the
-/// prefix rather than the allowlist would be a mass drop.
+/// name list v0 routes by. It is refused here alongside `$ai_generation`, which
+/// is what proves the endpoint gates on the prefix rather than that list.
 #[tokio::test]
 async fn v1_http_analytics_endpoint_refuses_ai_lane_events() -> Result<()> {
     setup_tracing();
@@ -134,28 +133,25 @@ async fn v1_http_analytics_endpoint_refuses_ai_lane_events() -> Result<()> {
     );
 
     let body = parse_body(res).await;
-    assert_eq!(
-        body["results"][ai_uuid.as_str()]["result"],
-        "drop",
-        "an AI-lane name does not belong on the analytics endpoint: {body}"
-    );
-    assert_eq!(
-        body["results"][ai_uuid.as_str()]["details"],
-        "misrouted_event",
-        "the drop must name the reason so the caller can fix the routing: {body}"
-    );
-    for uuid in [prefixed_uuid.as_str(), analytics_uuid.as_str()] {
+    for uuid in [ai_uuid.as_str(), prefixed_uuid.as_str()] {
         assert_eq!(
-            body["results"][uuid]["result"], "ok",
-            "the rest of the batch is unaffected: {body}"
+            body["results"][uuid]["result"], "drop",
+            "no $ai_ name belongs on the analytics endpoint: {body}"
+        );
+        assert_eq!(
+            body["results"][uuid]["details"], "misrouted_event",
+            "the drop must name the reason so the caller can fix the routing: {body}"
         );
     }
+    assert_eq!(
+        body["results"][analytics_uuid.as_str()]["result"],
+        "ok",
+        "the rest of the batch is unaffected: {body}"
+    );
 
-    // Only the two accepted events reach Kafka, in submission order.
+    // Only the analytics event reaches Kafka.
     let first: CapturedEvent = serde_json::from_value(topic.next_event()?)?;
-    assert_eq!(first.event, "$ai_cache_usage");
-    let second: CapturedEvent = serde_json::from_value(topic.next_event()?)?;
-    assert_eq!(second.event, "$pageview");
+    assert_eq!(first.event, "$pageview");
     topic.assert_empty();
     Ok(())
 }
