@@ -709,9 +709,11 @@ class UserSerializer(serializers.ModelSerializer):
             validated_data["current_team"] = current_team
             validated_data["current_organization"] = current_team.organization
 
+        # `validate_email` returns the stored address unchanged when nothing but the case differs,
+        # so a difference here is a real change and has to reach verification.
         if (
             "email" in validated_data
-            and validated_data["email"].lower() != instance.email.lower()
+            and validated_data["email"] != EmailNormalizer.normalize(instance.email)
             and is_email_available()
         ):
             new_email = validated_data["email"]

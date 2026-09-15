@@ -1036,6 +1036,24 @@ class TestUserAPI(APIBaseTest):
         self.user.refresh_from_db()
         assert self.user.email == "beta@example.com"
 
+    @patch("posthog.api.user.is_email_available", return_value=True)
+    @patch("posthog.api.email_verification.send_email_verification_code")
+    def test_email_edit_differing_by_a_non_ascii_capital_still_needs_verification(
+        self, mock_send_code, _mock_is_email_available
+    ):
+        # Python lowercases `É`, so a guard that compares on `str.lower()` reads this edit as
+        # unchanged and writes it straight to `email`, with no code and no SSO check.
+        self.user.email = "bill@josé.example"
+        self.user.save()
+
+        response = self.client.patch("/api/users/@me/", {"email": "bill@JOSÉ.example"})
+
+        assert response.status_code == status.HTTP_200_OK
+        self.user.refresh_from_db()
+        assert self.user.email == "bill@josé.example"
+        assert self.user.pending_email == "bill@josÉ.example"
+        mock_send_code.assert_called_once()
+
     @parameterized.expand([("email_configured", True), ("no_email_configured", False)])
     def test_email_change_rejected_when_a_deactivated_account_holds_the_folded_address(self, _name, email_available):
         self.user.email = "alpha@example.com"

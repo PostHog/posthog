@@ -19,6 +19,12 @@ def flagged_on_a_queryset(queryset, email: str):
     return queryset.filter(email__iexact=email).first()
 
 
+def flagged_exact_match(email: str):
+    # An exact match misses every address that folds onto the same account.
+    # ruleid: user-email-lookups-use-the-shared-fold
+    return User.objects.filter(email=email).first()
+
+
 def ok_shared_fold_queryset(email: str):
     # ok: user-email-lookups-use-the-shared-fold
     return EmailLookupHandler.users_matching_email(email).exists()
