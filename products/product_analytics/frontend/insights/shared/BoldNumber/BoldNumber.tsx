@@ -13,6 +13,7 @@ import { IconFlare, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icon
 import { percentage } from 'lib/utils/numbers'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
@@ -24,7 +25,6 @@ import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVi
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartParams, TrendResult } from '~/types'
 
-import { insightLogic } from '../../insightLogic'
 import { Textfit } from './Textfit'
 
 export interface ComparisonDisplay {

@@ -1,10 +1,9 @@
 import { MakeLogicType, connect, kea, key, path, props, selectors } from 'kea'
 
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { BoxPlotDatum } from '~/queries/schema/schema-general'
-import { InsightLogicProps } from '~/types'
-
 import type {
     FunnelsQuery,
     LifecycleQuery,
@@ -15,10 +14,10 @@ import type {
     TrendsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
-} from '../../../../queries/schema/schema-general'
-import type { PathsV2Query } from '../../../../queries/schema/schema-general'
-import type { IntervalType } from '../../../../types'
-import { keyForInsightLogicProps } from '../../sharedUtils'
+} from '~/queries/schema/schema-general'
+import type { PathsV2Query } from '~/queries/schema/schema-general'
+import { InsightLogicProps } from '~/types'
+import type { IntervalType } from '~/types'
 
 export interface BoxPlotChartDatum {
     min: number
