@@ -234,4 +234,43 @@ describe("Inbox report queries", () => {
     reloaded.unmount();
     client.clear();
   });
+  it("scopes the implementation-state query so signing out clears it", async () => {
+    const report = inboxStoryReport({
+      assignee: { kind: "task", task_id: "implementation-2" },
+      work_state: "working",
+    });
+    mockClient.getTaskSummaries.mockResolvedValue([
+      {
+        id: "implementation-2",
+        latest_run: { status: "in_progress" },
+      },
+    ]);
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const { result, unmount } = renderHook(
+      () => useReportImplementationStates([report]),
+      { wrapper },
+    );
+    await waitFor(() =>
+      expect(result.current.states.get(report.id)).toBe("working"),
+    );
+    unmount();
+
+    const cached = client
+      .getQueryCache()
+      .findAll({ queryKey: taskKeys.allSummaries() });
+    expect(cached).toHaveLength(1);
+    expect(cached[0].meta).toEqual({ authScoped: true });
+
+    client.removeQueries({
+      predicate: (query) => query.meta?.authScoped === true,
+    });
+    expect(
+      client.getQueryCache().findAll({ queryKey: taskKeys.allSummaries() }),
+    ).toHaveLength(0);
+  });
 });
