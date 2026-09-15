@@ -16,13 +16,23 @@ const CREDITS_PER_PR = 1500
 const mockUsageEndpoints = (
     currentUsage: number,
     summary: Omit<SignalReportRefundSummaryResponseApi, 'credited_refund_count' | 'quota_limited'> &
-        Partial<Pick<SignalReportRefundSummaryResponseApi, 'quota_limited'>>
+        Partial<Pick<SignalReportRefundSummaryResponseApi, 'quota_limited'>>,
+    usageLimit?: number
 ): void => {
     useMocks({
         get: {
             '/api/billing': () => [
                 200,
-                { products: [{ type: 'inbox', display_divisor: CREDITS_PER_PR, current_usage: currentUsage }] },
+                {
+                    products: [
+                        {
+                            type: 'inbox',
+                            display_divisor: CREDITS_PER_PR,
+                            current_usage: currentUsage,
+                            usage_limit: usageLimit,
+                        },
+                    ],
+                },
             ],
             '/api/projects/:team_id/signals/reports/refund-summary/': () => [
                 200,
@@ -41,9 +51,10 @@ const setRefundsFlag = (): void => {
 const mountWithUsage = async (
     currentUsage: number,
     summary: Omit<SignalReportRefundSummaryResponseApi, 'credited_refund_count' | 'quota_limited'> &
-        Partial<Pick<SignalReportRefundSummaryResponseApi, 'quota_limited'>>
+        Partial<Pick<SignalReportRefundSummaryResponseApi, 'quota_limited'>>,
+    usageLimit?: number
 ): Promise<ReturnType<typeof inboxUsageLogic.build>> => {
-    mockUsageEndpoints(currentUsage, summary)
+    mockUsageEndpoints(currentUsage, summary, usageLimit)
     featureFlagLogic.mount()
     setRefundsFlag()
     const logic = inboxUsageLogic()
@@ -66,23 +77,38 @@ describe('inboxUsageLogic', () => {
         logic?.unmount()
     })
 
-    // usedPrs must read `max(billing's recorded usage, live billable credits) − credited refunds`:
-    // recorded usage lags up to a day, so a just-created PR (and its same-day excluded-path refund)
-    // is only visible through the live count, while credited-path refunds stay in recorded usage
-    // and must be netted out. Each row pins one side of that contract.
+    // usedPrs must read `max(billing's recorded usage, live billable credits)`, the same gross
+    // total the billing page shows: recorded usage lags up to a day, so a just-created PR (and its
+    // same-day excluded-path refund) is only visible through the live count, while credited-path
+    // refunds stay in that total and are reported through refundedPrs instead. Each row pins one
+    // side of that contract, so netting refunds back out fails here.
     it.each([
-        // [case, billing current_usage, live period credits, credited credits, expected PRs]
-        ['counts a just-created PR that billing has not recorded yet', 1500, 3000, 0, 2],
-        ['drops when a same-day refund removes the PR from live usage', 1500, 1500, 0, 1],
-        ['nets credited-path refunds out of recorded usage', 9000, 9000, 1500, 5],
-        ['clamps at zero when credited refunds exceed billed usage', 0, 1500, 3000, 0],
-    ])('%s', async (_case, currentUsage, periodBillableCredits, creditedCredits, expectedPrs) => {
+        // [case, billing current_usage, live period credits, credited credits, PRs, refunded PRs]
+        ['counts a just-created PR that billing has not recorded yet', 1500, 3000, 0, 2, 0],
+        ['drops when a same-day refund removes the PR from live usage', 1500, 1500, 0, 1, 0],
+        ['keeps credited-path refunds that billing also keeps', 9000, 9000, 1500, 6, 1],
+    ])('%s', async (_case, currentUsage, periodBillableCredits, creditedCredits, expectedPrs, expectedRefundedPrs) => {
         logic = await mountWithUsage(currentUsage, {
             period_billable_credits: periodBillableCredits,
             credited_credits: creditedCredits,
         })
 
         expect(logic.values.usedPrs).toBe(expectedPrs)
+        expect(logic.values.refundedPrs).toBe(expectedRefundedPrs)
+    })
+
+    // The quota cron reacts after the fact, so usage runs past the limit before agents pause. The
+    // widget must report that overshoot, because the billing page does.
+    it('reports usage past the limit instead of capping it', async () => {
+        logic = await mountWithUsage(
+            53 * CREDITS_PER_PR,
+            { period_billable_credits: 53 * CREDITS_PER_PR, credited_credits: 0 },
+            50 * CREDITS_PER_PR
+        )
+
+        expect(logic.values.usedPrs).toBe(53)
+        expect(logic.values.limitPrs).toBe(50)
+        expect(logic.values.status).toBe('limit')
     })
 
     // The refunds flag is keyed on the organization group, so on a fresh pageload it resolves
