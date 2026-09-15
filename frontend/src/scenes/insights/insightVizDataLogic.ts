@@ -195,6 +195,7 @@ export interface insightVizDataLogicValues {
     activeUsersMath: BaseMathType.MonthlyActiveUsers | BaseMathType.WeeklyActiveUsers | null
     aggregationGroupTypeIndex: GroupTypeIndex | null | undefined
     allEventNames: string[]
+    annotationsFilter: AnnotationsFilter | null | undefined
     breakdownFilter: BreakdownFilter | null | undefined
     compareFilter: CompareFilter | null | undefined
     currentDataWarehouseSchemaColumns: DatabaseSchemaField[]
@@ -263,7 +264,6 @@ export interface insightVizDataLogicValues {
     shouldShowSessionAnalysisWarning: boolean
     showAlertThresholdLines: boolean | null | undefined
     showAnnotations: boolean | null | undefined
-    annotationsFilter: AnnotationsFilter | null | undefined
     showLabelOnSeries: boolean | null | undefined
     showLegend: boolean | null | undefined
     showMultipleYAxes: boolean | null | undefined
@@ -860,7 +860,19 @@ export interface insightVizDataLogicMeta {
                 | WebStatsTableQuery
                 | null
         ) => boolean | null | undefined
-        annotationsFilter: (querySource: InsightQueryNode | null) => AnnotationsFilter | null | undefined
+        annotationsFilter: (
+            querySource:
+                | FunnelsQuery
+                | LifecycleQuery
+                | PathsQuery
+                | PathsV2Query
+                | RetentionQuery
+                | StickinessQuery
+                | TrendsQuery
+                | WebOverviewQuery
+                | WebStatsTableQuery
+                | null
+        ) => AnnotationsFilter | null | undefined
         showLegend: (
             querySource:
                 | FunnelsQuery

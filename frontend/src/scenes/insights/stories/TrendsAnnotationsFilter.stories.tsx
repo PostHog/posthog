@@ -49,27 +49,23 @@ function trendsLineInsight(annotationsFilter?: AnnotationsFilter): Record<string
     }
 }
 
-async function openAnnotationsFilter(): Promise<void> {
-    const click = async (selector: string): Promise<void> => {
-        const element = await waitFor(
-            () => {
-                const match = Array.from(document.body.querySelectorAll<HTMLElement>(selector)).find(
-                    (candidate) => candidate.offsetParent !== null
-                )
-                if (!match) {
-                    throw new Error(`${selector} not ready`)
-                }
-                return match
-            },
-            { timeout: 10_000 }
-        )
-        await userEvent.click(element)
-    }
-    await click('button[aria-label="Options"]')
-    await click('[data-attr="insight-annotations-filter"]')
+async function openDisplayOptions(): Promise<void> {
+    const optionsButton = await waitFor(
+        () => {
+            const button = Array.from(document.body.querySelectorAll<HTMLElement>('button[aria-label="Options"]')).find(
+                (candidate) => candidate.offsetParent !== null
+            )
+            if (!button) {
+                throw new Error('Options button not ready')
+            }
+            return button
+        },
+        { timeout: 10_000 }
+    )
+    await userEvent.click(optionsButton)
     await waitFor(() => {
         if (!document.body.querySelector('[data-attr="insight-annotations-filter-search"]')) {
-            throw new Error('Annotations filter popover not ready')
+            throw new Error('Annotations filter not ready')
         }
     })
 }
@@ -103,7 +99,7 @@ export const FilteredByEmoji: Story = {
     parameters: { ...meta.parameters, testOptions: { ...meta.parameters?.testOptions, waitForSelector: 'canvas' } },
 }
 
-export const FilterOpen: Story = {
+export const DisplayOptionsOpen: Story = {
     render: createInsightStory(trendsLineInsight({ emojis: ['🚀'], search: 'release' }) as any, 'edit'),
     parameters: {
         ...meta.parameters,
@@ -112,5 +108,5 @@ export const FilterOpen: Story = {
             waitForSelector: '[data-attr="insight-annotations-filter-search"]',
         },
     },
-    play: openAnnotationsFilter,
+    play: openDisplayOptions,
 }
