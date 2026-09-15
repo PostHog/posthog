@@ -2704,7 +2704,7 @@ def _size_sample_percent(row_estimate: int | None) -> float | None:
 
 
 def _get_table_chunk_size(
-    cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger
+    cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger, *, byte_bounded: bool = False
 ) -> _TableChunking:
     # Under autocommit each statement is its own transaction — a failure can't poison
     # subsequent commands, so no SAVEPOINT is needed. When called inside a shared
@@ -2772,8 +2772,9 @@ def _get_table_chunk_size(
         # The page cap sits fractionally below the chunk on any table whose p99 exceeds its p95,
         # which is most of them, so a bare comparison would report nearly every sync. An order of
         # magnitude is the point where the cap starts to matter: the read issues about ten times
-        # the `FETCH` calls per batch, and byte-bounded extraction changes how the table is read.
-        if chunking.fetch_rows * 10 <= chunking.batch_rows:
+        # the `FETCH` calls per batch. Off the byte bound the caller ignores the cap and fetches the
+        # whole chunk, so reporting there would claim a cap that the read never applied.
+        if byte_bounded and chunking.fetch_rows * 10 <= chunking.batch_rows:
             logger.info(measurements)
         else:
             logger.debug(measurements)
@@ -3563,7 +3564,9 @@ def postgres_source(
                                 )
                                 logger.debug(f"Using chunk_size_override: {chunk_size_override}")
                             else:
-                                chunking = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
+                                chunking = _get_table_chunk_size(
+                                    cursor, inner_query_with_limit, logger, byte_bounded=byte_bounded_extraction
+                                )
                             chunk_size = chunking.batch_rows
                             # The page cap only exists to bound what one `FETCH` materialises, so
                             # it belongs behind the same gate as the byte bound it serves. Applied

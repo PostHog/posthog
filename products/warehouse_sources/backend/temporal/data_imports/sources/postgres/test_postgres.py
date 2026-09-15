@@ -6513,25 +6513,28 @@ class TestGetTableChunkSize:
 
     @parameterized.expand(
         [
-            # p99 far above the p95: the cap costs the read orders of magnitude more `FETCH`
-            # calls, and this is the shape byte-bounded extraction exists for.
-            ("cap_binds_hard", 400.0, 3.0 * 1024 * 1024, "info"),
-            # A p99 a little above the p95 moves the cap a few percent. That describes most
-            # tables, so reporting it would put a line in every sync.
-            ("cap_barely_moves", 400.0, 420.0, "debug"),
-            # A uniform table keeps its whole-chunk fetch.
-            ("no_cap_at_all", 400.0, 400.0, "debug"),
+            ("cap_binds_hard", True, 400.0, 3.0 * 1024 * 1024, "info"),
+            ("cap_at_exactly_ten_times", True, 1024.0, 10240, "info"),
+            ("cap_just_short_of_ten_times", True, 1024.0, 10239, "debug"),
+            ("cap_barely_moves", True, 400.0, 420.0, "debug"),
+            ("no_cap_at_all", True, 400.0, 400.0, "debug"),
+            ("cap_binds_but_byte_bound_off", False, 400.0, 3.0 * 1024 * 1024, "debug"),
         ]
     )
-    def test_the_probe_reports_at_info_only_when_the_page_cap_binds(self, _name, p95, p99, expected_level):
+    def test_the_probe_reports_at_info_only_when_an_applied_page_cap_binds(
+        self, _name, byte_bounded, p95, p99, expected_level
+    ):
         cursor = self._ProbeCursor((p95, p99, int(p99)))
         logger = mock.Mock()
 
-        _get_table_chunk_size(cast(Any, cursor), sql.SQL("SELECT 1").format(), logger)
+        _get_table_chunk_size(cast(Any, cursor), sql.SQL("SELECT 1").format(), logger, byte_bounded=byte_bounded)
 
-        assert getattr(logger, expected_level).called
-        other = "debug" if expected_level == "info" else "info"
-        assert not [call for call in getattr(logger, other).call_args_list if "CHUNK_SIZE" in str(call)]
+        levels = [
+            level
+            for level in ("info", "debug")
+            if any("CHUNK_SIZE" in str(call) for call in getattr(logger, level).call_args_list)
+        ]
+        assert levels == [expected_level]
 
     def test_a_sample_that_measured_nothing_falls_back(self):
         # NULL percentiles mean no row was measured, not that rows are one byte wide. Reading
