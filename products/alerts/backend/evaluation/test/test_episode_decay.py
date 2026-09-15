@@ -1,6 +1,9 @@
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
+
+from django.db import InterfaceError, OperationalError
 
 from parameterized import parameterized
 
@@ -142,6 +145,22 @@ class TestEpisodeDecayHold(APIBaseTest):
         result = hold_refire_within_episode_decay(self.alert, _extraction(DECAY_TAIL), _anomaly(DECAY_TAIL[-1]), NOW)
 
         assert (result.breaches == []) is expected_held
+
+    @parameterized.expand(
+        [
+            ("operational_error", OperationalError("server closed the connection unexpectedly")),
+            ("interface_error", InterfaceError("connection already closed")),
+        ]
+    )
+    def test_unreadable_check_history_keeps_the_breach(self, _name: str, failure: Exception) -> None:
+        self._record_fire(EPISODE_DECAY_BUCKETS)
+
+        with patch.object(AlertCheck.objects, "filter", side_effect=failure):
+            result = hold_refire_within_episode_decay(
+                self.alert, _extraction(DECAY_TAIL), _anomaly(DECAY_TAIL[-1]), NOW
+            )
+
+        assert result.breaches != []
 
     def test_breakdown_fire_is_not_held_by_another_breakdown(self) -> None:
         self._record_fire(EPISODE_DECAY_BUCKETS)

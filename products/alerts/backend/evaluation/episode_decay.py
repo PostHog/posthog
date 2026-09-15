@@ -19,6 +19,7 @@ from dataclasses import replace
 from datetime import datetime
 from typing import Any
 
+from django.db import DatabaseError, InterfaceError
 from django.db.models import Q
 
 import structlog
@@ -101,12 +102,20 @@ def _fired_within_decay_window(alert: AlertConfiguration, interval: IntervalType
     # fire reached nobody and must not hold the next one. A fire the investigation agent swallowed
     # counts, because staying quiet about the episode was a deliberate decision.
     acted_on = ~Q(targets_notified={}) | Q(notification_suppressed_by_agent=True)
-    return AlertCheck.objects.filter(
-        acted_on,
-        alert_configuration=alert,
-        state=AlertState.FIRING,
-        created_at__gte=now - window,
-    ).exists()
+    try:
+        return AlertCheck.objects.filter(
+            acted_on,
+            alert_configuration=alert,
+            state=AlertState.FIRING,
+            created_at__gte=now - window,
+        ).exists()
+    except (DatabaseError, InterfaceError):
+        # This read only decides whether to suppress a duplicate, and it runs after the scoring
+        # query already produced a valid breach. If it raised, the evaluate activity would treat the
+        # whole check as a failed evaluation, record an ERRORED check, and count one more
+        # consecutive failure toward BROKEN. Answer no instead, so the breach reaches the user.
+        logger.exception("alerts.detector_refire_hold_history_unavailable", alert_id=str(alert.id))
+        return False
 
 
 def _leaves_recent_range(series: ComparableSeries) -> bool:
