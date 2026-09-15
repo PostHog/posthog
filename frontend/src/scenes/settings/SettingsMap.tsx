@@ -898,6 +898,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'JSON parse log attribute',
                 description:
                     'Choose a log attribute containing JSON to make its nested fields available in filters. This works independently of JSON parse logs.',
+                docsUrl: 'https://posthog.com/docs/logs/logs-config',
                 component: <LogsJsonParseAttributeSettings />,
                 flag: 'LOGS_JSON_ATTRIBUTE_PARSING',
                 keywords: ['json', 'parse', 'attributes', 'nested', 'structured'],
