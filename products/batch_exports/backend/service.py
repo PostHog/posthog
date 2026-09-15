@@ -358,21 +358,14 @@ class FileDownloadBatchExportInputs(BaseBatchExportInputs):
 class SnowflakeBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Snowflake export workflow.
 
-    account, user, authentication_type and the credential fields are optional here:
-    integration-backed exports resolve them from the linked Integration at run time (see
-    `integration_id`), while legacy exports carry them inline.
+    Credentials are never carried here: the activity resolves them from the linked Integration at
+    run time (see `integration_id`).
     """
 
     database: str
     warehouse: str
     schema: str
-    account: str | None = None
-    user: str | None = None
     table_name: str = "events"
-    authentication_type: str = "password"
-    password: str | None = field(default=None, repr=False)
-    private_key: str | None = field(default=None, repr=False)
-    private_key_passphrase: str | None = field(default=None, repr=False)
     role: str | None = None
 
 
