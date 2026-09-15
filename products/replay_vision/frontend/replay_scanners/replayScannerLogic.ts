@@ -56,6 +56,8 @@ import type { ScannerCreationMethodEnumApi, ScannerTypeEnumApi } from '../genera
 import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations } from '../logics/observationPolling'
 import { requestObservationRetry } from '../logics/observationRetry'
 import { refreshVisionQuota } from '../logics/visionQuotaLogic'
+import { neighborFilterParams } from '../observations/replayObservationLogic'
+import { lastObservationsPage } from '../observations/replayObservationSceneLogic'
 import { observationClipboardText } from '../utils/observation'
 import {
     type UrlSorting,
@@ -84,6 +86,7 @@ import {
     scannerStepUrlWithParams,
     UNVALIDATED_SCANNER_STEPS,
 } from './scannerEditorSceneLogic'
+import { consumeScannerHandoffIntent } from './scannerHandoffIntent'
 import type { ObservationStatusStats } from './scannerStats'
 import { availableTagsFromStats, daysFromDateRange, deriveObservationStatusStats } from './scannerStats'
 import { findScannerTemplate, newScanner } from './scannerTemplates'
@@ -1592,6 +1595,15 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             actions.setScannerDraftSavedAt(savedAt)
         }
         return {
+            loadObservationsSuccess: ({ observations, total }) => {
+                lastObservationsPage.current = {
+                    rows: observations,
+                    number: values.observationsPage,
+                    pageSize: OBSERVATIONS_PAGE_SIZE,
+                    total,
+                    filterParams: neighborFilterParams(values.observationDetailLinkParams),
+                }
+            },
             // kea-forms' exact rejection for failed client-side validation. API failures toast in submit's catch.
             submitScannerFailure: async ({ error }) => {
                 if (error?.message !== 'Validation Failed') {
@@ -1642,10 +1654,15 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     // the tab session, where a later ?goal= link would auto-start a draft and
                     // spend the user's AI allowance without fresh intent.
                     const handedOffGoal = consumeGoalDraftIntent()?.trim() ?? ''
-                    // Prefill precedence: an experiment deep link, then an explicit ?filters=
-                    // query (both carry fully built state), then a saved draft, then the
-                    // free-text goal. A URL carrying both ?filters= and ?goal= deterministically
-                    // takes the filters and drops the goal.
+                    // Consumed unconditionally for the same reason: a cross-product hand-off must
+                    // not stay armed for the rest of the tab session and prefill a later,
+                    // unrelated wizard visit.
+                    const handoff = consumeScannerHandoffIntent()
+                    // Prefill precedence: a cross-product hand-off (a whole scanner, armed by an
+                    // in-tab click moments before navigation), then an experiment deep link, then
+                    // an explicit ?filters= query (both carry fully built state), then a saved
+                    // draft, then the free-text goal. A URL carrying both ?filters= and ?goal=
+                    // deterministically takes the filters and drops the goal.
                     const hasFiltersPrefill = 'filters' in router.values.searchParams
                     const prefillQuery = prefillQueryFromUrl()
                     // Strip the params the wizard has now consumed so a reload doesn't re-run the prefill
@@ -1670,6 +1687,25 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     }
                     if (Object.keys(nextParams).length !== Object.keys(router.values.searchParams).length) {
                         router.actions.replace(router.values.location.pathname, nextParams, router.values.hashParams)
+                    }
+                    if (handoff) {
+                        posthog.capture('replay_vision_scanner_creation_started', {
+                            creation_method: 'handoff',
+                            template_key: null,
+                            source: handoff.source,
+                        })
+                        // Same fresh-intent rule as the experiment deep link: the hand-off was
+                        // armed by a click moments before navigation, so it outranks a saved
+                        // draft; restoringDraft guards persistDraft so the prefill can't clobber
+                        // that draft.
+                        cache.restoringDraft = true
+                        try {
+                            actions.loadScannerSuccess(newScanner(null, teamName))
+                            actions.setScannerValues(handoff.scanner)
+                        } finally {
+                            cache.restoringDraft = false
+                        }
+                        return
                     }
                     if (experimentParams) {
                         // The two deep links combine rather than compete: the replay filters entry

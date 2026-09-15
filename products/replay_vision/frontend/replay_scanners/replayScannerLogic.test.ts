@@ -9,6 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { parseCsvParam, parseNumericParam, parseSortParam } from '../utils/urlParams'
@@ -23,6 +24,7 @@ import {
 } from './replayScannerLogic'
 import { readScannerDraft, writeScannerDraft } from './scannerDraft'
 import { scannerEditorSceneLogic } from './scannerEditorSceneLogic'
+import { consumeScannerHandoffIntent, markScannerHandoffIntent } from './scannerHandoffIntent'
 import { observationsDrilldownSearchParams } from './scannerOverviewLogic'
 import { defaultScannerTemplates, newScanner } from './scannerTemplates'
 import { ClassifierScanner, ReplayScanner, ScorerScanner } from './types'
@@ -413,6 +415,44 @@ describe('replayScannerLogic', () => {
             expect(logic.values.scanner).toMatchObject({ name: 'My saved work' })
             expect(logic.values.goalDraftInput).toEqual('find rage clicks in checkout')
             expect(draftSpy).not.toHaveBeenCalled()
+        })
+
+        // A cross-product entry point (e.g. "scan this error's recordings" in error tracking)
+        // hands over a whole prefilled scanner via one-shot sessionStorage, so customer text in
+        // the name and prompt never enters the URL. It expresses fresh intent like the experiment
+        // deep link, so it outranks a saved draft, but must not delete that draft.
+        it('consumes a scanner hand-off: seeds the wizard over a saved draft, one-shot, draft intact', async () => {
+            writeScannerDraft(MOCK_TEAM_ID, { ...logic.values.scanner!, name: 'My saved work' })
+            markScannerHandoffIntent({
+                source: 'error_tracking',
+                scanner: {
+                    name: 'Error tracking: TypeError',
+                    scanner_type: 'summarizer',
+                    scanner_config: { prompt: 'Watch each recording around the error.', length: 'medium' },
+                    query: {
+                        kind: NodeKind.RecordingsQuery,
+                        events: [{ id: '$exception', name: '$exception', type: 'events' }],
+                    },
+                    sampling_rate: 1.0,
+                    credit_limit: 5000,
+                    credit_limit_enabled: true,
+                },
+            })
+            router.actions.push(urls.replayVisionScannerOverview('new'))
+
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+
+            expect(logic.values.scanner).toMatchObject({
+                name: 'Error tracking: TypeError',
+                scanner_type: 'summarizer',
+                scanner_config: { prompt: 'Watch each recording around the error.', length: 'medium' },
+                query: expect.objectContaining({ events: [expect.objectContaining({ id: '$exception' })] }),
+                sampling_rate: 1.0,
+                credit_limit: 5000,
+                credit_limit_enabled: true,
+            })
+            expect(consumeScannerHandoffIntent()).toBeNull()
+            expect(readScannerDraft(MOCK_TEAM_ID)?.scanner.name).toEqual('My saved work')
         })
     })
 

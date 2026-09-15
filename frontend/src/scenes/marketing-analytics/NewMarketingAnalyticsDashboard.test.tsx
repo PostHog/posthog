@@ -5,6 +5,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import { NewMarketingAnalyticsDashboard } from './NewMarketingAnalyticsDashboard'
 
+jest.mock('./Setup/sectionRouting', () => ({ suggestionsForSection: () => [] }))
+
 jest.mock('./Setup/SuggestionRow', () => ({ SuggestionRow: () => null }))
 
 jest.mock('kea', () => ({ ...jest.requireActual('kea'), useValues: jest.fn(), useActions: () => ({}) }))
@@ -48,6 +50,7 @@ jest.mock('lib/logic/featureFlagLogic', () => ({ featureFlagLogic: {} }))
 jest.mock('scenes/web-analytics/common', () => ({ MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS: {} }))
 jest.mock('scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic', () => ({
     marketingAnalyticsLogic: {},
+    SetupSection: { CONVERSION_GOALS: 'conversion-goals' },
 }))
 jest.mock('scenes/web-analytics/tabs/marketing-analytics/frontend/shared', () => ({
     MarketingAnalyticsCell: () => null,

@@ -267,6 +267,18 @@ export interface LLMSkillOutlineEntryApi {
     text: string
 }
 
+export interface LLMSkillSpecProblemApi {
+    /** Stable machine-readable code for the problem, e.g. description_too_long or file_path_collides. */
+    code: string
+    /** What is wrong and what to change, written for the skill's author. */
+    message: string
+    /**
+     * The bundled file the problem is about. Null when it is about the skill itself.
+     * @nullable
+     */
+    file_path: string | null
+}
+
 export interface LLMSkillApi {
     readonly id: string
     /**
@@ -310,6 +322,8 @@ export interface LLMSkillApi {
     readonly files: readonly LLMSkillFileManifestApi[]
     /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
     readonly outline: readonly LLMSkillOutlineEntryApi[]
+    /** Why this skill is left out of the skills bundle and the plugin marketplace, as stable codes with author-facing messages. Empty when the skill packages cleanly. */
+    readonly spec_problems: readonly LLMSkillSpecProblemApi[]
     readonly version: number
     /**
      * Optional note describing what changed in this version. Set when the version is published.
@@ -373,6 +387,8 @@ export interface LLMSkillListApi {
     readonly owners: readonly UserBasicApi[]
     /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
     readonly outline: readonly LLMSkillOutlineEntryApi[]
+    /** Why this skill is left out of the skills bundle and the plugin marketplace, as stable codes with author-facing messages. Empty when the skill packages cleanly. */
+    readonly spec_problems: readonly LLMSkillSpecProblemApi[]
     readonly version: number
     /**
      * Optional note describing what changed in this version. Set when the version is published.
@@ -467,6 +483,8 @@ export interface LLMSkillCreateApi {
     files?: LLMSkillFileInputApi[]
     /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
     readonly outline: readonly LLMSkillOutlineEntryApi[]
+    /** Why this skill is left out of the skills bundle and the plugin marketplace, as stable codes with author-facing messages. Empty when the skill packages cleanly. */
+    readonly spec_problems: readonly LLMSkillSpecProblemApi[]
     readonly version: number
     /**
      * Optional note describing what changed in this version. Set when the version is published.
@@ -685,6 +703,13 @@ export interface LLMSkillFileApi {
 }
 
 export interface LLMSkillPublishToCommunityApi {
+    /** Immutable ID of the skill version that the publisher reviewed. */
+    expected_skill_id: string
+    /**
+     * Skill version that the publisher reviewed. The request returns 409 if the latest version changed.
+     * @minimum 1
+     */
+    expected_version: number
     /** Human-friendly display name for the community listing. Defaults to a title-cased skill slug. Must be a single line: it is used as the pull request title and commit message. */
     display_name?: string
     /**
@@ -705,12 +730,42 @@ export interface CommunitySkillPublishResultApi {
     branch: string
 }
 
+export interface LLMSkillPublishConflictApi {
+    /** Reason that the reviewed skill version can no longer be published. */
+    detail: string
+}
+
 export interface LLMSkillRenameApi {
     /**
      * New name for the skill. Must be unique in the project, and must not start with 'signals-scout-' or 'review-hog-'.
      * @maxLength 64
      */
     new_name: string
+}
+
+export type LLMSkillMarkdownApiFrontmatterMetadata = { [key: string]: string }
+
+/**
+ * The frontmatter block of content as a JSON object. Equal to yaml.safe_load of that block, so a listing can carry the same fields the file carries.
+ */
+export type LLMSkillMarkdownApiFrontmatter = {
+    name: string
+    description: string
+    license?: string
+    compatibility?: string
+    metadata: LLMSkillMarkdownApiFrontmatterMetadata
+    'allowed-tools'?: string
+}
+
+export interface LLMSkillMarkdownApi {
+    /** Name of the skill, which is also its directory name. */
+    name: string
+    /** Version of the skill that this SKILL.md was rendered from. */
+    version: number
+    /** The complete SKILL.md file: the YAML frontmatter block, a blank line, then the skill body. Serve these bytes as the file; a digest must be taken over this exact string. */
+    content: string
+    /** The frontmatter block of content as a JSON object. Equal to yaml.safe_load of that block, so a listing can carry the same fields the file carries. */
+    frontmatter: LLMSkillMarkdownApiFrontmatter
 }
 
 export interface LLMSkillVersionSummaryApi {
@@ -932,6 +987,14 @@ export type LlmSkillsNameFilesDestroyParams = {
      * @minimum 1
      */
     base_version?: number
+}
+
+export type LlmSkillsNameSkillMdRetrieveParams = {
+    /**
+     * Specific skill version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number
 }
 
 export type LlmSkillsResolveNameRetrieveParams = {

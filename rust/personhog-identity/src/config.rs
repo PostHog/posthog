@@ -34,6 +34,15 @@ pub struct Config {
     #[envconfig(default = "personhog_featureflaghashkeyoverride_tmp")]
     pub ff_hash_key_override_table: String,
 
+    /// Saga state table. Same namespace rule as PERSON_TABLE; the leader
+    /// derives the same pair from FALLBACK_TABLE. Set to "lifecycle_op" at cutover.
+    #[envconfig(default = "lifecycle_op_tmp")]
+    pub lifecycle_op_table: String,
+
+    /// Claim table paired with LIFECYCLE_OP_TABLE. Set to "lifecycle_op_person" at cutover.
+    #[envconfig(default = "lifecycle_op_person_tmp")]
+    pub lifecycle_op_person_table: String,
+
     #[envconfig(default = "10")]
     pub max_pg_connections: u32,
 
@@ -169,13 +178,16 @@ pub struct Config {
 
 /// The paired table set identity operates on: the person table plus the
 /// tables it writes rows into (or clears rows from) keyed by that table's
-/// person ids. The three must come from the same namespace — mixing the
-/// validation set with the real set cross-contaminates id spaces.
+/// person ids, plus the saga tables whose marks claim those ids. All five
+/// must come from the same namespace — mixing the validation set with the
+/// real set cross-contaminates id spaces.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IdentityTables {
     pub person: String,
     pub person_distinct_id: String,
     pub ff_hash_key_override: String,
+    pub lifecycle_op: String,
+    pub lifecycle_op_person: String,
 }
 
 impl IdentityTables {
@@ -184,6 +196,8 @@ impl IdentityTables {
             person: "posthog_person".to_string(),
             person_distinct_id: "posthog_persondistinctid".to_string(),
             ff_hash_key_override: "posthog_featureflaghashkeyoverride".to_string(),
+            lifecycle_op: "lifecycle_op".to_string(),
+            lifecycle_op_person: "lifecycle_op_person".to_string(),
         }
     }
 
@@ -192,7 +206,14 @@ impl IdentityTables {
             person: "personhog_person_tmp".to_string(),
             person_distinct_id: "personhog_persondistinctid_tmp".to_string(),
             ff_hash_key_override: "personhog_featureflaghashkeyoverride_tmp".to_string(),
+            lifecycle_op: "lifecycle_op_tmp".to_string(),
+            lifecycle_op_person: "lifecycle_op_person_tmp".to_string(),
         }
+    }
+
+    /// Whether this is the validation set, for `mirrored_query!` and kin.
+    pub fn is_validation(&self) -> bool {
+        *self == Self::validation()
     }
 
     /// Only the two complete namespaces are accepted: a partial override
@@ -205,8 +226,8 @@ impl IdentityTables {
         }
         Err(format!(
             "mixed identity table set {self:?}: set PERSON_TABLE, PERSON_DISTINCT_ID_TABLE, \
-             and FF_HASH_KEY_OVERRIDE_TABLE together, to either the full real set or the \
-             full validation set"
+             FF_HASH_KEY_OVERRIDE_TABLE, LIFECYCLE_OP_TABLE, and LIFECYCLE_OP_PERSON_TABLE \
+             together, to either the full real set or the full validation set"
         ))
     }
 }
@@ -217,6 +238,8 @@ impl Config {
             person: self.person_table.clone(),
             person_distinct_id: self.person_distinct_id_table.clone(),
             ff_hash_key_override: self.ff_hash_key_override_table.clone(),
+            lifecycle_op: self.lifecycle_op_table.clone(),
+            lifecycle_op_person: self.lifecycle_op_person_table.clone(),
         }
     }
 

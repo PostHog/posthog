@@ -38,7 +38,8 @@ PAGE_SIZE = 100
 CASH_ACCOUNTS_PATH = "/v2/accounts/cash"
 # Injected into cash transaction rows so rows from different cash accounts stay distinguishable.
 CASH_ACCOUNT_ID_KEY = "account_id"
-# Parent resource name in the cash-transactions fan-out config. With include_from_parent=["id"]
+# Parent resource name in the cash-transactions fan-out config — also the name of the
+# standalone cash accounts table, since both page the same endpoint. With include_from_parent=["id"]
 # the framework injects the parent account id into child rows as `_cash_accounts_id`; a data_map
 # renames it to the `account_id` key the rows carried before the rest_source migration.
 _CASH_ACCOUNTS_PARENT = "cash_accounts"
@@ -99,15 +100,19 @@ def _client_config(api_key: str) -> ClientConfig:
         "headers": {"Accept": "application/json"},
         "auth": {"type": "bearer", "token": api_key},
         "paginator": _paginator(),
+        # cash_accounts responses carry account_number/routing_number under generic field names
+        # the name-based sample scrubber doesn't recognise, so keep all Brex bodies out of HTTP
+        # sample capture rather than special-casing one endpoint.
+        "capture": False,
     }
 
 
 def _endpoint_config(config: BrexEndpointConfig, path: str, should_use_incremental_field: bool) -> Endpoint:
-    endpoint: Endpoint = {
-        "path": path,
-        "params": {"limit": PAGE_SIZE},
-        "data_selector": "items",
-    }
+    endpoint: Endpoint = {"path": path, "data_selector": config.data_selector}
+    if config.paginated:
+        endpoint["params"] = {"limit": PAGE_SIZE}
+    else:
+        endpoint["paginator"] = "single_page"
     if should_use_incremental_field and config.incremental_param is not None:
         # Brex docs don't state whether the cursor re-encodes the original filters, so the
         # timestamp filter is re-sent on every page to be safe.
@@ -164,11 +169,9 @@ def brex_source(
             "resources": [
                 {
                     "name": _CASH_ACCOUNTS_PARENT,
-                    "endpoint": {
-                        "path": CASH_ACCOUNTS_PATH,
-                        "params": {"limit": PAGE_SIZE},
-                        "data_selector": "items",
-                    },
+                    "endpoint": _endpoint_config(
+                        BREX_ENDPOINTS[_CASH_ACCOUNTS_PARENT], CASH_ACCOUNTS_PATH, should_use_incremental_field=False
+                    ),
                 },
                 {
                     "name": endpoint,

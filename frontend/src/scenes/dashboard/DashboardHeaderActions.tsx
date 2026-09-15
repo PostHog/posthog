@@ -7,9 +7,8 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonMenu, LemonMenuItem, LemonMenuItems, LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { MaxTool } from 'scenes/max/MaxTool'
@@ -21,6 +20,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { DashboardCustomizeMenu } from 'products/dashboards/frontend/components/DashboardCustomizeMenu/DashboardCustomizeMenu'
 
+import { DashboardCustomizeButton } from './DashboardCustomizeButton'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 import { DashboardSubscribeButton } from './DashboardSubscribeButton'
 
@@ -239,8 +239,7 @@ export function DashboardEditSaveCancelButtons({
 
 export function EditModeActions(): JSX.Element {
     const { canEditDashboard, layoutEditMode, tiles, dashboardCustomizeMenuOpen } = useValues(dashboardLogic)
-    const { setDashboardEditing, setDashboardCustomizeMenuOpen } = useActions(dashboardLogic)
-    const dashboardCustomizationEnabled = useFeatureFlag('DASHBOARD_CUSTOMIZATION')
+    const { setDashboardCustomizeMenuOpen } = useActions(dashboardLogic)
 
     return (
         <>
@@ -254,39 +253,10 @@ export function EditModeActions(): JSX.Element {
                     intent="Enter edit mode"
                     interaction="click"
                 >
-                    <LemonButton
-                        type="secondary"
-                        data-attr="dashboard-edit-mode-button"
-                        onClick={() =>
-                            setDashboardEditing(
-                                { filters: true, layout: true },
-                                DashboardEventSource.SceneCommonButtons
-                            )
-                        }
-                        size="small"
-                        icon={<IconGridMasonry fontSize="16" />}
-                        tooltip="Customize dashboard"
-                        tooltipPlacement="top"
-                        sideAction={
-                            dashboardCustomizationEnabled
-                                ? {
-                                      'data-attr': 'dashboard-edit-layout-customize-dropdown',
-                                      dropdown: {
-                                          closeOnClickInside: false,
-                                          placement: 'bottom-end',
-                                          overlay: (
-                                              <LemonMenuOverlay items={[{ label: () => <DashboardCustomizeMenu /> }]} />
-                                          ),
-                                      },
-                                  }
-                                : undefined
-                        }
-                    >
-                        Customize
-                    </LemonButton>
+                    <DashboardCustomizeButton />
                 </Shortcut>
             )}
-            {layoutEditMode && dashboardCustomizationEnabled && tiles.length > 0 && (
+            {layoutEditMode && tiles.length > 0 && (
                 <LemonMenu
                     items={[{ label: () => <DashboardCustomizeMenu /> }]}
                     closeOnClickInside={false}
@@ -331,8 +301,6 @@ export function FullscreenModeActions(): JSX.Element {
 
 export function ViewModeActions(): JSX.Element {
     const { dashboard, canEditDashboard, tiles } = useValues(dashboardLogic)
-    const { setDashboardEditing } = useActions(dashboardLogic)
-    const dashboardCustomizationEnabled = useFeatureFlag('DASHBOARD_CUSTOMIZATION')
     const { push } = useActions(router)
     if (!dashboard) {
         return <></>
@@ -366,36 +334,7 @@ export function ViewModeActions(): JSX.Element {
                     intent="Enter edit mode"
                     interaction="click"
                 >
-                    <LemonButton
-                        type="secondary"
-                        data-attr="dashboard-edit-mode-button"
-                        onClick={() =>
-                            setDashboardEditing(
-                                { filters: true, layout: true },
-                                DashboardEventSource.SceneCommonButtons
-                            )
-                        }
-                        size="small"
-                        icon={<IconGridMasonry fontSize="16" />}
-                        tooltip="Customize dashboard"
-                        tooltipPlacement="top"
-                        sideAction={
-                            dashboardCustomizationEnabled
-                                ? {
-                                      'data-attr': 'dashboard-edit-layout-customize-dropdown',
-                                      dropdown: {
-                                          closeOnClickInside: false,
-                                          placement: 'bottom-end',
-                                          overlay: (
-                                              <LemonMenuOverlay items={[{ label: () => <DashboardCustomizeMenu /> }]} />
-                                          ),
-                                      },
-                                  }
-                                : undefined
-                        }
-                    >
-                        Customize
-                    </LemonButton>
+                    <DashboardCustomizeButton />
                 </Shortcut>
             )}
             <DashboardAddTileButton />
