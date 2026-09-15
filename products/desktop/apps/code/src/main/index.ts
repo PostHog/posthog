@@ -430,6 +430,11 @@ async function boot(): Promise<void> {
       workspaceClient.fs.readAbsoluteFile.query({ filePath }),
     readFileAsBase64: (filePath) =>
       workspaceClient.fs.readFileAsBase64.query({ filePath }),
+    readWorkspaceFileAsBase64: (workspaceRoot, filePath) =>
+      workspaceClient.fs.readWorkspaceFileAsBase64.query({
+        workspaceRoot,
+        filePath,
+      }),
     writeRepoFile: async (repoPath, filePath, content) => {
       await workspaceClient.fs.writeRepoFile.mutate({
         repoPath,
