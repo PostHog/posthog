@@ -68,14 +68,19 @@ type BillingAccessCase = {
 
 describe('billingLogic', () => {
     let billingState: BillingType
+    let billingResponseIsEmpty: boolean
 
     beforeEach(() => {
         billingState = billingWithProducts([productWithUsage(0.5)])
+        billingResponseIsEmpty = false
         useMocks({
             get: {
                 '/_preflight': [200, { ...preflightJson, cloud: true }],
-                '/api/billing': () => [200, billingState],
+                '/api/billing': () => (billingResponseIsEmpty ? [204] : [200, billingState]),
                 '/api/billing/credits/overview': [200, creditOverviewResponse],
+            },
+            post: {
+                '/api/billing/deactivate': () => [204],
             },
         })
         initKeaTests()
@@ -193,6 +198,38 @@ describe('billingLogic', () => {
             message: 'Checkout failed',
             contactSupport: true,
         })
+    })
+
+    it('fails the billing load with a clear message when the response has no body', async () => {
+        billingResponseIsEmpty = true
+        billingLogic.mount()
+        await expectLogic(preflightLogic).toFinishAllListeners()
+
+        await expectLogic(billingLogic, () => {
+            billingLogic.actions.loadBilling()
+        }).toDispatchActions([
+            (action) =>
+                action.type === billingLogic.actionTypes.loadBillingFailure &&
+                action.payload.error === 'The billing API returned an empty response',
+        ])
+
+        expect(billingLogic.values.billing).toBeNull()
+    })
+
+    it('keeps the loaded billing and reports no error when a deactivate response has no body', async () => {
+        billingLogic.mount()
+        await expectLogic(preflightLogic).toFinishAllListeners()
+
+        await expectLogic(billingLogic, () => {
+            billingLogic.actions.loadBilling()
+        }).toFinishAllListeners()
+
+        await expectLogic(billingLogic, () => {
+            billingLogic.actions.deactivateProduct(ProductKey.PRODUCT_ANALYTICS)
+        }).toFinishAllListeners()
+
+        expect(billingLogic.values.unsubscribeError).toBeNull()
+        expect(billingLogic.values.billing?.products).toHaveLength(1)
     })
 
     it('unregisters removed custom limit analytics properties', async () => {
